@@ -140,6 +140,10 @@ INVESTMENT_SHADOW = _load(
     "atlas_daily_investment_shadow", "shadow/investment_review_shadow_ledger.py"
 )
 CASH_EXPOSURE = _load("atlas_daily_cash_exposure", "portfolio/cash_exposure_action.py")
+CAPITAL_FLOW_ENGINE = _load(
+    "atlas_daily_capital_flow_engine",
+    "portfolio/capital_flow_posture_reference.py",
+)
 INVERSE = _load("atlas_daily_inverse", "portfolio/regime_inverse_invariant.py")
 LONG_SHORT = _load("atlas_daily_long_short", "portfolio/long_short_invariant.py")
 DEFENSIVE_ACTION_DECISION = _load(
@@ -2679,6 +2683,33 @@ def build_long_short_invariant(rule_packet: dict | None) -> dict:
     )
 
 
+def build_capital_flow_posture_reference() -> dict:
+    """P2-COM-02's cross-market flow reference, wired as P6-06's P2_FLOW_ENGINE
+    source.  It re-reads and re-derives its own real committed evidence
+    (`data/latest_paper_regime_reference.json` plus the P2-COM-03 ledger it
+    consumes) -- there is nothing frozen/snapshotted to pass in here, unlike
+    the raw-archive sources fetched above.  This is a diagnostic reference,
+    never a decision: it stays PENDING with `readiness_inventory_only`-style
+    authority regardless of what its own status says.
+    """
+    try:
+        packet = CAPITAL_FLOW_ENGINE.build_reference()
+    except Exception as exc:  # noqa: BLE001
+        return _degraded_from_exception("P2_FLOW_ENGINE", exc)
+    return component_row(
+        "P2_FLOW_ENGINE",
+        "PENDING",
+        "FLOW_REFERENCE_IS_DIAGNOSTIC_NOT_A_DEFENSIVE_ACTION_DECISION",
+        as_of_date=packet.get("generated_at", "")[:10] or None,
+        generated_at=packet.get("generated_at"),
+        source_packet_sha256=packet.get("payload_sha256"),
+        validated=True,
+        authority=packet.get("authority"),
+        contract_version=packet.get("contract_version"),
+        packet=packet,
+    )
+
+
 _POLICY_BLOCKED_ACTION_SOURCES = {
     "HEDGE_ELIGIBILITY": "NO_CIO_RATIFIED_HEDGE_INSTRUMENT_REGISTRY",
     "BEAR_HEDGE_BUDGET": "NO_CIO_RATIFIED_BEAR_HEDGE_BUDGET_SET",
@@ -3111,6 +3142,7 @@ def build_packet(
     )
     for name, reason in _POLICY_BLOCKED_ACTION_SOURCES.items():
         rows[name] = _blocked(name, "POLICY_BLOCKED", reason)
+    rows["P2_FLOW_ENGINE"] = _boundary(build_capital_flow_posture_reference())
 
     rows["DEFENSIVE_ACTION_DECISION"] = _boundary(
         build_defensive_action_decision(rows, decision_date, generated_at)
@@ -3310,7 +3342,7 @@ _SECTION_GROUPS = [
         "INVERSE_KOREA", "INVERSE_CRYPTO", "LONG_SHORT_INVARIANT",
         "HEDGE_ELIGIBILITY", "BEAR_HEDGE_BUDGET", "POSITION_SIZING",
         "CONCENTRATION_GUARD", "MARKET_THEME_BUDGET", "CRYPTO_EXPOSURE_LIMIT",
-        "PLANNED_LOSS_BUDGET", "STRATEGIC_CAPITAL_POSTURE",
+        "PLANNED_LOSS_BUDGET", "P2_FLOW_ENGINE", "STRATEGIC_CAPITAL_POSTURE",
     ]),
     ("Decision Review", ["INVESTMENT_DECISION_REVIEW"]),
     ("Decision & action boundary", [

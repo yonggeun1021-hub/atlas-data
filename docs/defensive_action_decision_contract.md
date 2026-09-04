@@ -1,16 +1,31 @@
 # P6-06 Defensive Action Decision Readiness Contract
 
 `portfolio/defensive_action_decision.py` is the fail-closed integration boundary
-for the P6-06 decision root.  Version 1 does not choose a defensive action.  It
+for the P6-06 decision root.  It does not choose a defensive action.  It
 records whether the exact P1, P2, and P6 inputs needed for a later ratified
 policy evaluation are present and semantically valid.
 
 ## Current boundary
 
 - Scope is `ZERO_CAPITAL_DECISION_REVIEW`.
-- P1 Regime Decision, P2 Flow Engine, and P2 Flow Ledger have no supported
-  production packet in this contract version.  Their slots must remain
-  explicitly unavailable.
+- `P2_FLOW_ENGINE` (P2-COM-02's Cross-Market Capital Flow Engine,
+  `portfolio/capital_flow_posture_reference.py`) is a supported source: its
+  own `validate_reference` re-derivation is rerun at the consumption boundary
+  exactly like every other P6-06 source.  Connecting it does not create any
+  decision, budget, or authority -- it only lets P6-06's `BLOCKED` reason
+  reflect that this source is now real and validated, not absent.
+- `P1_REGIME_DECISION` and `P2_FLOW_LEDGER` remain explicitly unavailable-only
+  in this contract version:
+  - P1-COM-05 (`regime/decision_authority.py`) has so far only merged
+    common-aggregation PIT replay.  It is not a ratified, runtime-wired final
+    Regime decision, so this slot must not be promoted or relabeled onto it.
+  - P2-COM-03's transition ledger (`portfolio/cross_market_flow_transition_ledger.py`)
+    is an append-only history, not a single point-in-time decision packet: it
+    carries no top-level `generated_at`/`as_of_date` of its own, so binding it
+    independently would require inventing an undefined timestamp-selection
+    rule.  Its evidence is already read into `P2_FLOW_ENGINE`'s
+    `flow_candidates.transition`/`persistence` fields, so it is not an
+    unrepresented gap today.
 - Existing P6-01 through P6-05 packets may be supplied, but each packet is
   revalidated by its production validator before its SHA, market, status, or
   date is used.
@@ -54,5 +69,7 @@ risk-budget allocation, target exposure, size, action proposal, order,
 Production, and trading authority are false.
 
 Merging this capability does not complete the P6-06 WBS Exit Gate.  Actual
-decision evaluation requires connected P1-COM-05 and P2-COM-02/03 packets plus
-an independently ratified defensive-action policy and action-risk checks.
+decision evaluation still requires a ratified, runtime-wired P1-COM-05 Regime
+decision, an independently bindable P2-COM-03 ledger identity (or a ratified
+decision that P2_FLOW_ENGINE's embedded ledger evidence suffices), plus an
+independently ratified defensive-action policy and action-risk checks.
