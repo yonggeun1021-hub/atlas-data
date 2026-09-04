@@ -190,9 +190,30 @@ class NoPolicyConclusionTest(unittest.TestCase):
             "threshold_proposed", "threshold_tuned", "stress_threshold_proposed",
             "hysteresis_parameter_proposed", "minimum_coverage_proposed",
             "replay_acceptance_asserted", "candidate_policy_ratified",
-            "market_regime_asserted",
+            "common_v1_replay_policy_ratified_or_changed", "market_regime_asserted",
         ):
             self.assertIs(conclusion[key], False, key)
+
+    def test_validator_rejects_a_deleted_refusal_flag(self):
+        # Adversarial: a report can be made to "say less" by deleting a flag
+        # rather than flipping it. Removing an explicit refusal must fail, not
+        # pass by leaving nothing to check.
+        for flag in MODULE.CONCLUSION_FALSE_FLAGS:
+            with self.subTest(flag=flag):
+                tampered = copy.deepcopy(evidence([ANCHOR]))
+                tampered["policy_conclusion"].pop(flag)
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.validate_evidence(resigned(tampered))
+                self.assertIn("POLICY_CONCLUSION_SCHEMA_INVALID", str(caught.exception))
+
+    def test_validator_rejects_a_deleted_authority_boundary(self):
+        for key in ("order_authorized", "hysteresis_authorized", "real_authorized"):
+            with self.subTest(key=key):
+                tampered = copy.deepcopy(evidence([ANCHOR]))
+                tampered["authority"].pop(key)
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.validate_evidence(resigned(tampered))
+                self.assertIn("EVIDENCE_AUTHORITY_SCHEMA_INVALID", str(caught.exception))
 
     def test_no_hysteresis_is_applied_and_no_stress_threshold_is_introduced(self):
         report = evidence([ANCHOR])
@@ -254,10 +275,10 @@ class NoPolicyConclusionTest(unittest.TestCase):
 
 
 class PolicyBasisTest(unittest.TestCase):
-    """"No hysteresis applied" is read from disk, never merely asserted."""
+    """Two policies, read from disk, kept apart, and neither reported absent."""
 
-    def test_policy_basis_is_read_from_the_repository_candidate_inventory(self):
-        basis = evidence([ANCHOR])["policy_basis"]
+    def test_the_unratified_market_specific_candidate_policy_is_read_from_disk(self):
+        basis = evidence([ANCHOR])["policy_basis"]["market_specific_candidate_policy"]
         path = ROOT / "evidence" / "regime" / "policy_candidates" / "candidate_inventory.json"
         self.assertEqual(
             basis["path"], "evidence/regime/policy_candidates/candidate_inventory.json",
@@ -265,8 +286,67 @@ class PolicyBasisTest(unittest.TestCase):
         self.assertEqual(basis["sha256"], MODULE.file_sha256(path))
         self.assertEqual(basis["policy_status"], "DRAFT_NOT_RATIFIED")
         self.assertEqual(
+            basis["scope"], "MARKET_SPECIFIC_NORMALIZATION_FRESHNESS_AND_REPLAY",
+        )
+        self.assertEqual(
             basis["component_status"], {"HYSTERESIS": "BLOCKED", "STRESS_OVERRIDE": "BLOCKED"},
         )
+
+    def test_the_ratified_common_replay_policy_is_quoted_not_called_absent(self):
+        # The correction this section exists for. The repository *does* hold a
+        # ratified replay-only common policy with explicit hysteresis and stress
+        # behavior; the report must quote it from the live registry, through the
+        # module that owns it, rather than describing it as missing.
+        basis = evidence([ANCHOR])["policy_basis"]["common_v1_replay_policy"]
+        registry = ROOT / "config" / "regime_source_owner_registry_v2.json"
+        alignment = json.loads(registry.read_text(encoding="utf-8"))["common_v1_alignment"]
+        self.assertEqual(basis["path"], "config/regime_source_owner_registry_v2.json")
+        self.assertEqual(basis["sha256"], MODULE.file_sha256(registry))
+        self.assertEqual(basis["policy_status"], "RATIFIED_PAPER_BASELINE_V1")
+        self.assertIs(basis["present_in_repository"], True)
+        self.assertEqual(basis["hysteresis"], alignment["hysteresis"])
+        self.assertEqual(
+            basis["stress_classification"], alignment["classification"]["STRESS"],
+        )
+        self.assertEqual(
+            basis["implemented_by"],
+            "regime/decision_authority.py::load_common_v1_policy",
+        )
+        self.assertEqual(basis["pit_replay_acceptance"], "NOT_ACCEPTED")
+
+    def test_the_ratified_common_policy_is_reported_as_not_applied_here(self):
+        basis = evidence([ANCHOR])["policy_basis"]["common_v1_replay_policy"]
+        self.assertIs(basis["applied_to_this_replay"], False)
+        self.assertIs(
+            basis["market_specific_normalization_freshness_and_replay_inherited"], False,
+        )
+        self.assertIn("NOT_INHERITED", basis["not_applied_reason"])
+        statement = evidence([ANCHOR])["policy_basis"]["statement"]
+        self.assertIn("is not absent", statement)
+        self.assertIn("not applied to this", statement)
+
+    def test_the_common_policy_binds_to_the_module_that_owns_it(self):
+        from regime import decision_authority as live_da
+        self.assertIs(MODULE.DA, live_da)
+        basis = evidence([ANCHOR])["policy_basis"]["common_v1_replay_policy"]
+        expected = live_da.load_common_v1_policy()
+        self.assertEqual(basis["binding"], expected["binding"])
+        self.assertEqual(basis["hysteresis"], expected["hysteresis"])
+
+    def test_a_registry_that_no_longer_carries_the_ratified_policy_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root_with_inventory(
+                tmp,
+                json.loads(
+                    (ROOT / "evidence" / "regime" / "policy_candidates"
+                     / "candidate_inventory.json").read_text(encoding="utf-8")
+                ),
+            )
+            # The candidate inventory is present and unchanged, so only the
+            # missing ratified common policy can fail this.
+            with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                MODULE.load_policy_basis(root)
+        self.assertIn("COMMON_V1_POLICY_UNREADABLE", str(caught.exception))
 
     def _root_with_inventory(self, tmp: str, inventory) -> Path:
         root = Path(tmp)
@@ -359,8 +439,14 @@ class CoverageFactsTest(unittest.TestCase):
         tampered["payload_sha256"] = MODULE.CSR.payload_sha256(
             {k: v for k, v in tampered.items() if k != "payload_sha256"}
         )
+        # The combined slice's own validator recomputes its summary, so this is
+        # already refused upstream; this module's independent recount is a
+        # second, deliberately redundant guard exercised directly below.
         with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
             MODULE.build_evidence(tampered)
+        self.assertIn("SOURCE_POPULATION_INVALID", str(caught.exception))
+        with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+            MODULE.source_combined_counts(tampered)
         self.assertIn("SOURCE_SUMMARY_INCONSISTENT", str(caught.exception))
 
     def test_kr_five_of_five_and_us_three_of_five_coverage_are_reported_apart(self):
@@ -696,8 +782,21 @@ class StressDetectionFactsTest(unittest.TestCase):
             "regime/paper_regime_reference.py::axis,classify"
             " (applied by the KR and US replay populations, not re-applied here)",
         )
-        self.assertEqual(stress["stress_override_component_status"], "BLOCKED")
+        self.assertEqual(stress["stress_policy_status"], {
+            "market_specific_candidate_component": "BLOCKED",
+            "common_v1_replay_policy": "RATIFIED_PAPER_BASELINE_V1",
+        })
+        # The ratified common policy's own stress behavior is quoted, and
+        # explicitly not applied — never reported as nonexistent.
+        behavior = stress["common_v1_replay_stress_behavior"]
+        self.assertEqual(behavior["stress_entry"], "IMMEDIATE")
+        self.assertEqual(
+            behavior["stress_exit"],
+            "TWO_CONSECUTIVE_NON_STRESS_AND_S_GREATER_THAN_NEGATIVE_3",
+        )
+        self.assertIs(behavior["applied_to_this_replay"], False)
         self.assertIn("draws no conclusion", stress["statement"])
+        self.assertIn("rather than described as absent", stress["statement"])
 
     def test_a_blocked_date_never_contributes_a_stress_observation(self):
         report = evidence(
@@ -750,9 +849,57 @@ class HysteresisFactsTest(unittest.TestCase):
 
     def test_hysteresis_statement_stops_at_observation(self):
         facts = evidence([ANCHOR])["hysteresis_facts"]
-        self.assertEqual(facts["hysteresis_component_status"], "BLOCKED")
+        self.assertEqual(facts["hysteresis_policy_status"], {
+            "market_specific_candidate_component": "BLOCKED",
+            "common_v1_replay_policy": "RATIFIED_PAPER_BASELINE_V1",
+        })
         self.assertIn("not evidence that", facts["statement"])
         self.assertIn("not a proposed value", facts["statement"])
+
+    def test_the_ratified_common_hysteresis_rule_is_quoted_but_not_applied(self):
+        # The report may not describe the repository as having no hysteresis
+        # rule: one is ratified for replay-only common aggregation. It is quoted
+        # with its own parameters and explicitly marked unapplied here.
+        quoted = evidence([ANCHOR])["hysteresis_facts"]["common_v1_replay_hysteresis"]
+        alignment = json.loads(
+            (ROOT / "config" / "regime_source_owner_registry_v2.json")
+            .read_text(encoding="utf-8")
+        )["common_v1_alignment"]["hysteresis"]
+        for key, value in alignment.items():
+            self.assertEqual(quoted[key], value, key)
+        self.assertIs(quoted["applied_to_this_replay"], False)
+        self.assertIn("NOT_INHERITED", quoted["not_applied_reason"])
+
+    def test_validator_rejects_applying_the_ratified_common_rule_here(self):
+        for path in (
+            ("hysteresis_facts", "common_v1_replay_hysteresis"),
+            ("stress_detection_facts", "common_v1_replay_stress_behavior"),
+        ):
+            with self.subTest(path=path):
+                tampered = copy.deepcopy(evidence([ANCHOR]))
+                tampered[path[0]][path[1]]["applied_to_this_replay"] = True
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.validate_evidence(resigned(tampered))
+                self.assertIn(
+                    "COMMON_V1_POLICY_MUST_NOT_BE_APPLIED", str(caught.exception),
+                )
+
+    def test_validator_rejects_reporting_the_ratified_policy_as_absent(self):
+        for mutate in (
+            lambda basis: basis.pop("common_v1_replay_policy"),
+            lambda basis: basis["common_v1_replay_policy"].update(
+                {"present_in_repository": False}
+            ),
+            lambda basis: basis["common_v1_replay_policy"].update({"hysteresis": None}),
+            lambda basis: basis["common_v1_replay_policy"].update(
+                {"policy_status": "UNRATIFIED"}
+            ),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(evidence([ANCHOR]))
+                mutate(tampered["policy_basis"])
+                with self.assertRaises(MODULE.ReplayEvidenceError):
+                    MODULE.validate_evidence(resigned(tampered))
 
 
 class PitAndAuditSeparationTest(unittest.TestCase):
@@ -797,6 +944,22 @@ class PitAndAuditSeparationTest(unittest.TestCase):
         contained["records"][0]["combined_normalized_result"][
             "per_market_candidate_regime"
         ]["KR"] = None
+        # The join's own derived views must stay consistent with the contained
+        # market, or the combined slice's validator rejects the population
+        # before this module ever sees it.
+        views = contained["records"][0]["markets"]
+        contained["records"][0]["combined_status"] = "SINGLE_MARKET_ONLY"
+        contained["records"][0]["markets_by_outcome"] = {
+            outcome: [
+                market for market in ("KR", "US") if views[market]["outcome"] == outcome
+            ]
+            for outcome in ("OBSERVED", "PARTIAL", "BLOCKED")
+        }
+        summary = contained["combined_summary"]
+        summary["combined_status_counts"]["BOTH_MARKETS_REPLAYED"] -= 1
+        summary["combined_status_counts"]["SINGLE_MARKET_ONLY"] += 1
+        summary["per_market_outcome_counts"]["KR"]["OBSERVED"] -= 1
+        summary["per_market_outcome_counts"]["KR"]["BLOCKED"] += 1
         contained["payload_sha256"] = MODULE.CSR.payload_sha256(
             {k: v for k, v in contained.items() if k != "payload_sha256"}
         )
@@ -974,6 +1137,70 @@ class ValidationTest(unittest.TestCase):
         with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
             MODULE.validate_evidence(resigned(tampered))
         self.assertIn("AXIS_STATUS_VOCABULARY_INVALID", str(caught.exception))
+
+    def test_validate_rejects_an_emptied_or_short_observation_table(self):
+        # Adversarial: re-signing a report whose observations were dropped must
+        # not pass. Every requested date needs an observation, or the counts and
+        # sequences below describe a replay the report no longer contains.
+        for code, mutate in (
+            (
+                "OBSERVATIONS_NOT_BIJECTIVE_OVER_REQUESTED_DATES",
+                lambda report: report["per_date_observations"].__setitem__("KR", {}),
+            ),
+            (
+                "OBSERVATIONS_NOT_BIJECTIVE_OVER_REQUESTED_DATES",
+                lambda report: report["per_date_observations"]["US"].pop(ANCHOR),
+            ),
+            (
+                "PER_DATE_OBSERVATIONS_INVALID",
+                lambda report: report["per_date_observations"].pop("US"),
+            ),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = copy.deepcopy(evidence([ANCHOR, PREVIOUS]))
+                mutate(tampered)
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.validate_evidence(resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_rejects_facts_that_do_not_follow_from_the_observations(self):
+        # Every fact family must reproduce from the report's own published
+        # observations, so a count cannot be edited into agreement with itself.
+        for section, mutate in (
+            (
+                "stress_detection_facts",
+                lambda report: report["stress_detection_facts"]["markets"]["US"].update(
+                    {"dates_with_any_stress_axis": 4}
+                ),
+            ),
+            (
+                "unknown_facts",
+                lambda report: report["unknown_facts"]["markets"]["KR"].update(
+                    {"blocked_date_count": 7}
+                ),
+            ),
+            (
+                "hysteresis_facts",
+                lambda report: report["hysteresis_facts"]["markets"]["KR"][
+                    "candidate_regime"
+                ].update({"run_count": 99}),
+            ),
+        ):
+            with self.subTest(section=section):
+                tampered = copy.deepcopy(evidence([ANCHOR, PREVIOUS]))
+                mutate(tampered)
+                with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+                    MODULE.validate_evidence(resigned(tampered))
+                self.assertIn("INCONSISTENT", str(caught.exception))
+
+    def test_validate_rejects_a_direction_on_an_unobserved_axis(self):
+        tampered = copy.deepcopy(evidence([ANCHOR]))
+        observation(tampered, "US", ANCHOR)["axis_direction"]["BREADTH"] = "POSITIVE"
+        with self.assertRaises(MODULE.ReplayEvidenceError) as caught:
+            MODULE.validate_evidence(resigned(tampered))
+        self.assertIn(
+            "UNOBSERVED_AXIS_MUST_NOT_CARRY_A_DIRECTION", str(caught.exception),
+        )
 
     def test_validate_rejects_a_relabelled_episode_selection_claim(self):
         for key in ("episode_selected_by_this_module", "label_influences_any_fact"):

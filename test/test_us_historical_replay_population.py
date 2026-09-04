@@ -565,6 +565,72 @@ class UsFreeAxisValidationTest(unittest.TestCase):
                 with self.assertRaises(MODULE.ReplayPopulationError):
                     MODULE.validate_population(tampered)
 
+    def _resigned(self, population):
+        population["payload_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in population.items() if k != "payload_sha256"}
+        )
+        return population
+
+    def test_validate_population_rejects_omitted_records(self):
+        # Adversarial: a re-signed payload is a valid hash over whatever it
+        # contains, so dropping the records must fail rather than satisfy the
+        # never-BREADTH guarantee by simply having no axes left to check.
+        for records in ([], None):
+            with self.subTest(records=records):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                tampered["records"] = records
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("POPULATION_RECORDS_NOT_BIJECTIVE", str(caught.exception))
+
+    def test_validate_population_rejects_an_omitted_authority_boundary(self):
+        for mutate in (
+            lambda population: population["authority"].pop("us_breadth_authorized"),
+            lambda population: population.__setitem__("authority", {}),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered)
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "POPULATION_AUTHORITY_SCHEMA_INVALID", str(caught.exception),
+                )
+
+    def test_validate_population_rejects_an_observed_record_without_its_axes(self):
+        # Nulling the axis packet must not be a way past the excluded-axis rule.
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["records"][0]["five_axis"] = None
+        tampered["records"][0]["candidate_normalized_result"] = None
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("REPLAYED_RECORD_MUST_CARRY_ITS_EVIDENCE", str(caught.exception))
+
+    def test_validate_population_rejects_coverage_the_axes_do_not_support(self):
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["records"][0]["free_axis_coverage"]["observed_count"] = 1
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("RECORD_COVERAGE_INCONSISTENT", str(caught.exception))
+
+    def test_validate_population_rejects_a_status_the_coverage_contradicts(self):
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["records"][0]["five_axis"]["axes"]["TREND"] = {
+            "status": "NOT_COMPUTABLE", "reason": "X", "measurement": None,
+        }
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("RECORD_COVERAGE_INCONSISTENT", str(caught.exception))
+
+    def test_validate_population_rejects_a_record_that_looked_forward(self):
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["records"][0]["no_lookahead_attestation"][
+            "liquidity_observation_dates"
+        ].append("2026-09-04")
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("RECORD_LOOKAHEAD_VIOLATION", str(caught.exception))
+
     def test_validate_population_rejects_a_classified_us_regime(self):
         tampered = copy.deepcopy(build([ANCHOR]))
         tampered["records"][0]["candidate_normalized_result"]["paper_reference"][

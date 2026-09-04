@@ -128,6 +128,34 @@ DATE_SELECTION = "CALLER_SUPPLIED_ONLY"
 LOOKAHEAD_CONTAINED = "COMBINED_LOOKAHEAD_VIOLATION"
 MARKET_RECORD_MISSING = "MARKET_RECORD_MISSING_FROM_POPULATION"
 
+# The exact authority boundary of this population, declared once and required
+# key-for-key by ``validate_population``. A payload that drops a flag must not
+# pass merely because the flag it dropped is no longer there to be checked.
+AUTHORITY_GRANTED_KEY = "historical_replay_evidence_authorized"
+AUTHORITY = {
+    "historical_replay_evidence_authorized": True,
+    "natural_promotion_authorized": False,
+    "episode_selection_authorized": False,
+    "cross_market_regime_authorized": False,
+    "threshold_tuning_authorized": False,
+    "us_breadth_authorized": False,
+    "us_leadership_authorized": False,
+    "sensor_normalization_ratification_authorized": False,
+    "registry_promotion_authorized": False,
+    "ttl_ratification_authorized": False,
+    "pit_replay_acceptance_authorized": False,
+    "runtime_regime_wiring_authorized": False,
+    "strategy_authorized": False,
+    "stage_authorized": False,
+    "buy_authorized": False,
+    "action_authorized": False,
+    "order_authorized": False,
+    "capital_authorized": False,
+    "production_authorized": False,
+    "trading_authorized": False,
+    "real_authorized": False,
+}
+
 
 class CombinedReplayError(ValueError):
     """A requested combined KR+US historical replay cannot be safely built."""
@@ -619,29 +647,7 @@ def build_population(
                 " date is failed closed for that one date only."
             ),
         },
-        "authority": {
-            "historical_replay_evidence_authorized": True,
-            "natural_promotion_authorized": False,
-            "episode_selection_authorized": False,
-            "cross_market_regime_authorized": False,
-            "threshold_tuning_authorized": False,
-            "us_breadth_authorized": False,
-            "us_leadership_authorized": False,
-            "sensor_normalization_ratification_authorized": False,
-            "registry_promotion_authorized": False,
-            "ttl_ratification_authorized": False,
-            "pit_replay_acceptance_authorized": False,
-            "runtime_regime_wiring_authorized": False,
-            "strategy_authorized": False,
-            "stage_authorized": False,
-            "buy_authorized": False,
-            "action_authorized": False,
-            "order_authorized": False,
-            "capital_authorized": False,
-            "production_authorized": False,
-            "trading_authorized": False,
-            "real_authorized": False,
-        },
+        "authority": dict(AUTHORITY),
     }
     population["payload_sha256"] = payload_sha256(population)
     return population
@@ -656,6 +662,14 @@ def validate_population(value: dict) -> dict:
     prerequisite, so ``--verify`` checks the hash, the SHADOW/never-NATURAL
     shape, the never-cross-market-classified guarantee, and each embedded
     market population against that market's own validator.
+
+    "Shape" is deliberately exact rather than "whatever happens to be present".
+    A re-hashed payload is a valid signature over whatever it contains, so a
+    check that only inspected the keys it found would accept a population that
+    silently dropped its records or its explicit authority boundary. Every
+    requested date therefore maps to exactly one record, every published count
+    is recomputed from those records, and the authority block must match
+    ``AUTHORITY`` key for key.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -672,22 +686,86 @@ def validate_population(value: dict) -> dict:
     if value.get("markets") != list(MARKETS):
         fail("POPULATION_SCOPE_INVALID", "markets")
     requested = value.get("requested_dates")
-    if not isinstance(requested, list) or requested != sorted(set(requested)) or not requested:
+    if (
+        not isinstance(requested, list)
+        or not requested
+        or any(not isinstance(date, str) for date in requested)
+        or requested != sorted(set(requested))
+    ):
         fail("POPULATION_DATE_ORDER_INVALID")
-    _validate_episodes(value, requested)
-    for record in value.get("records", []):
-        _validate_record(record, requested)
+    records = _validate_records(value, requested)
+    _validate_episodes(value, requested, records)
     _validate_embedded_populations(value)
-    for key, allowed in value.get("authority", {}).items():
-        if key == "historical_replay_evidence_authorized":
-            if allowed is not True:
-                fail("POPULATION_AUTHORITY_INVALID", key)
-        elif allowed is not False:
-            fail("POPULATION_AUTHORITY_INVALID", key)
+    _validate_summary(value, requested, records)
+    _validate_authority(value)
     return copy.deepcopy(value)
 
 
-def _validate_episodes(value: dict, requested: list[str]) -> None:
+def _validate_records(value: dict, requested: list[str]) -> list[dict]:
+    """Exactly one record per requested date, in the same order — no omissions.
+
+    ``build_population`` emits one record for each sorted, de-duplicated
+    requested date, so list equality is the whole bijection. Checking only the
+    records that happen to be present would let a re-hashed payload drop every
+    record and still satisfy each per-record guarantee vacuously.
+    """
+    records = value.get("records")
+    if not isinstance(records, list) or len(records) != len(requested):
+        fail("POPULATION_RECORDS_NOT_BIJECTIVE", "count")
+    dates = [
+        record.get("requested_date") if isinstance(record, dict) else None
+        for record in records
+    ]
+    if dates != requested:
+        fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
+    for record in records:
+        _validate_record(record, requested)
+    return records
+
+
+def _validate_summary(value: dict, requested: list[str], records: list[dict]) -> None:
+    """Recompute every published count from the records it claims to summarize.
+
+    A summary is a derived view, never an independent assertion: if it does not
+    reproduce from the records, one of the two is wrong and the population must
+    fail closed rather than let a reader trust a count nothing supports.
+    """
+    combined_counts = {status: 0 for status in COMBINED_STATUSES}
+    market_counts = {market: {outcome: 0 for outcome in OUTCOMES} for market in MARKETS}
+    for record in records:
+        combined_counts[record["combined_status"]] += 1
+        for market in MARKETS:
+            market_counts[market][record["markets"][market]["outcome"]] += 1
+    # ``_validate_episodes`` has already run, so ``episodes`` is a list of dicts.
+    episodes = value["episodes"]
+    expected = {
+        "requested_date_count": len(requested),
+        "episode_count": len(episodes),
+        "combined_status_counts": combined_counts,
+        "per_market_outcome_counts": market_counts,
+        "cross_market_classification_status": CROSS_MARKET_STATUS,
+    }
+    if value.get("combined_summary") != expected:
+        fail("COMBINED_SUMMARY_INCONSISTENT")
+    ungrouped = [
+        date for date in requested
+        if not any(date in episode["dates"] for episode in episodes)
+    ]
+    if value.get("ungrouped_dates") != ungrouped:
+        fail("UNGROUPED_DATES_INCONSISTENT")
+
+
+def _validate_authority(value: dict) -> None:
+    """The authority block must be present, complete, and exactly as declared."""
+    authority = value.get("authority")
+    if not isinstance(authority, dict) or sorted(authority) != sorted(AUTHORITY):
+        fail("POPULATION_AUTHORITY_SCHEMA_INVALID")
+    for key, allowed in AUTHORITY.items():
+        if authority[key] is not allowed:
+            fail("POPULATION_AUTHORITY_INVALID", key)
+
+
+def _validate_episodes(value: dict, requested: list[str], records: list[dict]) -> None:
     selection = value.get("episode_selection", {})
     if (
         selection.get("selected_by_this_module") is not False
@@ -695,8 +773,14 @@ def _validate_episodes(value: dict, requested: list[str]) -> None:
         or selection.get("selection_source") != DATE_SELECTION
     ):
         fail("EPISODE_SELECTION_INVALID")
+    episodes = value.get("episodes")
+    if not isinstance(episodes, list):
+        fail("EPISODE_LIST_INVALID")
+    by_date = {record["requested_date"]: record for record in records}
     names = []
-    for episode in value.get("episodes", []):
+    for episode in episodes:
+        if not isinstance(episode, dict):
+            fail("EPISODE_LIST_INVALID", "episode")
         name = episode.get("name")
         if not isinstance(name, str) or EPISODE_NAME.fullmatch(name) is None:
             fail("EPISODE_NAME_INVALID", str(name))
@@ -712,6 +796,10 @@ def _validate_episodes(value: dict, requested: list[str]) -> None:
         # selected it.
         if any(date not in requested for date in dates):
             fail("EPISODE_DATE_NOT_REQUESTED", name)
+        # A label describes the dates it names and nothing else, so its coverage
+        # must reproduce from those dates' own records rather than be asserted.
+        if episode.get("coverage") != _episode_coverage(dates, by_date):
+            fail("EPISODE_COVERAGE_INCONSISTENT", name)
         names.append(name)
     if names != sorted(set(names)):
         fail("EPISODE_NAME_DUPLICATE")
@@ -724,7 +812,9 @@ def _validate_record(record: dict, requested: list[str]) -> None:
         fail("RECORD_DATE_NOT_REQUESTED")
     if record.get("combined_status") not in COMBINED_STATUSES:
         fail("RECORD_COMBINED_STATUS_INVALID")
-    combined = record.get("combined_normalized_result", {})
+    combined = record.get("combined_normalized_result")
+    if not isinstance(combined, dict):
+        fail("RECORD_NORMALIZED_RESULT_MISSING")
     # The load-bearing guarantee of this slice: no combined regime is ever
     # published, whatever the two markets individually reported.
     if combined.get("cross_market_regime") != CROSS_MARKET_REGIME:
@@ -735,8 +825,8 @@ def _validate_record(record: dict, requested: list[str]) -> None:
         fail("CROSS_MARKET_MUST_NOT_SCORE")
     if combined.get("runtime_regime") != "UNKNOWN":
         fail("RUNTIME_REGIME_MUST_STAY_UNKNOWN")
-    views = record.get("markets", {})
-    if sorted(views) != sorted(MARKETS):
+    views = record.get("markets")
+    if not isinstance(views, dict) or sorted(views) != sorted(MARKETS):
         fail("RECORD_MARKET_SET_INVALID")
     for market in MARKETS:
         view = views[market]
@@ -749,21 +839,54 @@ def _validate_record(record: dict, requested: list[str]) -> None:
             date > anchor for date in view.get("source_dates_consulted", [])
         ):
             fail("RECORD_LOOKAHEAD_VIOLATION", market)
+        # A market the join blocked produced nothing on this date, so it may not
+        # carry a candidate regime a reader could still count.
+        if view["outcome"] == OUTCOME_BLOCKED and view.get("candidate_regime") is not None:
+            fail("BLOCKED_MARKET_MUST_NOT_CLASSIFY", market)
     # The US replay population classifies nothing (3/5 coverage); a combined
     # record claiming otherwise would mean a US regime was manufactured.
     if views["US"].get("candidate_regime") not in (None, "UNKNOWN"):
         fail("US_PARTIAL_COVERAGE_MUST_NOT_CLASSIFY")
+    # Both derived views of the same outcomes are recomputed rather than
+    # trusted: a payload cannot report a combined status or an outcome grouping
+    # its own per-market views do not support.
+    replayed = [market for market in MARKETS if views[market]["outcome"] != OUTCOME_BLOCKED]
+    expected_status = (
+        COMBINED_BOTH if len(replayed) == len(MARKETS)
+        else COMBINED_SINGLE if replayed
+        else COMBINED_NONE
+    )
+    if record["combined_status"] != expected_status:
+        fail("RECORD_COMBINED_STATUS_INCONSISTENT")
+    if record.get("markets_by_outcome") != {
+        outcome: [market for market in MARKETS if views[market]["outcome"] == outcome]
+        for outcome in OUTCOMES
+    }:
+        fail("RECORD_OUTCOME_GROUPING_INCONSISTENT")
+    per_market = combined.get("per_market_candidate_regime")
+    if per_market != {market: views[market].get("candidate_regime") for market in MARKETS}:
+        fail("RECORD_PER_MARKET_REGIME_INCONSISTENT")
 
 
 def _validate_embedded_populations(value: dict) -> None:
-    populations = value.get("market_populations", {})
-    if sorted(populations) != sorted(MARKETS):
+    populations = value.get("market_populations")
+    if not isinstance(populations, dict) or sorted(populations) != sorted(MARKETS):
         fail("POPULATION_SCOPE_INVALID", "market_populations")
+    statuses = value.get("market_population_status")
+    if not isinstance(statuses, dict) or sorted(statuses) != sorted(MARKETS):
+        fail("POPULATION_SCOPE_INVALID", "market_population_status")
     validators = {"KR": KRP.validate_population, "US": USP.validate_population}
     for market in MARKETS:
         embedded = populations[market]
+        status = statuses[market]
+        if not isinstance(status, dict) or sorted(status) != [
+            "available", "payload_sha256", "schema_version", "unavailable_reason",
+        ]:
+            fail("MARKET_POPULATION_STATUS_INVALID", market)
+        if status["available"] is not (embedded is not None):
+            fail("MARKET_POPULATION_STATUS_INCONSISTENT", market)
         if embedded is None:
-            if value.get("market_population_status", {}).get(market, {}).get("available") is not False:
+            if status["schema_version"] is not None or status["payload_sha256"] is not None:
                 fail("MARKET_POPULATION_STATUS_INCONSISTENT", market)
             continue
         try:
@@ -772,6 +895,14 @@ def _validate_embedded_populations(value: dict) -> None:
             raise CombinedReplayError(
                 f"EMBEDDED_POPULATION_INVALID:{market}:{exc}"
             ) from exc
+        # The pinned identity of an embedded population must be that
+        # population's own, so a reader cannot be pointed at a different one.
+        if (
+            status["schema_version"] != embedded.get("schema_version")
+            or status["payload_sha256"] != embedded.get("payload_sha256")
+            or status["unavailable_reason"] is not None
+        ):
+            fail("MARKET_POPULATION_STATUS_INCONSISTENT", market)
 
 
 # ---------------------------------------------------------------------------

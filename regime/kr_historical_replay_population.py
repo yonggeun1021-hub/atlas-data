@@ -91,6 +91,32 @@ SCHEMA_VERSION = "regime_kr_historical_replay_population/v1"
 MODE = "SHADOW_HISTORICAL_REPLAY_NOT_NATURAL"
 EVIDENCE_CLASS = "HISTORICAL_BACKFILL_CAUSAL_RESEARCH_ONLY"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+DATE8 = re.compile(r"^\d{8}$")
+
+RECORD_STATUSES = ("OBSERVED", "BLOCKED")
+
+# The exact authority boundary of this population, declared once and required
+# key-for-key by ``validate_population``. A payload that drops a flag must not
+# pass merely because the flag it dropped is no longer there to be checked.
+AUTHORITY_GRANTED_KEY = "historical_replay_evidence_authorized"
+AUTHORITY = {
+    "historical_replay_evidence_authorized": True,
+    "natural_promotion_authorized": False,
+    "sensor_normalization_ratification_authorized": False,
+    "registry_promotion_authorized": False,
+    "ttl_ratification_authorized": False,
+    "pit_replay_acceptance_authorized": False,
+    "runtime_regime_wiring_authorized": False,
+    "strategy_authorized": False,
+    "stage_authorized": False,
+    "buy_authorized": False,
+    "action_authorized": False,
+    "order_authorized": False,
+    "capital_authorized": False,
+    "production_authorized": False,
+    "trading_authorized": False,
+    "real_authorized": False,
+}
 
 
 class ReplayPopulationError(ValueError):
@@ -127,6 +153,21 @@ def _load_candidate_policy() -> dict:
     if policy.get("contract_version") != "paper_regime_reference_policy/v1":
         fail("POLICY_INVALID", "contract_version")
     return policy
+
+
+def _iso_date(value: object) -> str | None:
+    """Normalize a KRX ``YYYYMMDD`` or ISO ``YYYY-MM-DD`` date, else ``None``.
+
+    ``None`` for anything else on purpose: a malformed requested date is a
+    legitimate ``BLOCKED`` record, not something to guess a calendar value for.
+    """
+    if not isinstance(value, str):
+        return None
+    if KMS.DATE10.fullmatch(value) is not None:
+        return value
+    if DATE8.fullmatch(value) is not None:
+        return f"{value[:4]}-{value[4:6]}-{value[6:]}"
+    return None
 
 
 def _parse_requested_date(value: str) -> dt.date:
@@ -257,37 +298,27 @@ def build_population(
         },
         "candidate_rule_source": "regime/paper_regime_reference.py::build_kr",
         "records": records,
-        "authority": {
-            "historical_replay_evidence_authorized": True,
-            "natural_promotion_authorized": False,
-            "sensor_normalization_ratification_authorized": False,
-            "registry_promotion_authorized": False,
-            "ttl_ratification_authorized": False,
-            "pit_replay_acceptance_authorized": False,
-            "runtime_regime_wiring_authorized": False,
-            "strategy_authorized": False,
-            "stage_authorized": False,
-            "buy_authorized": False,
-            "action_authorized": False,
-            "order_authorized": False,
-            "capital_authorized": False,
-            "production_authorized": False,
-            "trading_authorized": False,
-            "real_authorized": False,
-        },
+        "authority": dict(AUTHORITY),
     }
     population["payload_sha256"] = payload_sha256(population)
     return population
 
 
 def validate_population(value: dict) -> dict:
-    """Integrity/shape check only — deliberately never re-derives.
+    """Integrity/shape check only — deliberately never re-derives from KRX.
 
     Re-derivation would require re-issuing live KRX requests for every
     replayed date. Per the CIO mandate, an actual KRX network probe must
     stay separate from implementation verification and must never become a
     CI prerequisite, so ``--verify`` here checks the hash and the
     SHADOW/never-NATURAL shape only.
+
+    "Shape" is deliberately exact rather than "whatever happens to be present":
+    a re-hashed payload is a valid signature over whatever it contains, so a
+    check that only inspects the keys it finds would accept a population that
+    silently dropped its records or its explicit authority boundary. Every
+    requested date must therefore map to exactly one record, in order, and the
+    authority block must match ``AUTHORITY`` key for key.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -297,20 +328,114 @@ def validate_population(value: dict) -> dict:
         fail("POPULATION_SHA_INVALID")
     if value.get("mode") != MODE or value.get("evidence_class") != EVIDENCE_CLASS:
         fail("POPULATION_MODE_INVALID")
-    if value.get("requested_dates") != sorted(set(value.get("requested_dates", []))):
+    requested = value.get("requested_dates")
+    if (
+        not isinstance(requested, list)
+        or not requested
+        or any(not isinstance(date, str) for date in requested)
+        or requested != sorted(set(requested))
+    ):
         fail("POPULATION_DATE_ORDER_INVALID")
-    for record in value.get("records", []):
-        if record.get("evidence_class") != EVIDENCE_CLASS:
-            fail("RECORD_EVIDENCE_CLASS_INVALID")
-        if record.get("status") not in ("OBSERVED", "BLOCKED"):
-            fail("RECORD_STATUS_INVALID")
-    for key, allowed in value.get("authority", {}).items():
-        if key == "historical_replay_evidence_authorized":
-            if allowed is not True:
-                fail("POPULATION_AUTHORITY_INVALID", key)
-        elif allowed is not False:
-            fail("POPULATION_AUTHORITY_INVALID", key)
+    _validate_records(value, requested)
+    _validate_authority(value)
     return copy.deepcopy(value)
+
+
+def _validate_records(value: dict, requested: list[str]) -> None:
+    """Exactly one record per requested date, in the same order — no omissions.
+
+    ``build_population`` emits one record for each sorted, de-duplicated
+    requested date, so list equality is the whole bijection: a dropped,
+    duplicated, reordered, or invented record all fail here rather than
+    producing a population whose coverage counts silently disagree with the
+    replay it claims to describe.
+    """
+    records = value.get("records")
+    if not isinstance(records, list) or len(records) != len(requested):
+        fail("POPULATION_RECORDS_NOT_BIJECTIVE", "count")
+    dates = [
+        record.get("requested_date") if isinstance(record, dict) else None
+        for record in records
+    ]
+    if dates != requested:
+        fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
+    for record, requested_date in zip(records, requested):
+        _validate_record(record, requested_date)
+
+
+def _validate_record(record: dict, requested_date: str) -> None:
+    """One record, checked against its own claims rather than trusted.
+
+    A status is not a free label: an ``OBSERVED`` record must carry the
+    five-axis packet and candidate normalization an observation is made of, and
+    a ``BLOCKED`` one must carry neither plus an attributable reason. Without
+    this, a re-hashed payload could keep the status and drop the evidence.
+    """
+    if not isinstance(record, dict) or record.get("evidence_class") != EVIDENCE_CLASS:
+        fail("RECORD_EVIDENCE_CLASS_INVALID")
+    status = record.get("status")
+    if status not in RECORD_STATUSES:
+        fail("RECORD_STATUS_INVALID")
+    five_axis = record.get("five_axis")
+    candidate = record.get("candidate_normalized_result")
+    if status == "OBSERVED":
+        if not isinstance(five_axis, dict) or not isinstance(candidate, dict):
+            fail("OBSERVED_RECORD_MUST_CARRY_ITS_EVIDENCE", requested_date)
+        axes = five_axis.get("axes")
+        if not isinstance(axes, dict) or sorted(axes) != sorted(PRR.AXES):
+            fail("OBSERVED_RECORD_AXIS_SET_INVALID", requested_date)
+        if record.get("failure_reason") is not None:
+            fail("OBSERVED_RECORD_MUST_NOT_CARRY_A_FAILURE", requested_date)
+    else:
+        if five_axis is not None or candidate is not None:
+            fail("BLOCKED_RECORD_MUST_NOT_CARRY_EVIDENCE", requested_date)
+        if not isinstance(record.get("failure_reason"), str) or not record["failure_reason"]:
+            fail("BLOCKED_RECORD_MUST_BE_ATTRIBUTED", requested_date)
+    _validate_no_lookahead(record, requested_date)
+
+
+def _validate_no_lookahead(record: dict, requested_date: str) -> None:
+    """Re-check, never trust, that this record only ever looked backward.
+
+    ``no_lookahead_attestation`` is a *claim*; the session dates it names are
+    the evidence. Both are compared against the requested date here, so a
+    payload cannot assert "no lookahead" over a session it could not have seen.
+    """
+    attestation = record.get("no_lookahead_attestation")
+    if not isinstance(attestation, dict):
+        fail("RECORD_ATTESTATION_MISSING", requested_date)
+    if attestation.get("anchor_requested_date") != requested_date:
+        fail("RECORD_ATTESTATION_ANCHOR_INVALID", requested_date)
+    if (
+        attestation.get("any_session_date_after_requested_date") is not False
+        or attestation.get("other_requested_dates_consulted") is not False
+    ):
+        fail("RECORD_ATTESTATION_CLAIM_INVALID", requested_date)
+    sessions = attestation.get("session_dates_used")
+    if not isinstance(sessions, list):
+        fail("RECORD_ATTESTATION_SESSIONS_INVALID", requested_date)
+    anchor = _iso_date(requested_date)
+    if anchor is None:
+        # A malformed requested date is itself a legitimate BLOCKED record;
+        # there is no calendar anchor to compare against, so no claim is made.
+        return
+    consulted = [
+        _iso_date(value)
+        for value in list(sessions)
+        + [record.get("effective_trading_date"), record.get("previous_trading_date")]
+    ]
+    if any(date is not None and date > anchor for date in consulted):
+        fail("RECORD_LOOKAHEAD_VIOLATION", requested_date)
+
+
+def _validate_authority(value: dict) -> None:
+    """The authority block must be present, complete, and exactly as declared."""
+    authority = value.get("authority")
+    if not isinstance(authority, dict) or sorted(authority) != sorted(AUTHORITY):
+        fail("POPULATION_AUTHORITY_SCHEMA_INVALID")
+    for key, allowed in AUTHORITY.items():
+        if authority[key] is not allowed:
+            fail("POPULATION_AUTHORITY_INVALID", key)
 
 
 def _forbid_tracked_output(root: Path, path: Path) -> None:

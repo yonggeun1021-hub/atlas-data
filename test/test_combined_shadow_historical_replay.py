@@ -659,6 +659,82 @@ class CombinedValidationTest(unittest.TestCase):
         with self.assertRaises(MODULE.CombinedReplayError):
             MODULE.validate_population(self._resigned(tampered))
 
+    def test_validate_population_rejects_omitted_records(self):
+        # Adversarial: a re-signed payload is a valid hash over whatever it
+        # contains, so dropping the records must fail rather than satisfy every
+        # per-record guarantee vacuously against an empty list.
+        for records in ([], None):
+            with self.subTest(records=records):
+                tampered = copy.deepcopy(build([ANCHOR, PREVIOUS]))
+                tampered["records"] = records
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("POPULATION_RECORDS_NOT_BIJECTIVE", str(caught.exception))
+
+    def test_validate_population_rejects_an_omitted_authority_boundary(self):
+        for mutate in (
+            lambda population: population["authority"].pop("cross_market_regime_authorized"),
+            lambda population: population.__setitem__("authority", {}),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered)
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "POPULATION_AUTHORITY_SCHEMA_INVALID", str(caught.exception),
+                )
+
+    def test_validate_population_recomputes_every_published_count(self):
+        for code, mutate in (
+            (
+                "COMBINED_SUMMARY_INCONSISTENT",
+                lambda population: population["combined_summary"][
+                    "combined_status_counts"
+                ].__setitem__("SINGLE_MARKET_ONLY", 9),
+            ),
+            (
+                "COMBINED_SUMMARY_INCONSISTENT",
+                lambda population: population["combined_summary"][
+                    "per_market_outcome_counts"
+                ]["KR"].__setitem__("BLOCKED", 5),
+            ),
+            (
+                "RECORD_OUTCOME_GROUPING_INCONSISTENT",
+                lambda population: population["records"][0][
+                    "markets_by_outcome"
+                ].__setitem__("BLOCKED", ["KR", "US"]),
+            ),
+            (
+                "RECORD_COMBINED_STATUS_INCONSISTENT",
+                lambda population: population["records"][0].__setitem__(
+                    "combined_status", "SINGLE_MARKET_ONLY"
+                ),
+            ),
+        ):
+            with self.subTest(code=code):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered)
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_an_asserted_episode_coverage(self):
+        tampered = copy.deepcopy(build([ANCHOR], [{"name": "E1", "dates": [ANCHOR]}]))
+        tampered["episodes"][0]["coverage"]["combined_status_counts"][
+            "BOTH_MARKETS_REPLAYED"
+        ] = 4
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("EPISODE_COVERAGE_INCONSISTENT", str(caught.exception))
+
+    def test_validate_population_rejects_a_mispinned_embedded_population(self):
+        tampered = copy.deepcopy(build([ANCHOR]))
+        tampered["market_population_status"]["US"]["payload_sha256"] = "0" * 64
+        with self.assertRaises(MODULE.CombinedReplayError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("MARKET_POPULATION_STATUS_INCONSISTENT", str(caught.exception))
+
 
 class CombinedOutputBoundaryTest(unittest.TestCase):
     def test_write_population_refuses_any_path_inside_the_checkout(self):

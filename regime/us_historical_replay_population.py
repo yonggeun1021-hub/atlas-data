@@ -134,6 +134,31 @@ RECORD_STATUSES = (STATUS_OBSERVED, STATUS_PARTIAL, STATUS_BLOCKED)
 # is "not computable", never a NEUTRAL stand-in.
 CLASSIFICATION_STATUS = "NOT_COMPUTABLE_PARTIAL_AXIS_COVERAGE"
 
+# The exact authority boundary of this population, declared once and required
+# key-for-key by ``validate_population``. A payload that drops a flag must not
+# pass merely because the flag it dropped is no longer there to be checked.
+AUTHORITY_GRANTED_KEY = "historical_replay_evidence_authorized"
+AUTHORITY = {
+    "historical_replay_evidence_authorized": True,
+    "natural_promotion_authorized": False,
+    "us_breadth_authorized": False,
+    "us_leadership_authorized": False,
+    "sensor_normalization_ratification_authorized": False,
+    "registry_promotion_authorized": False,
+    "ttl_ratification_authorized": False,
+    "pit_replay_acceptance_authorized": False,
+    "runtime_regime_wiring_authorized": False,
+    "strategy_authorized": False,
+    "stage_authorized": False,
+    "buy_authorized": False,
+    "action_authorized": False,
+    "order_authorized": False,
+    "capital_authorized": False,
+    "production_authorized": False,
+    "trading_authorized": False,
+    "real_authorized": False,
+}
+
 RAW_RETENTION = "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED"
 RECORD_WARNINGS = [
     "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE",
@@ -916,39 +941,29 @@ def build_population(
                 " any date's evaluation."
             ),
         },
-        "authority": {
-            "historical_replay_evidence_authorized": True,
-            "natural_promotion_authorized": False,
-            "us_breadth_authorized": False,
-            "us_leadership_authorized": False,
-            "sensor_normalization_ratification_authorized": False,
-            "registry_promotion_authorized": False,
-            "ttl_ratification_authorized": False,
-            "pit_replay_acceptance_authorized": False,
-            "runtime_regime_wiring_authorized": False,
-            "strategy_authorized": False,
-            "stage_authorized": False,
-            "buy_authorized": False,
-            "action_authorized": False,
-            "order_authorized": False,
-            "capital_authorized": False,
-            "production_authorized": False,
-            "trading_authorized": False,
-            "real_authorized": False,
-        },
+        "authority": dict(AUTHORITY),
     }
     population["payload_sha256"] = payload_sha256(population)
     return population
 
 
 def validate_population(value: dict) -> dict:
-    """Integrity/shape check only — deliberately never re-derives.
+    """Integrity/shape check only — deliberately never re-derives from providers.
 
     Re-derivation would require re-issuing live Alpaca/FRED requests for every
     replayed date. Per the CIO mandate an actual provider probe must stay
     separate from implementation verification and must never become a CI
     prerequisite, so ``--verify`` checks the hash and the
     SHADOW/never-NATURAL/never-BREADTH shape only.
+
+    "Shape" is deliberately exact rather than "whatever happens to be present":
+    a re-hashed payload is a valid signature over whatever it contains, so a
+    check that only inspects the keys it finds would accept a population that
+    silently dropped its records or its explicit authority boundary — and a
+    record that dropped its axis packet would satisfy the never-BREADTH
+    guarantee vacuously. Every requested date must therefore map to exactly one
+    record, in order; a record's status must agree with the axis coverage it
+    carries; and the authority block must match ``AUTHORITY`` key for key.
     """
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA_VERSION:
         fail("POPULATION_SCHEMA_INVALID")
@@ -966,27 +981,66 @@ def validate_population(value: dict) -> dict:
         fail("POPULATION_SCOPE_INVALID")
     if sorted(value.get("excluded_axes", {})) != sorted(EXCLUDED_AXES):
         fail("POPULATION_SCOPE_INVALID", "excluded_axes")
-    if value.get("requested_dates") != sorted(set(value.get("requested_dates", []))):
+    requested = value.get("requested_dates")
+    if (
+        not isinstance(requested, list)
+        or not requested
+        or any(not isinstance(date, str) for date in requested)
+        or requested != sorted(set(requested))
+    ):
         fail("POPULATION_DATE_ORDER_INVALID")
-    for record in value.get("records", []):
-        _validate_record(record)
-    for key, allowed in value.get("authority", {}).items():
-        if key == "historical_replay_evidence_authorized":
-            if allowed is not True:
-                fail("POPULATION_AUTHORITY_INVALID", key)
-        elif allowed is not False:
-            fail("POPULATION_AUTHORITY_INVALID", key)
+    _validate_records(value, requested)
+    _validate_authority(value)
     return copy.deepcopy(value)
 
 
-def _validate_record(record: dict) -> None:
+def _validate_records(value: dict, requested: list[str]) -> None:
+    """Exactly one record per requested date, in the same order — no omissions.
+
+    ``build_population`` emits one record for each sorted, de-duplicated
+    requested date, so list equality is the whole bijection: a dropped,
+    duplicated, reordered, or invented record all fail here rather than
+    producing a population whose coverage silently disagrees with the replay it
+    claims to describe.
+    """
+    records = value.get("records")
+    if not isinstance(records, list) or len(records) != len(requested):
+        fail("POPULATION_RECORDS_NOT_BIJECTIVE", "count")
+    dates = [
+        record.get("requested_date") if isinstance(record, dict) else None
+        for record in records
+    ]
+    if dates != requested:
+        fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
+    for record, requested_date in zip(records, requested):
+        _validate_record(record, requested_date)
+
+
+def _validate_record(record: dict, requested_date: str) -> None:
     if not isinstance(record, dict) or record.get("evidence_class") != EVIDENCE_CLASS:
         fail("RECORD_EVIDENCE_CLASS_INVALID")
-    if record.get("status") not in RECORD_STATUSES:
+    status = record.get("status")
+    if status not in RECORD_STATUSES:
         fail("RECORD_STATUS_INVALID")
     five_axis = record.get("five_axis")
+    candidate = record.get("candidate_normalized_result")
+    # A record may not claim an observed or partial replay while omitting the
+    # axis packet and candidate result those claims are made of: nulling both
+    # would otherwise satisfy every axis guarantee below by having no axes.
+    if status in (STATUS_OBSERVED, STATUS_PARTIAL):
+        if not isinstance(five_axis, dict) or not isinstance(candidate, dict):
+            fail("REPLAYED_RECORD_MUST_CARRY_ITS_EVIDENCE", requested_date)
+    elif candidate is not None:
+        fail("BLOCKED_RECORD_MUST_NOT_CLASSIFY", requested_date)
+
+    observed: list[str] = []
+    not_computable = list(REPLAYED_AXES)
     if five_axis is not None:
-        axes = five_axis.get("axes", {})
+        if not isinstance(five_axis, dict):
+            fail("RECORD_FIVE_AXIS_INVALID", requested_date)
+        axes = five_axis.get("axes")
+        if not isinstance(axes, dict) or sorted(axes) != sorted(PRR.AXES):
+            fail("RECORD_AXIS_SET_INVALID", requested_date)
         # The one substantive guarantee of this slice: a US BREADTH or
         # LEADERSHIP value must never appear in this population, whatever else
         # a record carries.
@@ -1005,7 +1059,26 @@ def _validate_record(record: dict) -> None:
                 or entry.get("status") not in ("OBSERVED", "NOT_COMPUTABLE")
             ):
                 fail("REPLAYED_AXIS_STATUS_INVALID", name)
-    candidate = record.get("candidate_normalized_result")
+        observed = [
+            name for name in REPLAYED_AXES if axes[name].get("status") == "OBSERVED"
+        ]
+        not_computable = [name for name in REPLAYED_AXES if name not in observed]
+
+    # Coverage and status are recomputed from the axes themselves, so a payload
+    # cannot report a coverage ratio or a record status the axes do not support.
+    coverage = record.get("free_axis_coverage")
+    if not isinstance(coverage, dict):
+        fail("RECORD_COVERAGE_MISSING", requested_date)
+    if (
+        coverage.get("observed_axes") != observed
+        or coverage.get("not_computable_axes") != not_computable
+        or coverage.get("observed_count") != len(observed)
+        or coverage.get("ratio") != f"{len(observed)}/{len(REPLAYED_AXES)}"
+    ):
+        fail("RECORD_COVERAGE_INCONSISTENT", requested_date)
+    if status != _status_for(observed):
+        fail("RECORD_STATUS_INCONSISTENT_WITH_COVERAGE", requested_date)
+
     if candidate is not None:
         if candidate.get("paper_reference", {}).get("candidate_regime") != "UNKNOWN":
             fail("PARTIAL_COVERAGE_MUST_NOT_CLASSIFY")
@@ -1013,6 +1086,62 @@ def _validate_record(record: dict) -> None:
             fail("RUNTIME_REGIME_MUST_STAY_UNKNOWN")
         if candidate.get("classification_status") != CLASSIFICATION_STATUS:
             fail("CLASSIFICATION_STATUS_INVALID")
+    _validate_no_lookahead(record, requested_date)
+
+
+def _validate_no_lookahead(record: dict, requested_date: str) -> None:
+    """Re-check, never trust, that this record only ever looked backward.
+
+    ``no_lookahead_attestation`` is a *claim*; the source dates it names are the
+    evidence. Both are compared against the requested date here, so a payload
+    cannot assert "no lookahead" over a session or vintage it could not have
+    seen. The attestation is walked generically, so a date field added to it
+    later is covered automatically rather than escaping this check.
+    """
+    attestation = record.get("no_lookahead_attestation")
+    if not isinstance(attestation, dict):
+        fail("RECORD_ATTESTATION_MISSING", requested_date)
+    if attestation.get("anchor_requested_date") != requested_date:
+        fail("RECORD_ATTESTATION_ANCHOR_INVALID", requested_date)
+    if (
+        attestation.get("any_source_date_after_requested_date") is not False
+        or attestation.get("other_requested_dates_consulted") is not False
+    ):
+        fail("RECORD_ATTESTATION_CLAIM_INVALID", requested_date)
+    if DATE10.fullmatch(requested_date) is None:
+        # A malformed requested date is itself a legitimate BLOCKED record;
+        # there is no calendar anchor to compare against.
+        return
+    consulted = _dates_in(attestation) + _dates_in(record.get("effective_session_date"))
+    if any(date > requested_date for date in consulted):
+        fail("RECORD_LOOKAHEAD_VIOLATION", requested_date)
+
+
+def _dates_in(value: object) -> list[str]:
+    """Every ISO-date-shaped string reachable inside ``value``."""
+    if isinstance(value, str):
+        return [value] if DATE10.fullmatch(value) is not None else []
+    if isinstance(value, dict):
+        return [item for entry in value.values() for item in _dates_in(entry)]
+    if isinstance(value, list):
+        return [item for entry in value for item in _dates_in(entry)]
+    return []
+
+
+def _status_for(observed: list[str]) -> str:
+    if len(observed) == len(REPLAYED_AXES):
+        return STATUS_OBSERVED
+    return STATUS_PARTIAL if observed else STATUS_BLOCKED
+
+
+def _validate_authority(value: dict) -> None:
+    """The authority block must be present, complete, and exactly as declared."""
+    authority = value.get("authority")
+    if not isinstance(authority, dict) or sorted(authority) != sorted(AUTHORITY):
+        fail("POPULATION_AUTHORITY_SCHEMA_INVALID")
+    for key, allowed in AUTHORITY.items():
+        if authority[key] is not allowed:
+            fail("POPULATION_AUTHORITY_INVALID", key)
 
 
 def _forbid_tracked_output(root: Path, path: Path) -> None:

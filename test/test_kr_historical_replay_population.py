@@ -334,6 +334,71 @@ class KrHistoricalReplayPopulationTest(unittest.TestCase):
         with self.assertRaises(MODULE.ReplayPopulationError):
             MODULE.validate_population(tampered)
 
+    def _resigned(self, population):
+        population["payload_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in population.items() if k != "payload_sha256"}
+        )
+        return population
+
+    def test_validate_population_rejects_omitted_records(self):
+        # Adversarial: a re-signed payload is a valid hash over whatever it
+        # contains, so dropping the records must fail rather than satisfy every
+        # per-record guarantee vacuously.
+        for records in ([], None):
+            with self.subTest(records=records):
+                tampered = copy.deepcopy(
+                    build_with_fixed_clock(TOKEN, ["2026-08-27", "2026-08-28"], opener_for(base_fixtures()))
+                )
+                tampered["records"] = records
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("POPULATION_RECORDS_NOT_BIJECTIVE", str(caught.exception))
+
+    def test_validate_population_rejects_a_record_for_an_unrequested_date(self):
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["requested_date"] = "2020-03-16"
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("POPULATION_RECORDS_NOT_BIJECTIVE", str(caught.exception))
+
+    def test_validate_population_rejects_an_omitted_authority_boundary(self):
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["authority"].pop("order_authorized")
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("POPULATION_AUTHORITY_SCHEMA_INVALID", str(caught.exception))
+        emptied = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        emptied["authority"] = {}
+        with self.assertRaises(MODULE.ReplayPopulationError):
+            MODULE.validate_population(self._resigned(emptied))
+
+    def test_validate_population_rejects_a_record_that_dropped_its_evidence(self):
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["five_axis"] = None
+        tampered["records"][0]["candidate_normalized_result"] = None
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("OBSERVED_RECORD_MUST_CARRY_ITS_EVIDENCE", str(caught.exception))
+
+    def test_validate_population_rejects_a_record_that_looked_forward(self):
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["no_lookahead_attestation"]["session_dates_used"].append(
+            "20260904"
+        )
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("RECORD_LOOKAHEAD_VIOLATION", str(caught.exception))
+
     def test_build_population_requires_at_least_one_date(self):
         with self.assertRaises(MODULE.ReplayPopulationError):
             MODULE.build_population(TOKEN, [], opener=opener_for(base_fixtures()))

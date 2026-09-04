@@ -747,8 +747,14 @@ APPROVED_TESTS = [
     #   missing source, or single unresolvable axis fails that one date
     #   closed without affecting any other requested date. Output is never
     #   written inside this checkout — external --out or a private temp file
-    #   only, enforced fail-closed. No new threshold, scoring, or Regime
-    #   policy is introduced; natural_promotion and every
+    #   only, enforced fail-closed. Validation is exact rather than best-effort:
+    #   every requested date must map to exactly one record, an OBSERVED record
+    #   must carry the axes and candidate result it claims, a BLOCKED one must
+    #   carry an attributable reason and neither, each record's attested session
+    #   dates are re-compared to its requested date, and the authority block must
+    #   match key for key — so a re-hashed payload cannot pass by dropping its
+    #   records or an explicit false boundary. No new threshold, scoring, or
+    #   Regime policy is introduced; natural_promotion and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_kr_historical_replay_population.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — US free-source historical replay
@@ -775,7 +781,13 @@ APPROVED_TESTS = [
     #   another; credentials are redacted out of every recorded reason; the
     #   account/trading Alpaca credential is never read. Output is never
     #   written inside this checkout — external --out or a private temp file
-    #   only. natural_promotion, us_breadth, us_leadership and every
+    #   only. Validation is exact rather than best-effort: every requested date
+    #   must map to exactly one record, a record's status and free-axis coverage
+    #   are recomputed from the axes it carries, an observed/partial record may
+    #   not null its axis packet (which would satisfy the never-BREADTH rule by
+    #   having no axes at all), and the authority block must match key for key —
+    #   so a re-hashed payload cannot pass by dropping its records or an explicit
+    #   false boundary. natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay
@@ -802,9 +814,16 @@ APPROVED_TESTS = [
     #   never contaminates the rest; credentials are redacted out of every
     #   recorded reason and the account/trading Alpaca credential is never read.
     #   Output is never written inside this checkout — external --out or a
-    #   private temp file only. natural_promotion, episode_selection,
-    #   cross_market_regime, threshold_tuning, us_breadth, us_leadership and
-    #   every action/order/capital/production/trading/real authority stay false.
+    #   private temp file only. Validation is exact rather than best-effort:
+    #   every requested date maps to exactly one record, every published count
+    #   (combined summary, per-market outcomes, per-record outcome grouping,
+    #   episode coverage, ungrouped dates) is recomputed from those records, each
+    #   embedded population's pinned identity must be its own, and the authority
+    #   block must match key for key — so a re-hashed payload cannot pass by
+    #   dropping its records or an explicit false boundary. natural_promotion,
+    #   episode_selection, cross_market_regime, threshold_tuning, us_breadth,
+    #   us_leadership and every
+    #   action/order/capital/production/trading/real authority stay false.
     "test/test_combined_shadow_historical_replay.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — deterministic replay evidence over
     #   that combined KR+US SHADOW population (facts only, never NATURAL).
@@ -823,13 +842,25 @@ APPROVED_TESTS = [
     #   sequence covers every requested date, carrying UNKNOWN where none was
     #   produced, so a run can never bridge a blocked date; adjacency is
     #   requested-date order, so each sequence carries its own calendar-gap facts.
-    #   NO POLICY OR THRESHOLD CONCLUSION is reached: hysteresis_applied is false
-    #   (HYSTERESIS and STRESS_OVERRIDE are read from the repository's own
-    #   candidate inventory as BLOCKED under DRAFT_NOT_RATIFIED, and a ratified
-    #   component fails this module closed), no threshold is proposed, tuned, or
-    #   restated, run/reversal counts are observations rather than an argument for
-    #   a dwell time, and the validator rejects a conclusion, verdict, or
-    #   recommendation smuggled in under any key name. No episode is selected —
+    #   NO POLICY OR THRESHOLD CONCLUSION is reached, and the two policy layers
+    #   are kept apart so neither is reported as the other's absence: the
+    #   repository's ALREADY-RATIFIED replay-only common aggregation policy
+    #   (common_v1_alignment, RATIFIED_PAPER_BASELINE_V1, owned by
+    #   regime/decision_authority.py) is quoted verbatim with its own hysteresis
+    #   and stress entry/exit behavior and marked explicitly not applied — it
+    #   consumes already-signed axis directions and the registry records
+    #   market-specific normalization/freshness/replay as not inherited — while
+    #   the market-specific candidate policy this replay exercised is read from
+    #   the repository's own inventory as HYSTERESIS/STRESS_OVERRIDE BLOCKED
+    #   under DRAFT_NOT_RATIFIED. hysteresis_applied stays false, a ratified
+    #   market-specific component or a changed common scope fails the module
+    #   closed, no threshold is proposed, tuned, or restated, run/reversal counts
+    #   are observations rather than an argument for a dwell time, and the
+    #   validator rejects a conclusion, verdict, or recommendation smuggled in
+    #   under any key name — including one produced by DELETING an explicit
+    #   refusal flag or authority boundary. Validation is exact rather than
+    #   best-effort: every requested date must carry an observation and every
+    #   fact family must re-derive from those observations. No episode is selected —
     #   labels are carried verbatim and a labelled run is proven fact-identical to
     #   an unlabelled one. PIT and historical audit stay separate: no date's
     #   observation is created, altered, or graded, and a market the join

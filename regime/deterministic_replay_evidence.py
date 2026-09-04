@@ -41,16 +41,35 @@ This module invents nothing:
 * **It reaches no policy or threshold conclusion.**  This is the load-bearing
   guarantee of the slice.  Stress counts are counts, not evidence that a stress
   threshold is right; transition and run-length counts are counts, not evidence
-  that hysteresis is needed, nor a proposed dwell time.  ``hysteresis_applied``
-  is ``false`` — no buffer, confirmation count, or dwell rule is applied to the
-  sequence, because ``evidence/regime/policy_candidates/candidate_inventory.json``
-  still records ``HYSTERESIS`` and ``STRESS_OVERRIDE`` as ``BLOCKED`` under a
-  ``DRAFT_NOT_RATIFIED`` policy.  That basis is read from disk rather than
-  asserted, and a component that ever becomes ``SUPPORTED`` fails this module
-  closed so a human re-decides the framing instead of this file quietly
-  continuing to describe a ratified rule as absent.  ``validate_evidence``
+  that hysteresis is needed, nor a proposed dwell time.  ``validate_evidence``
   rejects any report carrying a conclusion, verdict, recommendation, or proposed
-  parameter — including one added under a new key name.
+  parameter — including one added under a new key name, and including one
+  produced by *deleting* an explicit refusal flag.
+
+Two different policies bear on that guarantee, and ``policy_basis`` keeps them
+apart so neither is ever reported as the other's absence:
+
+1. The repository already holds a **ratified, replay-only common aggregation
+   policy** — ``common_v1_alignment`` in
+   ``config/regime_source_owner_registry_v2.json``, ``policy_status =
+   RATIFIED_PAPER_BASELINE_V1``, implemented by
+   ``regime/decision_authority.py`` — and it *does* define explicit hysteresis
+   and stress entry/exit behavior.  This report quotes it verbatim through that
+   owning module (which binds it hash-for-hash to the registry, the legacy
+   fail-closed contract, and the merged PAPER baseline packet) precisely so this
+   file can never be read as claiming no such policy exists.  It is not applied
+   here, and this module neither ratifies nor changes it: it consumes
+   already-signed axis directions, and the registry itself records
+   market-specific normalization, freshness, and replay as **not inherited**
+   from it.  If that scope field ever flips, this module fails closed.
+2. The **market-specific candidate policy** this SHADOW replay actually
+   exercised is still ``DRAFT_NOT_RATIFIED``, with ``HYSTERESIS`` and
+   ``STRESS_OVERRIDE`` recorded ``BLOCKED`` in
+   ``evidence/regime/policy_candidates/candidate_inventory.json``.  That is why
+   ``hysteresis_applied`` is ``false``: no buffer, confirmation count, or dwell
+   rule exists at this layer to apply.  The basis is read from disk rather than
+   asserted, and a component that ever becomes ``SUPPORTED`` fails this module
+   closed so a human re-decides the framing.
 
 Point-in-time integrity and historical audit are kept apart, as
 ``docs/ATLAS_SESSION_BOOTSTRAP.md`` requires:
@@ -64,6 +83,14 @@ Point-in-time integrity and historical audit are kept apart, as
   request three dates months apart; each sequence therefore carries its own
   calendar-gap facts so a transition count between distant observations can
   never be misread as a next-session flip.
+
+``validate_evidence`` is exact rather than best-effort.  A re-hashed report is a
+valid signature over whatever it contains, so checking only the fields that
+happen to be present would accept one that dropped its observations, a refusal
+flag, or an authority boundary.  Instead: every requested date must carry an
+observation, every fact family must *re-derive* from those observations, and the
+``policy_conclusion``, ``authority``, and ``policy_basis`` blocks must match
+their declared shapes key for key.
 
 Output is refused anywhere inside this repository checkout — external ``--out``
 or a private system-temp file only — because it summarizes SHADOW
@@ -90,6 +117,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from regime import combined_shadow_historical_replay as CSR  # noqa: E402
+from regime import decision_authority as DA  # noqa: E402
 from regime import paper_regime_reference as PRR  # noqa: E402
 
 
@@ -132,16 +160,146 @@ TRANSITION_EVIDENCE_CHANGE = "EVIDENCE_AVAILABILITY_CHANGE"
 
 ADJACENCY_BASIS = "REQUESTED_DATE_ORDER_NOT_CALENDAR_ADJACENCY"
 
+# --- The two distinct policies that bear on this report -------------------
+#
+# They must never be conflated, and neither may be described as the other's
+# absence. (1) The *market-specific* candidate policy this SHADOW replay
+# actually exercised is still a draft, with HYSTERESIS and STRESS_OVERRIDE
+# BLOCKED. (2) The repository separately holds an already-ratified, replay-only
+# *common* aggregation policy (``common_v1_alignment`` in the v2 source-owner
+# registry, implemented by ``regime/decision_authority.py``) that does define
+# explicit hysteresis and stress behavior. Both are read from disk and quoted.
 POLICY_INVENTORY_PATH = "evidence/regime/policy_candidates/candidate_inventory.json"
 POLICY_CONTRACT_VERSION = "regime_policy_candidate_evidence/v1"
 POLICY_STATUS = "DRAFT_NOT_RATIFIED"
-# The two components whose *absence* this report's framing depends on. If either
-# is ever ratified, "no hysteresis applied" and "no stress threshold proposed"
-# stop being safe descriptions and a human must re-decide.
+# The two components whose *unratified market-specific* status this report's
+# framing depends on. If either is ever ratified for market-specific use,
+# "no hysteresis applied" and "no stress threshold proposed" stop being safe
+# descriptions and a human must re-decide.
 REQUIRED_UNRATIFIED_COMPONENTS = ("HYSTERESIS", "STRESS_OVERRIDE")
 BLOCKED_COMPONENT_STATUS = "BLOCKED"
+CANDIDATE_POLICY_SCOPE = "MARKET_SPECIFIC_NORMALIZATION_FRESHNESS_AND_REPLAY"
+
+REGISTRY_PATH = "config/regime_source_owner_registry_v2.json"
+COMMON_V1_POLICY_STATUS = "RATIFIED_PAPER_BASELINE_V1"
+COMMON_V1_SCOPE = "COMMON_SIGNED_AXIS_AGGREGATION_REPLAY_ONLY_RUNTIME_NOT_WIRED"
+COMMON_V1_IMPLEMENTED_BY = "regime/decision_authority.py::load_common_v1_policy"
+# Why an existing, ratified hysteresis rule is nonetheless not applied to this
+# replay. Taken from the registry's own scope field, not invented here: the
+# common policy consumes already-signed axis directions, and the registry
+# records that market-specific normalization, freshness, and replay are *not*
+# inherited from it.
+COMMON_V1_NOT_APPLIED_REASON = (
+    "COMMON_V1_CONSUMES_ALREADY_SIGNED_AXIS_DIRECTIONS_AND_THE_REGISTRY_RECORDS"
+    "_MARKET_SPECIFIC_NORMALIZATION_FRESHNESS_AND_REPLAY_AS_NOT_INHERITED"
+)
+
+# The exact published shape of each policy layer. Required key for key by
+# ``validate_evidence``: deleting ``common_v1_replay_policy``, or a field inside
+# it, is precisely how this report would go back to describing an existing
+# ratified policy as absent.
+CANDIDATE_POLICY_KEYS = (
+    "path", "sha256", "scope", "candidate_id", "candidate_status", "policy_status",
+    "component_status", "statement",
+)
+COMMON_V1_POLICY_KEYS = (
+    "path", "sha256", "scope", "policy_status", "implemented_by",
+    "present_in_repository", "hysteresis", "stress_classification",
+    "market_kill_stress_condition_status",
+    "market_specific_normalization_freshness_and_replay_inherited",
+    "pit_replay_acceptance", "binding", "applied_to_this_replay",
+    "not_applied_reason", "statement",
+)
+# The quoted registry fields this report actually reads. A superset is allowed —
+# the registry owns that block — but these may not go missing.
+COMMON_V1_HYSTERESIS_KEYS = (
+    "ordinary_transition_finalized_packets", "stress_entry", "stress_exit",
+)
 
 CONCLUSION_STATUS = "WITHHELD_NO_POLICY_OR_THRESHOLD_AUTHORITY"
+# Every claim this report explicitly refuses to make. Declared once and required
+# key for key by ``validate_evidence``: a payload that *removes* one of these
+# flags must not pass merely because the flag it removed is no longer there to
+# be checked.
+CONCLUSION_FALSE_FLAGS = (
+    "threshold_proposed",
+    "threshold_tuned",
+    "stress_threshold_proposed",
+    "hysteresis_parameter_proposed",
+    "minimum_coverage_proposed",
+    "replay_acceptance_asserted",
+    "candidate_policy_ratified",
+    "common_v1_replay_policy_ratified_or_changed",
+    "market_regime_asserted",
+)
+CONCLUSION_KEYS = ("conclusion", "conclusion_status", "statement") + CONCLUSION_FALSE_FLAGS
+
+# The exact authority boundary of this report, for the same reason.
+AUTHORITY_GRANTED_KEY = "replay_evidence_summary_authorized"
+AUTHORITY = {
+    "replay_evidence_summary_authorized": True,
+    "policy_conclusion_authorized": False,
+    "threshold_ratification_authorized": False,
+    "hysteresis_authorized": False,
+    "stress_override_ratification_authorized": False,
+    "episode_selection_authorized": False,
+    "cross_market_regime_authorized": False,
+    "natural_promotion_authorized": False,
+    "us_breadth_authorized": False,
+    "us_leadership_authorized": False,
+    "sensor_normalization_ratification_authorized": False,
+    "registry_promotion_authorized": False,
+    "ttl_ratification_authorized": False,
+    "pit_replay_acceptance_authorized": False,
+    "runtime_regime_wiring_authorized": False,
+    "strategy_authorized": False,
+    "stage_authorized": False,
+    "buy_authorized": False,
+    "action_authorized": False,
+    "order_authorized": False,
+    "capital_authorized": False,
+    "production_authorized": False,
+    "trading_authorized": False,
+    "real_authorized": False,
+}
+
+# The exact shape of one per-date, per-market observation cell, so a report's
+# published observations can be re-derived from — and checked against — the
+# fact families that claim to summarize them.
+OBSERVATION_KEYS = (
+    "outcome",
+    "blocked_reason_code",
+    "lookahead_contained",
+    "candidate_regime",
+    "candidate_classification_status",
+    "axis_status",
+    "axis_direction",
+    "axis_reason_code",
+)
+
+# The exact shape ``sequence_facts`` publishes, for the same reason: a sequence
+# missing a field would let a totality or transition check pass by having
+# nothing to compare.
+SEQUENCE_KEYS = (
+    "sequence_length",
+    "sequence_dates",
+    "observed_state_count",
+    "unknown_state_count",
+    "state_sequence",
+    "distinct_states",
+    "transition_count",
+    "state_change_count",
+    "evidence_availability_change_count",
+    "transitions",
+    "runs",
+    "run_count",
+    "single_observation_run_count",
+    "longest_run_length",
+    "immediate_reversal_count",
+    "immediate_reversals",
+    "adjacency",
+)
+
 # Key names that would turn this fact sheet into a recommendation. Checked
 # recursively over the whole report so a conclusion cannot be smuggled in under
 # a new field name.
@@ -214,18 +372,52 @@ def _calendar_gap_days(earlier: object, later: object) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# Unratified-policy basis, read from disk rather than asserted.
+# Policy basis, read from disk rather than asserted.
+#
+# Two different policies bear on this report and are reported side by side so
+# neither can be mistaken for the other's absence.
 # ---------------------------------------------------------------------------
 
 
 def load_policy_basis(root: Path = ROOT) -> dict:
-    """Record that HYSTERESIS and STRESS_OVERRIDE are still unratified.
+    """Read both policies this report's framing depends on, and fail closed.
 
     This module describes a replay in which *no* hysteresis was applied and *no*
-    stress threshold was proposed. That description is only honest while those
-    components remain unsupported, so the claim is read from the repository's own
-    candidate inventory and fails closed the moment either is ratified.
+    stress threshold was proposed. Two separate facts have to hold for that to
+    be an honest description, and both are read from disk:
+
+    * the market-specific candidate policy the replay actually exercised is
+      still ``DRAFT_NOT_RATIFIED`` with HYSTERESIS and STRESS_OVERRIDE
+      ``BLOCKED`` — if either becomes supported, this module fails closed so a
+      human re-decides the framing;
+    * the repository's already-ratified *common* replay-only aggregation policy
+      is quoted verbatim rather than described as absent, together with the
+      reason it is not applied to this market-specific replay.
     """
+    candidate = _load_candidate_policy_basis(root)
+    common = _load_common_v1_basis(root)
+    return {
+        "market_specific_candidate_policy": candidate,
+        "common_v1_replay_policy": common,
+        "statement": (
+            "Two different policies bear on this report and are not"
+            " interchangeable. The repository does hold a ratified"
+            " replay-only common aggregation policy with explicit hysteresis and"
+            " stress behavior; it is quoted here from"
+            f" {REGISTRY_PATH} and is not absent. It is also not applied to this"
+            " replay, because it consumes already-signed axis directions and the"
+            " registry itself records market-specific normalization, freshness,"
+            " and replay as not inherited from it. The market-specific candidate"
+            " policy this SHADOW replay did exercise is still DRAFT_NOT_RATIFIED"
+            " with HYSTERESIS and STRESS_OVERRIDE BLOCKED. This report therefore"
+            " applies no hysteresis and proposes no stress threshold; it only"
+            " counts what the existing unmodified candidate rule already emitted."
+        ),
+    }
+
+
+def _load_candidate_policy_basis(root: Path) -> dict:
+    """The unratified market-specific candidate policy the replay exercised."""
     path = Path(root) / POLICY_INVENTORY_PATH
     try:
         inventory = json.loads(path.read_text(encoding="utf-8"))
@@ -236,8 +428,9 @@ def load_policy_basis(root: Path = ROOT) -> dict:
     if inventory.get("policy_status") != POLICY_STATUS:
         fail(
             "POLICY_STATUS_CHANGED",
-            "the candidate policy is no longer DRAFT_NOT_RATIFIED; this module"
-            " must not keep describing hysteresis and stress override as absent",
+            "the market-specific candidate policy is no longer"
+            " DRAFT_NOT_RATIFIED; this module must not keep describing its"
+            " hysteresis and stress override components as unratified",
         )
     parameters = inventory.get("parameters")
     if not isinstance(parameters, list):
@@ -261,16 +454,77 @@ def load_policy_basis(root: Path = ROOT) -> dict:
     return {
         "path": POLICY_INVENTORY_PATH,
         "sha256": file_sha256(path),
+        "scope": CANDIDATE_POLICY_SCOPE,
         "candidate_id": inventory.get("candidate_id"),
         "candidate_status": inventory.get("candidate_status"),
         "policy_status": inventory.get("policy_status"),
         "component_status": component_status,
         "statement": (
-            "HYSTERESIS and STRESS_OVERRIDE are both BLOCKED in the repository's"
-            " own candidate inventory under a DRAFT_NOT_RATIFIED policy. This"
-            " report therefore applies no hysteresis and proposes no stress"
-            " threshold; it only counts what the existing unmodified candidate"
-            " rule already emitted."
+            "This is the policy layer the replayed market-specific"
+            " normalization would need. HYSTERESIS and STRESS_OVERRIDE are both"
+            " BLOCKED here under a DRAFT_NOT_RATIFIED policy, so no hysteresis"
+            " parameter and no stress threshold exists for this module to apply."
+        ),
+    }
+
+
+def _load_common_v1_basis(root: Path) -> dict:
+    """Quote the already-ratified, replay-only common aggregation policy.
+
+    Loaded through ``regime/decision_authority.py``, which owns this policy and
+    already binds it hash-for-hash to the v2 source-owner registry, the legacy
+    fail-closed contract, and the merged PAPER baseline packet. Nothing is
+    re-authored here: proving the registry equals that module's pinned
+    ``RATIFIED_COMMON_V1`` block is what makes quoting the block a quote of the
+    registry.
+    """
+    registry_path = Path(root) / REGISTRY_PATH
+    try:
+        policy = DA.load_common_v1_policy(
+            registry_path=registry_path,
+            paper_policy_path=Path(root) / "config" / "paper_regime_reference_policy_v1.json",
+            contract_path=Path(root) / "config" / "regime_decision_authority_contract.json",
+        )
+    except DA.DecisionAuthorityError as exc:
+        raise ReplayEvidenceError(f"COMMON_V1_POLICY_UNREADABLE:{REGISTRY_PATH}:{exc}") from exc
+    if policy["policy_status"] != COMMON_V1_POLICY_STATUS:
+        fail("COMMON_V1_POLICY_STATUS_CHANGED", str(policy["policy_status"]))
+    # The reason this ratified rule is not applied below is the registry's own
+    # scope field. If that ever flips, "not applied here" stops being a scope
+    # fact and a human must re-decide instead of this file continuing.
+    if policy["market_specific_normalization_inherited"] is not False:
+        fail(
+            "COMMON_V1_SCOPE_CHANGED",
+            "market-specific normalization, freshness, and replay are now"
+            " inherited from the ratified common policy; whether it applies to"
+            " this replay is a human decision, not a default",
+        )
+    alignment = DA.RATIFIED_COMMON_V1
+    return {
+        "path": REGISTRY_PATH,
+        "sha256": file_sha256(registry_path),
+        "scope": COMMON_V1_SCOPE,
+        "policy_status": policy["policy_status"],
+        "implemented_by": COMMON_V1_IMPLEMENTED_BY,
+        "present_in_repository": True,
+        "hysteresis": copy.deepcopy(alignment["hysteresis"]),
+        "stress_classification": alignment["classification"]["STRESS"],
+        "market_kill_stress_condition_status": policy["market_kill_stress_condition_status"],
+        "market_specific_normalization_freshness_and_replay_inherited": False,
+        "pit_replay_acceptance": policy["pit_replay_acceptance"],
+        "binding": copy.deepcopy(policy["binding"]),
+        "applied_to_this_replay": False,
+        "not_applied_reason": COMMON_V1_NOT_APPLIED_REASON,
+        "statement": (
+            "The repository already holds this ratified, replay-only common"
+            " aggregation policy, and it does define explicit hysteresis and"
+            " stress behavior. It is quoted verbatim so this report cannot be"
+            " read as claiming no such policy exists. It is not applied to this"
+            " replay and this module neither ratifies, changes, nor proposes a"
+            " change to it: it consumes already-signed axis directions, and the"
+            " registry records market-specific normalization, freshness, and"
+            " replay as not inherited from it. Its own PIT replay acceptance is"
+            " carried above exactly as its owning module reports it."
         ),
     }
 
@@ -507,16 +761,29 @@ def sequence_facts(points: list[tuple[str, str]]) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def coverage_facts(population: dict, table: dict, dates: list[str]) -> dict:
-    """Family 1 — how much of the requested replay actually produced evidence."""
-    combined_counts = {status: 0 for status in CSR.COMBINED_STATUSES}
-    for record in population["records"]:
-        combined_counts[record["combined_status"]] += 1
-    # Recomputed from the records rather than trusted: a summary that disagrees
-    # with the records it claims to summarize must fail closed, not be copied.
-    if combined_counts != population["combined_summary"]["combined_status_counts"]:
-        fail("SOURCE_SUMMARY_INCONSISTENT", "combined_status_counts")
+def source_combined_counts(population: dict) -> dict:
+    """The source population's own combined statuses, recounted from its records.
 
+    Recomputed rather than trusted: a summary that disagrees with the records it
+    claims to summarize must fail closed here, not be copied into this report.
+    """
+    counts = {status: 0 for status in CSR.COMBINED_STATUSES}
+    for record in population["records"]:
+        counts[record["combined_status"]] += 1
+    if counts != population["combined_summary"]["combined_status_counts"]:
+        fail("SOURCE_SUMMARY_INCONSISTENT", "combined_status_counts")
+    return counts
+
+
+def coverage_facts(
+    table: dict, dates: list[str], combined_counts: dict, population_available: dict,
+) -> dict:
+    """Family 1 — how much of the requested replay actually produced evidence.
+
+    A pure function of the per-date observation table plus the two source-level
+    facts it cannot derive from that table, so ``validate_evidence`` can
+    reproduce it exactly from the report's own published observations.
+    """
     markets = {}
     for market in MARKETS:
         rows = [table[market][date] for date in dates]
@@ -534,7 +801,7 @@ def coverage_facts(population: dict, table: dict, dates: list[str]) -> dict:
                 1 for row in rows if row["candidate_regime"] is not None
             ),
             "dates_with_classified_candidate_regime": len(classified),
-            "population_available": population["market_population_status"][market]["available"],
+            "population_available": population_available[market],
             "axis_status_counts": {
                 name: {
                     status: sum(1 for row in rows if row["axis_status"][name] == status)
@@ -553,7 +820,7 @@ def coverage_facts(population: dict, table: dict, dates: list[str]) -> dict:
     return {
         "requested_date_count": len(dates),
         "requested_dates": list(dates),
-        "combined_status_counts": combined_counts,
+        "combined_status_counts": dict(combined_counts),
         "markets": markets,
         "statement": (
             "Counts describe how many caller-supplied dates produced an"
@@ -738,6 +1005,8 @@ def stress_facts(table: dict, dates: list[str], policy_basis: dict) -> dict:
             },
             "stress_observations": per_date,
         }
+    candidate = policy_basis["market_specific_candidate_policy"]
+    common = policy_basis["common_v1_replay_policy"]
     return {
         "markets": markets,
         "detection_source": (
@@ -745,13 +1014,30 @@ def stress_facts(table: dict, dates: list[str], policy_basis: dict) -> dict:
             " (applied by the KR and US replay populations, not re-applied here)"
         ),
         "stress_threshold_introduced_by_this_module": False,
-        "stress_override_component_status": policy_basis["component_status"]["STRESS_OVERRIDE"],
+        # The two policy layers are reported apart so an unratified
+        # market-specific component is never read as "no stress policy exists".
+        "stress_policy_status": {
+            "market_specific_candidate_component": candidate["component_status"]["STRESS_OVERRIDE"],
+            "common_v1_replay_policy": common["policy_status"],
+        },
+        "common_v1_replay_stress_behavior": {
+            "classification": common["stress_classification"],
+            "stress_entry": common["hysteresis"]["stress_entry"],
+            "stress_exit": common["hysteresis"]["stress_exit"],
+            "market_kill_stress_condition_status": common[
+                "market_kill_stress_condition_status"
+            ],
+            "applied_to_this_replay": False,
+        },
         "statement": (
             "Every STRESS value counted here was already emitted by the existing"
             " unmodified candidate rule for that date. This module adds no stress"
             " threshold, evaluates none, and draws no conclusion about whether the"
-            " existing one is correct, early, or late. STRESS_OVERRIDE remains an"
-            " unratified policy component."
+            " existing one is correct, early, or late. The repository's ratified"
+            " replay-only common policy does define stress entry and exit"
+            " behavior; it is quoted above rather than described as absent, and"
+            " it was not applied to this market-specific replay. The"
+            " market-specific STRESS_OVERRIDE component remains unratified."
         ),
     }
 
@@ -774,19 +1060,37 @@ def hysteresis_facts(transitions: dict, policy_basis: dict) -> dict:
                 for name in AXES
             },
         }
+    candidate = policy_basis["market_specific_candidate_policy"]
+    common = policy_basis["common_v1_replay_policy"]
     return {
         "hysteresis_applied": False,
-        "hysteresis_component_status": policy_basis["component_status"]["HYSTERESIS"],
         "hysteresis_parameter_source": None,
+        # The two policy layers are reported apart so an unratified
+        # market-specific component is never read as "no hysteresis rule exists".
+        "hysteresis_policy_status": {
+            "market_specific_candidate_component": candidate["component_status"]["HYSTERESIS"],
+            "common_v1_replay_policy": common["policy_status"],
+        },
+        "common_v1_replay_hysteresis": {
+            **copy.deepcopy(common["hysteresis"]),
+            "applied_to_this_replay": False,
+            "not_applied_reason": common["not_applied_reason"],
+        },
         "markets": markets,
         "statement": (
             "No hysteresis, dwell time, confirmation count, or buffer was applied"
-            " to any sequence — the HYSTERESIS policy component is unratified, so"
-            " there is no parameter to apply. The run, single-observation, and"
-            " immediate-reversal counts below describe the raw output of the"
-            " existing rule over caller-supplied, not necessarily calendar-"
-            " consecutive dates. They are observations, not evidence that"
-            " hysteresis is needed and not a proposed value for one."
+            " to any sequence below. The repository's ratified replay-only common"
+            " aggregation policy does carry a hysteresis rule; it is quoted above"
+            " rather than described as absent, and it is not applied here because"
+            " it consumes already-signed axis directions and market-specific"
+            " normalization, freshness, and replay are not inherited from it. The"
+            " market-specific HYSTERESIS component this replay would need is"
+            " unratified, so there is no parameter for this module to apply. The"
+            " run, single-observation, and immediate-reversal counts below"
+            " describe the raw output of the existing rule over caller-supplied,"
+            " not necessarily calendar-consecutive dates. They are observations,"
+            " not evidence that hysteresis is needed and not a proposed value for"
+            " one."
         ),
     }
 
@@ -827,8 +1131,12 @@ def build_evidence(population: dict, *, root: Path = ROOT) -> dict:
     policy_basis = load_policy_basis(root)
     dates = list(source["requested_dates"])
     table = observation_table(source)
+    available = {
+        market: source["market_population_status"][market]["available"]
+        for market in MARKETS
+    }
 
-    coverage = coverage_facts(source, table, dates)
+    coverage = coverage_facts(table, dates, source_combined_counts(source), available)
     unknown = unknown_facts(table, dates)
     transitions = transition_facts(table, dates)
     stress = stress_facts(table, dates, policy_basis)
@@ -847,10 +1155,7 @@ def build_evidence(population: dict, *, root: Path = ROOT) -> dict:
             "evidence_class": source["evidence_class"],
             "payload_sha256": source["payload_sha256"],
             "requested_dates": list(dates),
-            "market_population_available": {
-                market: source["market_population_status"][market]["available"]
-                for market in MARKETS
-            },
+            "market_population_available": dict(available),
             "source_module": "regime/combined_shadow_historical_replay.py",
             "revalidated_by_its_own_validator": True,
         },
@@ -877,25 +1182,20 @@ def build_evidence(population: dict, *, root: Path = ROOT) -> dict:
         "transition_facts": transitions,
         "stress_detection_facts": stress,
         "hysteresis_facts": hysteresis,
+        # The load-bearing guarantee of this slice, enforced key for key in
+        # validate_evidence and by a recursive forbidden-key scan.
         "policy_conclusion": {
-            # The load-bearing guarantee of this slice, enforced field by field
-            # in validate_evidence and by a recursive forbidden-key scan.
             "conclusion": None,
             "conclusion_status": CONCLUSION_STATUS,
-            "threshold_proposed": False,
-            "threshold_tuned": False,
-            "stress_threshold_proposed": False,
-            "hysteresis_parameter_proposed": False,
-            "minimum_coverage_proposed": False,
-            "replay_acceptance_asserted": False,
-            "candidate_policy_ratified": False,
-            "market_regime_asserted": False,
+            **{flag: False for flag in CONCLUSION_FALSE_FLAGS},
             "statement": (
                 "This report states what the replay showed and nothing else. It"
                 " does not judge whether coverage is sufficient, whether a"
                 " threshold is correct, whether stress fired early or late,"
                 " whether hysteresis is required, or whether the replay is"
-                " acceptable. Every one of those is a separate CIO ratification."
+                " acceptable. It neither ratifies nor proposes a change to the"
+                " ratified common replay policy it quotes. Every one of those is"
+                " a separate CIO ratification."
             ),
         },
         "pit_and_audit_separation": {
@@ -921,32 +1221,7 @@ def build_evidence(population: dict, *, root: Path = ROOT) -> dict:
                 " evaluation or into a live operational decision."
             ),
         },
-        "authority": {
-            "replay_evidence_summary_authorized": True,
-            "policy_conclusion_authorized": False,
-            "threshold_ratification_authorized": False,
-            "hysteresis_authorized": False,
-            "stress_override_ratification_authorized": False,
-            "episode_selection_authorized": False,
-            "cross_market_regime_authorized": False,
-            "natural_promotion_authorized": False,
-            "us_breadth_authorized": False,
-            "us_leadership_authorized": False,
-            "sensor_normalization_ratification_authorized": False,
-            "registry_promotion_authorized": False,
-            "ttl_ratification_authorized": False,
-            "pit_replay_acceptance_authorized": False,
-            "runtime_regime_wiring_authorized": False,
-            "strategy_authorized": False,
-            "stage_authorized": False,
-            "buy_authorized": False,
-            "action_authorized": False,
-            "order_authorized": False,
-            "capital_authorized": False,
-            "production_authorized": False,
-            "trading_authorized": False,
-            "real_authorized": False,
-        },
+        "authority": dict(AUTHORITY),
     }
     report["payload_sha256"] = payload_sha256(report)
     return report
@@ -972,30 +1247,124 @@ def _forbidden_keys(value: object) -> list[str]:
     return found
 
 
-def _validate_no_conclusion(value: dict) -> None:
-    conclusion = value.get("policy_conclusion")
-    if not isinstance(conclusion, dict):
-        fail("POLICY_CONCLUSION_MISSING")
-    if conclusion.get("conclusion") is not None:
-        fail("POLICY_CONCLUSION_MUST_STAY_NULL")
-    if conclusion.get("conclusion_status") != CONCLUSION_STATUS:
-        fail("POLICY_CONCLUSION_STATUS_INVALID")
-    for key, claimed in conclusion.items():
-        if key in ("conclusion", "conclusion_status", "statement"):
-            continue
-        if claimed is not False:
-            fail("POLICY_CONCLUSION_MUST_STAY_NULL", key)
-    if value.get("hysteresis_facts", {}).get("hysteresis_applied") is not False:
-        fail("HYSTERESIS_MUST_NOT_BE_APPLIED")
-    if value.get("hysteresis_facts", {}).get("hysteresis_parameter_source") is not None:
-        fail("HYSTERESIS_MUST_NOT_BE_APPLIED", "parameter_source")
-    if value.get("stress_detection_facts", {}).get(
-        "stress_threshold_introduced_by_this_module"
-    ) is not False:
-        fail("STRESS_THRESHOLD_MUST_NOT_BE_INTRODUCED")
+def _validate_policy_basis(value: dict) -> dict:
+    """Both policy layers must be stated, and neither described as the other.
+
+    Checked without re-reading disk, because a verifier may hold this report
+    without the checkout that produced it. The exact key set matters as much as
+    the values: dropping ``common_v1_replay_policy`` is precisely how this
+    report would go back to describing a ratified policy as absent.
+    """
+    basis = value.get("policy_basis")
+    if not isinstance(basis, dict) or sorted(basis) != [
+        "common_v1_replay_policy", "market_specific_candidate_policy", "statement",
+    ]:
+        fail("POLICY_BASIS_SCHEMA_INVALID")
+
+    candidate = basis["market_specific_candidate_policy"]
+    if not isinstance(candidate, dict) or sorted(candidate) != sorted(CANDIDATE_POLICY_KEYS):
+        fail("POLICY_BASIS_SCHEMA_INVALID", "market_specific_candidate_policy")
+    if candidate["path"] != POLICY_INVENTORY_PATH:
+        fail("POLICY_BASIS_SCHEMA_INVALID", "candidate path")
+    if candidate["policy_status"] != POLICY_STATUS:
+        fail("POLICY_STATUS_CHANGED", str(candidate["policy_status"]))
+    if candidate["scope"] != CANDIDATE_POLICY_SCOPE:
+        fail("POLICY_BASIS_SCHEMA_INVALID", "candidate scope")
+    if candidate["component_status"] != {
+        component: BLOCKED_COMPONENT_STATUS
+        for component in REQUIRED_UNRATIFIED_COMPONENTS
+    }:
+        fail("POLICY_COMPONENT_STATUS_CHANGED", "market_specific_candidate_policy")
+
+    common = basis["common_v1_replay_policy"]
+    if not isinstance(common, dict) or sorted(common) != sorted(COMMON_V1_POLICY_KEYS):
+        fail("POLICY_BASIS_SCHEMA_INVALID", "common_v1_replay_policy")
+    if common["path"] != REGISTRY_PATH:
+        fail("POLICY_BASIS_SCHEMA_INVALID", "common path")
+    # The correction this section exists for: the ratified common replay policy
+    # must be reported as present, with its own hysteresis and stress behavior,
+    # and explicitly not applied — never as missing.
+    hysteresis = common["hysteresis"]
+    if (
+        common["policy_status"] != COMMON_V1_POLICY_STATUS
+        or common["present_in_repository"] is not True
+        or not isinstance(hysteresis, dict)
+        or not all(hysteresis.get(key) for key in COMMON_V1_HYSTERESIS_KEYS)
+        or not common["stress_classification"]
+    ):
+        fail("COMMON_V1_POLICY_MUST_NOT_BE_REPORTED_AS_ABSENT")
+    if common["applied_to_this_replay"] is not False:
+        fail("COMMON_V1_POLICY_MUST_NOT_BE_APPLIED")
+    if common["market_specific_normalization_freshness_and_replay_inherited"] is not False:
+        fail("COMMON_V1_SCOPE_CHANGED", "inherited")
+    if not common["not_applied_reason"] or not common["market_kill_stress_condition_status"]:
+        fail("POLICY_BASIS_SCHEMA_INVALID", "common attribution")
+    return basis
+
+
+def _validate_no_conclusion(value: dict, basis: dict) -> None:
+    # Scanned first, over the whole report, so a recommendation added under a new
+    # key name is always reported as smuggling rather than as whichever section's
+    # schema happened to notice the extra key.
     smuggled = sorted(set(_forbidden_keys(value)))
     if smuggled:
         fail("POLICY_CONCLUSION_SMUGGLED", ",".join(smuggled))
+
+    conclusion = value.get("policy_conclusion")
+    # Exact key set, not "every key that happens to be here": removing a refusal
+    # flag must fail rather than pass by having nothing left to check.
+    if not isinstance(conclusion, dict) or sorted(conclusion) != sorted(CONCLUSION_KEYS):
+        fail("POLICY_CONCLUSION_SCHEMA_INVALID")
+    if conclusion["conclusion"] is not None:
+        fail("POLICY_CONCLUSION_MUST_STAY_NULL")
+    if conclusion["conclusion_status"] != CONCLUSION_STATUS:
+        fail("POLICY_CONCLUSION_STATUS_INVALID")
+    if not isinstance(conclusion["statement"], str) or not conclusion["statement"]:
+        fail("POLICY_CONCLUSION_SCHEMA_INVALID", "statement")
+    for flag in CONCLUSION_FALSE_FLAGS:
+        if conclusion[flag] is not False:
+            fail("POLICY_CONCLUSION_MUST_STAY_NULL", flag)
+
+    candidate_status = basis["market_specific_candidate_policy"]["component_status"]
+    common_status = basis["common_v1_replay_policy"]["policy_status"]
+
+    hysteresis = value.get("hysteresis_facts")
+    if not isinstance(hysteresis, dict) or sorted(hysteresis) != [
+        "common_v1_replay_hysteresis", "hysteresis_applied",
+        "hysteresis_parameter_source", "hysteresis_policy_status", "markets",
+        "statement",
+    ]:
+        fail("HYSTERESIS_FACTS_SCHEMA_INVALID")
+    if hysteresis["hysteresis_applied"] is not False:
+        fail("HYSTERESIS_MUST_NOT_BE_APPLIED")
+    if hysteresis["hysteresis_parameter_source"] is not None:
+        fail("HYSTERESIS_MUST_NOT_BE_APPLIED", "parameter_source")
+    quoted = hysteresis["common_v1_replay_hysteresis"]
+    if not isinstance(quoted, dict) or quoted.get("applied_to_this_replay") is not False:
+        fail("COMMON_V1_POLICY_MUST_NOT_BE_APPLIED", "hysteresis")
+    if hysteresis["hysteresis_policy_status"] != {
+        "market_specific_candidate_component": candidate_status["HYSTERESIS"],
+        "common_v1_replay_policy": common_status,
+    }:
+        fail("HYSTERESIS_POLICY_STATUS_INCONSISTENT")
+
+    stress = value.get("stress_detection_facts")
+    if not isinstance(stress, dict) or sorted(stress) != [
+        "common_v1_replay_stress_behavior", "detection_source", "markets",
+        "statement", "stress_policy_status",
+        "stress_threshold_introduced_by_this_module",
+    ]:
+        fail("STRESS_FACTS_SCHEMA_INVALID")
+    if stress["stress_threshold_introduced_by_this_module"] is not False:
+        fail("STRESS_THRESHOLD_MUST_NOT_BE_INTRODUCED")
+    behavior = stress["common_v1_replay_stress_behavior"]
+    if not isinstance(behavior, dict) or behavior.get("applied_to_this_replay") is not False:
+        fail("COMMON_V1_POLICY_MUST_NOT_BE_APPLIED", "stress")
+    if stress["stress_policy_status"] != {
+        "market_specific_candidate_component": candidate_status["STRESS_OVERRIDE"],
+        "common_v1_replay_policy": common_status,
+    }:
+        fail("STRESS_POLICY_STATUS_INCONSISTENT")
 
 
 def _validate_counts(value: dict) -> None:
@@ -1004,34 +1373,79 @@ def _validate_counts(value: dict) -> None:
     A bucket set that does not add up would mean a date was counted twice or
     dropped — either of which would silently misstate coverage or UNKNOWN.
     """
-    coverage = value.get("coverage_facts", {})
+    coverage = value.get("coverage_facts")
+    if not isinstance(coverage, dict):
+        fail("COVERAGE_FACTS_INVALID", "coverage_facts")
+    dates = coverage.get("requested_dates")
     total = coverage.get("requested_date_count")
-    if not isinstance(total, int):
+    if (
+        not isinstance(dates, list)
+        or not dates
+        or any(not isinstance(date, str) for date in dates)
+        or dates != sorted(set(dates))
+    ):
+        fail("COVERAGE_FACTS_INVALID", "requested_dates")
+    if not isinstance(total, int) or isinstance(total, bool) or total != len(dates):
         fail("COVERAGE_FACTS_INVALID", "requested_date_count")
+    markets = coverage.get("markets")
+    if not isinstance(markets, dict) or sorted(markets) != sorted(MARKETS):
+        fail("COVERAGE_FACTS_INVALID", "markets")
     for market in MARKETS:
-        market_facts = coverage.get("markets", {}).get(market)
+        market_facts = markets[market]
         if not isinstance(market_facts, dict):
             fail("COVERAGE_FACTS_INVALID", market)
-        if sum(market_facts.get("outcome_counts", {}).values()) != total:
+        outcomes = market_facts.get("outcome_counts")
+        if not isinstance(outcomes, dict) or sorted(outcomes) != sorted(CSR.OUTCOMES):
+            fail("COVERAGE_FACTS_INVALID", f"{market}.outcome_counts")
+        if _total(outcomes) != total:
             fail("COVERAGE_COUNTS_NOT_TOTAL", f"{market}.outcome_counts")
+        per_axis = market_facts.get("axis_status_counts")
+        if not isinstance(per_axis, dict) or sorted(per_axis) != sorted(AXES):
+            fail("COVERAGE_FACTS_INVALID", f"{market}.axis_status_counts")
         for name in AXES:
-            buckets = market_facts.get("axis_status_counts", {}).get(name, {})
-            if sorted(buckets) != sorted(AXIS_STATUSES):
+            buckets = per_axis[name]
+            if not isinstance(buckets, dict) or sorted(buckets) != sorted(AXIS_STATUSES):
                 fail("AXIS_STATUS_VOCABULARY_INVALID", f"{market}.{name}")
-            if sum(buckets.values()) != total:
+            if _total(buckets) != total:
                 fail("COVERAGE_COUNTS_NOT_TOTAL", f"{market}.{name}")
 
 
+def _total(counts: dict) -> int | None:
+    """Sum a count bucket, or ``None`` if any value is not a plain count."""
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in counts.values()
+    ):
+        return None
+    return sum(counts.values())
+
+
 def _validate_sequences(value: dict) -> None:
-    markets = value.get("transition_facts", {}).get("markets", {})
-    if sorted(markets) != sorted(MARKETS):
+    facts = value.get("transition_facts")
+    markets = facts.get("markets") if isinstance(facts, dict) else None
+    if not isinstance(markets, dict) or sorted(markets) != sorted(MARKETS):
         fail("TRANSITION_FACTS_INVALID", "markets")
     total = value.get("coverage_facts", {}).get("requested_date_count")
     for market in MARKETS:
-        sequences = [markets[market]["candidate_regime"]] + [
-            markets[market]["axis_direction"][name] for name in AXES
+        per_market = markets[market]
+        directions = per_market.get("axis_direction") if isinstance(per_market, dict) else None
+        if not isinstance(directions, dict) or sorted(directions) != sorted(AXES):
+            fail("TRANSITION_FACTS_INVALID", f"{market}.axis_direction")
+        sequences = [per_market.get("candidate_regime")] + [
+            directions[name] for name in AXES
         ]
         for sequence in sequences:
+            if not isinstance(sequence, dict) or sorted(sequence) != sorted(SEQUENCE_KEYS):
+                fail("TRANSITION_FACTS_INVALID", market)
+            if not isinstance(sequence["transitions"], list):
+                fail("TRANSITION_FACTS_INVALID", f"{market}.transitions")
+            for key in (
+                "sequence_length", "observed_state_count", "unknown_state_count",
+                "transition_count", "state_change_count",
+                "evidence_availability_change_count",
+            ):
+                if not isinstance(sequence[key], int) or isinstance(sequence[key], bool):
+                    fail("TRANSITION_FACTS_INVALID", f"{market}.{key}")
             # Totality: a sequence shorter than the requested dates would mean a
             # date without evidence was dropped, letting a run bridge it.
             if sequence["sequence_length"] != total:
@@ -1050,15 +1464,105 @@ def _validate_sequences(value: dict) -> None:
             # A pair touching UNKNOWN must never be counted as a market state
             # change — that is the UNKNOWN/observed-state boundary itself.
             for row in sequence["transitions"]:
-                touches_unknown = UNKNOWN_STATE in (row["from_state"], row["to_state"])
+                if not isinstance(row, dict):
+                    fail("TRANSITION_FACTS_INVALID", f"{market}.transition")
+                touches_unknown = UNKNOWN_STATE in (
+                    row.get("from_state"), row.get("to_state")
+                )
                 expected = (
                     TRANSITION_EVIDENCE_CHANGE if touches_unknown
                     else TRANSITION_STATE_CHANGE
                 )
-                if row["kind"] != expected:
+                if row.get("kind") != expected:
                     fail("UNKNOWN_MUST_NOT_COUNT_AS_STATE_CHANGE", market)
-            if sequence["adjacency"]["basis"] != ADJACENCY_BASIS:
+            adjacency = sequence["adjacency"]
+            if not isinstance(adjacency, dict) or adjacency.get("basis") != ADJACENCY_BASIS:
                 fail("ADJACENCY_BASIS_INVALID", market)
+
+
+def _validate_observations(value: dict, basis: dict) -> None:
+    """Every requested date must have an observation, and every fact must follow.
+
+    This is the counterpart to the source population's own record bijection. A
+    re-hashed report is a valid signature over whatever it contains, so it is
+    not enough to check the observations that happen to be present: the
+    published observation table must cover exactly the requested dates, and
+    every fact family must then *reproduce* from it. A report whose counts,
+    sequences, or stress observations do not follow from its own published
+    observations fails closed rather than being trusted.
+
+    Re-derivation runs against the report's own ``policy_basis`` rather than
+    disk, so a verifier holding only the report can still run it.
+    """
+    coverage = value["coverage_facts"]
+    dates = list(coverage["requested_dates"])
+    observations = value.get("per_date_observations")
+    if not isinstance(observations, dict) or sorted(observations) != sorted(MARKETS):
+        fail("PER_DATE_OBSERVATIONS_INVALID", "markets")
+    for market in MARKETS:
+        cells = observations[market]
+        if not isinstance(cells, dict) or sorted(cells) != dates:
+            fail("OBSERVATIONS_NOT_BIJECTIVE_OVER_REQUESTED_DATES", market)
+        for date in dates:
+            _validate_observation(cells[date], f"{market}.{date}")
+
+    table = {
+        market: {date: observations[market][date] for date in dates}
+        for market in MARKETS
+    }
+    combined_counts = coverage.get("combined_status_counts")
+    if (
+        not isinstance(combined_counts, dict)
+        or sorted(combined_counts) != sorted(CSR.COMBINED_STATUSES)
+        or _total(combined_counts) != len(dates)
+    ):
+        fail("COVERAGE_FACTS_INVALID", "combined_status_counts")
+    available = {}
+    for market in MARKETS:
+        flag = coverage["markets"][market].get("population_available")
+        if not isinstance(flag, bool):
+            fail("COVERAGE_FACTS_INVALID", f"{market}.population_available")
+        available[market] = flag
+
+    if coverage != coverage_facts(table, dates, combined_counts, available):
+        fail("COVERAGE_FACTS_INCONSISTENT")
+    if value.get("unknown_facts") != unknown_facts(table, dates):
+        fail("UNKNOWN_FACTS_INCONSISTENT")
+    transitions = transition_facts(table, dates)
+    if value.get("transition_facts") != transitions:
+        fail("TRANSITION_FACTS_INCONSISTENT")
+    if value.get("stress_detection_facts") != stress_facts(table, dates, basis):
+        fail("STRESS_FACTS_INCONSISTENT")
+    if value.get("hysteresis_facts") != hysteresis_facts(transitions, basis):
+        fail("HYSTERESIS_FACTS_INCONSISTENT")
+
+
+def _validate_observation(cell: object, label: str) -> None:
+    """One observation cell, complete and in this report's own vocabulary."""
+    if not isinstance(cell, dict) or sorted(cell) != sorted(OBSERVATION_KEYS):
+        fail("OBSERVATION_SCHEMA_INVALID", label)
+    if cell["outcome"] not in CSR.OUTCOMES:
+        fail("OBSERVATION_OUTCOME_INVALID", label)
+    if not isinstance(cell["lookahead_contained"], bool):
+        fail("OBSERVATION_SCHEMA_INVALID", f"{label}.lookahead_contained")
+    for key in ("blocked_reason_code", "candidate_regime", "candidate_classification_status"):
+        if cell[key] is not None and not isinstance(cell[key], str):
+            fail("OBSERVATION_SCHEMA_INVALID", f"{label}.{key}")
+    for key in ("axis_status", "axis_direction", "axis_reason_code"):
+        per_axis = cell[key]
+        if not isinstance(per_axis, dict) or sorted(per_axis) != sorted(AXES):
+            fail("OBSERVATION_AXIS_SET_INVALID", f"{label}.{key}")
+    for name in AXES:
+        if cell["axis_status"][name] not in AXIS_STATUSES:
+            fail("OBSERVATION_AXIS_STATUS_INVALID", f"{label}.{name}")
+        for key in ("axis_direction", "axis_reason_code"):
+            if cell[key][name] is not None and not isinstance(cell[key][name], str):
+                fail("OBSERVATION_SCHEMA_INVALID", f"{label}.{key}.{name}")
+        # An axis without an OBSERVED status carries no direction: that is the
+        # UNKNOWN/observed boundary, and a direction here would smuggle a state
+        # into a date the replay could not observe.
+        if cell["axis_status"][name] != AXIS_OBSERVED and cell["axis_direction"][name] is not None:
+            fail("UNOBSERVED_AXIS_MUST_NOT_CARRY_A_DIRECTION", f"{label}.{name}")
 
 
 def validate_evidence(
@@ -1089,14 +1593,18 @@ def validate_evidence(
         fail("EPISODE_SELECTION_INVALID")
     if value.get("episode_selection", {}).get("label_influences_any_fact") is not False:
         fail("EPISODE_SELECTION_INVALID", "label_influences_any_fact")
-    _validate_no_conclusion(value)
+    basis = _validate_policy_basis(value)
+    _validate_no_conclusion(value, basis)
     _validate_counts(value)
     _validate_sequences(value)
-    for key, allowed in value.get("authority", {}).items():
-        if key == "replay_evidence_summary_authorized":
-            if allowed is not True:
-                fail("EVIDENCE_AUTHORITY_INVALID", key)
-        elif allowed is not False:
+    _validate_observations(value, basis)
+    authority = value.get("authority")
+    # Exact key set, not "every key that happens to be here": a payload that
+    # deletes an explicit false boundary must fail, not pass silently.
+    if not isinstance(authority, dict) or sorted(authority) != sorted(AUTHORITY):
+        fail("EVIDENCE_AUTHORITY_SCHEMA_INVALID")
+    for key, allowed in AUTHORITY.items():
+        if authority[key] is not allowed:
             fail("EVIDENCE_AUTHORITY_INVALID", key)
     if population is not None and value != build_evidence(population, root=root):
         fail("EVIDENCE_REDERIVATION_MISMATCH")
