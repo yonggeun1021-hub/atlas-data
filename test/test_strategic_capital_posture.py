@@ -3,6 +3,7 @@
 
 import ast
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
@@ -45,7 +46,19 @@ CURRENCY_TEST = load_module(
 )
 
 
-def defensive_packet(as_of="2026-08-21", generated_at="2026-08-21T02:00:00Z"):
+# P7-12's own baseline shares the P6-06 fixture's (dynamic) day and lands an
+# hour after its fixed 02:00 generated_at, exactly like the original pinned
+# "2026-08-21" convention -- see test_defensive_action_decision.py for why
+# that day is derived from real evidence rather than hardcoded.
+AS_OF_DATE = P606_TEST.AS_OF_DATE
+GENERATED_AT = AS_OF_DATE + "T03:00:00Z"
+FUTURE_AS_OF_DATE = (
+    dt.date.fromisoformat(AS_OF_DATE) + dt.timedelta(days=1)
+).isoformat()
+FUTURE_GENERATED_AT = FUTURE_AS_OF_DATE + "T02:00:00Z"
+
+
+def defensive_packet(as_of=P606_TEST.AS_OF_DATE, generated_at=P606_TEST.GENERATED_AT):
     packets, reasons = P606_TEST.bundle()
     return P606_TEST.MODULE.build_packet(
         packets,
@@ -129,8 +142,8 @@ class StrategicCapitalPostureTests(unittest.TestCase):
         return MODULE.build_packet(
             packets,
             reasons,
-            "2026-08-21",
-            "2026-08-21T03:00:00Z",
+            AS_OF_DATE,
+            GENERATED_AT,
             contract=CONTRACT,
         )
 
@@ -176,8 +189,8 @@ class StrategicCapitalPostureTests(unittest.TestCase):
         packet = MODULE.build_packet(
             packets,
             reasons,
-            "2026-08-21",
-            "2026-08-21T03:00:00Z",
+            AS_OF_DATE,
+            GENERATED_AT,
             contract=CONTRACT,
         )
         self.assertEqual(packet["summary"]["available_source_count"], 6)
@@ -203,8 +216,8 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             MODULE.build_packet(
                 packets,
                 reasons,
-                "2026-08-21",
-                "2026-08-21T03:00:00Z",
+                AS_OF_DATE,
+                GENERATED_AT,
                 contract=CONTRACT,
             )
 
@@ -222,8 +235,8 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             MODULE.build_packet(
                 packets,
                 reasons,
-                "2026-08-21",
-                "2026-08-21T03:00:00Z",
+                AS_OF_DATE,
+                GENERATED_AT,
                 contract=CONTRACT,
             )
 
@@ -240,8 +253,8 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             MODULE.build_packet(
                 packets,
                 reasons,
-                "2026-08-21",
-                "2026-08-21T03:00:00Z",
+                AS_OF_DATE,
+                GENERATED_AT,
                 contract=CONTRACT,
             )
 
@@ -256,15 +269,15 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             MODULE.build_packet(
                 packets,
                 reasons,
-                "2026-08-21",
-                "2026-08-21T03:00:00Z",
+                AS_OF_DATE,
+                GENERATED_AT,
                 contract=CONTRACT,
             )
 
     def test_future_source_fails_closed(self):
         packets, reasons = bundle()
         packets["P6_DEFENSIVE_ACTION"] = defensive_packet(
-            "2026-08-22", "2026-08-22T02:00:00Z"
+            FUTURE_AS_OF_DATE, FUTURE_GENERATED_AT
         )
         with self.assertRaisesRegex(
             MODULE.StrategicCapitalPostureError,
@@ -273,8 +286,8 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             MODULE.build_packet(
                 packets,
                 reasons,
-                "2026-08-21",
-                "2026-08-21T03:00:00Z",
+                AS_OF_DATE,
+                GENERATED_AT,
                 contract=CONTRACT,
             )
 
@@ -311,8 +324,8 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             MODULE.build_packet(
                 packets,
                 reasons,
-                "2026-08-21",
-                "2026-08-21T03:00:00Z",
+                AS_OF_DATE,
+                GENERATED_AT,
                 policy_packet={"status": "RATIFIED"},
                 contract=CONTRACT,
             )
@@ -370,8 +383,8 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             self.assertEqual(
                 MODULE.run(
                     bundle_path,
-                    "2026-08-21",
-                    "2026-08-21T03:00:00Z",
+                    AS_OF_DATE,
+                    GENERATED_AT,
                     output_path,
                 ),
                 0,
@@ -384,8 +397,8 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             self.assertEqual(
                 MODULE.run(
                     bundle_path,
-                    "2026-08-21",
-                    "2026-08-21T03:00:00Z",
+                    AS_OF_DATE,
+                    GENERATED_AT,
                     forbidden,
                 ),
                 1,

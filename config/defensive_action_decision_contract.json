@@ -1,8 +1,20 @@
 {
-  "schema_version": 1,
+  "authority": {
+    "action_proposal_authorized": false,
+    "defensive_action_authorized": false,
+    "instrument_selection_authorized": false,
+    "no_action_inference_authorized": false,
+    "order_authorized": false,
+    "policy_evaluation_authorized": false,
+    "position_size_authorized": false,
+    "production_authorized": false,
+    "readiness_inventory_only": true,
+    "risk_budget_allocation_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "target_exposure_authorized": false,
+    "trading_authorized": false
+  },
   "contract_version": "defensive_action_decision_readiness/1",
-  "output_schema_version": "defensive_action_decision_readiness_packet/1",
-  "scope": "ZERO_CAPITAL_DECISION_REVIEW",
   "decision_vocabulary": [
     "CASH_PRIORITY",
     "REDUCE_REVIEW",
@@ -10,8 +22,18 @@
     "INVERSE_REVIEW",
     "NO_ACTION"
   ],
+  "invariants": [
+    "ACTION_PROPOSAL_NEVER_IMPLIES_ORDER",
+    "HEDGE_ELIGIBILITY_NEVER_IMPLIES_ACTION_PROPOSAL",
+    "LONG_FAIL_NEVER_IMPLIES_SHORT_PASS",
+    "MISSING_OR_UNEVALUATED_INPUT_NEVER_IMPLIES_NO_ACTION",
+    "RISK_OFF_STRESS_NEVER_IMPLIES_AUTO_INVERSE_ORDER"
+  ],
+  "output_schema_version": "defensive_action_decision_readiness_packet/1",
   "runtime_decision_status": "BLOCKED",
   "runtime_evaluation_status": "NOT_EVALUATED",
+  "schema_version": 1,
+  "scope": "ZERO_CAPITAL_DECISION_REVIEW",
   "source_order": [
     "P1_REGIME_DECISION",
     "P2_FLOW_ENGINE",
@@ -26,96 +48,81 @@
     "INVERSE_KOREA",
     "INVERSE_CRYPTO"
   ],
-  "unavailable_only_source_slots": [
-    "P1_REGIME_DECISION",
-    "P2_FLOW_ENGINE",
-    "P2_FLOW_LEDGER"
-  ],
   "source_specs": {
     "BEAR_HEDGE_BUDGET": {
-      "schema_version": "bear_hedge_budget_packet/2",
       "contract_version": "bear_hedge_risk_budget/1",
+      "schema_version": "bear_hedge_budget_packet/2",
       "statuses": [
         "BEAR_HEDGE_BUDGET_SET_VALIDATED"
       ]
     },
     "CASH_EXPOSURE_CRYPTO": {
-      "schema_version": "cash_exposure_action_packet/1",
       "contract_version": "cash_exposure_action_boundary/1",
+      "schema_version": "cash_exposure_action_packet/1",
       "statuses": [
         "CASH_EXPOSURE_ACTION_NOT_EVALUATED"
       ]
     },
     "CASH_EXPOSURE_KOREA": {
-      "schema_version": "cash_exposure_action_packet/1",
       "contract_version": "cash_exposure_action_boundary/1",
+      "schema_version": "cash_exposure_action_packet/1",
       "statuses": [
         "CASH_EXPOSURE_ACTION_NOT_EVALUATED"
       ]
     },
     "CASH_EXPOSURE_US": {
-      "schema_version": "cash_exposure_action_packet/1",
       "contract_version": "cash_exposure_action_boundary/1",
+      "schema_version": "cash_exposure_action_packet/1",
       "statuses": [
         "CASH_EXPOSURE_ACTION_NOT_EVALUATED"
       ]
     },
     "HEDGE_ELIGIBILITY": {
-      "schema_version": "hedge_instrument_eligibility_packet/2",
       "contract_version": "hedge_instrument_eligibility/1",
+      "schema_version": "hedge_instrument_eligibility_packet/2",
       "statuses": [
         "ELIGIBILITY_REGISTRY_VALIDATED"
       ]
     },
     "INVERSE_CRYPTO": {
-      "schema_version": "regime_inverse_invariant_packet/1",
       "contract_version": "regime_inverse_invariant/1",
+      "schema_version": "regime_inverse_invariant_packet/1",
       "statuses": [
         "INVARIANT_ENFORCED_INVERSE_NOT_EVALUATED"
       ]
     },
     "INVERSE_KOREA": {
-      "schema_version": "regime_inverse_invariant_packet/1",
       "contract_version": "regime_inverse_invariant/1",
+      "schema_version": "regime_inverse_invariant_packet/1",
       "statuses": [
         "INVARIANT_ENFORCED_INVERSE_NOT_EVALUATED"
       ]
     },
     "INVERSE_US": {
-      "schema_version": "regime_inverse_invariant_packet/1",
       "contract_version": "regime_inverse_invariant/1",
+      "schema_version": "regime_inverse_invariant_packet/1",
       "statuses": [
         "INVARIANT_ENFORCED_INVERSE_NOT_EVALUATED"
       ]
     },
     "LONG_SHORT_INVARIANT": {
-      "schema_version": "long_short_invariant_packet/1",
       "contract_version": "long_short_invariant/1",
+      "schema_version": "long_short_invariant_packet/1",
       "statuses": [
         "INVARIANT_ENFORCED_SHORT_NOT_EVALUATED"
       ]
+    },
+    "P2_FLOW_ENGINE": {
+      "contract_version": "capital_flow_posture_reference_policy/v1",
+      "schema_version": "capital_flow_posture_reference/v1",
+      "statuses": [
+        "REFERENCE_AVAILABLE",
+        "PARTIAL_REFERENCE_AVAILABLE"
+      ]
     }
   },
-  "invariants": [
-    "ACTION_PROPOSAL_NEVER_IMPLIES_ORDER",
-    "HEDGE_ELIGIBILITY_NEVER_IMPLIES_ACTION_PROPOSAL",
-    "LONG_FAIL_NEVER_IMPLIES_SHORT_PASS",
-    "MISSING_OR_UNEVALUATED_INPUT_NEVER_IMPLIES_NO_ACTION",
-    "RISK_OFF_STRESS_NEVER_IMPLIES_AUTO_INVERSE_ORDER"
-  ],
-  "authority": {
-    "readiness_inventory_only": true,
-    "policy_evaluation_authorized": false,
-    "strategy_eligibility_authorized": false,
-    "defensive_action_authorized": false,
-    "no_action_inference_authorized": false,
-    "instrument_selection_authorized": false,
-    "risk_budget_allocation_authorized": false,
-    "target_exposure_authorized": false,
-    "position_size_authorized": false,
-    "action_proposal_authorized": false,
-    "order_authorized": false,
-    "production_authorized": false,
-    "trading_authorized": false
-  }
+  "unavailable_only_source_slots": [
+    "P1_REGIME_DECISION",
+    "P2_FLOW_LEDGER"
+  ]
 }

@@ -3,6 +3,7 @@
 
 import ast
 import copy
+import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
@@ -36,6 +37,30 @@ LONG_SHORT = load_module(
 INVERSE = load_module(
     "p606_inverse_fixture", ROOT / "test" / "test_regime_inverse_invariant.py"
 )
+CAPITAL_FLOW_ENGINE = load_module(
+    "p606_capital_flow_engine_fixture",
+    ROOT / "portfolio" / "capital_flow_posture_reference.py",
+)
+
+# The real, currently-committed P2-COM-02 packet.  Its own generated_at is
+# derived deterministically from the real US/Korea/Crypto market-data files'
+# generated_at fields (see regime/paper_regime_reference.py), never wall-clock
+# "now" -- so it is stable for a given commit.  The P6-06 bundle baseline is
+# pinned to the calendar day *after* that real evidence date (at a fixed
+# hour), read dynamically instead of a hardcoded literal, so this test never
+# goes stale as the daily crons advance that evidence (the same staleness
+# class documented for test_daily_orchestrator.py) and never has to reason
+# about what time of day the real evidence itself landed at -- it is always
+# a full day earlier than the bundle baseline, regardless.
+P2_FLOW_ENGINE_PACKET = CAPITAL_FLOW_ENGINE.build_reference()
+_REAL_EVIDENCE_DATE = P2_FLOW_ENGINE_PACKET["generated_at"][:10]
+AS_OF_DATE = (
+    dt.date.fromisoformat(_REAL_EVIDENCE_DATE) + dt.timedelta(days=1)
+).isoformat()
+GENERATED_AT = AS_OF_DATE + "T02:00:00Z"
+FUTURE_GENERATED_AT = (
+    dt.date.fromisoformat(AS_OF_DATE) + dt.timedelta(days=1)
+).isoformat() + "T01:00:00Z"
 
 
 def source_packet(name):
@@ -70,6 +95,8 @@ def source_packet(name):
         return LONG_SHORT.MODULE.build_packet(
             LONG_SHORT.upstream_packet(), LONG_SHORT.CONTRACT
         )
+    if name == "P2_FLOW_ENGINE":
+        return copy.deepcopy(P2_FLOW_ENGINE_PACKET)
     raise AssertionError(name)
 
 
@@ -102,8 +129,8 @@ class DefensiveActionDecisionTests(unittest.TestCase):
         return MODULE.build_packet(
             packets,
             reasons,
-            "2026-08-21",
-            "2026-08-21T02:00:00Z",
+            AS_OF_DATE,
+            GENERATED_AT,
             contract=CONTRACT,
         )
 
@@ -123,8 +150,8 @@ class DefensiveActionDecisionTests(unittest.TestCase):
         packet = self.build()
         self.assertEqual(packet["status"], "DEFENSIVE_ACTION_READINESS_BLOCKED")
         self.assertEqual(packet["decision_status"], "BLOCKED")
-        self.assertEqual(packet["summary"]["available_source_count"], 9)
-        self.assertEqual(packet["summary"]["unavailable_source_count"], 3)
+        self.assertEqual(packet["summary"]["available_source_count"], 10)
+        self.assertEqual(packet["summary"]["unavailable_source_count"], 2)
         self.assertEqual(packet["summary"]["no_action"], None)
         self.assertTrue(all(row["eligible"] is None for row in packet["decisions"]))
         self.assertTrue(all(row["review_proposal"] is None for row in packet["decisions"]))
@@ -149,6 +176,39 @@ class DefensiveActionDecisionTests(unittest.TestCase):
         self.assertIsNone(packet["action_proposal"])
         self.assertEqual(packet["order_intents"], [])
 
+    def test_p2_flow_engine_is_connected_while_regime_and_ledger_stay_unavailable(self):
+        packet = self.build()
+        rows = {row["name"]: row for row in packet["sources"]}
+        self.assertEqual(rows["P2_FLOW_ENGINE"]["availability"], "AVAILABLE")
+        self.assertEqual(
+            rows["P2_FLOW_ENGINE"]["source_packet_sha256"],
+            P2_FLOW_ENGINE_PACKET["payload_sha256"],
+        )
+        self.assertEqual(rows["P1_REGIME_DECISION"]["availability"], "UNAVAILABLE")
+        self.assertEqual(rows["P2_FLOW_LEDGER"]["availability"], "UNAVAILABLE")
+        # connecting a source must not itself unlock any decision or authority
+        self.assertEqual(packet["decision_status"], "BLOCKED")
+        self.assertIsNone(packet["selected_action"])
+        self.assertNotIn("P2_FLOW_ENGINE_UNAVAILABLE", packet["unresolved_boundaries"])
+        self.assertIn("P1_REGIME_DECISION_UNAVAILABLE", packet["unresolved_boundaries"])
+        self.assertIn("P2_FLOW_LEDGER_UNAVAILABLE", packet["unresolved_boundaries"])
+
+    def test_p2_flow_engine_semantic_tamper_fails_closed(self):
+        packets, reasons = bundle()
+        tampered = copy.deepcopy(P2_FLOW_ENGINE_PACKET)
+        tampered["total_exposure_review"]["invested_target_pct"] = 80
+        unsigned = {k: v for k, v in tampered.items() if k != "payload_sha256"}
+        tampered["payload_sha256"] = MODULE.CAPITAL_FLOW_ENGINE.payload_sha256(unsigned)
+        packets["P2_FLOW_ENGINE"] = tampered
+        with self.assertRaisesRegex(
+            MODULE.DefensiveActionDecisionError,
+            "SOURCE_SEMANTIC_INVALID:P2_FLOW_ENGINE",
+        ):
+            MODULE.build_packet(
+                packets, reasons, AS_OF_DATE, GENERATED_AT,
+                contract=CONTRACT,
+            )
+
     def test_p1_or_p2_packet_cannot_bypass_missing_production_contract(self):
         packets, reasons = bundle()
         packets["P1_REGIME_DECISION"] = {"packet_sha256": "0" * 64}
@@ -158,7 +218,7 @@ class DefensiveActionDecisionTests(unittest.TestCase):
             "SOURCE_PACKET_NOT_YET_SUPPORTED:P1_REGIME_DECISION",
         ):
             MODULE.build_packet(
-                packets, reasons, "2026-08-21", "2026-08-21T02:00:00Z",
+                packets, reasons, AS_OF_DATE, GENERATED_AT,
                 contract=CONTRACT,
             )
 
@@ -174,7 +234,7 @@ class DefensiveActionDecisionTests(unittest.TestCase):
             "SOURCE_SEMANTIC_INVALID:CASH_EXPOSURE_US",
         ):
             MODULE.build_packet(
-                packets, reasons, "2026-08-21", "2026-08-21T02:00:00Z",
+                packets, reasons, AS_OF_DATE, GENERATED_AT,
                 contract=CONTRACT,
             )
 
@@ -186,13 +246,13 @@ class DefensiveActionDecisionTests(unittest.TestCase):
             "SOURCE_MARKET_MISMATCH:CASH_EXPOSURE_KOREA",
         ):
             MODULE.build_packet(
-                packets, reasons, "2026-08-21", "2026-08-21T02:00:00Z",
+                packets, reasons, AS_OF_DATE, GENERATED_AT,
                 contract=CONTRACT,
             )
 
     def test_future_source_fails_closed(self):
         packets, reasons = bundle()
-        future = CASH.REGIME.build_unknown_output("US", "2026-08-22T01:00:00Z")
+        future = CASH.REGIME.build_unknown_output("US", FUTURE_GENERATED_AT)
         packets["CASH_EXPOSURE_US"] = CASH.MODULE.build_packet(
             future, CASH.CONTRACT
         )
@@ -201,7 +261,7 @@ class DefensiveActionDecisionTests(unittest.TestCase):
             "SOURCE_FROM_FUTURE:CASH_EXPOSURE_US",
         ):
             MODULE.build_packet(
-                packets, reasons, "2026-08-21", "2026-08-21T02:00:00Z",
+                packets, reasons, AS_OF_DATE, GENERATED_AT,
                 contract=CONTRACT,
             )
 
@@ -212,7 +272,7 @@ class DefensiveActionDecisionTests(unittest.TestCase):
             "UNRATIFIED_POLICY_PACKET_FORBIDDEN",
         ):
             MODULE.build_packet(
-                packets, reasons, "2026-08-21", "2026-08-21T02:00:00Z",
+                packets, reasons, AS_OF_DATE, GENERATED_AT,
                 policy_packet={"status": "RATIFIED"}, contract=CONTRACT,
             )
 
@@ -273,7 +333,7 @@ class DefensiveActionDecisionTests(unittest.TestCase):
             output_path = tmp / "nested" / "readiness.json"
             self.assertEqual(
                 MODULE.run(
-                    bundle_path, "2026-08-21", "2026-08-21T02:00:00Z", output_path
+                    bundle_path, AS_OF_DATE, GENERATED_AT, output_path
                 ),
                 0,
             )
@@ -284,7 +344,7 @@ class DefensiveActionDecisionTests(unittest.TestCase):
             forbidden = ROOT / "data" / "defensive_action_readiness_test.json"
             self.assertEqual(
                 MODULE.run(
-                    bundle_path, "2026-08-21", "2026-08-21T02:00:00Z", forbidden
+                    bundle_path, AS_OF_DATE, GENERATED_AT, forbidden
                 ),
                 1,
             )

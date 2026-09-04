@@ -1,11 +1,25 @@
 #!/usr/bin/env python3
 """P6-06 fail-closed Defensive Action Decision readiness boundary.
 
-This first capability slice inventories and semantically validates the existing
-P6 guardrails while P1 Regime Decision and P2 Cross-Market Flow production
-contracts remain unavailable.  Missing or unratified inputs are BLOCKED; they
-must never be rendered as NO_ACTION or translated into an action, allocation,
-instrument, size, order, Production, or trading authority.
+This capability slice inventories and semantically validates the existing P6
+guardrails plus P2-COM-02's Cross-Market Capital Flow Engine, which is now a
+supported source (``P2_FLOW_ENGINE``).  P1 Regime Decision and P2-COM-03's
+Flow Transition Ledger remain unavailable-only:
+
+- ``P1_REGIME_DECISION``: P1-COM-05 has only merged common-aggregation PIT
+  replay (see ``regime/decision_authority.py``); it is not yet a final,
+  ratified, runtime-consumer-wired Regime decision, so this slot must not be
+  promoted or relabeled onto that mechanism.
+- ``P2_FLOW_LEDGER``: the P2-COM-03 ledger is an append-only history, not a
+  single point-in-time decision packet -- it carries no top-level
+  ``generated_at``/``as_of_date`` of its own, so binding it independently
+  would require inventing an undefined timestamp-selection rule.  Its
+  evidence is already read transitively into ``P2_FLOW_ENGINE``'s
+  ``flow_candidates.transition``/``persistence`` fields.
+
+Missing or unratified inputs are BLOCKED; they must never be rendered as
+NO_ACTION or translated into an action, allocation, instrument, size, order,
+Production, or trading authority.
 """
 from __future__ import annotations
 
@@ -73,6 +87,33 @@ LONG_SHORT_INVARIANT = _load_validator(
 REGIME_INVERSE = _load_validator(
     "atlas_regime_inverse_for_p606", "portfolio/regime_inverse_invariant.py"
 )
+CAPITAL_FLOW_ENGINE = _load_validator(
+    "atlas_capital_flow_engine_for_p606",
+    "portfolio/capital_flow_posture_reference.py",
+)
+
+
+class _CapitalFlowEngineSourceAdapter:
+    """Bind P2-COM-02's own re-derivation validator into the P6-06 source shape.
+
+    ``capital_flow_posture_reference.py`` calls its packet identity field
+    ``payload_sha256`` and its checker ``validate_reference`` (it also takes a
+    ``root``, since it re-reads real evidence files to rebuild and compare).
+    Every other P6-06 source calls the same idea ``packet_sha256`` /
+    ``validate_packet``.  This adapter only renames the identity field so the
+    existing generic ``_validate_source`` path can consume it unchanged; it
+    performs no additional check and invents no new semantics.  ``validate_reference``
+    already re-derives the full packet from the real committed evidence and
+    fails closed (``REFERENCE_REDERIVATION_MISMATCH``) on any tamper, which is
+    at least as strict as the generic self-rehash check the other sources rely on.
+    """
+
+    @staticmethod
+    def validate_packet(packet: dict) -> dict:
+        checked = CAPITAL_FLOW_ENGINE.validate_reference(packet)
+        checked = dict(checked)
+        checked["packet_sha256"] = checked.pop("payload_sha256")
+        return checked
 
 
 SOURCE_VALIDATORS = {
@@ -85,6 +126,7 @@ SOURCE_VALIDATORS = {
     "INVERSE_US": REGIME_INVERSE,
     "INVERSE_KOREA": REGIME_INVERSE,
     "INVERSE_CRYPTO": REGIME_INVERSE,
+    "P2_FLOW_ENGINE": _CapitalFlowEngineSourceAdapter,
 }
 EXPECTED_MARKETS = {
     "CASH_EXPOSURE_US": "US",
@@ -128,7 +170,6 @@ def _expected_contract() -> dict:
         "source_order": source_order,
         "unavailable_only_source_slots": [
             "P1_REGIME_DECISION",
-            "P2_FLOW_ENGINE",
             "P2_FLOW_LEDGER",
         ],
         "source_specs": {
@@ -176,6 +217,14 @@ def _expected_contract() -> dict:
                 "schema_version": "long_short_invariant_packet/1",
                 "contract_version": "long_short_invariant/1",
                 "statuses": ["INVARIANT_ENFORCED_SHORT_NOT_EVALUATED"],
+            },
+            "P2_FLOW_ENGINE": {
+                "schema_version": "capital_flow_posture_reference/v1",
+                "contract_version": "capital_flow_posture_reference_policy/v1",
+                "statuses": [
+                    "REFERENCE_AVAILABLE",
+                    "PARTIAL_REFERENCE_AVAILABLE",
+                ],
             },
         },
         "invariants": [
@@ -441,7 +490,7 @@ def _assemble(
         "selected_action": None,
         "release_conditions": [
             "P1_REGIME_DECISION_POLICY_RATIFIED_AND_CONNECTED",
-            "P2_FLOW_ENGINE_AND_LEDGER_CONNECTED",
+            "P2_FLOW_LEDGER_CONNECTED",
             "P6_DEFENSIVE_ACTION_POLICY_RATIFIED",
             "ALL_SOURCE_MARKET_AND_TIME_KEYS_ALIGNED",
             "INDEPENDENT_ACTION_RISK_CHECKS_AUTHORIZED",
@@ -474,9 +523,10 @@ def _assemble(
         "invariants": copy.deepcopy(contract["invariants"]),
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
-            "P1_REGIME_DECISION_UNAVAILABLE",
-            "P2_FLOW_ENGINE_UNAVAILABLE",
-            "P2_FLOW_LEDGER_UNAVAILABLE",
+            *(
+                f"{name}_UNAVAILABLE"
+                for name in contract["unavailable_only_source_slots"]
+            ),
             "DEFENSIVE_ACTION_POLICY_NOT_RATIFIED",
             "ACTION_PROPOSAL_NOT_AUTHORIZED",
             "ORDER_NOT_AUTHORIZED",
