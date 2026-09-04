@@ -1,9 +1,47 @@
 name: Korea Leadership Live Proof
 
-# Manual dispatch only -- no new schedule/cron. Reuses the same already-
-# approved R2 KRX Open API index endpoint (idx/{kospi,kosdaq}_dd_trd)
-# this repo's own "R2 KRX Open API Live Proof" workflow already probes,
-# and the same KRX_API_KEY secret. Not a new provider.
+# 2026-09-04 CIO-approved P2-03 bounded cadence slice.
+#
+# Closes the "honest schedule gap" this repo already documented for this
+# exact workflow (docs/korea_capital_rotation_contract.md, 2026-08-22):
+# Leadership had no cron and only ever ran on manual workflow_dispatch.
+# That gap was left open on purpose at the time ("no new cron" precedent
+# for that PR's own bounded scope), not because scheduling was judged
+# unsafe. This slice closes it for Leadership only -- Korea Breadth
+# (p1-kr05-korea-breadth-live.yml) and the combined observation-pair
+# workflow (p2-03-korea-observation-pair.yml) are UNCHANGED and remain
+# workflow_dispatch-only; that remaining half of the gap is still open,
+# see docs/korea_capital_rotation_contract.md.
+#
+# Schedule time reuses the exact existing evening cadence
+# korea-market-signals.yml already established for the same "after KRX's
+# post-18:00 evening publication window" purpose -- 18:10 and 18:25 KST
+# (`10 9 * * 1-5` / `25 9 * * 1-5`), the second slot an idempotent
+# recovery chance exactly as in that workflow. This is not a new time: it
+# is also the exact `earliest_usable_time` already ratified in
+# config/korea_leadership_policy.json.
+#
+# A scheduled run never assumes "today" is a completed KRX trading date.
+# It discovers the two most recently completed sessions by calling
+# korea_market_signals.py's own discover_session_pair() (imported
+# unchanged, dynamically -- same pattern this repo already uses to load
+# one script from another) -- the same live-KRX-probe resolver
+# korea-market-signals.yml's own scheduled path already relies on to find
+# real completed sessions across weekends/holidays without any invented
+# trading-day calendar. Manual workflow_dispatch with explicit
+# prior_date/current_date inputs is completely unchanged.
+#
+# Reuses the same already-approved R2 KRX Open API index endpoint
+# (idx/{kospi,kosdaq}_dd_trd) this repo's own "R2 KRX Open API Live
+# Proof" workflow already probes, and the same KRX_API_KEY secret. Not a
+# new provider. korea_leadership.py / korea_capital_rotation.py's own
+# calculation, thresholds, and state vocabulary are untouched.
+#
+# config/korea_leadership_policy.json's approval_status is RATIFIED
+# today (49 real KOSPI/KOSDAQ sector + benchmark records, effective
+# 2026-08-01) -- a real fetch genuinely attempts population against that
+# ratified policy; it is not expected to fail closed as "UNRATIFIED" the
+# way an earlier revision of this workflow's own comment described.
 on:
   workflow_dispatch:
     inputs:
@@ -13,9 +51,16 @@ on:
       current_date:
         description: "Current completed KRX trading date (YYYYMMDD)"
         required: true
+  schedule:
+    - cron: "10 9 * * 1-5"  # 18:10 KST weekdays
+    - cron: "25 9 * * 1-5"  # 18:25 KST weekdays -- idempotent recovery slot
 
 permissions:
   contents: write
+
+concurrency:
+  group: korea-leadership-live-proof
+  cancel-in-progress: false
 
 jobs:
   korea-leadership-live-fetch:
@@ -29,31 +74,101 @@ jobs:
         run: python3 -m pip install -r requirements-ci.txt
       - name: Korea Leadership live-fetch offline contract regression
         run: python3 test/test_korea_leadership_live_fetch.py
-      # Reuses atlas_krx_r2_openapi_probe.py's own request/fetch/decode
-      # primitives unchanged, then attempts korea_leadership.py's own
-      # build_transform() unchanged. config/korea_leadership_policy.json
-      # is genuinely UNRATIFIED today, so this correctly fails closed
-      # (outcome=blocked) rather than fabricating a ratified policy to
-      # force a pass -- see .github/scripts/korea_leadership_live_fetch.py
-      # module docstring.
-      - name: Korea Leadership real KRX index fetch attempt
+      - name: Bind manual workflow_dispatch trading dates
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PRIOR_DATE_INPUT: ${{ inputs.prior_date }}
+          CURRENT_DATE_INPUT: ${{ inputs.current_date }}
+        run: |
+          echo "PRIOR_DATE=$PRIOR_DATE_INPUT" >> "$GITHUB_ENV"
+          echo "CURRENT_DATE=$CURRENT_DATE_INPUT" >> "$GITHUB_ENV"
+      # Discovers the two most recently completed KRX trading sessions by
+      # calling korea_market_signals.py's own discover_session_pair()
+      # UNCHANGED -- no new trading-calendar policy, no assumption that
+      # "today" is itself a completed session. A genuinely closed market
+      # (weekend/holiday, or an extended KRX outage) fails this step
+      # closed rather than fabricating a date.
+      - name: Discover completed KRX trading-date pair for a scheduled run
+        if: github.event_name == 'schedule'
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
-          PRIOR_DATE: ${{ inputs.prior_date }}
-          CURRENT_DATE: ${{ inputs.current_date }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          python3 - <<'PY'
+          import datetime as dt
+          import importlib.util
+          import os
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          ROOT = Path.cwd()
+          spec = importlib.util.spec_from_file_location(
+              "korea_market_signals_for_leadership_schedule",
+              ROOT / ".github" / "scripts" / "korea_market_signals.py",
+          )
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+
+          anchor = dt.datetime.now(ZoneInfo("Asia/Seoul")).date()
+          try:
+              previous, current = module.discover_session_pair(
+                  os.environ["KRX_API_KEY"], anchor=anchor
+              )
+          except module.KoreaMarketSignalsError as exc:
+              raise SystemExit(f"STOP: TWO_COMPLETED_KRX_SESSIONS_NOT_DISCOVERED:{exc}")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"PRIOR_DATE={previous['date']}\n")
+              handle.write(f"CURRENT_DATE={current['date']}\n")
+          print(f"resolved prior={previous['date']} current={current['date']}")
+          PY
+      # Reuses atlas_krx_r2_openapi_probe.py's own request/fetch/decode
+      # primitives unchanged, then attempts korea_leadership.py's own
+      # build_transform() unchanged -- see the top-of-file comment for
+      # this workflow's current ratified/unratified expectation.
+      - name: Reuse an exact committed Leadership observation instead of re-fetching the same date
+        id: existing_leadership
+        env:
+          PRIOR_DATE: ${{ env.PRIOR_DATE }}
+          CURRENT_DATE: ${{ env.CURRENT_DATE }}
+        run: |
+          ISO_DATE="${CURRENT_DATE:0:4}-${CURRENT_DATE:4:2}-${CURRENT_DATE:6:2}"
+          CONTEXT_PATH="data/observations/korea_leadership_context/$ISO_DATE/packet.json"
+          if test -f "$CONTEXT_PATH"; then
+            python3 .github/scripts/korea_leadership_live_fetch.py \
+              --prior-date "$PRIOR_DATE" \
+              --current-date "$CURRENT_DATE" \
+              --verify-existing-only
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Korea Leadership real KRX index fetch attempt
+        if: steps.existing_leadership.outputs.exists != 'true'
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          PRIOR_DATE: ${{ env.PRIOR_DATE }}
+          CURRENT_DATE: ${{ env.CURRENT_DATE }}
         run: |
           test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
           python3 .github/scripts/korea_leadership_live_fetch.py \
             --prior-date "$PRIOR_DATE" \
             --current-date "$CURRENT_DATE"
       - name: Commit Korea Leadership live-fetch attempt evidence
+        if: steps.existing_leadership.outputs.exists != 'true'
         run: |
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
+          # This job's own checkout is pinned to the SHA fixed at trigger
+          # time, not main's live tip -- re-sync before committing so a
+          # concurrent push from another job/workflow cannot turn this
+          # push into a spurious non-fast-forward rejection.
+          git fetch origin main
+          git reset --hard origin/main
           git add data/observations/korea_leadership_context
           if git diff --cached --quiet; then
             echo "no change (verified_existing) -- nothing to commit"
           else
-            git commit -m "korea leadership live-fetch attempt $(date -u +%Y-%m-%d) [run ${{ github.run_id }}]"
+            git commit -m "korea leadership live-fetch attempt $(date -u +%Y-%m-%d) [run ${{ github.run_id }}] [trigger=${{ github.event_name }}]"
             git push
           fi
