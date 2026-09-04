@@ -13,6 +13,18 @@ policy.  That path consumes already-signed axis directions, never market-
 specific normalization inputs, and produces PIT replay packets for
 bull/bear/sideways/stress sequences.  It does not change the fail-closed
 runtime decision above, does not accept PIT replay, and opens no authority.
+
+Finally, it implements the market-specific signed-axis normalization boundary:
+the bridge between an evidence-only ``regime_output/v1`` envelope (which proves
+axis PRESENCE only) and the common v1 replay input (which requires an already
+signed POSITIVE/NEUTRAL/NEGATIVE/STRESS direction per axis).  The ratified v2
+registry pins ``signed_normalization_policy`` as null for every market and lists
+``SIGNED_NORMALIZATION_RATIFICATION`` as a forbidden promotion, so this boundary
+assigns no direction: it reports real per-axis coverage, keeps every signed
+direction null, and fails closed to UNKNOWN.  Discovering a non-null
+``signed_normalization_policy`` in the registry also fails closed, because
+implementing one is a separate ratified slice, not something this module may
+infer.
 """
 
 from __future__ import annotations
@@ -874,6 +886,225 @@ def validate_common_v1_replay(
     return report
 
 
+# ---------------------------------------------------------------------------
+# Market-specific signed-axis normalization boundary — fail-closed.
+# ---------------------------------------------------------------------------
+
+SIGNED_AXIS_CONTRACT_VERSION = "regime_signed_axis_normalization/v1"
+SIGNED_AXIS_CONTRACT_MODE = "UNRATIFIED_SIGNED_NORMALIZATION_GATE"
+SIGNED_AXIS_POLICY_STATUS_ABSENT = "UNRATIFIED_ABSENT"
+SIGNED_AXIS_POLICY_FIELD = "signed_normalization_policy"
+SIGNED_AXIS_FORBIDDEN_PROMOTION = "SIGNED_NORMALIZATION_RATIFICATION"
+
+# ``regime_output/v1`` names Korea KR; the v2 source-owner registry names the
+# same market KRX after its official source scope.  Nothing else differs.
+SIGNED_AXIS_REGISTRY_MARKET = {"US": "US", "KR": "KRX", "CRYPTO": "CRYPTO"}
+
+SIGNED_AXIS_POLICY_REASON = "SIGNED_NORMALIZATION_POLICY_UNRATIFIED"
+SIGNED_AXIS_EVIDENCE_REASON = "AXIS_EVIDENCE_UNDEFINED"
+SIGNED_AXIS_PIT_REPLAY_REASON = "PIT_REPLAY_NOT_ACCEPTED"
+SIGNED_AXIS_ALLOWED_STATUSES = (
+    "BLOCKED_COVERAGE",
+    "BLOCKED_SIGNED_NORMALIZATION_UNRATIFIED",
+)
+
+
+def load_signed_axis_policy(
+    registry_path: Path = REGISTRY_PATH,
+    paper_policy_path: Path = PAPER_BASELINE_POLICY_PATH,
+    contract_path: Path = CONTRACT_PATH,
+) -> dict:
+    """Bind the per-market signed-normalization state pinned by the v2 registry."""
+    common = load_common_v1_policy(registry_path, paper_policy_path, contract_path)
+    registry = load_json(registry_path)
+    forbidden = registry.get("forbidden_promotions")
+    if (
+        not isinstance(forbidden, list)
+        or SIGNED_AXIS_FORBIDDEN_PROMOTION not in forbidden
+    ):
+        fail("SIGNED_AXIS_BINDING_INVALID", "forbidden_promotions")
+    markets = registry.get("markets")
+    if not isinstance(markets, dict):
+        fail("REGISTRY_INVALID", "markets")
+
+    states = {}
+    for market in common["markets"]:
+        registry_market = SIGNED_AXIS_REGISTRY_MARKET.get(market)
+        entry = markets.get(registry_market)
+        if not isinstance(entry, dict):
+            fail("REGISTRY_INVALID", f"markets.{registry_market}")
+        if entry.get(SIGNED_AXIS_POLICY_FIELD) is not None:
+            # A ratified signed-normalization policy is a separate slice; this
+            # boundary may not infer one from a registry edit.
+            fail("SIGNED_AXIS_POLICY_UNIMPLEMENTED", registry_market)
+        if entry.get("pit_replay_acceptance") != COMMON_V1_PIT_REPLAY_ACCEPTANCE:
+            fail("SIGNED_AXIS_BINDING_INVALID", f"{registry_market} pit_replay")
+        acceptance = entry.get("acceptance_status")
+        if not isinstance(acceptance, str) or not acceptance.startswith("BLOCKED_"):
+            fail("SIGNED_AXIS_BINDING_INVALID", f"{registry_market} acceptance")
+        states[market] = {
+            "registry_market": registry_market,
+            "signed_normalization_policy_status": SIGNED_AXIS_POLICY_STATUS_ABSENT,
+            "registry_policy_field_present": SIGNED_AXIS_POLICY_FIELD in entry,
+            "acceptance_status": acceptance,
+            "pit_replay_acceptance": entry["pit_replay_acceptance"],
+        }
+    return {
+        "contract_version": SIGNED_AXIS_CONTRACT_VERSION,
+        "contract_mode": SIGNED_AXIS_CONTRACT_MODE,
+        "common_v1": common,
+        "markets": states,
+        "forbidden_promotion": SIGNED_AXIS_FORBIDDEN_PROMOTION,
+    }
+
+
+def signed_axis_authority() -> dict:
+    return {
+        "signed_axis_boundary_validation_authorized": True,
+        "market_signed_normalization_authorized": False,
+        "axis_direction_assignment_authorized": False,
+        "common_aggregation_input_authorized": False,
+        "freshness_policy_authorized": False,
+        "pit_replay_acceptance_authorized": False,
+        "runtime_classification_authorized": False,
+        "runtime_binding_authorized": False,
+        "regime_result_ratification_authorized": False,
+        "threshold_override_authorized": False,
+        "strategy_eligibility_authorized": False,
+        "stage_authorized": False,
+        "buy_authorized": False,
+        "action_authorized": False,
+        "order_authorized": False,
+        "capital_authorized": False,
+        "production_authorized": False,
+        "trading_authorized": False,
+    }
+
+
+def normalize_signed_axes(
+    regime_output: object,
+    policy: Optional[dict] = None,
+) -> dict:
+    """Report what an evidence-only envelope can and cannot contribute to v1.
+
+    Coverage is real and derived from the envelope.  Every signed direction
+    stays null because no market has a ratified signed-normalization policy, so
+    no replay step is emitted and the boundary result is UNKNOWN/UNKNOWN.
+    """
+    policy = load_signed_axis_policy() if policy is None else policy
+    common = policy["common_v1"]
+    try:
+        source = OUTPUT.validate_output(regime_output)
+    except OUTPUT.OutputContractError as exc:
+        fail("REGIME_OUTPUT_INVALID", str(exc))
+    market = source["market"]
+    state = policy["markets"].get(market)
+    if not isinstance(state, dict):
+        fail("MARKET_INVALID", str(market))
+    axes = common["required_axes"]
+    if source["coverage"]["required_axes"] != axes:
+        fail("SOURCE_AXES_INVALID", "regime_output")
+
+    rows = {}
+    defined = []
+    missing = []
+    for axis in axes:
+        factor = source["factor_results"][axis]
+        blocking = []
+        if factor["status"] == "DEFINED":
+            defined.append(axis)
+        else:
+            missing.append(axis)
+            blocking.append(SIGNED_AXIS_EVIDENCE_REASON)
+        blocking.append(SIGNED_AXIS_POLICY_REASON)
+        rows[axis] = {
+            "axis": axis,
+            "evidence_status": factor["status"],
+            "observation_date": factor["observation_date"],
+            "available_at": factor["available_at"],
+            "transform_version": factor["transform_version"],
+            "signed_direction": None,
+            "normalized_value": None,
+            "blocking_reasons": blocking,
+        }
+
+    if missing:
+        status = "BLOCKED_COVERAGE"
+        reasons = [common["coverage_failure_reason_code"]]
+        reasons.extend(f"{axis}_UNDEFINED" for axis in missing)
+    else:
+        status = "BLOCKED_SIGNED_NORMALIZATION_UNRATIFIED"
+        reasons = []
+    reasons.append(SIGNED_AXIS_POLICY_REASON)
+    reasons.append(SIGNED_AXIS_PIT_REPLAY_REASON)
+    if status not in SIGNED_AXIS_ALLOWED_STATUSES:
+        fail("SIGNED_AXIS_STATUS_INVALID", status)
+
+    return {
+        "schema_version": 1,
+        "contract_version": policy["contract_version"],
+        "contract_mode": policy["contract_mode"],
+        "policy_status": common["policy_status"],
+        "market": market,
+        "registry_market": state["registry_market"],
+        "generated_at": source["generated_at"],
+        "source_refs": {
+            "regime_output_contract_version": source["contract_version"],
+            "regime_output_generated_at": source["generated_at"],
+            "regime_output_sha256": payload_sha256(source),
+        },
+        "policy_binding": dict(common["binding"]),
+        "market_binding": {
+            "acceptance_status": state["acceptance_status"],
+            "pit_replay_acceptance": state["pit_replay_acceptance"],
+            "signed_normalization_policy_status": state[
+                "signed_normalization_policy_status"
+            ],
+            "registry_policy_field_present": state["registry_policy_field_present"],
+            "forbidden_promotion": policy["forbidden_promotion"],
+        },
+        "required_axes": list(axes),
+        "coverage": {
+            "policy_name": common["coverage_policy_name"],
+            "defined_axes": defined,
+            "missing_axes": missing,
+            "defined_count": len(defined),
+            "required_count": len(axes),
+            "ratio": f"{len(defined)}/{len(axes)}",
+            "minimum_coverage_met": not missing,
+        },
+        "axes": rows,
+        "normalization_status": status,
+        "reasons": reasons,
+        "common_v1_replay_step": None,
+        "replay_step_emitted": False,
+        "regime": common["fail_closed_regime"],
+        "direction": common["fail_closed_direction"],
+        "confidence": None,
+        "neutral_unknown_invariant": common["neutral_unknown_invariant"],
+        "market_specific_signed_normalization_inherited": common[
+            "market_specific_normalization_inherited"
+        ],
+        "authority": signed_axis_authority(),
+    }
+
+
+def validate_signed_axis_normalization(
+    packet: object,
+    regime_output: object,
+    policy: Optional[dict] = None,
+) -> dict:
+    expected = normalize_signed_axes(regime_output, policy)
+    if not isinstance(packet, dict):
+        fail("SIGNED_AXIS_PACKET_INVALID", "object required")
+    if canonical_bytes(packet) != canonical_bytes(expected):
+        fail(
+            "SIGNED_AXIS_DERIVATION_MISMATCH",
+            "packet is not source-derived",
+        )
+    return packet
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -891,6 +1122,12 @@ def main(argv=None) -> int:
     validate_replay = sub.add_parser("validate-common-v1-replay")
     validate_replay.add_argument("report", type=Path)
     validate_replay.add_argument("--sequence", type=Path, required=True)
+    normalize = sub.add_parser("normalize-signed-axes")
+    normalize.add_argument("regime_output", type=Path)
+    normalize.add_argument("--out", type=Path)
+    validate_signed = sub.add_parser("validate-signed-axes")
+    validate_signed.add_argument("packet", type=Path)
+    validate_signed.add_argument("--regime-output", type=Path, required=True)
     args = parser.parse_args(argv)
 
     if args.command == "replay-common-v1":
@@ -907,6 +1144,22 @@ def main(argv=None) -> int:
             load_json(args.sequence),
         )
         print(json.dumps(report, ensure_ascii=False, sort_keys=False))
+        return 0
+
+    if args.command == "normalize-signed-axes":
+        packet = normalize_signed_axes(load_json(args.regime_output))
+        if args.out:
+            print(OUTPUT.write_output(packet, args.out))
+        else:
+            print(json.dumps(packet, ensure_ascii=False, indent=2, sort_keys=False))
+        return 0
+
+    if args.command == "validate-signed-axes":
+        packet = validate_signed_axis_normalization(
+            load_json(args.packet),
+            load_json(args.regime_output),
+        )
+        print(json.dumps(packet, ensure_ascii=False, sort_keys=False))
         return 0
 
     source = load_json(args.regime_output)

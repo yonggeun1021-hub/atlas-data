@@ -1145,5 +1145,241 @@ class RegimeCommonAggregationV1Test(unittest.TestCase):
             self.assertEqual(persisted["pit_replay_acceptance"], "NOT_ACCEPTED")
 
 
+class RegimeSignedAxisNormalizationTest(unittest.TestCase):
+    """Market-specific signed-axis normalization stays an unratified boundary."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.policy = MODULE.load_signed_axis_policy()
+
+    def test_every_market_pins_signed_normalization_as_unratified(self):
+        policy = self.policy
+
+        self.assertEqual(
+            policy["contract_version"], "regime_signed_axis_normalization/v1"
+        )
+        self.assertEqual(
+            policy["contract_mode"], "UNRATIFIED_SIGNED_NORMALIZATION_GATE"
+        )
+        self.assertEqual(
+            policy["forbidden_promotion"], "SIGNED_NORMALIZATION_RATIFICATION"
+        )
+        self.assertEqual(sorted(policy["markets"]), ["CRYPTO", "KR", "US"])
+        self.assertEqual(policy["markets"]["KR"]["registry_market"], "KRX")
+        for market, state in policy["markets"].items():
+            with self.subTest(market=market):
+                self.assertEqual(
+                    state["signed_normalization_policy_status"],
+                    "UNRATIFIED_ABSENT",
+                )
+                self.assertEqual(state["pit_replay_acceptance"], "NOT_ACCEPTED")
+                self.assertTrue(state["acceptance_status"].startswith("BLOCKED_"))
+        # KRX/US pin the field explicitly as null; CRYPTO omits it entirely.
+        self.assertTrue(policy["markets"]["US"]["registry_policy_field_present"])
+        self.assertFalse(
+            policy["markets"]["CRYPTO"]["registry_policy_field_present"]
+        )
+
+    def test_five_of_five_evidence_still_assigns_no_signed_direction(self):
+        packet = MODULE.normalize_signed_axes(full_source())
+
+        self.assertEqual(packet["coverage"]["ratio"], "5/5")
+        self.assertTrue(packet["coverage"]["minimum_coverage_met"])
+        self.assertEqual(
+            packet["normalization_status"],
+            "BLOCKED_SIGNED_NORMALIZATION_UNRATIFIED",
+        )
+        self.assertEqual(
+            packet["reasons"],
+            [
+                "SIGNED_NORMALIZATION_POLICY_UNRATIFIED",
+                "PIT_REPLAY_NOT_ACCEPTED",
+            ],
+        )
+        for axis in CONTRACT["required_axes"]:
+            row = packet["axes"][axis]
+            with self.subTest(axis=axis):
+                self.assertEqual(row["evidence_status"], "DEFINED")
+                self.assertIsNone(row["signed_direction"])
+                self.assertIsNone(row["normalized_value"])
+                self.assertEqual(
+                    row["blocking_reasons"],
+                    ["SIGNED_NORMALIZATION_POLICY_UNRATIFIED"],
+                )
+        self.assertIsNone(packet["common_v1_replay_step"])
+        self.assertFalse(packet["replay_step_emitted"])
+        self.assertEqual(packet["regime"], "UNKNOWN")
+        self.assertEqual(packet["direction"], "UNKNOWN")
+        self.assertIsNone(packet["confidence"])
+        self.assertFalse(
+            packet["market_specific_signed_normalization_inherited"]
+        )
+
+    def test_partial_crypto_coverage_is_distinct_from_missing_policy(self):
+        partial = source(
+            {
+                axis: defined(axis, character)
+                for axis, character in zip(("TREND", "BREADTH", "RISK_VOL"), "abc")
+            }
+        )
+        packet = MODULE.normalize_signed_axes(partial)
+
+        self.assertEqual(packet["market"], "CRYPTO")
+        self.assertEqual(packet["registry_market"], "CRYPTO")
+        self.assertEqual(packet["coverage"]["ratio"], "3/5")
+        self.assertFalse(packet["coverage"]["minimum_coverage_met"])
+        self.assertEqual(packet["normalization_status"], "BLOCKED_COVERAGE")
+        self.assertEqual(
+            packet["reasons"],
+            [
+                "MINIMUM_COVERAGE_NOT_MET",
+                "LIQUIDITY_UNDEFINED",
+                "LEADERSHIP_UNDEFINED",
+                "SIGNED_NORMALIZATION_POLICY_UNRATIFIED",
+                "PIT_REPLAY_NOT_ACCEPTED",
+            ],
+        )
+        self.assertEqual(
+            packet["axes"]["LEADERSHIP"]["blocking_reasons"],
+            [
+                "AXIS_EVIDENCE_UNDEFINED",
+                "SIGNED_NORMALIZATION_POLICY_UNRATIFIED",
+            ],
+        )
+        self.assertEqual(packet["regime"], "UNKNOWN")
+        self.assertEqual(packet["direction"], "UNKNOWN")
+        self.assertFalse(packet["replay_step_emitted"])
+        self.assertEqual(
+            [row["signed_direction"] for row in packet["axes"].values()],
+            [None] * 5,
+        )
+
+    def test_boundary_is_deterministic_and_hash_bound_to_the_envelope(self):
+        original = full_source()
+        reordered = copy.deepcopy(original)
+        reordered["factor_results"] = dict(
+            reversed(list(reordered["factor_results"].items()))
+        )
+
+        first = MODULE.normalize_signed_axes(original)
+        second = MODULE.normalize_signed_axes(reordered)
+
+        self.assertEqual(
+            MODULE.canonical_bytes(first), MODULE.canonical_bytes(second)
+        )
+        self.assertEqual(
+            first["source_refs"]["regime_output_sha256"],
+            MODULE.payload_sha256(original),
+        )
+        self.assertEqual(
+            first["policy_binding"]["legacy_runtime_contract_sha256"],
+            hashlib.sha256(MODULE.CONTRACT_PATH.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            first, MODULE.validate_signed_axis_normalization(first, original)
+        )
+
+    def test_registry_edit_cannot_self_ratify_signed_normalization(self):
+        registry = json.loads(MODULE.REGISTRY_PATH.read_text(encoding="utf-8"))
+        promoted = copy.deepcopy(registry)
+        promoted["markets"]["CRYPTO"]["signed_normalization_policy"] = {
+            "TREND": "POSITIVE_IF_ABOVE_200DMA"
+        }
+        unforbidden = copy.deepcopy(registry)
+        unforbidden["forbidden_promotions"] = [
+            item
+            for item in registry["forbidden_promotions"]
+            if item != "SIGNED_NORMALIZATION_RATIFICATION"
+        ]
+        accepted = copy.deepcopy(registry)
+        accepted["markets"]["US"]["pit_replay_acceptance"] = "ACCEPTED"
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            cases = [
+                ("SIGNED_AXIS_POLICY_UNIMPLEMENTED", promoted, "promoted.json"),
+                ("SIGNED_AXIS_BINDING_INVALID", unforbidden, "unforbidden.json"),
+                ("SIGNED_AXIS_BINDING_INVALID", accepted, "accepted.json"),
+            ]
+            for code, value, name in cases:
+                with self.subTest(code=code, name=name), self.assertRaisesRegex(
+                    MODULE.DecisionAuthorityError,
+                    code,
+                ):
+                    MODULE.load_signed_axis_policy(
+                        registry_path=write_json(root / name, value)
+                    )
+
+    def test_signed_axis_packet_tampering_fails_closed(self):
+        original = full_source()
+        packet = MODULE.normalize_signed_axes(original)
+
+        signed = copy.deepcopy(packet)
+        signed["axes"]["TREND"]["signed_direction"] = "POSITIVE"
+        emitted = copy.deepcopy(packet)
+        emitted["replay_step_emitted"] = True
+        promoted = copy.deepcopy(packet)
+        promoted["normalization_status"] = "READY"
+        classified = copy.deepcopy(packet)
+        classified["regime"] = "RISK_ON"
+        authority = copy.deepcopy(packet)
+        authority["authority"]["market_signed_normalization_authorized"] = True
+        binding = copy.deepcopy(packet)
+        binding["market_binding"]["signed_normalization_policy_status"] = "RATIFIED"
+
+        for changed in (
+            signed, emitted, promoted, classified, authority, binding
+        ):
+            with self.subTest(changed=changed), self.assertRaisesRegex(
+                MODULE.DecisionAuthorityError,
+                "SIGNED_AXIS_DERIVATION_MISMATCH",
+            ):
+                MODULE.validate_signed_axis_normalization(changed, original)
+
+    def test_boundary_never_opens_authority(self):
+        packet = MODULE.normalize_signed_axes(full_source())
+
+        self.assertTrue(
+            packet["authority"]["signed_axis_boundary_validation_authorized"]
+        )
+        for key, value in packet["authority"].items():
+            if key != "signed_axis_boundary_validation_authorized":
+                self.assertFalse(value, key)
+
+    def test_signed_axis_cli_normalize_and_validate(self):
+        original = full_source()
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            source_path = root / "regime.json"
+            packet_path = root / "signed-axes.json"
+            source_path.write_text(json.dumps(original), encoding="utf-8")
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                normalize_exit = MODULE.main(
+                    [
+                        "normalize-signed-axes",
+                        str(source_path),
+                        "--out",
+                        str(packet_path),
+                    ]
+                )
+                validate_exit = MODULE.main(
+                    [
+                        "validate-signed-axes",
+                        str(packet_path),
+                        "--regime-output",
+                        str(source_path),
+                    ]
+                )
+            self.assertEqual(normalize_exit, 0)
+            self.assertEqual(validate_exit, 0)
+            persisted = json.loads(packet_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                persisted["normalization_status"],
+                "BLOCKED_SIGNED_NORMALIZATION_UNRATIFIED",
+            )
+            self.assertFalse(persisted["replay_step_emitted"])
+
+
 if __name__ == "__main__":
     unittest.main()
