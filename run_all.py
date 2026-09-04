@@ -806,6 +806,41 @@ APPROVED_TESTS = [
     #   cross_market_regime, threshold_tuning, us_breadth, us_leadership and
     #   every action/order/capital/production/trading/real authority stay false.
     "test/test_combined_shadow_historical_replay.py",
+    # ★ P1-COM-05 CIO mandate 2026-09-04 — deterministic replay evidence over
+    #   that combined KR+US SHADOW population (facts only, never NATURAL).
+    #   Summarizes exactly five families and nothing else: coverage, UNKNOWN,
+    #   transitions, stress detection, and hysteresis facts. It issues no
+    #   KRX/Alpaca/FRED request, derives no axis, and re-runs no normalization —
+    #   every direction, candidate regime, and reason code it counts was already
+    #   produced by the two market replay populations and joined by the combined
+    #   slice, whose OWN validator re-checks the population before a single fact
+    #   is derived. UNKNOWN semantics are preserved rather than flattened:
+    #   "excluded by ratification scope" (US BREADTH/LEADERSHIP), "attempted and
+    #   NOT_COMPUTABLE", and "the whole date was blocked" stay three distinct
+    #   buckets that must add up to the requested dates, none is ever reported as
+    #   an observed NEUTRAL, and a transition pair touching UNKNOWN is counted as
+    #   an evidence-availability change, never a market state change. Every
+    #   sequence covers every requested date, carrying UNKNOWN where none was
+    #   produced, so a run can never bridge a blocked date; adjacency is
+    #   requested-date order, so each sequence carries its own calendar-gap facts.
+    #   NO POLICY OR THRESHOLD CONCLUSION is reached: hysteresis_applied is false
+    #   (HYSTERESIS and STRESS_OVERRIDE are read from the repository's own
+    #   candidate inventory as BLOCKED under DRAFT_NOT_RATIFIED, and a ratified
+    #   component fails this module closed), no threshold is proposed, tuned, or
+    #   restated, run/reversal counts are observations rather than an argument for
+    #   a dwell time, and the validator rejects a conclusion, verdict, or
+    #   recommendation smuggled in under any key name. No episode is selected —
+    #   labels are carried verbatim and a labelled run is proven fact-identical to
+    #   an unlabelled one. PIT and historical audit stay separate: no date's
+    #   observation is created, altered, or graded, and a market the join
+    #   contained for lookahead contributes nothing. The report is a pure function
+    #   of its source population (byte-identical rerun, shuffled input identical,
+    #   source never mutated) and is never written inside this checkout —
+    #   external --out or a private temp file only. policy_conclusion,
+    #   threshold_ratification, hysteresis, stress_override, episode_selection,
+    #   natural_promotion, us_breadth, us_leadership and every
+    #   action/order/capital/production/trading/real authority stay false.
+    "test/test_deterministic_replay_evidence.py",
     # Current-reference 5/5 and official PIT-history coverage remain separate.
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
