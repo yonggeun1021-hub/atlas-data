@@ -1,0 +1,205 @@
+{
+  "as_of_utc": "2026-09-04T00:37:37Z",
+  "asset_id": "CRYPTO:BTC",
+  "authority": {
+    "candidate_attachment_requires_allowed_case": true,
+    "candidate_creation_authorized": false,
+    "candidate_mutation_authorized": false,
+    "candidate_ranking_authorized": false,
+    "deterioration_interpretation_authorized": false,
+    "portfolio_action_authorized": false,
+    "production_authorized": false,
+    "raw_source_context_authorized": true,
+    "rule_evaluation_authorized": false,
+    "stage_promotion_authorized": false,
+    "trading_authorized": false
+  },
+  "candidate_binding": {
+    "allowed_case_schema_versions": [
+      "business_acceleration_case/1",
+      "discovery_case/1",
+      "market_behavior_case/1",
+      "supply_demand_case/1"
+    ],
+    "candidate_ref": null,
+    "status": "BLOCKED_NO_ALLOWED_CASE"
+  },
+  "expected_periods": [
+    "2026-09-02",
+    "2026-09-03"
+  ],
+  "identity_ref": {
+    "authority_path": "config/canonical_security_identity.json",
+    "authority_sha256": "ccf57b6f296f406cae044e67383b4a890b9e32cf18c07960e65b1f3252d368fb",
+    "canonical_instrument_id": "CRYPTO:BTC",
+    "instrument_rule_id": "atlas.identity.instrument.btc",
+    "listing_id": "KRAKEN:BTC-USD:SPOT",
+    "listing_rule_id": "atlas.identity.listing.btc",
+    "policy_version": "canonical_security_identity/v1",
+    "source_alias_rule_id": "atlas.identity.alias.btc"
+  },
+  "interpretation_policy": null,
+  "market": "CRYPTO",
+  "payload_sha256": "222701652a06559bddc495131fe336b020cc19c96a570003fc951831f7d64ba6",
+  "population_version": "p3_10_crypto_risk_population/1",
+  "risk_context_observations": [
+    {
+      "asset_id": "CRYPTO:BTC",
+      "comparison_basis": "ADJACENT_FINALIZED_UTC_DAILY_RISK_FEATURES_WITHIN_ONE_PIT_VINTAGE",
+      "context_id": "CRYPTO.BTC.CURRENT_DRAWDOWN.90D.MAGNITUDE",
+      "dimension": "RISK",
+      "evidence_points": [
+        {
+          "missing_reasons": [],
+          "numeric_value": "0.036887395519",
+          "period_end": "2026-09-02",
+          "source_identities": [
+            {
+              "available_at": "2026-09-04T00:37:37Z",
+              "retrieved_at_utc": "2026-09-04T00:37:37Z",
+              "source_id": "kraken_public_api",
+              "source_sha256": "f5a47bcfac511832f0a8bc9a2d4d56d20ff70e155fe030451f5c713b06fc791a",
+              "source_url": "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1"
+            }
+          ],
+          "status": "EVIDENCE_AVAILABLE"
+        },
+        {
+          "missing_reasons": [],
+          "numeric_value": "0.000000000000",
+          "period_end": "2026-09-03",
+          "source_identities": [
+            {
+              "available_at": "2026-09-04T00:37:37Z",
+              "retrieved_at_utc": "2026-09-04T00:37:37Z",
+              "source_id": "kraken_public_api",
+              "source_sha256": "f5a47bcfac511832f0a8bc9a2d4d56d20ff70e155fe030451f5c713b06fc791a",
+              "source_url": "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1"
+            }
+          ],
+          "status": "EVIDENCE_AVAILABLE"
+        }
+      ],
+      "expected_periods": [
+        "2026-09-02",
+        "2026-09-03"
+      ],
+      "market": "CRYPTO",
+      "measurement_identity": "btc_risk/v1 current 90-close peak-to-current drawdown loss magnitude",
+      "metric_type": "CURRENT_DRAWDOWN",
+      "unit": "fraction"
+    },
+    {
+      "asset_id": "CRYPTO:BTC",
+      "comparison_basis": "ADJACENT_FINALIZED_UTC_DAILY_RISK_FEATURES_WITHIN_ONE_PIT_VINTAGE",
+      "context_id": "CRYPTO.BTC.MAXIMUM_DRAWDOWN.90D.MAGNITUDE",
+      "dimension": "RISK",
+      "evidence_points": [
+        {
+          "missing_reasons": [],
+          "numeric_value": "0.116956805759",
+          "period_end": "2026-09-02",
+          "source_identities": [
+            {
+              "available_at": "2026-09-04T00:37:37Z",
+              "retrieved_at_utc": "2026-09-04T00:37:37Z",
+              "source_id": "kraken_public_api",
+              "source_sha256": "f5a47bcfac511832f0a8bc9a2d4d56d20ff70e155fe030451f5c713b06fc791a",
+              "source_url": "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1"
+            }
+          ],
+          "status": "EVIDENCE_AVAILABLE"
+        },
+        {
+          "missing_reasons": [],
+          "numeric_value": "0.116956805759",
+          "period_end": "2026-09-03",
+          "source_identities": [
+            {
+              "available_at": "2026-09-04T00:37:37Z",
+              "retrieved_at_utc": "2026-09-04T00:37:37Z",
+              "source_id": "kraken_public_api",
+              "source_sha256": "f5a47bcfac511832f0a8bc9a2d4d56d20ff70e155fe030451f5c713b06fc791a",
+              "source_url": "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1"
+            }
+          ],
+          "status": "EVIDENCE_AVAILABLE"
+        }
+      ],
+      "expected_periods": [
+        "2026-09-02",
+        "2026-09-03"
+      ],
+      "market": "CRYPTO",
+      "measurement_identity": "btc_risk/v1 maximum 90-close peak-to-trough drawdown loss magnitude",
+      "metric_type": "MAXIMUM_DRAWDOWN",
+      "unit": "fraction"
+    },
+    {
+      "asset_id": "CRYPTO:BTC",
+      "comparison_basis": "ADJACENT_FINALIZED_UTC_DAILY_RISK_FEATURES_WITHIN_ONE_PIT_VINTAGE",
+      "context_id": "CRYPTO.BTC.REALIZED_VOLATILITY.30D.ANNUALIZED",
+      "dimension": "RISK",
+      "evidence_points": [
+        {
+          "missing_reasons": [],
+          "numeric_value": "0.452219449577",
+          "period_end": "2026-09-02",
+          "source_identities": [
+            {
+              "available_at": "2026-09-04T00:37:37Z",
+              "retrieved_at_utc": "2026-09-04T00:37:37Z",
+              "source_id": "kraken_public_api",
+              "source_sha256": "f5a47bcfac511832f0a8bc9a2d4d56d20ff70e155fe030451f5c713b06fc791a",
+              "source_url": "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1"
+            }
+          ],
+          "status": "EVIDENCE_AVAILABLE"
+        },
+        {
+          "missing_reasons": [],
+          "numeric_value": "0.485332242063",
+          "period_end": "2026-09-03",
+          "source_identities": [
+            {
+              "available_at": "2026-09-04T00:37:37Z",
+              "retrieved_at_utc": "2026-09-04T00:37:37Z",
+              "source_id": "kraken_public_api",
+              "source_sha256": "f5a47bcfac511832f0a8bc9a2d4d56d20ff70e155fe030451f5c713b06fc791a",
+              "source_url": "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1"
+            }
+          ],
+          "status": "EVIDENCE_AVAILABLE"
+        }
+      ],
+      "expected_periods": [
+        "2026-09-02",
+        "2026-09-03"
+      ],
+      "market": "CRYPTO",
+      "measurement_identity": "btc_risk/v1 30-return annualized realized volatility fraction",
+      "metric_type": "REALIZED_VOLATILITY",
+      "unit": "fraction"
+    }
+  ],
+  "schema_version": "valuation_risk_source_observation/1",
+  "source_transform": {
+    "capture_version": "btc-price-capture/v1",
+    "replay_mode": "as_captured_prefix_only",
+    "risk_replay_version": "btc_risk_replay/v1",
+    "risk_transform_version": "btc_risk/v1",
+    "source_available_at": "2026-09-04T00:37:37Z",
+    "source_sha256": "f5a47bcfac511832f0a8bc9a2d4d56d20ff70e155fe030451f5c713b06fc791a",
+    "source_url": "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1"
+  },
+  "source_vintage": "2026-09-04",
+  "unresolved_boundaries": [
+    "ALLOWED_BTC_DISCOVERY_CASE_ABSENT",
+    "DEFAULT_INTERPRETATION_POLICY_ABSENT",
+    "DETERIORATION_DIRECTION_UNRATIFIED",
+    "MINIMUM_CHANGE_UNRATIFIED",
+    "METRIC_SELECTION_UNRATIFIED",
+    "CRYPTO_VALUATION_UNDEFINED",
+    "US_KOREA_RISK_POPULATION_NOT_IMPLEMENTED"
+  ]
+}
