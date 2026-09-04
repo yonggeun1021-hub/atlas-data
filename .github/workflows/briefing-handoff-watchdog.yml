@@ -3,10 +3,11 @@ name: AM/PM Briefing Handoff Watchdog
 # Detects a stalled validated-narrative handoff after a natural AM/PM
 # briefing slot. This workflow is read-only against the existing briefing
 # chain: it never seals, validates, authors a source bridge, runs manual
-# recovery, builds a Portal envelope, dispatches, or writes Notion. It only
-# runs .github/scripts/briefing_handoff_watchdog.py (check -> classify ->
+# recovery, builds a Portal envelope, dispatches, or writes Notion. It runs
+# .github/scripts/briefing_handoff_watchdog.py (check -> classify -> route ->
 # alert) and commits that script's own append-only status artifact under
-# data/briefing/handoff_watchdog/.
+# data/briefing/handoff_watchdog/. The existing external recovery heartbeat
+# consumes the route; this workflow does not acquire semantic authority.
 #
 # Independent cron, timed to fire just after each slot's own natural-cron
 # time (daily-briefing.yml `on.schedule`) plus the existing 20-minute
@@ -85,8 +86,8 @@ jobs:
           {
             echo "## AM/PM Briefing Handoff Watchdog — $DECISION_DATE"
             echo
-            echo "| slot | status | expected today | past grace | alert |"
-            echo "|---|---|---|---|---|"
+            echo "| slot | status | recovery route | owner | expected today | past grace | alert |"
+            echo "|---|---|---|---|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
           for SLOT in morning evening; do
             set +e
@@ -104,9 +105,11 @@ jobs:
             EXPECTED=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slot_expected_today"])')
             PAST_GRACE=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["past_grace"])')
             ALERT=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["alert"])')
-            echo "| $SLOT | $STATUS | $EXPECTED | $PAST_GRACE | $ALERT |" >> "$GITHUB_STEP_SUMMARY"
+            ROUTE=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["recovery"]["route"])')
+            OWNER=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["recovery"]["owner"])')
+            echo "| $SLOT | $STATUS | $ROUTE | $OWNER | $EXPECTED | $PAST_GRACE | $ALERT |" >> "$GITHUB_STEP_SUMMARY"
             if [ "$ALERT" = "True" ]; then
-              echo "::error::$SLOT $DECISION_DATE handoff status=$STATUS past grace deadline — validated narrative has not reached Portal/Notion"
+              echo "::error::$SLOT $DECISION_DATE handoff status=$STATUS past grace deadline — recovery_route=$ROUTE owner=$OWNER"
               ANY_ALERT=true
             fi
           done
@@ -128,7 +131,9 @@ jobs:
           git push origin "HEAD:$DEFAULT_BRANCH"
 
       - name: Fail loud on an unresolved handoff
-        if: steps.check.outputs.any_alert == 'true' && inputs.fail_on_alert != false
+        # Scheduled events have no `inputs` context.  Treat them as fail-loud
+        # by default; only an explicit replay dispatch may opt out.
+        if: steps.check.outputs.any_alert == 'true' && (github.event_name != 'workflow_dispatch' || inputs.fail_on_alert == true)
         run: |
           echo "STOP: at least one slot is past its documented grace deadline without a complete handoff" >&2
           exit 1

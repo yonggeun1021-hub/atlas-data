@@ -175,6 +175,61 @@ class SyntheticScenarios(unittest.TestCase):
         self.assertEqual(report["authority"], watchdog.NO_AUTHORITY)
         self.assertTrue(all(v is False for v in report["authority"].values()))
 
+    def test_every_status_has_a_bounded_existing_recovery_route(self):
+        expected = {
+            "NATURAL_RECEIPT_MISSING": "ORIGINAL_SCHEDULE_RUN_RECOVERY",
+            "WAITING_VALIDATION": "CANONICAL_EXTERNAL_SEMANTIC_VALIDATION",
+            "SOURCE_BRIDGE_MISSING": "CANONICAL_SOURCE_BRIDGE_REVIEW",
+            "ENVELOPE_MISSING": "VALIDATED_PORTAL_ENVELOPE_PRODUCER",
+            "PORTAL_HANDOFF_MISSING": "VALIDATED_PORTAL_PROJECTION_DISPATCH",
+            "FINAL_DRAIN_MISSING": "FINALIZATION_DRAIN",
+            "COMPLETE": "NONE_COMPLETE",
+        }
+        for status, route in expected.items():
+            with self.subTest(status=status):
+                plan = watchdog.recovery_plan(status, self.slot, self.date, {})
+                self.assertEqual(plan["route"], route)
+                self.assertRegex(plan["recovery_key"], r"^[0-9a-f]{64}$")
+                self.assertFalse(plan["natural_evidence_mutation_authorized"])
+                self.assertFalse(plan["backfill_promotion_authorized"])
+                for authority in ("stage", "buy", "action", "order", "production", "trading"):
+                    self.assertFalse(plan[f"{authority}_authority"])
+
+    def test_semantic_states_never_claim_safe_automatic_recovery(self):
+        for status in ("WAITING_VALIDATION", "SOURCE_BRIDGE_MISSING"):
+            with self.subTest(status=status):
+                plan = watchdog.recovery_plan(status, self.slot, self.date, {})
+                self.assertTrue(plan["requires_semantic_judgment"])
+                self.assertFalse(plan["safe_to_automate"])
+
+    def test_recovery_key_is_time_independent_and_changes_with_evidence_state(self):
+        self._natural()
+        first = watchdog.run_check(
+            self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 9, 0)
+        )
+        later = watchdog.run_check(
+            self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 10, 0)
+        )
+        self.assertEqual(
+            first["recovery"]["recovery_key"], later["recovery"]["recovery_key"]
+        )
+        self._semantic_pass()
+        changed = watchdog.run_check(
+            self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 10, 1)
+        )
+        self.assertNotEqual(
+            first["recovery"]["recovery_key"], changed["recovery"]["recovery_key"]
+        )
+
+    def test_workflow_surfaces_recovery_route_and_owner(self):
+        workflow = (ROOT / ".github/workflows/briefing-handoff-watchdog.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('json.load(sys.stdin)["recovery"]["route"]', workflow)
+        self.assertIn('json.load(sys.stdin)["recovery"]["owner"]', workflow)
+        self.assertIn("github.event_name != 'workflow_dispatch'", workflow)
+        self.assertIn("inputs.fail_on_alert == true", workflow)
+
     def test_alert_requires_past_grace(self):
         self._natural()  # WAITING_VALIDATION
         early = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 7, 6))
