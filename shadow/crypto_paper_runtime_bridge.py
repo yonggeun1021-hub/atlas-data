@@ -142,6 +142,7 @@ def _decision_validator(observation_root: Path):
     # code checkout. Only its relative evidence-path root is redirected to the
     # separately verified, read-only observation checkout.
     validator.ROOT = observation_root
+    validator.CRYPTO_BREADTH_RAW_ROOT = observation_root / "evidence" / "crypto" / "breadth" / "raw"
     return validator
 
 

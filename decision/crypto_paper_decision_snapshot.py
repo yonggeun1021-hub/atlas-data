@@ -734,6 +734,16 @@ def _validate_leadership_entry(entry: dict | None) -> None:
         ):
             raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_ENTRY_INVALID")
         manifest_path = CRYPTO_BREADTH_RAW_ROOT / source_date / "_manifest.json"
+        # Retained lineage must stay inside the verified evidence checkout.
+        try:
+            parts = manifest_path.relative_to(ROOT).parts
+        except ValueError as exc:
+            raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_PATH_ESCAPE") from exc
+        current = ROOT
+        for part in parts:
+            current /= part
+            if current.is_symlink():
+                raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_PATH_SYMLINK")
         if not manifest_path.is_file():
             raise CryptoPaperDecisionSnapshotError(
                 f"LEADERSHIP_LINEAGE_MANIFEST_MISSING:{source_date}"
