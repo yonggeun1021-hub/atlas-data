@@ -980,6 +980,44 @@ class CombinedValidationTest(unittest.TestCase):
                     "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES", str(caught.exception),
                 )
 
+    def test_validate_population_rejects_a_coordinated_forged_us_record_shape(self):
+        # The exact adversarial probe an integration review used, in its strongest
+        # form: forge a *derived* field of the embedded US record, carry the same
+        # forgery through the combined record's own view of that market, re-sign
+        # the embedded population, re-pin its digest, and re-sign the combined
+        # payload. Nothing is left inconsistent for the join's own re-derivation
+        # to notice — every measurement, axis row, source hash, and signature is
+        # genuine — so only the US module re-deriving its record shape from the
+        # axes can refuse a replay reported as three observed axes out of zero
+        # attempted, a five-axis coverage of 999, or an observed date carrying a
+        # failure that never happened.
+        for mutate, code in (
+            (lambda record: record["free_axis_coverage"].__setitem__(
+                "attempted_count", 0),
+             "RECORD_COVERAGE_INCONSISTENT"),
+            (lambda record: record["five_axis"]["coverage"].__setitem__(
+                "defined_count", 999),
+             "RECORD_FIVE_AXIS_NOT_DERIVED_FROM_ITS_AXES"),
+            (lambda record: record.__setitem__("failure_reason", "FABRICATED_FAILURE"),
+             "REPLAYED_RECORD_MUST_NOT_CARRY_A_FAILURE"),
+        ):
+            with self.subTest(code=code):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                record = tampered["market_populations"]["US"]["records"][0]
+                self.assertEqual(record["status"], "FREE_AXES_OBSERVED")
+                mutate(record)
+                # Coordinate the join so the combined record still re-derives
+                # exactly from the (forged) embedded record it claims to join.
+                view = tampered["records"][0]["markets"]["US"]
+                view["axis_coverage"] = copy.deepcopy(record["five_axis"]["coverage"])
+                view["failure_reason"] = record["failure_reason"]
+                with self.assertRaises(MODULE.CombinedReplayError) as caught:
+                    MODULE.validate_population(
+                        self._repinned(tampered, "US", MODULE.USP)
+                    )
+                self.assertIn("EMBEDDED_POPULATION_INVALID:US", str(caught.exception))
+                self.assertIn(code, str(caught.exception))
+
     def test_validate_population_rejects_an_embedded_population_for_another_date(self):
         # An internally valid market population is still not *this* population's
         # evidence: one date's genuine KR replay must not be able to stand in

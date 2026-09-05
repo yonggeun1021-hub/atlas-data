@@ -1389,6 +1389,219 @@ class UsFreeAxisValidationTest(unittest.TestCase):
             MODULE.validate_population(self._resigned(tampered))
         self.assertIn("CANDIDATE_POLICY_SHA_MISMATCH", str(caught.exception))
 
+    def test_validate_population_rejects_a_forged_attempted_count(self):
+        # The exact adversarial probe an integration review used: re-sign the
+        # coverage denominator alone. Every axis, measurement, row, hash, and
+        # digest stays genuine, so nothing but re-deriving the whole coverage
+        # block can refuse a record reporting three observed axes out of zero
+        # attempted — a replay that never ran and still produced evidence.
+        for attempted in (0, 1, 99, None, "3"):
+            with self.subTest(attempted_count=attempted):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                tampered["records"][0]["free_axis_coverage"][
+                    "attempted_count"
+                ] = attempted
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("RECORD_COVERAGE_INCONSISTENT", str(caught.exception))
+
+    def test_validate_population_rejects_a_dropped_or_extended_coverage_block(self):
+        for mutate in (
+            lambda coverage: coverage.pop("attempted_count"),
+            lambda coverage: coverage.pop("not_computable_axes"),
+            lambda coverage: coverage.__setitem__("observed_fraction", "1.0"),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0]["free_axis_coverage"])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("RECORD_COVERAGE_INCONSISTENT", str(caught.exception))
+
+    def test_validate_population_rejects_forged_five_axis_status_or_coverage(self):
+        # The five-axis packet's own status and coverage are derived from the
+        # same axes, and checking only the axis *set* left them free text: a
+        # defined_count of 999 or a missing_axes list that quietly drops the
+        # excluded pair both misreport the honest partial 3/5 coverage while the
+        # axes underneath stay intact.
+        derived = "RECORD_FIVE_AXIS_NOT_DERIVED_FROM_ITS_AXES"
+        for mutate, code in (
+            (lambda five_axis: five_axis["coverage"].__setitem__("defined_count", 999),
+             derived),
+            (lambda five_axis: five_axis["coverage"].__setitem__("ratio", "5/5"), derived),
+            (lambda five_axis: five_axis["coverage"].__setitem__("missing_axes", []),
+             derived),
+            (lambda five_axis: five_axis["coverage"].__setitem__("required_count", 3),
+             derived),
+            (lambda five_axis: five_axis["coverage"].pop("defined_axes"), derived),
+            (lambda five_axis: five_axis.__setitem__("status", "FIVE_AXES_OBSERVED"),
+             derived),
+            (lambda five_axis: five_axis.__setitem__("coverage_note", "looks fine"),
+             "RECORD_FIVE_AXIS_INVALID"),
+            (lambda five_axis: five_axis.pop("coverage"), "RECORD_FIVE_AXIS_INVALID"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0]["five_axis"])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_a_five_axis_status_observed_when_nothing_was(self):
+        # The status names what the packet holds, so a date on which every free
+        # axis failed may not publish an "observed" packet.
+        tampered = copy.deepcopy(
+            build([ANCHOR], FakeProviders(fail_fred=True, fail_alpaca=True))
+        )
+        self.assertEqual(tampered["records"][0]["status"], "BLOCKED")
+        tampered["records"][0]["five_axis"]["status"] = (
+            "OBSERVED_UNCLASSIFIED_FREE_AXES_ONLY"
+        )
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "RECORD_FIVE_AXIS_NOT_DERIVED_FROM_ITS_AXES", str(caught.exception),
+        )
+
+    def test_validate_population_rejects_a_fabricated_failure_on_an_observed_record(self):
+        # A record whose axes all survived has no failure to report. Left
+        # unchecked the field is free text under a valid signature, and a reader
+        # would take it as the cause of a failure that never happened.
+        for forged in ("FABRICATED_FAILURE", "", "ALL_FREE_AXES_NOT_COMPUTABLE"):
+            with self.subTest(failure_reason=forged):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                self.assertEqual(tampered["records"][0]["status"], "FREE_AXES_OBSERVED")
+                tampered["records"][0]["failure_reason"] = forged
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "REPLAYED_RECORD_MUST_NOT_CARRY_A_FAILURE", str(caught.exception),
+                )
+
+    def test_validate_population_rejects_an_unattributed_blocked_record(self):
+        # The mirror image: a date that observed nothing may not drop its reason
+        # and become a BLOCKED record with no recorded cause.
+        for forged in (None, "", "NOT_THE_RECORD_LEVEL_CODE"):
+            with self.subTest(failure_reason=forged):
+                tampered = copy.deepcopy(
+                    build([ANCHOR], FakeProviders(fail_fred=True, fail_alpaca=True))
+                )
+                self.assertEqual(tampered["records"][0]["status"], "BLOCKED")
+                tampered["records"][0]["failure_reason"] = forged
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("BLOCKED_RECORD_MUST_BE_ATTRIBUTED", str(caught.exception))
+
+    def test_validate_population_rejects_a_contradictory_axis_entry_shape(self):
+        # An OBSERVED axis that also carries a failure reason, or a
+        # NOT_COMPUTABLE one that keeps a measurement, describes two outcomes at
+        # once — and every derived field built from "the observed axes" would
+        # silently follow only one of them.
+        cases = (
+            (
+                lambda axes: axes["TREND"].__setitem__("reason", "BLOCKED_BY_CREDENTIAL"),
+                "OBSERVED_AXIS_MUST_NOT_CARRY_A_REASON",
+            ),
+            (
+                lambda axes: axes.__setitem__("RISK_VOL", {
+                    "status": "NOT_COMPUTABLE",
+                    "reason": "X",
+                    "measurement": copy.deepcopy(axes["RISK_VOL"]["measurement"]),
+                }),
+                "NOT_COMPUTABLE_AXIS_MUST_NOT_CARRY_A_MEASUREMENT",
+            ),
+            (
+                lambda axes: axes.__setitem__("LIQUIDITY", {
+                    "status": "NOT_COMPUTABLE", "reason": None, "measurement": None,
+                }),
+                "NOT_COMPUTABLE_AXIS_MUST_BE_ATTRIBUTED",
+            ),
+            (
+                lambda axes: axes["TREND"].pop("reason"),
+                "REPLAYED_AXIS_STATUS_INVALID",
+            ),
+            (
+                lambda axes: axes["BREADTH"].__setitem__("note", "n/a"),
+                "EXCLUDED_AXIS_MUST_STAY_UNKNOWN",
+            ),
+        )
+        for mutate, code in cases:
+            with self.subTest(code=code):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0]["five_axis"]["axes"])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_a_shortened_source_date_attestation(self):
+        # ``_validate_no_lookahead`` bounds the dates the attestation *names*,
+        # not the list itself, so dropping the sources a record consulted left it
+        # publishing a "no lookahead" claim over evidence it no longer named.
+        for mutate in (
+            lambda attestation: attestation.__setitem__("liquidity_observation_dates", []),
+            lambda attestation: attestation.__setitem__("vix_observation_date", None),
+            lambda attestation: attestation.__setitem__("trend_session_date_range", []),
+            lambda attestation: attestation.__setitem__(
+                "fred_realtime_vintage_date", None,
+            ),
+            lambda attestation: attestation.pop("liquidity_observation_dates"),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                mutate(tampered["records"][0]["no_lookahead_attestation"])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "RECORD_ATTESTATION_NOT_DERIVED_FROM_ITS_EVIDENCE",
+                    str(caught.exception),
+                )
+
+    def test_validate_population_rejects_a_dropped_disclosed_warning(self):
+        # The unadjusted-close convention is a disclosed limitation a reader
+        # relies on, exactly like ``close_adjustment`` in the PIT block.
+        for warnings in (
+            [],
+            None,
+            ["SHADOW_HISTORICAL_BACKFILL_NOT_NATURAL_OBSERVATION"],
+        ):
+            with self.subTest(warnings=warnings):
+                tampered = copy.deepcopy(build([ANCHOR]))
+                tampered["records"][0]["warnings"] = warnings
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("RECORD_WARNINGS_INVALID", str(caught.exception))
+
+    def test_validate_population_rejects_an_effective_session_date_without_a_packet(self):
+        # A date that produced no axis packet has no TREND measurement to bind
+        # the effective session date to, so it may not carry one.
+        tampered = copy.deepcopy(build(["not-a-date"]))
+        self.assertIsNone(tampered["records"][0]["five_axis"])
+        tampered["records"][0]["effective_session_date"] = "2026-08-27"
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "EFFECTIVE_SESSION_DATE_NOT_DERIVED_FROM_ITS_EVIDENCE",
+            str(caught.exception),
+        )
+
+    def test_the_published_record_shape_is_the_one_that_is_validated(self):
+        # Published and re-required from the same helpers, so a derived field can
+        # never be emitted without being checked or checked without being
+        # emitted.
+        record = build([ANCHOR])["records"][0]
+        self.assertEqual(
+            record["free_axis_coverage"],
+            MODULE._free_axis_coverage(["TREND", "RISK_VOL", "LIQUIDITY"], [], 3),
+        )
+        self.assertEqual(
+            record["five_axis"],
+            MODULE._five_axis_block(
+                ["TREND", "RISK_VOL", "LIQUIDITY"], [], record["five_axis"]["axes"],
+            ),
+        )
+        self.assertEqual(record["free_axis_coverage"]["attempted_count"], 3)
+        self.assertIsNone(record["failure_reason"])
+
     def test_partial_coverage_that_would_classify_fails_closed(self):
         policy = MODULE._load_candidate_policy()
         rows = [

@@ -115,6 +115,17 @@ named and coded accordingly
 ``test_us_historical_replay_population.py`` pins both the caught and the
 uncaught side so the guarantee cannot drift into an over-claim.
 
+Every *derived* field of a record is re-derived rather than read.  A record's
+coverage blocks, five-axis status, per-axis entry shapes, record status, failure
+reason, disclosed warnings, and attested source dates are all computed from the
+axes that date actually produced, by the same helpers ``build_population`` uses,
+and ``validate_population`` rebuilds each of them.  Without that, any one of them
+is free text under a valid signature: an integration probe re-signed
+``attempted_count`` to 0 beside three observed axes, a five-axis
+``coverage.defined_count`` to 999, and a fabricated ``failure_reason`` onto a
+fully observed record, and each was accepted with every measurement, axis row,
+response hash, and payload digest left genuine.
+
 Known, disclosed limitation: closes are unadjusted (``adjustment=raw``)
 because that is the convention the production collector already uses; a
 corporate action *inside* a replayed return window is therefore reflected the
@@ -201,6 +212,32 @@ STATUS_OBSERVED = "FREE_AXES_OBSERVED"
 STATUS_PARTIAL = "FREE_AXES_PARTIAL"
 STATUS_BLOCKED = "BLOCKED"
 RECORD_STATUSES = (STATUS_OBSERVED, STATUS_PARTIAL, STATUS_BLOCKED)
+
+# The exact derived shape of one record, declared once so the builders below and
+# ``_validate_record`` cannot drift apart, and re-required key for key and value
+# for value at validation time.
+#
+# Every field named here is *derived* from the axes a date actually produced. A
+# re-hashed payload is a valid signature over whatever it contains, so any
+# derived field that nothing re-derives can be rewritten to contradict the axes
+# it came from while the measurements, the axis rows, the source hashes, and the
+# payload digest all stay internally consistent — an ``attempted_count`` of 0
+# beside three observed axes, a five-axis ``defined_count`` of 999, or an
+# ``OBSERVED`` record carrying a fabricated ``failure_reason`` a reader would
+# treat as the cause of a failure that never happened.
+FIVE_AXIS_KEYS = ("axes", "coverage", "status")
+FIVE_AXIS_STATUS_OBSERVED = "OBSERVED_UNCLASSIFIED_FREE_AXES_ONLY"
+FIVE_AXIS_STATUS_NONE = "NOT_COMPUTABLE_NO_FREE_AXIS_OBSERVED"
+AXIS_ENTRY_KEYS = ("measurement", "reason", "status")
+# The record-level reason a date carries when every free axis was attempted and
+# none survived. Per-axis reasons carry the attribution; this only states that
+# nothing publishable survived, so it is a fixed code rather than free text.
+ALL_AXES_NOT_COMPUTABLE_REASON = "ALL_FREE_AXES_NOT_COMPUTABLE"
+# The one record-level reason a date carries after every replayed axis was
+# attempted and the date was then failed closed for consuming a later source
+# date. It is the only blocked-without-a-packet case with a non-zero
+# ``attempted_count``, which is how ``_validate_record`` re-derives that count.
+LOOKAHEAD_BLOCKED_REASON = "US_REPLAY_LOOKAHEAD_VIOLATION"
 
 # The candidate rule can only classify a full 5/5 axis set; with BREADTH and
 # LEADERSHIP excluded by ratification scope, the honest normalization outcome
@@ -874,6 +911,78 @@ def _axis_attempt(fetch, derive, secrets: list[str]) -> dict:
     return {"measurement": measurement, "row": row, "reason": None}
 
 
+def _free_axis_coverage(
+    observed: list[str], not_computable: list[str], attempted: int,
+) -> dict:
+    """The record's own free-axis coverage, derived from the axes themselves."""
+    return {
+        "attempted_count": attempted,
+        "observed_count": len(observed),
+        "ratio": f"{len(observed)}/{len(REPLAYED_AXES)}",
+        "observed_axes": list(observed),
+        "not_computable_axes": list(not_computable),
+    }
+
+
+def _five_axis_block(observed: list[str], not_computable: list[str], axes: dict) -> dict:
+    """The five-axis packet, whose status and coverage are derived, not asserted.
+
+    The status names what this packet actually holds: never "5/5 observed", and
+    never "observed" at all when nothing survived. The coverage counts the same
+    axes the packet carries, and the excluded pair is always missing because this
+    module never populates it.
+    """
+    return {
+        "status": FIVE_AXIS_STATUS_OBSERVED if observed else FIVE_AXIS_STATUS_NONE,
+        "coverage": {
+            "defined_count": len(observed),
+            "required_count": len(PRR.AXES),
+            "ratio": f"{len(observed)}/{len(PRR.AXES)}",
+            "defined_axes": list(observed),
+            "missing_axes": sorted(list(not_computable) + EXCLUDED_AXES),
+        },
+        "axes": axes,
+    }
+
+
+def _no_lookahead_attestation(
+    requested_date: str,
+    trend: dict | None,
+    risk: dict | None,
+    liquidity: dict | None,
+    liquidity_dates: list[str],
+    *,
+    replayed: bool,
+) -> dict:
+    """The dates this record actually consulted, taken from its own measurements.
+
+    Derived rather than declared, and re-derived the same way in
+    ``_validate_attestation_is_derived_from_its_evidence``: a summary of consulted
+    dates that nothing rebuilds can be re-signed into naming fewer sources than
+    the record used, which would leave ``_validate_no_lookahead``'s walk with
+    nothing to reject.
+    """
+    return {
+        "anchor_requested_date": requested_date,
+        # A date that produced no axis packet at all issued no vintage-pinned
+        # request whose vintage could be attested.
+        "fred_realtime_vintage_date": requested_date if replayed else None,
+        # ``get`` rather than ``[]``: the same helper re-derives this block from a
+        # payload-supplied measurement at validation time, where a missing key
+        # must produce a mismatch that fails the record closed rather than an
+        # unhandled ``KeyError``.
+        "trend_session_date_range": (
+            [trend.get("earliest_session_date"), trend.get("as_of_session_date")]
+            if trend
+            else []
+        ),
+        "vix_observation_date": risk.get("observation_date") if risk else None,
+        "liquidity_observation_dates": list(liquidity_dates) if liquidity else [],
+        "any_source_date_after_requested_date": False,
+        "other_requested_dates_consulted": False,
+    }
+
+
 def _blocked_date_record(
     requested_date: str, failure_reason: str, *, attempted: int = 0,
 ) -> dict:
@@ -882,27 +991,15 @@ def _blocked_date_record(
         "status": STATUS_BLOCKED,
         "evidence_class": EVIDENCE_CLASS,
         "effective_session_date": None,
-        "free_axis_coverage": {
-            "attempted_count": attempted,
-            "observed_count": 0,
-            "ratio": f"0/{len(REPLAYED_AXES)}",
-            "observed_axes": [],
-            "not_computable_axes": list(REPLAYED_AXES),
-        },
+        "free_axis_coverage": _free_axis_coverage([], list(REPLAYED_AXES), attempted),
         "five_axis": None,
         "candidate_normalized_result": None,
         "source_hashes": None,
         "failure_reason": failure_reason,
         "warnings": list(RECORD_WARNINGS),
-        "no_lookahead_attestation": {
-            "anchor_requested_date": requested_date,
-            "fred_realtime_vintage_date": None,
-            "trend_session_date_range": [],
-            "vix_observation_date": None,
-            "liquidity_observation_dates": [],
-            "any_source_date_after_requested_date": False,
-            "other_requested_dates_consulted": False,
-        },
+        "no_lookahead_attestation": _no_lookahead_attestation(
+            requested_date, None, None, None, [], replayed=False,
+        ),
     }
 
 
@@ -1021,8 +1118,7 @@ def replay_one_requested_date(
     # "no lookahead" claim it cannot support.
     if any(date > requested_date for date in source_dates):
         return _blocked_date_record(
-            requested_date, "US_REPLAY_LOOKAHEAD_VIOLATION",
-            attempted=len(REPLAYED_AXES),
+            requested_date, LOOKAHEAD_BLOCKED_REASON, attempted=len(REPLAYED_AXES),
         )
 
     axes = {
@@ -1062,37 +1158,17 @@ def replay_one_requested_date(
     else:
         # Per-axis reasons carry the attribution; the record-level reason only
         # states that nothing publishable survived for this date.
-        status, failure_reason = STATUS_BLOCKED, "ALL_FREE_AXES_NOT_COMPUTABLE"
+        status, failure_reason = STATUS_BLOCKED, ALL_AXES_NOT_COMPUTABLE_REASON
 
     return {
         "requested_date": requested_date,
         "status": status,
         "evidence_class": EVIDENCE_CLASS,
         "effective_session_date": effective_session_date,
-        "free_axis_coverage": {
-            "attempted_count": len(REPLAYED_AXES),
-            "observed_count": len(observed_axes),
-            "ratio": f"{len(observed_axes)}/{len(REPLAYED_AXES)}",
-            "observed_axes": observed_axes,
-            "not_computable_axes": not_computable,
-        },
-        "five_axis": {
-            # The status names what this packet actually holds: never "5/5
-            # observed", and never "observed" at all when nothing survived.
-            "status": (
-                "OBSERVED_UNCLASSIFIED_FREE_AXES_ONLY"
-                if observed_axes
-                else "NOT_COMPUTABLE_NO_FREE_AXIS_OBSERVED"
-            ),
-            "coverage": {
-                "defined_count": len(observed_axes),
-                "required_count": len(PRR.AXES),
-                "ratio": f"{len(observed_axes)}/{len(PRR.AXES)}",
-                "defined_axes": observed_axes,
-                "missing_axes": sorted(not_computable + EXCLUDED_AXES),
-            },
-            "axes": axes,
-        },
+        "free_axis_coverage": _free_axis_coverage(
+            observed_axes, not_computable, len(REPLAYED_AXES),
+        ),
+        "five_axis": _five_axis_block(observed_axes, not_computable, axes),
         "candidate_normalized_result": candidate,
         "source_hashes": {
             "trend_response_sha256": trend["response_sha256"] if trend else None,
@@ -1103,15 +1179,9 @@ def replay_one_requested_date(
         },
         "failure_reason": failure_reason,
         "warnings": list(RECORD_WARNINGS),
-        "no_lookahead_attestation": {
-            "anchor_requested_date": requested_date,
-            "fred_realtime_vintage_date": requested_date,
-            "trend_session_date_range": trend_range,
-            "vix_observation_date": vix_observation_date,
-            "liquidity_observation_dates": liquidity_dates,
-            "any_source_date_after_requested_date": False,
-            "other_requested_dates_consulted": False,
-        },
+        "no_lookahead_attestation": _no_lookahead_attestation(
+            requested_date, trend, risk, liquidity, liquidity_dates, replayed=True,
+        ),
     }
 
 
@@ -1217,6 +1287,16 @@ def validate_population(value: dict) -> dict:
     guarantee vacuously. Every requested date must therefore map to exactly one
     record, in order; a record's status must agree with the axis coverage it
     carries; and the authority block must match ``AUTHORITY`` key for key.
+
+    Exactness extends to every *derived* field of a record, not only to the ones
+    a first pass happened to compare. An integration probe re-signed
+    ``attempted_count`` to 0 beside three observed axes, the five-axis
+    ``coverage.defined_count`` to 999, and a fabricated ``failure_reason`` onto a
+    fully observed record, and each was accepted because nothing rebuilt those
+    fields. ``_validate_record`` now recomputes both coverage blocks, the
+    five-axis status, every per-axis entry shape, the record status, the failure
+    reason, the disclosed warnings, and the attested source dates from the axes
+    the record actually carries, using the same helpers that produced them.
 
     Re-derived axis rows are still only half of an observation. They prove the
     stored direction follows from the stored measurement, but say nothing about
@@ -1414,11 +1494,29 @@ def _validate_records(
 def _validate_record(
     record: dict, requested_date: str, policy: dict, excluded: dict,
 ) -> None:
+    """One record, re-derived from its own axes rather than read as written.
+
+    Every field a reader would treat as a fact about the replay — the record
+    status, both coverage blocks, the five-axis status, the per-axis shapes, the
+    failure reason, the disclosed warnings, and the attested source dates — is
+    recomputed here from the axes the record actually carries. A re-hashed
+    payload is a valid signature over whatever it contains, so a derived field
+    that nothing re-derives is free text: an integration probe re-signed
+    ``attempted_count`` to 0 beside three observed axes, a five-axis
+    ``defined_count`` to 999, and a fabricated ``failure_reason`` onto a fully
+    observed record, and each was accepted with every measurement, axis row,
+    source hash, and digest left genuine.
+    """
     if not isinstance(record, dict) or record.get("evidence_class") != EVIDENCE_CLASS:
         fail("RECORD_EVIDENCE_CLASS_INVALID")
     status = record.get("status")
     if status not in RECORD_STATUSES:
         fail("RECORD_STATUS_INVALID")
+    # The unadjusted-close convention and the "shadow, not NATURAL" scope are
+    # disclosed limitations a reader relies on, exactly like ``close_adjustment``
+    # in the PIT block, so they are required rather than carried unread.
+    if record.get("warnings") != RECORD_WARNINGS:
+        fail("RECORD_WARNINGS_INVALID", requested_date)
     five_axis = record.get("five_axis")
     candidate = record.get("candidate_normalized_result")
     # A record may not claim an observed or partial replay while omitting the
@@ -1434,7 +1532,7 @@ def _validate_record(
     observed: list[str] = []
     not_computable = list(REPLAYED_AXES)
     if five_axis is not None:
-        if not isinstance(five_axis, dict):
+        if not isinstance(five_axis, dict) or sorted(five_axis) != sorted(FIVE_AXIS_KEYS):
             fail("RECORD_FIVE_AXIS_INVALID", requested_date)
         axes = five_axis.get("axes")
         if not isinstance(axes, dict) or sorted(axes) != sorted(PRR.AXES):
@@ -1448,6 +1546,7 @@ def _validate_record(
             entry = axes.get(name)
             if (
                 not isinstance(entry, dict)
+                or sorted(entry) != sorted(AXIS_ENTRY_KEYS)
                 or entry.get("status") != "UNKNOWN"
                 or entry.get("measurement") is not None
             ):
@@ -1458,9 +1557,29 @@ def _validate_record(
             entry = axes.get(name)
             if (
                 not isinstance(entry, dict)
+                or sorted(entry) != sorted(AXIS_ENTRY_KEYS)
                 or entry.get("status") not in ("OBSERVED", "NOT_COMPUTABLE")
             ):
                 fail("REPLAYED_AXIS_STATUS_INVALID", name)
+            # An axis entry must be shaped like the outcome it claims. An
+            # ``OBSERVED`` axis that also carried a reason would read as an
+            # observation *and* a failure at once, and a ``NOT_COMPUTABLE`` one
+            # that retained a measurement would be silently skipped by every
+            # derived field built from "the observed axes" while
+            # ``_validate_candidate_is_derived_from_its_evidence`` still read its
+            # session date. Whether an ``OBSERVED`` axis carries a usable
+            # measurement is settled by re-deriving its row below, which reports
+            # the richer failure.
+            if entry["status"] == "OBSERVED":
+                if entry.get("reason") is not None:
+                    fail("OBSERVED_AXIS_MUST_NOT_CARRY_A_REASON", f"{requested_date}:{name}")
+            elif entry.get("measurement") is not None:
+                fail(
+                    "NOT_COMPUTABLE_AXIS_MUST_NOT_CARRY_A_MEASUREMENT",
+                    f"{requested_date}:{name}",
+                )
+            elif not (isinstance(entry.get("reason"), str) and entry["reason"]):
+                fail("NOT_COMPUTABLE_AXIS_MUST_BE_ATTRIBUTED", f"{requested_date}:{name}")
         observed = [
             name for name in REPLAYED_AXES if axes[name].get("status") == "OBSERVED"
         ]
@@ -1471,15 +1590,37 @@ def _validate_record(
     coverage = record.get("free_axis_coverage")
     if not isinstance(coverage, dict):
         fail("RECORD_COVERAGE_MISSING", requested_date)
-    if (
-        coverage.get("observed_axes") != observed
-        or coverage.get("not_computable_axes") != not_computable
-        or coverage.get("observed_count") != len(observed)
-        or coverage.get("ratio") != f"{len(observed)}/{len(REPLAYED_AXES)}"
-    ):
+    # ``attempted_count`` is checked against the whole block, not on its own:
+    # it is the denominator a reader divides ``observed_count`` by, so an
+    # attempted count of 0 beside three observed axes reports a replay that never
+    # ran and still produced evidence. A record that carries an axis packet
+    # attempted every replayed axis by construction; one that carries none either
+    # never got past its own requested date (0) or attempted them all and then
+    # failed the date closed for lookahead.
+    expected_attempted = (
+        len(REPLAYED_AXES)
+        if five_axis is not None
+        or record.get("failure_reason") == LOOKAHEAD_BLOCKED_REASON
+        else 0
+    )
+    if coverage != _free_axis_coverage(observed, not_computable, expected_attempted):
         fail("RECORD_COVERAGE_INCONSISTENT", requested_date)
     if status != _status_for(observed):
         fail("RECORD_STATUS_INCONSISTENT_WITH_COVERAGE", requested_date)
+    # The five-axis packet publishes its own status and coverage over the same
+    # axes, and both are derived. Checking only the axis *set* above left them
+    # free text: a re-signed ``defined_count`` of 999, a ``missing_axes`` list
+    # that omits the excluded pair, or an "observed" status on a packet that
+    # observed nothing all travelled intact.
+    if five_axis is not None and five_axis != _five_axis_block(
+        observed, not_computable, axes,
+    ):
+        fail("RECORD_FIVE_AXIS_NOT_DERIVED_FROM_ITS_AXES", requested_date)
+    _validate_failure_reason(record, five_axis, observed, requested_date)
+    if five_axis is None and record.get("effective_session_date") is not None:
+        # With no axis packet there is no TREND measurement to bind it to, so
+        # ``_validate_candidate_is_derived_from_its_evidence`` never reaches it.
+        fail("EFFECTIVE_SESSION_DATE_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
 
     if candidate is not None:
         if candidate.get("paper_reference", {}).get("candidate_regime") != "UNKNOWN":
@@ -1495,6 +1636,84 @@ def _validate_record(
     _validate_fred_vintage_binding(axes, observed, requested_date)
     _validate_measurement_source_dates(axes, observed, requested_date)
     _validate_no_lookahead(record, requested_date)
+    _validate_attestation_is_derived_from_its_evidence(
+        record, five_axis, axes, observed, requested_date,
+    )
+
+
+def _validate_failure_reason(
+    record: dict, five_axis: object, observed: list[str], requested_date: str,
+) -> None:
+    """A record's failure reason must match what actually happened to its axes.
+
+    Left unchecked, this field is free text under a valid signature in both
+    directions. A fully observed record could carry a fabricated reason a reader
+    would take as the cause of a failure that never occurred, and a date that
+    observed nothing could drop its reason and become an unattributed blank —
+    which is exactly the "BLOCKED with no recorded cause" shape downstream
+    evidence can only summarize as an unexplained UNKNOWN.
+
+    The three cases are the three the builders produce: an axis survived, so
+    there is no failure; every attempted axis failed, so the reason is the fixed
+    record-level code (the attribution lives in the per-axis reasons); or the
+    date produced no axis packet at all, so it carries its own attributable
+    reason string.
+    """
+    failure_reason = record.get("failure_reason")
+    if observed:
+        if failure_reason is not None:
+            fail("REPLAYED_RECORD_MUST_NOT_CARRY_A_FAILURE", requested_date)
+    elif five_axis is not None:
+        if failure_reason != ALL_AXES_NOT_COMPUTABLE_REASON:
+            fail("BLOCKED_RECORD_MUST_BE_ATTRIBUTED", requested_date)
+    elif not isinstance(failure_reason, str) or not failure_reason:
+        fail("BLOCKED_RECORD_MUST_BE_ATTRIBUTED", requested_date)
+
+
+def _validate_attestation_is_derived_from_its_evidence(
+    record: dict, five_axis: object, axes: dict, observed: list[str], requested_date: str,
+) -> None:
+    """The attested source dates must be the ones this record's axes carry.
+
+    ``_validate_no_lookahead`` re-checks that every date the attestation *names*
+    is at or before the requested date, which is a bound on the listed dates and
+    not on the list. A re-signed payload could therefore shorten the list —
+    dropping the liquidity observation dates, blanking the VIX observation date,
+    or emptying the trend session range — and the walk would simply have less to
+    reject while the record still published a "no lookahead" claim over sources it
+    no longer named. Rebuilding the block from the observed measurements
+    themselves, with the same helper that produced it, closes that in both
+    directions: a date the record did not consult cannot be added either.
+    """
+    def measurement(name: str) -> dict | None:
+        entry = axes.get(name) if isinstance(axes, dict) else None
+        if name not in observed or not isinstance(entry, dict):
+            return None
+        value = entry.get("measurement")
+        return value if isinstance(value, dict) else None
+
+    liquidity = measurement("LIQUIDITY")
+    series = liquidity.get("series") if isinstance(liquidity, dict) else None
+    try:
+        liquidity_dates = sorted({
+            date
+            for row in (series if isinstance(series, list) else [])
+            for date in (row["previous_observation_date"], row["observation_date"])
+        })
+    except (KeyError, TypeError) as exc:
+        raise ReplayPopulationError(
+            f"OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT:{requested_date}:LIQUIDITY"
+        ) from exc
+    expected = _no_lookahead_attestation(
+        requested_date,
+        measurement("TREND"),
+        measurement("RISK_VOL"),
+        liquidity,
+        liquidity_dates,
+        replayed=five_axis is not None,
+    )
+    if record.get("no_lookahead_attestation") != expected:
+        fail("RECORD_ATTESTATION_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
 
 
 def _validate_fred_vintage_binding(
