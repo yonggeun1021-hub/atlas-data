@@ -71,6 +71,7 @@ APPROVED_TESTS = [
     #   packets remain explicit BLOCKED evidence. Missing/unevaluated input is
     #   never NO_ACTION, and no action/allocation/size/order authority is opened.
     "test/test_defensive_action_decision.py",
+    "test/test_runtime_regime_integration_contract.py",
     # ★ P7-12 Strategic Capital Posture readiness boundary. P1 Regime,
     #   P2 Flow/Rotation, P6 Defensive Action, and P7 risk sources are
     #   independently revalidated before any cross-market budget could exist.
