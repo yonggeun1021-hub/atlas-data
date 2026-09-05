@@ -100,14 +100,34 @@ def source_packet(name):
     raise AssertionError(name)
 
 
-def bundle(*, p6_available=True):
+READINESS = MODULE.RUNTIME_REGIME_READINESS
+
+
+def runtime_regime_readiness():
+    """The real P1 runtime readiness packet, over evidence-free envelopes.
+
+    Axis evidence presence varies day to day; the blockers this asserts on are
+    the structural ones that do not, so this stays a contract regression
+    rather than a snapshot of today's coverage.
+    """
+    outputs = {
+        market: READINESS.OUTPUT.build_unknown_output(market, GENERATED_AT)
+        for market in READINESS.OUTPUT.load_contract()["markets"]
+    }
+    return READINESS.build_readiness(outputs, GENERATED_AT)
+
+
+def bundle(*, p6_available=True, p1_regime_reasons=None):
     packets = {}
     reasons = {}
     unsupported = set(CONTRACT["unavailable_only_source_slots"])
     for name in CONTRACT["source_order"]:
         if name in unsupported:
             packets[name] = None
-            reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
+            if name == "P1_REGIME_DECISION" and p1_regime_reasons is not None:
+                reasons[name] = list(p1_regime_reasons)
+            else:
+                reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
         elif p6_available:
             packets[name] = source_packet(name)
             reasons[name] = []
@@ -192,6 +212,88 @@ class DefensiveActionDecisionTests(unittest.TestCase):
         self.assertNotIn("P2_FLOW_ENGINE_UNAVAILABLE", packet["unresolved_boundaries"])
         self.assertIn("P1_REGIME_DECISION_UNAVAILABLE", packet["unresolved_boundaries"])
         self.assertIn("P2_FLOW_LEDGER_UNAVAILABLE", packet["unresolved_boundaries"])
+
+    def test_p1_regime_readiness_supplies_exact_unavailable_blockers(self):
+        readiness = runtime_regime_readiness()
+        derived = MODULE.p1_regime_decision_unavailable_reasons(readiness)
+        packets, reasons = bundle(p1_regime_reasons=derived)
+        packet = MODULE.build_packet(
+            packets, reasons, AS_OF_DATE, GENERATED_AT, contract=CONTRACT
+        )
+        rows = {row["name"]: row for row in packet["sources"]}
+
+        # Exact blockers replace the opaque placeholder ...
+        stored = packet["unavailable_reasons"]["P1_REGIME_DECISION"]
+        self.assertEqual(stored, derived)
+        self.assertNotIn("P1_REGIME_DECISION_PRODUCTION_CONTRACT_UNAVAILABLE", stored)
+        self.assertIn("P1_REGIME_DECISION_NOT_RUNTIME_WIRED", stored)
+        self.assertIn(
+            "COMMON_V1_REPLAY_MODE:SHADOW_PIT_REPLAY_ONLY_RUNTIME_NOT_WIRED", stored
+        )
+        # The readiness packet_sha256 is deliberately NOT carried here: it
+        # covers generated_at-tainted envelopes, and consumers fingerprint
+        # this packet's semantic content.
+        self.assertFalse(
+            any("SHA256" in reason for reason in stored), stored
+        )
+        self.assertTrue(
+            any(
+                reason.startswith("SIGNED_NORMALIZATION_POLICY_UNRATIFIED:")
+                for reason in stored
+            )
+        )
+
+        # ... and change nothing about availability or authority.
+        self.assertEqual(rows["P1_REGIME_DECISION"]["availability"], "UNAVAILABLE")
+        self.assertIsNone(rows["P1_REGIME_DECISION"]["source_packet_sha256"])
+        self.assertEqual(packet["decision_status"], "BLOCKED")
+        self.assertIsNone(packet["selected_action"])
+        self.assertEqual(packet["order_intents"], [])
+        self.assertIn("P1_REGIME_DECISION_UNAVAILABLE", packet["unresolved_boundaries"])
+        self.assertEqual(packet["summary"]["unavailable_source_count"], 2)
+        self.assertTrue(
+            all(
+                "SOURCE_UNAVAILABLE:P1_REGIME_DECISION" in row["reasons"]
+                for row in packet["decisions"]
+                if row["decision"] != "NO_ACTION"
+            )
+        )
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+
+    def test_p1_regime_readiness_tamper_cannot_soften_the_blockers(self):
+        readiness = runtime_regime_readiness()
+        claimed_available = copy.deepcopy(readiness)
+        claimed_available["runtime_decision_available"] = True
+        with self.assertRaisesRegex(
+            MODULE.DefensiveActionDecisionError, "P1_REGIME_READINESS_INVALID"
+        ):
+            MODULE.p1_regime_decision_unavailable_reasons(claimed_available)
+
+        shortened = copy.deepcopy(readiness)
+        shortened["p1_regime_decision_unavailable_reasons"] = [
+            "P1_REGIME_DECISION_NOT_RUNTIME_WIRED"
+        ]
+        shortened["packet_sha256"] = READINESS.payload_sha256({
+            key: value for key, value in shortened.items()
+            if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.DefensiveActionDecisionError, "P1_REGIME_READINESS_INVALID"
+        ):
+            MODULE.p1_regime_decision_unavailable_reasons(shortened)
+
+    def test_p1_regime_slot_still_refuses_a_readiness_packet_as_a_source(self):
+        # Readiness is a blocker report, never an upstream decision packet.
+        packets, reasons = bundle()
+        packets["P1_REGIME_DECISION"] = runtime_regime_readiness()
+        reasons["P1_REGIME_DECISION"] = []
+        with self.assertRaisesRegex(
+            MODULE.DefensiveActionDecisionError,
+            "SOURCE_PACKET_NOT_YET_SUPPORTED:P1_REGIME_DECISION",
+        ):
+            MODULE.build_packet(
+                packets, reasons, AS_OF_DATE, GENERATED_AT, contract=CONTRACT
+            )
 
     def test_p2_flow_engine_semantic_tamper_fails_closed(self):
         packets, reasons = bundle()
