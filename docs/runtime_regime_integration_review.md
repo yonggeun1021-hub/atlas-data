@@ -299,3 +299,45 @@ Next executable step: root supplies the exact Claude technical-wiring head;
 independent review then verifies the diff against this contract, runs the full
 focused/adjacent matrix in a materialized checkout, and reports mechanism
 readiness separately from WBS/operational completion.
+
+## Latest-main integration closure — 2026-09-05
+
+The original baseline audit above is retained as historical evidence. The current
+user explicitly approved integrating this audit-only PR after #584. Refreshed
+this branch with a regular, conflict-free merge of origin/main
+`55f969bd9ba85a57edb8a151b22c3d98ddb9fb80` (the #584 merge), preserving the
+eight integration checks and the single run_all.py registration. No production
+code was changed by #585. The refresh commit is
+`759e7e0f4b42ddc94a3df1cafc1656f34e1c76f1`.
+
+Actual local verification on the combined code, all PASS:
+
+- test/test_runtime_regime_integration_contract.py: 8/8
+- test/test_runtime_regime_readiness.py: 18/18
+- test/test_regime_decision_authority.py: 40/40
+- test/test_defensive_action_decision.py: 17/17
+- test/test_daily_orchestrator.py: 73/73 (526.018 seconds)
+- git diff --check: clean; production delta from latest main: none.
+
+The initial package-style unittest invocation could not import the repository's
+non-package test directory; the actual results above are direct-file executions.
+The daily suite exercises the real evidence consumer, frozen pre-wiring packets,
+version tampering, exact P1 unavailable blockers and fallback behavior. This is
+156 passing checks against #584-integrated code, not merely the pre-#584 CI green.
+
+Live GitHub metadata now independently confirms private main
+`201b451ec9f988110e5c6099a20a2aabd04c9609`, #584 merged, and #585 still draft
+before publication of this refresh. Canonical Doctrine, P1-COM-05, P2-COM-02,
+P2-COM-03, Cockpit and Master Map were fetched. Doctrine/Map carry deleted
+markers; the explicit current user mandate governs this bounded closure.
+
+Verdict: PASS for the technical Runtime Regime integration package.
+P1-COM-05 investment-function completion is not claimed. P1_REGIME_DECISION
+stays UNAVAILABLE, final Regime/direction UNKNOWN, with exact normalization,
+coverage, policy, freshness, PIT and runtime binding gates retained. No policy,
+threshold, TTL, PIT acceptance or runtime/action/order/REAL authority changes.
+
+The integration owner must read this refreshed exact head's CI before regular
+merge, retain merge evidence in the controller closure receipt, advance the
+current technical package to Cross-Market Flow, and preserve the separate
+Portal projection and existing P0-06 briefing recovery lanes.
