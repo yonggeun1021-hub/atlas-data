@@ -5,8 +5,12 @@ The transform consumes two retained-free ``us_leadership/v1`` derived packets.
 It never sees vendor price rows.  Ranking and TOP/MIDDLE/BOTTOM transitions are
 emitted only when a separate external policy is RATIFIED, effective across both
 observations, and bound to the exact Theme-taxonomy and upstream taxonomy
-policy hashes.  P2-05 state vocabulary, Regime, Stage, Production and trading
-authority remain closed.
+policy hashes.  On the ``theme_taxonomy/2`` path the bound taxonomy source must
+itself be an in-force ratified fact on *both* observation dates, ratified no
+later than the prior observation was available: a taxonomy fact that came into
+force, or was ratified, after the earlier observation never classifies that
+earlier observation or the transition measured from it.  P2-05 state
+vocabulary, Regime, Stage, Production and trading authority remain closed.
 """
 from __future__ import annotations
 
@@ -351,8 +355,14 @@ def _consume_taxonomy(
     DRAFT_OR_NOT_EFFECTIVE_GRAPH withholds ranking entirely, however ratified
     the rotation policy is (see _taxonomy_source_effective).
 
-    Returns the derived binding fields and, for a real consumption, the set of
-    Theme node ids that graph reports as active on this decision date.
+    Returns the derived binding fields and, for a real consumption, the exact
+    point-in-time facts the consumed document itself carries: the approval's
+    own effective window and ratification instant, and every node's own
+    validity interval.  The producer resolves a graph on one decision date, and
+    that date is this rotation's *current* observation; those retained facts
+    are what let the caller re-evaluate the very same producer-validated
+    document on the *prior* observation date too (see _assert_theme_nodes and
+    _taxonomy_source_effective).
     """
     version = binding["taxonomy_contract_version"]
     if version != taxonomy_producer_contract_version():
@@ -422,17 +432,49 @@ def _consume_taxonomy(
         raise USCapitalRotationError("TAXONOMY_ELIGIBLE_CLAIM_INVALID")
     if eligible_claim is (graph_status == TAXONOMY_GRAPH_STATUS_NOT_EFFECTIVE):
         raise USCapitalRotationError("TAXONOMY_GRAPH_STATUS_DERIVATION_MISMATCH")
+    # The approval's own effective window and ratification instant, re-read
+    # from the producer-validated approval object rather than re-specified, so
+    # the same document can be evaluated on the prior observation date without
+    # a second, differently-dated producer run over mutated source bytes.
+    approval_status = approval.get("approval_status")
+    if approval_status not in {"RATIFIED", "UNRATIFIED"}:
+        raise USCapitalRotationError("TAXONOMY_APPROVAL_STATUS_INVALID")
+    effective_from = _date(
+        approval.get("effective_from"), "TAXONOMY_APPROVAL_WINDOW_INVALID"
+    ).isoformat()
+    effective_to = approval.get("effective_to")
+    if effective_to is not None:
+        effective_to = _date(
+            effective_to, "TAXONOMY_APPROVAL_WINDOW_INVALID"
+        ).isoformat()
+        if effective_to <= effective_from:
+            raise USCapitalRotationError("TAXONOMY_APPROVAL_WINDOW_INVALID")
     nodes = packet.get("nodes")
     if not isinstance(nodes, list):
         raise USCapitalRotationError("TAXONOMY_NODES_INVALID")
-    # Exactly the producer's own interval semantics, reused rather than
-    # re-specified, and cross-checked against its own active_node_count.
-    active_theme_ids = {
-        node["theme_id"]
-        for node in nodes
-        if TT._active(node["valid_from"], node["valid_to"], packet["as_of_date"])
+    node_intervals = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            raise USCapitalRotationError("TAXONOMY_NODES_INVALID")
+        theme_id = _token(node.get("theme_id"), "TAXONOMY_NODE_ID_INVALID")
+        interval_code = f"TAXONOMY_NODE_INTERVAL_INVALID:{theme_id}"
+        valid_from = _date(node.get("valid_from"), interval_code).isoformat()
+        valid_to = node.get("valid_to")
+        if valid_to is not None:
+            valid_to = _date(valid_to, interval_code).isoformat()
+        node_intervals.append((theme_id, valid_from, valid_to))
+    pit = {
+        "approval_status": approval_status,
+        "effective_from": effective_from,
+        "effective_to": effective_to,
+        "ratified_at_utc": approval.get("ratified_at_utc"),
+        "nodes": node_intervals,
     }
-    if len(active_theme_ids) != packet.get("active_node_count"):
+    # The decision-date slice still uses exactly the producer's own interval
+    # semantics and is still cross-checked against its own active_node_count.
+    if len(_taxonomy_active_theme_ids(pit, as_of_date)) != packet.get(
+        "active_node_count"
+    ):
         raise USCapitalRotationError("TAXONOMY_ACTIVE_NODE_DERIVATION_MISMATCH")
     derived = {
         "taxonomy_source_json": source_bytes.decode("utf-8"),
@@ -443,12 +485,32 @@ def _consume_taxonomy(
         ),
         "theme_membership_authorized": membership_authorized,
     }
-    return derived, active_theme_ids
+    return derived, pit
 
 
-def _assert_theme_nodes(theme_ids, active_theme_ids: set[str] | None) -> None:
+def _taxonomy_active_theme_ids(pit: dict, day: dt.date) -> set[str]:
+    """The Theme node ids the consumed graph reports as active on ``day``.
+
+    The predicate is the producer's own ``[valid_from, valid_to)`` interval
+    helper, reused rather than restated, so this consumer cannot drift from
+    P2-01 effective-interval semantics on either observation date.
+    """
+    text = day.isoformat()
+    return {
+        theme_id
+        for theme_id, valid_from, valid_to in pit["nodes"]
+        if TT._active(valid_from, valid_to, text)
+    }
+
+
+def _assert_theme_nodes(
+    theme_ids,
+    pit: dict | None,
+    prior_date: dt.date,
+    current_date: dt.date,
+) -> None:
     """Every rotation Theme id must name a node the consumed graph itself
-    reports as active on this decision date.
+    reports as active on *both* observation dates.
 
     In US the rotation Theme id *is* the upstream Leadership ``group_id``, so
     this is referential integrity between the exact graph that was actually
@@ -458,15 +520,34 @@ def _assert_theme_nodes(theme_ids, active_theme_ids: set[str] | None) -> None:
     applies when a real graph was consumed; the legacy opaque binding cannot be
     checked at all, which is precisely the gap the ``theme_taxonomy/2`` path
     closes.
+
+    Both observation dates are checked because this transform compares an
+    earlier observation with a later one.  A node that only became valid after
+    the prior observation did not exist as a Theme identity on that date, so it
+    cannot supply the prior rank and bucket a transition is measured from --
+    doing so would let a later taxonomy fact classify an earlier observation.
+    The decision-date verdict keeps its original code so an existing consumer
+    reads an unchanged failure; the prior side is named separately.
     """
-    if active_theme_ids is None:
+    if pit is None:
         return
-    for theme_id in sorted(theme_ids):
-        if theme_id not in active_theme_ids:
-            raise USCapitalRotationError(f"TAXONOMY_THEME_NODE_NOT_ACTIVE:{theme_id}")
+    for day, code in (
+        (current_date, "TAXONOMY_THEME_NODE_NOT_ACTIVE"),
+        (prior_date, "TAXONOMY_THEME_NODE_NOT_ACTIVE_AT_PRIOR"),
+    ):
+        active = _taxonomy_active_theme_ids(pit, day)
+        for theme_id in sorted(theme_ids):
+            if theme_id not in active:
+                raise USCapitalRotationError(f"{code}:{theme_id}")
 
 
-def _taxonomy_source_effective(binding: dict) -> bool:
+def _taxonomy_source_effective(
+    binding: dict,
+    pit: dict | None,
+    prior_date: dt.date,
+    current_date: dt.date,
+    prior_available_at: dt.datetime,
+) -> bool:
     """Whether the bound taxonomy source is an effective-dated document at all.
 
     A ``theme_taxonomy/2`` binding carries the producer's own re-derived
@@ -480,13 +561,53 @@ def _taxonomy_source_effective(binding: dict) -> bool:
     for one.  This is a fail-closed gate only: it never grants ranking, never
     upgrades the producer's verdict, and never authorizes membership.
 
+    That producer verdict is resolved on one decision date, and that date is
+    this rotation's *current* observation.  A source may therefore be a
+    perfectly effective document today and still not have existed on the prior
+    observation date, which is the date the prior rank, prior bucket and the
+    whole ``PRIOR_BUCKET_TO_CURRENT_BUCKET`` transition are read from.  So the
+    approval's own effective window is additionally required to cover the prior
+    observation, and -- exactly as the rotation policy has always been required
+    to -- a window that does cover it must have been ratified no later than the
+    prior observation was already available.  Both reuse facts that already
+    exist: the source approval's own effectivity interval and this module's own
+    prior-available ratification boundary.  Neither introduces a TTL, freshness
+    window, or any new policy or authority.
+
     The legacy ``theme_taxonomy/1`` binding has no such producer fact to check
     (that opacity is exactly what the /2 path exists to close), so it is left
     exactly as it has always behaved and stays gated by rotation policy alone.
     """
-    if "taxonomy_graph_status" not in binding:
+    if pit is None:
+        # Legacy /1: no consumed source, therefore nothing to evaluate.  A
+        # binding that carries a producer verdict without the facts it was
+        # derived from is not a shape this module can produce, so it fails
+        # closed rather than silently reading as effective.
+        if "taxonomy_graph_status" in binding:
+            raise USCapitalRotationError("TAXONOMY_SOURCE_FACTS_MISSING")
         return True
-    return binding["taxonomy_graph_status"] != TAXONOMY_GRAPH_STATUS_NOT_EFFECTIVE
+    if binding.get("taxonomy_graph_status") == TAXONOMY_GRAPH_STATUS_NOT_EFFECTIVE:
+        return False
+    covers_both = (
+        pit["approval_status"] == "RATIFIED"
+        and TT._active(
+            pit["effective_from"], pit["effective_to"], prior_date.isoformat()
+        )
+        and TT._active(
+            pit["effective_from"], pit["effective_to"], current_date.isoformat()
+        )
+    )
+    if covers_both:
+        # A source claiming to have been in force over the prior observation
+        # must also have been ratified by the time that observation was
+        # available.  Compared as instants, so a ratification later on the same
+        # calendar day is caught exactly as it is for the rotation policy.
+        ratified_at = _timestamp(
+            pit["ratified_at_utc"], "TAXONOMY_RATIFICATION_PROOF_INVALID"
+        )
+        if ratified_at > prior_available_at:
+            raise USCapitalRotationError("TAXONOMY_RATIFIED_AFTER_PRIOR_OBSERVATION")
+    return covers_both
 
 
 def _rotation_status(policy_effective: bool, taxonomy_effective: bool) -> str:
@@ -495,7 +616,11 @@ def _rotation_status(policy_effective: bool, taxonomy_effective: bool) -> str:
     The rotation policy is reported first so the long-standing invariant
     ``rotation_policy_effective is False`` <-> ``POLICY_NOT_EFFECTIVE`` still
     holds exactly, and the taxonomy-source state is named only when it is the
-    reason ranking was withheld from an otherwise effective policy.
+    reason ranking was withheld from an otherwise effective policy.  That one
+    taxonomy status covers every way the bound source fails to be an
+    effective-dated fact across the observation pair -- not in force on the
+    decision date, or not in force on the prior observation -- so no new status
+    vocabulary is introduced and existing consumers keep reading it unchanged.
     """
     if not policy_effective:
         return "POLICY_NOT_EFFECTIVE"
@@ -905,7 +1030,7 @@ def build_packet(
         raise USCapitalRotationError("INPUT_FIELDS_MISMATCH")
     as_of_date = _date(value.get("as_of_date"), "AS_OF_DATE_INVALID")
     binding = _validate_binding(value.get("taxonomy_binding"), contract, derived=False)
-    taxonomy_derived, active_theme_ids = _consume_taxonomy(
+    taxonomy_derived, taxonomy_pit = _consume_taxonomy(
         binding, taxonomy_source_bytes, as_of_date,
         taxonomy_authority_registry_path, taxonomy_trusted_commit,
     )
@@ -936,11 +1061,21 @@ def build_packet(
         current["observation_date"],
         prior["available_at"],
     )
-    _assert_theme_nodes(theme_ids, active_theme_ids)
+    _assert_theme_nodes(
+        theme_ids, taxonomy_pit,
+        prior["observation_date"], current["observation_date"],
+    )
     # Both ratifications must hold independently: an effective rotation policy
     # over a not-yet-effective, expired or UNRATIFIED taxonomy source produces
     # no ranks, buckets, transitions, top/bottom Themes or ranking authority.
-    taxonomy_effective = _taxonomy_source_effective(binding)
+    # The taxonomy source is judged over the whole observation pair, so a
+    # source that only came into force after the prior observation withholds
+    # ranking exactly as one that is not in force today.
+    taxonomy_effective = _taxonomy_source_effective(
+        binding, taxonomy_pit,
+        prior["observation_date"], current["observation_date"],
+        prior["available_at"],
+    )
     effective = policy_effective and taxonomy_effective
     observations = []
     top_themes = []
@@ -1116,14 +1251,14 @@ def validate_packet(
     if prior_available_at >= current_available_at:
         raise USCapitalRotationError("OUTPUT_AVAILABLE_AT_ORDER_INVALID")
     binding = _validate_binding(packet.get("taxonomy_binding"), contract, derived=True)
-    active_theme_ids = None
+    taxonomy_pit = None
     if binding["taxonomy_contract_version"] == taxonomy_producer_contract_version():
         embedded_source = binding["taxonomy_source_json"].encode("utf-8")
         if taxonomy_source_bytes is not None and taxonomy_source_bytes != embedded_source:
             raise USCapitalRotationError("OUTPUT_TAXONOMY_DERIVATION_MISMATCH")
         taxonomy_source_bytes = embedded_source
     if taxonomy_source_bytes is not None:
-        derived, active_theme_ids = _consume_taxonomy(
+        derived, taxonomy_pit = _consume_taxonomy(
             binding, taxonomy_source_bytes, as_of,
             taxonomy_authority_registry_path, taxonomy_trusted_commit,
         )
@@ -1175,7 +1310,7 @@ def validate_packet(
         )
     ):
         raise USCapitalRotationError("OUTPUT_POLICY_THEME_IDS_INVALID")
-    _assert_theme_nodes(theme_ids, active_theme_ids)
+    _assert_theme_nodes(theme_ids, taxonomy_pit, prior_date, current_date)
     top_count = _positive_int(policy.get("top_count"), "OUTPUT_TOP_COUNT_INVALID")
     bottom_count = _positive_int(
         policy.get("bottom_count"), "OUTPUT_BOTTOM_COUNT_INVALID"
@@ -1220,11 +1355,16 @@ def validate_packet(
     if packet.get("rotation_policy_effective") is not policy_effective:
         raise USCapitalRotationError("OUTPUT_POLICY_EFFECTIVE_MISMATCH")
     # The taxonomy-source gate is re-derived here from the binding's own
-    # producer-derived status, which the derivation check above already re-ran
-    # the real producer to re-prove. A packet that was ranked over a draft,
-    # UNRATIFIED, not-yet-effective or expired source therefore cannot pass a
-    # standalone validation even if every digest in it was re-signed.
-    taxonomy_effective = _taxonomy_source_effective(binding)
+    # producer-derived status and from the approval window and node intervals
+    # of the embedded source itself, which the derivation check above already
+    # re-ran the real producer to re-prove. A packet that was ranked over a
+    # draft, UNRATIFIED, not-yet-effective or expired source -- or over one
+    # that did not yet exist, or was not yet ratified, on its own prior
+    # observation date -- therefore cannot pass a standalone validation even if
+    # every digest in it, including payload_sha256, was re-signed.
+    taxonomy_effective = _taxonomy_source_effective(
+        binding, taxonomy_pit, prior_date, current_date, prior_available_at
+    )
     effective = policy_effective and taxonomy_effective
     raw_rows = packet.get("theme_observations")
     row_fields = {

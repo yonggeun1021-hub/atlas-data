@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 from decimal import Decimal
 import hashlib
 import importlib.util
@@ -263,6 +264,22 @@ def taxonomy_graph_document(as_of_date: str = "2026-08-20", theme_ids=None) -> d
     the repository still ships no default taxonomy, and the committed approval
     authority registry is still empty, so the real producer will resolve this
     graph as a structurally valid ratification *claim* that is NOT authorized.
+
+    ``ratified_at_utc`` is ``2026-08-18T12:00:00Z``. This fixture always
+    intended a taxonomy that was already ratified and in force *before* both
+    observations -- that is what ``effective_from`` ``2026-08-01`` says, and it
+    is the same intent the rotation policy fixture states with its own
+    ratified-before-prior ``2026-08-17T12:00:00Z``. The value it previously
+    carried, ``2026-08-19T12:00:00Z``, silently contradicted that: it is later
+    than the prior observation's own ``available_at``
+    (``2026-08-18T20:20:00-04:00`` == ``2026-08-19T00:20:00Z``), so the
+    document had not yet been ratified when the earlier of the two observations
+    it now classifies was already available. Only the instant moves, and only
+    to satisfy the temporal intent the fixture already declared; the approval
+    window, decision identity, nodes, edges, memberships, evidence and every
+    US-native leadership/benchmark/grouping value are untouched. The producer's
+    source-evidence cutoff is this instant, and the evidence timestamps
+    (``2026-08-18`` / ``2026-08-18T12:00:00Z``) still precede it.
     """
     theme_ids = sorted(US_THEME_IDS if theme_ids is None else theme_ids)
     return {
@@ -274,7 +291,7 @@ def taxonomy_graph_document(as_of_date: str = "2026-08-20", theme_ids=None) -> d
             "decision_id": GRAPH_DECISION_ID,
             "decision_sha256": GRAPH_DECISION_SHA,
             "ratified_by": "Atlas CIO",
-            "ratified_at_utc": "2026-08-19T12:00:00Z",
+            "ratified_at_utc": "2026-08-18T12:00:00Z",
             "effective_from": "2026-08-01",
             "effective_to": None,
         },
@@ -354,6 +371,67 @@ INEFFECTIVE_SOURCE_DOCUMENTS = {
     "unratified": unratified_graph_document,
     "not_yet_effective": not_yet_effective_graph_document,
     "expired": expired_graph_document,
+}
+
+# The prior observation this module's fixtures rank from, and the instant it
+# became available. Every point-in-time fixture below is stated relative to
+# these two facts rather than to a hard-coded literal.
+PRIOR_OBSERVATION_DATE = "2026-08-18"
+PRIOR_AVAILABLE_AT_UTC = "2026-08-19T00:20:00Z"
+
+
+def prior_invalid_effective_from_graph_document(as_of_date: str = "2026-08-20") -> dict:
+    """A genuinely ratified graph that only came into force *after* the prior
+    observation, and is in force on the current one.
+
+    This is the exact independently reproduced defect shape: prior observation
+    ``2026-08-18``, taxonomy effective ``2026-08-19``, current observation
+    ``2026-08-20``. The producer resolves it on the current decision date and
+    correctly calls it a currently effective document, so nothing in the
+    pre-existing not-effective gate refuses it -- yet it is not a taxonomy fact
+    on the prior observation date at all.
+    """
+    document = taxonomy_graph_document(as_of_date=as_of_date)
+    document["approval"]["effective_from"] = "2026-08-19"
+    return document
+
+
+def late_ratified_graph_document(as_of_date: str = "2026-08-20") -> dict:
+    """A graph claiming to have been in force over both observations, but
+    ratified one minute *after* the prior observation was already available.
+
+    The instant is deliberately on the same calendar day as
+    ``PRIOR_AVAILABLE_AT_UTC``, so a date-granularity comparison would pass it
+    and only an instant comparison refuses it.
+    """
+    document = taxonomy_graph_document(as_of_date=as_of_date)
+    document["approval"]["ratified_at_utc"] = "2026-08-19T00:21:00Z"
+    return document
+
+
+def prior_invalid_node_graph_document(
+    as_of_date: str = "2026-08-20", theme_id: str = "THEME.NETWORK"
+) -> dict:
+    """An in-force graph whose approval covers both observations, but in which
+    one ranked Theme node itself only becomes valid after the prior date.
+
+    The containing edge moves with the node because the producer requires an
+    edge interval to be contained in both endpoint node intervals; the node's
+    own ``valid_from`` is the fact under test.
+    """
+    document = taxonomy_graph_document(as_of_date=as_of_date)
+    for node in document["nodes"]:
+        if node["theme_id"] == theme_id:
+            node["valid_from"] = "2026-08-19"
+    for edge in document["edges"]:
+        if edge["to_theme_id"] == theme_id:
+            edge["valid_from"] = "2026-08-19"
+    return document
+
+
+PRIOR_INVALID_SOURCE_DOCUMENTS = {
+    "effective_from_after_prior": prior_invalid_effective_from_graph_document,
+    "theme_node_valid_from_after_prior": prior_invalid_node_graph_document,
 }
 
 
@@ -1323,6 +1401,311 @@ class USCapitalRotationTaxonomyV2Tests(unittest.TestCase):
                 1,
             )
             self.assertEqual(json.loads(output_path.read_text()), first)
+
+
+def utc(value: str):
+    """Parse a UTC instant with the consumer's own timestamp parser."""
+    return UCR._timestamp(value, "TEST_TIMESTAMP_INVALID")
+
+
+class USCapitalRotationTaxonomySourcePointInTimeTests(unittest.TestCase):
+    """The taxonomy source must be a point-in-time fact on *both* observations.
+
+    The producer resolves a graph on one decision date, and that date is the
+    rotation's current observation. A document that is perfectly effective
+    today can still be a strictly later fact than the prior observation whose
+    rank, bucket and transition it would otherwise classify. These regressions
+    hold that line for the three ways it can happen -- the approval window, the
+    ratification instant, and an individual Theme node's own validity -- in
+    build_packet() and in standalone validate_packet() alike.
+    """
+
+    def setUp(self):
+        self.document = taxonomy_graph_document()
+        self.source_bytes = taxonomy_source_bytes(self.document)
+
+    def build(self, document, rotation_policy=None):
+        value, bundled_policy = v2_bundle(document)
+        return UCR.build_packet(
+            value, bundled_policy if rotation_policy is None else rotation_policy,
+            taxonomy_source_bytes=taxonomy_source_bytes(document),
+        )
+
+    def active_theme_ids(self, document, day):
+        reference = TT.build_packet(copy.deepcopy(document))
+        return {
+            node["theme_id"]
+            for node in reference["nodes"]
+            if TT._active(node["valid_from"], node["valid_to"], day)
+        }
+
+    def test_every_prior_invalid_fixture_is_currently_effective_for_the_producer(self):
+        """Guards the negatives below from going vacuous.
+
+        Each fixture must reach the producer's *currently effective* verdict,
+        so it is refused by the new prior-observation rule specifically and not
+        by the pre-existing DRAFT_OR_NOT_EFFECTIVE_GRAPH gate, which would make
+        these tests prove nothing new.
+        """
+        factories = dict(PRIOR_INVALID_SOURCE_DOCUMENTS)
+        factories["ratified_after_prior"] = late_ratified_graph_document
+        for name, factory in factories.items():
+            with self.subTest(state=name):
+                reference = TT.build_packet(factory())
+                self.assertEqual(
+                    reference["graph_status"],
+                    "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED",
+                )
+                self.assertNotEqual(
+                    reference["graph_status"], "DRAFT_OR_NOT_EFFECTIVE_GRAPH"
+                )
+                self.assertTrue(
+                    reference["structurally_eligible_ratification_claim"]
+                )
+                self.assertEqual(reference["approval"]["approval_status"], "RATIFIED")
+                self.assertFalse(reference["theme_membership_authorized"])
+
+    def test_source_in_force_only_after_the_prior_observation_withholds_ranking(self):
+        """The exact independently reproduced defect.
+
+        Prior observation 2026-08-18, taxonomy effective 2026-08-19, current
+        observation 2026-08-20, RATIFIED covering rotation policy. This used to
+        emit ROTATION_BUCKETS_OBSERVED with a prior rank and a TOP_TO_MIDDLE
+        transition -- a later taxonomy fact classifying an earlier observation.
+        """
+        document = prior_invalid_effective_from_graph_document()
+        value, rotation_policy = v2_bundle(document)
+        self.assertEqual(rotation_policy["approval_status"], "RATIFIED")
+        packet = UCR.build_packet(
+            value, rotation_policy,
+            taxonomy_source_bytes=taxonomy_source_bytes(document),
+        )
+        self.assertEqual(packet["observation_pair"]["prior_date"], PRIOR_OBSERVATION_DATE)
+        self.assertGreater(
+            document["approval"]["effective_from"], PRIOR_OBSERVATION_DATE
+        )
+        # The producer still calls the source currently effective; the packet
+        # records that verdict exactly and never rewrites it.
+        self.assertEqual(
+            packet["taxonomy_binding"]["taxonomy_graph_status"],
+            "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED",
+        )
+        self.assertEqual(packet["status"], "TAXONOMY_SOURCE_NOT_EFFECTIVE")
+        # The rotation policy's own ratification is still reported truthfully,
+        # so the two gates stay separately auditable.
+        self.assertTrue(packet["rotation_policy_effective"])
+        self.assertIsNone(packet["ranking_method"])
+        self.assertEqual(packet["top_themes"], [])
+        self.assertEqual(packet["bottom_themes"], [])
+        for row in packet["theme_observations"]:
+            for field in (
+                "prior_rank", "current_rank", "rank_change",
+                "prior_bucket", "current_bucket", "bucket_transition",
+            ):
+                self.assertIsNone(row[field], field)
+            # The unranked measurement itself is still emitted.
+            self.assertIsNotNone(row["prior_relative_strength_vs_benchmark"])
+            self.assertIsNotNone(row["relative_strength_change"])
+        for field in (
+            "theme_ranking_authorized", "top_bottom_bucket_authorized",
+            "bucket_transition_authorized",
+        ):
+            self.assertFalse(packet["authority"][field], field)
+        self.assertFalse(packet["taxonomy_binding"]["theme_membership_authorized"])
+        UCR.validate_packet(copy.deepcopy(packet))
+
+    def test_theme_node_must_be_active_on_the_prior_observation_too(self):
+        document = prior_invalid_node_graph_document()
+        target = "THEME.NETWORK"
+        # The node is genuinely active on the decision date, so the unchanged
+        # decision-date check cannot be what refuses this document.
+        self.assertIn(target, self.active_theme_ids(document, "2026-08-20"))
+        self.assertNotIn(
+            target, self.active_theme_ids(document, PRIOR_OBSERVATION_DATE)
+        )
+        value, rotation_policy = v2_bundle(document)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError,
+            f"TAXONOMY_THEME_NODE_NOT_ACTIVE_AT_PRIOR:{target}",
+        ):
+            UCR.build_packet(
+                value, rotation_policy,
+                taxonomy_source_bytes=taxonomy_source_bytes(document),
+            )
+        # The decision-date verdict keeps its own distinct, unchanged code.
+        lapsed = taxonomy_graph_document()
+        for node in lapsed["nodes"]:
+            if node["theme_id"] == target:
+                node["valid_to"] = "2026-08-20"
+        for edge in lapsed["edges"]:
+            if edge["to_theme_id"] == target:
+                edge["valid_to"] = "2026-08-20"
+        value, rotation_policy = v2_bundle(lapsed)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError,
+            f"TAXONOMY_THEME_NODE_NOT_ACTIVE:{target}",
+        ):
+            UCR.build_packet(
+                value, rotation_policy,
+                taxonomy_source_bytes=taxonomy_source_bytes(lapsed),
+            )
+
+    def test_source_ratified_after_prior_availability_is_refused_same_calendar_day(self):
+        document = late_ratified_graph_document()
+        ratified = document["approval"]["ratified_at_utc"]
+        # Same calendar day as the prior observation's availability, strictly
+        # later as an instant: a date-granularity comparison would let it pass.
+        self.assertEqual(ratified[:10], PRIOR_AVAILABLE_AT_UTC[:10])
+        self.assertGreater(utc(ratified), utc(PRIOR_AVAILABLE_AT_UTC))
+        # The approval window itself does cover the prior observation, so this
+        # is the ratification boundary firing and nothing else.
+        self.assertLessEqual(
+            document["approval"]["effective_from"], PRIOR_OBSERVATION_DATE
+        )
+        value, rotation_policy = v2_bundle(document)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_RATIFIED_AFTER_PRIOR_OBSERVATION"
+        ):
+            UCR.build_packet(
+                value, rotation_policy,
+                taxonomy_source_bytes=taxonomy_source_bytes(document),
+            )
+        # The accepted fixture is on the correct side of the same boundary.
+        self.assertLessEqual(
+            utc(self.document["approval"]["ratified_at_utc"]),
+            utc(PRIOR_AVAILABLE_AT_UTC),
+        )
+
+    def test_self_rehashed_ranking_over_a_prior_invalid_source_is_refused(self):
+        """The standalone validator, not just build_packet(), must refuse.
+
+        Every digest is re-signed and the embedded source is a real graph the
+        producer accepts and calls currently effective, so nothing here is
+        caught by a hash check or by the pre-existing not-effective verdict.
+        These fail only because validate_packet() re-derives the source's own
+        approval window against the packet's own prior observation date.
+        """
+        ranked = self.build(self.document)
+        self.assertEqual(ranked["status"], "ROTATION_BUCKETS_OBSERVED")
+        document = prior_invalid_effective_from_graph_document()
+        source = taxonomy_source_bytes(document)
+        honest = self.build(document)
+        self.assertEqual(honest["status"], "TAXONOMY_SOURCE_NOT_EFFECTIVE")
+        with self.subTest(forgery="full_ranking"):
+            forged = copy.deepcopy(honest)
+            forged["status"] = ranked["status"]
+            forged["ranking_method"] = copy.deepcopy(ranked["ranking_method"])
+            forged["top_themes"] = list(ranked["top_themes"])
+            forged["bottom_themes"] = list(ranked["bottom_themes"])
+            forged["theme_observations"] = copy.deepcopy(ranked["theme_observations"])
+            forged["authority"] = copy.deepcopy(ranked["authority"])
+            rehash_output(forged)
+            self.assertEqual(forged["payload_sha256"], UCR.payload_sha256({
+                key: forged[key] for key in forged if key != "payload_sha256"
+            }))
+            # Packet-only consumers, including the shared rotation state
+            # ledger, re-prove the embedded source with no argument at all.
+            for source_argument in (None, source):
+                with self.assertRaisesRegex(
+                    UCR.USCapitalRotationError, "OUTPUT_UNAUTHORIZED_RANKING"
+                ):
+                    UCR.validate_packet(
+                        copy.deepcopy(forged), taxonomy_source_bytes=source_argument
+                    )
+        with self.subTest(forgery="status_only"):
+            forged = copy.deepcopy(honest)
+            forged["status"] = "ROTATION_BUCKETS_OBSERVED"
+            rehash_output(forged)
+            with self.assertRaisesRegex(
+                UCR.USCapitalRotationError,
+                "OUTPUT_INEFFECTIVE_TAXONOMY_BOUNDARY_MISMATCH",
+            ):
+                UCR.validate_packet(forged)
+
+    def test_standalone_validator_reproves_the_source_ratification_boundary(self):
+        """Re-derived from the embedded source, not from the rotation policy.
+
+        The persisted prior_available_at is pushed back to an instant that is
+        still after the rotation policy's own ratification -- so the existing
+        policy re-proof passes -- but before the taxonomy source's. Only a
+        validator that independently re-reads the source's ratification instant
+        refuses this.
+        """
+        packet = self.build(self.document)
+        self.assertEqual(packet["status"], "ROTATION_BUCKETS_OBSERVED")
+        tampered_available_at = "2026-08-18T00:00:00+00:00"
+        self.assertGreater(
+            utc(tampered_available_at),
+            utc(packet["rotation_policy"]["ratified_at_utc"]),
+        )
+        self.assertLess(
+            utc(tampered_available_at),
+            utc(self.document["approval"]["ratified_at_utc"]),
+        )
+        packet["observation_pair"]["prior_available_at"] = tampered_available_at
+        rehash_output(packet)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_RATIFIED_AFTER_PRIOR_OBSERVATION"
+        ):
+            UCR.validate_packet(packet)
+
+    def test_a_graph_verdict_without_the_facts_it_came_from_fails_closed(self):
+        # Not reachable through the public API -- _validate_binding admits only
+        # the six legacy fields or the full derived set -- so this locks the
+        # default directly: a producer verdict with no consumed source behind
+        # it never reads as an effective taxonomy fact.
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_SOURCE_FACTS_MISSING"
+        ):
+            UCR._taxonomy_source_effective(
+                {"taxonomy_graph_status": "AUTHORIZED_EFFECTIVE_GRAPH"},
+                None,
+                dt.date(2026, 8, 18),
+                dt.date(2026, 8, 20),
+                utc(PRIOR_AVAILABLE_AT_UTC),
+            )
+        # The legacy /1 binding, which carries no verdict, is untouched.
+        self.assertTrue(
+            UCR._taxonomy_source_effective(
+                taxonomy_binding(), None,
+                dt.date(2026, 8, 18), dt.date(2026, 8, 20),
+                utc(PRIOR_AVAILABLE_AT_UTC),
+            )
+        )
+
+    def test_source_valid_on_both_observations_still_ranks_and_legacy_is_unchanged(self):
+        approval = self.document["approval"]
+        # The positive fixture genuinely satisfies the rule on both dates.
+        self.assertLessEqual(approval["effective_from"], PRIOR_OBSERVATION_DATE)
+        self.assertIsNone(approval["effective_to"])
+        self.assertLessEqual(
+            utc(approval["ratified_at_utc"]), utc(PRIOR_AVAILABLE_AT_UTC)
+        )
+        for day in (PRIOR_OBSERVATION_DATE, "2026-08-20"):
+            self.assertTrue(
+                set(US_THEME_IDS) <= self.active_theme_ids(self.document, day), day
+            )
+        packet = self.build(self.document)
+        self.assertEqual(packet["status"], "ROTATION_BUCKETS_OBSERVED")
+        self.assertTrue(packet["authority"]["theme_ranking_authorized"])
+        self.assertEqual(packet["top_themes"], ["THEME.NETWORK"])
+        self.assertEqual(packet["bottom_themes"], ["THEME.POWER"])
+        rows = {row["theme_id"]: row for row in packet["theme_observations"]}
+        self.assertEqual(rows["THEME.COMPUTE"]["prior_rank"], 1)
+        self.assertEqual(rows["THEME.COMPUTE"]["bucket_transition"], "TOP_TO_MIDDLE")
+        self.assertEqual(rows["THEME.NETWORK"]["bucket_transition"], "MIDDLE_TO_TOP")
+        UCR.validate_packet(copy.deepcopy(packet))
+        # And the legacy /1 packet is unchanged: it consumes no source, so the
+        # prior-observation rule has nothing to evaluate and stays inert.
+        legacy = UCR.build_packet(input_packet(), policy())
+        self.assertNotIn("taxonomy_graph_status", legacy["taxonomy_binding"])
+        self.assertEqual(legacy["status"], "ROTATION_BUCKETS_OBSERVED")
+        self.assertTrue(legacy["rotation_policy_effective"])
+        self.assertEqual(packet["theme_observations"], legacy["theme_observations"])
+        self.assertEqual(packet["top_themes"], legacy["top_themes"])
+        self.assertEqual(packet["bottom_themes"], legacy["bottom_themes"])
+        self.assertEqual(packet["authority"], legacy["authority"])
+        UCR.validate_packet(copy.deepcopy(legacy))
 
 
 if __name__ == "__main__":

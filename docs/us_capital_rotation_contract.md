@@ -79,9 +79,14 @@ trusted: relabelling a `/1` binding as `/2`, editing the declared identity or
 packet digest, tampering with the graph semantically, or changing only the
 source bytes are each rejected.
 
-Rotation policy Theme ids must exist as active nodes in that exact graph on this
-decision date, using the producer's own interval semantics cross-checked against
-its own `active_node_count`. In US the rotation Theme id *is* the upstream
+Rotation policy Theme ids must exist as active nodes in that exact graph on
+*both* observation dates, using the producer's own interval semantics
+cross-checked against its own `active_node_count` on the decision date. A node
+that only became valid after the prior observation did not exist as a Theme
+identity on the date the prior rank and bucket are read from, so it fails
+closed as `TAXONOMY_THEME_NODE_NOT_ACTIVE_AT_PRIOR`; the decision-date verdict
+keeps its original `TAXONOMY_THEME_NODE_NOT_ACTIVE` code unchanged. In US the
+rotation Theme id *is* the upstream
 Leadership `group_id`, so this is direct referential integrity with no
 Korea-style series-to-Theme proxy mapping; US keeps its own single common
 benchmark, group relative-strength metric, `THEME_ID_ASC` tie break and
@@ -128,15 +133,58 @@ false, however ratified and covering the rotation policy is. Its status is
 `TAXONOMY_SOURCE_NOT_EFFECTIVE`, and the shared Rotation State Ledger -- which
 admits only `ROTATION_BUCKETS_OBSERVED` -- therefore refuses it as well.
 
+### The taxonomy source must be a fact on both observations, not only today
+
+The producer resolves a graph on one decision date, and that date is this
+rotation's *current* observation. A source can therefore be a fully effective
+document on the decision date and still be a strictly later fact than the prior
+observation -- which is the date the prior rank, the prior bucket and the whole
+`PRIOR_BUCKET_TO_CURRENT_BUCKET` transition are read from. Using it there would
+let a later taxonomy fact classify an earlier operational observation, which
+the point-in-time control forbids outright.
+
+So the consumed source's own approval must additionally be in force on the
+prior observation date, and -- exactly as the rotation policy has always been
+required to be -- an approval window that does cover the prior observation must
+have been ratified no later than that observation's own `available_at`. Both
+reuse facts that already exist: the source approval's own effectivity interval
+and this module's existing prior-available ratification boundary. Neither
+introduces a TTL, a freshness window, or any new policy, source or authority.
+
+A source whose window simply starts after the prior observation is an honest
+document that did not yet exist then, so it withholds ranking through the same
+subtractive gate and the same `TAXONOMY_SOURCE_NOT_EFFECTIVE` status. A source
+that claims to have covered the prior observation but was ratified after it was
+already available is incoherent backdated evidence, so it fails closed as
+`TAXONOMY_RATIFIED_AFTER_PRIOR_OBSERVATION` -- the same distinction, and the
+same instant-granularity comparison, that `POLICY_RATIFIED_AFTER_PRIOR_
+OBSERVATION` already draws for the rotation policy. A ratification later on the
+same calendar day as the prior observation's availability is refused.
+
+`validate_packet()` re-derives all of this for itself, from the approval window
+and node intervals of the embedded source it re-ran the real producer over and
+from the packet's own persisted `prior_date` and `prior_available_at`. A packet
+carrying prior ranks, prior buckets or transitions over a source that was not a
+fact on its own prior observation therefore fails closed even when every digest
+in it, including `payload_sha256`, has been re-signed. As before, the packet
+does not retain the two upstream Leadership packets, so the observation pair a
+packet declares is the pair every re-derivation is proved against; that
+retention boundary is unchanged and is shared with the existing rotation-policy
+re-proof.
+
 This gate is only ever subtractive: it withholds ranking and never grants it,
 never upgrades the producer's verdict, and creates no membership. It is exactly
-the producer's not-effective verdict and nothing wider, so a real
-effective-dated document that the separate approval-authority registry does not
-authorize -- the current repository state -- still ranks under an effective
-policy exactly as before. The verdict is taken from the producer's own
-`graph_status`, cross-proved against its own
-`structurally_eligible_ratification_claim`, so an unrecognised or internally
-inconsistent status fails closed rather than defaulting to effective.
+the producer's not-effective verdict plus that verdict's own point-in-time
+extension to the prior observation, and nothing wider -- so a real
+effective-dated document that covers both observations and that the separate
+approval-authority registry does not authorize -- the current repository state
+-- still ranks under an effective policy exactly as before. Authorization
+remains a different question from effectivity and is still never claimed here.
+The decision-date verdict is taken from the producer's own `graph_status`,
+cross-proved against its own `structurally_eligible_ratification_claim`, so an
+unrecognised or internally inconsistent status fails closed rather than
+defaulting to effective; a producer verdict presented without the source facts
+it was derived from fails closed as `TAXONOMY_SOURCE_FACTS_MISSING`.
 
 `rotation_policy_effective` keeps its original meaning -- the rotation policy's
 own ratification and coverage -- and stays true when only the taxonomy source
@@ -160,9 +208,23 @@ Asset Master data, claim a natural sample, or unlock candidate/Stage/Regime/
 Production/order/trading authority.
 
 Validation uses synthetic graph and Leadership fixtures through the real
-producer and US consumer. Operational completion still requires an actual
-canonical graph/source and an existing ratified rotation policy to pass this
-path in a natural run; engineering integration is not that completion.
+producer and US consumer. The synthetic positive graph's `ratified_at_utc`
+moved from `2026-08-19T12:00:00Z` to `2026-08-18T12:00:00Z`. That fixture
+always declared a taxonomy already ratified and in force before both
+observations -- its `effective_from` is `2026-08-01`, and the rotation policy
+fixture beside it states the same intent with `2026-08-17T12:00:00Z` -- but the
+instant it carried was later than the prior observation's own `available_at`
+(`2026-08-19T00:20:00Z`), so it silently contradicted that intent and only
+passed because the prior observation was never checked. Only the instant moved,
+and only far enough to satisfy the temporal intent already declared; the
+approval window, decision identity, nodes, edges, memberships, evidence and
+every US-native leadership/benchmark/grouping value are unchanged, and the
+existing negative fixtures (`UNRATIFIED`, not-yet-effective, expired, missing
+node, lapsed node, another day's graph, semantic and byte-only source tamper,
+relabelled `/1`, forged authority) reproduce exactly as before. Operational
+completion still requires an actual canonical graph/source and an existing
+ratified rotation policy to pass this path in a natural run; engineering
+integration is not that completion.
 
 ## Authority and operation
 
