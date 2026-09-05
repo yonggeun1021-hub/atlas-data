@@ -85,6 +85,11 @@ class ControlTests(unittest.TestCase):
         state=hook.consume(self.p,{},self.at)
         self.p['natural_probes'][0]['actual_behavior']='different'
         with self.assertRaises(ValueError):hook.consume(self.p,state,self.at)
+    def test_korean_saturday_utc_friday(self):
+        with tempfile.TemporaryDirectory() as d:
+            hook.tick(d,'2026-09-11T15:01:00Z')
+            p=json.loads((Path(d)/'state/ic_weekly_control/packets/IC-WEEK-2026-09-12.json').read_text())
+            self.assertEqual(p['decision_date'],'2026-09-12')
     def test_weekday_has_no_weekly_packet(self):
         with tempfile.TemporaryDirectory() as d:
             hook.tick(d,'2026-09-07T03:00:00Z')

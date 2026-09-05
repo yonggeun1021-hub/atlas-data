@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from zoneinfo import ZoneInfo
 
 AUTHORITY = {k: False for k in ('policy', 'threshold', 'REAL', 'order', 'trading')}
 KPI = ('decision_readiness', 'natural_paper_readiness', 'profitability_evidence', 'limited_real_readiness')
@@ -53,7 +54,7 @@ def validate(packet):
     cutoff = instant(packet['generated_at'])
     if not re.fullmatch(r'[A-Za-z0-9_-]+',packet['ic_id']): raise ValueError('Invalid packet identity')
     datetime.strptime(packet['decision_date'],'%Y-%m-%d')
-    if packet['decision_date'] > cutoff.date().isoformat(): raise ValueError('Future decision date')
+    if packet['decision_date'] > cutoff.astimezone(ZoneInfo('Asia/Seoul')).date().isoformat(): raise ValueError('Future decision date')
     for group,key in [('natural_probes','probe_id'),('system_actions','action_id'),('decision_routing','decision_id')]:
         ids=[r[key] for r in packet[group]]
         if len(ids)!=len(set(ids)) or any(not re.fullmatch(r'[A-Za-z0-9_-]+',v) for v in ids): raise ValueError('Invalid/duplicate identity')

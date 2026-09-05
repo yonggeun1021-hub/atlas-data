@@ -125,8 +125,8 @@ def tick(base, at, seed=None):
             for k in p['kpi_deltas'].values(): k.update(delta=None,status='NOT_COMPUTABLE',basis='Weekly carry-forward; fresh comparable evidence not supplied')
             p['results']['investment_action_result']='NOT_OBSERVED_THIS_WEEK'
             for r in p['natural_probes']: r['status']='CARRIED_FORWARD_AWAITING_FRESH_EVIDENCE'
-            # UTC generated_at may fall on the previous calendar date in Korea.
-            p=produce(p,at,instant(at).date().isoformat(),'IC-WEEK-'+week)
+            # IC calendar dates use Asia/Seoul; instants remain timezone-aware.
+            p=produce(p,at,week,'IC-WEEK-'+week)
             packets.append(p)
         for existing in sorted((root/'packets').glob('*.json')):
             prior=read(existing,{})
