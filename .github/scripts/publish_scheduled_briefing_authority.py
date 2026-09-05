@@ -688,8 +688,15 @@ def main(argv=None) -> int:
         path, changed = publish(
             args.repo_root, args.source_commit, args.slot, args.expected_kst_date
         )
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        validate_envelope(args.repo_root, envelope)
+        validate_expected_identity(
+            args.repo_root, envelope, path, envelope["source_commit"],
+            args.slot, args.expected_kst_date,
+        )
         print(f"authority_path={path.relative_to(args.repo_root).as_posix()}")
         print(f"authority_changed={'true' if changed else 'false'}")
+        print(f"authority_source_commit={envelope['source_commit']}")
         return 0
     if args.authority_path is None:
         fail("AUTHORITY_PATH_REQUIRED_FOR_VALIDATE")

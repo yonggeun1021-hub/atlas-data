@@ -7,7 +7,9 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -460,6 +462,37 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         self.assertEqual(first.read_bytes(), first_bytes)
         self.assertEqual(json.loads(second.read_text())["revision"], 2)
         self.assertEqual(json.loads(second.read_text())["source_commit"], new_commit)
+
+    def test_workflow_retry_retains_source_for_validation_and_downstream_receipts(self):
+        first, _ = M.publish(self.repo.root, self.repo.commit, "morning", DATE)
+        first_bytes = first.read_bytes()
+        retry_commit = self.repo.commit_all("authority-commit-after-original-delivery")
+        envelope = json.loads(first_bytes)
+        # Reproduce the incident: the retry checkout differs from the immutable
+        # envelope even though generation and delivery artifacts are identical.
+        with self.assertRaisesRegex(M.ScheduledAuthorityError, "ENVELOPE_EXPECTED_IDENTITY_MISMATCH"):
+            M.validate_expected_identity(self.repo.root, envelope, first, retry_commit, "morning", DATE)
+
+        workflow = (ROOT / ".github/workflows/daily-briefing.yml").read_text()
+        start = workflow.index("            AUTHORITY_OUTPUT=$(")
+        end = workflow.index('            if [ "$AUTHORITY_CHANGED"', start)
+        phase_b = workflow[start:end].replace(
+            "python3 .github/scripts/publish_scheduled_briefing_authority.py",
+            f"python3 {shlex.quote(str(SCRIPT))} --repo-root {shlex.quote(str(self.repo.root))}",
+        )
+        handoff = 'CONSUMER_READY_COMMIT="$AUTHORITY_SOURCE_COMMIT"'
+        self.assertIn(handoff, workflow[end:workflow.index("# Phase C", end)])
+        result = subprocess.run(
+            ["bash", "-eu", "-c", phase_b + "\n" + handoff + '\nprintf "RETAINED=%s\\n" "$CONSUMER_READY_COMMIT"'],
+            cwd=self.repo.root,
+            env={**os.environ, "SLOT": "morning", "DECISION_DATE": DATE, "CONSUMER_READY_COMMIT": retry_commit},
+            text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("authority_changed=false", result.stdout)
+        self.assertIn(f"RETAINED={self.repo.commit}", result.stdout)
+        self.assertEqual(first.read_bytes(), first_bytes)
+        self.assertEqual(len(list(first.parent.glob("rev-*.json"))), 1)
 
     def test_same_generation_new_delivery_appends_authority_revision(self):
         first, _ = M.publish(self.repo.root, self.repo.commit, "morning", DATE)

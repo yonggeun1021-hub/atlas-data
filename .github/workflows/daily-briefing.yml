@@ -304,10 +304,11 @@ jobs:
             echo "$AUTHORITY_OUTPUT"
             AUTHORITY_PATH=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_path=//p')
             AUTHORITY_CHANGED=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_changed=//p')
+            AUTHORITY_SOURCE_COMMIT=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_source_commit=//p')
             python3 .github/scripts/publish_scheduled_briefing_authority.py validate \
               --slot "$SLOT" \
               --expected-kst-date "$DECISION_DATE" \
-              --source-commit "$CONSUMER_READY_COMMIT" \
+              --source-commit "$AUTHORITY_SOURCE_COMMIT" \
               --authority-path "$AUTHORITY_PATH"
             if [ "$AUTHORITY_CHANGED" != "true" ]; then
               break
@@ -327,6 +328,11 @@ jobs:
             fi
             echo "main advanced while publishing authority; retrying from latest main" >&2
           done
+
+          # A no-op retry retains the original envelope and its exact source.
+          # publish verified generation/artifact/delivery equivalence before
+          # reusing it. All downstream receipts and sealing use that identity.
+          CONSUMER_READY_COMMIT="$AUTHORITY_SOURCE_COMMIT"
 
           # Phase C records downstream operational sidecars.  These are
           # intentionally isolated from P0-06: a lineage or Shadow semantic
