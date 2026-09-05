@@ -12,7 +12,9 @@ Private main: `201b451ec9f988110e5c6099a20a2aabd04c9609`.
 Runtime Regime owners: Claude #584 technical wiring and Codex #585 integration
 review. Open public #570/#576/#545/#475 and private #150 are unrelated. No changed
 path overlaps these PRs, including their shared `run_all.py`. Dedicated CI runs
-this contract without modifying their runner list. No WBS row/status is created
+this contract without modifying their runner list. The existing immutable action-pin
+regression increments checkout/setup-python counts for the one new workflow; the
+exact SHA checks remain unchanged. No WBS row/status is created
 or promoted. The bootstrap Doctrine locator returns a deleted historical page;
 current explicit user authorization and live Cockpit IC6 correction define this
 bounded implementation. P9-03 remains an unrelated downstream eligibility gate.
