@@ -38,6 +38,65 @@ three market keys with `null` values, while `cash_reserve`, `hedge_budget`,
 `max_gross_risk`, `max_net_risk`, and `theme_headroom` are also `null`.
 Missing never means zero, and BLOCKED never means `NO_ACTION`.
 
+## `P1_REGIME_DECISION` blockers and the daily derivation version
+
+The `P1_REGIME_DECISION` slot stays unavailable-only, but *why* it is
+unavailable is reported at two different fidelities depending on the daily
+packet's `runtime_regime_readiness_version` derivation marker in
+`briefing/daily_orchestrator.py`:
+
+| marker | P6-06 `P1_REGIME_DECISION` reasons | P7-12 `P1_REGIME_DECISION` reasons | `ACTION_RISK_PORTFOLIO_SUMMARY` component row `as_of_date` |
+| --- | --- | --- | --- |
+| absent | generic `*_PRODUCTION_CONTRACT_UNAVAILABLE` | generic | ambiguous: KST business date **or** `generated_at` UTC day |
+| exactly `1` | exact re-derived runtime blockers | generic | ambiguous: KST business date **or** `generated_at` UTC day |
+| exactly `2` (default) | exact re-derived runtime blockers | exact re-derived runtime blockers | KST business date of the validated summary packet |
+
+Under version 2 the P7-12 reasons are re-derived by the orchestrator from the
+same `regime_output/v1` envelopes the run already built, run through
+`regime/runtime_regime_readiness.py` and
+`portfolio/defensive_action_decision.py::p1_regime_decision_unavailable_reasons`,
+and validated again by this module's own `_reasons` guard.  P7-12 does not
+read P6-06's packet or component row to obtain them.  Only sorted reason
+codes are forwarded: the readiness packet's own `packet_sha256`, `age_seconds`
+and every other invocation-derived value are deliberately excluded, so a
+component's semantic fingerprint does not change merely because the briefing
+was rebuilt at a different time.
+
+Naming the real blockers changes nothing else.  The slot stays `UNAVAILABLE`
+with a null source identity, `decision_status` stays `BLOCKED`, budgets stay
+null, `order_intents` stays empty and every authority flag stays false.  This
+is a derivation version, not a policy version, a ratification, or an authority
+change.
+
+## Legacy replay compatibility, and what it does not prove
+
+A marker-absent or explicit-`1` daily packet is ambiguous about exactly one
+field: the `ACTION_RISK_PORTFOLIO_SUMMARY` *component row*'s `as_of_date`.
+Packets of both kinds were genuinely issued under the earlier
+`generated_at`-UTC-day basis and under the current KST-business-date basis,
+and nothing inside such a packet records which.  `validate_packet()` therefore
+rebuilds a legacy packet **in full** under each of those two enumerated bases
+and accepts it only on complete canonical equality with an entire
+reconstruction.  The persisted row's stored `as_of_date` is never read as a
+reconstruction input and is never copied into a rebuild to force a match, so
+every other tamper — source bytes, dates, reasons, authority, row content, an
+unknown or re-signed version — still fails closed.  For same-KST-day geometry
+(the 18:30 KST evening run) the two reconstructions are byte-identical and the
+check collapses to a single historical result.
+
+This is historical compatibility, **not release-origin authentication**.
+Accepting a legacy packet proves it is one of the two valid historical
+derivations of its own recorded inputs.  It does not prove which release
+produced it, and the two legitimately valid legacy forms cannot be
+distinguished from each other as provenance.  Authenticated release-specific
+provenance would require retained producer identity that these packets do not
+carry, and is out of scope here.
+
+Version 2 has exactly one derivation.  It never falls back to a legacy form,
+and the archival date basis is unreachable from any new build.  An explicitly
+persisted null marker is rejected rather than treated as absence, as are
+booleans, strings, `0`, negatives and unknown integers.
+
 Allocation-sum, overlap-exposure, and currency-boundary checks are present as
 explicit `NOT_EVALUATED` rows.  They cannot report PASS until the required
 source packets and a separately ratified policy exist.  In particular,

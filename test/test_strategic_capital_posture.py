@@ -995,5 +995,231 @@ class StrategicCapitalPostureKstBusinessDateTests(unittest.TestCase):
         self.assert_readiness_only(posture)
 
 
+_UNSET = object()
+
+
+class StrategicCapitalPostureRuntimeBlockerBindingTests(unittest.TestCase):
+    """The unavailable-only ``P1_REGIME_DECISION`` slot may name the real gaps.
+
+    Daily derivation version 2 forwards ``runtime_regime_readiness/v1``'s
+    exact, independently re-derived and sorted blocker list into this module's
+    P1 slot, exactly as the already-merged P6-06 consumer does.  The slot
+    stays UNAVAILABLE, the packet stays BLOCKED, and this module keeps
+    validating whatever it is handed: only the honesty of the reason list
+    changes, never availability, budgets or authority.
+    """
+
+    def exact_reasons(self):
+        """The real blocker list, taken through the same two validators the
+        orchestrator uses: the readiness packet is re-derived and byte-compared
+        before a single reason is forwarded."""
+        return P606_TEST.MODULE.p1_regime_decision_unavailable_reasons(
+            P606_TEST.runtime_regime_readiness()
+        )
+
+    def build(self, p1_reasons=_UNSET):
+        packets, reasons = morning_bundle()
+        if p1_reasons is not _UNSET:
+            reasons["P1_REGIME_DECISION"] = p1_reasons
+        return MODULE.build_packet(
+            packets, reasons, MORNING_AS_OF_DATE, MORNING_GENERATED_AT,
+            contract=CONTRACT,
+        )
+
+    def assert_grants_nothing(self, packet):
+        self.assertEqual(
+            packet["status"], "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED"
+        )
+        self.assertEqual(packet["decision_status"], "BLOCKED")
+        self.assertEqual(
+            packet["market_budget"], {"CRYPTO": None, "KOREA": None, "US": None}
+        )
+        for key in (
+            "risk_posture", "cash_reserve", "hedge_budget", "max_gross_risk",
+            "max_net_risk", "theme_headroom", "allocation_proposal",
+            "target_exposures", "position_sizes", "policy_packet",
+        ):
+            self.assertIsNone(packet[key], key)
+        self.assertEqual(packet["order_intents"], [])
+        self.assertEqual(packet["summary"]["numeric_budget_field_count"], 0)
+        self.assertEqual(packet["summary"]["evaluated_constraint_count"], 0)
+        self.assertEqual(packet["authority"], CONTRACT["authority"])
+        for key, value in packet["authority"].items():
+            if key != "readiness_inventory_only":
+                self.assertFalse(value, key)
+
+    def test_exact_runtime_blockers_bind_without_creating_availability(self):
+        exact = self.exact_reasons()
+        self.assertIn("P1_REGIME_DECISION_NOT_RUNTIME_WIRED", exact)
+        self.assertEqual(exact, sorted(set(exact)))
+
+        packet = self.build(exact)
+        self.assertEqual(packet["unavailable_reasons"]["P1_REGIME_DECISION"], exact)
+        row = {
+            source["name"]: source for source in packet["sources"]
+        }["P1_REGIME_DECISION"]
+        self.assertEqual(row["availability"], "UNAVAILABLE")
+        self.assertEqual(row["unavailable_reasons"], exact)
+        self.assertIsNone(row["source_status"])
+        self.assertIsNone(row["evidence_date"])
+        self.assertIsNone(row["source_packet_sha256"])
+        self.assertIsNone(
+            packet["lineage"]["source_packet_sha256"]["P1_REGIME_DECISION"]
+        )
+        self.assertIn(
+            "P1_REGIME_DECISION", packet["summary"]["unavailable_sources"]
+        )
+        self.assertIn(
+            "SOURCE_UNAVAILABLE:P1_REGIME_DECISION", packet["binding_reasons"]
+        )
+        self.assertIn(
+            "P1_REGIME_DECISION_UNAVAILABLE", packet["unresolved_boundaries"]
+        )
+        # Independently reassembled from its own recorded inputs, and still
+        # readiness-only.
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+        self.assert_grants_nothing(packet)
+
+    def test_only_sorted_reason_codes_travel_never_invocation_identity(self):
+        readiness = P606_TEST.runtime_regime_readiness()
+        exact = P606_TEST.MODULE.p1_regime_decision_unavailable_reasons(readiness)
+        self.assertFalse(any("SHA256" in reason for reason in exact), exact)
+
+        packet = self.build(exact)
+        body = MODULE.canonical_json(packet)
+        # The readiness packet's own identity hash covers regime_output/v1
+        # envelopes that embed the caller's invocation generated_at, so it
+        # must not reach this packet -- it would inject invocation noise into
+        # every consumer that fingerprints this packet's semantic content.
+        self.assertNotIn(readiness["packet_sha256"], body)
+        self.assertNotIn(readiness["generated_at"], MODULE.canonical_json(exact))
+
+    def test_tampered_readiness_cannot_shorten_the_forwarded_blockers(self):
+        readiness = P606_TEST.runtime_regime_readiness()
+        shortened = copy.deepcopy(readiness)
+        shortened["p1_regime_decision_unavailable_reasons"] = [
+            "P1_REGIME_DECISION_NOT_RUNTIME_WIRED"
+        ]
+        shortened["packet_sha256"] = P606_TEST.MODULE.payload_sha256({
+            key: value for key, value in shortened.items() if key != "packet_sha256"
+        })
+        with self.assertRaises(ValueError):
+            P606_TEST.MODULE.p1_regime_decision_unavailable_reasons(shortened)
+
+        promoted = copy.deepcopy(readiness)
+        promoted["runtime_decision_available"] = True
+        promoted["packet_sha256"] = P606_TEST.MODULE.payload_sha256({
+            key: value for key, value in promoted.items() if key != "packet_sha256"
+        })
+        with self.assertRaises(ValueError):
+            P606_TEST.MODULE.p1_regime_decision_unavailable_reasons(promoted)
+
+    def test_malformed_blocker_lists_fail_closed_at_this_boundary(self):
+        for bad in ([], ["lowercase"], ["B_REASON", "A_REASON"],
+                    ["A_REASON", "A_REASON"], [None], "A_REASON", None):
+            with self.subTest(reasons=bad):
+                with self.assertRaisesRegex(
+                    MODULE.StrategicCapitalPostureError,
+                    "UNAVAILABLE_REASONS_INVALID:P1_REGIME_DECISION",
+                ):
+                    self.build(bad)
+
+    def test_the_generic_form_is_preserved_and_the_two_stay_distinguishable(self):
+        # No blanket rollback: the legacy generic-reason packet still builds
+        # exactly the same bytes it always did.
+        generic = self.build()
+        self.assertEqual(
+            MODULE.canonical_json(generic), MODULE.canonical_json(self.build())
+        )
+        self.assertEqual(MODULE.validate_packet(generic, CONTRACT), generic)
+
+        exact = self.build(self.exact_reasons())
+        self.assertNotEqual(generic["packet_sha256"], exact["packet_sha256"])
+        # The reason list and the source row that carries it are the ONLY
+        # difference: no count, budget, constraint, lineage, invariant or
+        # authority field moves with it.
+        ignored = {"unavailable_reasons", "sources", "packet_sha256"}
+        self.assertEqual(
+            {k: v for k, v in generic.items() if k not in ignored},
+            {k: v for k, v in exact.items() if k not in ignored},
+        )
+        generic_rows = {row["name"]: row for row in generic["sources"]}
+        exact_rows = {row["name"]: row for row in exact["sources"]}
+        for name in generic_rows:
+            if name == "P1_REGIME_DECISION":
+                continue
+            self.assertEqual(generic_rows[name], exact_rows[name], name)
+        self.assert_grants_nothing(exact)
+
+    def test_exact_blockers_survive_the_p8_06_summary_consumer_path(self):
+        summary = load_module(
+            "p712_runtime_blocker_summary_consumer",
+            ROOT / "briefing" / "action_risk_portfolio_summary.py",
+        )
+        summary_contract = summary.load_contract()
+        unified_contract = summary.UNIFIED.load_contract()
+        unified_packet = summary.UNIFIED.build_packet(
+            components={name: None for name in unified_contract["component_order"]},
+            unavailable_reasons={
+                name: ["MORNING_CONSUMER_PATH_COMPONENT_NOT_CONNECTED"]
+                for name in unified_contract["component_order"]
+            },
+            decision_date=MORNING_AS_OF_DATE,
+            slot="morning",
+            generated_at=UNIFIED_MORNING_GENERATED_AT,
+        )
+        packets, reasons = morning_bundle()
+        reasons["P1_REGIME_DECISION"] = self.exact_reasons()
+        posture = MODULE.build_packet(
+            packets, reasons, MORNING_AS_OF_DATE, MORNING_GENERATED_AT,
+            contract=CONTRACT,
+        )
+        available = {
+            "UNIFIED_DECISION": unified_packet,
+            "DEFENSIVE_ACTION_DECISION": packets["P6_DEFENSIVE_ACTION"],
+            "STRATEGIC_CAPITAL_POSTURE": posture,
+        }
+        source_packets = {}
+        unavailable_reasons = {}
+        for name in summary_contract["source_order"]:
+            source_packets[name] = available.get(name)
+            unavailable_reasons[name] = (
+                [] if name in available
+                else ["MORNING_CONSUMER_PATH_SOURCE_NOT_CONNECTED"]
+            )
+        result = summary.build_summary(
+            source_packets,
+            unavailable_reasons,
+            SUMMARY_MORNING_GENERATED_AT,
+            summary_contract,
+        )
+        # P8-06 revalidates this packet through this module's own validator
+        # and retains its exact hash, so the exact blockers reach the briefing
+        # read model with their lineage intact.
+        rows = {row["name"]: row for row in result["sources"]}
+        self.assertEqual(
+            rows["STRATEGIC_CAPITAL_POSTURE"]["source_packet_sha256"],
+            posture["packet_sha256"],
+        )
+        embedded = result["source_packets"]["STRATEGIC_CAPITAL_POSTURE"]
+        self.assertEqual(
+            embedded["unavailable_reasons"]["P1_REGIME_DECISION"],
+            self.exact_reasons(),
+        )
+        self.assertEqual(result["decision_date"], MORNING_AS_OF_DATE)
+        self.assertEqual(
+            rows["STRATEGIC_CAPITAL_POSTURE"]["source_status"],
+            "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED",
+        )
+        for row in result["actions"]:
+            self.assertEqual(row["evaluation_status"], "NOT_EVALUATED")
+            self.assertIsNone(row["action"])
+        self.assertIsNone(result["summary"]["nothing_action"])
+        for key, value in result["authority"].items():
+            if key != "briefing_read_model_only":
+                self.assertFalse(value, key)
+        self.assert_grants_nothing(posture)
+
+
 if __name__ == "__main__":
     unittest.main()

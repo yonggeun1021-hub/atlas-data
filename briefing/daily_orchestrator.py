@@ -2924,9 +2924,29 @@ def build_defensive_action_decision(
 
 
 def build_strategic_capital_posture(
-    component_rows: dict[str, dict], decision_date: str, generated_at: str
+    component_rows: dict[str, dict],
+    decision_date: str,
+    generated_at: str,
+    regime_outputs: dict[str, dict] | None = None,
 ) -> dict:
+    """P7-12 readiness inventory.
+
+    ``regime_outputs`` is the *same* optional exact-blocker wiring P6-06
+    already has above, applied to P7-12's own ``P1_REGIME_DECISION`` slot and
+    bound to derivation version 2 (see RUNTIME_REGIME_READINESS_VERSION).
+    The reasons are re-derived here through
+    build_p1_regime_unavailable_reasons() rather than read out of the P6
+    packet this run also built: P7-12 must not inherit another consumer's
+    stored row as if it were an independently validated input.  Passing None
+    keeps the original generic blocker, which is exactly what a legacy
+    (marker-absent or explicit-1) replay must reproduce.
+
+    Naming the real blockers grants nothing: the slot stays UNAVAILABLE, the
+    packet stays STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED, budgets stay
+    null and every authority flag stays false.
+    """
     contract = STRATEGIC_CAPITAL_POSTURE.load_contract()
+    p1_reasons = build_p1_regime_unavailable_reasons(regime_outputs, generated_at)
     name_map = {
         # Same already-validated P2-COM-02 row P6-06 consumes as P2_FLOW_ENGINE
         # in this run; P7-12 must not call it "production contract unavailable".
@@ -2944,7 +2964,10 @@ def build_strategic_capital_posture(
     for name in contract["source_order"]:
         if name in unsupported:
             source_packets[name] = None
-            unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
+            if name == "P1_REGIME_DECISION" and p1_reasons is not None:
+                unavailable_reasons[name] = list(p1_reasons)
+            else:
+                unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
             continue
         row = component_rows[name_map[name]]
         if row["packet"] is not None and row["validated"]:
@@ -2979,7 +3002,36 @@ def build_strategic_capital_posture(
     )
 
 
-def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str) -> dict:
+# The two date bases the ACTION_RISK_PORTFOLIO_SUMMARY *component row* has
+# ever been labelled with. This is only the row label; the summary packet's
+# own decision_date, and every internal date-equality guard inside
+# briefing/action_risk_portfolio_summary.py, are untouched by either value.
+#
+# PACKET_DECISION_DATE is the current, correct basis: the KST business date
+# the already-validated summary packet reports for, which build_summary has
+# proven equal to both sibling CAPITAL_ACTION rows' as_of_date.
+#
+# GENERATED_AT_UTC_DAY is the archival-only basis this row carried before
+# that fix. It is one day earlier than the KST business date on every 22:05Z
+# natural morning run, and identical to it on the 09:30Z evening run. It is
+# reachable ONLY from the legacy replay path in validate_packet(); a new
+# build can never select it (see build_packet()).
+SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE = "PACKET_DECISION_DATE"
+SUMMARY_ROW_DATE_BASIS_GENERATED_AT_UTC_DAY = "GENERATED_AT_UTC_DAY"
+SUMMARY_ROW_DATE_BASES = (
+    SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,
+    SUMMARY_ROW_DATE_BASIS_GENERATED_AT_UTC_DAY,
+)
+
+
+def build_action_risk_summary(
+    component_rows: dict[str, dict],
+    generated_at: str,
+    *,
+    summary_row_date_basis: str = SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,
+) -> dict:
+    if summary_row_date_basis not in SUMMARY_ROW_DATE_BASES:
+        fail("SUMMARY_ROW_DATE_BASIS_INVALID", repr(summary_row_date_basis))
     contract = ACTION_SUMMARY.load_contract()
     name_map = {
         "UNIFIED_DECISION": "UNIFIED_DECISION",
@@ -3010,17 +3062,26 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
         packet = ACTION_SUMMARY.build_summary(source_packets, unavailable_reasons, generated_at)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("ACTION_RISK_PORTFOLIO_SUMMARY", exc)
+    # Default: the KST business date this row reports for, exactly as the two
+    # sibling CAPITAL_ACTION rows are labelled -- never generated_at's UTC
+    # calendar day, which is one day earlier on every 22:05Z natural morning
+    # run and would force the Flow-First section aggregator to
+    # SOURCE_AS_OF_DATE_MISMATCH.  build_summary has already proven this
+    # value equals both siblings' as_of_date.
+    #
+    # The alternative basis is archival replay only. Both values are derived
+    # here from independently validated inputs -- the summary packet this run
+    # just built and validated, and this run's own generated_at argument --
+    # never from a persisted component row's stored as_of_date.
+    if summary_row_date_basis == SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE:
+        row_as_of_date = packet["decision_date"]
+    else:
+        row_as_of_date = generated_at[:10]
     return component_row(
         "ACTION_RISK_PORTFOLIO_SUMMARY",
         "PENDING",
         "MOST_UPSTREAM_SOURCES_NOT_YET_LIVE",
-        # The KST business date this row reports for, exactly as the two
-        # sibling CAPITAL_ACTION rows (:2916, :2972) are labelled -- never
-        # generated_at's UTC calendar day, which is one day earlier on
-        # every 22:05Z natural morning run and would force the Flow-First
-        # section aggregator to SOURCE_AS_OF_DATE_MISMATCH.  build_summary
-        # has already proven this value equals both siblings' as_of_date.
-        as_of_date=packet["decision_date"],
+        as_of_date=row_as_of_date,
         generated_at=generated_at,
         source_packet_sha256=packet.get("packet_sha256"),
         validated=True,
@@ -3106,19 +3167,91 @@ FROZEN_SOURCE_COMPONENTS = frozenset({
 OPTIONAL_FROZEN_INPUTS = frozenset({US_ROTATION_LEDGER_SOURCE})
 
 
+# ---------------------------------------------------------------------------
+# Runtime Regime readiness derivation version
+#
+# This versions the DERIVATION only -- never policy, ratification, evidence
+# quality or authority. Every version below produces the same fail-closed
+# result: P1_REGIME_DECISION stays UNAVAILABLE, both readiness packets stay
+# BLOCKED, budgets stay null and every action/order/Production/trading flag
+# stays false. What changes is only which deterministic derivation the
+# packet's own bytes were produced by, so an archived packet can be replayed
+# exactly instead of being silently re-derived under today's rules.
+#
+#   absent  -- pre-wiring. Generic P1 blocker in BOTH P6-06 and P7-12.
+#   1       -- P6-06 carries the exact, independently re-derived runtime
+#              blockers; P7-12 still carries the generic one.
+#   2       -- default for every new packet. P6-06 AND P7-12 both carry the
+#              exact independently re-derived blockers, and the
+#              ACTION_RISK_PORTFOLIO_SUMMARY component row is labelled with
+#              the KST business date of its own validated summary packet.
+#
+# The absent and 1 forms are ambiguous about ONE field and one field only:
+# the summary component row's as_of_date. Packets of both kinds were issued
+# under the earlier GENERATED_AT_UTC_DAY basis and under the current
+# PACKET_DECISION_DATE basis, and nothing in those packets records which.
+# validate_packet() therefore rebuilds a legacy packet fully under BOTH
+# enumerated bases and accepts it only on complete canonical equality with an
+# entire reconstruction. That proves the packet is a valid historical
+# derivation. It does NOT authenticate which release produced it, and it is
+# not release provenance -- see docs/strategic_capital_posture_contract.md.
+# Version 2 has exactly one derivation and never falls back to either legacy
+# form.
+# ---------------------------------------------------------------------------
+
+RUNTIME_REGIME_READINESS_VERSION = 2
+SUPPORTED_RUNTIME_REGIME_READINESS_VERSIONS = (1, 2)
+LEGACY_RUNTIME_REGIME_READINESS_VERSIONS = (None, 1)
+# Both enumerated historical summary-row bases, in the order a replay tries
+# them. Deliberately the full SUMMARY_ROW_DATE_BASES tuple: a legacy packet
+# may legitimately be either form, and for same-KST-day geometry (the 09:30Z
+# evening run) the two reconstructions coalesce to identical bytes.
+LEGACY_SUMMARY_ROW_DATE_BASES = SUMMARY_ROW_DATE_BASES
+
+
+def _checked_runtime_regime_readiness_version(value):
+    """None, or exactly int 1 or int 2. Nothing else.
+
+    ``type(value) is not int`` rejects bool, which would otherwise compare
+    equal to 1. Strings, floats, 0, negatives and unknown integers are
+    rejected too. An explicitly persisted null is rejected by the caller in
+    validate_packet(), because rebuilding None omits the field entirely and
+    "absent" and "present but null" are different persisted bytes.
+    """
+    if value is None:
+        return None
+    if (
+        type(value) is not int
+        or value not in SUPPORTED_RUNTIME_REGIME_READINESS_VERSIONS
+    ):
+        fail("RUNTIME_REGIME_READINESS_VERSION_INVALID", repr(value))
+    return value
+
+
 def build_packet(
     slot: str,
     decision_date: str,
     generated_at: str,
     contract: dict | None = None,
     frozen_sources: dict[str, dict] | None = None,
-    runtime_regime_readiness_version: int | None = 1,
+    runtime_regime_readiness_version: int | None = RUNTIME_REGIME_READINESS_VERSION,
+    summary_row_date_basis: str = SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,
 ) -> dict:
-    if runtime_regime_readiness_version is not None and (
-        type(runtime_regime_readiness_version) is not int
-        or runtime_regime_readiness_version != 1
+    _checked_runtime_regime_readiness_version(runtime_regime_readiness_version)
+    if summary_row_date_basis not in SUMMARY_ROW_DATE_BASES:
+        fail("SUMMARY_ROW_DATE_BASIS_INVALID", repr(summary_row_date_basis))
+    if (
+        summary_row_date_basis != SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE
+        and runtime_regime_readiness_version
+        not in LEGACY_RUNTIME_REGIME_READINESS_VERSIONS
     ):
-        fail("RUNTIME_REGIME_READINESS_VERSION_INVALID", str(runtime_regime_readiness_version))
+        # A current-derivation packet has exactly one date basis. The archival
+        # basis is reachable only while replaying an ambiguous legacy packet;
+        # it is never a fallback a new or version-2 build can reach.
+        fail(
+            "SUMMARY_ROW_DATE_BASIS_NOT_LEGACY",
+            f"{summary_row_date_basis}:{runtime_regime_readiness_version!r}",
+        )
     contract = load_contract() if contract is None else contract
     if slot not in contract["slots"]:
         fail("SLOT_INVALID", slot)
@@ -3344,21 +3477,32 @@ def build_packet(
         rows[name] = _blocked(name, "POLICY_BLOCKED", reason)
     rows["P2_FLOW_ENGINE"] = _boundary(build_capital_flow_posture_reference())
 
+    # Derivation version 1 wired the exact runtime blockers into P6-06 only;
+    # version 2 wires them into P7-12 as well. The marker-absent form keeps
+    # the generic blocker in both. Each consumer re-derives them from these
+    # same envelopes itself -- neither reads the other's packet.
     rows["DEFENSIVE_ACTION_DECISION"] = _boundary(
         build_defensive_action_decision(
             rows, decision_date, generated_at,
-            regime_outputs if runtime_regime_readiness_version == 1 else None,
+            regime_outputs if runtime_regime_readiness_version is not None else None,
         )
     )
     rows["STRATEGIC_CAPITAL_POSTURE"] = _boundary(
-        build_strategic_capital_posture(rows, decision_date, generated_at)
+        build_strategic_capital_posture(
+            rows, decision_date, generated_at,
+            regime_outputs
+            if runtime_regime_readiness_version == RUNTIME_REGIME_READINESS_VERSION
+            else None,
+        )
     )
 
     # ACTION_RISK_PORTFOLIO_SUMMARY reads the two fail-closed P6/P7 readiness
     # packets plus UNIFIED_DECISION/CASH_EXPOSURE_*/LONG_SHORT_INVARIANT/
     # INVERSE_* -- all already boundary-checked above.
     rows["ACTION_RISK_PORTFOLIO_SUMMARY"] = _boundary(
-        build_action_risk_summary(rows, generated_at)
+        build_action_risk_summary(
+            rows, generated_at, summary_row_date_basis=summary_row_date_basis
+        )
     )
     rows["INVESTMENT_REVIEW_SHADOW"] = _boundary(
         build_investment_review_shadow_status(
@@ -3529,14 +3673,45 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         # not silently re-read today's larger input set and return a verdict
         # that depends on validation time.
         fail("DYNAMIC_CLOCK_SOURCE_NOT_FROZEN", "frozen_sources.DYNAMIC_CLOCK")
-    rebuilt = build_packet(
-        packet["slot"], packet["decision_date"], packet["generated_at"], contract,
-        frozen_sources=frozen_sources,
-        runtime_regime_readiness_version=packet.get("runtime_regime_readiness_version"),
+    # Absence of the marker is what selects a legacy derivation. A key that is
+    # present but null is NOT absence: it is a persisted value, no build ever
+    # emits it (build_packet omits the field for None), and it must fail
+    # rather than resolve to the legacy default.
+    if (
+        "runtime_regime_readiness_version" in packet
+        and packet["runtime_regime_readiness_version"] is None
+    ):
+        fail("RUNTIME_REGIME_READINESS_VERSION_INVALID", "explicit null")
+    version = _checked_runtime_regime_readiness_version(
+        packet.get("runtime_regime_readiness_version")
     )
-    if rebuilt != packet:
-        fail("OUTPUT_MISMATCH", "rebuilt packet does not match persisted packet")
-    return packet
+    # A legacy packet is ambiguous about exactly one field -- the summary
+    # component row's as_of_date -- and nothing inside it records which of the
+    # two historical bases produced it. Rebuild it fully under each enumerated
+    # basis in turn and accept only complete equality with one ENTIRE
+    # reconstruction. The stored row's own as_of_date is never read as an
+    # input and never copied into a rebuild to force a match, so a semantic
+    # tamper of that row (or of anything else) still fails closed: the only
+    # two values it can legitimately hold are the two this rebuilds
+    # independently from decision_date and generated_at. For same-KST-day
+    # geometry both reconstructions are byte-identical, so this collapses to
+    # the single historical result. Version 2 has one derivation and never
+    # reaches the archival basis.
+    bases = (
+        LEGACY_SUMMARY_ROW_DATE_BASES
+        if version in LEGACY_RUNTIME_REGIME_READINESS_VERSIONS
+        else (SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,)
+    )
+    for basis in bases:
+        rebuilt = build_packet(
+            packet["slot"], packet["decision_date"], packet["generated_at"], contract,
+            frozen_sources=frozen_sources,
+            runtime_regime_readiness_version=version,
+            summary_row_date_basis=basis,
+        )
+        if rebuilt == packet:
+            return packet
+    fail("OUTPUT_MISMATCH", "rebuilt packet does not match persisted packet")
 
 
 # ---------------------------------------------------------------------------

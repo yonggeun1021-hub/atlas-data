@@ -3683,5 +3683,387 @@ class USRotationLedgerWiringTests(unittest.TestCase):
             )
 
 
+class RuntimeRegimeReadinessDerivationVersionTests(unittest.TestCase):
+    """`runtime_regime_readiness_version` binds a DERIVATION, not a policy.
+
+    Version 2 is the default for every new packet: it wires the exact,
+    independently re-derived P1 runtime blockers into BOTH P6-06 and P7-12,
+    and labels the ACTION_RISK_PORTFOLIO_SUMMARY component row with the KST
+    business date its own validated summary packet reports for.
+
+    The marker-absent and explicit-1 forms are ambiguous about exactly one
+    field -- that summary row's `as_of_date` -- because packets of both kinds
+    were genuinely issued under the earlier `generated_at`-UTC-day basis and
+    under the current KST basis, with nothing recorded to tell them apart.
+    Both must keep replaying byte-identically, and nothing else may become
+    acceptable in the process.
+
+    Every packet here is built once and cached: these are full, real-evidence
+    orchestrator builds, and the point of the suite is which bytes come out,
+    not how many times they are recomputed.
+    """
+
+    _CACHE: dict[tuple, dict] = {}
+    _UTC_DAY = MODULE.SUMMARY_ROW_DATE_BASIS_GENERATED_AT_UTC_DAY
+    _KST_DAY = MODULE.SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE
+
+    @classmethod
+    def packet(
+        cls,
+        *,
+        version,
+        basis=None,
+        slot="morning",
+        generated_at=NATURAL_MORNING_GENERATED_AT,
+    ):
+        basis = cls._KST_DAY if basis is None else basis
+        key = (slot, DECISION_DATE, generated_at, version, basis)
+        if key not in cls._CACHE:
+            cls._CACHE[key] = MODULE.build_packet(
+                slot,
+                DECISION_DATE,
+                generated_at,
+                runtime_regime_readiness_version=version,
+                summary_row_date_basis=basis,
+            )
+        return copy.deepcopy(cls._CACHE[key])
+
+    @staticmethod
+    def _rows(packet):
+        return {row["component_id"]: row for row in packet["components"]}
+
+    @staticmethod
+    def _resign(packet):
+        unsigned = copy.deepcopy(packet)
+        unsigned.pop("packet_sha256", None)
+        packet["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        return packet
+
+    @staticmethod
+    def _relabel_summary_row(packet, as_of_date):
+        for row in packet["components"]:
+            if row["component_id"] == "ACTION_RISK_PORTFOLIO_SUMMARY":
+                row["as_of_date"] = as_of_date
+        return packet
+
+    def _p1_reasons(self, packet, component_id):
+        return self._rows(packet)[component_id]["packet"]["unavailable_reasons"][
+            "P1_REGIME_DECISION"
+        ]
+
+    def test_new_packets_default_to_derivation_version_two(self):
+        self.assertEqual(MODULE.RUNTIME_REGIME_READINESS_VERSION, 2)
+        default = MODULE.build_packet(
+            "morning", DECISION_DATE, NATURAL_MORNING_GENERATED_AT
+        )
+        marker = default["runtime_regime_readiness_version"]
+        self.assertEqual(marker, 2)
+        self.assertIs(type(marker), int)
+        # The marker is hash-bound like every other field, and an explicit 2
+        # is exactly the default -- there is no second "new" derivation.
+        self.assertEqual(default, self.packet(version=2))
+        self.assertEqual(MODULE.validate_packet(copy.deepcopy(default)), default)
+
+    def test_version_two_binds_exact_p7_blockers_and_grants_nothing(self):
+        # Deliberately the same-UTC-day geometry the already-merged P6-06
+        # assertion below uses (test_p1_regime_slot_carries_exact_runtime_
+        # blockers_not_a_placeholder), so this pins the version-2 P7-12
+        # binding against a run whose exact blocker derivation is already
+        # regression-covered rather than assumed.
+        packet = self.packet(version=2, generated_at=MORNING_GENERATED_AT)
+        posture = self._rows(packet)["STRATEGIC_CAPITAL_POSTURE"]["packet"]
+        reasons = posture["unavailable_reasons"]["P1_REGIME_DECISION"]
+
+        # The opaque placeholder is gone from P7-12 too, and the real gaps
+        # are named.
+        self.assertNotIn(
+            "P1_REGIME_DECISION_PRODUCTION_CONTRACT_UNAVAILABLE", reasons
+        )
+        self.assertIn("P1_REGIME_DECISION_NOT_RUNTIME_WIRED", reasons)
+        for market in ("US", "KR", "CRYPTO"):
+            self.assertIn(
+                f"SIGNED_NORMALIZATION_POLICY_UNRATIFIED:{market}", reasons
+            )
+            self.assertIn(f"PIT_REPLAY_NOT_ACCEPTED:{market}", reasons)
+        self.assertEqual(reasons, sorted(set(reasons)))
+        # Both consumers re-derive the list from this run's own envelopes, so
+        # they agree -- P7-12 does not read P6-06's packet to obtain it.
+        self.assertEqual(reasons, self._p1_reasons(packet, "DEFENSIVE_ACTION_DECISION"))
+        # No invocation-derived identity may leak into semantic content.
+        self.assertFalse(any("SHA256" in reason for reason in reasons), reasons)
+
+        # Naming the blockers promotes nothing.
+        source_rows = {row["name"]: row for row in posture["sources"]}
+        self.assertEqual(
+            source_rows["P1_REGIME_DECISION"]["availability"], "UNAVAILABLE"
+        )
+        self.assertIsNone(source_rows["P1_REGIME_DECISION"]["source_packet_sha256"])
+        self.assertEqual(
+            posture["status"], "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED"
+        )
+        self.assertEqual(posture["decision_status"], "BLOCKED")
+        self.assertEqual(
+            posture["market_budget"], {"CRYPTO": None, "KOREA": None, "US": None}
+        )
+        for key in (
+            "risk_posture", "cash_reserve", "hedge_budget", "max_gross_risk",
+            "max_net_risk", "theme_headroom", "allocation_proposal",
+            "target_exposures", "position_sizes", "policy_packet",
+        ):
+            self.assertIsNone(posture[key], key)
+        self.assertEqual(posture["order_intents"], [])
+        self.assertIn(
+            "SOURCE_UNAVAILABLE:P1_REGIME_DECISION", posture["binding_reasons"]
+        )
+        self.assertIn(
+            "P1_REGIME_DECISION_UNAVAILABLE", posture["unresolved_boundaries"]
+        )
+        self.assertTrue(posture["authority"]["readiness_inventory_only"])
+        for key, value in posture["authority"].items():
+            if key != "readiness_inventory_only":
+                self.assertFalse(value, key)
+
+    def test_legacy_versions_keep_their_original_blocker_fidelity(self):
+        generic = ["P1_REGIME_DECISION_PRODUCTION_CONTRACT_UNAVAILABLE"]
+
+        absent = self.packet(version=None)
+        self.assertNotIn("runtime_regime_readiness_version", absent)
+        for component_id in ("DEFENSIVE_ACTION_DECISION", "STRATEGIC_CAPITAL_POSTURE"):
+            self.assertEqual(
+                self._p1_reasons(absent, component_id), generic, component_id
+            )
+
+        # Version 1 wired the runtime derivation into P6-06 only. P7-12 keeps
+        # the generic blocker, exactly as the already-issued v1 packets carry
+        # it, while P6-06's list is no longer the marker-absent one.
+        v1 = self.packet(version=1)
+        self.assertEqual(v1["runtime_regime_readiness_version"], 1)
+        self.assertEqual(self._p1_reasons(v1, "STRATEGIC_CAPITAL_POSTURE"), generic)
+        self.assertNotEqual(
+            self._p1_reasons(v1, "DEFENSIVE_ACTION_DECISION"), generic
+        )
+
+    def test_both_enumerated_legacy_forms_replay_byte_identically(self):
+        # Natural morning geometry: the UTC calendar day is the day BEFORE
+        # the KST business date, so the two historical bases are genuinely
+        # distinguishable here rather than coincidentally equal.
+        self.assertNotEqual(NATURAL_MORNING_GENERATED_AT[:10], DECISION_DATE)
+
+        for version in (None, 1):
+            with self.subTest(version=version):
+                kst_form = self.packet(version=version, basis=self._KST_DAY)
+                utc_form = self.packet(version=version, basis=self._UTC_DAY)
+                kst_row = self._rows(kst_form)["ACTION_RISK_PORTFOLIO_SUMMARY"]
+                utc_row = self._rows(utc_form)["ACTION_RISK_PORTFOLIO_SUMMARY"]
+
+                self.assertEqual(kst_row["as_of_date"], DECISION_DATE)
+                self.assertEqual(
+                    utc_row["as_of_date"], NATURAL_MORNING_GENERATED_AT[:10]
+                )
+                # Exactly one field separates the two historical forms.
+                self.assertEqual(
+                    {k: v for k, v in kst_row.items() if k != "as_of_date"},
+                    {k: v for k, v in utc_row.items() if k != "as_of_date"},
+                )
+                self.assertNotEqual(
+                    kst_form["packet_sha256"], utc_form["packet_sha256"]
+                )
+                # Both are accepted, each only against a complete rebuild of
+                # the whole packet -- never by copying the stored row across.
+                self.assertEqual(
+                    MODULE.validate_packet(copy.deepcopy(kst_form)), kst_form
+                )
+                self.assertEqual(
+                    MODULE.validate_packet(copy.deepcopy(utc_form)), utc_form
+                )
+
+    def test_same_kst_day_legacy_reconstructions_coalesce(self):
+        # The 18:30 KST evening run lands on the same UTC and KST day, so the
+        # two bases are indistinguishable and the dual reconstruction
+        # collapses to one historical result. This is the preservation case:
+        # the row keeps exactly the value the old basis produced.
+        self.assertEqual(EVENING_GENERATED_AT[:10], DECISION_DATE)
+        kst_form = self.packet(
+            version=None, slot="evening", generated_at=EVENING_GENERATED_AT,
+            basis=self._KST_DAY,
+        )
+        utc_form = self.packet(
+            version=None, slot="evening", generated_at=EVENING_GENERATED_AT,
+            basis=self._UTC_DAY,
+        )
+        self.assertEqual(kst_form, utc_form)
+        self.assertEqual(
+            self._rows(kst_form)["ACTION_RISK_PORTFOLIO_SUMMARY"]["as_of_date"],
+            DECISION_DATE,
+        )
+        self.assertEqual(MODULE.validate_packet(copy.deepcopy(kst_form)), kst_form)
+
+    def test_legacy_replay_accepts_only_the_two_enumerated_dates(self):
+        # Accepting two historical forms is not accepting an arbitrary date:
+        # the rebuild derives both candidates from decision_date and
+        # generated_at, never from the persisted row.
+        two_days_before = (
+            dt.date.fromisoformat(DECISION_DATE) - dt.timedelta(days=2)
+        ).isoformat()
+        self.assertNotIn(
+            two_days_before, (DECISION_DATE, NATURAL_MORNING_GENERATED_AT[:10])
+        )
+        forged = self._resign(
+            self._relabel_summary_row(self.packet(version=None), two_days_before)
+        )
+        with self.assertRaisesRegex(MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"):
+            MODULE.validate_packet(forged)
+
+    def test_version_two_never_falls_back_to_the_legacy_date_basis(self):
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "SUMMARY_ROW_DATE_BASIS_NOT_LEGACY"
+        ):
+            MODULE.build_packet(
+                "morning", DECISION_DATE, NATURAL_MORNING_GENERATED_AT,
+                summary_row_date_basis=self._UTC_DAY,
+            )
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "SUMMARY_ROW_DATE_BASIS_INVALID"
+        ):
+            MODULE.build_packet(
+                "morning", DECISION_DATE, NATURAL_MORNING_GENERATED_AT,
+                runtime_regime_readiness_version=None,
+                summary_row_date_basis="KST",
+            )
+        # A version-2 packet re-signed onto the archival row label has no
+        # legacy derivation to fall into.
+        tampered = self._resign(
+            self._relabel_summary_row(
+                self.packet(version=2), NATURAL_MORNING_GENERATED_AT[:10]
+            )
+        )
+        with self.assertRaisesRegex(MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"):
+            MODULE.validate_packet(tampered)
+
+    def test_version_marker_is_strict_and_null_is_not_absence(self):
+        for value in (True, False, "1", "2", 0, -1, 3, 1.0, [1]):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    MODULE.DailyOrchestratorError,
+                    "RUNTIME_REGIME_READINESS_VERSION_INVALID",
+                ):
+                    MODULE.build_packet(
+                        "morning", DECISION_DATE, NATURAL_MORNING_GENERATED_AT,
+                        runtime_regime_readiness_version=value,
+                    )
+
+        legacy = self.packet(version=None)
+        # A persisted null is a value, not absence: no build ever emits it,
+        # so it must fail instead of resolving to the legacy default.
+        explicit_null = copy.deepcopy(legacy)
+        explicit_null["runtime_regime_readiness_version"] = None
+        self._resign(explicit_null)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError,
+            "RUNTIME_REGIME_READINESS_VERSION_INVALID",
+        ):
+            MODULE.validate_packet(explicit_null)
+
+        unknown = copy.deepcopy(legacy)
+        unknown["runtime_regime_readiness_version"] = 3
+        self._resign(unknown)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError,
+            "RUNTIME_REGIME_READINESS_VERSION_INVALID",
+        ):
+            MODULE.validate_packet(unknown)
+
+        # Re-signing a higher marker onto a legacy packet cannot promote it:
+        # the marker selects the derivation, and that derivation has to
+        # reproduce the persisted bytes.
+        for forged_version in (1, 2):
+            with self.subTest(forged_version=forged_version):
+                promoted = copy.deepcopy(legacy)
+                promoted["runtime_regime_readiness_version"] = forged_version
+                self._resign(promoted)
+                with self.assertRaisesRegex(
+                    MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"
+                ):
+                    MODULE.validate_packet(promoted)
+
+    def test_version_two_blockers_reach_the_flow_first_capital_action_section(self):
+        packet = self.packet(version=2)
+        rows = self._rows(packet)
+        posture = rows["STRATEGIC_CAPITAL_POSTURE"]["packet"]
+        summary_packet = rows["ACTION_RISK_PORTFOLIO_SUMMARY"]["packet"]
+        embedded = summary_packet["source_packets"]["STRATEGIC_CAPITAL_POSTURE"]
+
+        # The exact blockers travel through the summary's own revalidated
+        # source lineage, hash and all.
+        self.assertEqual(embedded["packet_sha256"], posture["packet_sha256"])
+        self.assertEqual(
+            embedded["unavailable_reasons"]["P1_REGIME_DECISION"],
+            posture["unavailable_reasons"]["P1_REGIME_DECISION"],
+        )
+        self.assertEqual(
+            summary_packet["lineage"]["source_packet_sha256"][
+                "STRATEGIC_CAPITAL_POSTURE"
+            ],
+            posture["packet_sha256"],
+        )
+        self.assertEqual(
+            summary_packet["status"],
+            "ACTION_RISK_PORTFOLIO_PRESENTED_NO_ACTION_AUTHORITY",
+        )
+        self.assertTrue(
+            all(row["action"] is None for row in summary_packet["actions"])
+        )
+
+        # All three CAPITAL_ACTION rows agree on the KST business date, so the
+        # section reaches its honest not-ready state -- and that grants
+        # nothing either.
+        for component_id in CAPITAL_ACTION_COMPONENTS:
+            self.assertEqual(rows[component_id]["as_of_date"], DECISION_DATE)
+        section = _capital_action_section(packet)
+        self.assertEqual(section["status"], "PENDING")
+        self.assertEqual(section["as_of_date"], DECISION_DATE)
+        self.assertEqual(section["unknown_reason"], "SOURCE_COMPONENT_NOT_READY")
+        self.assertFalse(section["decision_eligible"])
+        self.assertFalse(section["action_eligible"])
+        self.assertFalse(section["order_eligible"])
+
+    def test_legacy_utc_row_still_blocks_flow_first_exactly_as_it_did(self):
+        # Archival fidelity, not new-generation behaviour: the historical
+        # UTC-day row genuinely disagreed with its two siblings, and the
+        # unchanged aggregator must still refuse to present the section.
+        utc_form = self.packet(version=None, basis=self._UTC_DAY)
+        section = _capital_action_section(utc_form)
+        self.assertEqual(section["status"], "DATA_BLOCKED")
+        self.assertEqual(section["unknown_reason"], "SOURCE_AS_OF_DATE_MISMATCH")
+        self.assertIsNone(section["as_of_date"])
+        self.assertFalse(section["decision_eligible"])
+        self.assertFalse(section["action_eligible"])
+        self.assertFalse(section["order_eligible"])
+
+    def test_version_two_row_label_carries_no_invocation_day_noise(self):
+        # Same decision_date, two runs on different UTC calendar days. The
+        # row label is the KST business date in both, so a same-day rebuild
+        # cannot move this component's semantic fingerprint merely because
+        # the invocation moved.
+        morning = self.packet(version=2)
+        evening = self.packet(
+            version=2, slot="evening", generated_at=EVENING_GENERATED_AT
+        )
+        self.assertNotEqual(
+            NATURAL_MORNING_GENERATED_AT[:10], EVENING_GENERATED_AT[:10]
+        )
+        for built in (morning, evening):
+            rows = self._rows(built)
+            self.assertEqual(
+                rows["ACTION_RISK_PORTFOLIO_SUMMARY"]["as_of_date"], DECISION_DATE
+            )
+            reasons = self._p1_reasons(built, "STRATEGIC_CAPITAL_POSTURE")
+            self.assertEqual(reasons, sorted(set(reasons)))
+            self.assertEqual(
+                reasons, self._p1_reasons(built, "DEFENSIVE_ACTION_DECISION")
+            )
+            self.assertFalse(any("SHA256" in reason for reason in reasons), reasons)
+
+
 if __name__ == "__main__":
     unittest.main()

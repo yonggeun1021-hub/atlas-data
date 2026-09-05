@@ -8,6 +8,15 @@ P2 Rotation State, and an allocation policy remain unratified, so missing
 inputs stay BLOCKED.  They must never become zero budgets, NO_ACTION, an
 allocation proposal, an order, Production, or trading authority.  A connected
 flow reference supplies evidence only and unlocks nothing.
+
+``P1_REGIME_DECISION`` is unavailable-only, but its ``unavailable_reasons``
+list may carry either one generic production-contract blocker or the exact,
+independently re-derived ``runtime_regime_readiness/v1`` blockers a caller
+validated first (daily derivation version 2 -- see
+``docs/strategic_capital_posture_contract.md``).  Either way the list is
+revalidated here as bounded, sorted, unique reason codes, the slot stays
+UNAVAILABLE with a null source identity, and naming the real gaps promotes
+nothing.
 """
 from __future__ import annotations
 
