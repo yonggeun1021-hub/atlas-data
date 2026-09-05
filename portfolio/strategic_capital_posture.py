@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """P7-12 fail-closed Strategic Capital Posture readiness boundary.
 
-This capability inventories and revalidates the upstream P6/P7 risk packets
-needed before a cross-market capital posture can exist.  P1 Regime Decision,
-P2 cross-market Flow/Rotation, and an allocation policy remain unratified, so
-missing inputs stay BLOCKED.  They must never become zero budgets, NO_ACTION,
-an allocation proposal, an order, Production, or trading authority.
+This capability inventories and revalidates the upstream P2/P6/P7 risk packets
+needed before a cross-market capital posture can exist.  P2-COM-02's
+cross-market flow reference is a real, revalidated source; P1 Regime Decision,
+P2 Rotation State, and an allocation policy remain unratified, so missing
+inputs stay BLOCKED.  They must never become zero budgets, NO_ACTION, an
+allocation proposal, an order, Production, or trading authority.  A connected
+flow reference supplies evidence only and unlocks nothing.
 """
 from __future__ import annotations
 
@@ -75,9 +77,38 @@ PLANNED_LOSS = _load_validator(
 CURRENCY = _load_validator(
     "atlas_currency_for_p712", "portfolio/currency_exposure.py"
 )
+CAPITAL_FLOW_ENGINE = _load_validator(
+    "atlas_capital_flow_engine_for_p712",
+    "portfolio/capital_flow_posture_reference.py",
+)
+
+
+class _CapitalFlowEngineSourceAdapter:
+    """Bind P2-COM-02's own re-derivation validator into the P7-12 source shape.
+
+    Identical in behaviour to the already-ratified P6-06 adapter at
+    ``portfolio/defensive_action_decision.py``.  ``capital_flow_posture_reference.py``
+    calls its packet identity field ``payload_sha256`` and its checker
+    ``validate_reference``; every other P7-12 source calls the same idea
+    ``packet_sha256`` / ``validate_packet``.  This adapter only renames the
+    identity field so the existing generic ``_validate_source`` path can consume
+    it unchanged; it performs no additional check and invents no new semantics.
+    ``validate_reference`` already re-derives the full packet from the real
+    committed evidence and fails closed (``REFERENCE_REDERIVATION_MISMATCH``) on
+    any tamper, which is at least as strict as the generic self-rehash check the
+    other sources rely on.
+    """
+
+    @staticmethod
+    def validate_packet(packet: dict) -> dict:
+        checked = CAPITAL_FLOW_ENGINE.validate_reference(packet)
+        checked = dict(checked)
+        checked["packet_sha256"] = checked.pop("payload_sha256")
+        return checked
 
 
 SOURCE_VALIDATORS = {
+    "P2_CROSS_MARKET_FLOW": _CapitalFlowEngineSourceAdapter,
     "P6_DEFENSIVE_ACTION": DEFENSIVE_ACTION,
     "P7_CONCENTRATION_GUARD": CONCENTRATION,
     "P7_MARKET_THEME_BUDGET": MARKET_THEME,
@@ -111,10 +142,15 @@ def _expected_contract() -> dict:
         "source_order": source_order,
         "unavailable_only_source_slots": [
             "P1_REGIME_DECISION",
-            "P2_CROSS_MARKET_FLOW",
             "P2_ROTATION_STATE",
         ],
         "source_specs": {
+            "P2_CROSS_MARKET_FLOW": {
+                "schema_version": "capital_flow_posture_reference/v1",
+                "contract_version": "capital_flow_posture_reference_policy/v1",
+                "statuses": ["REFERENCE_AVAILABLE", "PARTIAL_REFERENCE_AVAILABLE"],
+                "effective_available_at_path": ["generated_at"],
+            },
             "P6_DEFENSIVE_ACTION": {
                 "schema_version": "defensive_action_decision_readiness_packet/1",
                 "contract_version": "defensive_action_decision_readiness/1",
@@ -439,9 +475,10 @@ def _assemble(
         "invariants": copy.deepcopy(contract["invariants"]),
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
-            "P1_REGIME_DECISION_UNAVAILABLE",
-            "P2_CROSS_MARKET_FLOW_UNAVAILABLE",
-            "P2_ROTATION_STATE_UNAVAILABLE",
+            *(
+                f"{name}_UNAVAILABLE"
+                for name in contract["unavailable_only_source_slots"]
+            ),
             "STRATEGIC_CAPITAL_POSTURE_POLICY_NOT_RATIFIED",
             "BUDGET_SUM_NOT_EVALUATED",
             "OVERLAP_EXPOSURE_NOT_EVALUATED",

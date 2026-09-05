@@ -57,6 +57,22 @@ FUTURE_AS_OF_DATE = (
 ).isoformat()
 FUTURE_GENERATED_AT = FUTURE_AS_OF_DATE + "T02:00:00Z"
 
+# The real, currently-committed P2-COM-02 flow reference -- the same object
+# P6-06 consumes as its P2_FLOW_ENGINE source, reused here rather than rebuilt
+# so both consumers are pinned to one producer run.  Its generated_at is
+# derived from real market-data evidence, so the "before the producer existed"
+# baseline below is derived from it too instead of hardcoded.
+FLOW_PACKET = P606_TEST.P2_FLOW_ENGINE_PACKET
+FLOW_EVIDENCE_DATE = FLOW_PACKET["generated_at"][:10]
+BEFORE_FLOW_AS_OF_DATE = (
+    dt.date.fromisoformat(FLOW_EVIDENCE_DATE) - dt.timedelta(days=1)
+).isoformat()
+BEFORE_FLOW_GENERATED_AT = BEFORE_FLOW_AS_OF_DATE + "T00:00:00Z"
+
+
+def flow_packet():
+    return copy.deepcopy(FLOW_PACKET)
+
 
 def defensive_packet(as_of=P606_TEST.AS_OF_DATE, generated_at=P606_TEST.GENERATED_AT):
     packets, reasons = P606_TEST.bundle()
@@ -70,6 +86,8 @@ def defensive_packet(as_of=P606_TEST.AS_OF_DATE, generated_at=P606_TEST.GENERATE
 
 
 def p7_source_packet(name):
+    if name == "P2_CROSS_MARKET_FLOW":
+        return flow_packet()
     if name == "P7_CONCENTRATION_GUARD":
         return CONCENTRATION_TEST.MODULE.build_packet(
             CONCENTRATION_TEST.input_packet(),
@@ -107,12 +125,15 @@ def p7_source_packet(name):
     raise AssertionError(name)
 
 
-def bundle(*, defensive_available=True):
+def bundle(*, defensive_available=True, flow_available=False):
     packets = {}
     reasons = {}
     for name in CONTRACT["source_order"]:
         if name == "P6_DEFENSIVE_ACTION" and defensive_available:
             packets[name] = defensive_packet()
+            reasons[name] = []
+        elif name == "P2_CROSS_MARKET_FLOW" and flow_available:
+            packets[name] = flow_packet()
             reasons[name] = []
         else:
             packets[name] = None
@@ -137,8 +158,11 @@ def write_json(path, value):
 
 
 class StrategicCapitalPostureTests(unittest.TestCase):
-    def build(self, *, defensive_available=True):
-        packets, reasons = bundle(defensive_available=defensive_available)
+    def build(self, *, defensive_available=True, flow_available=False):
+        packets, reasons = bundle(
+            defensive_available=defensive_available,
+            flow_available=flow_available,
+        )
         return MODULE.build_packet(
             packets,
             reasons,
@@ -193,14 +217,174 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             GENERATED_AT,
             contract=CONTRACT,
         )
-        self.assertEqual(packet["summary"]["available_source_count"], 6)
+        self.assertEqual(packet["summary"]["available_source_count"], 7)
         self.assertEqual(
             packet["summary"]["unavailable_sources"],
-            ["P1_REGIME_DECISION", "P2_CROSS_MARKET_FLOW", "P2_ROTATION_STATE"],
+            ["P1_REGIME_DECISION", "P2_ROTATION_STATE"],
         )
         self.assertEqual(packet["decision_status"], "BLOCKED")
         self.assertTrue(all(value is None for value in packet["market_budget"].values()))
         self.assertIsNone(packet["allocation_proposal"])
+
+    def test_real_p2_flow_producer_packet_binds_with_its_exact_hash(self):
+        baseline = self.build()
+        packet = MODULE.build_packet(
+            *bundle(flow_available=True),
+            AS_OF_DATE,
+            GENERATED_AT,
+            contract=CONTRACT,
+        )
+        rows = {source["name"]: source for source in packet["sources"]}
+        row = rows["P2_CROSS_MARKET_FLOW"]
+
+        # Bound to the real producer packet, by its own identity field.
+        self.assertEqual(row["availability"], "AVAILABLE")
+        self.assertEqual(row["source_packet_sha256"], FLOW_PACKET["payload_sha256"])
+        self.assertEqual(row["source_status"], FLOW_PACKET["status"])
+        self.assertIn(
+            row["source_status"],
+            CONTRACT["source_specs"]["P2_CROSS_MARKET_FLOW"]["statuses"],
+        )
+        self.assertEqual(row["evidence_date"], FLOW_EVIDENCE_DATE)
+        self.assertEqual(row["unavailable_reasons"], [])
+        self.assertEqual(
+            packet["lineage"]["source_packet_sha256"]["P2_CROSS_MARKET_FLOW"],
+            FLOW_PACKET["payload_sha256"],
+        )
+        self.assertEqual(packet["summary"]["available_source_count"], 2)
+        self.assertEqual(
+            packet["summary"]["unavailable_sources"],
+            [name for name in baseline["summary"]["unavailable_sources"]
+             if name != "P2_CROSS_MARKET_FLOW"],
+        )
+        self.assertNotIn(
+            "SOURCE_UNAVAILABLE:P2_CROSS_MARKET_FLOW", packet["binding_reasons"]
+        )
+
+        # Binding a source unlocks no budget, action, or authority.
+        self.assertEqual(packet["status"], baseline["status"])
+        self.assertEqual(packet["decision_status"], "BLOCKED")
+        self.assertEqual(packet["market_budget"], baseline["market_budget"])
+        self.assertEqual(packet["authority"], baseline["authority"])
+        self.assertEqual(packet["authority"], CONTRACT["authority"])
+        self.assertEqual(packet["constraint_checks"], baseline["constraint_checks"])
+        self.assertEqual(packet["summary"]["numeric_budget_field_count"], 0)
+        self.assertEqual(packet["summary"]["evaluated_constraint_count"], 0)
+        for key in (
+            "cash_reserve", "hedge_budget", "max_gross_risk", "max_net_risk",
+            "theme_headroom", "risk_posture", "allocation_proposal",
+            "target_exposures", "position_sizes",
+        ):
+            self.assertIsNone(packet[key], key)
+        self.assertEqual(packet["order_intents"], [])
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+
+    def test_orchestrator_consumes_actual_flow_row_without_opening_authority(self):
+        orchestrator = load_module("p712_orchestrator_binding", ROOT / "briefing" / "daily_orchestrator.py")
+        names = ("P2_FLOW_ENGINE", "DEFENSIVE_ACTION_DECISION", "CONCENTRATION_GUARD",
+                 "MARKET_THEME_BUDGET", "CRYPTO_EXPOSURE_LIMIT", "PLANNED_LOSS_BUDGET", "PORTFOLIO_CURRENCY")
+        rows = {name: orchestrator.component_row(name, "POLICY_BLOCKED", "INPUT_ABSENT") for name in names}
+        rows["P2_FLOW_ENGINE"] = orchestrator.component_row(
+            "P2_FLOW_ENGINE", "READY", "VALIDATED_REFERENCE", packet=FLOW_PACKET,
+            validated=True, source_packet_sha256=FLOW_PACKET["payload_sha256"])
+        row = orchestrator.build_strategic_capital_posture(rows, AS_OF_DATE, GENERATED_AT)
+        self.assertTrue(row["validated"])
+        flow = next(s for s in row["packet"]["sources"] if s["name"] == "P2_CROSS_MARKET_FLOW")
+        self.assertEqual(flow["availability"], "AVAILABLE")
+        self.assertEqual(flow["source_packet_sha256"], FLOW_PACKET["payload_sha256"])
+        self.assertEqual(row["packet"]["authority"], CONTRACT["authority"])
+        self.assertEqual(row["packet"]["decision_status"], "BLOCKED")
+        self.assertEqual(row["packet"]["order_intents"], [])
+        rows["P2_FLOW_ENGINE"] = orchestrator.component_row("P2_FLOW_ENGINE", "POLICY_BLOCKED", "INPUT_ABSENT")
+        missing = orchestrator.build_strategic_capital_posture(rows, AS_OF_DATE, GENERATED_AT)
+        self.assertIn("P2_CROSS_MARKET_FLOW", missing["packet"]["summary"]["unavailable_sources"])
+
+    def test_unavailable_only_boundaries_track_the_contract_not_a_fixed_list(self):
+        packet = self.build(flow_available=True)
+        self.assertEqual(
+            CONTRACT["unavailable_only_source_slots"],
+            ["P1_REGIME_DECISION", "P2_ROTATION_STATE"],
+        )
+        for name in CONTRACT["unavailable_only_source_slots"]:
+            self.assertIn(f"{name}_UNAVAILABLE", packet["unresolved_boundaries"])
+        # A now-supported slot is a runtime availability fact, never a
+        # structural "no production contract" boundary.
+        self.assertNotIn(
+            "P2_CROSS_MARKET_FLOW_UNAVAILABLE", packet["unresolved_boundaries"]
+        )
+        self.assertEqual(
+            sorted(
+                name
+                for name in CONTRACT["source_order"]
+                if f"{name}_UNAVAILABLE" in packet["unresolved_boundaries"]
+            ),
+            sorted(CONTRACT["unavailable_only_source_slots"]),
+        )
+
+    def test_missing_flow_source_stays_truthfully_unavailable_and_blocked(self):
+        packet = self.build()
+        rows = {source["name"]: source for source in packet["sources"]}
+        row = rows["P2_CROSS_MARKET_FLOW"]
+        self.assertEqual(row["availability"], "UNAVAILABLE")
+        self.assertIsNone(row["source_packet_sha256"])
+        self.assertIsNone(row["source_status"])
+        self.assertEqual(
+            row["unavailable_reasons"],
+            ["P2_CROSS_MARKET_FLOW_NOT_CONNECTED_OR_UNRATIFIED"],
+        )
+        self.assertIn(
+            "SOURCE_UNAVAILABLE:P2_CROSS_MARKET_FLOW", packet["binding_reasons"]
+        )
+        self.assertIn("P2_CROSS_MARKET_FLOW", packet["summary"]["unavailable_sources"])
+        self.assertIsNone(
+            packet["lineage"]["source_packet_sha256"]["P2_CROSS_MARKET_FLOW"]
+        )
+        # Missing input is never zero budget and never an action.
+        self.assertEqual(packet["decision_status"], "BLOCKED")
+        self.assertTrue(all(value is None for value in packet["market_budget"].values()))
+        self.assertEqual(packet["order_intents"], [])
+
+    def test_forged_flow_source_is_rejected_by_the_producer_validator(self):
+        packets, reasons = bundle(flow_available=True)
+        source = packets["P2_CROSS_MARKET_FLOW"]
+        source["cross_market_flow"]["comparable_market_count"] += 1
+        source["payload_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in source.items() if key != "payload_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError,
+            "SOURCE_SEMANTIC_INVALID:P2_CROSS_MARKET_FLOW:REFERENCE_REDERIVATION_MISMATCH",
+        ):
+            MODULE.build_packet(
+                packets, reasons, AS_OF_DATE, GENERATED_AT, contract=CONTRACT
+            )
+
+    def test_foreign_packet_cannot_occupy_the_flow_slot(self):
+        packets, reasons = bundle(flow_available=True)
+        packets["P2_CROSS_MARKET_FLOW"] = copy.deepcopy(
+            packets["P6_DEFENSIVE_ACTION"]
+        )
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError,
+            "SOURCE_IDENTITY_INVALID:P2_CROSS_MARKET_FLOW",
+        ):
+            MODULE.build_packet(
+                packets, reasons, AS_OF_DATE, GENERATED_AT, contract=CONTRACT
+            )
+
+    def test_flow_source_from_the_future_fails_closed(self):
+        packets, reasons = bundle(defensive_available=False, flow_available=True)
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError,
+            "SOURCE_FROM_FUTURE:P2_CROSS_MARKET_FLOW",
+        ):
+            MODULE.build_packet(
+                packets,
+                reasons,
+                BEFORE_FLOW_AS_OF_DATE,
+                BEFORE_FLOW_GENERATED_AT,
+                contract=CONTRACT,
+            )
 
     def test_self_rehashed_p7_source_semantic_tamper_fails_closed(self):
         packets, reasons = bundle_with_all_supported_sources()
@@ -259,20 +443,22 @@ class StrategicCapitalPostureTests(unittest.TestCase):
             )
 
     def test_p1_or_p2_packet_cannot_bypass_missing_production_contract(self):
-        packets, reasons = bundle()
-        packets["P1_REGIME_DECISION"] = {"packet_sha256": "0" * 64}
-        reasons["P1_REGIME_DECISION"] = []
-        with self.assertRaisesRegex(
-            MODULE.StrategicCapitalPostureError,
-            "SOURCE_PACKET_NOT_YET_SUPPORTED:P1_REGIME_DECISION",
-        ):
-            MODULE.build_packet(
-                packets,
-                reasons,
-                AS_OF_DATE,
-                GENERATED_AT,
-                contract=CONTRACT,
-            )
+        for name in CONTRACT["unavailable_only_source_slots"]:
+            with self.subTest(name=name):
+                packets, reasons = bundle()
+                packets[name] = {"packet_sha256": "0" * 64}
+                reasons[name] = []
+                with self.assertRaisesRegex(
+                    MODULE.StrategicCapitalPostureError,
+                    f"SOURCE_PACKET_NOT_YET_SUPPORTED:{name}",
+                ):
+                    MODULE.build_packet(
+                        packets,
+                        reasons,
+                        AS_OF_DATE,
+                        GENERATED_AT,
+                        contract=CONTRACT,
+                    )
 
     def test_future_source_fails_closed(self):
         packets, reasons = bundle()
