@@ -2813,6 +2813,9 @@ def build_strategic_capital_posture(
 ) -> dict:
     contract = STRATEGIC_CAPITAL_POSTURE.load_contract()
     name_map = {
+        # Same already-validated P2-COM-02 row P6-06 consumes as P2_FLOW_ENGINE
+        # in this run; P7-12 must not call it "production contract unavailable".
+        "P2_CROSS_MARKET_FLOW": "P2_FLOW_ENGINE",
         "P6_DEFENSIVE_ACTION": "DEFENSIVE_ACTION_DECISION",
         "P7_CONCENTRATION_GUARD": "CONCENTRATION_GUARD",
         "P7_MARKET_THEME_BUDGET": "MARKET_THEME_BUDGET",
