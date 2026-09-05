@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,7 @@ CONTRACT_PATH = ROOT / "config" / "strategic_capital_posture_contract.json"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REASON_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,159}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+KST = ZoneInfo("Asia/Seoul")
 
 
 class StrategicCapitalPostureError(ValueError):
@@ -269,6 +271,28 @@ def _utc(value, code: str) -> str:
     return value
 
 
+def _kst_business_date(value: str) -> str:
+    """Return the Asia/Seoul business date of an already-validated UTC instant.
+
+    ``generated_at`` stays a UTC instant, while ``as_of_date`` is the KST
+    business date the scheduled briefing keys on (``DECISION_DATE`` is derived
+    with ``TZ=Asia/Seoul``).  The weekday morning run fires at 22:05Z, which is
+    07:05 the *next* KST day, so comparing the first ten characters of the two
+    strings rejects every normal morning packet.  Only this comparison basis is
+    normalized: the source-instant, source-from-future and source-after-as-of
+    guards keep their own bases.
+
+    Same basis as the merged P6-06 mirror
+    ``portfolio/defensive_action_decision.py::_kst_business_date``,
+    ``decision/unified_decision_contract.py::_kst_operating_date`` and
+    ``regime/crypto_live_component_registry.py::_operational_date_kst``.
+    """
+    parsed = dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=dt.timezone.utc
+    )
+    return parsed.astimezone(KST).date().isoformat()
+
+
 def _sha(value, code: str) -> str:
     if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
         raise StrategicCapitalPostureError(code)
@@ -420,7 +444,7 @@ def _assemble(
 ) -> dict:
     as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
     generated = _utc(generated_at, "GENERATED_AT_INVALID")
-    if generated[:10] < as_of:
+    if _kst_business_date(generated) < as_of:
         raise StrategicCapitalPostureError("GENERATED_BEFORE_AS_OF_DATE")
     if policy_packet is not None:
         raise StrategicCapitalPostureError("UNRATIFIED_POLICY_PACKET_FORBIDDEN")
