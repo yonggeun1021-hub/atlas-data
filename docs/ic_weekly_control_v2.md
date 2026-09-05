@@ -97,7 +97,7 @@ is not invented here. Changed packets/actions need new revision IDs.
 
 ## Verification and limits
 
-`python3 test/test_ic_weekly_control.py` covers No Action, queue authority gates,
+`python3 validation/tests/test_ic_weekly_control.py` covers No Action, queue authority gates,
 missing/forged routing delivery, deterministic/future/retrospective time behavior,
 unknown KPI values, weekly dedup, private projection exclusion and money-path
 nonpreemption, plus an idempotent installation fixture.
