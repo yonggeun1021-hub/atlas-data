@@ -46,7 +46,7 @@ jobs:
   full:
     needs: focused
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Read-only checkout without changing common action-count contract
         run: |

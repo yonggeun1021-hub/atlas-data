@@ -360,7 +360,7 @@ class RealAmE2E_20260902Morning(unittest.TestCase):
         ("a6928c51", "SOURCE_BRIDGE_MISSING"),     # semantic HOLD, no bridge yet
         ("469030fa", "PORTAL_HANDOFF_MISSING"),    # bridge + envelope, no receipt
         ("7eb1e9a2", "FINAL_DRAIN_MISSING"),       # portal receipt, no drain
-        ("origin/main", "COMPLETE"),               # drain recorded
+        ("91ce6095679d473b3e7b580bd612c5d23f65def4", "COMPLETE"),  # original drain receipt
     ]
 
     def test_real_progression(self):
@@ -381,7 +381,7 @@ class RealPmE2E_20260903Evening(unittest.TestCase):
     """Replays the actual 2026-09-03 evening incident -- the one this
     watchdog exists because of. Confirms the classifier would have alerted
     from shortly after the natural slot, and still shows the formal ledger
-    as open at the current commit even though atlas-portal PR #418 (a
+    as open when this regression was introduced, even though atlas-portal PR #418 (a
     different repository) already applied it out of band."""
 
     SLOT, DATE = "evening", "2026-09-03"
@@ -396,8 +396,8 @@ class RealPmE2E_20260903Evening(unittest.TestCase):
                                                # never invoked for this round
         ("e620594c", "PORTAL_HANDOFF_MISSING"),  # envelope built via
                                                   # manual_recovery
-        ("origin/main", "PORTAL_HANDOFF_MISSING"),  # still open in the
-                                                     # atlas-data ledger today
+        ("bbe448cfe36ed89e845aeee3e0c66016b1be301a", "PORTAL_HANDOFF_MISSING"),
+        # Ledger still open at watchdog introduction; independent of remote refs.
     ]
 
     def test_real_progression(self):
