@@ -27,6 +27,24 @@ verbatim:
   component rows bound to their retained download cutoff and directory
   fingerprint. It can define evidence presence only; it cannot interpret an
   axis or authorize a decision/action.
+* ``.github/scripts/crypto_leadership.py`` (P1-CR-07) -- the committed
+  dual-window (7d pilot / 30d primary) BTC-relative-strength leadership
+  observation packet, read from
+  ``data/observations/crypto_leadership/<as_of_date>/packet.json`` and
+  passed verbatim as P5-08's ``leadership_output`` argument (previously a
+  hardcoded ``None`` here -- see CHANGED_PATHS/ROOT_CAUSE in this module's
+  own PR history for why: the daily builder's output used to be written
+  only to a CI runner temp file / short-lived artifact, never committed,
+  so no consumer could ever read it back). Missing, stale (beyond this
+  module's own reused ``max_capture_age_hours`` bound), future-dated, or
+  directory-name/internal-field generation-mismatched packets are all
+  excluded and this module falls back to the exact same
+  ``leadership_output=None`` behavior P5-08 already had -- never a
+  fabricated/neutral substitute. A packet's own
+  ``lineage.manifest_sha256_by_date`` is cross-verified against the real,
+  already-committed ``evidence/crypto/breadth/raw/<date>/_manifest.json``
+  files on disk before use, so a manually authored or replayed (not
+  naturally produced) packet is rejected, never silently trusted.
 * ``universe/crypto_candidate_promotion.py`` (P5-08) and
   ``universe/crypto_paper_buy_eligibility.py`` (P5-09) -- run verbatim,
   unmodified, over the packets above.
@@ -127,6 +145,18 @@ if str(ROOT) not in sys.path:
 UNIVERSE_DATA_ROOT = ROOT / "data" / "observations" / "upbit_tradeable_universe"
 MARKET_EVIDENCE_DATA_ROOT = ROOT / "data" / "observations" / "upbit_market_evidence"
 REALTIME_EVIDENCE_ROOT = ROOT / "evidence" / "crypto" / "upbit" / "realtime"
+# Committed P1-CR-07 leadership observation packets -- reuses the exact same
+# ``data/observations/<name>/<date>/packet.json`` convention already used by
+# ``data/observations/upbit_tradeable_universe`` and
+# ``data/observations/upbit_market_evidence`` above (and by the sibling
+# ``data/observations/crypto_recent_reference``). Before this module's own
+# wiring, ``.github/scripts/crypto_leadership.py``'s daily build (run in the
+# ".github/workflows/crypto-breadth-capture.yml" P1-CR-07 build step, then
+# called "P1-CR-07 transient live replay") built this exact output but only
+# ever wrote it to a CI runner temp file / artifact -- never committed -- so
+# no consumer could ever read it back. That workflow step now additionally
+# persists its own already-computed output to this exact directory.
+LEADERSHIP_DATA_ROOT = ROOT / "data" / "observations" / "crypto_leadership"
 OUTPUT_ROOT = ROOT / "evidence" / "crypto_paper_decision"
 
 OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/1"
@@ -258,9 +288,20 @@ def _validate_embedded_hash(record: dict, field: str, label: str) -> None:
         raise CryptoPaperDecisionSnapshotError(f"SOURCE_HASH_MISMATCH:{label}")
 
 
-def _validate_universe_entry(entry: dict | None) -> None:
+def _validate_universe_entry(
+    entry: dict | None,
+    *,
+    not_after: dt.datetime,
+) -> None:
     if entry is None:
         return
+    if (
+        not isinstance(not_after, dt.datetime)
+        or not_after.tzinfo is None
+        or not_after.utcoffset() is None
+    ):
+        raise CryptoPaperDecisionSnapshotError("UNIVERSE_NOT_AFTER_MUST_BE_TIMEZONE_AWARE")
+    not_after = not_after.astimezone(dt.timezone.utc)
     record = entry.get("record")
     if (
         not isinstance(record, dict)
@@ -270,6 +311,41 @@ def _validate_universe_entry(entry: dict | None) -> None:
     ):
         raise CryptoPaperDecisionSnapshotError("UNIVERSE_SOURCE_RECORD_INVALID")
     _validate_embedded_hash(record, "payload_sha256", "upbit_universe_population")
+    manifest_path = entry.get("transition_manifest_path")
+    transition_selected = manifest_path is not None
+    if not transition_selected and (
+        entry.get("transition_retained") is True
+        or "/transitions/" in Path(entry["path"]).as_posix()
+    ):
+        raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_PROVENANCE_MISSING")
+    if transition_selected:
+        try:
+            if entry.get("transition_retained") is True:
+                validated = UNIVERSE.validate_retained_same_vintage_transition(
+                    manifest_path,
+                    source_record_path=entry.get("source_path"),
+                    successor_record_path=entry["path"],
+                )
+            else:
+                validated = UNIVERSE.validate_same_vintage_transition(manifest_path)
+        except (UNIVERSE.UpbitUniverseError, TypeError) as exc:
+            raise CryptoPaperDecisionSnapshotError(
+                f"UNIVERSE_TRANSITION_PROVENANCE_INVALID:{exc}"
+            ) from exc
+        if (
+            validated["record"] != record
+            or validated["record"]["payload_sha256"] != record.get("payload_sha256")
+        ):
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_SUCCESSOR_MISMATCH")
+        available_at = validated.get("transition_available_at")
+        if (
+            not isinstance(available_at, dt.datetime)
+            or available_at.tzinfo is None
+            or available_at.utcoffset() is None
+        ):
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_AVAILABLE_AT_INVALID")
+        if available_at.astimezone(dt.timezone.utc) > not_after:
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_NOT_YET_AVAILABLE")
 
 
 def _validate_market_evidence_entry(entry: dict | None) -> None:
@@ -447,34 +523,17 @@ def _realtime_freshness(record: dict) -> tuple[str, str | None]:
 def find_latest_universe_packet(
     data_root: Path = UNIVERSE_DATA_ROOT, *, not_after: dt.datetime | None = None,
 ):
-    """Latest committed P3-12 record under ``data_root``, or ``None``.
-
-    Mirrors ``upbit-realtime-capture.yml``'s own
-    "Find latest committed P3-12 tradeable-universe classification" step
-    (``ls -1 ... | sort | tail -n 1``): the lexicographically-last
-    ``YYYY-MM-DD`` directory that actually contains a ``packet.json``.
-    """
-    data_root = Path(data_root)
-    if not data_root.is_dir():
-        return None
-    dates = sorted(p.name for p in data_root.iterdir() if p.is_dir() and DATE_RE.fullmatch(p.name))
-    for date in reversed(dates):
-        candidate = data_root / date / "packet.json"
-        if candidate.is_file():
-            record = _read_json(candidate)
-            packet = record.get("packet") if isinstance(record, dict) else None
-            if not_after is not None:
-                available_at = _parse_utc(
-                    packet.get("available_at") if isinstance(packet, dict) else None,
-                    "universe.available_at",
-                )
-                if available_at > not_after:
-                    continue
-            return {
-                "date": date, "path": candidate, "record": record,
-                "packet": packet,
-            }
-    return None
+    """Latest canonical P3 record or exact-validated same-day successor."""
+    selection_cutoff = not_after or dt.datetime.now(dt.timezone.utc)
+    try:
+        return UNIVERSE.find_latest_population_record(
+            data_root,
+            not_after=selection_cutoff,
+        )
+    except UNIVERSE.UpbitUniverseError as exc:
+        raise CryptoPaperDecisionSnapshotError(
+            f"UPBIT_UNIVERSE_TRANSITION_INVALID:{exc}"
+        ) from exc
 
 
 def find_latest_market_evidence_packet(
@@ -565,6 +624,134 @@ def find_latest_realtime_run(
                     continue
             return {"date": date, "path": latest, "record": record}
     return None
+
+
+CRYPTO_BREADTH_RAW_ROOT = ROOT / "evidence" / "crypto" / "breadth" / "raw"
+
+
+def find_latest_leadership_packet(
+    data_root: Path = LEADERSHIP_DATA_ROOT, *, not_after: dt.datetime | None = None,
+):
+    """Latest committed P1-CR-07 leadership packet under ``data_root``, or
+    ``None``.
+
+    Selection mirrors ``find_latest_universe_packet``/
+    ``find_latest_market_evidence_packet``: read-only, zero network calls,
+    picks by each candidate's own ``as_of_date`` (the directory name is not
+    trusted on its own -- ``_validate_leadership_entry`` below cross-checks
+    it against the packet's own internal ``as_of_date`` field, exactly the
+    same "path name is not authority" discipline already used for P4-07's
+    legacy/exact directories).
+    """
+    data_root = Path(data_root)
+    if not data_root.is_dir():
+        return None
+    candidates = []
+    for directory in data_root.iterdir():
+        if not directory.is_dir() or not DATE_RE.fullmatch(directory.name):
+            continue
+        path = directory / "packet.json"
+        if not path.is_file():
+            continue
+        record = _read_json(path)
+        as_of_date = record.get("as_of_date") if isinstance(record, dict) else None
+        if not isinstance(as_of_date, str) or DATE_RE.fullmatch(as_of_date) is None:
+            raise CryptoPaperDecisionSnapshotError(
+                f"LEADERSHIP_AS_OF_DATE_INVALID:{path}"
+            )
+        if not_after is not None:
+            as_of_start = dt.datetime.strptime(as_of_date, "%Y-%m-%d").replace(
+                tzinfo=dt.timezone.utc
+            )
+            if as_of_start > not_after:
+                continue
+        candidates.append((as_of_date, directory.name, path, record))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: row[0])
+    _, directory_name, path, record = candidates[-1]
+    return {"date": directory_name, "path": path, "record": record}
+
+
+def _validate_leadership_entry(entry: dict | None) -> None:
+    """Structural + "is this genuinely natural, not a manual/replay drop"
+    verification for one committed P1-CR-07 leadership packet.
+
+    Two checks, both fail-closed (raise, never guess):
+
+    * "generation mismatch" -- the packet's own internal ``as_of_date``
+      field must exactly match the directory it is committed under (the
+      same directory-name-vs-internal-field discipline already used by
+      ``find_latest_market_evidence_packet``/``find_previous_packet``
+      above for P4-07 and for this module's own prior packets).
+    * "natural, not manual/replay" -- every ``(as_of_date, manifest_sha256)``
+      pair the packet's own ``lineage.manifest_sha256_by_date`` claims must
+      match the real, already-committed
+      ``evidence/crypto/breadth/raw/<as_of_date>/_manifest.json`` file's
+      actual sha256 on disk. A manually authored or replayed packet would
+      have to reproduce every one of those real, independently-committed
+      hashes exactly to pass this -- at which point it *is* the natural
+      output, not a forgery. This is the same "the compromised item is
+      dropped ... never promoting an unverified ... name" fail-closed
+      discipline as ``find_previous_packet``'s tamper/drift handling, and
+      the same embedded-hash-cross-check discipline as
+      ``_validate_embedded_hash`` above, just against real sibling evidence
+      files instead of a field embedded in the packet's own bytes (P1-CR-07's
+      own output carries no self-referential ``payload_sha256`` field to
+      reuse directly).
+    """
+    if entry is None:
+        return
+    record = entry["record"]
+    if (
+        not isinstance(record, dict)
+        or record.get("schema_version") != 2
+        or record.get("market") != "CRYPTO"
+        or record.get("as_of_date") != entry["date"]
+    ):
+        raise CryptoPaperDecisionSnapshotError("LEADERSHIP_SOURCE_RECORD_INVALID")
+    manifest_entries = (record.get("lineage") or {}).get("manifest_sha256_by_date")
+    if not isinstance(manifest_entries, list):
+        raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_INVALID")
+    if not manifest_entries and record.get("status") != "UNKNOWN":
+        # An honestly UNKNOWN result (insufficient natural history -- both
+        # windows unobserved) legitimately carries no manifest lineage at
+        # all; that is not a naturalness red flag. Any status that claims an
+        # actually-observed window (OBSERVED_UNCLASSIFIED/PARTIAL) must
+        # carry real, verifiable lineage -- an empty list there would be the
+        # module claiming observed data while citing zero source evidence
+        # for it, exactly the "manual/replay" shape this check exists to
+        # catch.
+        raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_MISSING")
+    for item in manifest_entries:
+        if not isinstance(item, dict):
+            raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_ENTRY_INVALID")
+        source_date = item.get("as_of_date")
+        claimed = item.get("manifest_sha256")
+        if (
+            not isinstance(source_date, str) or DATE_RE.fullmatch(source_date) is None
+            or not isinstance(claimed, str) or not SHA256_RE.fullmatch(claimed)
+        ):
+            raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_ENTRY_INVALID")
+        manifest_path = CRYPTO_BREADTH_RAW_ROOT / source_date / "_manifest.json"
+        # Retained lineage must stay inside the verified evidence checkout.
+        try:
+            parts = manifest_path.relative_to(ROOT).parts
+        except ValueError as exc:
+            raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_PATH_ESCAPE") from exc
+        current = ROOT
+        for part in parts:
+            current /= part
+            if current.is_symlink():
+                raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_PATH_SYMLINK")
+        if not manifest_path.is_file():
+            raise CryptoPaperDecisionSnapshotError(
+                f"LEADERSHIP_LINEAGE_MANIFEST_MISSING:{source_date}"
+            )
+        if _file_sha256(manifest_path) != claimed:
+            raise CryptoPaperDecisionSnapshotError(
+                f"LEADERSHIP_LINEAGE_MANIFEST_NOT_NATURAL:{source_date}"
+            )
 
 
 def find_previous_packet(output_root: Path, before_date: str, before_hhmm: str):
@@ -759,6 +946,7 @@ def build_snapshot(
     universe_entry: dict | None,
     market_evidence_entry: dict | None,
     realtime_entry: dict | None,
+    leadership_entry: dict | None = None,
     previous_entry: dict | None = None,
     component_rows: dict | None = None,
     started_at: str | None = None,
@@ -832,7 +1020,7 @@ def build_snapshot(
         for component_id, reason in component_registry["deferred_components"].items():
             notes.append(f"{component_id}:{reason}")
 
-    _validate_universe_entry(universe_entry)
+    _validate_universe_entry(universe_entry, not_after=generated_dt)
     _validate_market_evidence_entry(market_evidence_entry)
     _validate_realtime_entry(realtime_entry)
     if market_evidence_entry is not None:
@@ -862,6 +1050,19 @@ def build_snapshot(
             "role": "upbit_tradeable_universe_packet", "path": _relpath(universe_entry["path"]),
             "sha256": _file_sha256(universe_entry["path"]),
         })
+        if universe_entry.get("transition_manifest_path") is not None:
+            source_refs.extend([
+                {
+                    "role": "upbit_universe_transition_manifest",
+                    "path": _relpath(universe_entry["transition_manifest_path"]),
+                    "sha256": _file_sha256(universe_entry["transition_manifest_path"]),
+                },
+                {
+                    "role": "upbit_universe_transition_source",
+                    "path": _relpath(universe_entry["source_path"]),
+                    "sha256": _file_sha256(universe_entry["source_path"]),
+                },
+            ])
     if universe_packet is None:
         universe_status = MISSING
         notes.append("UPBIT_UNIVERSE_PACKET_MISSING")
@@ -937,6 +1138,54 @@ def build_snapshot(
 
     overall_freshness = _worst_freshness([universe_status, market_evidence_status, realtime_status])
 
+    # -- P1-CR-07 leadership freshness -- kept as its own independent
+    #    dimension, never folded into overall_freshness/cap_state_for_
+    #    freshness above: a missing/stale/invalid leadership packet must cap
+    #    only the RELATIVE_STRENGTH criterion (via leadership_for_promotion
+    #    below staying None, the module's own existing, never-invented
+    #    "leadership_output is None -> UNKNOWN" fail-closed path), never the
+    #    whole funnel's actionable-state cap, which is reserved for P3-12/
+    #    P4-07/P9-06 freshness exactly as before this change.
+    _validate_leadership_entry(leadership_entry)
+    if leadership_entry is not None:
+        source_refs.append({
+            "role": "crypto_leadership_packet", "path": _relpath(leadership_entry["path"]),
+            "sha256": _file_sha256(leadership_entry["path"]),
+        })
+    if leadership_entry is None:
+        leadership_status = MISSING
+        notes.append("CRYPTO_LEADERSHIP_PACKET_MISSING")
+        leadership_for_promotion = None
+    elif leadership_entry["date"] >= capture_date:
+        # as_of_date must be a fully-elapsed, already-finalized UTC day
+        # strictly before this decision snapshot's own capture_date -- same
+        # "never uses not-yet-finalized current-day data" discipline as
+        # crypto_leadership.py's own current_candle exclusion policy.
+        raise CryptoPaperDecisionSnapshotError("LEADERSHIP_PACKET_FUTURE_DATED")
+    else:
+        leadership_as_of_end = dt.datetime.strptime(
+            leadership_entry["date"], "%Y-%m-%d"
+        ).replace(tzinfo=dt.timezone.utc) + dt.timedelta(days=1)
+        # Reuses the exact same already-loaded max_capture_age_hours bound
+        # this module already applies to P3-12 Universe staleness above --
+        # not a new leadership-specific number. It is this composition
+        # module's own general "how old may any composed evidence be"
+        # governance bound, applied here a second time, same discipline as
+        # SCHEDULED_SLOT_MINUTES being reused (not reinvented) for a second
+        # purpose elsewhere in this file.
+        leadership_age_hours = (
+            Decimal(str((generated_dt - leadership_as_of_end).total_seconds())) / Decimal("3600")
+        )
+        if leadership_age_hours > max_age_hours:
+            leadership_status = STALE
+            notes.append(
+                f"CRYPTO_LEADERSHIP_PACKET_STALE:age_hours={leadership_age_hours}:max={max_age_hours}"
+            )
+            leadership_for_promotion = None
+        else:
+            leadership_status = FRESH
+            leadership_for_promotion = leadership_entry["record"]
+
     # -- Regime (P1-CR-08) -- independent of universe/market-evidence
     #    freshness; always computed honestly. ---------------------------
     regime_payload = build_regime_snapshot(generated_at, regime_component_rows)
@@ -958,7 +1207,8 @@ def build_snapshot(
     if universe_packet is not None:
         try:
             promotion_packet = PROMOTION.build_promotion_packet(
-                universe_packet, regime_payload, market_evidence_by_market, None,
+                universe_packet, regime_payload, market_evidence_by_market,
+                leadership_for_promotion,
                 evaluation_as_of=universe_packet["evaluation_as_of"],
             )
         except PROMOTION.CryptoCandidatePromotionError as exc:
@@ -1044,6 +1294,20 @@ def build_snapshot(
                 "date": universe_entry["date"],
                 "payload_sha256": universe_packet.get("payload_sha256"),
                 "file_sha256": _file_sha256(universe_entry["path"]),
+                "transition": (
+                    {
+                        "manifest_file_sha256": _file_sha256(
+                            universe_entry["transition_manifest_path"]
+                        ),
+                        "manifest_payload_sha256": universe_entry[
+                            "transition_manifest_payload_sha256"
+                        ],
+                        "source_file_sha256": _file_sha256(universe_entry["source_path"]),
+                        "source_payload_sha256": universe_entry["source_payload_sha256"],
+                    }
+                    if universe_entry.get("transition_manifest_path") is not None
+                    else None
+                ),
             }
             if universe_entry else None
         ),
@@ -1062,6 +1326,14 @@ def build_snapshot(
                 "file_sha256": _file_sha256(realtime_entry["path"]),
             }
             if realtime_entry else None
+        ),
+        "leadership": (
+            {
+                "date": leadership_entry["date"],
+                "as_of_date": leadership_entry["record"].get("as_of_date"),
+                "file_sha256": _file_sha256(leadership_entry["path"]),
+            }
+            if leadership_entry else None
         ),
         "regime_axis_snapshot_sha256": payload_sha256(regime_payload),
     }
@@ -1116,6 +1388,7 @@ def build_snapshot(
             "upbit_universe": universe_status,
             "market_evidence": market_evidence_status,
             "realtime": realtime_status,
+            "leadership": leadership_status,
             "overall": overall_freshness,
         },
         "authority": authority,
@@ -1181,7 +1454,8 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
         role = ref["role"]
         if role in by_role or role not in {
             "upbit_tradeable_universe_packet", "upbit_market_evidence_packet",
-            "upbit_realtime_capture_run",
+            "upbit_realtime_capture_run", "crypto_leadership_packet",
+            "upbit_universe_transition_manifest", "upbit_universe_transition_source",
         }:
             raise CryptoPaperDecisionSnapshotError("SOURCE_REF_ROLE_INVALID")
         path = _resolve_source_path(ref["path"], allow_external_sources=allow_external_sources)
@@ -1198,6 +1472,27 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
             "record": value["record"],
             "packet": value["record"].get("packet"),
         }
+        transition_roles = {
+            "upbit_universe_transition_manifest",
+            "upbit_universe_transition_source",
+        }
+        present_transition_roles = transition_roles & set(by_role)
+        retained_successor = value["path"].name == "successor.json"
+        if present_transition_roles and present_transition_roles != transition_roles:
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_SOURCE_REFS_INCOMPLETE")
+        if retained_successor and present_transition_roles != transition_roles:
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_TRANSITION_SOURCE_REFS_MISSING")
+        if present_transition_roles:
+            manifest_value = by_role["upbit_universe_transition_manifest"]
+            source_value = by_role["upbit_universe_transition_source"]
+            manifest_record = manifest_value["record"]
+            universe_entry.update({
+                "transition_manifest_path": manifest_value["path"],
+                "transition_manifest_payload_sha256": manifest_record.get("payload_sha256"),
+                "source_path": source_value["path"],
+                "source_payload_sha256": source_value["record"].get("payload_sha256"),
+                "transition_retained": True,
+            })
     market_entry = None
     if "upbit_market_evidence_packet" in by_role:
         value = by_role["upbit_market_evidence_packet"]
@@ -1224,6 +1519,14 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
             "path": value["path"],
             "record": value["record"],
         }
+    leadership_entry = None
+    if "crypto_leadership_packet" in by_role:
+        value = by_role["crypto_leadership_packet"]
+        leadership_entry = {
+            "date": value["path"].parent.name,
+            "path": value["path"],
+            "record": value["record"],
+        }
 
     rebuilt = build_snapshot(
         generated_at=packet["generated_at"],
@@ -1231,6 +1534,7 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
         universe_entry=universe_entry,
         market_evidence_entry=market_entry,
         realtime_entry=realtime_entry,
+        leadership_entry=leadership_entry,
         previous_entry=packet["previous_state_reference"],
         component_rows=packet["source_components"],
         started_at=packet.get("started_at"),
@@ -1278,24 +1582,40 @@ def retain_source(entry: dict | None, output_root: Path) -> dict | None:
     source = Path(entry["path"])
     source_bytes = source.read_bytes()
     digest = hashlib.sha256(source_bytes).hexdigest()
-    target = (
-        Path(output_root) / "_sources" / "sha256" / digest
-        / entry["date"] / "source.json"
-    )
-    if target.exists():
-        if target.read_bytes() != source_bytes:
-            raise PopulationError(f"RETAINED_SOURCE_DRIFT_OR_TAMPER:{target}")
-    else:
+    bundle_root = Path(output_root) / "_sources" / "sha256" / digest / entry["date"]
+
+    def retain_exact(original: Path, target: Path) -> None:
+        original_bytes = Path(original).read_bytes()
+        if target.exists():
+            if target.read_bytes() != original_bytes:
+                raise PopulationError(f"RETAINED_SOURCE_DRIFT_OR_TAMPER:{target}")
+            return
         target.parent.mkdir(parents=True, exist_ok=True)
         temp = target.with_name(f".{target.name}.tmp")
         try:
-            temp.write_bytes(source_bytes)
+            temp.write_bytes(original_bytes)
             temp.replace(target)
         finally:
             if temp.exists():
                 temp.unlink()
+
+    transition_manifest_path = entry.get("transition_manifest_path")
+    if transition_manifest_path is None:
+        target = bundle_root / "source.json"
+        retain_exact(source, target)
+    else:
+        target = bundle_root / "successor.json"
+        retained_manifest = bundle_root / "transition.json"
+        retained_source = bundle_root / "canonical-source.json"
+        retain_exact(source, target)
+        retain_exact(Path(transition_manifest_path), retained_manifest)
+        retain_exact(Path(entry["source_path"]), retained_source)
     retained = copy.deepcopy(entry)
     retained["path"] = target
+    if transition_manifest_path is not None:
+        retained["transition_manifest_path"] = retained_manifest
+        retained["source_path"] = retained_source
+        retained["transition_retained"] = True
     return retained
 
 
@@ -1308,6 +1628,7 @@ def populate(
     realtime_evidence_root: Path = REALTIME_EVIDENCE_ROOT,
     realtime_run_path: Path | None = None,
     allow_realtime_fallback: bool = False,
+    leadership_data_root: Path = LEADERSHIP_DATA_ROOT,
     output_root: Path = OUTPUT_ROOT,
     started_at: str | None = None,
     wire_regime_components: bool = False,
@@ -1330,10 +1651,14 @@ def populate(
         )
     else:
         realtime_entry = None
+    leadership_entry = find_latest_leadership_packet(
+        leadership_data_root, not_after=generated_dt,
+    )
 
     universe_entry = retain_source(universe_entry, output_root)
     market_evidence_entry = retain_source(market_evidence_entry, output_root)
     realtime_entry = retain_source(realtime_entry, output_root)
+    leadership_entry = retain_source(leadership_entry, output_root)
 
     capture_date = generated_at[:10]
     capture_hhmm = generated_at[11:13] + generated_at[14:16]
@@ -1356,6 +1681,7 @@ def populate(
         universe_entry=universe_entry,
         market_evidence_entry=market_evidence_entry,
         realtime_entry=realtime_entry,
+        leadership_entry=leadership_entry,
         previous_entry=previous_entry,
         started_at=started_at,
         component_rows=component_registry,
@@ -1430,6 +1756,7 @@ def run(argv=None) -> int:
         "--allow-realtime-fallback", action="store_true",
         help="Manual diagnostics only: reuse the latest prior realtime run when no exact run path is supplied.",
     )
+    parser.add_argument("--leadership-data-root", type=Path, default=LEADERSHIP_DATA_ROOT)
     parser.add_argument(
         "--wire-regime-components", action="store_true",
         help=(
@@ -1448,6 +1775,7 @@ def run(argv=None) -> int:
             realtime_evidence_root=args.realtime_evidence_root,
             realtime_run_path=args.realtime_run_path,
             allow_realtime_fallback=args.allow_realtime_fallback,
+            leadership_data_root=args.leadership_data_root,
             output_root=args.output_root,
             started_at=args.started_at,
             wire_regime_components=args.wire_regime_components,

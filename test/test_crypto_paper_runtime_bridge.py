@@ -784,5 +784,65 @@ class BridgeContractTests(RuntimeFixture):
             BRIDGE.validate_decision_snapshot(decision, expected_source_commit=SOURCE_COMMIT)
 
 
+
+class LeadershipObservationRootTests(unittest.TestCase):
+    def test_observation_manifest_root_and_tamper_rejection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / 'evidence/crypto/breadth/raw/2000-01-01/_manifest.json'
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"fixture":"observation-only"}')
+            validator = BRIDGE._decision_validator(root)
+            record = {'schema_version': 2, 'market': 'CRYPTO',
+                      'as_of_date': '2000-01-01', 'status': 'PARTIAL',
+                      'lineage': {'manifest_sha256_by_date': [{
+                          'as_of_date': '2000-01-01',
+                          'manifest_sha256': BRIDGE._file_sha256(manifest)}]}}
+            entry = {'date': '2000-01-01', 'record': record}
+            validator._validate_leadership_entry(entry)
+            manifest.write_text('{"fixture":"tampered"}')
+            with self.assertRaisesRegex(validator.CryptoPaperDecisionSnapshotError,
+                                        'LEADERSHIP_LINEAGE_MANIFEST_NOT_NATURAL'):
+                validator._validate_leadership_entry(entry)
+
+    def test_full_rederivation_preserves_hash_and_role_guards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            raw_root = root / 'evidence/crypto/breadth/raw'
+            manifest = raw_root / '2026-08-28/_manifest.json'
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"fixture":"no-order"}')
+            record = {'schema_version':2, 'market':'CRYPTO',
+                      'as_of_date':'2026-08-28', 'status':'UNKNOWN',
+                      'lineage':{'manifest_sha256_by_date':[{
+                          'as_of_date':'2026-08-28',
+                          'manifest_sha256':BRIDGE._file_sha256(manifest)}]}}
+            path = root / 'data/observations/crypto_leadership/2026-08-28/packet.json'
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(record))
+            with mock.patch.object(DECISION,'ROOT',root), mock.patch.object(DECISION,'CRYPTO_BREADTH_RAW_ROOT',raw_root):
+                packet = DECISION.build_snapshot(
+                    generated_at='2026-08-29T01:31:00Z', source_commit=SOURCE_COMMIT,
+                    universe_entry=None,market_evidence_entry=None,realtime_entry=None,
+                    leadership_entry={'date':'2026-08-28','path':path,'record':record})
+            self.assertEqual(BRIDGE.validate_decision_snapshot(packet,observation_root=root),packet)
+            self.assertTrue(all(x is False for x in packet['authority'].values()))
+            for role in ['crypto_leadership_packet','invented_role']:
+                forged=copy.deepcopy(packet)
+                extra=copy.deepcopy(forged['source_refs'][0]);extra['role']=role
+                forged['source_refs'].append(extra)
+                forged['payload_sha256']=BRIDGE.payload_sha256({k:v for k,v in forged.items() if k!='payload_sha256'})
+                with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError,'SOURCE_REF_ROLE_INVALID'):
+                    BRIDGE.validate_decision_snapshot(forged,observation_root=root)
+            path.write_text(json.dumps({**record,'status':'PARTIAL'}))
+            with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError,'SOURCE_REF_HASH_MISMATCH'):
+                BRIDGE.validate_decision_snapshot(packet,observation_root=root)
+            path.write_text(json.dumps(record))
+            outside=root/'outside.json';outside.write_bytes(manifest.read_bytes())
+            manifest.unlink();manifest.symlink_to(outside)
+            with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError,'LEADERSHIP_LINEAGE_PATH_SYMLINK'):
+                BRIDGE.validate_decision_snapshot(packet,observation_root=root)
+
+
 if __name__ == "__main__":
     unittest.main()

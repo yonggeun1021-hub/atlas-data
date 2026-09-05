@@ -189,6 +189,91 @@ def write_realtime_entry(
     return {"date": date, "path": path, "record": record}
 
 
+# ---------------------------------------------------------------------------
+# P1-CR-07 leadership packet fixtures -- schema-valid against both this
+# module's own _validate_leadership_entry and
+# universe/crypto_candidate_promotion.py's own _validate_leadership_output
+# (called for real inside PROMOTION.build_promotion_packet once wired
+# through), built from the real, already-ratified
+# config/crypto_leadership_policy.json / config/crypto_leadership_contract.json
+# via .github/scripts/crypto_leadership.py itself -- never a synthetic
+# contract/policy pin of this test's own invention.
+# ---------------------------------------------------------------------------
+
+LEADERSHIP_MODULE = CPDS.PROMOTION.CRYPTO_LEADERSHIP
+REAL_BREADTH_RAW_ROOT = ROOT / "evidence" / "crypto" / "breadth" / "raw"
+
+
+def real_manifest_sha256(date: str) -> str:
+    """The real, already-committed sha256 of one genuine
+    ``evidence/crypto/breadth/raw/<date>/_manifest.json`` file -- used to
+    build a leadership fixture whose lineage genuinely cross-verifies
+    against real committed evidence, the same "natural, not manual/replay"
+    proof the real daily builder's own output carries.
+    """
+    return CPDS._file_sha256(REAL_BREADTH_RAW_ROOT / date / "_manifest.json")
+
+
+def leadership_record(
+    *, as_of_date=EVAL_AS_OF, windows=None, status="UNKNOWN",
+    manifest_sha256_by_date=None,
+):
+    contract = LEADERSHIP_MODULE.load_contract()
+    policy = LEADERSHIP_MODULE.load_leadership_policy()
+    windows = windows if windows is not None else [
+        {
+            "window_id": "pilot_7d", "role": "PILOT", "status": "UNKNOWN",
+            "unknown_reason": "SOURCE_POINT_UNKNOWN",
+            "asset_relative_strength": [], "partial_window_assets": [],
+        },
+        {
+            "window_id": "primary_30d", "role": "PRIMARY", "status": "UNKNOWN",
+            "unknown_reason": "INSUFFICIENT_CONTIGUOUS_HISTORY",
+            "asset_relative_strength": [], "partial_window_assets": [],
+        },
+    ]
+    record = {
+        "schema_version": 2,
+        "contract_version": contract["contract_version"],
+        "market": "CRYPTO",
+        "measurement": contract["measurement"],
+        "status": status,
+        "unknown_reason": None if status != "UNKNOWN" else "NO_WINDOW_OBSERVED",
+        "as_of_date": as_of_date,
+        "windows": windows,
+        "policies": {
+            "leadership": {
+                "policy_version": policy["policy_version"],
+                "policy_sha256": LEADERSHIP_MODULE.file_sha256(LEADERSHIP_MODULE.LEADERSHIP_POLICY_PATH),
+                "approval_status": "RATIFIED",
+                "group_return_method": policy["group_return_method"],
+                "group_coverage_policy_status": "UNRATIFIED",
+            },
+        },
+        "current_candle": {
+            "excluded_for_every_member_and_point": True,
+            "reason": "source_documents_not_yet_committed_timeframe",
+        },
+        "lineage": {
+            "pit_status": "independent_as_captured_daily_snapshots",
+            "source_transform_version": contract["source_transform_version"],
+            "manifest_sha256_by_date": manifest_sha256_by_date or [],
+            "current_catalog_backfill_authorized": False,
+        },
+    }
+    record.update(LEADERSHIP_MODULE.authority_boundary())
+    return record
+
+
+def write_leadership_entry(tmp_dir: Path, record: dict, *, date=None):
+    date = date or record["as_of_date"]
+    directory = tmp_dir / "leadership" / date
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "packet.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    return {"date": date, "path": path, "record": record}
+
+
 def ratified_policy_patches():
     """Simulate a future-ratified P3-12 policy/taxonomy, same technique
     test_crypto_candidate_promotion.py::BuildPromotionPacketTests uses.
@@ -257,6 +342,58 @@ class TempDirMixin:
         for patcher in ratified_policy_patches():
             patcher.start()
             self.addCleanup(patcher.stop)
+
+
+class TransitionTemporalSelectionTests(unittest.TestCase):
+    def test_operational_wrapper_returns_validated_transition_entry_unchanged(self):
+        transition_entry = {
+            "date": "2026-08-29",
+            "path": Path("successor.json"),
+            "transition_manifest_path": Path("transition.json"),
+            "transition_manifest_payload_sha256": "a" * 64,
+        }
+        with mock.patch.object(
+            CPDS.UNIVERSE,
+            "find_latest_population_record",
+            return_value=transition_entry,
+        ) as selector:
+            selected = CPDS.find_latest_universe_packet(Path("unused"))
+        self.assertIs(selected, transition_entry)
+        cutoff = selector.call_args.kwargs["not_after"]
+        self.assertIsNotNone(cutoff.tzinfo)
+        self.assertIsNotNone(cutoff.utcoffset())
+
+    def test_operational_wrapper_uses_aware_cutoff_and_future_transition_fails_closed(self):
+        observed = {}
+
+        def reject_future(_data_root, *, not_after):
+            observed["not_after"] = not_after
+            raise CPDS.UNIVERSE.UpbitUniverseError("TRANSITION_AVAILABLE_IN_FUTURE")
+
+        with mock.patch.object(
+            CPDS.UNIVERSE,
+            "find_latest_population_record",
+            side_effect=reject_future,
+        ):
+            with self.assertRaisesRegex(
+                CPDS.CryptoPaperDecisionSnapshotError,
+                "UPBIT_UNIVERSE_TRANSITION_INVALID:TRANSITION_AVAILABLE_IN_FUTURE",
+            ):
+                CPDS.find_latest_universe_packet(Path("unused"))
+        self.assertIsNotNone(observed["not_after"].tzinfo)
+        self.assertIsNotNone(observed["not_after"].utcoffset())
+
+    def test_explicit_generation_cutoff_is_preserved_exactly(self):
+        cutoff = dt.datetime(2026, 8, 29, 9, 0, tzinfo=dt.timezone.utc)
+        with mock.patch.object(
+            CPDS.UNIVERSE,
+            "find_latest_population_record",
+            return_value=None,
+        ) as selector:
+            self.assertIsNone(
+                CPDS.find_latest_universe_packet(Path("unused"), not_after=cutoff)
+            )
+        self.assertEqual(selector.call_args.kwargs["not_after"], cutoff)
 
 
 # ---------------------------------------------------------------------------
@@ -583,6 +720,166 @@ class MixedGenerationTests(TempDirMixin, unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# 4b. P1-CR-07 leadership natural wiring (Lane L). Proves the promotion
+# builder no longer receives a hardcoded leadership_output=None: a natural,
+# fresh, structurally/lineage-verified committed leadership packet is
+# actually consumed by RELATIVE_STRENGTH, while missing/stale/generation-
+# mismatched/non-natural packets each fail closed to the exact same
+# behavior a hardcoded None already produced -- never a silently-invented
+# neutral value, and never any new authority.
+# ---------------------------------------------------------------------------
+
+class LeadershipWiringTests(TempDirMixin, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.start_ratified_patches()
+
+    def _build(self, leadership_entry, *, canonical_asset_id="ETH"):
+        packet = universe_packet([
+            universe_row(market="KRW-ETH", canonical_asset_id=canonical_asset_id),
+        ])
+        universe_entry = write_universe_entry(self.tmp, packet)
+        market_evidence_entry = write_market_evidence_entry(
+            self.tmp, {"KRW-ETH": valid_market_evidence_packet("KRW-ETH")},
+        )
+        realtime_entry = write_realtime_entry(self.tmp)
+        return CPDS.build_snapshot(
+            generated_at=GENERATED_AT, source_commit=SOURCE_COMMIT,
+            universe_entry=universe_entry, market_evidence_entry=market_evidence_entry,
+            realtime_entry=realtime_entry, leadership_entry=leadership_entry,
+        )
+
+    def test_natural_valid_leadership_is_actually_consumed(self):
+        record_dict = leadership_record(
+            as_of_date="2026-08-28",
+            status="PARTIAL",
+            windows=[
+                {
+                    "window_id": "pilot_7d", "role": "PILOT", "status": "UNKNOWN",
+                    "unknown_reason": "SOURCE_POINT_UNKNOWN",
+                    "asset_relative_strength": [], "partial_window_assets": [],
+                },
+                {
+                    "window_id": "primary_30d", "role": "PRIMARY",
+                    "status": "OBSERVED_UNCLASSIFIED", "unknown_reason": None,
+                    "asset_relative_strength": [
+                        {"canonical_asset_id": "ETH", "relative_strength_vs_btc": "-0.050000000000"},
+                    ],
+                    "partial_window_assets": [],
+                },
+            ],
+            manifest_sha256_by_date=[
+                {"as_of_date": "2026-08-28", "manifest_sha256": real_manifest_sha256("2026-08-28")},
+            ],
+        )
+        leadership_entry = write_leadership_entry(self.tmp, record_dict)
+
+        record = self._build(leadership_entry)
+
+        self.assertEqual(record["freshness_status"]["leadership"], "FRESH")
+        row = record["candidates"][0]
+        relative_strength = row["p5_08"]["criteria"]["RELATIVE_STRENGTH"]
+        # The exact opposite of the old hardcoded-None bug: this reason can
+        # only be produced by real leadership evidence actually being read
+        # and evaluated, never by the None short-circuit.
+        self.assertEqual(relative_strength["status"], "FAIL")
+        self.assertEqual(
+            relative_strength["reason"], "RELATIVE_STRENGTH_VS_BTC_NOT_POSITIVE:-0.050000000000",
+        )
+        self.assertNotEqual(relative_strength["reason"], "LEADERSHIP_OUTPUT_MISSING")
+        self.assertEqual(CPDS.validate_output(record, allow_external_sources=True), record)
+
+    def test_missing_leadership_packet_fails_closed_exactly_like_before(self):
+        record = self._build(None)
+        self.assertEqual(record["freshness_status"]["leadership"], "MISSING")
+        self.assertIn("CRYPTO_LEADERSHIP_PACKET_MISSING", record["derivation_notes"])
+        relative_strength = record["candidates"][0]["p5_08"]["criteria"]["RELATIVE_STRENGTH"]
+        self.assertEqual(relative_strength["status"], "UNKNOWN")
+        self.assertEqual(relative_strength["reason"], "LEADERSHIP_OUTPUT_MISSING")
+
+    def test_stale_leadership_packet_is_excluded_not_silently_used(self):
+        # Real committed archive date, but far older than this module's
+        # reused (not invented) max_capture_age_hours bound relative to
+        # GENERATED_AT -- the daily leadership job evidently did not run for
+        # several days.
+        record_dict = leadership_record(as_of_date="2026-08-20")
+        leadership_entry = write_leadership_entry(self.tmp, record_dict)
+
+        record = self._build(leadership_entry)
+
+        self.assertEqual(record["freshness_status"]["leadership"], "STALE")
+        self.assertTrue(
+            any(note.startswith("CRYPTO_LEADERSHIP_PACKET_STALE:") for note in record["derivation_notes"])
+        )
+        relative_strength = record["candidates"][0]["p5_08"]["criteria"]["RELATIVE_STRENGTH"]
+        self.assertEqual(relative_strength["status"], "UNKNOWN")
+        self.assertEqual(relative_strength["reason"], "LEADERSHIP_OUTPUT_MISSING")
+
+    def test_future_dated_leadership_packet_raises(self):
+        record_dict = leadership_record(as_of_date=EVAL_AS_OF)  # same day as capture_date
+        leadership_entry = write_leadership_entry(self.tmp, record_dict)
+        with self.assertRaisesRegex(
+            CPDS.CryptoPaperDecisionSnapshotError, "LEADERSHIP_PACKET_FUTURE_DATED",
+        ):
+            self._build(leadership_entry)
+
+    def test_generation_mismatch_directory_vs_internal_date_fails_closed(self):
+        record_dict = leadership_record(as_of_date="2026-08-27")
+        # Written under a directory that disagrees with the packet's own
+        # internal as_of_date -- the same directory-name-vs-internal-field
+        # tamper/drift discipline already used for P4-07 and for this
+        # module's own previous-packet lookup.
+        leadership_entry = write_leadership_entry(self.tmp, record_dict, date="2026-08-28")
+        with self.assertRaisesRegex(
+            CPDS.CryptoPaperDecisionSnapshotError, "LEADERSHIP_SOURCE_RECORD_INVALID",
+        ):
+            self._build(leadership_entry)
+
+    def test_manual_or_replayed_packet_with_fabricated_lineage_is_rejected(self):
+        record_dict = leadership_record(
+            as_of_date="2026-08-28",
+            status="PARTIAL",
+            windows=[
+                {
+                    "window_id": "pilot_7d", "role": "PILOT", "status": "UNKNOWN",
+                    "unknown_reason": "SOURCE_POINT_UNKNOWN",
+                    "asset_relative_strength": [], "partial_window_assets": [],
+                },
+                {
+                    "window_id": "primary_30d", "role": "PRIMARY",
+                    "status": "OBSERVED_UNCLASSIFIED", "unknown_reason": None,
+                    "asset_relative_strength": [
+                        {"canonical_asset_id": "ETH", "relative_strength_vs_btc": "0.010000000000"},
+                    ],
+                    "partial_window_assets": [],
+                },
+            ],
+            # Claims to be grounded in the real 2026-08-28 archive manifest
+            # but cites a hash that does not match the real committed file
+            # -- exactly what a hand-authored or replayed (not naturally
+            # produced) packet would get wrong.
+            manifest_sha256_by_date=[
+                {"as_of_date": "2026-08-28", "manifest_sha256": "0" * 64},
+            ],
+        )
+        leadership_entry = write_leadership_entry(self.tmp, record_dict)
+        with self.assertRaisesRegex(
+            CPDS.CryptoPaperDecisionSnapshotError, "LEADERSHIP_LINEAGE_MANIFEST_NOT_NATURAL",
+        ):
+            self._build(leadership_entry)
+
+    def test_no_authority_expansion_even_with_valid_leadership_wired(self):
+        record_dict = leadership_record(as_of_date="2026-08-28")
+        leadership_entry = write_leadership_entry(self.tmp, record_dict)
+
+        record = self._build(leadership_entry)
+
+        self.assertTrue(all(value is False for value in record["authority"].values()))
+        for row in record["candidates"]:
+            self.assertTrue(all(value is False for value in row["authority"].values()))
+
+
+# ---------------------------------------------------------------------------
 # 5. Regime UNKNOWN hard invariant
 # ---------------------------------------------------------------------------
 
@@ -683,6 +980,146 @@ class DuplicateGuardKeyTests(TempDirMixin, unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class PopulateIdempotencyTests(TempDirMixin, unittest.TestCase):
+    def test_transition_retention_bundle_and_replay_require_manifest_and_canonical_source(self):
+        self.start_ratified_patches()
+        output_root = self.tmp / "out"
+        entry = write_universe_entry(
+            self.tmp,
+            universe_packet([universe_row()]),
+        )
+        transition_dir = self.tmp / "transition"
+        transition_dir.mkdir()
+        manifest = {
+            "schema_version": "upbit_universe_same_vintage_transition/1",
+            "payload_sha256": "1" * 64,
+        }
+        manifest_path = transition_dir / "transition.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        canonical_source = transition_dir / "canonical.json"
+        canonical_source.write_text(json.dumps(entry["record"]), encoding="utf-8")
+        entry.update({
+            "transition_manifest_path": manifest_path,
+            "transition_manifest_payload_sha256": manifest["payload_sha256"],
+            "source_path": canonical_source,
+            "source_payload_sha256": entry["record"]["payload_sha256"],
+        })
+
+        with mock.patch.object(CPDS, "ROOT", self.tmp):
+            retained = CPDS.retain_source(entry, output_root)
+        self.assertEqual(retained["path"].name, "successor.json")
+        self.assertEqual(retained["transition_manifest_path"].name, "transition.json")
+        self.assertEqual(retained["source_path"].name, "canonical-source.json")
+        self.assertTrue(retained["transition_retained"])
+
+        validated_transition = {
+            "record": retained["record"],
+            "transition_available_at": dt.datetime(
+                2026, 8, 29, 8, 0, tzinfo=dt.timezone.utc,
+            ),
+        }
+        with (
+            mock.patch.object(
+                CPDS.UNIVERSE,
+                "validate_retained_same_vintage_transition",
+                return_value=validated_transition,
+            ),
+            mock.patch.object(CPDS, "ROOT", self.tmp),
+        ):
+            record = CPDS.build_snapshot(
+                generated_at=GENERATED_AT,
+                source_commit=SOURCE_COMMIT,
+                universe_entry=retained,
+                market_evidence_entry=None,
+                realtime_entry=None,
+            )
+            self.assertEqual(
+                {
+                    "upbit_tradeable_universe_packet",
+                    "upbit_universe_transition_manifest",
+                    "upbit_universe_transition_source",
+                },
+                {ref["role"] for ref in record["source_refs"]},
+            )
+            self.assertEqual(CPDS.validate_output(record), record)
+
+            omitted = copy.deepcopy(record)
+            omitted["source_refs"] = [
+                ref for ref in omitted["source_refs"]
+                if ref["role"] == "upbit_tradeable_universe_packet"
+            ]
+            omitted["payload_sha256"] = CPDS.payload_sha256(
+                {key: value for key, value in omitted.items() if key != "payload_sha256"}
+            )
+            with self.assertRaisesRegex(
+                CPDS.CryptoPaperDecisionSnapshotError,
+                "UNIVERSE_TRANSITION_SOURCE_REFS_MISSING",
+            ):
+                CPDS.validate_output(omitted)
+
+            # A fully rehashed decision packet is still invalid when replay
+            # proves that its transition was not available until after the
+            # packet's generated_at.  validate_output must enforce the same
+            # temporal boundary as the operational selector.
+            future_transition = {
+                "record": retained["record"],
+                "transition_available_at": dt.datetime(
+                    2026, 8, 29, 10, 0, tzinfo=dt.timezone.utc,
+                ),
+            }
+            with mock.patch.object(
+                CPDS.UNIVERSE,
+                "validate_retained_same_vintage_transition",
+                return_value=future_transition,
+            ):
+                with self.assertRaisesRegex(
+                    CPDS.CryptoPaperDecisionSnapshotError,
+                    "UNIVERSE_TRANSITION_NOT_YET_AVAILABLE",
+                ):
+                    CPDS.validate_output(record)
+
+            retained["transition_manifest_path"].write_text('{"tampered":true}\n', encoding="utf-8")
+            with self.assertRaisesRegex(
+                CPDS.CryptoPaperDecisionSnapshotError,
+                "SOURCE_REF_HASH_MISMATCH:upbit_universe_transition_manifest",
+            ):
+                CPDS.validate_output(record)
+
+    def test_nonretained_transition_after_generated_at_is_rejected(self):
+        self.start_ratified_patches()
+        entry = write_universe_entry(
+            self.tmp,
+            universe_packet([universe_row()]),
+        )
+        manifest_path = self.tmp / "transition.json"
+        manifest_path.write_text('{}\n', encoding="utf-8")
+        source_path = self.tmp / "canonical-source.json"
+        source_path.write_text(json.dumps(entry["record"]), encoding="utf-8")
+        entry.update({
+            "transition_manifest_path": manifest_path,
+            "source_path": source_path,
+        })
+        with mock.patch.object(
+            CPDS.UNIVERSE,
+            "validate_same_vintage_transition",
+            return_value={
+                "record": entry["record"],
+                "transition_available_at": dt.datetime(
+                    2026, 8, 29, 10, 0, tzinfo=dt.timezone.utc,
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(
+                CPDS.CryptoPaperDecisionSnapshotError,
+                "UNIVERSE_TRANSITION_NOT_YET_AVAILABLE",
+            ):
+                CPDS.build_snapshot(
+                    generated_at=GENERATED_AT,
+                    source_commit=SOURCE_COMMIT,
+                    universe_entry=entry,
+                    market_evidence_entry=None,
+                    realtime_entry=None,
+                )
+
     def test_source_ref_is_content_addressed_and_survives_rolling_source_mutation(self):
         output_root = self.tmp / "out"
         original = write_universe_entry(

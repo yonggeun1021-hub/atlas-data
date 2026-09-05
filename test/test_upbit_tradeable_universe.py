@@ -353,26 +353,41 @@ class BuildClassificationTests(unittest.TestCase):
 class ShippedRepoConfigExactReleaseBindingTests(unittest.TestCase):
     """P3-12-GOV-05: unlike BuildClassificationTests above, these
     deliberately run WITHOUT any exact-release-binding mock -- they assert
-    what the REAL shipped repo config actually does right now. The
-    committed v2 registry/taxonomy still say ``approval_status: RATIFIED``,
-    but this branch's ``config/upbit_exact_release_binding_contract.json``
-    allowlist is empty, so real PAPER_ELIGIBLE classification must NOT be
-    pretended to still work here pending a fresh CIO re-approval."""
+    what the REAL shipped repo config actually does now: the exact code
+    chain is effective only on and after its own ratification date, never
+    retroactively for the historical 2026-08-30 decision date."""
 
-    def test_shipped_v2_release_is_not_exact_release_bound_on_this_branch(self):
+    def test_shipped_release_is_exact_bound_only_after_code_approval(self):
         policy = UNI.load_policy()
         taxonomy = UNI.load_taxonomy()
         registry = UNI.load_identity_registry()
         self.assertEqual(taxonomy["approval_status"], "RATIFIED")
         self.assertEqual(registry["approval_status"], "RATIFIED")
         self.assertEqual(len(registry["mappings"]), 8)
-        # approval_status alone still reads RATIFIED, but no
-        # code_approval_evidence_ref exists on this document yet -- the
-        # code chain has nothing to resolve, so effective authority stays
-        # empty regardless.
+        self.assertEqual(
+            registry["code_approval_evidence_ref"],
+            "evidence/crypto/upbit/identity/approvals/2026-09-03/p3-12-runtime-exact-code-hash.json",
+        )
+        self.assertEqual(
+            taxonomy["code_approval_evidence_ref"],
+            registry["code_approval_evidence_ref"],
+        )
+        # The approval was ratified on 2026-09-02 UTC, so the historical
+        # 2026-08-30 classification remains fail-closed while current
+        # evaluation resolves only the already-ratified exact eight.
         self.assertEqual(UNI.effective_identity_mapping(registry, "2026-08-30"), {})
         self.assertFalse(UNI._identity_taxonomy_exact_bound_effective(
             taxonomy, "2026-08-30", date_field="effective_from", content_field="records",
+        ))
+        self.assertEqual(
+            UNI.effective_identity_mapping(registry, "2026-09-02"),
+            {
+                "KRW-BTC": "BTC", "KRW-ETH": "ETH", "KRW-LINK": "LINK", "KRW-SHIB": "SHIB",
+                "KRW-SOL": "SOL", "KRW-SUI": "SUI", "KRW-WLD": "WLD", "KRW-XRP": "XRP",
+            },
+        )
+        self.assertTrue(UNI._identity_taxonomy_exact_bound_effective(
+            taxonomy, "2026-09-02", date_field="effective_from", content_field="records",
         ))
         core = base_core(
             {"KRW-BTC": market_entry(best_bid="99900", best_ask="100000")},

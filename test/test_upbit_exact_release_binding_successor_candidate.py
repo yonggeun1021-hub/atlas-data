@@ -17,10 +17,13 @@ SPEC = importlib.util.spec_from_file_location(
 BUILDER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BUILDER)
 
-COMMITTED_PACKET_PATH = (
+HISTORICAL_PACKET_PATH = (
     ROOT / "data/observations/upbit_exact_release_binding_successor_candidate/2026-08-30"
     "/20260830T200000Z/packet.json"
 )
+PACKET_ROOT = ROOT / "data/observations/upbit_exact_release_binding_successor_candidate"
+COMMITTED_PACKET_PATHS = sorted(PACKET_ROOT.glob("*/*/packet.json"))
+COMMITTED_PACKET_PATH = COMMITTED_PACKET_PATHS[-1] if COMMITTED_PACKET_PATHS else PACKET_ROOT / "missing"
 
 
 class SuccessorCandidateBuilderTests(unittest.TestCase):
@@ -67,6 +70,18 @@ class SuccessorCandidateBuilderTests(unittest.TestCase):
 
 
 class CommittedSuccessorCandidatePacketTests(unittest.TestCase):
+    def test_historical_candidate_remains_append_only_audit_evidence(self):
+        self.assertTrue(HISTORICAL_PACKET_PATH.is_file())
+        historical = json.loads(HISTORICAL_PACKET_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(
+            historical["payload_sha256"],
+            BUILDER.payload_sha256(
+                {key: value for key, value in historical.items() if key != "payload_sha256"}
+            ),
+        )
+        self.assertFalse(historical["release_ready"])
+        self.assertTrue(all(value is False for value in historical["authority"].values()))
+
     @unittest.skipUnless(COMMITTED_PACKET_PATH.is_file(), "committed successor candidate packet not present")
     def test_committed_packet_is_exact_current_build(self):
         committed = json.loads(COMMITTED_PACKET_PATH.read_text(encoding="utf-8"))
