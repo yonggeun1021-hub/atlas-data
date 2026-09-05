@@ -1740,19 +1740,125 @@ def build_three_market_header(regime_outputs: dict[str, dict], slot: str, genera
 
 
 # ---------------------------------------------------------------------------
-# Rotation / Discovery.  Rotation remains honestly empty because no ratified
-# cross-market rotation policy exists.  Discovery, however, consumes the real
-# committed SEC D1 population and only the filing-content bindings whose
-# retained bytes independently pass P3-08 verification.  Recording an event
-# case is not ranking, promotion, Rule, action, or trading authority.
+# Rotation / Discovery.  Rotation stays honestly empty unless a caller hands
+# this build one explicit, already-ratified US rotation observation (see
+# _us_rotation_ledger below); no cross-market rotation policy is ratified
+# here.  Discovery consumes the real committed SEC D1 population and only the
+# filing-content bindings whose retained bytes independently pass P3-08
+# verification.  Recording an event case is not ranking, promotion, Rule,
+# action, or trading authority.
 # ---------------------------------------------------------------------------
 
 
-def build_rotation_discovery(
-    slot: str, generated_at: str, dynamic_report: dict | None = None
-) -> dict:
-    ledger = LEDGER.empty_ledger()
+# The one explicit, caller-supplied US rotation observation this build may be
+# handed. It is deliberately NOT discovered from disk: this module ratifies no
+# state policy, owns no P2-05 publication locator, and runs no automatic file
+# discovery for rotation state, so the ONLY way a real ledger reaches P8-05 is
+# a caller passing the exact original inputs -- the US rotation packet as its
+# producer emitted it, the external ratified state policy, and whatever
+# previous ledger that policy's history already contains. Absent, everything
+# below stays byte-for-byte what it has always been.
+US_ROTATION_LEDGER_SOURCE = "US_ROTATION_LEDGER"
+US_ROTATION_LEDGER_SOURCE_FIELDS = frozenset({
+    "rotation_packet", "state_policy", "previous_ledger",
+})
+
+
+class _RotationSourceOmitted:
+    """Type of the omitted-input sentinel below; never instantiated elsewhere."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return "US_ROTATION_LEDGER_OMITTED"
+
+
+# The ONLY value that means "no rotation source". ``None`` is deliberately NOT
+# that value: a caller who passes frozen_sources={"US_ROTATION_LEDGER": None},
+# or who passes null positionally, DID supply a rotation source and supplied
+# null for it. Null is not a rotation observation, so it fails closed like any
+# other unusable supplied input. Collapsing the two would let an explicitly
+# broken input render as the healthy legacy empty ledger, which is exactly the
+# fact this component must keep distinguishable. The sentinel is not
+# JSON-serializable, so it can never silently reach a packet either.
+US_ROTATION_LEDGER_OMITTED = _RotationSourceOmitted()
+
+
+def _us_rotation_ledger(source=US_ROTATION_LEDGER_OMITTED) -> dict:
+    """Return the Rotation state ledger the P8-05 read model is built from.
+
+    With no explicit source this is exactly what it has always been: the
+    canonical empty ledger, unchanged bytes, no rotation history claimed.
+
+    With one, the caller's ORIGINAL rotation packet, external ratified state
+    policy and optional previous ledger go straight into the UNCHANGED
+    rotation/rotation_state_ledger.py ``apply_rotation()`` -- the same
+    producer re-derivation, ratified-before-observation policy timing,
+    forward-only/gap, append-only chain and digest validation every other
+    ledger consumer gets. Nothing here maps a bucket transition to a state,
+    supplies a default policy, invents a previous ledger, or reorders records:
+    the state vocabulary applied is the caller's ratified policy's own.
+
+    A supplied input the ledger refuses fails this component closed. It is
+    never repaired and never silently replaced by the empty ledger, because
+    "the operator handed us an invalid or forged rotation observation" and
+    "no rotation was observed today" are different facts and must not render
+    as the same row. An explicitly supplied null is the first of those two
+    facts, not the second.
+    """
+    if source is US_ROTATION_LEDGER_OMITTED:
+        return LEDGER.empty_ledger()
+    if source is None:
+        fail(
+            "US_ROTATION_LEDGER_SOURCE_INVALID",
+            "an explicitly supplied null rotation source is not an absent one",
+        )
+    if not isinstance(source, dict) or set(source) != US_ROTATION_LEDGER_SOURCE_FIELDS:
+        fail(
+            "US_ROTATION_LEDGER_SOURCE_FIELDS_INVALID",
+            str(sorted(source)) if isinstance(source, dict) else type(source).__name__,
+        )
+    rotation_packet = source["rotation_packet"]
+    state_policy = source["state_policy"]
+    previous_ledger = source["previous_ledger"]
+    if not isinstance(rotation_packet, dict) or not isinstance(state_policy, dict):
+        fail(
+            "US_ROTATION_LEDGER_SOURCE_INVALID",
+            "rotation_packet and state_policy must both be objects",
+        )
+    if previous_ledger is not None and not isinstance(previous_ledger, dict):
+        fail(
+            "US_ROTATION_LEDGER_SOURCE_INVALID",
+            "previous_ledger must be an object or null",
+        )
+    # This wiring is scoped to the US daily rotation observation only. A
+    # KOREA/CRYPTO packet has its own owner and its own committed pointer;
+    # accepting one here would quietly widen this component's source scope.
+    # An already-recorded non-US history inside previous_ledger is untouched
+    # -- apply_rotation() appends, so that history is preserved, not replaced.
+    if rotation_packet.get("market") != "US" or state_policy.get("market") != "US":
+        fail(
+            "US_ROTATION_LEDGER_MARKET_INVALID",
+            f"packet={rotation_packet.get('market')} policy={state_policy.get('market')}",
+        )
     try:
+        return LEDGER.apply_rotation(
+            copy.deepcopy(rotation_packet),
+            copy.deepcopy(state_policy),
+            copy.deepcopy(previous_ledger),
+        )
+    except Exception as exc:  # noqa: BLE001
+        fail("US_ROTATION_LEDGER_INPUT_REJECTED", f"{type(exc).__name__}:{exc}")
+
+
+def build_rotation_discovery(
+    slot: str,
+    generated_at: str,
+    dynamic_report: dict | None = None,
+    us_rotation_source=US_ROTATION_LEDGER_OMITTED,
+) -> dict:
+    try:
+        ledger = _us_rotation_ledger(us_rotation_source)
         population = EVENT_POPULATION.build_population_inputs(
             repo_root=ROOT, decision_at=generated_at
         )
@@ -1789,6 +1895,15 @@ def build_rotation_discovery(
     source_dates = [population["source_as_of_date"]]
     if dart_observation_packet is not None:
         source_dates.append(dart_observation_packet["source_date"])
+    # A rotation observation is dated evidence like any other, so its own
+    # as_of_date has to be visible to the common temporal boundary
+    # (_enforce_temporal_boundary) rather than hidden behind Discovery's
+    # source date. Read back from the validated read model, never from the
+    # raw supplied input. Empty with no rotation source, so the default
+    # as_of_date is unchanged.
+    source_dates.extend(
+        row["as_of_date"] for row in packet["rotation"]["latest_changes"]
+    )
     return component_row(
         "ROTATION_DISCOVERY",
         "PENDING",
@@ -2969,6 +3084,20 @@ FROZEN_SOURCE_COMPONENTS = frozenset({
 # (evening only) is the same presence/absence-plus-real-observation-time
 # pattern as the six above, applied to
 # data/observations/krx_post_close/{decision_date}/.
+#
+# Optional caller-supplied replay inputs, kept deliberately separate from the
+# component snapshots above. They are frozen into packet["frozen_sources"]
+# and independently replayed by validate_packet() the same way, but they are
+# NOT component rows and nothing fetches them: each is absent unless a caller
+# explicitly passed it, so a packet built without them keeps its existing key
+# set and its existing bytes. Absence is key absence, never a null value: a
+# supplied null is a supplied input, is frozen as such, and fails its row
+# closed rather than resolving to the legacy default.
+# US_ROTATION_LEDGER holds the raw original
+# rotation packet / external state policy / previous ledger -- never the
+# derived ledger -- so revalidation re-runs the real apply_rotation() over the
+# originals instead of trusting a ledger that merely rehashes itself.
+OPTIONAL_FROZEN_INPUTS = frozenset({US_ROTATION_LEDGER_SOURCE})
 
 
 def build_packet(
@@ -2994,10 +3123,11 @@ def build_packet(
     if generated_at_dt.tzinfo is None:
         fail("GENERATED_AT_INVALID", "must include a timezone offset")
     frozen_sources = frozen_sources or {}
-    if not set(frozen_sources) <= FROZEN_SOURCE_COMPONENTS:
+    accepted_frozen_sources = FROZEN_SOURCE_COMPONENTS | OPTIONAL_FROZEN_INPUTS
+    if not set(frozen_sources) <= accepted_frozen_sources:
         fail(
             "FROZEN_SOURCES_INVALID",
-            str(set(frozen_sources) - FROZEN_SOURCE_COMPONENTS),
+            str(set(frozen_sources) - accepted_frozen_sources),
         )
 
     rows: dict[str, dict] = {}
@@ -3144,8 +3274,21 @@ def build_packet(
     rows["THREE_MARKET_REGIME_HEADER"] = _boundary(build_three_market_header(
         regime_outputs, slot, generated_at
     ))
+    # Explicit-only: there is no `if ... is None: fetch` fallback here, unlike
+    # every FROZEN_SOURCE_COMPONENTS snapshot above. Absent -- the key genuinely
+    # not in frozen_sources -- means the P8-05 rotation section keeps its
+    # existing empty-ledger semantics. Key-present-with-null is NOT absent: it
+    # is a supplied source whose value is unusable, so it is carried through as
+    # the supplied null (see _us_rotation_ledger) and fails the row closed. The
+    # sentinel default of .get() is what keeps those two cases apart; plain
+    # .get() would render an explicitly broken input as a healthy empty ledger.
+    us_rotation_source = frozen_sources.get(
+        US_ROTATION_LEDGER_SOURCE, US_ROTATION_LEDGER_OMITTED
+    )
     rows["ROTATION_DISCOVERY"] = _boundary(
-        build_rotation_discovery(slot, generated_at, dynamic_report)
+        build_rotation_discovery(
+            slot, generated_at, dynamic_report, us_rotation_source
+        )
     )
     rows["BUSINESS_ACCELERATION"] = _boundary(
         build_business_acceleration_status(generated_at)
@@ -3293,6 +3436,21 @@ def build_packet(
             **(
                 {"KRX_POST_CLOSE": krx_post_close_snapshot}
                 if krx_post_close_snapshot is not None
+                else {}
+            ),
+            # Only present when a caller actually supplied one -- including
+            # when what they supplied was null or otherwise unusable. The
+            # supplied bytes are preserved exactly as given so a fail-closed
+            # row replays deterministically from the same rejected input;
+            # dropping the key here would rewrite an explicitly broken build
+            # into an indistinguishable "nothing was supplied" one. Deep-copied
+            # so this packet's frozen replay input is genuinely frozen: a
+            # later mutation of the caller's own object cannot retroactively
+            # change what this packet was built from, and cannot invalidate
+            # its already-computed digest.
+            **(
+                {US_ROTATION_LEDGER_SOURCE: copy.deepcopy(us_rotation_source)}
+                if us_rotation_source is not US_ROTATION_LEDGER_OMITTED
                 else {}
             ),
         },
