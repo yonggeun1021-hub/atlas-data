@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import os
 import sys
@@ -65,7 +66,7 @@ NATURAL_CRON_KST = {
 EVENING_WEEKDAYS_ONLY = True
 
 WATCHDOG_ROOT = "data/briefing/handoff_watchdog"
-WATCHDOG_SCHEMA = "briefing_handoff_watchdog/1"
+WATCHDOG_SCHEMA = "briefing_handoff_watchdog/2"
 
 STATUSES = (
     "COMPLETE",
@@ -85,6 +86,82 @@ NO_AUTHORITY = {
     "dispatch_invoked": False,
     "notion_written": False,
     "natural_evidence_changed": False,
+}
+
+# Existing, already-authorized recovery routes.  This table does not grant the
+# watchdog permission to execute them.  It makes the next owner/action
+# machine-readable so a stalled round is handed off instead of ending as an
+# unactionable red check.  In particular, anything that requires a semantic
+# FACT/INFERENCE/UNKNOWN decision remains with the canonical external
+# validator; the watchdog never manufactures that decision.
+RECOVERY_ROUTES = {
+    "COMPLETE": {
+        "route": "NONE_COMPLETE",
+        "owner": "NONE",
+        "next_action": "NO_ACTION",
+        "safe_to_automate": False,
+        "requires_semantic_judgment": False,
+    },
+    "NATURAL_RECEIPT_MISSING": {
+        "route": "ORIGINAL_SCHEDULE_RUN_RECOVERY",
+        "owner": ".github/workflows/daily-briefing-recovery.yml",
+        "next_action": (
+            "CHECK_OR_RERUN_THE_EXISTING_SCHEDULE_EVENT_ONLY; NEVER_CREATE_A_"
+            "WORKFLOW_DISPATCH_SAMPLE"
+        ),
+        "safe_to_automate": True,
+        "requires_semantic_judgment": False,
+    },
+    "WAITING_VALIDATION": {
+        "route": "CANONICAL_EXTERNAL_SEMANTIC_VALIDATION",
+        "owner": "CODEX_HEARTBEAT_KRX_PAPER",
+        "next_action": (
+            "READ_THE_EXACT_SEALED_DRAFT_AND_MACHINE_RESULT; PUBLISH_ONLY_AN_"
+            "INDEPENDENT_PASS_PASS_WITH_CORRECTION_OR_HOLD_VERDICT"
+        ),
+        "safe_to_automate": False,
+        "requires_semantic_judgment": True,
+    },
+    "SOURCE_BRIDGE_MISSING": {
+        "route": "CANONICAL_SOURCE_BRIDGE_REVIEW",
+        "owner": "CODEX_HEARTBEAT_KRX_PAPER",
+        "next_action": (
+            "VERIFY_PRIMARY_SOURCES_AND_USE_THE_EXISTING_SOURCE_BRIDGE_OR_"
+            "MANUAL_RECOVERY_PATH; LABEL_ANY_RECOVERY_NON_NATURAL"
+        ),
+        "safe_to_automate": False,
+        "requires_semantic_judgment": True,
+    },
+    "ENVELOPE_MISSING": {
+        "route": "VALIDATED_PORTAL_ENVELOPE_PRODUCER",
+        "owner": ".github/scripts/validated_briefing_portal_producer.py",
+        "next_action": (
+            "BUILD_FROM_THE_ALREADY_APPROVED_VERDICT_AND_EXACT_SOURCE_REFS;_"
+            "DO_NOT_REINTERPRET_CLAIMS"
+        ),
+        "safe_to_automate": True,
+        "requires_semantic_judgment": False,
+    },
+    "PORTAL_HANDOFF_MISSING": {
+        "route": "VALIDATED_PORTAL_PROJECTION_DISPATCH",
+        "owner": ".github/workflows/dispatch-validated-portal-projection.yml",
+        "next_action": (
+            "DISPATCH_THE_EXISTING_IMMUTABLE_ENVELOPE_BY_EXACT_COMMIT_PATH_"
+            "AND_SHA256"
+        ),
+        "safe_to_automate": True,
+        "requires_semantic_judgment": False,
+    },
+    "FINAL_DRAIN_MISSING": {
+        "route": "FINALIZATION_DRAIN",
+        "owner": ".github/workflows/daily-briefing.yml",
+        "next_action": (
+            "REQUEST_ATLAS_FINALIZATION_DRAIN_FOR_THE_EXACT_DATE_AND_SLOT_"
+            "AFTER_THE_PORTAL_RECEIPT_EXISTS"
+        ),
+        "safe_to_automate": True,
+        "requires_semantic_judgment": False,
+    },
 }
 
 
@@ -297,6 +374,96 @@ def classify(natural: dict, semantic: dict, bridge: dict, envelope: dict,
     return "ENVELOPE_MISSING"
 
 
+def recovery_plan(status: str, slot: str, date: str, checks: dict) -> dict:
+    """Return a deterministic handoff to an existing recovery owner.
+
+    The key intentionally binds only the stalled state and exact evidence
+    locators, not the wall clock.  Repeated watchdog runs therefore hand the
+    same incident to downstream automation once instead of creating a new
+    pseudo-incident every few minutes.
+    """
+    if status not in RECOVERY_ROUTES:
+        raise WatchdogError(f"WATCHDOG_RECOVERY_STATUS_INVALID:{status}")
+    route = dict(RECOVERY_ROUTES[status])
+    identity = {
+        "briefing_id": f"{date}-{slot}",
+        "status": status,
+        "route": route["route"],
+        "evidence_paths": sorted(
+            str(value["path"])
+            for value in checks.values()
+            if isinstance(value, dict) and isinstance(value.get("path"), str)
+        ),
+    }
+    route.update({
+        "recovery_key": hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        "natural_sample_treatment": (
+            "PRESERVE_ORIGINAL_SCHEDULE_EVENT_ONLY"
+            if status == "NATURAL_RECEIPT_MISSING"
+            else "NO_NATURAL_SAMPLE_MUTATION"
+        ),
+        "natural_evidence_mutation_authorized": False,
+        "backfill_promotion_authorized": False,
+        "stage_authority": False,
+        "buy_authority": False,
+        "action_authority": False,
+        "order_authority": False,
+        "production_authority": False,
+        "trading_authority": False,
+    })
+    return route
+
+
+def presentation_state(repo_root: Path, slot: str, date: str, now: _dt.datetime,
+                       status: str, expected: bool, timeout_minutes: int,
+                       natural: dict, semantic: dict) -> dict:
+    """Keep recovery diagnosis stable; expose timing separately from missing bytes.
+
+    The existing slot observation deadline is retained for producer delay.
+    Semantic grace starts at the immutable seal, exactly as finalization does.
+    Neither timestamp is extended on a retry or on a watchdog poll.
+    """
+    deadline = slot_start_kst(date, slot) + _dt.timedelta(minutes=timeout_minutes)
+    source = "existing slot observation deadline (natural cron + configured grace); not semantic timeout"
+    stage = "PRODUCER" if not natural["exists"] else "SEAL"
+    reason = status if not natural["exists"] else "SEALED_DRAFT_MISSING"
+    draft_path = _latest_rev(repo_root / "data/briefing/finalization" / date / slot, "draft")
+    draft = _read_json(draft_path) if draft_path else None
+    if natural["exists"] and draft:
+        try:
+            sealed = _dt.datetime.fromisoformat(draft["sealed_at_utc"].replace("Z", "+00:00"))
+            if sealed.tzinfo is None or sealed > now:
+                raise ValueError("invalid seal time")
+            deadline = sealed + _dt.timedelta(minutes=timeout_minutes)
+            source = "draft.sealed_at_utc + config/atlas_semantic_validator.json:timeout_minutes"
+            stage, reason = "SEMANTIC_VALIDATION", status
+        except (KeyError, TypeError, ValueError):
+            stage, reason = "SEAL", "SEALED_DRAFT_TIME_INVALID"
+    if status not in {"NATURAL_RECEIPT_MISSING", "WAITING_VALIDATION"}:
+        stage, reason = status.removesuffix("_MISSING"), status
+    held = semantic.get("exists") and semantic.get("status_deliverable") is not True
+    if held:
+        stage = "SEMANTIC_VALIDATION"
+        reason = ";".join(str(x) for x in semantic.get("hold_reasons", [])) or "SEMANTIC_VERDICT_NOT_DELIVERABLE"
+    past = now >= deadline
+    if status == "COMPLETE":
+        display = "COMPLETE"
+    elif not expected or now < slot_start_kst(date, slot):
+        display = "WAITING_SLOT"
+        reason = "SLOT_NOT_SCHEDULED_TODAY" if not expected else "SLOT_NOT_DUE"
+    elif not past:
+        display = "WAITING_VALIDATION" if natural["exists"] else "WAITING_SLOT"
+    elif held or reason == "SEALED_DRAFT_TIME_INVALID":
+        display = "BLOCKED"
+    else:
+        display = "BLOCKED" if stage == "SEAL" else "DELAYED"
+    return {"display_status": display, "stage": stage, "reason": reason,
+            "deadline": deadline, "deadline_source": source, "past_grace": past,
+            "alert": expected and display in {"DELAYED", "BLOCKED"}}
+
+
 # ----------------------------------------------------------------- run/report
 
 def run_check(repo_root: Path, slot: str, date: str, *,
@@ -315,9 +482,10 @@ def run_check(repo_root: Path, slot: str, date: str, *,
     status = classify(natural, semantic, bridge, envelope, portal_receipt, drain)
     expected = is_slot_expected(date, slot)
     timeout_minutes = load_semantic_timeout_minutes(repo_root)
-    deadline = slot_start_kst(date, slot) + _dt.timedelta(minutes=timeout_minutes)
-    past_grace = now >= deadline
-    alert = bool(expected and past_grace and status != "COMPLETE")
+    timing = presentation_state(repo_root, slot, date, now, status, expected, timeout_minutes, natural, semantic)
+    deadline = timing["deadline"]
+    past_grace = timing["past_grace"]
+    alert = timing["alert"]
 
     notes = []
     if envelope.get("recovery_type") == "MANUAL_RECOVERY" and status != "COMPLETE":
@@ -337,6 +505,14 @@ def run_check(repo_root: Path, slot: str, date: str, *,
             "natural rebuild."
         )
 
+    checks = {
+        "natural_receipt": natural,
+        "semantic_verdict": semantic,
+        "source_bridge": bridge,
+        "validated_envelope": envelope,
+        "portal_final_receipt": portal_receipt,
+        "final_drain": drain,
+    }
     return {
         "schema_version": WATCHDOG_SCHEMA,
         "briefing_id": f"{date}-{slot}",
@@ -345,23 +521,17 @@ def run_check(repo_root: Path, slot: str, date: str, *,
         "checked_at_utc": now.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "slot_expected_today": expected,
         "grace_deadline_kst": deadline.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "grace_deadline_source": (
-            "config/atlas_semantic_validator.json:timeout_minutes applied to "
-            "the daily-briefing.yml natural cron fire time for this slot"
-        ),
+        "grace_deadline_source": timing["deadline_source"],
+        "display_status": timing["display_status"],
+        "stage": timing["stage"],
+        "reason": timing["reason"],
         "grace_timeout_minutes": timeout_minutes,
         "past_grace": past_grace,
         "status": status,
         "alert": alert,
         "notes": notes,
-        "checks": {
-            "natural_receipt": natural,
-            "semantic_verdict": semantic,
-            "source_bridge": bridge,
-            "validated_envelope": envelope,
-            "portal_final_receipt": portal_receipt,
-            "final_drain": drain,
-        },
+        "checks": checks,
+        "recovery": recovery_plan(status, slot, date, checks),
         "authority": dict(NO_AUTHORITY),
     }
 

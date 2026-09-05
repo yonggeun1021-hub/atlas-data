@@ -175,6 +175,61 @@ class SyntheticScenarios(unittest.TestCase):
         self.assertEqual(report["authority"], watchdog.NO_AUTHORITY)
         self.assertTrue(all(v is False for v in report["authority"].values()))
 
+    def test_every_status_has_a_bounded_existing_recovery_route(self):
+        expected = {
+            "NATURAL_RECEIPT_MISSING": "ORIGINAL_SCHEDULE_RUN_RECOVERY",
+            "WAITING_VALIDATION": "CANONICAL_EXTERNAL_SEMANTIC_VALIDATION",
+            "SOURCE_BRIDGE_MISSING": "CANONICAL_SOURCE_BRIDGE_REVIEW",
+            "ENVELOPE_MISSING": "VALIDATED_PORTAL_ENVELOPE_PRODUCER",
+            "PORTAL_HANDOFF_MISSING": "VALIDATED_PORTAL_PROJECTION_DISPATCH",
+            "FINAL_DRAIN_MISSING": "FINALIZATION_DRAIN",
+            "COMPLETE": "NONE_COMPLETE",
+        }
+        for status, route in expected.items():
+            with self.subTest(status=status):
+                plan = watchdog.recovery_plan(status, self.slot, self.date, {})
+                self.assertEqual(plan["route"], route)
+                self.assertRegex(plan["recovery_key"], r"^[0-9a-f]{64}$")
+                self.assertFalse(plan["natural_evidence_mutation_authorized"])
+                self.assertFalse(plan["backfill_promotion_authorized"])
+                for authority in ("stage", "buy", "action", "order", "production", "trading"):
+                    self.assertFalse(plan[f"{authority}_authority"])
+
+    def test_semantic_states_never_claim_safe_automatic_recovery(self):
+        for status in ("WAITING_VALIDATION", "SOURCE_BRIDGE_MISSING"):
+            with self.subTest(status=status):
+                plan = watchdog.recovery_plan(status, self.slot, self.date, {})
+                self.assertTrue(plan["requires_semantic_judgment"])
+                self.assertFalse(plan["safe_to_automate"])
+
+    def test_recovery_key_is_time_independent_and_changes_with_evidence_state(self):
+        self._natural()
+        first = watchdog.run_check(
+            self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 9, 0)
+        )
+        later = watchdog.run_check(
+            self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 10, 0)
+        )
+        self.assertEqual(
+            first["recovery"]["recovery_key"], later["recovery"]["recovery_key"]
+        )
+        self._semantic_pass()
+        changed = watchdog.run_check(
+            self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 10, 1)
+        )
+        self.assertNotEqual(
+            first["recovery"]["recovery_key"], changed["recovery"]["recovery_key"]
+        )
+
+    def test_workflow_surfaces_recovery_route_and_owner(self):
+        workflow = (ROOT / ".github/workflows/briefing-handoff-watchdog.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('json.load(sys.stdin)["recovery"]["route"]', workflow)
+        self.assertIn('json.load(sys.stdin)["recovery"]["owner"]', workflow)
+        self.assertIn("github.event_name != 'workflow_dispatch'", workflow)
+        self.assertIn("inputs.fail_on_alert == true", workflow)
+
     def test_alert_requires_past_grace(self):
         self._natural()  # WAITING_VALIDATION
         early = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 7, 6))
@@ -183,6 +238,34 @@ class SyntheticScenarios(unittest.TestCase):
         late = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 9, 0))
         self.assertTrue(late["past_grace"])
         self.assertTrue(late["alert"])
+
+    def test_late_seal_gets_existing_semantic_grace(self):
+        self._natural()
+        _write(self.tmp, f"data/briefing/finalization/{self.date}/{self.slot}/draft-rev-001.json",
+               {"sealed_at_utc": "2026-01-05T22:43:00Z"})
+        early = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 7, 50))
+        self.assertEqual(early["display_status"], "WAITING_VALIDATION")
+        self.assertFalse(early["alert"])
+        late = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 8, 3))
+        self.assertEqual(late["display_status"], "DELAYED")
+        self.assertEqual(late["stage"], "SEMANTIC_VALIDATION")
+        self.assertTrue(late["alert"])
+        self.assertEqual(early["grace_deadline_kst"], late["grace_deadline_kst"])
+
+    def test_missing_receipt_waits_before_existing_deadline_then_reports_producer_delay(self):
+        early = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 7, 20))
+        self.assertEqual(early["display_status"], "WAITING_SLOT")
+        self.assertFalse(early["alert"])
+        late = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 7, 30))
+        self.assertEqual(late["display_status"], "DELAYED")
+        self.assertEqual(late["stage"], "PRODUCER")
+        self.assertTrue(late["alert"])
+
+    def test_receipt_without_seal_is_blocked_after_deadline(self):
+        self._natural()
+        report = self._run()
+        self.assertEqual(report["display_status"], "BLOCKED")
+        self.assertEqual(report["reason"], "SEALED_DRAFT_MISSING")
 
     def test_evening_not_expected_on_weekend(self):
         # 2026-01-10 is a Saturday.
@@ -333,10 +416,14 @@ class RealPmE2E_20260903Evening(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         try:
             _materialize_at_commit("dc7d3d30", _prefixes(self.DATE, self.SLOT), tmp)
-            # Grace deadline is 18:30 KST + 20 min = 18:50 KST.
-            before = watchdog.run_check(tmp, self.SLOT, self.DATE, now=_kst(2026, 9, 3, 18, 45))
+            # The real finalization policy starts semantic grace at the seal.
+            draft_path = watchdog._latest_rev(tmp / "data/briefing/finalization" / self.DATE / self.SLOT, "draft")
+            draft = json.loads(draft_path.read_text())
+            sealed = _dt.datetime.fromisoformat(draft["sealed_at_utc"].replace("Z", "+00:00"))
+            deadline = sealed + _dt.timedelta(minutes=20)
+            before = watchdog.run_check(tmp, self.SLOT, self.DATE, now=deadline - _dt.timedelta(seconds=1))
             self.assertFalse(before["alert"])
-            after = watchdog.run_check(tmp, self.SLOT, self.DATE, now=_kst(2026, 9, 3, 18, 55))
+            after = watchdog.run_check(tmp, self.SLOT, self.DATE, now=deadline)
             self.assertTrue(after["alert"])
             self.assertEqual(after["status"], "WAITING_VALIDATION")
         finally:
