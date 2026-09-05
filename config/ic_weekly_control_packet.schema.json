@@ -1,0 +1,483 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "ic_weekly_control_packet/v1"
+    },
+    "ic_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision_date": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kpi_deltas": {
+      "type": "object",
+      "properties": {
+        "decision_readiness": {
+          "$ref": "#/$defs/kpi"
+        },
+        "natural_paper_readiness": {
+          "$ref": "#/$defs/kpi"
+        },
+        "profitability_evidence": {
+          "$ref": "#/$defs/kpi"
+        },
+        "limited_real_readiness": {
+          "$ref": "#/$defs/kpi"
+        }
+      },
+      "required": [
+        "decision_readiness",
+        "natural_paper_readiness",
+        "profitability_evidence",
+        "limited_real_readiness"
+      ],
+      "additionalProperties": false
+    },
+    "natural_probes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/probe"
+      }
+    },
+    "blocker_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "blocker": {
+            "type": "string",
+            "minLength": 1
+          },
+          "change": {
+            "type": "string",
+            "minLength": 1
+          },
+          "basis": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "blocker",
+          "change",
+          "basis"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "decision_routing": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/routing"
+      }
+    },
+    "system_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/action"
+      }
+    },
+    "next_assertions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/assertion"
+      }
+    },
+    "authority": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "const": false
+        },
+        "threshold": {
+          "const": false
+        },
+        "REAL": {
+          "const": false
+        },
+        "order": {
+          "const": false
+        },
+        "trading": {
+          "const": false
+        }
+      },
+      "required": [
+        "policy",
+        "threshold",
+        "REAL",
+        "order",
+        "trading"
+      ],
+      "additionalProperties": false
+    },
+    "real_state": {
+      "const": "CLOSED"
+    },
+    "results": {
+      "type": "object",
+      "properties": {
+        "investment_action_result": {
+          "type": "string",
+          "enum": [
+            "NO_ACTION_BUY0_EXIT0",
+            "NOT_OBSERVED_THIS_WEEK",
+            "ACTION_RECORDED"
+          ]
+        },
+        "system_learning_result": {
+          "type": "string",
+          "enum": [
+            "PROBE_RECORDED",
+            "NO_PROBE_EVIDENCE"
+          ]
+        },
+        "routing_result": {
+          "type": "string",
+          "enum": [
+            "ROUTING_EVIDENCE_MISSING",
+            "ROUTING_RECORDED"
+          ]
+        },
+        "profitability_evidence_result": {
+          "type": "string",
+          "enum": [
+            "NOT_COMPUTABLE",
+            "MEASURED"
+          ]
+        }
+      },
+      "required": [
+        "investment_action_result",
+        "system_learning_result",
+        "routing_result",
+        "profitability_evidence_result"
+      ],
+      "additionalProperties": false
+    },
+    "scheduler": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schedule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownership_evidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scheduler_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "owner",
+        "schedule",
+        "ownership_evidence",
+        "scheduler_id"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "source",
+        "basis"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "ic_id",
+    "decision_date",
+    "generated_at",
+    "kpi_deltas",
+    "natural_probes",
+    "blocker_changes",
+    "decision_routing",
+    "system_actions",
+    "next_assertions",
+    "authority",
+    "real_state",
+    "results",
+    "scheduler",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "kpi": {
+      "type": "object",
+      "properties": {
+        "delta": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "NOT_COMPUTABLE",
+            "MEASURED"
+          ]
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "delta",
+        "status",
+        "basis"
+      ],
+      "additionalProperties": false
+    },
+    "probe": {
+      "type": "object",
+      "properties": {
+        "probe_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_date": {
+          "type": "string",
+          "minLength": 1
+        },
+        "asset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_behavior": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actual_behavior": {
+          "type": "string",
+          "minLength": 1
+        },
+        "first_blocker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deepest_blocker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shadow_paper_result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "next_check": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observed_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_recorded_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectation_basis": {
+          "enum": [
+            "retrospective_canonical_audit",
+            "pre_event"
+          ]
+        }
+      },
+      "required": [
+        "probe_id",
+        "event_date",
+        "asset",
+        "expected_behavior",
+        "actual_behavior",
+        "first_blocker",
+        "deepest_blocker",
+        "shadow_paper_result",
+        "status",
+        "next_check",
+        "observed_at",
+        "expected_recorded_at",
+        "expectation_basis"
+      ],
+      "additionalProperties": false
+    },
+    "routing": {
+      "type": "object",
+      "properties": {
+        "surfaced_to_cio_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "acknowledged_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decided_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "canonicalized_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "surface_evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "routing_status": {
+          "enum": [
+            "created",
+            "surfaced_to_cio",
+            "acknowledged",
+            "decided",
+            "canonicalized"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "surfaced_to_cio_at",
+        "acknowledged_at",
+        "decided_at",
+        "canonicalized_at",
+        "surface_evidence",
+        "decision_id",
+        "created_at",
+        "routing_status",
+        "purpose"
+      ],
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner_lane": {
+          "type": "string",
+          "minLength": 1
+        },
+        "critical_path_relation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safe_auto_queue": {
+          "type": "boolean"
+        },
+        "authority_required": {
+          "type": "boolean"
+        },
+        "blocker": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action_id",
+        "purpose",
+        "owner_lane",
+        "critical_path_relation",
+        "kind",
+        "safe_auto_queue",
+        "authority_required",
+        "blocker"
+      ],
+      "additionalProperties": false
+    },
+    "assertion": {
+      "type": "object",
+      "properties": {
+        "event": {
+          "type": "string",
+          "minLength": 1
+        },
+        "due_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_state_transition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_basis": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "event",
+        "due_at",
+        "expected_state_transition",
+        "canonical_basis"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
