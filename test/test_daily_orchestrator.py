@@ -42,6 +42,68 @@ MORNING_GENERATED_AT = "2026-08-21T12:00:00Z"
 EVENING_GENERATED_AT = "2026-08-21T09:30:00Z"  # 18:30 KST
 
 
+def _natural_morning_generated_at(decision_date: str) -> str:
+    """The generated_at a real *scheduled* morning run produces for
+    ``decision_date``, derived from the workflow's own morning cron rather
+    than hardcoded.
+
+    MORNING_GENERATED_AT above, and every fixture pair the Capital Action
+    tests share, place generated_at on the same UTC calendar day as
+    decision_date. A real scheduled morning run does not: the morning cron
+    fires at 22:05Z, which is 07:05 the NEXT KST day, so the packet's own
+    UTC day is one day BEFORE the KST business date it is deciding for.
+    A component row labelled with generated_at[:10] instead of the KST
+    decision date therefore disagrees with its siblings under that geometry
+    while agreeing with them under a same-UTC-day one -- which is why this
+    family of date-basis defects survives a fixture that only ever decides
+    for its own UTC day. (test_weekend_morning_discloses_closed_session_
+    without_date_relabelling does build a previous-UTC-day morning packet,
+    but asserts weekend session disclosure, not component date agreement.)
+
+    The morning cron is identified structurally (the scheduled instant whose
+    KST date is the next day), not by matching a literal, so this stays
+    honest if the schedule is retimed; test_workflow_derives_slot_from_
+    exact_cron_not_wall_clock_hour separately pins the exact expressions.
+    """
+    schedule = WF.get("on", WF.get(True))["schedule"]
+    next_kst_day_crons = []
+    for item in schedule:
+        minute, hour = item["cron"].split()[:2]
+        fired = dt.datetime(
+            2026, 1, 1, int(hour), int(minute), tzinfo=dt.timezone.utc
+        )
+        if fired.astimezone(MODULE.KST).date() > fired.date():
+            next_kst_day_crons.append((int(hour), int(minute)))
+    if len(next_kst_day_crons) != 1:
+        raise AssertionError(
+            f"expected exactly one next-KST-day cron, got {next_kst_day_crons}"
+        )
+    hour, minute = next_kst_day_crons[0]
+    fires_on = dt.date.fromisoformat(decision_date) - dt.timedelta(days=1)
+    return f"{fires_on.isoformat()}T{hour:02d}:{minute:02d}:00Z"
+
+
+NATURAL_MORNING_GENERATED_AT = _natural_morning_generated_at(DECISION_DATE)
+CAPITAL_ACTION_COMPONENTS = (
+    "DEFENSIVE_ACTION_DECISION",
+    "STRATEGIC_CAPITAL_POSTURE",
+    "ACTION_RISK_PORTFOLIO_SUMMARY",
+)
+
+
+def _capital_action_section(packet: dict) -> dict:
+    """The Flow-First CAPITAL_ACTION section built from a real daily packet.
+
+    Goes through the production presentation path (the same
+    FLOW_FIRST_BRIEFING.build_packet render_markdown() calls), so the
+    section aggregator's fail-closed date behaviour is exercised for real
+    rather than re-implemented here.
+    """
+    flow_first = MODULE.FLOW_FIRST_BRIEFING.build_packet(packet)
+    sections = {row["section_id"]: row for row in flow_first["sections"]}
+    return sections["CAPITAL_ACTION"]
+
+
 def _us_breadth_ready_decision_date_and_generated_at():
     """(decision_date, generated_at) that resolve the US_BREADTH archive's
     real latest snapshot to READY right now, computed from disk rather
@@ -436,6 +498,121 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertTrue(
             all(row["action"] is None for row in summary["packet"]["actions"])
         )
+
+    def test_natural_morning_capital_action_rows_share_the_kst_business_date(self):
+        # A genuine 22:05Z scheduled morning run, whose UTC calendar day is
+        # the day BEFORE the KST decision date. Pinned first, so this test
+        # cannot silently decay into another same-UTC-day build if the
+        # schedule or the fixture date ever moves.
+        self.assertEqual(
+            NATURAL_MORNING_GENERATED_AT[:10],
+            (dt.date.fromisoformat(DECISION_DATE) - dt.timedelta(days=1)).isoformat(),
+        )
+        self.assertNotEqual(NATURAL_MORNING_GENERATED_AT[:10], DECISION_DATE)
+
+        packet = MODULE.build_packet(
+            "morning", DECISION_DATE, NATURAL_MORNING_GENERATED_AT
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+
+        # All three Capital Action components must build under this geometry
+        # -- if any of them degraded, the date agreement below would be
+        # vacuously true (a DEGRADED row carries as_of_date None).
+        for component_id in CAPITAL_ACTION_COMPONENTS:
+            row = by_id[component_id]
+            self.assertEqual(row["status"], "PENDING", component_id)
+            self.assertTrue(row["validated"], component_id)
+            self.assertEqual(row["as_of_date"], DECISION_DATE, component_id)
+
+        # The summary row's label is the KST business date its own already
+        # validated packet reports for, not the packet's UTC invocation day.
+        summary = by_id["ACTION_RISK_PORTFOLIO_SUMMARY"]
+        self.assertEqual(summary["packet"]["decision_date"], DECISION_DATE)
+        self.assertNotEqual(
+            summary["as_of_date"], summary["generated_at"][:10]
+        )
+
+        section = _capital_action_section(packet)
+        self.assertEqual(
+            [row["component_id"] for row in section["source_components"]],
+            list(CAPITAL_ACTION_COMPONENTS),
+        )
+        # One agreed date means the aggregator has nothing to fail closed
+        # on, so the section reaches its honest not-yet-ready state rather
+        # than the DATA_BLOCKED / SOURCE_AS_OF_DATE_MISMATCH escalation a
+        # divergent row would force (proved separately below).
+        self.assertEqual(section["status"], "PENDING")
+        self.assertEqual(section["as_of_date"], DECISION_DATE)
+        self.assertEqual(section["unknown_reason"], "SOURCE_COMPONENT_NOT_READY")
+
+        # Agreeing on a date grants nothing. PENDING here is still an
+        # honest "not ready", never a promotion.
+        self.assertFalse(section["decision_eligible"])
+        self.assertFalse(section["action_eligible"])
+        self.assertFalse(section["order_eligible"])
+        self.assertEqual(
+            summary["packet"]["status"],
+            "ACTION_RISK_PORTFOLIO_PRESENTED_NO_ACTION_AUTHORITY",
+        )
+        self.assertTrue(
+            all(row["action"] is None for row in summary["packet"]["actions"])
+        )
+        self.assertEqual(
+            by_id["DEFENSIVE_ACTION_DECISION"]["packet"]["status"],
+            "DEFENSIVE_ACTION_READINESS_BLOCKED",
+        )
+        self.assertEqual(
+            by_id["STRATEGIC_CAPITAL_POSTURE"]["packet"]["status"],
+            "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED",
+        )
+
+    def test_evening_summary_row_date_is_unchanged_by_the_kst_basis(self):
+        # The evening cron fires at 09:30Z = 18:30 the SAME KST day, so the
+        # UTC calendar day and the KST business date coincide and the two
+        # candidate bases are indistinguishable. Pinning that here is what
+        # makes this a preservation proof rather than a restatement of the
+        # morning test: for this input the row keeps exactly the value the
+        # generated_at[:10] basis produced.
+        self.assertEqual(EVENING_GENERATED_AT[:10], DECISION_DATE)
+
+        packet = MODULE.build_packet(
+            "evening", DECISION_DATE, EVENING_GENERATED_AT
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        summary = by_id["ACTION_RISK_PORTFOLIO_SUMMARY"]
+        self.assertEqual(summary["status"], "PENDING")
+        self.assertEqual(summary["as_of_date"], EVENING_GENERATED_AT[:10])
+        self.assertEqual(summary["as_of_date"], DECISION_DATE)
+
+        section = _capital_action_section(packet)
+        self.assertEqual(section["status"], "PENDING")
+        self.assertEqual(section["as_of_date"], DECISION_DATE)
+        self.assertEqual(section["unknown_reason"], "SOURCE_COMPONENT_NOT_READY")
+
+    def test_a_genuinely_mismatched_capital_action_date_is_still_blocked(self):
+        # Labelling the summary row consistently must not be mistaken for
+        # relaxing the aggregator. Re-introduce exactly the divergence the
+        # generated_at[:10] basis produced -- one component reporting for a
+        # different business date than its siblings -- and the unchanged
+        # fail-closed guard must still refuse to present the section.
+        packet = MODULE.build_packet(
+            "morning", DECISION_DATE, NATURAL_MORNING_GENERATED_AT
+        )
+        tampered = copy.deepcopy(packet)
+        for row in tampered["components"]:
+            if row["component_id"] == "ACTION_RISK_PORTFOLIO_SUMMARY":
+                row["as_of_date"] = NATURAL_MORNING_GENERATED_AT[:10]
+        unsigned = copy.deepcopy(tampered)
+        unsigned.pop("packet_sha256")
+        tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+
+        section = _capital_action_section(tampered)
+        self.assertEqual(section["status"], "DATA_BLOCKED")
+        self.assertEqual(section["unknown_reason"], "SOURCE_AS_OF_DATE_MISMATCH")
+        self.assertIsNone(section["as_of_date"])
+        self.assertFalse(section["decision_eligible"])
+        self.assertFalse(section["action_eligible"])
+        self.assertFalse(section["order_eligible"])
 
     def test_p1_regime_slot_carries_exact_runtime_blockers_not_a_placeholder(self):
         packet = MODULE.build_packet(
