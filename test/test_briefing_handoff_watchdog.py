@@ -239,6 +239,34 @@ class SyntheticScenarios(unittest.TestCase):
         self.assertTrue(late["past_grace"])
         self.assertTrue(late["alert"])
 
+    def test_late_seal_gets_existing_semantic_grace(self):
+        self._natural()
+        _write(self.tmp, f"data/briefing/finalization/{self.date}/{self.slot}/draft-rev-001.json",
+               {"sealed_at_utc": "2026-01-05T22:43:00Z"})
+        early = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 7, 50))
+        self.assertEqual(early["display_status"], "WAITING_VALIDATION")
+        self.assertFalse(early["alert"])
+        late = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 8, 3))
+        self.assertEqual(late["display_status"], "DELAYED")
+        self.assertEqual(late["stage"], "SEMANTIC_VALIDATION")
+        self.assertTrue(late["alert"])
+        self.assertEqual(early["grace_deadline_kst"], late["grace_deadline_kst"])
+
+    def test_missing_receipt_waits_before_existing_deadline_then_reports_producer_delay(self):
+        early = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 7, 20))
+        self.assertEqual(early["display_status"], "WAITING_SLOT")
+        self.assertFalse(early["alert"])
+        late = watchdog.run_check(self.tmp, self.slot, self.date, now=_kst(2026, 1, 6, 7, 30))
+        self.assertEqual(late["display_status"], "DELAYED")
+        self.assertEqual(late["stage"], "PRODUCER")
+        self.assertTrue(late["alert"])
+
+    def test_receipt_without_seal_is_blocked_after_deadline(self):
+        self._natural()
+        report = self._run()
+        self.assertEqual(report["display_status"], "BLOCKED")
+        self.assertEqual(report["reason"], "SEALED_DRAFT_MISSING")
+
     def test_evening_not_expected_on_weekend(self):
         # 2026-01-10 is a Saturday.
         report = watchdog.run_check(self.tmp, "evening", "2026-01-10", now=_kst(2026, 1, 10, 20, 0))
@@ -388,10 +416,14 @@ class RealPmE2E_20260903Evening(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         try:
             _materialize_at_commit("dc7d3d30", _prefixes(self.DATE, self.SLOT), tmp)
-            # Grace deadline is 18:30 KST + 20 min = 18:50 KST.
-            before = watchdog.run_check(tmp, self.SLOT, self.DATE, now=_kst(2026, 9, 3, 18, 45))
+            # The real finalization policy starts semantic grace at the seal.
+            draft_path = watchdog._latest_rev(tmp / "data/briefing/finalization" / self.DATE / self.SLOT, "draft")
+            draft = json.loads(draft_path.read_text())
+            sealed = _dt.datetime.fromisoformat(draft["sealed_at_utc"].replace("Z", "+00:00"))
+            deadline = sealed + _dt.timedelta(minutes=20)
+            before = watchdog.run_check(tmp, self.SLOT, self.DATE, now=deadline - _dt.timedelta(seconds=1))
             self.assertFalse(before["alert"])
-            after = watchdog.run_check(tmp, self.SLOT, self.DATE, now=_kst(2026, 9, 3, 18, 55))
+            after = watchdog.run_check(tmp, self.SLOT, self.DATE, now=deadline)
             self.assertTrue(after["alert"])
             self.assertEqual(after["status"], "WAITING_VALIDATION")
         finally:

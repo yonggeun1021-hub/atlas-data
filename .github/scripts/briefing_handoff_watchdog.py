@@ -416,6 +416,54 @@ def recovery_plan(status: str, slot: str, date: str, checks: dict) -> dict:
     return route
 
 
+def presentation_state(repo_root: Path, slot: str, date: str, now: _dt.datetime,
+                       status: str, expected: bool, timeout_minutes: int,
+                       natural: dict, semantic: dict) -> dict:
+    """Keep recovery diagnosis stable; expose timing separately from missing bytes.
+
+    The existing slot observation deadline is retained for producer delay.
+    Semantic grace starts at the immutable seal, exactly as finalization does.
+    Neither timestamp is extended on a retry or on a watchdog poll.
+    """
+    deadline = slot_start_kst(date, slot) + _dt.timedelta(minutes=timeout_minutes)
+    source = "existing slot observation deadline (natural cron + configured grace); not semantic timeout"
+    stage = "PRODUCER" if not natural["exists"] else "SEAL"
+    reason = status if not natural["exists"] else "SEALED_DRAFT_MISSING"
+    draft_path = _latest_rev(repo_root / "data/briefing/finalization" / date / slot, "draft")
+    draft = _read_json(draft_path) if draft_path else None
+    if natural["exists"] and draft:
+        try:
+            sealed = _dt.datetime.fromisoformat(draft["sealed_at_utc"].replace("Z", "+00:00"))
+            if sealed.tzinfo is None or sealed > now:
+                raise ValueError("invalid seal time")
+            deadline = sealed + _dt.timedelta(minutes=timeout_minutes)
+            source = "draft.sealed_at_utc + config/atlas_semantic_validator.json:timeout_minutes"
+            stage, reason = "SEMANTIC_VALIDATION", status
+        except (KeyError, TypeError, ValueError):
+            stage, reason = "SEAL", "SEALED_DRAFT_TIME_INVALID"
+    if status not in {"NATURAL_RECEIPT_MISSING", "WAITING_VALIDATION"}:
+        stage, reason = status.removesuffix("_MISSING"), status
+    held = semantic.get("exists") and semantic.get("status_deliverable") is not True
+    if held:
+        stage = "SEMANTIC_VALIDATION"
+        reason = ";".join(str(x) for x in semantic.get("hold_reasons", [])) or "SEMANTIC_VERDICT_NOT_DELIVERABLE"
+    past = now >= deadline
+    if status == "COMPLETE":
+        display = "COMPLETE"
+    elif not expected or now < slot_start_kst(date, slot):
+        display = "WAITING_SLOT"
+        reason = "SLOT_NOT_SCHEDULED_TODAY" if not expected else "SLOT_NOT_DUE"
+    elif not past:
+        display = "WAITING_VALIDATION" if natural["exists"] else "WAITING_SLOT"
+    elif held or reason == "SEALED_DRAFT_TIME_INVALID":
+        display = "BLOCKED"
+    else:
+        display = "BLOCKED" if stage == "SEAL" else "DELAYED"
+    return {"display_status": display, "stage": stage, "reason": reason,
+            "deadline": deadline, "deadline_source": source, "past_grace": past,
+            "alert": expected and display in {"DELAYED", "BLOCKED"}}
+
+
 # ----------------------------------------------------------------- run/report
 
 def run_check(repo_root: Path, slot: str, date: str, *,
@@ -434,9 +482,10 @@ def run_check(repo_root: Path, slot: str, date: str, *,
     status = classify(natural, semantic, bridge, envelope, portal_receipt, drain)
     expected = is_slot_expected(date, slot)
     timeout_minutes = load_semantic_timeout_minutes(repo_root)
-    deadline = slot_start_kst(date, slot) + _dt.timedelta(minutes=timeout_minutes)
-    past_grace = now >= deadline
-    alert = bool(expected and past_grace and status != "COMPLETE")
+    timing = presentation_state(repo_root, slot, date, now, status, expected, timeout_minutes, natural, semantic)
+    deadline = timing["deadline"]
+    past_grace = timing["past_grace"]
+    alert = timing["alert"]
 
     notes = []
     if envelope.get("recovery_type") == "MANUAL_RECOVERY" and status != "COMPLETE":
@@ -472,10 +521,10 @@ def run_check(repo_root: Path, slot: str, date: str, *,
         "checked_at_utc": now.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "slot_expected_today": expected,
         "grace_deadline_kst": deadline.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "grace_deadline_source": (
-            "config/atlas_semantic_validator.json:timeout_minutes applied to "
-            "the daily-briefing.yml natural cron fire time for this slot"
-        ),
+        "grace_deadline_source": timing["deadline_source"],
+        "display_status": timing["display_status"],
+        "stage": timing["stage"],
+        "reason": timing["reason"],
         "grace_timeout_minutes": timeout_minutes,
         "past_grace": past_grace,
         "status": status,

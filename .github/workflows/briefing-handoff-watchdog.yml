@@ -9,17 +9,17 @@ name: AM/PM Briefing Handoff Watchdog
 # data/briefing/handoff_watchdog/. The existing external recovery heartbeat
 # consumes the route; this workflow does not acquire semantic authority.
 #
-# Independent cron, timed to fire just after each slot's own natural-cron
-# time (daily-briefing.yml `on.schedule`) plus the existing 20-minute
-# semantic-validation SLA (config/atlas_semantic_validator.json
-# timeout_minutes) -- not a new SLA, just the first moment that existing one
-# can already be judged missed. Both crons run the same job, which checks
-# both slots every time; the one not yet due simply reports
-# slot_expected_today/past_grace=false and never alerts.
+# Independent cron observes producer progress after the existing slot grace.
+# A missing receipt here means producer delay, not a semantic-validation
+# timeout. The latter is measured from draft.sealed_at_utc as finalization does.
+# Both crons check both slots; a slot not due/scheduled never alerts.
 #
 #   morning natural slot 07:05 KST + 20 min = 07:25 KST -> cron "25 22 * * *"
 #   evening natural slot 18:30 KST + 20 min = 18:50 KST -> cron "50 9 * * 1-5"
 #
+# Semantic grace begins at the immutable draft seal, not cron time.
+# Before sealing, cron + configured grace remains the existing producer-delay
+# observation boundary. It does not assert a missed semantic timeout.
 # Grace deadlines used for the actual alert decision are still computed
 # live inside the script from the same config -- these cron times only
 # decide when the check *runs*, not what counts as "on time".
@@ -101,7 +101,7 @@ jobs:
               ANY_ALERT=true
               continue
             fi
-            STATUS=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+            STATUS=$(echo "$OUTPUT" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r["display_status"] + ":" + r["stage"] + ":" + r["reason"])')
             EXPECTED=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["slot_expected_today"])')
             PAST_GRACE=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["past_grace"])')
             ALERT=$(echo "$OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["alert"])')
