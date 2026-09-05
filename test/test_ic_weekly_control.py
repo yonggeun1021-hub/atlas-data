@@ -109,6 +109,14 @@ class ControlTests(unittest.TestCase):
                 self.assertIsNone(r['acknowledged_at'])
                 self.assertTrue((root/r['surface_evidence']).exists())
                 self.assertEqual(s['user_actions'][key]['historical_assessment'],'ROUTING_EVIDENCE_MISSING')
+    def test_routing_progress_from_external_packet(self):
+        state=hook.consume(self.p,{},self.at)
+        p=copy.deepcopy(self.p);p['ic_id']='IC6-routing-receipt';p['generated_at']=self.at
+        for row in p['decision_routing']:
+            row.update(surfaced_to_cio_at=self.at,acknowledged_at=self.at,decided_at=self.at,canonicalized_at=self.at,surface_evidence='external-receipt-id',routing_status='canonicalized')
+        state=hook.consume(p,state,self.at)
+        self.assertEqual(state['user_actions'],{})
+        self.assertTrue(all(r['assessment']=='CANONICALIZED' for r in state['routing'].values()))
     def test_changed_action_identity_rejected(self):
         s=hook.consume(self.p,{},self.at);self.p['system_actions'][0]['kind']='order'
         with self.assertRaises(ValueError):hook.consume(self.p,s,self.at)

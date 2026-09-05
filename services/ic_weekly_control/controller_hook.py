@@ -52,8 +52,16 @@ def consume(packet, state, at):
         # Retain actual receipts; never turn today's publication into historical delivery.
         state['routing'].setdefault(row['decision_id'],deepcopy(row))
         r=state['routing'][row['decision_id']]
+        for key in ('created_at','surfaced_to_cio_at','acknowledged_at','decided_at','canonicalized_at','surface_evidence'):
+            if row[key] is not None:
+                if r[key] is not None and r[key]!=row[key]: raise ValueError('Routing receipt rewrite forbidden')
+                r[key]=row[key]
+        stages=('created','surfaced_to_cio','acknowledged','decided','canonicalized')
+        r['routing_status']=stages[sum(r[k+'_at'] is not None for k in stages[1:])]
         r['assessment']=routing_result(r)
-        if not r['canonicalized_at']:
+        if r['canonicalized_at']:
+            state['user_actions'].pop(row['decision_id'],None)
+        else:
             state['user_actions'].setdefault(row['decision_id'],{'purpose':row['purpose'],'published_at':at,'channel':'atlas-status User Action','historical_assessment':routing_result(row)})
     state['last_consumed_at']=at
     return state
@@ -127,7 +135,9 @@ def tick(base, at, seed=None):
             state=consume(p,state,at)
             write(root/'packets'/f"{p['ic_id']}.json",p)
         write(root/'state.json',state)
-        write(root/'projection.json',projection(packets[-1] if packets else source))
+        persisted=[read(p,{}) for p in (root/'packets').glob('*.json')]
+        latest=max(persisted,key=lambda p:instant(p['generated_at'])) if persisted else source
+        write(root/'projection.json',projection(latest))
         write(root/'scheduler.json',source['scheduler'])
         return {'status':'OK','queued':[k for k,v in state.get('actions',{}).items() if v['status']=='QUEUED']}
 
