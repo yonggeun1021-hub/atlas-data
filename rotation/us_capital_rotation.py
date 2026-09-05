@@ -24,6 +24,15 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from rotation import theme_taxonomy as TT
+except ModuleNotFoundError:  # direct ``python rotation/us_capital_rotation.py`` CLI
+    import sys
+
+    sys.path.insert(0, str(ROOT))
+    from rotation import theme_taxonomy as TT
+
 CONTRACT_PATH = ROOT / "config" / "us_capital_rotation_contract.json"
 LEADERSHIP_SCRIPT = ROOT / ".github" / "scripts" / "us_leadership.py"
 INPUT_SCHEMA_VERSION = "us_capital_rotation_input/1"
@@ -32,6 +41,47 @@ OUTPUT_SCHEMA_VERSION = "us_capital_rotation_packet/2"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 ASSET_RE = re.compile(r"^[A-Z0-9._-]{1,20}$")
+
+# The historical opaque binding (contract["taxonomy_contract_version"]) plus the
+# source and derived fields a real ``theme_taxonomy/2`` consumption derives for
+# itself.  The derived fields are never accepted from the caller at build time:
+# build_packet() runs the exact supplied graph source bytes through the real
+# P2-01 producer and writes back what that producer actually returned.
+#
+# ``upstream_taxonomy_policy_sha256`` is US-specific and unrelated to the P2-01
+# graph: it is the effective-dated taxonomy *policy* hash each us_leadership/v1
+# packet declares for itself, and it keeps binding the two Leadership
+# observations exactly as before.
+TAXONOMY_BINDING_FIELDS = {
+    "taxonomy_contract_version", "taxonomy_id", "taxonomy_decision_id",
+    "taxonomy_decision_sha256", "taxonomy_packet_sha256",
+    "upstream_taxonomy_policy_sha256",
+}
+TAXONOMY_V2_DERIVED_FIELDS = {
+    "taxonomy_source_json", "taxonomy_source_sha256", "taxonomy_graph_status",
+    "taxonomy_authority_status", "theme_membership_authorized",
+}
+
+# The exact three ``graph_status`` verdicts the P2-01 producer emits.
+# ``DRAFT_OR_NOT_EFFECTIVE_GRAPH`` is the producer's own name for a graph whose
+# approval is not a ratified, currently-effective one on the decision date --
+# an explicitly UNRATIFIED approval, a ratified approval that has not started
+# yet, and a ratified approval that has already expired all land here.  Such a
+# document is not a point-in-time taxonomy fact at all, so it can never carry
+# US rotation ranking (see _taxonomy_source_effective).  The remaining two are
+# real effective-dated documents; the difference between them is only whether
+# the separate approval-authority registry authorizes membership activation,
+# which US rotation has never claimed and still does not claim.
+TAXONOMY_GRAPH_STATUS_AUTHORIZED = "AUTHORIZED_EFFECTIVE_GRAPH"
+TAXONOMY_GRAPH_STATUS_CLAIM_NOT_AUTHORIZED = (
+    "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED"
+)
+TAXONOMY_GRAPH_STATUS_NOT_EFFECTIVE = "DRAFT_OR_NOT_EFFECTIVE_GRAPH"
+TAXONOMY_GRAPH_STATUSES = frozenset({
+    TAXONOMY_GRAPH_STATUS_AUTHORIZED,
+    TAXONOMY_GRAPH_STATUS_CLAIM_NOT_AUTHORIZED,
+    TAXONOMY_GRAPH_STATUS_NOT_EFFECTIVE,
+})
 
 
 class USCapitalRotationError(ValueError):
@@ -194,18 +244,47 @@ def _render(value: Decimal, places: int) -> str:
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
-def _validate_binding(value: dict, contract: dict) -> dict:
-    fields = {
-        "taxonomy_contract_version", "taxonomy_id", "taxonomy_decision_id",
-        "taxonomy_decision_sha256", "taxonomy_packet_sha256",
-        "upstream_taxonomy_policy_sha256",
-    }
-    if not isinstance(value, dict) or set(value) != fields:
+def taxonomy_producer_contract_version() -> str:
+    """The exact ``contract_version`` of the real P2-01 Theme taxonomy producer.
+
+    Read from that producer's own committed contract instead of being
+    duplicated as a literal here, so this consumer cannot drift into accepting
+    a taxonomy contract version the producer no longer emits.
+    """
+    try:
+        return TT.load_contract()["contract_version"]
+    except TT.ThemeTaxonomyError as exc:
+        raise USCapitalRotationError(
+            f"TAXONOMY_PRODUCER_CONTRACT_UNAVAILABLE:{exc}"
+        ) from exc
+
+
+def _validate_binding(value: dict, contract: dict, *, derived: bool) -> dict:
+    """Validate the taxonomy binding for either supported binding version.
+
+    ``contract["taxonomy_contract_version"]`` (``theme_taxonomy/1``) is the
+    unchanged legacy binding: four opaque caller-supplied taxonomy identity
+    strings this module can only carry, never resolve, alongside the US-native
+    upstream taxonomy-policy hash it has always re-checked against both
+    Leadership observations.  The producer's own current version
+    (``theme_taxonomy/2``) additionally requires the exact graph source bytes
+    at build time, and the persisted packet then carries the source and derived
+    fields build_packet() derived from the real producer.
+    """
+    if not isinstance(value, dict):
         raise USCapitalRotationError("TAXONOMY_BINDING_FIELDS_MISMATCH")
-    if value.get("taxonomy_contract_version") != contract["taxonomy_contract_version"]:
+    version = value.get("taxonomy_contract_version")
+    legacy_version = contract["taxonomy_contract_version"]
+    producer_version = taxonomy_producer_contract_version()
+    if version not in (legacy_version, producer_version):
         raise USCapitalRotationError("TAXONOMY_CONTRACT_VERSION_MISMATCH")
-    return {
-        "taxonomy_contract_version": value["taxonomy_contract_version"],
+    fields = set(TAXONOMY_BINDING_FIELDS)
+    if derived and version == producer_version:
+        fields |= TAXONOMY_V2_DERIVED_FIELDS
+    if set(value) != fields:
+        raise USCapitalRotationError("TAXONOMY_BINDING_FIELDS_MISMATCH")
+    binding = {
+        "taxonomy_contract_version": version,
         "taxonomy_id": _token(value.get("taxonomy_id"), "TAXONOMY_ID_INVALID"),
         "taxonomy_decision_id": _token(
             value.get("taxonomy_decision_id"), "TAXONOMY_DECISION_ID_INVALID"
@@ -221,6 +300,208 @@ def _validate_binding(value: dict, contract: dict) -> dict:
             "UPSTREAM_TAXONOMY_POLICY_SHA_INVALID",
         ),
     }
+    if derived and version == producer_version:
+        membership_authorized = value.get("theme_membership_authorized")
+        if membership_authorized is not True and membership_authorized is not False:
+            raise USCapitalRotationError("TAXONOMY_MEMBERSHIP_AUTHORITY_INVALID")
+        if not isinstance(value.get("taxonomy_source_json"), str):
+            raise USCapitalRotationError("TAXONOMY_SOURCE_JSON_INVALID")
+        binding.update({
+            "taxonomy_source_json": value["taxonomy_source_json"],
+            "taxonomy_source_sha256": _sha(
+                value.get("taxonomy_source_sha256"), "TAXONOMY_SOURCE_SHA_INVALID"
+            ),
+            "taxonomy_graph_status": _token(
+                value.get("taxonomy_graph_status"), "TAXONOMY_GRAPH_STATUS_INVALID"
+            ),
+            "taxonomy_authority_status": _token(
+                value.get("taxonomy_authority_status"),
+                "TAXONOMY_AUTHORITY_STATUS_INVALID",
+            ),
+            "theme_membership_authorized": membership_authorized,
+        })
+    return binding
+
+
+def _consume_taxonomy(
+    binding: dict,
+    source_bytes,
+    as_of_date: dt.date,
+    registry_path,
+    trusted_commit: str | None,
+) -> tuple[dict, set[str] | None]:
+    """Actually consume a real ``theme_taxonomy/2`` graph, or stay legacy.
+
+    Nothing the caller declares about the taxonomy is trusted.  The exact
+    supplied source bytes are re-run through the existing P2-01 producer
+    (``theme_taxonomy.build_packet``), which performs its own structural
+    validation and its own independent, git-provenance-bound authority
+    resolution (``theme_taxonomy_authority.resolve_graph_authority``).  The
+    caller's declared taxonomy identity and packet digest must equal what that
+    producer actually derived, so a ``theme_taxonomy/1`` binding cannot be
+    relabelled ``theme_taxonomy/2`` by editing four strings.
+
+    The producer's authorization verdict is recorded exactly as returned --
+    with the repository's empty approval-authority registry that verdict is
+    "not authorized", and this consumer never upgrades or fabricates it.  It
+    never becomes positive rotation authority either: what US rotation ranks,
+    the single common benchmark, the TOP/BOTTOM counts and the observation gap
+    are still granted only by the externally supplied rotation_policy.  The one
+    thing the verdict does do is subtract -- a source the producer reports as
+    DRAFT_OR_NOT_EFFECTIVE_GRAPH withholds ranking entirely, however ratified
+    the rotation policy is (see _taxonomy_source_effective).
+
+    Returns the derived binding fields and, for a real consumption, the set of
+    Theme node ids that graph reports as active on this decision date.
+    """
+    version = binding["taxonomy_contract_version"]
+    if version != taxonomy_producer_contract_version():
+        if source_bytes is not None:
+            raise USCapitalRotationError(
+                "TAXONOMY_SOURCE_NOT_ALLOWED_FOR_LEGACY_BINDING"
+            )
+        return {}, None
+    if source_bytes is None:
+        raise USCapitalRotationError("TAXONOMY_SOURCE_REQUIRED_FOR_V2_BINDING")
+    if not isinstance(source_bytes, (bytes, bytearray)):
+        raise USCapitalRotationError("TAXONOMY_SOURCE_BYTES_INVALID")
+    source_bytes = bytes(source_bytes)
+    try:
+        graph = json.loads(source_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise USCapitalRotationError(f"TAXONOMY_SOURCE_JSON_INVALID:{exc}") from exc
+    try:
+        packet = TT.build_packet(
+            graph,
+            authority_registry_path=(
+                TT.TTA.REGISTRY_PATH if registry_path is None else Path(registry_path)
+            ),
+            trusted_commit=trusted_commit,
+        )
+    except TT.ThemeTaxonomyError as exc:
+        raise USCapitalRotationError(
+            f"TAXONOMY_SOURCE_REJECTED_BY_PRODUCER:{exc}"
+        ) from exc
+    if (
+        packet.get("schema_version") != TT.OUTPUT_SCHEMA_VERSION
+        or packet.get("contract_version") != version
+    ):
+        raise USCapitalRotationError("TAXONOMY_PRODUCER_IDENTITY_MISMATCH")
+    # The graph must have been evaluated on this rotation's own decision date;
+    # a graph resolved for another day is a different point-in-time fact and is
+    # never reused here.
+    if packet.get("as_of_date") != as_of_date.isoformat():
+        raise USCapitalRotationError("TAXONOMY_AS_OF_DATE_MISMATCH")
+    approval = packet.get("approval")
+    if not isinstance(approval, dict):
+        raise USCapitalRotationError("TAXONOMY_APPROVAL_INVALID")
+    if (
+        packet.get("taxonomy_id") != binding["taxonomy_id"]
+        or approval.get("decision_id") != binding["taxonomy_decision_id"]
+        or approval.get("decision_sha256") != binding["taxonomy_decision_sha256"]
+    ):
+        raise USCapitalRotationError("TAXONOMY_SOURCE_IDENTITY_MISMATCH")
+    if packet.get("payload_sha256") != binding["taxonomy_packet_sha256"]:
+        raise USCapitalRotationError("TAXONOMY_PACKET_SHA_NOT_DERIVED_FROM_SOURCE")
+    membership_authorized = packet.get("theme_membership_authorized")
+    if membership_authorized is not True and membership_authorized is not False:
+        raise USCapitalRotationError("TAXONOMY_MEMBERSHIP_AUTHORITY_INVALID")
+    resolution = packet.get("authority_resolution")
+    if not isinstance(resolution, dict):
+        raise USCapitalRotationError("TAXONOMY_AUTHORITY_RESOLUTION_INVALID")
+    # The producer's effectivity verdict, taken from its own two independently
+    # derived facts and cross-proved against each other so this consumer cannot
+    # silently drift if the producer ever renames or adds a status.
+    graph_status = _token(
+        packet.get("graph_status"), "TAXONOMY_GRAPH_STATUS_INVALID"
+    )
+    if graph_status not in TAXONOMY_GRAPH_STATUSES:
+        raise USCapitalRotationError(f"TAXONOMY_GRAPH_STATUS_UNKNOWN:{graph_status}")
+    eligible_claim = packet.get("structurally_eligible_ratification_claim")
+    if eligible_claim is not True and eligible_claim is not False:
+        raise USCapitalRotationError("TAXONOMY_ELIGIBLE_CLAIM_INVALID")
+    if eligible_claim is (graph_status == TAXONOMY_GRAPH_STATUS_NOT_EFFECTIVE):
+        raise USCapitalRotationError("TAXONOMY_GRAPH_STATUS_DERIVATION_MISMATCH")
+    nodes = packet.get("nodes")
+    if not isinstance(nodes, list):
+        raise USCapitalRotationError("TAXONOMY_NODES_INVALID")
+    # Exactly the producer's own interval semantics, reused rather than
+    # re-specified, and cross-checked against its own active_node_count.
+    active_theme_ids = {
+        node["theme_id"]
+        for node in nodes
+        if TT._active(node["valid_from"], node["valid_to"], packet["as_of_date"])
+    }
+    if len(active_theme_ids) != packet.get("active_node_count"):
+        raise USCapitalRotationError("TAXONOMY_ACTIVE_NODE_DERIVATION_MISMATCH")
+    derived = {
+        "taxonomy_source_json": source_bytes.decode("utf-8"),
+        "taxonomy_source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "taxonomy_graph_status": graph_status,
+        "taxonomy_authority_status": _token(
+            resolution.get("status"), "TAXONOMY_AUTHORITY_STATUS_INVALID"
+        ),
+        "theme_membership_authorized": membership_authorized,
+    }
+    return derived, active_theme_ids
+
+
+def _assert_theme_nodes(theme_ids, active_theme_ids: set[str] | None) -> None:
+    """Every rotation Theme id must name a node the consumed graph itself
+    reports as active on this decision date.
+
+    In US the rotation Theme id *is* the upstream Leadership ``group_id``, so
+    this is referential integrity between the exact graph that was actually
+    consumed and the group vocabulary US already ranks on -- there is no
+    Korea-style series-to-Theme proxy mapping to resolve.  It selects nothing,
+    ratifies nothing, and creates no asset-to-Theme membership.  It only
+    applies when a real graph was consumed; the legacy opaque binding cannot be
+    checked at all, which is precisely the gap the ``theme_taxonomy/2`` path
+    closes.
+    """
+    if active_theme_ids is None:
+        return
+    for theme_id in sorted(theme_ids):
+        if theme_id not in active_theme_ids:
+            raise USCapitalRotationError(f"TAXONOMY_THEME_NODE_NOT_ACTIVE:{theme_id}")
+
+
+def _taxonomy_source_effective(binding: dict) -> bool:
+    """Whether the bound taxonomy source is an effective-dated document at all.
+
+    A ``theme_taxonomy/2`` binding carries the producer's own re-derived
+    ``taxonomy_graph_status``.  When that verdict is
+    ``DRAFT_OR_NOT_EFFECTIVE_GRAPH`` the source is a draft, an explicitly
+    UNRATIFIED approval, or a ratified approval that is not yet in force or has
+    already expired on this decision date.  None of those is a point-in-time
+    taxonomy fact, so the Theme vocabulary this rotation ranks on has no
+    effective source behind it and ranking must not happen -- independently of
+    the rotation policy, which is a separate ratification and cannot substitute
+    for one.  This is a fail-closed gate only: it never grants ranking, never
+    upgrades the producer's verdict, and never authorizes membership.
+
+    The legacy ``theme_taxonomy/1`` binding has no such producer fact to check
+    (that opacity is exactly what the /2 path exists to close), so it is left
+    exactly as it has always behaved and stays gated by rotation policy alone.
+    """
+    if "taxonomy_graph_status" not in binding:
+        return True
+    return binding["taxonomy_graph_status"] != TAXONOMY_GRAPH_STATUS_NOT_EFFECTIVE
+
+
+def _rotation_status(policy_effective: bool, taxonomy_effective: bool) -> str:
+    """The single output status, derived from the two independent gates.
+
+    The rotation policy is reported first so the long-standing invariant
+    ``rotation_policy_effective is False`` <-> ``POLICY_NOT_EFFECTIVE`` still
+    holds exactly, and the taxonomy-source state is named only when it is the
+    reason ranking was withheld from an otherwise effective policy.
+    """
+    if not policy_effective:
+        return "POLICY_NOT_EFFECTIVE"
+    if not taxonomy_effective:
+        return "TAXONOMY_SOURCE_NOT_EFFECTIVE"
+    return "ROTATION_BUCKETS_OBSERVED"
 
 
 AUTHORITY_FIELDS = {
@@ -595,7 +876,24 @@ def _buckets(ranked: list[str], top_count: int, bottom_count: int) -> dict[str, 
     }
 
 
-def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dict:
+def build_packet(
+    value: dict,
+    policy: dict,
+    contract: dict | None = None,
+    *,
+    taxonomy_source_bytes: bytes | None = None,
+    taxonomy_authority_registry_path=None,
+    taxonomy_trusted_commit: str | None = None,
+) -> dict:
+    """Build one US rotation packet.
+
+    ``taxonomy_source_bytes`` is the optional real P2-01 input path: the exact
+    bytes of a ``theme_taxonomy_input/1`` graph document.  It is required when
+    the input's ``taxonomy_binding`` declares the producer's own
+    ``theme_taxonomy/2`` contract version, and forbidden for the legacy opaque
+    binding.  The legacy path is unchanged and still produces byte-identical
+    packets.
+    """
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "as_of_date", "taxonomy_binding",
@@ -606,7 +904,12 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
     if set(value) != fields:
         raise USCapitalRotationError("INPUT_FIELDS_MISMATCH")
     as_of_date = _date(value.get("as_of_date"), "AS_OF_DATE_INVALID")
-    binding = _validate_binding(value.get("taxonomy_binding"), contract)
+    binding = _validate_binding(value.get("taxonomy_binding"), contract, derived=False)
+    taxonomy_derived, active_theme_ids = _consume_taxonomy(
+        binding, taxonomy_source_bytes, as_of_date,
+        taxonomy_authority_registry_path, taxonomy_trusted_commit,
+    )
+    binding.update(taxonomy_derived)
     prior = _validate_upstream(value.get("prior_observation"), "prior", contract)
     current = _validate_upstream(value.get("current_observation"), "current", contract)
     if not prior["observation_date"] < current["observation_date"] == as_of_date:
@@ -625,7 +928,7 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
     theme_ids = sorted(prior["groups"])
     if theme_ids != sorted(current["groups"]):
         raise USCapitalRotationError("UPSTREAM_THEME_SET_DRIFT")
-    checked_policy, effective = _validate_policy(
+    checked_policy, policy_effective = _validate_policy(
         policy,
         binding,
         theme_ids,
@@ -633,6 +936,12 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         current["observation_date"],
         prior["available_at"],
     )
+    _assert_theme_nodes(theme_ids, active_theme_ids)
+    # Both ratifications must hold independently: an effective rotation policy
+    # over a not-yet-effective, expired or UNRATIFIED taxonomy source produces
+    # no ranks, buckets, transitions, top/bottom Themes or ranking authority.
+    taxonomy_effective = _taxonomy_source_effective(binding)
+    effective = policy_effective and taxonomy_effective
     observations = []
     top_themes = []
     bottom_themes = []
@@ -676,7 +985,7 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         "measurement": contract["measurement"],
         "market": "US",
         "as_of_date": as_of_date.isoformat(),
-        "status": "ROTATION_BUCKETS_OBSERVED" if effective else "POLICY_NOT_EFFECTIVE",
+        "status": _rotation_status(policy_effective, taxonomy_effective),
         "benchmark_asset": current["benchmark_asset"],
         "observation_pair": {
             "prior_date": prior["observation_date"].isoformat(),
@@ -694,7 +1003,11 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         },
         "taxonomy_binding": binding,
         "rotation_policy": checked_policy,
-        "rotation_policy_effective": effective,
+        # Unchanged meaning: the rotation policy's own ratification and
+        # coverage. It stays true for a ratified, covering policy even when the
+        # taxonomy source withheld ranking, so the two gates remain separately
+        # auditable rather than being collapsed into one ambiguous flag.
+        "rotation_policy_effective": policy_effective,
         "ranking_method": {
             "metric": contract["ranking_metric"],
             "order": contract["ranking_order"],
@@ -732,11 +1045,29 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return validate_packet(packet, contract)
+    return validate_packet(
+        packet, contract,
+        taxonomy_source_bytes=taxonomy_source_bytes,
+        taxonomy_authority_registry_path=taxonomy_authority_registry_path,
+        taxonomy_trusted_commit=taxonomy_trusted_commit,
+    )
 
 
-def validate_packet(packet: dict, contract: dict | None = None) -> dict:
-    """Validate the complete v1 output without inventing omitted source rows."""
+def validate_packet(
+    packet: dict,
+    contract: dict | None = None,
+    *,
+    taxonomy_source_bytes: bytes | None = None,
+    taxonomy_authority_registry_path=None,
+    taxonomy_trusted_commit: str | None = None,
+) -> dict:
+    """Validate the complete v1 output without inventing omitted source rows.
+
+    V2 packets carry the exact public graph source text. Every validation,
+    including a ledger's packet-only call, re-runs the existing producer and
+    independent registry resolver. An optional external source must match the
+    embedded source exactly. Derived authority fields are never trusted.
+    """
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "contract_version", "measurement", "market",
@@ -784,7 +1115,20 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     )
     if prior_available_at >= current_available_at:
         raise USCapitalRotationError("OUTPUT_AVAILABLE_AT_ORDER_INVALID")
-    binding = _validate_binding(packet.get("taxonomy_binding"), contract)
+    binding = _validate_binding(packet.get("taxonomy_binding"), contract, derived=True)
+    active_theme_ids = None
+    if binding["taxonomy_contract_version"] == taxonomy_producer_contract_version():
+        embedded_source = binding["taxonomy_source_json"].encode("utf-8")
+        if taxonomy_source_bytes is not None and taxonomy_source_bytes != embedded_source:
+            raise USCapitalRotationError("OUTPUT_TAXONOMY_DERIVATION_MISMATCH")
+        taxonomy_source_bytes = embedded_source
+    if taxonomy_source_bytes is not None:
+        derived, active_theme_ids = _consume_taxonomy(
+            binding, taxonomy_source_bytes, as_of,
+            taxonomy_authority_registry_path, taxonomy_trusted_commit,
+        )
+        if {key: binding.get(key) for key in TAXONOMY_V2_DERIVED_FIELDS} != derived:
+            raise USCapitalRotationError("OUTPUT_TAXONOMY_DERIVATION_MISMATCH")
     policy = packet.get("rotation_policy")
     policy_fields = {
         "schema_version", "policy_id", "approval_status", "ratified_by",
@@ -831,6 +1175,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         )
     ):
         raise USCapitalRotationError("OUTPUT_POLICY_THEME_IDS_INVALID")
+    _assert_theme_nodes(theme_ids, active_theme_ids)
     top_count = _positive_int(policy.get("top_count"), "OUTPUT_TOP_COUNT_INVALID")
     bottom_count = _positive_int(
         policy.get("bottom_count"), "OUTPUT_BOTTOM_COUNT_INVALID"
@@ -869,11 +1214,18 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     # now persisted in observation_pair, closes that gap.
     if status == "RATIFIED" and covers_both and ratified_at > prior_available_at:
         raise USCapitalRotationError("OUTPUT_POLICY_RATIFIED_AFTER_PRIOR_OBSERVATION")
-    effective = status == "RATIFIED" and covers_both
-    if effective and (current_date - prior_date).days > maximum_gap:
+    policy_effective = status == "RATIFIED" and covers_both
+    if policy_effective and (current_date - prior_date).days > maximum_gap:
         raise USCapitalRotationError("OUTPUT_OBSERVATION_GAP_EXCEEDS_POLICY")
-    if packet.get("rotation_policy_effective") is not effective:
+    if packet.get("rotation_policy_effective") is not policy_effective:
         raise USCapitalRotationError("OUTPUT_POLICY_EFFECTIVE_MISMATCH")
+    # The taxonomy-source gate is re-derived here from the binding's own
+    # producer-derived status, which the derivation check above already re-ran
+    # the real producer to re-prove. A packet that was ranked over a draft,
+    # UNRATIFIED, not-yet-effective or expired source therefore cannot pass a
+    # standalone validation even if every digest in it was re-signed.
+    taxonomy_effective = _taxonomy_source_effective(binding)
+    effective = policy_effective and taxonomy_effective
     raw_rows = packet.get("theme_observations")
     row_fields = {
         "theme_id", "prior_relative_strength_vs_benchmark",
@@ -976,13 +1328,16 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             ):
                 raise USCapitalRotationError("OUTPUT_UNAUTHORIZED_RANKING")
         if (
-            packet.get("status") != "POLICY_NOT_EFFECTIVE"
+            packet.get("status")
+            != _rotation_status(policy_effective, taxonomy_effective)
             or packet.get("ranking_method") is not None
             or packet.get("top_themes") != []
             or packet.get("bottom_themes") != []
         ):
             raise USCapitalRotationError(
                 "OUTPUT_INEFFECTIVE_POLICY_BOUNDARY_MISMATCH"
+                if not policy_effective
+                else "OUTPUT_INEFFECTIVE_TAXONOMY_BOUNDARY_MISMATCH"
             )
     if packet.get("retention") != {
         "input_policy": contract["input_retention_policy"],
@@ -1058,11 +1413,33 @@ def write_json_atomic(path: Path, value: dict) -> None:
         raise
 
 
-def run(input_path: Path, policy_path: Path, output_path: Path) -> int:
+def _read_bytes(path: Path) -> bytes:
     try:
+        return Path(path).read_bytes()
+    except OSError as exc:
+        raise USCapitalRotationError(
+            f"TAXONOMY_SOURCE_READ_FAILED:{path}:{exc}"
+        ) from exc
+
+
+def run(
+    input_path: Path,
+    policy_path: Path,
+    output_path: Path,
+    taxonomy_graph_path: Path | None = None,
+    taxonomy_trusted_commit: str | None = None,
+) -> int:
+    try:
+        source_bytes = (
+            None if taxonomy_graph_path is None else _read_bytes(taxonomy_graph_path)
+        )
         write_json_atomic(
             output_path,
-            build_packet(_read_json(input_path), _read_json(policy_path)),
+            build_packet(
+                _read_json(input_path), _read_json(policy_path),
+                taxonomy_source_bytes=source_bytes,
+                taxonomy_trusted_commit=taxonomy_trusted_commit,
+            ),
         )
         return 0
     except (USCapitalRotationError, OSError, TypeError, ValueError) as exc:
@@ -1075,8 +1452,23 @@ def main() -> int:
     parser.add_argument("input", type=Path)
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--taxonomy-graph", type=Path, default=None,
+        help=(
+            "Exact theme_taxonomy_input/1 graph document consumed through the "
+            "real theme_taxonomy producer. Required for a theme_taxonomy/2 "
+            "binding, forbidden for the legacy opaque binding."
+        ),
+    )
+    parser.add_argument(
+        "--taxonomy-trusted-commit", default=None,
+        help="Immutable commit the taxonomy authority registry is read at.",
+    )
     args = parser.parse_args()
-    return run(args.input, args.policy, args.out)
+    return run(
+        args.input, args.policy, args.out,
+        args.taxonomy_graph, args.taxonomy_trusted_commit,
+    )
 
 
 if __name__ == "__main__":

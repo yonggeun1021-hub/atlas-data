@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 from decimal import Decimal
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -14,14 +15,28 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "rotation" / "us_capital_rotation.py"
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 SPEC = importlib.util.spec_from_file_location("us_capital_rotation", MODULE_PATH)
 UCR = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(UCR)
 
+# The exact same producer module instance the consumer itself resolves, so a
+# reference packet built here is the real P2-01 output, not a look-alike.
+from rotation import theme_taxonomy as TT  # noqa: E402
+
 TAXONOMY_DECISION_SHA = "a" * 64
 TAXONOMY_PACKET_SHA = "b" * 64
 UPSTREAM_TAXONOMY_SHA = "c" * 64
+
+US_THEME_IDS = ["THEME.COMPUTE", "THEME.NETWORK", "THEME.POWER"]
+GRAPH_TAXONOMY_ID = "TAXONOMY.US.ROTATION.TEST"
+GRAPH_DECISION_ID = "DECISION.P2.01.US.TEST"
+GRAPH_DECISION_SHA = "e" * 64
+ROOT_THEME_ID = "THEME.US.ROTATION.ROOT"
 
 
 def group(theme_id: str, relative_strength: str) -> dict:
@@ -207,6 +222,175 @@ def policy(status: str = "RATIFIED") -> dict:
         "bottom_count": 1,
         "maximum_calendar_gap_days": 5,
     }
+
+
+def taxonomy_evidence(evidence_id: str, market: str, marker: str) -> dict:
+    host = "www.sec.gov" if market == "US" else "opendart.fss.or.kr"
+    source_id = "sec_edgar" if market == "US" else "dart_open_api"
+    return {
+        "evidence_id": evidence_id,
+        "claim_text": f"Source-linked taxonomy evidence {evidence_id}",
+        "source_identity": {
+            "source_id": source_id,
+            "source_url": f"https://{host}/atlas-test/{evidence_id}.json",
+            "source_sha256": marker * 64,
+            "available_at": "2026-08-18",
+            "retrieved_at_utc": "2026-08-18T12:00:00Z",
+        },
+        "audit_provenance": {
+            "claim_selector": f"section:{evidence_id}",
+            "review_status": "HUMAN_RATIFIED_INPUT",
+        },
+    }
+
+
+def taxonomy_node(theme_id: str) -> dict:
+    return {
+        "theme_id": theme_id,
+        "display_name": theme_id,
+        "description": f"Externally supplied description for {theme_id}",
+        "node_type": "THEME",
+        "valid_from": "2026-01-01",
+        "valid_to": None,
+    }
+
+
+def taxonomy_graph_document(as_of_date: str = "2026-08-20", theme_ids=None) -> dict:
+    """A real ``theme_taxonomy_input/1`` graph document naming the exact US
+    Theme ids this rotation fixture ranks on.
+
+    This is a synthetic external graph, exactly like every other P2-01 input:
+    the repository still ships no default taxonomy, and the committed approval
+    authority registry is still empty, so the real producer will resolve this
+    graph as a structurally valid ratification *claim* that is NOT authorized.
+    """
+    theme_ids = sorted(US_THEME_IDS if theme_ids is None else theme_ids)
+    return {
+        "schema_version": "theme_taxonomy_input/1",
+        "taxonomy_id": GRAPH_TAXONOMY_ID,
+        "as_of_date": as_of_date,
+        "approval": {
+            "approval_status": "RATIFIED",
+            "decision_id": GRAPH_DECISION_ID,
+            "decision_sha256": GRAPH_DECISION_SHA,
+            "ratified_by": "Atlas CIO",
+            "ratified_at_utc": "2026-08-19T12:00:00Z",
+            "effective_from": "2026-08-01",
+            "effective_to": None,
+        },
+        "nodes": [taxonomy_node(ROOT_THEME_ID)] + [
+            taxonomy_node(theme_id) for theme_id in theme_ids
+        ],
+        "edges": [
+            {
+                "edge_id": f"EDGE.ROOT:{theme_id}",
+                "from_theme_id": ROOT_THEME_ID,
+                "to_theme_id": theme_id,
+                "relation_type": "CONTAINS",
+                "rationale": f"External graph places {theme_id} under the root",
+                "valid_from": "2026-01-01",
+                "valid_to": None,
+            }
+            for theme_id in theme_ids
+        ],
+        # The producer requires a ratified graph to name both allowed markets
+        # somewhere; these memberships are the external document's own, they
+        # are not created here and never become US rotation membership.
+        "memberships": [
+            {
+                "membership_id": "MEMBERSHIP.US.TEST",
+                "asset_id": "US:XNAS:TEST",
+                "market": "US",
+                "theme_id": ROOT_THEME_ID,
+                "role_id": "US_CONSTITUENT",
+                "valid_from": "2026-08-01",
+                "valid_to": None,
+                "evidence": [taxonomy_evidence("EVIDENCE.US.TEST", "US", "c")],
+            },
+            {
+                "membership_id": "MEMBERSHIP.KR.005930",
+                "asset_id": "KR:XKRX:005930",
+                "market": "KOREA",
+                "theme_id": ROOT_THEME_ID,
+                "role_id": "KR_CONSTITUENT",
+                "valid_from": "2026-08-01",
+                "valid_to": None,
+                "evidence": [taxonomy_evidence("EVIDENCE.KR.005930", "KOREA", "b")],
+            },
+        ],
+    }
+
+
+def unratified_graph_document(as_of_date: str = "2026-08-20") -> dict:
+    """The same graph whose approval is explicitly UNRATIFIED.
+
+    The producer forbids ratification proof on an UNRATIFIED approval, so those
+    two fields are cleared rather than merely relabelled.
+    """
+    document = taxonomy_graph_document(as_of_date=as_of_date)
+    document["approval"].update({
+        "approval_status": "UNRATIFIED",
+        "ratified_by": None,
+        "ratified_at_utc": None,
+    })
+    return document
+
+
+def not_yet_effective_graph_document(as_of_date: str = "2026-08-20") -> dict:
+    """A genuinely ratified approval whose effective window has not started."""
+    document = taxonomy_graph_document(as_of_date=as_of_date)
+    document["approval"]["effective_from"] = "2026-09-01"
+    return document
+
+
+def expired_graph_document(as_of_date: str = "2026-08-20") -> dict:
+    """A genuinely ratified approval whose effective window already lapsed."""
+    document = taxonomy_graph_document(as_of_date=as_of_date)
+    document["approval"]["effective_to"] = "2026-08-10"
+    return document
+
+
+INEFFECTIVE_SOURCE_DOCUMENTS = {
+    "unratified": unratified_graph_document,
+    "not_yet_effective": not_yet_effective_graph_document,
+    "expired": expired_graph_document,
+}
+
+
+def taxonomy_source_bytes(document: dict) -> bytes:
+    """Exact bytes a caller would hand to the CLI's ``--taxonomy-graph``."""
+    return json.dumps(
+        document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+
+
+def v2_bundle(document: dict) -> tuple[dict, dict]:
+    """The legacy US input/policy pair, rebound to the real ``theme_taxonomy/2``
+    identity the producer actually derives from that exact document.
+
+    Only the taxonomy identity moves: the US benchmark, lookback, Theme set,
+    upstream taxonomy-policy hash, ranking metric and bucket counts are the
+    same values every legacy test uses.
+    """
+    reference = TT.build_packet(copy.deepcopy(document))
+    value = input_packet()
+    value["taxonomy_binding"] = {
+        "taxonomy_contract_version": reference["contract_version"],
+        "taxonomy_id": reference["taxonomy_id"],
+        "taxonomy_decision_id": reference["approval"]["decision_id"],
+        "taxonomy_decision_sha256": reference["approval"]["decision_sha256"],
+        "taxonomy_packet_sha256": reference["payload_sha256"],
+        "upstream_taxonomy_policy_sha256": UPSTREAM_TAXONOMY_SHA,
+    }
+    rotation_policy = policy()
+    rotation_policy["taxonomy_decision_sha256"] = reference["approval"]["decision_sha256"]
+    rotation_policy["taxonomy_packet_sha256"] = reference["payload_sha256"]
+    return value, rotation_policy
+
+
+def rehash_output(packet: dict) -> None:
+    packet.pop("payload_sha256", None)
+    packet["payload_sha256"] = UCR.payload_sha256(packet)
 
 
 class USCapitalRotationTests(unittest.TestCase):
@@ -557,6 +741,588 @@ class USCapitalRotationTests(unittest.TestCase):
             policy_path.write_text(json.dumps(policy()), encoding="utf-8")
             self.assertEqual(UCR.run(input_path, policy_path, tracked), 1)
         self.assertFalse(tracked.exists())
+
+
+class USCapitalRotationTaxonomyV2Tests(unittest.TestCase):
+    """Real ``theme_taxonomy/2`` source consumption in the US rotation consumer.
+
+    Every assertion is against the actual P2-01 producer output, so these
+    prove the real producer is genuinely invoked, that its verdict is recorded
+    exactly as returned (not authorized, because the committed approval
+    authority registry is empty), and that none of it creates authority or
+    changes US-native leadership/benchmark/grouping semantics.
+    """
+
+    def setUp(self):
+        self.document = taxonomy_graph_document()
+        self.source_bytes = taxonomy_source_bytes(self.document)
+        self.reference = TT.build_packet(copy.deepcopy(self.document))
+
+    def build(self, value, rotation_policy, source_bytes=None):
+        return UCR.build_packet(
+            value, rotation_policy,
+            taxonomy_source_bytes=(
+                self.source_bytes if source_bytes is None else source_bytes
+            ),
+        )
+
+    def test_real_producer_packet_is_consumed_and_recorded_exactly(self):
+        packet = self.build(*v2_bundle(self.document))
+        binding = packet["taxonomy_binding"]
+        self.assertEqual(
+            binding["taxonomy_contract_version"],
+            TT.load_contract()["contract_version"],
+        )
+        self.assertEqual(binding["taxonomy_contract_version"], "theme_taxonomy/2")
+        # Every derived field equals what the real producer itself returned
+        # for these exact bytes -- none of it was supplied by the caller.
+        self.assertEqual(
+            binding["taxonomy_source_sha256"],
+            hashlib.sha256(self.source_bytes).hexdigest(),
+        )
+        self.assertEqual(
+            binding["taxonomy_packet_sha256"], self.reference["payload_sha256"]
+        )
+        self.assertEqual(
+            binding["taxonomy_graph_status"], self.reference["graph_status"]
+        )
+        self.assertEqual(
+            binding["taxonomy_authority_status"],
+            self.reference["authority_resolution"]["status"],
+        )
+        # Empty committed authority registry: a structurally real ratification
+        # claim that is still not authorized. Never upgraded, never fabricated.
+        self.assertEqual(
+            binding["taxonomy_graph_status"],
+            "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED",
+        )
+        self.assertNotEqual(binding["taxonomy_authority_status"], "AUTHORIZED")
+        self.assertFalse(binding["theme_membership_authorized"])
+        self.assertEqual(packet["status"], "ROTATION_BUCKETS_OBSERVED")
+        # The output schema is unchanged; only the binding gains derived members.
+        self.assertEqual(packet["schema_version"], "us_capital_rotation_packet/2")
+        self.assertEqual(packet["contract_version"], "us_capital_rotation/2")
+
+    def test_legacy_binding_is_unchanged_and_refuses_a_graph(self):
+        legacy = UCR.build_packet(input_packet(), policy())
+        self.assertEqual(
+            set(legacy["taxonomy_binding"]), set(UCR.TAXONOMY_BINDING_FIELDS)
+        )
+        self.assertEqual(
+            legacy["taxonomy_binding"]["taxonomy_contract_version"],
+            UCR.load_contract()["taxonomy_contract_version"],
+        )
+        self.assertEqual(
+            legacy["taxonomy_binding"]["taxonomy_contract_version"],
+            "theme_taxonomy/1",
+        )
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError,
+            "TAXONOMY_SOURCE_NOT_ALLOWED_FOR_LEGACY_BINDING",
+        ):
+            UCR.build_packet(
+                input_packet(), policy(), taxonomy_source_bytes=self.source_bytes
+            )
+        # A persisted legacy packet also stays validatable exactly as before,
+        # and still refuses an after-the-fact graph.
+        UCR.validate_packet(copy.deepcopy(legacy))
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError,
+            "TAXONOMY_SOURCE_NOT_ALLOWED_FOR_LEGACY_BINDING",
+        ):
+            UCR.validate_packet(
+                copy.deepcopy(legacy), taxonomy_source_bytes=self.source_bytes
+            )
+
+    def test_relabelling_a_legacy_binding_as_v2_never_succeeds(self):
+        # The exact failure mode this slice exists to prevent: editing the
+        # version string on an opaque binding must not buy a real taxonomy.
+        value = input_packet()
+        value["taxonomy_binding"]["taxonomy_contract_version"] = "theme_taxonomy/2"
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_SOURCE_REQUIRED_FOR_V2_BINDING"
+        ):
+            UCR.build_packet(value, policy())
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_SOURCE_IDENTITY_MISMATCH"
+        ):
+            self.build(value, policy())
+        # An unknown third version is refused outright.
+        value = input_packet()
+        value["taxonomy_binding"]["taxonomy_contract_version"] = "theme_taxonomy/9"
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_CONTRACT_VERSION_MISMATCH"
+        ):
+            UCR.build_packet(value, policy())
+
+    def test_declared_identity_and_digest_cannot_replace_the_derived_ones(self):
+        value, rotation_policy = v2_bundle(self.document)
+        value["taxonomy_binding"]["taxonomy_packet_sha256"] = "9" * 64
+        rotation_policy["taxonomy_packet_sha256"] = "9" * 64
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError,
+            "TAXONOMY_PACKET_SHA_NOT_DERIVED_FROM_SOURCE",
+        ):
+            self.build(value, rotation_policy)
+        for field in ("taxonomy_id", "taxonomy_decision_id"):
+            with self.subTest(field=field):
+                value, rotation_policy = v2_bundle(self.document)
+                value["taxonomy_binding"][field] = "IDENTITY.ATTACKER"
+                with self.assertRaisesRegex(
+                    UCR.USCapitalRotationError, "TAXONOMY_SOURCE_IDENTITY_MISMATCH"
+                ):
+                    self.build(value, rotation_policy)
+        # A caller cannot pre-declare the derived fields either: at build time
+        # the binding must carry exactly the six legacy identity fields.
+        value, rotation_policy = v2_bundle(self.document)
+        value["taxonomy_binding"]["theme_membership_authorized"] = True
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_BINDING_FIELDS_MISMATCH"
+        ):
+            self.build(value, rotation_policy)
+
+    def test_semantic_and_byte_only_source_tamper_are_both_detected(self):
+        # Semantic tamper: the producer derives a different packet digest.
+        value, rotation_policy = v2_bundle(self.document)
+        tampered = copy.deepcopy(self.document)
+        tampered["nodes"][0]["description"] = "attacker rewrote the graph"
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError,
+            "TAXONOMY_PACKET_SHA_NOT_DERIVED_FROM_SOURCE",
+        ):
+            self.build(
+                value, rotation_policy, source_bytes=taxonomy_source_bytes(tampered)
+            )
+        # Byte-only tamper: identical parsed graph, different source bytes --
+        # caught because the source digest is bound too, not just the packet.
+        packet = self.build(*v2_bundle(self.document))
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "OUTPUT_TAXONOMY_DERIVATION_MISMATCH"
+        ):
+            UCR.validate_packet(
+                copy.deepcopy(packet),
+                taxonomy_source_bytes=self.source_bytes + b" ",
+            )
+        # A source that is not even a graph document fails inside the producer.
+        value, rotation_policy = v2_bundle(self.document)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_SOURCE_REJECTED_BY_PRODUCER"
+        ):
+            self.build(value, rotation_policy, source_bytes=b'{"schema_version":1}')
+
+    def test_as_of_date_of_the_consumed_graph_must_match_the_decision_date(self):
+        # Replaying another day's graph is a different point-in-time fact.
+        other_day = taxonomy_graph_document(as_of_date="2026-08-19")
+        value, rotation_policy = v2_bundle(other_day)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_AS_OF_DATE_MISMATCH"
+        ):
+            UCR.build_packet(
+                value, rotation_policy,
+                taxonomy_source_bytes=taxonomy_source_bytes(other_day),
+            )
+
+    def test_policy_theme_ids_must_be_active_nodes_of_the_consumed_graph(self):
+        incomplete = taxonomy_graph_document(theme_ids=US_THEME_IDS[:-1])
+        value, rotation_policy = v2_bundle(incomplete)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_THEME_NODE_NOT_ACTIVE:THEME.POWER"
+        ):
+            UCR.build_packet(
+                value, rotation_policy,
+                taxonomy_source_bytes=taxonomy_source_bytes(incomplete),
+            )
+        # A node that exists but has lapsed on this decision date is equally
+        # unusable -- the producer's own interval semantics, reused verbatim.
+        expired = taxonomy_graph_document()
+        target = "THEME.NETWORK"
+        for node in expired["nodes"]:
+            if node["theme_id"] == target:
+                node["valid_to"] = "2026-08-20"
+        for edge in expired["edges"]:
+            if edge["to_theme_id"] == target:
+                edge["valid_to"] = "2026-08-20"
+        value, rotation_policy = v2_bundle(expired)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, f"TAXONOMY_THEME_NODE_NOT_ACTIVE:{target}"
+        ):
+            UCR.build_packet(
+                value, rotation_policy,
+                taxonomy_source_bytes=taxonomy_source_bytes(expired),
+            )
+
+    def test_standalone_validator_reproves_derived_fields_and_grants_nothing(self):
+        packet = self.build(*v2_bundle(self.document))
+        # A persisted packet stays standalone-verifiable without the graph.
+        UCR.validate_packet(copy.deepcopy(packet))
+        UCR.validate_packet(
+            copy.deepcopy(packet), taxonomy_source_bytes=self.source_bytes
+        )
+        forged = copy.deepcopy(packet)
+        forged["taxonomy_binding"]["theme_membership_authorized"] = True
+        forged["taxonomy_binding"]["taxonomy_authority_status"] = "AUTHORIZED"
+        forged["taxonomy_binding"]["taxonomy_graph_status"] = (
+            "AUTHORIZED_EFFECTIVE_GRAPH"
+        )
+        rehash_output(forged)
+        # Packet-only consumers -- including the shared rotation state ledger,
+        # which calls validate_packet() with no taxonomy argument at all --
+        # must re-prove the embedded source too.
+        for source in (None, self.source_bytes):
+            with self.assertRaisesRegex(
+                UCR.USCapitalRotationError, "OUTPUT_TAXONOMY_DERIVATION_MISMATCH"
+            ):
+                UCR.validate_packet(copy.deepcopy(forged), taxonomy_source_bytes=source)
+        # Re-signing a false source digest cannot make it exact evidence.
+        forged = copy.deepcopy(packet)
+        forged["taxonomy_binding"]["taxonomy_source_sha256"] = "f" * 64
+        rehash_output(forged)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "OUTPUT_TAXONOMY_DERIVATION_MISMATCH"
+        ):
+            UCR.validate_packet(forged)
+        # Swapping the embedded source for another day's graph is caught by the
+        # producer's own decision-date check, not by the packet digest.
+        forged = copy.deepcopy(packet)
+        replayed = taxonomy_source_bytes(taxonomy_graph_document(as_of_date="2026-08-19"))
+        forged["taxonomy_binding"]["taxonomy_source_json"] = replayed.decode("utf-8")
+        forged["taxonomy_binding"]["taxonomy_source_sha256"] = hashlib.sha256(
+            replayed
+        ).hexdigest()
+        rehash_output(forged)
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "TAXONOMY_AS_OF_DATE_MISMATCH"
+        ):
+            UCR.validate_packet(forged)
+
+    def test_us_leadership_benchmark_and_taxonomy_policy_gates_are_unchanged(self):
+        # The US-native upstream taxonomy *policy* hash is a different fact
+        # from the P2-01 graph and still binds both Leadership observations.
+        value, rotation_policy = v2_bundle(self.document)
+        value["current_observation"]["policies"]["taxonomy"]["policy_sha256"] = "9" * 64
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "UPSTREAM_TAXONOMY_BINDING_MISMATCH"
+        ):
+            self.build(value, rotation_policy)
+        # The US-native group measurement is still re-derived by the P1-US-06
+        # production validator before rotation ever sees a Theme row.
+        value, rotation_policy = v2_bundle(self.document)
+        value["current_observation"]["group_relative_strength"][0][
+            "relative_strength_vs_benchmark"
+        ] = "0.9"
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError,
+            "UPSTREAM_PRODUCTION_VALIDATION_FAILED:current:.*OUTPUT_GROUP_RS_MISMATCH",
+        ):
+            self.build(value, rotation_policy)
+        # The exact Theme set still gates too.
+        value, rotation_policy = v2_bundle(self.document)
+        rotation_policy["theme_ids"] = rotation_policy["theme_ids"][:-1]
+        with self.assertRaisesRegex(
+            UCR.USCapitalRotationError, "POLICY_THEME_SET_MISMATCH"
+        ):
+            self.build(value, rotation_policy)
+
+    def test_v2_consumption_adds_no_authority_and_no_ranking_change(self):
+        legacy = UCR.build_packet(input_packet(), policy())
+        consumed = self.build(*v2_bundle(self.document))
+        self.assertEqual(consumed["authority"], legacy["authority"])
+        self.assertEqual(consumed["theme_observations"], legacy["theme_observations"])
+        self.assertEqual(consumed["top_themes"], legacy["top_themes"])
+        self.assertEqual(consumed["bottom_themes"], legacy["bottom_themes"])
+        self.assertEqual(consumed["benchmark_asset"], legacy["benchmark_asset"])
+        self.assertEqual(consumed["ranking_method"], legacy["ranking_method"])
+        self.assertEqual(consumed["status"], legacy["status"])
+        self.assertEqual(
+            consumed["unresolved_boundaries"], legacy["unresolved_boundaries"]
+        )
+        self.assertIn(
+            "THEME_TAXONOMY_OPERATIONAL_POPULATION_NOT_IMPLEMENTED",
+            consumed["unresolved_boundaries"],
+        )
+        for field in (
+            "p2_state_vocabulary_authorized", "state_ledger_authorized",
+            "regime_input_authorized", "candidate_ranking_authorized",
+            "stage_promotion_authorized", "production_authorized",
+            "trading_authorized",
+        ):
+            self.assertFalse(consumed["authority"][field], field)
+
+    def test_unratified_rotation_policy_with_a_real_graph_still_emits_no_ranking(self):
+        value, rotation_policy = v2_bundle(self.document)
+        unratified = policy("UNRATIFIED")
+        unratified["taxonomy_decision_sha256"] = rotation_policy[
+            "taxonomy_decision_sha256"
+        ]
+        unratified["taxonomy_packet_sha256"] = rotation_policy["taxonomy_packet_sha256"]
+        packet = self.build(value, unratified)
+        self.assertEqual(packet["status"], "POLICY_NOT_EFFECTIVE")
+        self.assertFalse(packet["rotation_policy_effective"])
+        self.assertIsNone(packet["ranking_method"])
+        self.assertEqual(packet["top_themes"], [])
+        self.assertEqual(packet["bottom_themes"], [])
+        for row in packet["theme_observations"]:
+            self.assertIsNone(row["current_bucket"])
+            self.assertIsNone(row["bucket_transition"])
+        # A real, structurally valid graph never substitutes for rotation
+        # ratification, and never authorizes membership either.
+        self.assertFalse(packet["authority"]["theme_ranking_authorized"])
+        self.assertFalse(
+            packet["taxonomy_binding"]["theme_membership_authorized"]
+        )
+        UCR.validate_packet(copy.deepcopy(packet))
+
+    def test_producer_itself_calls_each_ineffective_source_state_a_draft_graph(self):
+        # Guards the negatives below from going vacuous: each fixture must
+        # genuinely reach the producer's DRAFT_OR_NOT_EFFECTIVE_GRAPH verdict,
+        # for the distinct approval reason it is named after, rather than being
+        # rejected earlier for some unrelated structural defect.
+        for name, factory in INEFFECTIVE_SOURCE_DOCUMENTS.items():
+            with self.subTest(state=name):
+                reference = TT.build_packet(factory())
+                self.assertEqual(
+                    reference["graph_status"], "DRAFT_OR_NOT_EFFECTIVE_GRAPH"
+                )
+                self.assertFalse(
+                    reference["structurally_eligible_ratification_claim"]
+                )
+                self.assertFalse(reference["theme_membership_authorized"])
+        self.assertEqual(
+            TT.build_packet(unratified_graph_document())["approval"][
+                "approval_status"
+            ],
+            "UNRATIFIED",
+        )
+        # The two window states are genuinely ratified documents; only their
+        # effective interval excludes this decision date.
+        for factory in (
+            not_yet_effective_graph_document, expired_graph_document,
+        ):
+            approval = TT.build_packet(factory())["approval"]
+            self.assertEqual(approval["approval_status"], "RATIFIED")
+
+    def test_ineffective_taxonomy_source_withholds_ranking_from_a_ratified_policy(self):
+        # The corrected behaviour: a RATIFIED, covering rotation policy is not
+        # enough. Without an effective taxonomy source there is no ranking.
+        for name, factory in INEFFECTIVE_SOURCE_DOCUMENTS.items():
+            with self.subTest(state=name):
+                document = factory()
+                value, rotation_policy = v2_bundle(document)
+                self.assertEqual(rotation_policy["approval_status"], "RATIFIED")
+                packet = UCR.build_packet(
+                    value, rotation_policy,
+                    taxonomy_source_bytes=taxonomy_source_bytes(document),
+                )
+                self.assertEqual(
+                    packet["taxonomy_binding"]["taxonomy_graph_status"],
+                    "DRAFT_OR_NOT_EFFECTIVE_GRAPH",
+                )
+                self.assertEqual(packet["status"], "TAXONOMY_SOURCE_NOT_EFFECTIVE")
+                # The rotation policy's own ratification is still reported
+                # truthfully; the two gates stay separately auditable.
+                self.assertTrue(packet["rotation_policy_effective"])
+                self.assertIsNone(packet["ranking_method"])
+                self.assertEqual(packet["top_themes"], [])
+                self.assertEqual(packet["bottom_themes"], [])
+                for row in packet["theme_observations"]:
+                    for field in (
+                        "prior_rank", "current_rank", "rank_change",
+                        "prior_bucket", "current_bucket", "bucket_transition",
+                    ):
+                        self.assertIsNone(row[field], f"{name}:{field}")
+                    # The unranked measurement itself is still emitted.
+                    self.assertIsNotNone(
+                        row["current_relative_strength_vs_benchmark"]
+                    )
+                for field in (
+                    "theme_ranking_authorized", "top_bottom_bucket_authorized",
+                    "bucket_transition_authorized",
+                ):
+                    self.assertFalse(packet["authority"][field], f"{name}:{field}")
+                self.assertFalse(
+                    packet["taxonomy_binding"]["theme_membership_authorized"]
+                )
+                # A packet built this way is self-consistent and re-validates.
+                UCR.validate_packet(copy.deepcopy(packet))
+
+    def test_ineffective_source_beats_ranking_even_with_an_unratified_policy(self):
+        # When both gates are shut the pre-existing policy status is still the
+        # one reported, so the legacy POLICY_NOT_EFFECTIVE invariant is intact.
+        document = unratified_graph_document()
+        value, rotation_policy = v2_bundle(document)
+        rotation_policy.update({
+            "approval_status": "UNRATIFIED", "ratified_by": None,
+            "ratified_at_utc": None,
+        })
+        packet = UCR.build_packet(
+            value, rotation_policy,
+            taxonomy_source_bytes=taxonomy_source_bytes(document),
+        )
+        self.assertEqual(packet["status"], "POLICY_NOT_EFFECTIVE")
+        self.assertFalse(packet["rotation_policy_effective"])
+        self.assertEqual(packet["top_themes"], [])
+        self.assertFalse(packet["authority"]["theme_ranking_authorized"])
+        UCR.validate_packet(copy.deepcopy(packet))
+
+    def test_self_rehashed_ranking_over_an_ineffective_source_is_refused(self):
+        """The standalone validator, not just build_packet(), must refuse.
+
+        Every digest in these forgeries is re-signed, and the embedded source
+        is a real graph the producer accepts -- so nothing here is caught by a
+        hash check. They are caught only because validate_packet() re-derives
+        the producer's own effectivity verdict for itself.
+        """
+        ranked = self.build(*v2_bundle(self.document))
+        self.assertEqual(ranked["status"], "ROTATION_BUCKETS_OBSERVED")
+        for name, factory in INEFFECTIVE_SOURCE_DOCUMENTS.items():
+            document = factory()
+            source = taxonomy_source_bytes(document)
+            value, rotation_policy = v2_bundle(document)
+            honest = UCR.build_packet(
+                value, rotation_policy, taxonomy_source_bytes=source
+            )
+            with self.subTest(state=name, forgery="full_ranking"):
+                # Splice the real ranked results of the effective run onto the
+                # draft-source packet and re-sign the whole packet.
+                forged = copy.deepcopy(honest)
+                forged["status"] = ranked["status"]
+                forged["ranking_method"] = copy.deepcopy(ranked["ranking_method"])
+                forged["top_themes"] = list(ranked["top_themes"])
+                forged["bottom_themes"] = list(ranked["bottom_themes"])
+                forged["theme_observations"] = copy.deepcopy(
+                    ranked["theme_observations"]
+                )
+                forged["authority"] = copy.deepcopy(ranked["authority"])
+                rehash_output(forged)
+                self.assertEqual(forged["payload_sha256"], UCR.payload_sha256({
+                    key: forged[key] for key in forged if key != "payload_sha256"
+                }))
+                for source_argument in (None, source):
+                    with self.assertRaisesRegex(
+                        UCR.USCapitalRotationError, "OUTPUT_UNAUTHORIZED_RANKING"
+                    ):
+                        UCR.validate_packet(
+                            copy.deepcopy(forged),
+                            taxonomy_source_bytes=source_argument,
+                        )
+            with self.subTest(state=name, forgery="status_only"):
+                # Claiming the observed-buckets status without any ranking rows
+                # is refused by the taxonomy boundary check specifically.
+                forged = copy.deepcopy(honest)
+                forged["status"] = "ROTATION_BUCKETS_OBSERVED"
+                rehash_output(forged)
+                with self.assertRaisesRegex(
+                    UCR.USCapitalRotationError,
+                    "OUTPUT_INEFFECTIVE_TAXONOMY_BOUNDARY_MISMATCH",
+                ):
+                    UCR.validate_packet(forged)
+            with self.subTest(state=name, forgery="relabelled_status"):
+                # Relabelling the draft verdict as an effective one is caught
+                # by re-deriving it from the embedded source.
+                forged = copy.deepcopy(honest)
+                forged["taxonomy_binding"]["taxonomy_graph_status"] = (
+                    "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED"
+                )
+                rehash_output(forged)
+                with self.assertRaisesRegex(
+                    UCR.USCapitalRotationError,
+                    "OUTPUT_TAXONOMY_DERIVATION_MISMATCH",
+                ):
+                    UCR.validate_packet(forged)
+
+    def test_draft_source_packet_is_refused_by_the_shared_state_ledger(self):
+        """The downstream money-path consumer refuses it too.
+
+        The ledger admits rotation state only from an observed-buckets packet
+        with bucket-transition authority, so withholding ranking here also
+        keeps a draft-sourced packet out of rotation state history. The packet
+        is structurally valid -- the ledger's own call to this module's
+        validate_packet() passes -- and is rejected on identity alone.
+        """
+        from rotation import rotation_state_ledger as RSL
+
+        document = unratified_graph_document()
+        value, rotation_policy = v2_bundle(document)
+        packet = UCR.build_packet(
+            value, rotation_policy,
+            taxonomy_source_bytes=taxonomy_source_bytes(document),
+        )
+        self.assertNotEqual(packet["status"], "ROTATION_BUCKETS_OBSERVED")
+        self.assertFalse(packet["authority"]["bucket_transition_authorized"])
+        # The rotation packet is validated before the state policy is even
+        # inspected, so this fails on the packet, not on the placeholder.
+        with self.assertRaisesRegex(
+            RSL.RotationStateLedgerError, "ROTATION_PACKET_IDENTITY_INVALID"
+        ):
+            RSL.apply_rotation(copy.deepcopy(packet), {})
+
+    def test_an_effective_but_unauthorized_source_still_ranks(self):
+        # The gate is exactly the producer's not-effective verdict and nothing
+        # wider: a real effective-dated document that the separate approval
+        # authority registry does not authorize still ranks, exactly as before.
+        packet = self.build(*v2_bundle(self.document))
+        self.assertEqual(
+            packet["taxonomy_binding"]["taxonomy_graph_status"],
+            "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED",
+        )
+        self.assertNotEqual(
+            packet["taxonomy_binding"]["taxonomy_authority_status"], "AUTHORIZED"
+        )
+        self.assertFalse(packet["taxonomy_binding"]["theme_membership_authorized"])
+        self.assertEqual(packet["status"], "ROTATION_BUCKETS_OBSERVED")
+        self.assertTrue(packet["authority"]["theme_ranking_authorized"])
+        self.assertEqual(packet["top_themes"], ["THEME.NETWORK"])
+        # And the legacy /1 packet is byte-identical to what it always was:
+        # the new gate is inert for a binding that carries no producer verdict.
+        legacy = UCR.build_packet(input_packet(), policy())
+        self.assertEqual(legacy["status"], "ROTATION_BUCKETS_OBSERVED")
+        self.assertTrue(legacy["rotation_policy_effective"])
+        self.assertNotIn("taxonomy_graph_status", legacy["taxonomy_binding"])
+        self.assertEqual(legacy["top_themes"], ["THEME.NETWORK"])
+        self.assertEqual(legacy["bottom_themes"], ["THEME.POWER"])
+        for row in legacy["theme_observations"]:
+            self.assertIsNotNone(row["current_rank"])
+            self.assertIsNotNone(row["bucket_transition"])
+
+    def test_v2_output_is_deterministic_and_the_cli_consumes_the_graph(self):
+        value, rotation_policy = v2_bundle(self.document)
+        first = self.build(copy.deepcopy(value), copy.deepcopy(rotation_policy))
+        second = self.build(copy.deepcopy(value), copy.deepcopy(rotation_policy))
+        self.assertEqual(first, second)
+        with tempfile.TemporaryDirectory() as raw:
+            temp = Path(raw)
+            input_path = temp / "input.json"
+            policy_path = temp / "policy.json"
+            graph_path = temp / "graph.json"
+            output_path = temp / "output.json"
+            input_path.write_text(
+                json.dumps(value, ensure_ascii=False), encoding="utf-8"
+            )
+            policy_path.write_text(
+                json.dumps(rotation_policy, ensure_ascii=False), encoding="utf-8"
+            )
+            graph_path.write_bytes(self.source_bytes)
+            result = subprocess.run(
+                [
+                    sys.executable, str(MODULE_PATH), str(input_path),
+                    "--policy", str(policy_path), "--out", str(output_path),
+                    "--taxonomy-graph", str(graph_path),
+                ],
+                cwd=ROOT, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(output_path.read_text()), first)
+            # The same CLI invocation without the graph fails closed.
+            self.assertEqual(UCR.run(input_path, policy_path, output_path), 1)
+            self.assertEqual(json.loads(output_path.read_text()), first)
+            # A graph path that does not exist fails closed too.
+            self.assertEqual(
+                UCR.run(
+                    input_path, policy_path, output_path, temp / "missing-graph.json"
+                ),
+                1,
+            )
+            self.assertEqual(json.loads(output_path.read_text()), first)
 
 
 if __name__ == "__main__":
