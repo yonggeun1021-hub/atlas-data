@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,25 @@ SPEC = importlib.util.spec_from_file_location("global_asset_master", MODULE_PATH
 GAM = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(GAM)
+
+# The binding tests reuse the merged ThemeTaxonomy/2 fixtures and its isolated
+# synthetic authority repository instead of restating them here.
+_AUTHORITY_SPEC = importlib.util.spec_from_file_location(
+    "atlas_global_asset_master_authority_fixture",
+    ROOT / "test" / "test_theme_taxonomy_authority.py",
+)
+assert _AUTHORITY_SPEC is not None and _AUTHORITY_SPEC.loader is not None
+_AUTHORITY = importlib.util.module_from_spec(_AUTHORITY_SPEC)
+_AUTHORITY_SPEC.loader.exec_module(_AUTHORITY)
+AuthorityRepo = _AUTHORITY.AuthorityRepo
+TT = _AUTHORITY.TT
+taxonomy_fixture = _AUTHORITY.fixture
+
+# Exact bytes the ThemeTaxonomy/2 fixture publishes for the US membership's
+# single evidence row.  A binding is only positive when the master's own THEME
+# membership names the same document.
+TAXONOMY_EVIDENCE_URL = "https://www.sec.gov/Archives/edgar/data/1/EVIDENCE.US.TEST.htm"
+TAXONOMY_EVIDENCE_SHA256 = "b" * 64
 
 
 def source(source_id: str, suffix: str = "a") -> dict:
@@ -154,6 +174,70 @@ def sample_input() -> dict:
         "as_of_date": "2026-08-20",
         "records": [us, korea, crypto],
     }
+
+
+def bound_theme_source() -> dict:
+    return {
+        "source_id": "nasdaq_trader_symbol_directory",
+        "source_url": TAXONOMY_EVIDENCE_URL,
+        "source_sha256": TAXONOMY_EVIDENCE_SHA256,
+        "available_at": "2026-08-18",
+        "retrieved_at_utc": "2026-08-18T12:00:00Z",
+    }
+
+
+def binding_master_input() -> dict:
+    """Sample master plus one record whose THEME membership can be bound."""
+    value = sample_input()
+    bound = record(
+        "US:XNAS:TEST",
+        "US",
+        "EQUITY",
+        "TEST",
+        "XNAS",
+        "USD",
+        "nasdaq_trader_symbol_directory",
+    )
+    bound["memberships"].append(
+        {
+            "membership_type": "THEME",
+            "membership_id": "SEGMENT.COMPUTE",
+            "valid_from": "2026-08-20",
+            "valid_to": None,
+            "source_identity": bound_theme_source(),
+        }
+    )
+    value["records"].append(bound)
+    return value
+
+
+def binding_reference(**overrides) -> dict:
+    reference = {
+        "asset_id": "US:XNAS:TEST",
+        "gam_membership_id": "SEGMENT.COMPUTE",
+        "taxonomy_membership_id": "MEMBERSHIP.US.TEST",
+        "evidence_id": "EVIDENCE.US.TEST",
+    }
+    reference.update(overrides)
+    return reference
+
+
+def bound_membership(value: dict) -> dict:
+    bound = next(row for row in value["records"] if row["asset_id"] == "US:XNAS:TEST")
+    return next(
+        row for row in bound["memberships"] if row["membership_type"] == "THEME"
+    )
+
+
+def repository_head() -> str:
+    """Immutable object name of this repository's current commit.
+
+    The binding check refuses to resolve an authority boundary against a moving
+    reference, so even the default-registry tests must pin one explicitly.
+    """
+    return subprocess.check_output(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True
+    ).strip()
 
 
 def rehash(packet: dict) -> dict:
@@ -432,6 +516,444 @@ class GlobalAssetMasterTests(unittest.TestCase):
         self.assertNotIn("urllib.request", text)
         self.assertNotIn("config/universe.json", text)
         self.assertNotIn("data/", text)
+
+
+class ThemeSourceBindingTests(unittest.TestCase):
+    """Optional read-only THEME input source-binding validation."""
+
+    def setUp(self):
+        if shutil.which("git") is None:
+            self.skipTest("git is required to rebuild the taxonomy authority boundary")
+
+    def authority_repo(self, graph: dict, **kwargs):
+        """Clearly synthetic, isolated approval evidence in a throwaway repo."""
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        return AuthorityRepo(Path(temp.name), graph, **kwargs)
+
+    def check(self, master, graph, bindings, repo=None, **kwargs):
+        if repo is not None:
+            kwargs.setdefault("authority_registry_path", repo.registry_path)
+            kwargs.setdefault("trusted_commit", repo.head())
+        return GAM.validate_theme_source_binding(master, graph, bindings, **kwargs)
+
+    def test_exact_explicit_binding_is_checked_without_populating_the_master(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+        report = self.check(binding_master_input(), graph, [binding_reference()], repo)
+
+        # Every structural comparison this pair of contracts defines holds, so
+        # nothing fails.  Positive verification is still unavailable because the
+        # two source registries define no comparable identity, and an undefined
+        # comparison is reported rather than resolved in the binding's favour.
+        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_UNRESOLVED")
+        self.assertEqual(report["binding_count"], 1)
+        self.assertEqual(report["verified_binding_count"], 0)
+        self.assertEqual(
+            report["taxonomy_authority_resolution"]["status"], "AUTHORIZED"
+        )
+        binding = report["bindings"][0]
+        self.assertFalse(binding["verified"])
+        self.assertEqual(binding["failure_reasons"], [])
+        self.assertEqual(
+            binding["unresolved_reasons"],
+            ["SOURCE_ID_COMPARISON_UNDEFINED:nasdaq_trader_symbol_directory:sec_edgar"],
+        )
+
+        # Nothing is populated, approved, or made investable by verification.
+        self.assertFalse(report["master_population_authorized"])
+        self.assertEqual(report["authority"], GAM.load_contract()["authority"])
+        self.assertFalse(report["authority"]["investability_authorized"])
+        self.assertFalse(report["authority"]["universe_approval_authorized"])
+        self.assertFalse(report["authority"]["trading_authorized"])
+        self.assertIn(
+            "THEME_MEMBERSHIP_INGESTION_NOT_IMPLEMENTED",
+            report["unresolved_boundaries"],
+        )
+        digest = report.pop("payload_sha256")
+        self.assertEqual(digest, GAM.payload_sha256(report))
+
+    def test_checked_binding_preserves_role_evidence_and_source_labels(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+        report = self.check(binding_master_input(), graph, [binding_reference()], repo)
+        binding = report["bindings"][0]
+
+        taxonomy_reference = binding["taxonomy_reference"]
+        self.assertEqual(taxonomy_reference["role_id"], "COMPUTE_VENDOR")
+        self.assertEqual(taxonomy_reference["theme_id"], "SEGMENT.COMPUTE")
+        self.assertEqual(taxonomy_reference["evidence_ids"], ["EVIDENCE.US.TEST"])
+        self.assertEqual(
+            taxonomy_reference["evidence"]["audit_provenance"]["review_status"],
+            "HUMAN_RATIFIED_INPUT",
+        )
+        self.assertEqual(
+            taxonomy_reference["evidence"]["source_identity"]["source_id"], "sec_edgar"
+        )
+        # The master's own retrieval-channel label survives untranslated, and
+        # the report says plainly that the two registries are not cross-mapped.
+        self.assertEqual(
+            binding["master_reference"]["source_identity"]["source_id"],
+            "nasdaq_trader_symbol_directory",
+        )
+        self.assertEqual(
+            binding["source_id_comparison"], "UNCOMPARABLE_DISJOINT_SOURCE_REGISTRY"
+        )
+        self.assertEqual(report["comparison_basis"]["shared_source_registry"], [])
+        self.assertEqual(
+            report["comparison_basis"]["preserved_uncompared_fields"]["source_id"],
+            "SOURCE_ID_REGISTRY_CROSS_MAPPING_UNRATIFIED",
+        )
+        self.assertEqual(
+            report["comparison_basis"]["preserved_uncompared_fields"]["role_id"],
+            "GAM_MEMBERSHIP_HAS_NO_ROLE_FIELD",
+        )
+
+    def test_exact_immutable_commit_pin_is_accepted_for_the_same_binding(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+        report = self.check(
+            binding_master_input(),
+            graph,
+            [binding_reference()],
+            repo,
+            trusted_commit=repo.head(),
+        )
+        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_UNRESOLVED")
+        self.assertEqual(report["bindings"][0]["failure_reasons"], [])
+        self.assertEqual(
+            report["taxonomy_authority_resolution"]["trusted_commit"], repo.head()
+        )
+
+    def test_authority_boundary_requires_a_caller_pinned_immutable_commit(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+        master = binding_master_input()
+
+        # Omitting the pin must fail closed instead of silently resolving the
+        # authority registry against whatever HEAD happens to be.
+        with self.assertRaisesRegex(
+            GAM.AssetMasterError, "BINDING_TRUSTED_COMMIT_REQUIRED"
+        ):
+            GAM.validate_theme_source_binding(
+                master,
+                graph,
+                [binding_reference()],
+                authority_registry_path=repo.registry_path,
+            )
+        with self.assertRaisesRegex(
+            GAM.AssetMasterError, "BINDING_TRUSTED_COMMIT_REQUIRED"
+        ):
+            self.check(master, graph, [binding_reference()], repo, trusted_commit=None)
+
+        head = repo.head()
+        for value in ("HEAD", "@", "main", "", head[:12], "A" * 40, 0, head.encode()):
+            with self.subTest(trusted_commit=value):
+                with self.assertRaisesRegex(
+                    GAM.AssetMasterError, "BINDING_TRUSTED_COMMIT_INVALID"
+                ):
+                    self.check(
+                        master, graph, [binding_reference()], repo, trusted_commit=value
+                    )
+
+        # A caller-named immutable commit is the only accepted boundary, and it
+        # is the commit the authority resolution actually reports.
+        report = self.check(
+            master, graph, [binding_reference()], repo, trusted_commit=head
+        )
+        self.assertEqual(
+            report["taxonomy_authority_resolution"]["trusted_commit"], head
+        )
+
+    def test_committed_empty_registry_cannot_verify_a_membership(self):
+        report = GAM.validate_theme_source_binding(
+            binding_master_input(),
+            taxonomy_fixture(),
+            [binding_reference()],
+            trusted_commit=repository_head(),
+        )
+        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_NOT_VERIFIED")
+        self.assertFalse(report["bindings"][0]["verified"])
+        self.assertIn(
+            "TAXONOMY_SOURCE_NOT_AUTHORIZED:"
+            "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED:"
+            "AUTHORITY_NOT_COMPUTABLE_NO_AUTHORITY_RECORD",
+            report["bindings"][0]["failure_reasons"],
+        )
+
+    def test_unratified_graph_claim_cannot_verify_even_with_a_committed_record(self):
+        # The authority record binds the graph payload, which excludes the
+        # graph's own approval object.  The registry therefore still resolves,
+        # and only the unratified claim stops the binding.
+        graph = taxonomy_fixture("UNRATIFIED")
+        repo = self.authority_repo(graph)
+        report = self.check(binding_master_input(), graph, [binding_reference()], repo)
+        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_NOT_VERIFIED")
+        self.assertEqual(
+            report["taxonomy_graph_status"], "DRAFT_OR_NOT_EFFECTIVE_GRAPH"
+        )
+        self.assertEqual(
+            report["taxonomy_authority_resolution"]["status"], "AUTHORIZED"
+        )
+        self.assertIn(
+            "TAXONOMY_SOURCE_NOT_AUTHORIZED:DRAFT_OR_NOT_EFFECTIVE_GRAPH:AUTHORIZED",
+            report["bindings"][0]["failure_reasons"],
+        )
+
+    def test_backdated_authority_is_not_usable_before_its_first_seen_commit(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph, commit_at="2026-08-25T12:00:00Z")
+        report = self.check(binding_master_input(), graph, [binding_reference()], repo)
+        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_NOT_VERIFIED")
+        self.assertIn(
+            "TAXONOMY_SOURCE_NOT_AUTHORIZED:"
+            "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED:"
+            "AUTHORITY_NOT_COMPUTABLE_PIT_VIOLATION",
+            report["bindings"][0]["failure_reasons"],
+        )
+
+    def test_asset_market_theme_evidence_and_interval_mismatches_fail_closed(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+
+        cases = {
+            "ASSET_ID_MISMATCH": (
+                binding_master_input(),
+                binding_reference(taxonomy_membership_id="MEMBERSHIP.KR.005930"),
+            ),
+            "GAM_ASSET_NOT_FOUND": (
+                binding_master_input(),
+                binding_reference(asset_id="US:XNAS:ABSENT"),
+            ),
+            "GAM_THEME_MEMBERSHIP_NOT_FOUND": (
+                binding_master_input(),
+                binding_reference(gam_membership_id="SEGMENT.ABSENT"),
+            ),
+            "TAXONOMY_MEMBERSHIP_NOT_FOUND": (
+                binding_master_input(),
+                binding_reference(taxonomy_membership_id="MEMBERSHIP.ABSENT"),
+            ),
+            "TAXONOMY_EVIDENCE_NOT_FOUND": (
+                binding_master_input(),
+                binding_reference(evidence_id="EVIDENCE.ABSENT"),
+            ),
+        }
+        for code, (master, reference) in cases.items():
+            with self.subTest(code=code):
+                report = self.check(master, graph, [reference], repo)
+                self.assertEqual(report["status"], "THEME_SOURCE_BINDING_NOT_VERIFIED")
+                self.assertTrue(
+                    any(
+                        item.startswith(code)
+                        for item in report["bindings"][0]["failure_reasons"]
+                    ),
+                    report["bindings"][0]["failure_reasons"],
+                )
+
+        theme = binding_master_input()
+        bound_membership(theme)["membership_id"] = "SEGMENT.POWER"
+        report = self.check(
+            theme, graph, [binding_reference(gam_membership_id="SEGMENT.POWER")], repo
+        )
+        self.assertTrue(
+            any(
+                item.startswith("THEME_IDENTITY_MISMATCH")
+                for item in report["bindings"][0]["failure_reasons"]
+            ),
+            report["bindings"][0]["failure_reasons"],
+        )
+
+        interval = binding_master_input()
+        bound_membership(interval)["valid_to"] = "2026-12-01"
+        report = self.check(interval, graph, [binding_reference()], repo)
+        self.assertTrue(
+            any(
+                item.startswith("EFFECTIVE_INTERVAL_MISMATCH")
+                for item in report["bindings"][0]["failure_reasons"]
+            ),
+            report["bindings"][0]["failure_reasons"],
+        )
+
+        for field, value in (
+            ("source_sha256", "d" * 64),
+            ("source_url", "https://www.sec.gov/Archives/edgar/data/1/other.htm"),
+        ):
+            with self.subTest(field=field):
+                master = binding_master_input()
+                bound_membership(master)["source_identity"][field] = value
+                report = self.check(master, graph, [binding_reference()], repo)
+                self.assertIn(
+                    f"SOURCE_EVIDENCE_MISMATCH:{field}",
+                    report["bindings"][0]["failure_reasons"],
+                )
+
+    def test_future_membership_and_ambiguous_membership_are_never_selected(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+
+        future = binding_master_input()
+        bound_membership(future)["valid_from"] = "2026-09-01"
+        report = self.check(future, graph, [binding_reference()], repo)
+        self.assertIn(
+            "GAM_MEMBERSHIP_NOT_ACTIVE:2026-08-20",
+            report["bindings"][0]["failure_reasons"],
+        )
+
+        ambiguous = binding_master_input()
+        bound = next(
+            row for row in ambiguous["records"] if row["asset_id"] == "US:XNAS:TEST"
+        )
+        bound["memberships"].append(
+            {
+                "membership_type": "THEME",
+                "membership_id": "SEGMENT.COMPUTE",
+                "valid_from": "2020-01-01",
+                "valid_to": "2026-08-20",
+                "source_identity": interval_source(
+                    "nasdaq_trader_symbol_directory", "historic-theme"
+                ),
+            }
+        )
+        report = self.check(ambiguous, graph, [binding_reference()], repo)
+        self.assertIn(
+            "GAM_THEME_MEMBERSHIP_AMBIGUOUS:SEGMENT.COMPUTE",
+            report["bindings"][0]["failure_reasons"],
+        )
+        self.assertIsNone(report["bindings"][0]["master_reference"])
+
+    def test_both_sides_use_production_validators_and_reject_rehashed_forgery(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+
+        packet = GAM.build_master(binding_master_input())
+        forged = copy.deepcopy(packet)
+        bound = next(
+            row for row in forged["records"] if row["asset_id"] == "US:XNAS:TEST"
+        )
+        bound["active_memberships"] = [
+            row for row in bound["active_memberships"] if row["membership_type"] != "THEME"
+        ]
+        with self.assertRaisesRegex(
+            GAM.AssetMasterError, "OUTPUT_RECORD_DERIVATION_MISMATCH"
+        ):
+            self.check(rehash(forged), graph, [binding_reference()], repo)
+
+        # A validated packet is an accepted master source; a taxonomy *packet*
+        # is not a graph source, so a pre-authorized claim cannot be injected.
+        report = self.check(packet, graph, [binding_reference()], repo)
+        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_UNRESOLVED")
+        self.assertEqual(report["bindings"][0]["failure_reasons"], [])
+        with self.assertRaisesRegex(GAM.AssetMasterError, "TAXONOMY_SOURCE_INVALID"):
+            self.check(
+                binding_master_input(),
+                TT.build_packet(taxonomy_fixture()),
+                [binding_reference()],
+                repo,
+            )
+        with self.assertRaisesRegex(GAM.AssetMasterError, "MASTER_SOURCE_SCHEMA_UNKNOWN"):
+            self.check({"schema_version": "forged/1"}, graph, [binding_reference()], repo)
+
+    def test_incomparable_source_identity_stays_unresolved_and_never_verifies(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+        report = self.check(binding_master_input(), graph, [binding_reference()], repo)
+        binding = report["bindings"][0]
+
+        # The ratified contracts share no source ID, so no binding can reach a
+        # defined source-identity comparison and none may be reported positive.
+        self.assertEqual(report["comparison_basis"]["shared_source_registry"], [])
+        self.assertEqual(
+            binding["source_id_comparison"], "UNCOMPARABLE_DISJOINT_SOURCE_REGISTRY"
+        )
+        self.assertFalse(binding["verified"])
+        self.assertEqual(report["verified_binding_count"], 0)
+        self.assertNotEqual(report["status"], "THEME_SOURCE_BINDING_VERIFIED")
+
+        # The unresolved reason names both original labels and neither converts
+        # nor equates them, and it is not downgraded to a mismatch either.
+        self.assertEqual(
+            binding["unresolved_reasons"],
+            ["SOURCE_ID_COMPARISON_UNDEFINED:nasdaq_trader_symbol_directory:sec_edgar"],
+        )
+        self.assertEqual(binding["failure_reasons"], [])
+        self.assertEqual(
+            binding["master_reference"]["source_identity"]["source_id"],
+            "nasdaq_trader_symbol_directory",
+        )
+        self.assertEqual(
+            binding["taxonomy_reference"]["evidence"]["source_identity"]["source_id"],
+            "sec_edgar",
+        )
+
+        # An unresolved source identity is never traded away by a structural
+        # failure elsewhere: the binding stays not verified either way.
+        mismatch = binding_master_input()
+        bound_membership(mismatch)["source_identity"]["source_sha256"] = "d" * 64
+        failed = self.check(mismatch, graph, [binding_reference()], repo)["bindings"][0]
+        self.assertFalse(failed["verified"])
+        self.assertIn("SOURCE_EVIDENCE_MISMATCH:source_sha256", failed["failure_reasons"])
+        self.assertEqual(
+            failed["unresolved_reasons"],
+            ["SOURCE_ID_COMPARISON_UNDEFINED:nasdaq_trader_symbol_directory:sec_edgar"],
+        )
+
+        # A binding whose comparison never ran is not verified either.
+        absent = self.check(
+            binding_master_input(),
+            graph,
+            [binding_reference(evidence_id="EVIDENCE.ABSENT")],
+            repo,
+        )["bindings"][0]
+        self.assertEqual(absent["source_id_comparison"], "NOT_EVALUATED")
+        self.assertFalse(absent["verified"])
+
+    def test_binding_reference_must_be_explicit_and_complete(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+        master = binding_master_input()
+
+        with self.assertRaisesRegex(GAM.AssetMasterError, "BINDINGS_EMPTY"):
+            self.check(master, graph, [], repo)
+        with self.assertRaisesRegex(GAM.AssetMasterError, "BINDINGS_NOT_LIST"):
+            self.check(master, graph, binding_reference(), repo)
+        for field in GAM.BINDING_REFERENCE_FIELDS:
+            with self.subTest(field=field):
+                partial = binding_reference()
+                del partial[field]
+                with self.assertRaisesRegex(
+                    GAM.AssetMasterError, "BINDING_REFERENCE_FIELDS_MISMATCH"
+                ):
+                    self.check(master, graph, [partial], repo)
+        with self.assertRaisesRegex(
+            GAM.AssetMasterError, "BINDING_REFERENCE_FIELDS_MISMATCH"
+        ):
+            self.check(master, graph, [binding_reference(theme_id="SEGMENT.COMPUTE")], repo)
+        with self.assertRaisesRegex(
+            GAM.AssetMasterError, "BINDING_REFERENCE_VALUE_INVALID"
+        ):
+            self.check(master, graph, [binding_reference(evidence_id="")], repo)
+
+    def test_binding_check_mutates_nothing_and_leaves_legacy_output_unchanged(self):
+        graph = taxonomy_fixture()
+        repo = self.authority_repo(graph)
+        master = binding_master_input()
+        master_before = GAM.canonical_json(master)
+        graph_before = GAM.canonical_json(graph)
+        registry_before = repo.registry_path.read_bytes()
+        evidence_before = repo.evidence_path.read_bytes()
+        tracked_before = (ROOT / "config" / "universe.json").read_bytes()
+        legacy_before = GAM.canonical_json(GAM.build_master(sample_input()))
+
+        self.check(master, graph, [binding_reference()], repo)
+
+        self.assertEqual(GAM.canonical_json(master), master_before)
+        self.assertEqual(GAM.canonical_json(graph), graph_before)
+        self.assertEqual(repo.registry_path.read_bytes(), registry_before)
+        self.assertEqual(repo.evidence_path.read_bytes(), evidence_before)
+        self.assertEqual((ROOT / "config" / "universe.json").read_bytes(), tracked_before)
+        self.assertEqual(
+            GAM.canonical_json(GAM.build_master(sample_input())), legacy_before
+        )
 
 
 if __name__ == "__main__":

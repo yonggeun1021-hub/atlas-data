@@ -26,11 +26,23 @@ CONTRACT_PATH = ROOT / "config" / "global_asset_master_contract.json"
 CONTRACT_SCHEMA_VERSION = 1
 INPUT_SCHEMA_VERSION = "global_asset_master_input/1"
 OUTPUT_SCHEMA_VERSION = "global_asset_master_packet/1"
+THEME_BINDING_SCHEMA_VERSION = "global_asset_master_theme_binding_report/1"
+
+BINDING_REFERENCE_FIELDS = (
+    "asset_id",
+    "gam_membership_id",
+    "taxonomy_membership_id",
+    "evidence_id",
+)
 
 ASSET_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,95}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9$._:/-]{0,95}$")
 NAMESPACE_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,47}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+# An authority boundary is only immutable when the caller pins a full object
+# name.  A branch, tag, or relative revision such as HEAD moves under the
+# check, so it is not accepted as a trusted commit.
+TRUSTED_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
@@ -571,6 +583,383 @@ def build_master(value: dict, contract: dict | None = None) -> dict:
     }
     packet["payload_sha256"] = payload_sha256(packet)
     return validate_packet(packet, contract)
+
+
+def _load_theme_taxonomy():
+    """Import the merged ThemeTaxonomy/2 producer only when binding is checked.
+
+    The identity builder and the CLI keep their existing import surface: a
+    caller that never asks for a binding check never loads the rotation module.
+    """
+    try:
+        from rotation import theme_taxonomy as TT
+    except ModuleNotFoundError:  # module executed by path, repository not on sys.path
+        import sys
+
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from rotation import theme_taxonomy as TT
+    return TT
+
+
+def _validated_master(source: dict, contract: dict) -> dict:
+    """Re-derive the caller's master through the production validators only."""
+    if not isinstance(source, dict):
+        raise AssetMasterError("MASTER_SOURCE_NOT_OBJECT")
+    schema_version = source.get("schema_version")
+    if schema_version == OUTPUT_SCHEMA_VERSION:
+        return validate_packet(copy.deepcopy(source), contract)
+    if schema_version == INPUT_SCHEMA_VERSION:
+        return build_master(copy.deepcopy(source), contract)
+    raise AssetMasterError(f"MASTER_SOURCE_SCHEMA_UNKNOWN:{schema_version!r}")
+
+
+def _theme_binding_reference(value, index: int) -> dict:
+    if not isinstance(value, dict) or set(value) != set(BINDING_REFERENCE_FIELDS):
+        raise AssetMasterError(f"BINDING_REFERENCE_FIELDS_MISMATCH:{index}")
+    reference = {}
+    for field in BINDING_REFERENCE_FIELDS:
+        if not _nonempty(value[field]):
+            raise AssetMasterError(f"BINDING_REFERENCE_VALUE_INVALID:{index}:{field}")
+        reference[field] = value[field]
+    return reference
+
+
+def _shared_source_registry(contract: dict, taxonomy_contract: dict) -> set:
+    """Source IDs that both contracts admit, so equality is contract-defined."""
+    taxonomy_sources = {
+        source_id
+        for allowed in taxonomy_contract["market_sources"].values()
+        for source_id in allowed
+    }
+    return set(contract["source_coverage"]) & taxonomy_sources
+
+
+def validate_theme_source_binding(
+    master_source: dict,
+    taxonomy_source: dict,
+    bindings: list,
+    contract: dict | None = None,
+    taxonomy_contract: dict | None = None,
+    authority_registry_path=None,
+    trusted_commit: str | None = None,
+) -> dict:
+    """Check explicit caller bindings between THEME memberships and a taxonomy.
+
+    Read-only pre-ingestion check.  ``master_source`` is an original Global
+    Asset Master input or packet, ``taxonomy_source`` is an original Theme
+    graph input document, and ``bindings`` are explicit caller references
+    naming an asset, a GAM THEME membership, a taxonomy membership, and one of
+    that membership's evidence rows.
+
+    Both sides are re-derived here with their own production validators: the
+    master through :func:`build_master` / :func:`validate_packet`, and the graph
+    through ``theme_taxonomy.build_packet`` against the committed authority
+    registry at an immutable ``trusted_commit``.  That commit is a required
+    caller input: this check never falls back to the working tree's current
+    ``HEAD``, because the authority boundary a binding is judged against must be
+    named by the caller and must not move.  No status, digest, or authority
+    claim carried inside either caller document is trusted, nothing is inferred
+    from symbols or names, nothing is mutated, and a verified binding never
+    populates the master or opens investability.
+    """
+    contract = _validate_contract(contract) if contract is not None else load_contract()
+    if trusted_commit is None:
+        raise AssetMasterError("BINDING_TRUSTED_COMMIT_REQUIRED")
+    if (
+        not isinstance(trusted_commit, str)
+        or TRUSTED_COMMIT_RE.fullmatch(trusted_commit) is None
+    ):
+        raise AssetMasterError(f"BINDING_TRUSTED_COMMIT_INVALID:{trusted_commit!r}")
+    if not isinstance(bindings, list):
+        raise AssetMasterError("BINDINGS_NOT_LIST")
+    if not bindings:
+        raise AssetMasterError("BINDINGS_EMPTY")
+    references = [
+        _theme_binding_reference(value, index) for index, value in enumerate(bindings)
+    ]
+
+    master = _validated_master(master_source, contract)
+    taxonomy_module = _load_theme_taxonomy()
+    registry_kwargs = (
+        {}
+        if authority_registry_path is None
+        else {"authority_registry_path": Path(authority_registry_path)}
+    )
+    try:
+        taxonomy = taxonomy_module.build_packet(
+            copy.deepcopy(taxonomy_source),
+            copy.deepcopy(taxonomy_contract) if taxonomy_contract is not None else None,
+            trusted_commit=trusted_commit,
+            **registry_kwargs,
+        )
+    except taxonomy_module.ThemeTaxonomyError as exc:
+        raise AssetMasterError(f"TAXONOMY_SOURCE_INVALID:{exc}") from exc
+    taxonomy_contract = (
+        taxonomy_module.load_contract()
+        if taxonomy_contract is None
+        else copy.deepcopy(taxonomy_contract)
+    )
+
+    as_of_date = master["as_of_date"]
+    taxonomy_as_of = taxonomy["as_of_date"]
+    records = {row["asset_id"]: row for row in master["records"]}
+    taxonomy_memberships = {row["membership_id"]: row for row in taxonomy["memberships"]}
+    adapter_ids = {
+        row["membership_id"]
+        for row in taxonomy["global_asset_master_membership_adapter"]
+    }
+    authority_status = taxonomy["authority_resolution"]["status"]
+    authorized = taxonomy["theme_membership_authorized"] is True
+    shared_sources = _shared_source_registry(contract, taxonomy_contract)
+    intervals_comparable = (
+        contract["effective_interval"] == taxonomy_contract["effective_interval"]
+    )
+
+    common_failures = []
+    common_unresolved = []
+    if not authorized:
+        # Both halves are reported: an authorized registry record still cannot
+        # activate a graph whose own effective slice is not a ratified claim.
+        common_failures.append(
+            "TAXONOMY_SOURCE_NOT_AUTHORIZED:"
+            f"{taxonomy['graph_status']}:{authority_status}"
+        )
+    if taxonomy_as_of != as_of_date:
+        common_failures.append(f"AS_OF_DATE_MISMATCH:{as_of_date}:{taxonomy_as_of}")
+    if not intervals_comparable:
+        common_unresolved.append(
+            "EFFECTIVE_INTERVAL_SEMANTICS_UNCOMPARABLE:"
+            f"{contract['effective_interval']}:{taxonomy_contract['effective_interval']}"
+        )
+
+    results = []
+    for reference in references:
+        failures = list(common_failures)
+        unresolved = list(common_unresolved)
+
+        record = records.get(reference["asset_id"])
+        if record is None:
+            failures.append(f"GAM_ASSET_NOT_FOUND:{reference['asset_id']}")
+        membership = None
+        if record is not None:
+            candidates = [
+                row
+                for row in record["memberships"]
+                if row["membership_type"] == "THEME"
+                and row["membership_id"] == reference["gam_membership_id"]
+            ]
+            if not candidates:
+                failures.append(
+                    f"GAM_THEME_MEMBERSHIP_NOT_FOUND:{reference['gam_membership_id']}"
+                )
+            elif len(candidates) > 1:
+                # Non-overlapping history rows may repeat one membership ID.
+                # The caller reference does not name an interval, so no winner
+                # is chosen here.
+                failures.append(
+                    f"GAM_THEME_MEMBERSHIP_AMBIGUOUS:{reference['gam_membership_id']}"
+                )
+            else:
+                membership = candidates[0]
+
+        theme_membership = taxonomy_memberships.get(reference["taxonomy_membership_id"])
+        if theme_membership is None:
+            failures.append(
+                f"TAXONOMY_MEMBERSHIP_NOT_FOUND:{reference['taxonomy_membership_id']}"
+            )
+        evidence = None
+        if theme_membership is not None:
+            matches = [
+                row
+                for row in theme_membership["evidence"]
+                if row["evidence_id"] == reference["evidence_id"]
+            ]
+            if not matches:
+                failures.append(
+                    f"TAXONOMY_EVIDENCE_NOT_FOUND:{reference['evidence_id']}"
+                )
+            else:
+                evidence = matches[0]
+
+        if record is not None and theme_membership is not None:
+            if record["asset_id"] != theme_membership["asset_id"]:
+                failures.append(
+                    f"ASSET_ID_MISMATCH:{record['asset_id']}:{theme_membership['asset_id']}"
+                )
+            if record["market"] != theme_membership["market"]:
+                failures.append(
+                    f"MARKET_MISMATCH:{record['market']}:{theme_membership['market']}"
+                )
+
+        if membership is not None and theme_membership is not None:
+            theme_id = theme_membership["theme_id"]
+            if TOKEN_RE.fullmatch(theme_id) is None:
+                # A taxonomy theme ID that this contract cannot even express as
+                # a membership ID has no defined comparison, and none is
+                # invented for it.
+                unresolved.append(f"THEME_IDENTITY_COMPARISON_UNDEFINED:{theme_id}")
+            elif membership["membership_id"] != theme_id:
+                failures.append(
+                    f"THEME_IDENTITY_MISMATCH:{membership['membership_id']}:{theme_id}"
+                )
+            if intervals_comparable and (
+                membership["valid_from"] != theme_membership["valid_from"]
+                or membership["valid_to"] != theme_membership["valid_to"]
+            ):
+                failures.append(
+                    "EFFECTIVE_INTERVAL_MISMATCH:"
+                    f"{membership['valid_from']}:{membership['valid_to']}:"
+                    f"{theme_membership['valid_from']}:{theme_membership['valid_to']}"
+                )
+            if not _active(membership["valid_from"], membership["valid_to"], as_of_date):
+                failures.append(f"GAM_MEMBERSHIP_NOT_ACTIVE:{as_of_date}")
+            if not _active(
+                theme_membership["valid_from"],
+                theme_membership["valid_to"],
+                taxonomy_as_of,
+            ):
+                failures.append(f"TAXONOMY_MEMBERSHIP_NOT_ACTIVE:{taxonomy_as_of}")
+            if authorized and theme_membership["membership_id"] not in adapter_ids:
+                failures.append(
+                    "TAXONOMY_MEMBERSHIP_NOT_IN_AUTHORIZED_ADAPTER:"
+                    f"{theme_membership['membership_id']}"
+                )
+
+        source_id_comparison = "NOT_EVALUATED"
+        if membership is not None and evidence is not None:
+            master_identity = membership["source_identity"]
+            evidence_identity = evidence["source_identity"]
+            for field in ("source_url", "source_sha256"):
+                if master_identity[field] != evidence_identity[field]:
+                    failures.append(f"SOURCE_EVIDENCE_MISMATCH:{field}")
+            if (
+                master_identity["source_id"] in shared_sources
+                and evidence_identity["source_id"] in shared_sources
+            ):
+                source_id_comparison = "COMPARED"
+                if master_identity["source_id"] != evidence_identity["source_id"]:
+                    failures.append("SOURCE_EVIDENCE_MISMATCH:source_id")
+            else:
+                # The two contracts publish disjoint retrieval-channel
+                # registries with no ratified cross-mapping.  Both labels are
+                # preserved verbatim below instead of being converted, and the
+                # binding stays unresolved: an identity comparison this pair of
+                # contracts does not define cannot be answered positively.
+                source_id_comparison = "UNCOMPARABLE_DISJOINT_SOURCE_REGISTRY"
+                unresolved.append(
+                    "SOURCE_ID_COMPARISON_UNDEFINED:"
+                    f"{master_identity['source_id']}:{evidence_identity['source_id']}"
+                )
+
+        master_reference = None
+        if membership is not None:
+            master_reference = {
+                "asset_id": record["asset_id"],
+                "market": record["market"],
+                "membership_type": membership["membership_type"],
+                "membership_id": membership["membership_id"],
+                "valid_from": membership["valid_from"],
+                "valid_to": membership["valid_to"],
+                "source_identity": copy.deepcopy(membership["source_identity"]),
+            }
+        taxonomy_reference = None
+        if theme_membership is not None:
+            taxonomy_reference = {
+                "membership_id": theme_membership["membership_id"],
+                "asset_id": theme_membership["asset_id"],
+                "market": theme_membership["market"],
+                "theme_id": theme_membership["theme_id"],
+                "role_id": theme_membership["role_id"],
+                "valid_from": theme_membership["valid_from"],
+                "valid_to": theme_membership["valid_to"],
+                "evidence_ids": [
+                    row["evidence_id"] for row in theme_membership["evidence"]
+                ],
+                "evidence": copy.deepcopy(evidence),
+            }
+
+        failures = sorted(set(failures))
+        unresolved = sorted(set(unresolved))
+        # Positive verification additionally requires that the source-identity
+        # comparison was actually performed against a shared registry.  An
+        # undefined or skipped comparison is never treated as agreement.
+        results.append(
+            {
+                **reference,
+                "verified": (
+                    not failures
+                    and not unresolved
+                    and source_id_comparison == "COMPARED"
+                ),
+                "failure_reasons": failures,
+                "unresolved_reasons": unresolved,
+                "source_id_comparison": source_id_comparison,
+                "master_reference": master_reference,
+                "taxonomy_reference": taxonomy_reference,
+            }
+        )
+
+    verified_count = sum(1 for row in results if row["verified"])
+    if verified_count == len(results):
+        status = "THEME_SOURCE_BINDING_VERIFIED"
+    elif any(row["failure_reasons"] for row in results):
+        status = "THEME_SOURCE_BINDING_NOT_VERIFIED"
+    else:
+        status = "THEME_SOURCE_BINDING_UNRESOLVED"
+
+    report = {
+        "schema_version": THEME_BINDING_SCHEMA_VERSION,
+        "contract_version": contract["contract_version"],
+        "taxonomy_contract_version": taxonomy_contract["contract_version"],
+        "master_id": master["master_id"],
+        "taxonomy_id": taxonomy["taxonomy_id"],
+        "as_of_date": as_of_date,
+        "taxonomy_as_of_date": taxonomy_as_of,
+        "status": status,
+        "binding_count": len(results),
+        "verified_binding_count": verified_count,
+        "bindings": results,
+        "master_payload_sha256": master["payload_sha256"],
+        "taxonomy_payload_sha256": taxonomy["payload_sha256"],
+        "taxonomy_graph_status": taxonomy["graph_status"],
+        "taxonomy_authority_resolution": copy.deepcopy(
+            taxonomy["authority_resolution"]
+        ),
+        "comparison_basis": {
+            "effective_interval": contract["effective_interval"],
+            "compared_fields": [
+                "asset_id",
+                "market",
+                "theme_identity",
+                "valid_from",
+                "valid_to",
+                "source_url",
+                "source_sha256",
+            ],
+            "preserved_uncompared_fields": {
+                "audit_provenance": "GAM_MEMBERSHIP_HAS_NO_PROVENANCE_FIELD",
+                "available_at": "RETRIEVAL_CLOCK_IS_NOT_DOCUMENT_IDENTITY",
+                "claim_text": "GAM_MEMBERSHIP_HAS_NO_CLAIM_FIELD",
+                "retrieved_at_utc": "RETRIEVAL_CLOCK_IS_NOT_DOCUMENT_IDENTITY",
+                "role_id": "GAM_MEMBERSHIP_HAS_NO_ROLE_FIELD",
+                "source_id": "SOURCE_ID_REGISTRY_CROSS_MAPPING_UNRATIFIED",
+            },
+            "shared_source_registry": sorted(shared_sources),
+        },
+        "master_population_authorized": False,
+        "policy_status": copy.deepcopy(contract["policy_status"]),
+        "authority": copy.deepcopy(contract["authority"]),
+        "unresolved_boundaries": [
+            "MARKET_UNIVERSE_POLICY_UNRATIFIED",
+            "THEME_TAXONOMY_UNRATIFIED",
+            "LIVE_MASTER_POPULATION_NOT_IMPLEMENTED",
+            "THEME_MEMBERSHIP_INGESTION_NOT_IMPLEMENTED",
+            "SOURCE_ID_REGISTRY_CROSS_MAPPING_UNRATIFIED",
+        ],
+    }
+    report["payload_sha256"] = payload_sha256(report)
+    return report
 
 
 def write_json_atomic(path: Path, value: dict) -> None:
