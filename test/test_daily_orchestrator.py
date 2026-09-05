@@ -437,6 +437,82 @@ class DailyOrchestratorTest(unittest.TestCase):
             all(row["action"] is None for row in summary["packet"]["actions"])
         )
 
+    def test_p1_regime_slot_carries_exact_runtime_blockers_not_a_placeholder(self):
+        packet = MODULE.build_packet(
+            "morning", DECISION_DATE, MORNING_GENERATED_AT
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        defensive = by_id["DEFENSIVE_ACTION_DECISION"]["packet"]
+        reasons = defensive["unavailable_reasons"]["P1_REGIME_DECISION"]
+
+        # The runtime readiness boundary actually ran over this build's own
+        # regime_output/v1 envelopes: the opaque placeholder is gone and the
+        # exact upstream gaps are named.
+        self.assertNotIn(
+            "P1_REGIME_DECISION_PRODUCTION_CONTRACT_UNAVAILABLE", reasons
+        )
+        self.assertIn("P1_REGIME_DECISION_NOT_RUNTIME_WIRED", reasons)
+        self.assertIn(
+            "COMMON_V1_REPLAY_MODE:SHADOW_PIT_REPLAY_ONLY_RUNTIME_NOT_WIRED",
+            reasons,
+        )
+        for market in ("US", "KR", "CRYPTO"):
+            self.assertIn(
+                f"SIGNED_NORMALIZATION_POLICY_UNRATIFIED:{market}", reasons
+            )
+            self.assertIn(f"PIT_REPLAY_NOT_ACCEPTED:{market}", reasons)
+        authority_contract = MODULE.RUNTIME_REGIME_READINESS.AUTHORITY.load_contract()
+        for component in authority_contract["required_policy_components"]:
+            self.assertIn(f"REGIME_POLICY_COMPONENT_MISSING:{component}", reasons)
+        # No invocation-time-tainted hash may leak into this list: the
+        # component's semantic fingerprint is computed over it, so a
+        # generated_at-derived value here would force a spurious new
+        # revision on every same-day rebuild.
+        self.assertFalse(any("SHA256" in reason for reason in reasons), reasons)
+
+        # Naming the blockers grants nothing.
+        rows = {row["name"]: row for row in defensive["sources"]}
+        self.assertEqual(rows["P1_REGIME_DECISION"]["availability"], "UNAVAILABLE")
+        self.assertEqual(defensive["decision_status"], "BLOCKED")
+        self.assertIsNone(defensive["selected_action"])
+        self.assertEqual(defensive["order_intents"], [])
+        self.assertIn(
+            "P1_REGIME_DECISION_UNAVAILABLE", defensive["unresolved_boundaries"]
+        )
+
+    def test_pre_wiring_packet_rebuild_and_version_tamper(self):
+        legacy = MODULE.build_packet(
+            "morning", DECISION_DATE, MORNING_GENERATED_AT,
+            runtime_regime_readiness_version=None,
+        )
+        self.assertNotIn("runtime_regime_readiness_version", legacy)
+        self.assertEqual(MODULE.validate_packet(legacy), legacy)
+        upgraded = copy.deepcopy(legacy)
+        upgraded["runtime_regime_readiness_version"] = 1
+        unsigned = copy.deepcopy(upgraded)
+        unsigned.pop("packet_sha256")
+        upgraded["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaises(MODULE.DailyOrchestratorError):
+            MODULE.validate_packet(upgraded)
+        with self.assertRaises(MODULE.DailyOrchestratorError):
+            MODULE.build_packet(
+                "morning", DECISION_DATE, MORNING_GENERATED_AT,
+                runtime_regime_readiness_version=True,
+            )
+
+    def test_p1_regime_blocker_derivation_falls_back_instead_of_failing(self):
+        # A failure keeps the slot unavailable and preserves the exact code.
+        self.assertIsNone(
+            MODULE.build_p1_regime_unavailable_reasons(None, MORNING_GENERATED_AT)
+        )
+        self.assertEqual(
+            MODULE.build_p1_regime_unavailable_reasons(
+                {"US": {}, "KR": {}, "CRYPTO": {}}, MORNING_GENERATED_AT
+            ),
+            ["P1_REGIME_DECISION_PRODUCTION_CONTRACT_UNAVAILABLE",
+             "P1_REGIME_READINESS_INVALID:REGIME_OUTPUT_INVALID"],
+        )
+
     def test_replaying_a_past_decision_date_never_reads_newer_evidence(self):
         # This repo has real committed evidence for both 2026-08-20 and
         # 2026-08-21 for BTC/stablecoin/crypto-breadth. Building a briefing
