@@ -362,3 +362,9 @@ implementation lane can substitute for. Until item 1 exists, additional P6
 hardening does not move the money path; the readiness packet added here exists
 precisely so that the *exact* remaining blockers are visible in the daily
 briefing artifact instead of being restated by hand.
+
+## Independent review corrections
+
+- Readiness validation compares canonical JSON bytes, rejecting Python boolean/numeric aliases even when an attacker keeps the original hash.
+- New daily packets carry the hash-bound `runtime_regime_readiness_version: 1` derivation marker. Packets without it are rebuilt through the exact pre-wiring P6 derivation, preserving archived briefing validation. A marker change without matching independent re-derivation fails; no persisted component row is trusted as an input. This is a technical derivation version, not a policy version or ratification.
+- Readiness validation failures retain their stable error code in the P6 unavailable reasons.

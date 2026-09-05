@@ -224,6 +224,12 @@ class RuntimeRegimeReadinessTests(unittest.TestCase):
                 ):
                     MODULE.validate_readiness(packet)
 
+    def test_boolean_numeric_alias_with_original_hash_is_rejected(self):
+        packet = self.build()
+        packet["authority"]["order_authorized"] = 0
+        with self.assertRaises(MODULE.RuntimeRegimeReadinessError):
+            MODULE.validate_readiness(packet)
+
     def test_self_rehashed_blocker_removal_fails_closed(self):
         packet = self.build()
         packet["p1_regime_decision_unavailable_reasons"] = [

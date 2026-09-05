@@ -2974,7 +2974,13 @@ def build_packet(
     generated_at: str,
     contract: dict | None = None,
     frozen_sources: dict[str, dict] | None = None,
+    runtime_regime_readiness_version: int | None = 1,
 ) -> dict:
+    if runtime_regime_readiness_version is not None and (
+        type(runtime_regime_readiness_version) is not int
+        or runtime_regime_readiness_version != 1
+    ):
+        fail("RUNTIME_REGIME_READINESS_VERSION_INVALID", str(runtime_regime_readiness_version))
     contract = load_contract() if contract is None else contract
     if slot not in contract["slots"]:
         fail("SLOT_INVALID", slot)
@@ -3188,7 +3194,8 @@ def build_packet(
 
     rows["DEFENSIVE_ACTION_DECISION"] = _boundary(
         build_defensive_action_decision(
-            rows, decision_date, generated_at, regime_outputs
+            rows, decision_date, generated_at,
+            regime_outputs if runtime_regime_readiness_version == 1 else None,
         )
     )
     rows["STRATEGIC_CAPITAL_POSTURE"] = _boundary(
@@ -3305,6 +3312,9 @@ def build_packet(
             "SAME_DAY_AUTOMATIC_RECOVERY_TRIGGER_NOT_SCHEDULED",
         ],
     }
+    # Version the derivation, not policy or authority. Absent on legacy packets.
+    if runtime_regime_readiness_version is not None:
+        packet["runtime_regime_readiness_version"] = runtime_regime_readiness_version
     packet["packet_sha256"] = payload_sha256(packet)
     return packet
 
@@ -3355,6 +3365,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     rebuilt = build_packet(
         packet["slot"], packet["decision_date"], packet["generated_at"], contract,
         frozen_sources=frozen_sources,
+        runtime_regime_readiness_version=packet.get("runtime_regime_readiness_version"),
     )
     if rebuilt != packet:
         fail("OUTPUT_MISMATCH", "rebuilt packet does not match persisted packet")

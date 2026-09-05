@@ -480,6 +480,26 @@ class DailyOrchestratorTest(unittest.TestCase):
             "P1_REGIME_DECISION_UNAVAILABLE", defensive["unresolved_boundaries"]
         )
 
+    def test_pre_wiring_packet_rebuild_and_version_tamper(self):
+        legacy = MODULE.build_packet(
+            "morning", DECISION_DATE, MORNING_GENERATED_AT,
+            runtime_regime_readiness_version=None,
+        )
+        self.assertNotIn("runtime_regime_readiness_version", legacy)
+        self.assertEqual(MODULE.validate_packet(legacy), legacy)
+        upgraded = copy.deepcopy(legacy)
+        upgraded["runtime_regime_readiness_version"] = 1
+        unsigned = copy.deepcopy(upgraded)
+        unsigned.pop("packet_sha256")
+        upgraded["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaises(MODULE.DailyOrchestratorError):
+            MODULE.validate_packet(upgraded)
+        with self.assertRaises(MODULE.DailyOrchestratorError):
+            MODULE.build_packet(
+                "morning", DECISION_DATE, MORNING_GENERATED_AT,
+                runtime_regime_readiness_version=True,
+            )
+
     def test_p1_regime_blocker_derivation_falls_back_instead_of_failing(self):
         # A failure keeps the slot unavailable and preserves the exact code.
         self.assertIsNone(

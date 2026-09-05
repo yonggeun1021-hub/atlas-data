@@ -384,7 +384,7 @@ def validate_readiness(packet) -> dict:
     digest = actual.pop("packet_sha256", None)
     if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
         fail("OUTPUT_PACKET_SHA_INVALID", str(digest))
-    if actual != expected:
+    if canonical_json(actual) != canonical_json(expected):
         fail("OUTPUT_DERIVATION_MISMATCH", "packet is not source-derived")
     if payload_sha256(expected) != digest:
         fail("OUTPUT_PACKET_SHA_MISMATCH", digest)
