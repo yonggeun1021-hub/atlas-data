@@ -3014,7 +3014,13 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
         "ACTION_RISK_PORTFOLIO_SUMMARY",
         "PENDING",
         "MOST_UPSTREAM_SOURCES_NOT_YET_LIVE",
-        as_of_date=generated_at[:10],
+        # The KST business date this row reports for, exactly as the two
+        # sibling CAPITAL_ACTION rows (:2916, :2972) are labelled -- never
+        # generated_at's UTC calendar day, which is one day earlier on
+        # every 22:05Z natural morning run and would force the Flow-First
+        # section aggregator to SOURCE_AS_OF_DATE_MISMATCH.  build_summary
+        # has already proven this value equals both siblings' as_of_date.
+        as_of_date=packet["decision_date"],
         generated_at=generated_at,
         source_packet_sha256=packet.get("packet_sha256"),
         validated=True,
