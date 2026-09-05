@@ -3011,5 +3011,500 @@ class DartObservationBriefingIntegrationTests(unittest.TestCase):
         self.assertIn("source_failed=1 content_failed=0", rendered)
 
 
+class USRotationLedgerWiringTests(unittest.TestCase):
+    """P2-05 -> P8-05: the daily component's real US rotation ledger input.
+
+    Before this wiring build_rotation_discovery() always called
+    LEDGER.empty_ledger(), so the daily Rotation section could not show a
+    real state history even when one already existed. These tests exercise
+    the orchestrator's own component (not the P8-05 builder in isolation),
+    and every rotation fact asserted here is re-derived independently in the
+    test from the unchanged rotation_state_ledger, never copied out of the
+    row being checked.
+
+    Fixture rotation packets/policies are synthetic P2-05 regression
+    fixtures. They prove the wiring, the validation boundary and the
+    fail-closed behaviour; they are not, and must not be read as, a natural
+    operational rotation sample.
+    """
+
+    # An instant this repository has real committed Discovery/DART/wildcard
+    # evidence for -- the same one test_event_discovery_population.py pins
+    # for its real-population assertion on this exact component -- and after
+    # ROTATION_AS_OF, so the rotation observation is never future-dated
+    # relative to the briefing.
+    GENERATED_AT = "2026-08-25T01:00:00Z"
+    ROTATION_AS_OF = "2026-08-20"
+    # The pair the frozen-source re-derivability test above already proves
+    # build_packet()/validate_packet() resolve consistently.
+    FROZEN_DECISION_DATE = DECISION_DATE
+    FROZEN_GENERATED_AT = f"{DECISION_DATE}T14:59:00Z"
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location(
+            "daily_orchestrator_rotation_state_fixture",
+            ROOT / "test" / "test_rotation_state_ledger.py",
+        )
+        cls.fixture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.fixture)
+
+    def _source(self, *, packet=None, policy=None, previous_ledger=None):
+        packet = self.fixture.us_packet(self.ROTATION_AS_OF) if packet is None else packet
+        policy = self.fixture.policy_for(packet) if policy is None else policy
+        return {
+            "rotation_packet": packet,
+            "state_policy": policy,
+            "previous_ledger": previous_ledger,
+        }
+
+    def _row(self, source=MODULE.US_ROTATION_LEDGER_OMITTED, generated_at=None):
+        # Default is the omitted-input sentinel, NOT None: None is a real
+        # supplied value at this boundary (see the explicit-null cases below).
+        return MODULE.build_rotation_discovery(
+            "morning", generated_at or self.GENERATED_AT, None, source
+        )
+
+    @staticmethod
+    def _rows_by_id(packet):
+        return {row["component_id"]: row for row in packet["components"]}
+
+    def test_valid_us_packet_reaches_the_real_daily_ledger_section(self):
+        source = self._source()
+        # Independently derived here, through the unchanged ledger module,
+        # so the row is compared against a real apply_rotation() result
+        # rather than against itself.
+        expected = MODULE.LEDGER.apply_rotation(
+            copy.deepcopy(source["rotation_packet"]),
+            copy.deepcopy(source["state_policy"]),
+        )
+        mapping = source["state_policy"]["state_by_bucket_transition"]
+
+        row = self._row(source)
+
+        self.assertEqual(row["status"], "PENDING")
+        rotation = row["packet"]["rotation"]
+        self.assertEqual(rotation["ledger_status"], "STATE_HISTORY_OBSERVED")
+        self.assertEqual(rotation["ledger_revision"], expected["ledger_revision"])
+        self.assertEqual(rotation["ledger_revision"], 1)
+        self.assertEqual(rotation["source_ledger_sha256"], expected["payload_sha256"])
+        self.assertEqual(rotation["latest_change_count"], len(expected["records"]))
+        self.assertGreater(rotation["latest_change_count"], 0)
+        expected_by_entity = {
+            (record["scope_id"], record["entity_id"]): record
+            for record in expected["records"]
+        }
+        for change in rotation["latest_changes"]:
+            record = expected_by_entity[(change["scope_id"], change["entity_id"])]
+            self.assertEqual(change["market"], "US")
+            self.assertEqual(change["record_sha256"], record["record_sha256"])
+            self.assertEqual(
+                change["source_packet_sha256"], record["input_packet_sha256"]
+            )
+            self.assertEqual(change["as_of_date"], self.ROTATION_AS_OF)
+            # The state comes from the caller's ratified external policy,
+            # not from anything this orchestrator decided.
+            self.assertEqual(
+                change["current_state"],
+                mapping[change["structural_bucket_transition"]],
+            )
+            self.assertIsNone(change["prior_state"])
+            self.assertEqual(
+                change["state_transition"],
+                f"UNINITIALIZED_TO_{change['current_state']}",
+            )
+        self.assertEqual(
+            row["packet"]["summary"]["rotation_change_count"],
+            rotation["latest_change_count"],
+        )
+        # A real rotation history still grants no new authority.
+        self.assertEqual(row["packet"]["summary"]["new_candidate_count"], 0)
+        self.assertEqual(row["packet"]["summary"]["ready_count"], 0)
+        self.assertEqual(row["packet"]["summary"]["entry_trigger_count"], 0)
+        self.assertIsNone(row["packet"]["summary"]["ranked_candidate"])
+        self.assertIsNone(row["packet"]["summary"]["action"])
+        self.assertFalse(row["authority"]["stage_promotion_authorized"])
+        self.assertFalse(row["authority"]["candidate_ranking_authorized"])
+        self.assertFalse(row["authority"]["action_generation_authorized"])
+        self.assertFalse(row["authority"]["production_authorized"])
+        self.assertFalse(row["authority"]["trading_authorized"])
+        self.assertFalse(row["decision_eligible"])
+        self.assertFalse(row["action_eligible"])
+        self.assertFalse(row["order_eligible"])
+
+    def test_absent_optional_input_preserves_legacy_empty_ledger_output(self):
+        # The first call is literally the pre-wiring call signature -- the
+        # rotation source argument is not passed at all -- and the second is
+        # the explicit omitted sentinel. Absence means absence, and only
+        # absence keeps the legacy bytes.
+        legacy = MODULE.build_rotation_discovery("morning", self.GENERATED_AT)
+        omitted = self._row()
+
+        self.assertEqual(
+            MODULE.payload_sha256(legacy), MODULE.payload_sha256(omitted)
+        )
+        rotation = legacy["packet"]["rotation"]
+        self.assertEqual(rotation["ledger_status"], "EMPTY")
+        self.assertEqual(rotation["ledger_revision"], 0)
+        self.assertEqual(rotation["latest_changes"], [])
+        self.assertEqual(rotation["latest_change_count"], 0)
+        self.assertEqual(
+            rotation["source_ledger_sha256"],
+            MODULE.LEDGER.empty_ledger()["payload_sha256"],
+        )
+        # The optional input is not a component and is never fetched, so an
+        # unsupplied build keeps the daily packet's existing frozen-source
+        # key set (asserted exhaustively in
+        # test_frozen_source_components_are_genuinely_independently_revalidatable).
+        self.assertNotIn(
+            MODULE.US_ROTATION_LEDGER_SOURCE, MODULE.FROZEN_SOURCE_COMPONENTS
+        )
+
+    def test_invalid_supplied_input_is_never_silently_an_empty_ledger(self):
+        packet = self.fixture.us_packet(self.ROTATION_AS_OF)
+        policy = self.fixture.policy_for(packet)
+        cases = {
+            # A caller who passes null passed something. "Null was supplied"
+            # is not "nothing was supplied", so it must not resolve to the
+            # legacy empty ledger.
+            "explicitly_supplied_null": (
+                None, "US_ROTATION_LEDGER_SOURCE_INVALID"
+            ),
+            "not_an_object": (["rotation_packet"], "SOURCE_FIELDS_INVALID"),
+            "missing_previous_ledger_key": (
+                {"rotation_packet": packet, "state_policy": policy},
+                "SOURCE_FIELDS_INVALID",
+            ),
+            "unexpected_key": (
+                {
+                    "rotation_packet": packet,
+                    "state_policy": policy,
+                    "previous_ledger": None,
+                    "ledger": "already-derived",
+                },
+                "SOURCE_FIELDS_INVALID",
+            ),
+            "packet_not_an_object": (
+                {
+                    "rotation_packet": "us_capital_rotation_packet/2",
+                    "state_policy": policy,
+                    "previous_ledger": None,
+                },
+                "SOURCE_INVALID",
+            ),
+            "previous_ledger_wrong_type": (
+                {
+                    "rotation_packet": packet,
+                    "state_policy": policy,
+                    "previous_ledger": [],
+                },
+                "SOURCE_INVALID",
+            ),
+            "empty_packet": (
+                {
+                    "rotation_packet": {},
+                    "state_policy": policy,
+                    "previous_ledger": None,
+                },
+                "US_ROTATION_LEDGER_MARKET_INVALID",
+            ),
+        }
+        legacy_ledger_sha = MODULE.LEDGER.empty_ledger()["payload_sha256"]
+        for name, (source, expected_code) in cases.items():
+            with self.subTest(case=name):
+                row = self._row(source)
+                self.assertEqual(row["status"], "DEGRADED")
+                self.assertIn(expected_code, row["reason"])
+                self.assertFalse(row["validated"])
+                # The whole point: a rejected input must not render as a
+                # healthy component holding an empty rotation ledger.
+                self.assertIsNone(row["packet"])
+                self.assertNotIn(legacy_ledger_sha, MODULE.canonical_json(row))
+
+    def test_future_wrong_market_unratified_mismatch_and_forgery_are_rejected(self):
+        packet = self.fixture.us_packet(self.ROTATION_AS_OF)
+        korea = self.fixture.korea_packet(self.ROTATION_AS_OF)
+
+        # Point-in-time: an observation dated after the briefing instant is
+        # rejected by the existing P8-05 check, not silently presented.
+        future = self.fixture.us_packet("2026-08-26")
+        cases = {
+            "from_future": (
+                self._source(packet=future, policy=self.fixture.policy_for(future)),
+                "ROTATION_FROM_FUTURE",
+            ),
+            "wrong_market": (
+                self._source(packet=korea),
+                "US_ROTATION_LEDGER_MARKET_INVALID",
+            ),
+            "unratified_policy": (
+                self._source(
+                    packet=packet,
+                    policy=self.fixture.policy_for(
+                        packet, approval_status="UNRATIFIED"
+                    ),
+                ),
+                "STATE_POLICY_NOT_RATIFIED",
+            ),
+            "policy_ratified_after_observation": (
+                self._source(
+                    packet=packet,
+                    policy=self.fixture.policy_for(
+                        packet, ratified_at_utc=f"{self.ROTATION_AS_OF}T00:00:01Z"
+                    ),
+                ),
+                "STATE_POLICY_RATIFIED_TOO_LATE",
+            ),
+            "policy_input_binding_mismatch": (
+                self._source(
+                    packet=packet,
+                    policy=self.fixture.policy_for(
+                        packet, input_rotation_policy_sha256="0" * 64
+                    ),
+                ),
+                "STATE_POLICY_INPUT_BINDING_MISMATCH",
+            ),
+            "rehashed_semantic_forgery": (
+                self._source(packet=self._forged_us_packet(packet)),
+                "ROTATION_PACKET_SEMANTIC_INVALID:US",
+            ),
+        }
+        for name, (source, expected_code) in cases.items():
+            with self.subTest(case=name):
+                row = self._row(source)
+                self.assertEqual(row["status"], "DEGRADED")
+                self.assertIn(expected_code, row["reason"])
+                self.assertIsNone(row["packet"])
+
+    def _forged_us_packet(self, packet):
+        """A packet whose bucket verdict was edited and then re-signed.
+
+        Recomputing payload_sha256 makes the packet internally self-
+        consistent, so only the producer's own re-derivation of ranks and
+        buckets can catch it -- exactly why this wiring hands the ORIGINAL
+        packet to apply_rotation() instead of trusting any digest.
+        """
+        forged = copy.deepcopy(packet)
+        row = forged["theme_observations"][0]
+        row["current_bucket"] = (
+            "MIDDLE" if row["current_bucket"] != "MIDDLE" else "TOP"
+        )
+        row["bucket_transition"] = (
+            f"{row['prior_bucket']}_TO_{row['current_bucket']}"
+        )
+        forged.pop("payload_sha256")
+        forged["payload_sha256"] = MODULE.payload_sha256(forged)
+        self.assertNotEqual(forged["payload_sha256"], packet["payload_sha256"])
+        return forged
+
+    def test_previous_non_us_history_is_preserved_and_reapply_is_idempotent(self):
+        korea_packet = self.fixture.korea_packet(self.ROTATION_AS_OF)
+        previous = MODULE.LEDGER.apply_rotation(
+            copy.deepcopy(korea_packet),
+            self.fixture.policy_for(korea_packet),
+        )
+        korea_records = {
+            (record["scope_id"], record["entity_id"]): record
+            for record in previous["records"]
+            if record["market"] == "KOREA"
+        }
+        self.assertTrue(korea_records)
+
+        us = self.fixture.us_packet(self.ROTATION_AS_OF)
+        source = self._source(packet=us, previous_ledger=previous)
+        row = self._row(source)
+
+        self.assertEqual(row["status"], "PENDING")
+        rotation = row["packet"]["rotation"]
+        self.assertEqual(rotation["ledger_revision"], 2)
+        markets = {change["market"] for change in rotation["latest_changes"]}
+        self.assertEqual(markets, {"US", "KOREA"})
+        for change in rotation["latest_changes"]:
+            if change["market"] != "KOREA":
+                continue
+            # Pre-existing non-US history is carried through untouched, not
+            # replaced by the US application.
+            self.assertEqual(
+                change["record_sha256"],
+                korea_records[
+                    (change["scope_id"], change["entity_id"])
+                ]["record_sha256"],
+            )
+
+        # Re-applying the exact same source packet on top of the resulting
+        # ledger is idempotent through the ledger's own append-only rules.
+        applied = MODULE.LEDGER.apply_rotation(
+            copy.deepcopy(us),
+            copy.deepcopy(source["state_policy"]),
+            copy.deepcopy(previous),
+        )
+        duplicate = self._row(
+            self._source(packet=us, previous_ledger=applied)
+        )
+        self.assertEqual(duplicate["packet"]["rotation"], rotation)
+        self.assertEqual(
+            duplicate["packet"]["rotation"]["source_ledger_sha256"],
+            applied["payload_sha256"],
+        )
+
+    def test_supplied_input_objects_are_not_mutated(self):
+        us = self.fixture.us_packet(self.ROTATION_AS_OF)
+        policy = self.fixture.policy_for(us)
+        # A same-packet re-application on an existing ledger: exercises the
+        # duplicate path while passing every supplied object through the
+        # component.
+        source = self._source(
+            packet=us,
+            policy=policy,
+            previous_ledger=MODULE.LEDGER.apply_rotation(
+                copy.deepcopy(us), copy.deepcopy(policy)
+            ),
+        )
+        before = MODULE.canonical_json(source)
+        row = self._row(source)
+        self.assertEqual(row["status"], "PENDING")
+        self.assertEqual(MODULE.canonical_json(source), before)
+        self.assertEqual(row["packet"]["rotation"]["ledger_revision"], 1)
+
+    def test_frozen_replay_survives_external_input_change_and_catches_tamper(self):
+        source = self._source()
+        frozen_before = copy.deepcopy(source)
+        packet = MODULE.build_packet(
+            "evening",
+            self.FROZEN_DECISION_DATE,
+            self.FROZEN_GENERATED_AT,
+            frozen_sources={MODULE.US_ROTATION_LEDGER_SOURCE: source},
+        )
+        self.assertEqual(
+            set(packet["frozen_sources"]),
+            MODULE.FROZEN_SOURCE_COMPONENTS | {MODULE.US_ROTATION_LEDGER_SOURCE},
+        )
+        frozen = packet["frozen_sources"][MODULE.US_ROTATION_LEDGER_SOURCE]
+        # The RAW inputs are frozen -- not a derived, self-rehashed ledger --
+        # so revalidation re-runs the real apply_rotation() over them.
+        self.assertEqual(frozen, frozen_before)
+        self.assertEqual(set(frozen), {"rotation_packet", "state_policy", "previous_ledger"})
+
+        # Mutating the caller's own object afterwards must not retroactively
+        # change what this packet was built from, nor break its digest.
+        source["rotation_packet"]["theme_observations"][0]["current_bucket"] = "TOP"
+        source["state_policy"]["policy_id"] = "US.STATE.SWAPPED.V1"
+        self.assertEqual(
+            packet["frozen_sources"][MODULE.US_ROTATION_LEDGER_SOURCE], frozen_before
+        )
+        self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
+
+        # Tampering the frozen input itself is caught, because validation
+        # genuinely re-derives the row from it instead of trusting the row.
+        tampered = copy.deepcopy(packet)
+        tampered["frozen_sources"][MODULE.US_ROTATION_LEDGER_SOURCE][
+            "rotation_packet"
+        ] = self._forged_us_packet(frozen_before["rotation_packet"])
+        unsigned = copy.deepcopy(tampered)
+        del unsigned["packet_sha256"]
+        tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaisesRegex(MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"):
+            MODULE.validate_packet(tampered)
+
+    def test_key_present_null_frozen_source_is_supplied_input_not_absence(self):
+        """The production boundary: build_packet() must not read a supplied
+        null as an omitted source.
+
+        Only key ABSENCE is absence. A frozen_sources entry that exists and
+        holds null (or any other unusable value) is an input the caller
+        actually handed this build, so it is frozen exactly as supplied and
+        fails the ROTATION_DISCOVERY row closed. Reading it as absence would
+        render an explicitly broken build identically to a healthy one that
+        never had a rotation source -- the two must stay distinguishable in
+        the packet's own bytes.
+        """
+        key = MODULE.US_ROTATION_LEDGER_SOURCE
+        omitted = MODULE.build_packet(
+            "evening", self.FROZEN_DECISION_DATE, self.FROZEN_GENERATED_AT
+        )
+        explicit_null = MODULE.build_packet(
+            "evening",
+            self.FROZEN_DECISION_DATE,
+            self.FROZEN_GENERATED_AT,
+            frozen_sources={key: None},
+        )
+
+        # Same slot, same date, same instant -- yet not the same packet,
+        # because they were built from different inputs.
+        self.assertNotEqual(omitted["packet_sha256"], explicit_null["packet_sha256"])
+
+        # Omitted: legacy key set, legacy bytes, no rotation-source failure,
+        # and the packet still replays to itself byte-for-byte.
+        self.assertNotIn(key, omitted["frozen_sources"])
+        self.assertEqual(
+            set(omitted["frozen_sources"]), MODULE.FROZEN_SOURCE_COMPONENTS
+        )
+        omitted_row = self._rows_by_id(omitted)["ROTATION_DISCOVERY"]
+        self.assertNotEqual(omitted_row["status"], "DEGRADED")
+        self.assertNotIn(key, omitted_row["reason"])
+        self.assertEqual(MODULE.validate_packet(copy.deepcopy(omitted)), omitted)
+
+        # Explicit null: the raw supplied value is preserved, so the
+        # fail-closed verdict replays deterministically from the same
+        # rejected input rather than from a key that was quietly dropped.
+        self.assertIn(key, explicit_null["frozen_sources"])
+        self.assertIsNone(explicit_null["frozen_sources"][key])
+        null_row = self._rows_by_id(explicit_null)["ROTATION_DISCOVERY"]
+        self.assertEqual(null_row["status"], "DEGRADED")
+        self.assertIn("US_ROTATION_LEDGER_SOURCE_INVALID", null_row["reason"])
+        self.assertIsNone(null_row["packet"])
+        self.assertFalse(null_row["validated"])
+        # No silent legacy fallback: the empty ledger this component used to
+        # hand out unconditionally appears nowhere in the failed row.
+        self.assertNotIn(
+            MODULE.LEDGER.empty_ledger()["payload_sha256"],
+            MODULE.canonical_json(null_row),
+        )
+        self.assertNotEqual(
+            MODULE.payload_sha256(null_row), MODULE.payload_sha256(omitted_row)
+        )
+        self.assertEqual(
+            MODULE.validate_packet(copy.deepcopy(explicit_null)), explicit_null
+        )
+
+    def test_malformed_key_present_frozen_source_cannot_render_as_healthy(self):
+        """Same boundary, non-null unusable values: still never the empty
+        ledger, still frozen exactly as supplied for replay."""
+        key = MODULE.US_ROTATION_LEDGER_SOURCE
+        legacy_ledger_sha = MODULE.LEDGER.empty_ledger()["payload_sha256"]
+        for name, supplied in {
+            "empty_object": {},
+            "wrong_keys": {"ledger": "already-derived"},
+            "derived_ledger_instead_of_raw_inputs": MODULE.LEDGER.empty_ledger(),
+            "not_an_object": "US_ROTATION_LEDGER",
+        }.items():
+            with self.subTest(case=name):
+                packet = MODULE.build_packet(
+                    "evening",
+                    self.FROZEN_DECISION_DATE,
+                    self.FROZEN_GENERATED_AT,
+                    frozen_sources={key: supplied},
+                )
+                self.assertEqual(packet["frozen_sources"][key], supplied)
+                row = self._rows_by_id(packet)["ROTATION_DISCOVERY"]
+                self.assertEqual(row["status"], "DEGRADED")
+                self.assertIn("US_ROTATION_LEDGER_SOURCE", row["reason"])
+                self.assertIsNone(row["packet"])
+                self.assertNotIn(
+                    legacy_ledger_sha, MODULE.canonical_json(row)
+                )
+
+    def test_unknown_frozen_source_key_still_fails_closed(self):
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "FROZEN_SOURCES_INVALID"
+        ):
+            MODULE.build_packet(
+                "morning",
+                self.FROZEN_DECISION_DATE,
+                self.FROZEN_GENERATED_AT,
+                frozen_sources={"KOREA_ROTATION_LEDGER": {}},
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
