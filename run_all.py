@@ -692,6 +692,7 @@ APPROVED_TESTS = [
     #   stress·3/5 UNKNOWN을 검증한다. ⛔ runtime wiring/PIT replay acceptance
     #   없음 — signed axis 입력만 받고 모든 downstream 권한은 false다.
     "test/test_regime_decision_authority.py",
+    "test/test_runtime_regime_readiness.py",
     # ★ P1-COM-05 evidence population — 비준된 P1-COM-02 5/5 coverage만
     #   exact policy bytes/PR/WBS lineage로 후보에 결합한다. 나머지 8개
     #   파라미터와 replay는 BLOCKED/NOT_COMPUTABLE, 모든 downstream 권한은 false다.

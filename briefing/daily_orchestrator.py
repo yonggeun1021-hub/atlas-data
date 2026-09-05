@@ -104,6 +104,9 @@ REGIME = _load("atlas_daily_regime", "regime/output_contract.py")
 LIVE_AXIS_ADAPTER = _load(
     "atlas_daily_live_axis_adapter", "regime/live_axis_adapter.py"
 )
+RUNTIME_REGIME_READINESS = _load(
+    "atlas_daily_runtime_regime_readiness", "regime/runtime_regime_readiness.py"
+)
 FRED_VIX_PROVENANCE = _load(
     "atlas_daily_fred_vix_provenance", "collectors/fred_vix_provenance.py"
 )
@@ -2721,17 +2724,56 @@ _POLICY_BLOCKED_ACTION_SOURCES = {
 }
 
 
+def build_p1_regime_unavailable_reasons(
+    regime_outputs: dict[str, dict] | None, generated_at: str
+) -> list[str] | None:
+    """Exact P6-06 `P1_REGIME_DECISION` blockers from the real runtime axes.
+
+    This conveys readiness only.  It re-runs the already-merged coverage,
+    decision-authority, and signed-axis boundaries over the same
+    `regime_output/v1` envelopes this briefing already builds, so the slot's
+    unavailable reasons name the real missing axes, markets, and policy
+    components instead of one opaque placeholder.  The slot stays UNAVAILABLE
+    either way; returning None means the caller keeps its existing fallback.
+    """
+    if regime_outputs is None:
+        return None
+    try:
+        readiness = RUNTIME_REGIME_READINESS.build_readiness(
+            regime_outputs, generated_at
+        )
+        return DEFENSIVE_ACTION_DECISION.p1_regime_decision_unavailable_reasons(
+            readiness
+        )
+    except Exception as exc:  # noqa: BLE001 - detail failure cannot grant authority
+        # Keep the validator's stable code, never arbitrary paths or provider data.
+        code = str(exc).split(":", 1)[0]
+        if re.fullmatch(r"[A-Z][A-Z0-9_]{2,95}", code) is None:
+            code = "VALIDATOR_EXCEPTION"
+        return [
+            "P1_REGIME_DECISION_PRODUCTION_CONTRACT_UNAVAILABLE",
+            f"P1_REGIME_READINESS_INVALID:{code}",
+        ]
+
+
 def build_defensive_action_decision(
-    component_rows: dict[str, dict], decision_date: str, generated_at: str
+    component_rows: dict[str, dict],
+    decision_date: str,
+    generated_at: str,
+    regime_outputs: dict[str, dict] | None = None,
 ) -> dict:
     contract = DEFENSIVE_ACTION_DECISION.load_contract()
     unsupported = set(contract["unavailable_only_source_slots"])
+    p1_reasons = build_p1_regime_unavailable_reasons(regime_outputs, generated_at)
     source_packets = {}
     unavailable_reasons = {}
     for name in contract["source_order"]:
         if name in unsupported:
             source_packets[name] = None
-            unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
+            if name == "P1_REGIME_DECISION" and p1_reasons is not None:
+                unavailable_reasons[name] = list(p1_reasons)
+            else:
+                unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
             continue
         row = component_rows[name]
         if row["packet"] is not None and row["validated"]:
@@ -3145,7 +3187,9 @@ def build_packet(
     rows["P2_FLOW_ENGINE"] = _boundary(build_capital_flow_posture_reference())
 
     rows["DEFENSIVE_ACTION_DECISION"] = _boundary(
-        build_defensive_action_decision(rows, decision_date, generated_at)
+        build_defensive_action_decision(
+            rows, decision_date, generated_at, regime_outputs
+        )
     )
     rows["STRATEGIC_CAPITAL_POSTURE"] = _boundary(
         build_strategic_capital_posture(rows, decision_date, generated_at)
