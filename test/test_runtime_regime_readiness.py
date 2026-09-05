@@ -224,6 +224,19 @@ class RuntimeRegimeReadinessTests(unittest.TestCase):
                 ):
                     MODULE.validate_readiness(packet)
 
+    def test_supplied_coverage_never_claims_source_authentication(self):
+        packet = self.build(full_coverage_markets=MARKETS)
+        self.assertEqual(packet["source_validation_scope"], "STRUCTURAL_ENVELOPE_ONLY")
+        self.assertIs(packet["source_evidence_bytes_verified"], False)
+        self.assertEqual(packet["summary"]["coverage_met_market_count"], 3)
+        self.assertIs(packet["runtime_decision_available"], False)
+        packet["source_evidence_bytes_verified"] = True
+        packet["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in packet.items() if k != "packet_sha256"}
+        )
+        with self.assertRaises(MODULE.RuntimeRegimeReadinessError):
+            MODULE.validate_readiness(packet)
+
     def test_boolean_numeric_alias_with_original_hash_is_rejected(self):
         packet = self.build()
         packet["authority"]["order_authorized"] = 0

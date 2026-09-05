@@ -75,7 +75,7 @@ This is the exact seam between §1.1 and §1.2.
 - Input: a `regime_output/v1` envelope, which proves axis **presence only**
   (`DEFINED`/`UNDEFINED`) — see `regime/live_axis_adapter.py`, whose mode is
   the literal `EVIDENCE_ONLY_NO_INTERPRETATION`.
-- Output: real per-axis coverage, and `signed_direction = null` /
+- Output: source-declared per-axis structural coverage, and `signed_direction = null` /
   `normalized_value = null` for **every** axis, always.
 - `common_v1_replay_step = null`, `replay_step_emitted = false`.
 - Result is `BLOCKED_COVERAGE` (when axes are missing) or
@@ -212,7 +212,7 @@ Chains only pre-existing validators, per market, over the **real** runtime
 3. `regime/decision_authority.py::evaluate_decision_authority`  (§1.1)
 4. `regime/decision_authority.py::normalize_signed_axes`        (§1.3)
 
-It emits real coverage, the real per-market registry acceptance state, and an
+It emits source-declared structural coverage, the real per-market registry acceptance state, and an
 exact, sorted, machine-readable blocker list. It pins
 `runtime_decision_available = false`, `regime = UNKNOWN`,
 `direction = UNKNOWN`, `confidence = null`,
@@ -345,8 +345,9 @@ Ordered, each independently ratifiable. None of these is performed here.
    runtime (not replay) operation.
 5. **Crypto coverage.** LEADERSHIP group layer ratification and sufficient
    real history so CRYPTO can reach 5/5 rather than remaining `UNKNOWN`.
-6. **Runtime consumer contract.** Markets may advance independently; missing
-   Crypto coverage is not a new prerequisite for US or KRX. For each market whose applicable gates are satisfied, define the runtime Regime
+6. **Runtime consumer contract.** This implementation adds no cross-market prerequisite and authorizes no
+   independent market admission. Admission sequencing remains a CIO decision.
+   For a market whose applicable gates are ratified and satisfied, define the runtime Regime
    decision packet identity (its own `generated_at`/`as_of_date` and PIT
    identity) that P6-06's `P1_REGIME_DECISION` slot would accept, and move it
    out of `unavailable_only_source_slots` in
@@ -368,3 +369,13 @@ briefing artifact instead of being restated by hand.
 - Readiness validation compares canonical JSON bytes, rejecting Python boolean/numeric aliases even when an attacker keeps the original hash.
 - New daily packets carry the hash-bound `runtime_regime_readiness_version: 1` derivation marker. Packets without it are rebuilt through the exact pre-wiring P6 derivation, preserving archived briefing validation. A marker change without matching independent re-derivation fails; no persisted component row is trusted as an input. This is a technical derivation version, not a policy version or ratification.
 - Readiness validation failures retain their stable error code in the P6 unavailable reasons.
+
+The standalone readiness packet explicitly binds `source_validation_scope =
+STRUCTURAL_ENVELOPE_ONLY` and `source_evidence_bytes_verified = false`. It
+re-derives the supplied envelope/coverage/policy-boundary consistency; it does
+not authenticate arbitrary evidence URI bytes. A caller can supply structurally
+complete fixture envelopes, but cannot claim source verification or runtime
+authority through this packet. Owning-source verification remains the caller's
+responsibility; the daily orchestrator uses its existing source builders and
+independent full-packet rebuild. This scope declaration does not add a new
+policy gate or a false permanent source blocker to the daily consumer.

@@ -7,7 +7,12 @@ This module answers exactly one question about the *runtime* path:
     already builds from live axis evidence, what precisely still blocks a
     final runtime Regime decision?
 
-It chains only pre-existing, already-ratified validators:
+It checks structural consistency of supplied envelopes through existing
+validators. It does not authenticate the evidence URI bytes itself; the owning
+consumer must rebuild those inputs. The daily orchestrator does so through its
+existing source builders and full packet re-derivation.
+
+It chains only pre-existing validators:
 
 1. ``regime/output_contract.py``   -- envelope validity (evidence presence)
 2. ``regime/minimum_coverage.py``  -- ratified 5-of-5 coverage gate
@@ -320,6 +325,8 @@ def _assemble(regime_outputs, generated_at: str) -> dict:
         "decision_status": DECISION_STATUS,
         "runtime_decision_available": False,
         "historical_replay_is_not_runtime_ready": True,
+        "source_validation_scope": "STRUCTURAL_ENVELOPE_ONLY",
+        "source_evidence_bytes_verified": False,
         "regime": FAIL_CLOSED_REGIME,
         "direction": FAIL_CLOSED_DIRECTION,
         "confidence": None,
@@ -360,7 +367,7 @@ def _assemble(regime_outputs, generated_at: str) -> dict:
 
 
 def build_readiness(regime_outputs, generated_at: str) -> dict:
-    """Build the readiness packet from real ``regime_output/v1`` envelopes."""
+    """Derive structural readiness; callers own source-evidence verification."""
     packet = _assemble(regime_outputs, generated_at)
     packet["packet_sha256"] = payload_sha256(packet)
     return validate_readiness(packet)
@@ -371,7 +378,8 @@ def validate_readiness(packet) -> dict:
     fields = {
         "schema_version", "contract_version", "contract_mode", "generated_at",
         "status", "decision_status", "runtime_decision_available",
-        "historical_replay_is_not_runtime_ready", "regime", "direction",
+        "historical_replay_is_not_runtime_ready", "source_validation_scope",
+        "source_evidence_bytes_verified", "regime", "direction",
         "confidence", "final_decision", "neutral_unknown_invariant",
         "common_v1_binding", "markets", "summary",
         "p1_regime_decision_unavailable_reasons", "regime_outputs", "authority",
