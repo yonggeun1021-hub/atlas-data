@@ -302,6 +302,27 @@ class RotationStateLedgerTest(unittest.TestCase):
             "STRONG",
         )
 
+    def test_korea_v2_source_is_consumed_and_false_authority_is_rejected(self):
+        graph = KOREA_FIXTURE.taxonomy_graph_document()
+        packet = KOREA_FIXTURE.KCR.build_packet(
+            *KOREA_FIXTURE.make_bundle(graph),
+            taxonomy_source_bytes=KOREA_FIXTURE.taxonomy_source_bytes(graph),
+        )
+        result = MODULE.apply_rotation(packet, policy_for(packet), contract=CONTRACT)
+        self.assertEqual(len(result["records"]), 6)
+        self.assertFalse(packet["taxonomy_binding"]["theme_membership_authorized"])
+        forged = copy.deepcopy(packet)
+        forged["taxonomy_binding"].update(
+            theme_membership_authorized=True,
+            taxonomy_graph_status="AUTHORIZED_EFFECTIVE_GRAPH",
+            taxonomy_authority_status="AUTHORIZED",
+        )
+        forged = refresh_packet(forged)
+        with self.assertRaisesRegex(
+            MODULE.RotationStateLedgerError, "OUTPUT_TAXONOMY_DERIVATION_MISMATCH"
+        ):
+            MODULE.apply_rotation(forged, policy_for(forged), contract=CONTRACT)
+
     def test_crypto_btc_eth_alt_buckets_use_the_same_ledger_without_sector_inference(self):
         packet = crypto_packet()
         result = MODULE.apply_rotation(packet, policy_for(packet), contract=CONTRACT)

@@ -191,3 +191,37 @@ no live source pointer, current file, or monkeypatch -- so a revision's own
 packet remains standalone-reprovable even after live source state moves on,
 and a self-rehashed tamper of any of these facts (order, gap, ratification
 timing) fails closed.
+
+
+## Existing Theme taxonomy v2 consumer path
+
+The legacy `theme_taxonomy/1` opaque binding remains byte-compatible. A binding
+for the existing producer's `theme_taxonomy/2` contract now requires the real
+`theme_taxonomy_input/1` source through `--taxonomy-graph` (or the
+`taxonomy_source_bytes` build argument). The consumer rebuilds that source with
+`rotation.theme_taxonomy.build_packet`, including its existing independent
+Git-provenance authority resolution, and compares taxonomy identity, decision
+identity, decision hash, packet hash and decision date. Rotation policy theme
+references must exist as active Theme nodes in that exact graph; this does not
+infer security memberships or change market-native classifications.
+
+The v2 binding retains the exact public source JSON text and SHA-256, graph
+status, authority-resolution status and membership-authorization result.
+Packet-only validation, including the common Rotation State Ledger consumer,
+rebuilds the embedded source and rechecks those derived fields. Re-signing a
+false membership/authority assertion or source digest is rejected. An external
+source supplied at validation must match the embedded bytes. No file path is
+trusted as the graph, and the CLI still refuses tracked output.
+
+The empty repository authority registry remains non-authorized. Existing
+externally supplied rotation policy still owns ranking and bucket thresholds;
+this change adds none. The output remains `korea_capital_rotation_packet/4` with
+an optional v2 binding variant, preserving legacy packets. It does not migrate
+the default /1 configuration or source-population registry pins, and it does
+not ratify graphs, populate US/Crypto memberships, ingest Asset Master data,
+claim a natural sample, or unlock candidate/Stage/REAL/order/trading authority.
+
+Validation uses synthetic graph/leadership fixtures through the real producer,
+Korea consumer and ledger. Operational completion still requires an actual
+canonical graph/source and existing ratified rotation policy to pass this path
+in a natural run; engineering integration is not that completion.
