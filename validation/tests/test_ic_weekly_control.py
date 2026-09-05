@@ -105,7 +105,8 @@ class ControlTests(unittest.TestCase):
             self.assertEqual(before,{n:(root/'state'/n).read_bytes() for n in sentinels})
     def test_surface_receipt_and_historical_distinction(self):
         with tempfile.TemporaryDirectory() as d:
-            hook.tick(d,self.at)
+            for row in self.p['decision_routing']: row['requires_user_action']=True
+            hook.write(Path(d)/'state/ic_weekly_control/state.json',hook.consume(self.p,{},self.at))
             v=hook.surface(d,{'user_action':'NONE'},self.at)
             self.assertIn('IC5',v['user_action'])
             root=Path(d)/'state/ic_weekly_control';s=json.loads((root/'state.json').read_text())
@@ -122,6 +123,21 @@ class ControlTests(unittest.TestCase):
         state=hook.consume(p,state,self.at)
         self.assertEqual(state['user_actions'],{})
         self.assertTrue(all(r['assessment']=='CANONICALIZED' for r in state['routing'].values()))
+    def test_historical_audits_do_not_request_user_decision(self):
+        with tempfile.TemporaryDirectory() as d:
+            hook.tick(d,self.at)
+            v=hook.surface(d,{'user_action':'NONE'},self.at)
+            self.assertEqual(v['user_action'],'NONE')
+            self.assertIn('2 historical audits',hook.summary(d))
+    def test_legacy_false_cio_surface_is_reclassified(self):
+        state=hook.consume(self.p,{},self.at)
+        for row in state['routing'].values():
+            row.update(surfaced_to_cio_at=self.at,surface_evidence='surface_receipts/legacy.json',routing_status='surfaced_to_cio')
+            state['user_actions'][row['decision_id']]={'purpose':row['purpose']}
+        state=hook.consume(self.p,state,self.at)
+        self.assertEqual(state['user_actions'],{})
+        self.assertEqual(len(state['audit_visibility_history']),2)
+        self.assertTrue(all(r['surfaced_to_cio_at'] is None for r in state['routing'].values()))
     def test_changed_action_identity_rejected(self):
         s=hook.consume(self.p,{},self.at);self.p['system_actions'][0]['kind']='order'
         with self.assertRaises(ValueError):hook.consume(self.p,s,self.at)

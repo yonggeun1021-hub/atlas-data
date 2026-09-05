@@ -76,8 +76,11 @@ canonicalized. Unknown exact IC5 creation timestamps stay null; the reported
 creation date is identified in the purpose field. No midnight time is invented.
 A missing historical surface receipt means ROUTING_EVIDENCE_MISSING, never CIO
 failure. Today's atlas-status publication is a NEW surface receipt and does not
-repair the historical evidence gap or invent acknowledgement. Pending decisions
-include historical disposition audits, not automatic demands to sign Entry rules.
+repair the historical evidence gap or invent acknowledgement. Only routing items explicitly marked `requires_user_action=true` enter User Action.
+Historical IC5 disposition audits appear in the secondary IC section only. Early
+local audit visibility receipts are retained as AUDIT_VISIBLE_NOT_CIO_DECISION_REQUEST;
+they are not evidence of CIO decision delivery. This correction never invents
+acknowledgement or a decision.
 
 All generated_at/observed_at inputs are explicit and timezone-aware. Future
 observations cannot grade a prior IC. IC6 expectations are marked retrospective

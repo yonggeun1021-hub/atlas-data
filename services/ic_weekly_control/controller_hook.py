@@ -52,6 +52,14 @@ def consume(packet, state, at):
         # Retain actual receipts; never turn today's publication into historical delivery.
         state['routing'].setdefault(row['decision_id'],deepcopy(row))
         r=state['routing'][row['decision_id']]
+        # Version-1 incorrectly displayed historical audits as decision requests.
+        # Preserve those visibility receipts while retracting the false CIO-delivery claim.
+        requires=row.get('requires_user_action',r.get('requires_user_action',False))
+        if not requires and row['decision_id'] in state['user_actions'] and not any(r.get(k) for k in ('acknowledged_at','decided_at','canonicalized_at')):
+            if r.get('surface_evidence','') and r['surface_evidence'].startswith('surface_receipts/'):
+                state.setdefault('audit_visibility_history',{}).setdefault(row['decision_id'],dict(previous_surface_at=r['surfaced_to_cio_at'],previous_receipt=r['surface_evidence'],classification='AUDIT_VISIBLE_NOT_CIO_DECISION_REQUEST',corrected_at=at))
+                r.update(surfaced_to_cio_at=None,surface_evidence=None)
+        r['requires_user_action']=requires
         for key in ('created_at','surfaced_to_cio_at','acknowledged_at','decided_at','canonicalized_at','surface_evidence'):
             if row[key] is not None:
                 if r[key] is not None and r[key]!=row[key]: raise ValueError('Routing receipt rewrite forbidden')
@@ -59,7 +67,7 @@ def consume(packet, state, at):
         stages=('created','surfaced_to_cio','acknowledged','decided','canonicalized')
         r['routing_status']=stages[sum(r[k+'_at'] is not None for k in stages[1:])]
         r['assessment']=routing_result(r)
-        if r['canonicalized_at']:
+        if r['canonicalized_at'] or not requires:
             state['user_actions'].pop(row['decision_id'],None)
         else:
             state['user_actions'].setdefault(row['decision_id'],{'purpose':row['purpose'],'published_at':at,'channel':'atlas-status User Action','historical_assessment':routing_result(row)})
@@ -94,8 +102,10 @@ def summary(base):
     state=read(Path(base)/'state/ic_weekly_control/state.json',{})
     actions=state.get('actions',{})
     counts={name:sum(a['status']==name for a in actions.values()) for name in ('QUEUED','WAITING_USER')}
+    audit_count=sum(not r.get('requires_user_action',False) and not r.get('canonicalized_at') for r in state.get('routing',{}).values())
     return ('IC CONTROL (SECONDARY)\n'
-            f"Queue             : {counts['QUEUED']} safe audit actions; {counts['WAITING_USER']} awaiting user\n"
+            f"Queue             : {counts['QUEUED']} safe audit actions; {len(state.get('user_actions',{}))} awaiting user\n"
+            f"Routing Audit     : {audit_count} historical audits; no current decision requested\n"
             'Money Lane        : RESERVED; IC has no worker dispatch/preemption authority\n'
             'Weekly Owner      : external ChatGPT IC; existing controller hook\n'
             'REAL              : CLOSED')
@@ -134,6 +144,8 @@ def tick(base, at, seed=None):
         for p in packets:
             state=consume(p,state,at)
             write(root/'packets'/f"{p['ic_id']}.json",p)
+        # Reconcile durable routing semantics even when this week's packet is deduplicated.
+        state=consume(source,state,at)
         write(root/'state.json',state)
         persisted=[read(p,{}) for p in (root/'packets').glob('*.json')]
         latest=max(persisted,key=lambda p:instant(p['generated_at'])) if persisted else source
