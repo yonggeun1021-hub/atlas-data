@@ -214,6 +214,40 @@ class KrHistoricalReplayPopulationTest(unittest.TestCase):
         self.assertEqual(record["status"], "BLOCKED")
         self.assertIn("REPLAY_LOOKAHEAD_VIOLATION", record["failure_reason"])
 
+    def test_replay_one_date_fails_closed_on_a_session_date_that_is_no_calendar_day(self):
+        # Shape is not a calendar. 20260231 is KRX-shaped, is a day no calendar
+        # has, and — because these dates compare lexicographically — sorts
+        # *before* the requested 2026-08-28, so a shape check followed by a
+        # string comparison cleared it as an ordinary earlier session. The
+        # *previous* session is the load-bearing case: it was never parsed at
+        # all, only string-compared with the current one.
+        contract = KMS.load_contract()
+        policy = MODULE._load_candidate_policy()
+        for previous_day, current_day in (
+            ("20260826", "20260231"),
+            ("20260231", "20260828"),
+        ):
+            with self.subTest(previous=previous_day, current=current_day):
+                def impossible_pair(auth_key, *, anchor, opener, contract):
+                    return (
+                        {"date": previous_day, "stock": {}, "index": {}},
+                        {"date": current_day, "stock": {}, "index": {}},
+                    )
+
+                with mock.patch.object(
+                    KMS, "discover_session_pair", side_effect=impossible_pair,
+                ):
+                    record = MODULE._replay_one_requested_date(
+                        TOKEN, "2026-08-28", opener=opener_for(base_fixtures()),
+                        contract=contract, policy=policy,
+                    )
+                self.assertEqual(record["status"], "BLOCKED")
+                self.assertIn(
+                    "REPLAY_SESSION_DATE_CALENDAR_INVALID", record["failure_reason"],
+                )
+                self.assertIsNone(record["five_axis"])
+                self.assertIsNone(record["candidate_normalized_result"])
+
     def test_malformed_date_fails_closed_without_affecting_other_dates(self):
         population = build_with_fixed_clock(
             TOKEN, ["2026-08-28", "not-a-date", "2026-13-40"], opener_for(base_fixtures()),
@@ -333,6 +367,334 @@ class KrHistoricalReplayPopulationTest(unittest.TestCase):
         )
         with self.assertRaises(MODULE.ReplayPopulationError):
             MODULE.validate_population(tampered)
+
+    def _resigned(self, population):
+        population["payload_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in population.items() if k != "payload_sha256"}
+        )
+        return population
+
+    def test_validate_population_rejects_omitted_records(self):
+        # Adversarial: a re-signed payload is a valid hash over whatever it
+        # contains, so dropping the records must fail rather than satisfy every
+        # per-record guarantee vacuously.
+        for records in ([], None):
+            with self.subTest(records=records):
+                tampered = copy.deepcopy(
+                    build_with_fixed_clock(TOKEN, ["2026-08-27", "2026-08-28"], opener_for(base_fixtures()))
+                )
+                tampered["records"] = records
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn("POPULATION_RECORDS_NOT_BIJECTIVE", str(caught.exception))
+
+    def test_validate_population_rejects_a_record_for_an_unrequested_date(self):
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["requested_date"] = "2020-03-16"
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("POPULATION_RECORDS_NOT_BIJECTIVE", str(caught.exception))
+
+    def test_validate_population_rejects_an_omitted_authority_boundary(self):
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["authority"].pop("order_authorized")
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("POPULATION_AUTHORITY_SCHEMA_INVALID", str(caught.exception))
+        emptied = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        emptied["authority"] = {}
+        with self.assertRaises(MODULE.ReplayPopulationError):
+            MODULE.validate_population(self._resigned(emptied))
+
+    def test_validate_population_rejects_a_record_that_dropped_its_evidence(self):
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["five_axis"] = None
+        tampered["records"][0]["candidate_normalized_result"] = None
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("OBSERVED_RECORD_MUST_CARRY_ITS_EVIDENCE", str(caught.exception))
+
+    def test_validate_population_rejects_a_forged_candidate_normalization(self):
+        # Adversarial, and exactly the gap a presence-only check leaves open:
+        # the five-axis evidence stays genuine and every hash is recomputed, so
+        # only re-deriving the normalization from that evidence can refuse it.
+        for mutate in (
+            lambda record: record["candidate_normalized_result"][
+                "paper_reference"
+            ].__setitem__("candidate_regime", "FORGED_STATE"),
+            lambda record: record["candidate_normalized_result"]["axes"][0].__setitem__(
+                "direction", "FORGED_DIRECTION",
+            ),
+            lambda record: record["candidate_normalized_result"][
+                "paper_reference"
+            ].__setitem__("score", 5),
+            lambda record: record["candidate_normalized_result"][
+                "paper_reference"
+            ].__setitem__("confidence", "0.25"),
+            lambda record: record["candidate_normalized_result"].__setitem__(
+                "runtime_regime", "RISK_ON",
+            ),
+            lambda record: record["candidate_normalized_result"].__setitem__(
+                "as_of_date", "2026-08-27",
+            ),
+        ):
+            with self.subTest(mutate=mutate):
+                tampered = copy.deepcopy(
+                    build_with_fixed_clock(
+                        TOKEN, ["2026-08-28"], opener_for(base_fixtures()),
+                    )
+                )
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "OBSERVED_RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE",
+                    str(caught.exception),
+                )
+
+    def test_validate_population_rejects_tampered_five_axis_evidence(self):
+        # The mirror image: keep the normalization and move the measurement it
+        # was derived from. Either side moving alone must fail closed.
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["five_axis"]["axes"]["LIQUIDITY"]["measurement"][
+            "combined"
+        ]["trading_value_change_pct"] = "99.0"
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "OBSERVED_RECORD_CANDIDATE_NOT_DERIVED_FROM_ITS_EVIDENCE",
+            str(caught.exception),
+        )
+
+    def test_validate_population_rejects_an_unnormalizable_axis_packet(self):
+        # A packet the existing rule cannot consume is reported as such rather
+        # than accepted because its normalization field happens to be present.
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["five_axis"]["axes"]["LEADERSHIP"]["measurement"][
+            "observations"
+        ] = []
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn(
+            "OBSERVED_RECORD_EVIDENCE_NOT_NORMALIZABLE", str(caught.exception),
+        )
+
+    def test_validate_population_requires_the_candidate_policy_it_pinned(self):
+        # Re-derivation is only meaningful against the same policy the
+        # population was built with, so a mismatched pin fails closed with its
+        # own code instead of surfacing as a normalization mismatch.
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["candidate_policy"]["sha256"] = "0" * 64
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("CANDIDATE_POLICY_SHA_MISMATCH", str(caught.exception))
+
+    def _observed(self, dates=("2026-08-28",)):
+        return copy.deepcopy(
+            build_with_fixed_clock(TOKEN, list(dates), opener_for(base_fixtures()))
+        )
+
+    def test_validate_population_rejects_a_record_that_dropped_its_source_provenance(self):
+        # The exact adversarial probe an integration review used: delete the
+        # official-source provenance and recompute the payload hash. The
+        # five-axis packet, the candidate normalization, the lookahead
+        # attestation, and every signature all stay genuine — so nothing but an
+        # explicit provenance requirement can refuse it, and without one the
+        # record no longer says which KRX response it was measured from.
+        for mutate, code in (
+            (lambda record: record.__setitem__("source_hashes", None),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record.pop("source_hashes"),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record["source_hashes"].pop("requests"),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record["source_hashes"].pop("packet_payload_sha256"),
+             "OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES"),
+            (lambda record: record["source_hashes"].__setitem__("requests", None),
+             "OBSERVED_RECORD_REQUEST_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"].pop("index"),
+             "OBSERVED_RECORD_REQUEST_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["stock"].pop("KOSDAQ"),
+             "OBSERVED_RECORD_REQUEST_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["stock"]["KOSPI"].pop(
+                "current_response_sha256"),
+             "OBSERVED_RECORD_REQUEST_LINEAGE_INVALID"),
+            (lambda record: record.__setitem__("source", None),
+             "OBSERVED_RECORD_SOURCE_IDENTITY_INVALID"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = self._observed()
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    def test_validate_population_rejects_re_pointed_source_provenance(self):
+        # The mirror image of deletion: keep the provenance block's shape and
+        # change what it points at. The stored packet digest is re-bound by
+        # reassembling the producer's own packet, so an edited response hash,
+        # fetch timestamp, or packet digest fails once the population alone is
+        # re-signed. Re-signing the packet digest *as well* is a different case
+        # and is covered — as an accepted limit, not a rejection — by
+        # test_source_provenance_binding_is_consistency_not_an_external_anchor.
+        for mutate, code in (
+            (lambda record: record["source_hashes"].__setitem__(
+                "packet_payload_sha256", "0" * 64),
+             "OBSERVED_RECORD_PACKET_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["stock"]["KOSPI"].__setitem__(
+                "current_response_sha256", "1" * 64),
+             "OBSERVED_RECORD_PACKET_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["index"]["KOSDAQ"].__setitem__(
+                "previous_fetched_at_utc", "2026-09-04T09:19:00Z"),
+             "OBSERVED_RECORD_PACKET_LINEAGE_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["stock"]["KOSPI"].__setitem__(
+                "current_response_sha256", "NOT-A-SHA-256"),
+             "OBSERVED_RECORD_SOURCE_HASH_SYNTAX_INVALID"),
+            (lambda record: record["source_hashes"]["requests"]["index"]["KOSPI"].__setitem__(
+                "endpoint", "https://mirror.example.invalid/krx"),
+             "OBSERVED_RECORD_REQUEST_ENDPOINT_INVALID"),
+            (lambda record: record["source"].__setitem__("source_tier", "Unofficial"),
+             "OBSERVED_RECORD_SOURCE_IDENTITY_INVALID"),
+        ):
+            with self.subTest(code=code, mutate=mutate):
+                tampered = self._observed()
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(code, str(caught.exception))
+
+    @staticmethod
+    def _producer_packet_digest(record):
+        """The packet digest the producer would compute for this record as it stands.
+
+        Reassembles the packet exactly the way ``_validate_source_provenance``
+        does and hashes it the way ``korea_market_signals.build_packet`` does, so
+        this helper can only ever produce a digest the validator itself accepts —
+        which is precisely the point of the limit test below.
+        """
+        contract = KMS.load_contract()
+        packet = MODULE._reassemble_packet(
+            record,
+            record["five_axis"],
+            record["source_hashes"]["requests"],
+            "0" * 64,
+            contract,
+        )
+        packet.pop("payload_sha256", None)
+        return KMS.payload_sha256(packet)
+
+    def test_source_provenance_binding_is_consistency_not_an_external_anchor(self):
+        # Two-sided, deliberately including the side that is NOT caught, so the
+        # module's claim and its behaviour cannot drift apart again.
+        #
+        # Side 1 — an uncoordinated re-point fails closed: editing a request
+        # response hash leaves the stored packet digest signed over the old one.
+        one_sided = self._observed()
+        one_sided["records"][0]["source_hashes"]["requests"]["stock"]["KOSPI"][
+            "current_response_sha256"
+        ] = "a" * 64
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(one_sided))
+        self.assertIn("OBSERVED_RECORD_PACKET_LINEAGE_INVALID", str(caught.exception))
+
+        # Side 2 — the documented limit. Re-point the same hash, then recompute
+        # the packet digest and the population digest the way the producer would.
+        # Nothing in the retained evidence is an immutable anchor (no raw KRX
+        # response, no provider signature), so this IS accepted. Asserting it
+        # keeps the docstring honest: any future change that makes this fail must
+        # come with a real anchor and a rewritten claim, not a quiet re-word.
+        coordinated = self._observed()
+        record = coordinated["records"][0]
+        record["source_hashes"]["requests"]["stock"]["KOSPI"][
+            "current_response_sha256"
+        ] = "a" * 64
+        record["source_hashes"]["packet_payload_sha256"] = self._producer_packet_digest(record)
+        validated = MODULE.validate_population(self._resigned(coordinated))
+        self.assertEqual(
+            validated["records"][0]["source_hashes"]["requests"]["stock"]["KOSPI"][
+                "current_response_sha256"
+            ],
+            "a" * 64,
+        )
+        # The accepted record is still internally consistent and still bound to
+        # the pinned contract — that, and only that, is what acceptance means.
+        self.assertEqual(
+            validated["records"][0]["source"]["contract_version"],
+            KMS.load_contract()["contract_version"],
+        )
+
+    def test_validate_population_rejects_a_blocked_record_that_carries_provenance(self):
+        # Null provenance is the BLOCKED shape precisely because a BLOCKED record
+        # has no evidence to attribute. Lending an observed record's lineage to a
+        # date that produced nothing must fail rather than decorate it.
+        tampered = self._observed(["2026-08-28", "not-a-date"])
+        observed = next(r for r in tampered["records"] if r["status"] == "OBSERVED")
+        blocked = next(r for r in tampered["records"] if r["status"] == "BLOCKED")
+        blocked["source_hashes"] = copy.deepcopy(observed["source_hashes"])
+        blocked["source"] = copy.deepcopy(observed["source"])
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("BLOCKED_RECORD_MUST_NOT_CARRY_PROVENANCE", str(caught.exception))
+
+    def test_validate_population_requires_the_source_contract_it_pinned(self):
+        # Re-binding a packet digest is only meaningful against the same KRX
+        # contract the population was built with, so a mismatched pin fails
+        # closed with its own code instead of surfacing as a lineage mismatch.
+        tampered = self._observed()
+        tampered["source_contract"]["sha256"] = "0" * 64
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("SOURCE_CONTRACT_SHA_MISMATCH", str(caught.exception))
+
+    def test_validate_population_rejects_a_record_that_looked_forward(self):
+        tampered = copy.deepcopy(
+            build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+        )
+        tampered["records"][0]["no_lookahead_attestation"]["session_dates_used"].append(
+            "20260904"
+        )
+        with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+            MODULE.validate_population(self._resigned(tampered))
+        self.assertIn("RECORD_LOOKAHEAD_VIOLATION", str(caught.exception))
+
+    def test_validate_population_rejects_a_session_date_that_is_no_calendar_day(self):
+        # The adversarial mirror of the build-time parse: a re-signed record can
+        # attest to any session date, and 20260231 sorts before the requested
+        # 2026-08-28, so the string comparison read it as backward-looking and
+        # the record published a point-in-time claim over a day that never was.
+        # Both accepted shapes are exercised: the attestation carries KRX
+        # YYYYMMDD dates, and the same walk normalizes ISO dates alongside them.
+        # The record's own trading dates are walked too, but they are already
+        # bound by the packet digest, so the attestation is where an impossible
+        # date could actually be re-signed into place.
+        for impossible in ("20260231", "2026-02-31"):
+            with self.subTest(impossible=impossible):
+                def mutate(record, value=impossible):
+                    record["no_lookahead_attestation"]["session_dates_used"].append(value)
+
+                tampered = copy.deepcopy(
+                    build_with_fixed_clock(TOKEN, ["2026-08-28"], opener_for(base_fixtures()))
+                )
+                mutate(tampered["records"][0])
+                with self.assertRaises(MODULE.ReplayPopulationError) as caught:
+                    MODULE.validate_population(self._resigned(tampered))
+                self.assertIn(
+                    "RECORD_SESSION_DATE_CALENDAR_INVALID", str(caught.exception),
+                )
 
     def test_build_population_requires_at_least_one_date(self):
         with self.assertRaises(MODULE.ReplayPopulationError):

@@ -747,8 +747,38 @@ APPROVED_TESTS = [
     #   missing source, or single unresolvable axis fails that one date
     #   closed without affecting any other requested date. Output is never
     #   written inside this checkout — external --out or a private temp file
-    #   only, enforced fail-closed. No new threshold, scoring, or Regime
-    #   policy is introduced; natural_promotion and every
+    #   only, enforced fail-closed. Validation is exact rather than best-effort:
+    #   every requested date must map to exactly one record, an OBSERVED record
+    #   must carry the axes and candidate result it claims, a BLOCKED one must
+    #   carry an attributable reason and neither, each record's attested session
+    #   dates are re-compared to its requested date, and the authority block must
+    #   match key for key — so a re-hashed payload cannot pass by dropping its
+    #   records or an explicit false boundary. Every KRX and payload session date
+    #   is PARSED as a calendar date before it is compared, at build and at
+    #   validation time: date shape is not a calendar and these dates compare
+    #   lexicographically, so 20260231 — a day no calendar has — sorted before
+    #   the requested date and was cleared as an ordinary earlier session, the
+    #   previous session date never having been parsed at all. It now fails that
+    #   one date closed as its own distinct fact rather than as a lookahead. A
+    #   re-hashed payload cannot pass by dropping its
+    #   records or an explicit false boundary. Provenance is enforced as part of
+    #   the observation, not as decoration: an OBSERVED record must carry the
+    #   official KRX request lineage and packet digest, which are re-bound by
+    #   reassembling the producer's own packet and re-running
+    #   korea_market_signals.validate_packet over it against the pinned contract,
+    #   so deleting a source hash, pointing a request at an unofficial endpoint,
+    #   or editing a hash without re-deriving every digest above it fails closed;
+    #   only a BLOCKED record may carry null provenance. The strength of that
+    #   binding is stated, not implied: payload_sha256 is unkeyed over the
+    #   record's own mutable fields, so a fully coordinated re-point (edit a
+    #   response hash, recompute the packet digest, recompute the population
+    #   digest) is internally consistent and is accepted. What is proven is
+    #   consistency plus pinned-contract conformance, not attribution to bytes
+    #   KRX served — no raw response or provider signature is retained to anchor
+    #   against, and obtaining one is a separate data decision. Both the caught
+    #   and the uncaught side are pinned by regression so the claim cannot
+    #   widen silently. No new threshold, scoring, or
+    #   Regime policy is introduced; natural_promotion and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_kr_historical_replay_population.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — US free-source historical replay
@@ -770,12 +800,58 @@ APPROVED_TESTS = [
     #   boundary, so no threshold is forked, tuned, or re-ratified. PIT is
     #   structural: the Alpaca request end and both FRED observation_end and
     #   ALFRED realtime vintage are pinned to the requested date, and any
-    #   source date after it fails closed. Dates come only from --date (no
+    #   source date after it fails closed. Every provider- and payload-supplied
+    #   date is PARSED as a calendar date before it is compared, at build and at
+    #   validation time. Date shape is not a calendar and ISO dates compare
+    #   lexicographically, so a shape-only check followed by a string comparison
+    #   previously cleared 2026-02-31 — a day no calendar has, sorting before
+    #   2026-03-01 — as ordinary backward-looking evidence, whether it arrived as
+    #   an observation date, an Alpaca session, the previous liquidity
+    #   observation, the series metadata, or an ALFRED vintage bound. Every date
+    #   a measurement carries is now bound to the requested date as well, because
+    #   the attestation walk never reached inside a measurement; the
+    #   still-current 9999-12-31 vintage sentinel is the single exemption and is
+    #   bound separately as a containment window. Dates come only from --date (no
     #   episode auto-selection); one axis or one date failing never affects
     #   another; credentials are redacted out of every recorded reason; the
     #   account/trading Alpaca credential is never read. Output is never
     #   written inside this checkout — external --out or a private temp file
-    #   only. natural_promotion, us_breadth, us_leadership and every
+    #   only. Validation is exact rather than best-effort: every requested date
+    #   must map to exactly one record, a record's status and free-axis coverage
+    #   are recomputed from the axes it carries, an observed/partial record may
+    #   not null its axis packet (which would satisfy the never-BREADTH rule by
+    #   having no axes at all), and the authority block must match key for key —
+    #   so a re-hashed payload cannot pass by dropping its records or an explicit
+    #   false boundary. Provenance is enforced as part of the observation, not as
+    #   decoration: each observed axis's Alpaca/FRED response hash must be present
+    #   exactly when that axis is OBSERVED, absent exactly when it is not, valid
+    #   SHA-256, and consistent with the provenance inside that axis's own
+    #   measurement, so deleting, blanking, or swapping one record-level hash
+    #   fails closed even under a recomputed payload hash. This is named for what
+    #   it is — a consistency check between two mutable copies of the same hash
+    #   (RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS), not an
+    #   external anchor: replacing both copies with the same arbitrary valid
+    #   SHA-256 and re-signing is accepted, because the raw provider responses
+    #   are not retained and neither provider signs them. That uncaught side is
+    #   pinned by an adversarial regression alongside the caught side.
+    #   Point-in-time integrity is bound on both sides of the FRED call, not only
+    #   on the request: pinning realtime_start/realtime_end states what was asked
+    #   for, so every vintage window the provider actually RETURNS — the latest
+    #   observation, the previous observation the change is measured against, and
+    #   the series metadata that fixes the units — must contain the requested
+    #   date, at build time and again in validate_population. A response whose
+    #   ALFRED vintage opens after the replayed date fails that axis closed as a
+    #   lookahead (previously it was consumed as if knowable, with measurement,
+    #   axis row, hashes and signature all internally consistent); one whose
+    #   vintage had already ended is refused separately, because being superseded
+    #   is a different fact from being unknowable. The bind is containment, never
+    #   equality: the still-current 9999-12-31 sentinel is accepted, and that
+    #   accepted side is pinned too. The population's own pit_replay declaration
+    #   is validated key for key, value for value, statement included, so a
+    #   re-signed payload can no longer assert
+    #   future_dates_used_in_any_date_evaluation=true — or delete the declaration
+    #   — while every record-level check still passes.
+    #   natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay
@@ -796,16 +872,89 @@ APPROVED_TESTS = [
     #   score/confidence is produced. US BREADTH/LEADERSHIP stay UNKNOWN and the
     #   US view is never classified. PIT is re-checked at the join: each market
     #   record's own consumed source dates (KRX YYYYMMDD and ISO alike) are
-    #   compared to its requested date, and a market that consumed a later one
-    #   is failed closed for that one date only. One blocked market, one blocked
+    #   parsed as calendar dates and compared to its requested date, and a market
+    #   that consumed a later one is failed closed for that one date only. A
+    #   consumed date that is date-shaped but is no calendar day — 2026-02-31,
+    #   which sorts before 2026-03-01 and so passed the previous string
+    #   comparison as backward-looking — fails that market closed under its own
+    #   code, never mislabelled as a lookahead; a requested date that is itself
+    #   not a real day remains a legitimate blocked record carrying each market's
+    #   own attributable reason. One blocked market, one blocked
     #   date, an unavailable market population, or an unrecognized record status
     #   never contaminates the rest; credentials are redacted out of every
     #   recorded reason and the account/trading Alpaca credential is never read.
     #   Output is never written inside this checkout — external --out or a
-    #   private temp file only. natural_promotion, episode_selection,
-    #   cross_market_regime, threshold_tuning, us_breadth, us_leadership and
-    #   every action/order/capital/production/trading/real authority stay false.
+    #   private temp file only. Validation is exact rather than best-effort:
+    #   every requested date maps to exactly one record, every published count
+    #   (combined summary, per-market outcomes, per-record outcome grouping,
+    #   episode coverage, ungrouped dates) is recomputed from those records, each
+    #   embedded population's pinned identity must be its own, and the authority
+    #   block must match key for key — so a re-hashed payload cannot pass by
+    #   dropping its records or an explicit false boundary. The join's own
+    #   lookahead re-check walks record dates, which cannot see a FRED ALFRED
+    #   vintage, so the US module's returned-vintage bind is what refuses a
+    #   future-vintage US measurement here: an embedded US population carrying
+    #   one — or a US pit_replay declaration re-signed to deny PIT — is rejected
+    #   at the join instead of publishing US as OBSERVED. natural_promotion,
+    #   episode_selection, cross_market_regime, threshold_tuning, us_breadth,
+    #   us_leadership and every
+    #   action/order/capital/production/trading/real authority stay false.
     "test/test_combined_shadow_historical_replay.py",
+    # ★ P1-COM-05 CIO mandate 2026-09-04 — deterministic replay evidence over
+    #   that combined KR+US SHADOW population (facts only, never NATURAL).
+    #   Summarizes exactly five families and nothing else: coverage, UNKNOWN,
+    #   transitions, stress detection, and hysteresis facts. It issues no
+    #   KRX/Alpaca/FRED request, derives no axis, and re-runs no normalization —
+    #   every direction, candidate regime, and reason code it counts was already
+    #   produced by the two market replay populations and joined by the combined
+    #   slice, whose OWN validator re-checks the population before a single fact
+    #   is derived. UNKNOWN semantics are preserved rather than flattened:
+    #   "excluded by ratification scope" (US BREADTH/LEADERSHIP), "attempted and
+    #   NOT_COMPUTABLE", and "the whole date was blocked" stay three distinct
+    #   buckets that must add up to the requested dates, none is ever reported as
+    #   an observed NEUTRAL, and a transition pair touching UNKNOWN is counted as
+    #   an evidence-availability change, never a market state change. Every
+    #   sequence covers every requested date, carrying UNKNOWN where none was
+    #   produced, so a run can never bridge a blocked date; adjacency is
+    #   requested-date order, so each sequence carries its own calendar-gap facts.
+    #   NO POLICY OR THRESHOLD CONCLUSION is reached, and the two policy layers
+    #   are kept apart so neither is reported as the other's absence: the
+    #   repository's ALREADY-RATIFIED replay-only common aggregation policy
+    #   (common_v1_alignment, RATIFIED_PAPER_BASELINE_V1, owned by
+    #   regime/decision_authority.py) is quoted verbatim with its own hysteresis
+    #   and stress entry/exit behavior and marked explicitly not applied — it
+    #   consumes already-signed axis directions and the registry records
+    #   market-specific normalization/freshness/replay as not inherited — while
+    #   the market-specific candidate policy this replay exercised is read from
+    #   the repository's own inventory as HYSTERESIS/STRESS_OVERRIDE BLOCKED
+    #   under DRAFT_NOT_RATIFIED. hysteresis_applied stays false, a ratified
+    #   market-specific component or a changed common scope fails the module
+    #   closed, no threshold is proposed, tuned, or restated, run/reversal counts
+    #   are observations rather than an argument for a dwell time, and the
+    #   validator rejects a conclusion, verdict, or recommendation smuggled in
+    #   under any key name — including one produced by DELETING an explicit
+    #   refusal flag or authority boundary. Validation is exact rather than
+    #   best-effort: every requested date must carry an observation and every
+    #   fact family must re-derive from those observations. No episode is selected —
+    #   labels are carried verbatim and a labelled run is proven fact-identical to
+    #   an unlabelled one. PIT and historical audit stay separate: no date's
+    #   observation is created, altered, or graded, and a market the join
+    #   contained for lookahead contributes nothing. A source population whose
+    #   embedded US replay was served a FRED vintage published after the replayed
+    #   date, whose US pit_replay declaration was re-signed to deny PIT, or whose
+    #   embedded KR or US record is dated by a day no calendar has (2026-02-31 is
+    #   date-shaped and sorts before 2026-03-01, so a string comparison read it
+    #   as backward-looking), is refused by its own validator and never
+    #   summarized — every coverage,
+    #   UNKNOWN, transition, stress, and hysteresis fact is counted from those
+    #   records. The report is a pure function
+    #   of its source population (byte-identical rerun, shuffled input identical,
+    #   source never mutated) and is never written inside this checkout —
+    #   external --out or a private temp file only. policy_conclusion,
+    #   threshold_ratification, hysteresis, stress_override, episode_selection,
+    #   natural_promotion, us_breadth, us_leadership and every
+    #   action/order/capital/production/trading/real authority stay false.
+    "test/test_deterministic_replay_evidence.py",
     # Current-reference 5/5 and official PIT-history coverage remain separate.
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
