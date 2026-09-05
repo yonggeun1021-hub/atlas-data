@@ -69,6 +69,26 @@ BEFORE_FLOW_AS_OF_DATE = (
 ).isoformat()
 BEFORE_FLOW_GENERATED_AT = BEFORE_FLOW_AS_OF_DATE + "T00:00:00Z"
 
+# The real production time geometry, reused from the merged P6-06 fixture so
+# both consumers of the same scheduled run stay pinned to one definition:
+# DECISION_DATE is `TZ=Asia/Seoul date +%F` (a KST business date) while
+# GENERATED_AT is `date -u` (a UTC instant).  The weekday morning cron is
+# `5 22 * * 0-4`, so 22:05Z is 07:05 of the *next* KST day and the run's
+# generated_at is structurally one UTC calendar day behind its as_of_date.
+# 15:00:00Z is exactly 00:00:00 KST of MORNING_AS_OF_DATE; one second earlier
+# is still 23:59:59 KST of AS_OF_DATE.  The evening cron `30 9 * * 1-5` lands
+# on the same UTC and KST day.
+MORNING_AS_OF_DATE = P606_TEST.MORNING_AS_OF_DATE
+MORNING_GENERATED_AT = P606_TEST.MORNING_GENERATED_AT
+KST_MIDNIGHT_GENERATED_AT = P606_TEST.KST_MIDNIGHT_GENERATED_AT
+LAST_KST_INSTANT_BEFORE_MIDNIGHT = P606_TEST.LAST_KST_INSTANT_BEFORE_MIDNIGHT
+EVENING_GENERATED_AT = P606_TEST.EVENING_GENERATED_AT
+# The P8-06 consumer chain of one morning run: the unified packet is generated
+# a few minutes before the P6/P7 packets and the summary a few minutes after,
+# all inside the same 22:00Z hour of the previous UTC day.
+UNIFIED_MORNING_GENERATED_AT = AS_OF_DATE + "T22:00:00Z"
+SUMMARY_MORNING_GENERATED_AT = AS_OF_DATE + "T22:35:00Z"
+
 
 def flow_packet():
     return copy.deepcopy(FLOW_PACKET)
@@ -148,6 +168,18 @@ def bundle_with_all_supported_sources():
             continue
         packets[name] = p7_source_packet(name)
         reasons[name] = []
+    return packets, reasons
+
+
+def morning_bundle(*, all_supported=False):
+    """The production morning geometry: the P6-06 source is built by the same
+    run, so it carries the same KST as_of_date and the same UTC instant."""
+    packets, reasons = (
+        bundle_with_all_supported_sources() if all_supported else bundle()
+    )
+    packets["P6_DEFENSIVE_ACTION"] = defensive_packet(
+        MORNING_AS_OF_DATE, MORNING_GENERATED_AT
+    )
     return packets, reasons
 
 
@@ -590,6 +622,377 @@ class StrategicCapitalPostureTests(unittest.TestCase):
                 1,
             )
             self.assertFalse(forbidden.exists())
+
+
+class StrategicCapitalPostureKstBusinessDateTests(unittest.TestCase):
+    """``as_of_date`` is a KST business date; ``generated_at`` is a UTC instant.
+
+    The guard in ``_assemble`` must compare the two on the same basis, mirroring
+    the merged P6-06 convention.  These pin the real scheduled-briefing
+    geometry, which the same-UTC-day fixtures above never exercise.
+    """
+
+    def build(self, as_of_date, generated_at, *, packets=None, reasons=None):
+        if packets is None:
+            packets, reasons = bundle()
+        return MODULE.build_packet(
+            packets, reasons, as_of_date, generated_at, contract=CONTRACT
+        )
+
+    def semantic_body(self, packet):
+        """The packet minus its own time keys and identity hash."""
+        return MODULE.canonical_json({
+            key: value for key, value in packet.items()
+            if key not in {"as_of_date", "generated_at", "packet_sha256"}
+        })
+
+    def assert_readiness_only(self, packet):
+        self.assertEqual(
+            packet["status"], "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED"
+        )
+        self.assertEqual(packet["decision_status"], "BLOCKED")
+        self.assertEqual(
+            packet["market_budget"], {"CRYPTO": None, "KOREA": None, "US": None}
+        )
+        for key in (
+            "cash_reserve", "hedge_budget", "max_gross_risk", "max_net_risk",
+            "theme_headroom", "risk_posture", "allocation_proposal",
+            "target_exposures", "position_sizes", "policy_packet",
+        ):
+            self.assertIsNone(packet[key], key)
+        self.assertEqual(packet["order_intents"], [])
+        self.assertEqual(packet["summary"]["numeric_budget_field_count"], 0)
+        self.assertEqual(packet["summary"]["evaluated_constraint_count"], 0)
+        self.assertIn(
+            "STRATEGIC_CAPITAL_POSTURE_POLICY_NOT_RATIFIED",
+            packet["binding_reasons"],
+        )
+        self.assertIn(
+            "NUMERIC_BUDGET_VALUES_NOT_AUTHORIZED", packet["binding_reasons"]
+        )
+        self.assertTrue(packet["authority"]["readiness_inventory_only"])
+        for key, value in packet["authority"].items():
+            if key != "readiness_inventory_only":
+                self.assertFalse(value, key)
+        self.assertEqual(packet["authority"], CONTRACT["authority"])
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+
+    def test_kst_morning_generation_window_builds_instead_of_failing_closed(self):
+        # The exact production defect: 22:05Z is the next KST business day, so
+        # the run's generated_at is a UTC calendar day behind its as_of_date.
+        self.assertLess(MORNING_GENERATED_AT[:10], MORNING_AS_OF_DATE)
+        self.assertEqual(
+            MODULE._kst_business_date(MORNING_GENERATED_AT), MORNING_AS_OF_DATE
+        )
+
+        packets, reasons = morning_bundle()
+        packet = self.build(
+            MORNING_AS_OF_DATE, MORNING_GENERATED_AT,
+            packets=packets, reasons=reasons,
+        )
+        self.assertEqual(packet["as_of_date"], MORNING_AS_OF_DATE)
+        self.assertEqual(packet["generated_at"], MORNING_GENERATED_AT)
+        # The P6-06 source of the same morning run binds with its own KST
+        # business date, not a UTC-truncated one.
+        row = {
+            source["name"]: source for source in packet["sources"]
+        }["P6_DEFENSIVE_ACTION"]
+        self.assertEqual(row["availability"], "AVAILABLE")
+        self.assertEqual(row["evidence_date"], MORNING_AS_OF_DATE)
+        self.assertEqual(
+            row["source_packet_sha256"],
+            packets["P6_DEFENSIVE_ACTION"]["packet_sha256"],
+        )
+        self.assertEqual(packet["summary"]["available_source_count"], 1)
+        self.assertEqual(packet["summary"]["unavailable_source_count"], 8)
+        # Building on the morning geometry must not add any authority.
+        self.assert_readiness_only(packet)
+
+    def test_morning_geometry_binds_every_supported_source_without_budget(self):
+        packets, reasons = morning_bundle(all_supported=True)
+        packet = self.build(
+            MORNING_AS_OF_DATE, MORNING_GENERATED_AT,
+            packets=packets, reasons=reasons,
+        )
+        self.assertEqual(packet["summary"]["available_source_count"], 7)
+        self.assertEqual(
+            packet["summary"]["unavailable_sources"],
+            ["P1_REGIME_DECISION", "P2_ROTATION_STATE"],
+        )
+        self.assert_readiness_only(packet)
+
+    def test_morning_and_evening_geometry_emit_the_same_readiness_body(self):
+        morning = self.build(MORNING_AS_OF_DATE, MORNING_GENERATED_AT)
+        evening = self.build(AS_OF_DATE, EVENING_GENERATED_AT)
+        self.assertEqual(MODULE._kst_business_date(EVENING_GENERATED_AT), AS_OF_DATE)
+        # Restoring the morning run changes only its own time keys: every
+        # source row, constraint row, reason, invariant and authority flag is
+        # byte-identical to the evening packet the run already emitted.
+        self.assertEqual(self.semantic_body(morning), self.semantic_body(evening))
+
+    def test_kst_midnight_is_the_exact_accept_reject_boundary(self):
+        packet = self.build(MORNING_AS_OF_DATE, KST_MIDNIGHT_GENERATED_AT)
+        self.assertEqual(packet["generated_at"], KST_MIDNIGHT_GENERATED_AT)
+        self.assertEqual(
+            MODULE._kst_business_date(KST_MIDNIGHT_GENERATED_AT), MORNING_AS_OF_DATE
+        )
+        self.assert_readiness_only(packet)
+
+        # One second earlier is still the previous KST business day.
+        self.assertEqual(
+            MODULE._kst_business_date(LAST_KST_INSTANT_BEFORE_MIDNIGHT), AS_OF_DATE
+        )
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError, "GENERATED_BEFORE_AS_OF_DATE"
+        ):
+            self.build(MORNING_AS_OF_DATE, LAST_KST_INSTANT_BEFORE_MIDNIGHT)
+        # ... and is accepted for its own KST business day.
+        self.assert_readiness_only(
+            self.build(AS_OF_DATE, LAST_KST_INSTANT_BEFORE_MIDNIGHT)
+        )
+
+    def test_business_date_is_offset_aware_not_string_truncation(self):
+        for instant in (
+            GENERATED_AT,
+            EVENING_GENERATED_AT,
+            LAST_KST_INSTANT_BEFORE_MIDNIGHT,
+            KST_MIDNIGHT_GENERATED_AT,
+            MORNING_GENERATED_AT,
+        ):
+            aware = dt.datetime.strptime(instant, "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc
+            )
+            expected = aware.astimezone(
+                dt.timezone(dt.timedelta(hours=9))
+            ).date().isoformat()
+            derived = MODULE._kst_business_date(instant)
+            self.assertEqual(derived, expected)
+            # Monotone relaxation: the KST business date is never earlier than
+            # the UTC calendar date, so no input that used to pass can now fail.
+            self.assertGreaterEqual(derived, instant[:10])
+
+    def test_as_of_date_after_kst_business_date_of_generated_at_still_fails_closed(self):
+        # The guard is corrected, not removed: a genuinely earlier KST day is
+        # still rejected with the exact same error code.
+        for later in (2, 3, 30):
+            as_of = (
+                dt.date.fromisoformat(AS_OF_DATE) + dt.timedelta(days=later)
+            ).isoformat()
+            with self.assertRaisesRegex(
+                MODULE.StrategicCapitalPostureError, "GENERATED_BEFORE_AS_OF_DATE"
+            ):
+                self.build(as_of, MORNING_GENERATED_AT)
+
+    def test_source_instant_and_date_guards_are_unchanged(self):
+        # A source generated after the run instant is still refused on the
+        # morning geometry: only the as_of/generated basis moved to KST.
+        packets, reasons = morning_bundle()
+        packets["P6_DEFENSIVE_ACTION"] = defensive_packet(
+            MORNING_AS_OF_DATE, MORNING_AS_OF_DATE + "T01:00:00Z"
+        )
+        self.assertGreater(
+            packets["P6_DEFENSIVE_ACTION"]["generated_at"], MORNING_GENERATED_AT
+        )
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError,
+            "SOURCE_FROM_FUTURE:P6_DEFENSIVE_ACTION",
+        ):
+            self.build(
+                MORNING_AS_OF_DATE, MORNING_GENERATED_AT,
+                packets=packets, reasons=reasons,
+            )
+
+        # A source whose own evidence date is a later KST business day than the
+        # decision date still fails closed, even though the relaxed guard now
+        # accepts this run instant for the earlier date.
+        packets, reasons = morning_bundle()
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError,
+            "SOURCE_AFTER_AS_OF_DATE:P6_DEFENSIVE_ACTION",
+        ):
+            self.build(
+                AS_OF_DATE, MORNING_GENERATED_AT,
+                packets=packets, reasons=reasons,
+            )
+
+    def test_only_canonical_z_instants_and_iso_dates_are_accepted(self):
+        # Invalid or non-canonical timestamps still fail on their own codes,
+        # never inside the KST conversion.  No offset form is newly accepted.
+        for generated_at in (
+            MORNING_AS_OF_DATE,
+            AS_OF_DATE + "T22:05:00",
+            AS_OF_DATE + " 22:05:00Z",
+            AS_OF_DATE + "T22:05:00+09:00",
+            AS_OF_DATE + "T22:05:00.000Z",
+            AS_OF_DATE + "T25:05:00Z",
+            None,
+        ):
+            with self.assertRaisesRegex(
+                MODULE.StrategicCapitalPostureError, "GENERATED_AT_INVALID"
+            ):
+                self.build(MORNING_AS_OF_DATE, generated_at)
+        for as_of_date in (MORNING_GENERATED_AT, "2026-9-5", None):
+            with self.assertRaisesRegex(
+                MODULE.StrategicCapitalPostureError, "AS_OF_DATE_INVALID"
+            ):
+                self.build(as_of_date, MORNING_GENERATED_AT)
+
+    def test_standalone_validator_reassembles_morning_packet_and_rejects_tamper(self):
+        packets, reasons = morning_bundle()
+        packet = self.build(
+            MORNING_AS_OF_DATE, MORNING_GENERATED_AT,
+            packets=packets, reasons=reasons,
+        )
+        # Reassembly: the standalone validator rebuilds the morning packet from
+        # its own recorded inputs, with the contract loaded either way.
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+        self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
+
+        tampered = copy.deepcopy(packet)
+        tampered["market_budget"]["US"] = 0.5
+        tampered["order_intents"] = [{"side": "BUY"}]
+        tampered["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in tampered.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError, "OUTPUT_DERIVATION_MISMATCH"
+        ):
+            MODULE.validate_packet(tampered, CONTRACT)
+
+        # Backdating the recorded instant past the KST boundary fails inside
+        # reassembly, on the same corrected guard.
+        backdated = copy.deepcopy(packet)
+        backdated["generated_at"] = LAST_KST_INSTANT_BEFORE_MIDNIGHT
+        backdated["packet_sha256"] = MODULE.payload_sha256({
+            key: value for key, value in backdated.items() if key != "packet_sha256"
+        })
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError, "GENERATED_BEFORE_AS_OF_DATE"
+        ):
+            MODULE.validate_packet(backdated, CONTRACT)
+
+        # An untouched body with a substituted identity hash still fails.
+        rehashed = copy.deepcopy(packet)
+        rehashed["packet_sha256"] = "0" * 64
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError, "OUTPUT_PACKET_SHA_MISMATCH"
+        ):
+            MODULE.validate_packet(rehashed, CONTRACT)
+
+    def test_previously_accepted_same_utc_day_packets_are_byte_identical(self):
+        # Archived packets are revalidated by re-running _assemble, so every
+        # geometry that already passed must still build the same bytes.
+        for as_of_date, generated_at in (
+            (AS_OF_DATE, GENERATED_AT),
+            (AS_OF_DATE, EVENING_GENERATED_AT),
+            (AS_OF_DATE, LAST_KST_INSTANT_BEFORE_MIDNIGHT),
+        ):
+            with self.subTest(generated_at=generated_at):
+                first = self.build(as_of_date, generated_at)
+                second = self.build(as_of_date, generated_at)
+                self.assertEqual(
+                    MODULE.canonical_json(first), MODULE.canonical_json(second)
+                )
+                self.assertEqual(first["as_of_date"], as_of_date)
+                self.assertEqual(first["generated_at"], generated_at)
+                self.assertEqual(
+                    first["packet_sha256"],
+                    MODULE.payload_sha256({
+                        key: value for key, value in first.items()
+                        if key != "packet_sha256"
+                    }),
+                )
+                self.assert_readiness_only(first)
+
+    def test_morning_p6_to_p7_to_action_risk_summary_consumer_path(self):
+        # The actual downstream consumer of one morning run, with no fabricated
+        # source: real P6-06 and P7-12 packets flow into P8-06, which
+        # revalidates both through their own standalone validators.
+        summary = load_module(
+            "p712_action_risk_summary_consumer",
+            ROOT / "briefing" / "action_risk_portfolio_summary.py",
+        )
+        summary_contract = summary.load_contract()
+        unified_contract = summary.UNIFIED.load_contract()
+        unified_packet = summary.UNIFIED.build_packet(
+            components={name: None for name in unified_contract["component_order"]},
+            unavailable_reasons={
+                name: ["MORNING_CONSUMER_PATH_COMPONENT_NOT_CONNECTED"]
+                for name in unified_contract["component_order"]
+            },
+            decision_date=MORNING_AS_OF_DATE,
+            slot="morning",
+            generated_at=UNIFIED_MORNING_GENERATED_AT,
+        )
+
+        packets, reasons = morning_bundle(all_supported=True)
+        defensive = packets["P6_DEFENSIVE_ACTION"]
+        posture = self.build(
+            MORNING_AS_OF_DATE, MORNING_GENERATED_AT,
+            packets=packets, reasons=reasons,
+        )
+        # The geometry that used to fail closed at P7-12.
+        self.assertLess(posture["generated_at"][:10], posture["as_of_date"])
+        self.assertEqual(defensive["as_of_date"], unified_packet["decision_date"])
+        self.assertEqual(posture["as_of_date"], unified_packet["decision_date"])
+
+        available = {
+            "UNIFIED_DECISION": unified_packet,
+            "DEFENSIVE_ACTION_DECISION": defensive,
+            "STRATEGIC_CAPITAL_POSTURE": posture,
+        }
+        source_packets = {}
+        unavailable_reasons = {}
+        for name in summary_contract["source_order"]:
+            source_packets[name] = available.get(name)
+            unavailable_reasons[name] = (
+                [] if name in available
+                else ["MORNING_CONSUMER_PATH_SOURCE_NOT_CONNECTED"]
+            )
+        self.assertEqual(
+            sorted(available), sorted(summary_contract["required_sources"])
+        )
+
+        result = summary.build_summary(
+            source_packets,
+            unavailable_reasons,
+            SUMMARY_MORNING_GENERATED_AT,
+            summary_contract,
+        )
+        self.assertEqual(result["decision_date"], MORNING_AS_OF_DATE)
+        self.assertEqual(result["slot"], "morning")
+        rows = {row["name"]: row for row in result["sources"]}
+        for name in summary_contract["required_sources"]:
+            self.assertEqual(rows[name]["availability"], "AVAILABLE", name)
+            self.assertEqual(
+                rows[name]["source_packet_sha256"],
+                available[name]["packet_sha256"],
+                name,
+            )
+        self.assertEqual(
+            rows["STRATEGIC_CAPITAL_POSTURE"]["source_status"],
+            "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED",
+        )
+
+        # Restoring the morning read model fabricates no action or authority:
+        # unconnected sources stay explicitly unavailable.
+        for row in result["sources"]:
+            if row["name"] not in available:
+                self.assertEqual(row["availability"], "UNAVAILABLE", row["name"])
+                self.assertEqual(
+                    row["unavailable_reasons"],
+                    ["MORNING_CONSUMER_PATH_SOURCE_NOT_CONNECTED"],
+                )
+        for row in result["actions"]:
+            self.assertEqual(row["evaluation_status"], "NOT_EVALUATED")
+            self.assertIsNone(row["action"])
+        self.assertIsNone(result["summary"]["nothing_action"])
+        self.assertEqual(result["summary"]["evaluated_action_count"], 0)
+        self.assertTrue(result["authority"]["briefing_read_model_only"])
+        for key, value in result["authority"].items():
+            if key != "briefing_read_model_only":
+                self.assertFalse(value, key)
+        self.assert_readiness_only(posture)
 
 
 if __name__ == "__main__":
