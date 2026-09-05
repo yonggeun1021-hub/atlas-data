@@ -1,0 +1,61 @@
+{
+  "authority": "operations_telemetry_only",
+  "authority_flags": {
+    "action_generation_authorized": false,
+    "decision_eligible": false,
+    "evidence_derivation_only": true,
+    "order_action_authorized": false,
+    "policy_ratification_authorized": false,
+    "production_wiring_authorized": false,
+    "trading_action_authorized": false
+  },
+  "capture": {
+    "provider_calls_skipped": false,
+    "raw_publication_eligible": true,
+    "reason": "new_snapshot_staged",
+    "result": "captured",
+    "step_outcome": "success"
+  },
+  "consumer_lineage": {
+    "exact_hash_verified_before_provider_calls": true,
+    "p4_policy_id": "P4_07_UPBIT_PUBLIC_MARKET_EVIDENCE_PAPER_V1",
+    "p4_policy_sha256": "26d921e4b98f91010b4397d6642c1dc6021d06ef134977cc80a94692e6e1df5e",
+    "packet_date": "2026-09-05",
+    "packet_path": "data/observations/upbit_tradeable_universe/2026-09-05/packet.json",
+    "ready": true,
+    "snapshot_key": "2026-09-05-p3-e705235488fda94f",
+    "universe_market_count": 8,
+    "universe_record_sha256": "e705235488fda94fbd369f756ac1fbfd80915804f8223de08aab57e9b1867535",
+    "wait_reason": null
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "schedule",
+    "event_schedule": "20 1 * * *",
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "run_id": 33936317505,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/33936317505"
+  },
+  "p4_07_population": {
+    "output_path": "/home/runner/work/atlas-data/atlas-data/data/observations/upbit_market_evidence/2026-09-05-p3-e705235488fda94f/packet.json",
+    "payload_sha256": "eb13faeb141ddb82ac034b1d1945fc42d4b5aab08ed48ac00a6d678d2f5e8247",
+    "reason": null,
+    "result": "populated",
+    "step_outcome": "success"
+  },
+  "runner": {
+    "observed_started_at_kst": "2026-09-05T10:29:36+09:00",
+    "observed_started_at_utc": "2026-09-05T01:29:36Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": 576,
+    "expected_start_kst": "2026-09-05T10:20:00+09:00",
+    "expected_start_utc": "2026-09-05T01:20:00Z",
+    "id": "daily_1020_kst",
+    "timing_status": "measured"
+  },
+  "snapshot_date_utc": "2026-09-05",
+  "workflow": "P4-07 Upbit Market Evidence & Microstructure Daily Capture"
+}
