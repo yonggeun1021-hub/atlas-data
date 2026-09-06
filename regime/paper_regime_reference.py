@@ -27,6 +27,37 @@ LATEST_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
 SCHEMA_VERSION = "paper_regime_reference/v2"
 AXES = ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+ZERO = Decimal("0")
+ONE = Decimal("1")
+
+# The KR axis rules build_kr actually executes.  Each name below is the only
+# method this module can evaluate; a policy declaring anything else is a
+# declared-but-unimplemented rule and fails closed rather than silently falling
+# back to a built-in number.
+KR_METHOD = {
+    "TREND": "kospi_kosdaq_one_session_return_sign",
+    "BREADTH": "combined_advance_fraction",
+    "RISK_VOL": "combined_mean_absolute_stock_move_pct",
+    "LIQUIDITY": "combined_trading_value_change_pct",
+    "LEADERSHIP": "positive_sector_return_fraction",
+}
+# TREND carries no threshold; its three sign semantics are what sign_pair()
+# implements, so they are validated verbatim instead of being parsed.
+KR_TREND_SIGN = {
+    "positive": "both_positive",
+    "negative": "both_negative",
+    "neutral": "mixed_or_zero",
+}
+# Nine causal thresholds plus RISK_VOL.stress_above, which is an alias of the
+# NEGATIVE ceiling rather than a tenth independent edge.
+KR_THRESHOLD_KEYS = {
+    "BREADTH": ("positive_min", "negative_max"),
+    "RISK_VOL": ("positive_max", "neutral_max", "negative_max", "stress_above"),
+    "LIQUIDITY": ("positive_min", "negative_max"),
+    "LEADERSHIP": ("positive_min", "negative_max"),
+}
+KR_FRACTION_AXES = ("BREADTH", "LEADERSHIP")
+KR_ORDERED_AXES = ("BREADTH", "LIQUIDITY", "LEADERSHIP")
 
 
 class PaperRegimeReferenceError(ValueError):
@@ -180,7 +211,64 @@ def build_us(packet: dict, policy: dict) -> dict:
     return market_packet("US", reference["as_of_session_date"], rows, regime, score, explanation)
 
 
+def kr_threshold(block: dict, name: str, key: str) -> Decimal:
+    """Read one declared KR threshold.  No default and no numeric fallback."""
+    if key not in block:
+        fail("KR_POLICY_INVALID", f"{name}.{key}")
+    raw = block[key]
+    if isinstance(raw, bool) or not isinstance(raw, (str, int, float)):
+        fail("KR_POLICY_INVALID", f"{name}.{key}")
+    return decimal(raw, f"KR_POLICY_INVALID:{name}.{key}")
+
+
+def kr_policy(policy: dict) -> dict:
+    """Validate the declared KR block and return the thresholds build_kr uses.
+
+    Every number build_kr applies comes from here, so a policy edit is causal.
+    Anything absent, unimplemented, unparseable, or self-contradictory fails
+    closed instead of degrading to a built-in constant.
+    """
+    markets = policy.get("markets")
+    if not isinstance(markets, dict):
+        fail("KR_POLICY_INVALID", "markets")
+    block = markets.get("KR")
+    if not isinstance(block, dict):
+        fail("KR_POLICY_INVALID", "KR")
+    axes = {}
+    for name in AXES:
+        declared = block.get(name)
+        if not isinstance(declared, dict):
+            fail("KR_POLICY_INVALID", name)
+        if declared.get("method") != KR_METHOD[name]:
+            fail("KR_POLICY_INVALID", f"{name}.method")
+        axes[name] = declared
+    for key, expected in KR_TREND_SIGN.items():
+        if axes["TREND"].get(key) != expected:
+            fail("KR_POLICY_INVALID", f"TREND.{key}")
+
+    bound = {
+        name: {key: kr_threshold(axes[name], name, key) for key in keys}
+        for name, keys in KR_THRESHOLD_KEYS.items()
+    }
+    for name in KR_FRACTION_AXES:
+        for key, value in bound[name].items():
+            if not ZERO <= value <= ONE:
+                fail("KR_POLICY_INVALID", f"{name}.{key}")
+    for name in KR_ORDERED_AXES:
+        if bound[name]["negative_max"] >= bound[name]["positive_min"]:
+            fail("KR_POLICY_INVALID", f"{name}.bounds")
+    risk = bound["RISK_VOL"]
+    if risk["positive_max"] < ZERO:
+        fail("KR_POLICY_INVALID", "RISK_VOL.positive_max")
+    if not risk["positive_max"] < risk["neutral_max"] < risk["negative_max"]:
+        fail("KR_POLICY_INVALID", "RISK_VOL.ladder")
+    if risk["stress_above"] != risk["negative_max"]:
+        fail("KR_POLICY_INVALID", "RISK_VOL.stress_above")
+    return bound
+
+
 def build_kr(packet: dict, policy: dict) -> dict:
+    thresholds = kr_policy(policy)
     if packet.get("status") != "OBSERVED_UNCLASSIFIED" or packet.get("coverage", {}).get("ratio") != "5/5":
         fail("KR_REFERENCE_NOT_READY")
     axes = packet.get("axes")
@@ -191,24 +279,26 @@ def build_kr(packet: dict, policy: dict) -> dict:
     trend_values = [decimal(benchmarks[name]["one_session_return_pct"], "KR_TREND_INVALID") for name in ("KOSPI", "KOSDAQ")]
     trend_direction = sign_pair(trend_values)
     breadth_value = decimal(axes["BREADTH"]["measurement"]["combined"]["advance_fraction"], "KR_BREADTH_INVALID")
-    breadth_direction = ratio_direction(breadth_value, Decimal("0.55"), Decimal("0.45"))
+    breadth_direction = ratio_direction(breadth_value, thresholds["BREADTH"]["positive_min"], thresholds["BREADTH"]["negative_max"])
     move = decimal(axes["RISK_VOL"]["measurement"]["combined_mean_absolute_stock_move_pct"], "KR_RISK_INVALID")
-    if move <= Decimal("1.5"):
+    risk = thresholds["RISK_VOL"]
+    if move <= risk["positive_max"]:
         risk_direction = "POSITIVE"
-    elif move <= Decimal("2.5"):
+    elif move <= risk["neutral_max"]:
         risk_direction = "NEUTRAL"
-    elif move <= Decimal("3.5"):
+    elif move <= risk["negative_max"]:
         risk_direction = "NEGATIVE"
     else:
         risk_direction = "STRESS"
     trading_value_change = decimal(axes["LIQUIDITY"]["measurement"]["combined"]["trading_value_change_pct"], "KR_LIQUIDITY_INVALID")
-    liquidity_direction = "POSITIVE" if trading_value_change >= 5 else "NEGATIVE" if trading_value_change <= -5 else "NEUTRAL"
+    liquidity = thresholds["LIQUIDITY"]
+    liquidity_direction = "POSITIVE" if trading_value_change >= liquidity["positive_min"] else "NEGATIVE" if trading_value_change <= liquidity["negative_max"] else "NEUTRAL"
     sectors = axes["LEADERSHIP"]["measurement"]["observations"]
     if not isinstance(sectors, list) or not sectors:
         fail("KR_LEADERSHIP_INVALID")
     positive_sectors = sum(decimal(row.get("sector_return_pct"), "KR_LEADERSHIP_INVALID") > 0 for row in sectors)
     leadership_fraction = Decimal(positive_sectors) / Decimal(len(sectors))
-    leadership_direction = ratio_direction(leadership_fraction, Decimal("0.60"), Decimal("0.40"))
+    leadership_direction = ratio_direction(leadership_fraction, thresholds["LEADERSHIP"]["positive_min"], thresholds["LEADERSHIP"]["negative_max"])
 
     rows = [
         axis("TREND", trend_direction, {"KOSPI": str(trend_values[0]), "KOSDAQ": str(trend_values[1])}, f"코스피 {trend_values[0]:+.2f}%, 코스닥 {trend_values[1]:+.2f}%로 방향이 엇갈렸습니다."),
