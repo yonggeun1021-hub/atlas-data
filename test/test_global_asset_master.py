@@ -124,9 +124,7 @@ def sample_input() -> dict:
                 "membership_id": "SYNTHETIC_THEME",
                 "valid_from": "2025-01-01",
                 "valid_to": None,
-                "source_identity": interval_source(
-                    "nasdaq_trader_symbol_directory", "theme-us"
-                ),
+                "source_identity": bound_theme_source(),
             },
             {
                 "membership_type": "UNIVERSE",
@@ -178,7 +176,7 @@ def sample_input() -> dict:
 
 def bound_theme_source() -> dict:
     return {
-        "source_id": "nasdaq_trader_symbol_directory",
+        "source_id": "sec_edgar",
         "source_url": TAXONOMY_EVIDENCE_URL,
         "source_sha256": TAXONOMY_EVIDENCE_SHA256,
         "available_at": "2026-08-18",
@@ -518,6 +516,66 @@ class GlobalAssetMasterTests(unittest.TestCase):
         self.assertNotIn("data/", text)
 
 
+class ThemeSourceRoleTests(unittest.TestCase):
+    def test_identity_market_universe_and_alias_reject_disclosures(self):
+        for role in ('record', 'alias', 'MARKET', 'UNIVERSE'):
+            with self.subTest(role=role):
+                master = sample_input()
+                row = master['records'][0]
+                if role == 'record':
+                    target = row
+                elif role == 'alias':
+                    target = row['aliases'][0]
+                else:
+                    target = next(m for m in row['memberships'] if m['membership_type'] == role)
+                target['source_identity'] = bound_theme_source()
+                with self.assertRaisesRegex(GAM.AssetMasterError, 'SOURCE_ID_UNKNOWN'):
+                    GAM.build_master(master)
+
+    def test_theme_rejects_identity_provider_market_host_hash_and_time_errors(self):
+        cases = [
+            ('source_id', 'nasdaq_trader_symbol_directory'),
+            ('source_id', 'dart_open_api'),
+            ('source_url', 'https://www.sec.gov.evil.invalid/a'),
+            ('source_url', 'https://user@www.sec.gov/a'),
+            ('source_url', 'http://www.sec.gov/a'),
+            ('source_sha256', 'not-a-hash'),
+            ('available_at', '2026-08-21'),
+            ('retrieved_at_utc', '2026-08-21T00:00:00Z'),
+            ('retrieved_at_utc', '2026-08-17T00:00:00Z'),
+        ]
+        for field, value in cases:
+            with self.subTest(field=field, value=value):
+                master = binding_master_input()
+                bound_membership(master)['source_identity'][field] = value
+                with self.assertRaisesRegex(GAM.AssetMasterError, 'THEME_SOURCE_INVALID'):
+                    GAM.build_master(master)
+        master = sample_input()
+        crypto = next(r for r in master['records'] if r['market'] == 'CRYPTO')
+        crypto['memberships'].append(copy.deepcopy(bound_membership(binding_master_input())))
+        with self.assertRaisesRegex(GAM.AssetMasterError, 'THEME_SOURCE_MARKET_UNSUPPORTED'):
+            GAM.build_master(master)
+
+    def test_rehashed_packet_cannot_move_disclosure_into_identity_role(self):
+        packet = GAM.build_master(binding_master_input())
+        packet['records'][0]['source_identity'] = bound_theme_source()
+        with self.assertRaisesRegex(GAM.AssetMasterError, 'SOURCE_ID_UNKNOWN'):
+            GAM.validate_packet(rehash(packet))
+
+    def test_theme_provenance_contract_cannot_be_redirected_or_widened(self):
+        for field, value in [('registry', 'config/universe.json'),
+                             ('source_role', 'IDENTITY'), ('contract', 'theme_taxonomy/999')]:
+            with self.subTest(field=field):
+                contract = GAM.load_contract()
+                contract['theme_membership_provenance'][field] = value
+                with self.assertRaisesRegex(GAM.AssetMasterError, 'THEME_PROVENANCE_CONTRACT_MISMATCH'):
+                    GAM.build_master(sample_input(), contract)
+        contract = GAM.load_contract()
+        contract['source_coverage']['sec_edgar'] = 'SOURCE_CAPABILITY_EXISTS'
+        with self.assertRaisesRegex(GAM.AssetMasterError, 'SOURCE_COVERAGE_MISMATCH'):
+            GAM.build_master(sample_input(), contract)
+
+
 class ThemeSourceBindingTests(unittest.TestCase):
     """Optional read-only THEME input source-binding validation."""
 
@@ -542,22 +600,20 @@ class ThemeSourceBindingTests(unittest.TestCase):
         repo = self.authority_repo(graph)
         report = self.check(binding_master_input(), graph, [binding_reference()], repo)
 
-        # Every structural comparison this pair of contracts defines holds, so
-        # nothing fails.  Positive verification is still unavailable because the
-        # two source registries define no comparable identity, and an undefined
-        # comparison is reported rather than resolved in the binding's favour.
-        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_UNRESOLVED")
+        # Both THEME rows carry the literal same disclosure identity and the
+        # independent synthetic authority approves this exact graph.
+        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_VERIFIED")
         self.assertEqual(report["binding_count"], 1)
-        self.assertEqual(report["verified_binding_count"], 0)
+        self.assertEqual(report["verified_binding_count"], 1)
         self.assertEqual(
             report["taxonomy_authority_resolution"]["status"], "AUTHORIZED"
         )
         binding = report["bindings"][0]
-        self.assertFalse(binding["verified"])
+        self.assertTrue(binding["verified"])
         self.assertEqual(binding["failure_reasons"], [])
         self.assertEqual(
             binding["unresolved_reasons"],
-            ["SOURCE_ID_COMPARISON_UNDEFINED:nasdaq_trader_symbol_directory:sec_edgar"],
+            [],
         )
 
         # Nothing is populated, approved, or made investable by verification.
@@ -590,20 +646,18 @@ class ThemeSourceBindingTests(unittest.TestCase):
         self.assertEqual(
             taxonomy_reference["evidence"]["source_identity"]["source_id"], "sec_edgar"
         )
-        # The master's own retrieval-channel label survives untranslated, and
-        # the report says plainly that the two registries are not cross-mapped.
+        # The literal disclosure label survives on both sides; identity
+        # provider names are never aliased to disclosure providers.
         self.assertEqual(
             binding["master_reference"]["source_identity"]["source_id"],
-            "nasdaq_trader_symbol_directory",
+            "sec_edgar",
         )
         self.assertEqual(
-            binding["source_id_comparison"], "UNCOMPARABLE_DISJOINT_SOURCE_REGISTRY"
+            binding["source_id_comparison"], "COMPARED"
         )
-        self.assertEqual(report["comparison_basis"]["shared_source_registry"], [])
-        self.assertEqual(
-            report["comparison_basis"]["preserved_uncompared_fields"]["source_id"],
-            "SOURCE_ID_REGISTRY_CROSS_MAPPING_UNRATIFIED",
-        )
+        self.assertIn("sec_edgar", report["comparison_basis"]["shared_source_registry"])
+        self.assertIn("source_id", report["comparison_basis"]["compared_fields"])
+        self.assertNotIn("source_id", report["comparison_basis"]["preserved_uncompared_fields"])
         self.assertEqual(
             report["comparison_basis"]["preserved_uncompared_fields"]["role_id"],
             "GAM_MEMBERSHIP_HAS_NO_ROLE_FIELD",
@@ -619,7 +673,7 @@ class ThemeSourceBindingTests(unittest.TestCase):
             repo,
             trusted_commit=repo.head(),
         )
-        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_UNRESOLVED")
+        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_VERIFIED")
         self.assertEqual(report["bindings"][0]["failure_reasons"], [])
         self.assertEqual(
             report["taxonomy_authority_resolution"]["trusted_commit"], repo.head()
@@ -809,9 +863,7 @@ class ThemeSourceBindingTests(unittest.TestCase):
                 "membership_id": "SEGMENT.COMPUTE",
                 "valid_from": "2020-01-01",
                 "valid_to": "2026-08-20",
-                "source_identity": interval_source(
-                    "nasdaq_trader_symbol_directory", "historic-theme"
-                ),
+                "source_identity": bound_theme_source(),
             }
         )
         report = self.check(ambiguous, graph, [binding_reference()], repo)
@@ -841,7 +893,7 @@ class ThemeSourceBindingTests(unittest.TestCase):
         # A validated packet is an accepted master source; a taxonomy *packet*
         # is not a graph source, so a pre-authorized claim cannot be injected.
         report = self.check(packet, graph, [binding_reference()], repo)
-        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_UNRESOLVED")
+        self.assertEqual(report["status"], "THEME_SOURCE_BINDING_VERIFIED")
         self.assertEqual(report["bindings"][0]["failure_reasons"], [])
         with self.assertRaisesRegex(GAM.AssetMasterError, "TAXONOMY_SOURCE_INVALID"):
             self.check(
@@ -853,57 +905,22 @@ class ThemeSourceBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(GAM.AssetMasterError, "MASTER_SOURCE_SCHEMA_UNKNOWN"):
             self.check({"schema_version": "forged/1"}, graph, [binding_reference()], repo)
 
-    def test_incomparable_source_identity_stays_unresolved_and_never_verifies(self):
+    def test_distinct_disclosure_ids_are_not_aliases_even_with_same_document(self):
         graph = taxonomy_fixture()
         repo = self.authority_repo(graph)
-        report = self.check(binding_master_input(), graph, [binding_reference()], repo)
+        master = binding_master_input()
+        bound_membership(master)["source_identity"]["source_id"] = "microsoft_sec_issuer_disclosure"
+        report = self.check(master, graph, [binding_reference()], repo)
         binding = report["bindings"][0]
-
-        # The ratified contracts share no source ID, so no binding can reach a
-        # defined source-identity comparison and none may be reported positive.
-        self.assertEqual(report["comparison_basis"]["shared_source_registry"], [])
-        self.assertEqual(
-            binding["source_id_comparison"], "UNCOMPARABLE_DISJOINT_SOURCE_REGISTRY"
-        )
+        self.assertEqual(binding["source_id_comparison"], "COMPARED")
         self.assertFalse(binding["verified"])
         self.assertEqual(report["verified_binding_count"], 0)
-        self.assertNotEqual(report["status"], "THEME_SOURCE_BINDING_VERIFIED")
-
-        # The unresolved reason names both original labels and neither converts
-        # nor equates them, and it is not downgraded to a mismatch either.
-        self.assertEqual(
-            binding["unresolved_reasons"],
-            ["SOURCE_ID_COMPARISON_UNDEFINED:nasdaq_trader_symbol_directory:sec_edgar"],
-        )
-        self.assertEqual(binding["failure_reasons"], [])
-        self.assertEqual(
-            binding["master_reference"]["source_identity"]["source_id"],
-            "nasdaq_trader_symbol_directory",
-        )
-        self.assertEqual(
-            binding["taxonomy_reference"]["evidence"]["source_identity"]["source_id"],
-            "sec_edgar",
-        )
-
-        # An unresolved source identity is never traded away by a structural
-        # failure elsewhere: the binding stays not verified either way.
-        mismatch = binding_master_input()
-        bound_membership(mismatch)["source_identity"]["source_sha256"] = "d" * 64
-        failed = self.check(mismatch, graph, [binding_reference()], repo)["bindings"][0]
-        self.assertFalse(failed["verified"])
-        self.assertIn("SOURCE_EVIDENCE_MISMATCH:source_sha256", failed["failure_reasons"])
-        self.assertEqual(
-            failed["unresolved_reasons"],
-            ["SOURCE_ID_COMPARISON_UNDEFINED:nasdaq_trader_symbol_directory:sec_edgar"],
-        )
-
-        # A binding whose comparison never ran is not verified either.
-        absent = self.check(
-            binding_master_input(),
-            graph,
-            [binding_reference(evidence_id="EVIDENCE.ABSENT")],
-            repo,
-        )["bindings"][0]
+        self.assertEqual(binding["failure_reasons"], ["SOURCE_EVIDENCE_MISMATCH:source_id"])
+        self.assertEqual(binding["unresolved_reasons"], [])
+        self.assertEqual(binding["master_reference"]["source_identity"]["source_id"], "microsoft_sec_issuer_disclosure")
+        self.assertEqual(binding["taxonomy_reference"]["evidence"]["source_identity"]["source_id"], "sec_edgar")
+        absent = self.check(binding_master_input(), graph,
+                            [binding_reference(evidence_id="EVIDENCE.ABSENT")], repo)["bindings"][0]
         self.assertEqual(absent["source_id_comparison"], "NOT_EVALUATED")
         self.assertFalse(absent["verified"])
 

@@ -40,6 +40,28 @@ The primary symbol/exchange and matching market membership must be active on
 that date. No current catalog is carried backward to invent historical
 membership.
 
+## Provenance roles
+
+`source_coverage` remains the existing asset identity registry. Record, symbol
+alias, MARKET and UNIVERSE lineage still accepts only the original identity
+providers. Disclosure providers cannot be used in those roles.
+
+THEME membership lineage instead delegates to the existing ThemeTaxonomy/2
+`market_sources` and `source_hosts` through the fixed
+`theme_membership_provenance` contract reference. It calls the same production
+source validator: literal source ID, market, HTTPS host, URL credentials,
+SHA-256, availability/retrieval ordering and the UTC as-of cutoff are checked.
+No source list is copied into GAM and no provider equivalence is introduced.
+Crypto has no declared taxonomy disclosure sources and fails closed for THEME.
+
+All five original disclosure lineage fields are preserved. A Nasdaq identity
+label on a THEME row is invalid; it is never rewritten to SEC. Legacy THEME
+rows carrying identity-provider lineage must be resupplied with explicit valid
+disclosure provenance before validation; there is no automatic migration.
+Identity-only inputs and the existing CLI interface remain supported. The
+contract reference does not authorize any taxonomy graph or membership:
+independent committed Theme authority is still required by the binding check.
+
 ## Fail-closed conflicts
 
 The builder rejects rather than resolves:
@@ -97,9 +119,10 @@ separate WBS change; this capability cannot grant that authority itself.
 check. It answers one narrow question: does a caller-named THEME membership in
 a Global Asset Master document bind exactly to a caller-named membership and
 evidence row in an externally ratified Theme taxonomy graph? It is not
-ingestion, migration, population, or a new CLI. The builder, `validate_packet`,
-the input and output schemas, and the existing command line are unchanged, and
-the rotation module is imported only when this function is called.
+ingestion, migration, population, or a new CLI. Input/output schema names and
+the existing command line remain unchanged. The builder and `validate_packet`
+apply the role-specific provenance rules above; the rotation module is loaded
+when validating THEME provenance or checking a taxonomy binding.
 
 The caller supplies the original master (input or packet), the original
 taxonomy graph document, and one explicit reference per binding:
@@ -132,10 +155,10 @@ A binding is positive only when all of these hold on one shared `as_of_date`:
 - the master record's `asset_id` and `market` equal the taxonomy membership's;
 - the master THEME `membership_id` equals the taxonomy `theme_id`;
 - both `[valid_from, valid_to)` intervals are identical and active;
-- the master membership's `source_url` and `source_sha256` equal the named
-  evidence row's; and
-- the two source-identity labels were actually comparable, so
-  `source_id_comparison` is `COMPARED`.
+- the master membership's literal `source_id`, `source_url` and `source_sha256`
+  equal the named evidence row's; and
+- both source identities pass their market/host/time validators and the
+  source vocabulary is comparable (`source_id_comparison=COMPARED`).
 
 Everything else fails closed and is reported with an exact reason: a missing
 asset, membership, or evidence row; an unratified, empty, expired, backdated,
@@ -154,31 +177,23 @@ into the report rather than dropped, and `comparison_basis` names every field
 that was compared and every field that was deliberately preserved without
 comparison.
 
-One such field is `source_id`. The master's `source_coverage` and the
-taxonomy's `market_sources` are disjoint retrieval-channel registries with no
-ratified cross-mapping, so requiring them to be equal would itself be an
-invented conversion — and so would treating two labels from unrelated
-registries as agreeing. Document identity is therefore still decided by the
-absolute `source_url` and `source_sha256`, both channel labels are preserved
-verbatim, and each binding records `source_id_comparison`. When that comparison
-is undefined, the binding reports
-`SOURCE_ID_COMPARISON_UNDEFINED:<master_label>:<evidence_label>` as an
-unresolved reason and is never `verified`, exactly as an undefined theme
-identity or interval convention is. Under the currently ratified pair of
-contracts the shared registry is empty, so the strongest available answer for
-an otherwise exact binding is `THEME_SOURCE_BINDING_UNRESOLVED`: every defined
-comparison held and the undefined one is named rather than assumed. If the two
-registries ever ratify a shared source ID, that shared vocabulary is compared
-for equality and a positive result becomes reachable.
+THEME provenance now uses the same canonical disclosure vocabulary on both
+sides. `source_id` is compared literally and appears in `compared_fields`.
+Different valid IDs are a mismatch even when they point to the same URL/hash;
+there are no aliases, source rankings or inferred provider conversions.
+The former unconditional disjoint-registry unresolved marker is removed.
+If a supplied contract cannot define a comparison, the existing unresolved
+comparison path still prevents verification. Both timestamps remain validated
+and preserved as retrieval provenance; they are not compared for equality as
+document identity, consistent with the existing binding semantics.
 
-A non-negative result means an exact binding was checked and nothing else. The
-report fixes `master_population_authorized = false`, repeats the contract's
-unchanged all-false authority block, and keeps
-`THEME_MEMBERSHIP_INGESTION_NOT_IMPLEMENTED` and
-`SOURCE_ID_REGISTRY_CROSS_MAPPING_UNRATIFIED` in its unresolved boundaries. It
-does not populate the master, create a membership, approve a universe, grant
-investability, or move a Stage. Live membership migration remains a separate
-reviewed decision that this check does not close.
+An exact synthetic authorized binding can return
+`THEME_SOURCE_BINDING_VERIFIED`. An empty, unratified or otherwise invalid
+independent authority still prevents verification. A verified result authorizes
+nothing: `master_population_authorized=false`, all existing authority flags
+remain unchanged, and operational ingestion/migration and policy boundaries
+remain unresolved. A real membership population and Theme authority remain
+separate reviewed gates; this technical source-role correction closes neither.
 
 ## Committed population readiness
 

@@ -20,9 +20,12 @@ accepts:
 - optional `authority_registry_path`: the existing independently verified
   committed registry boundary, with the same semantics as the taxonomy builder.
 
-`gam_source_identity` contains all five GAM lineage fields. It is supplied by
-the caller: this adapter never translates a taxonomy retrieval-channel label
-into a GAM label, finds a symbol match, selects evidence, or invents an asset.
+`gam_source_identity` contains all five literal original disclosure lineage
+fields. For THEME rows the GAM contract delegates source/market/host/time
+validation to the existing ThemeTaxonomy/2 validator. The caller supplies the
+identity explicitly: this adapter never translates an identity-provider label
+into a disclosure label, finds a symbol match, selects evidence or invents an
+asset. Record, MARKET and UNIVERSE identity providers remain unchanged.
 The requested GAM ID must match the taxonomy theme under the existing binder.
 Intervals come from the independently rebuilt taxonomy membership. The original
 taxonomy membership, all its evidence, role and identity, and the proposed GAM
@@ -44,8 +47,8 @@ identity remain available side by side in the preview and binding report.
    Malformed inputs, missing asset/membership, duplicate targets and structural
    collisions raise `AssetMasterError` before any result is returned.
 5. With zero defined failures, return `STRUCTURAL_PREVIEW` and `APPEND` or
-   `NO_CHANGE`. This status describes construction only. Undefined source-ID
-   comparison remains unresolved and unverified in the unchanged binding report.
+   `NO_CHANGE`. This status describes construction only. The binding report
+   separately records literal source comparison and independent authority.
 
 The schema is `global_asset_master_theme_ingestion_preview/1`. It carries the
 input digests, authority commit, original master and rebuilt graph identities,
@@ -61,21 +64,27 @@ not its own authority root.
 
 ## Unchanged policy and operational boundaries
 
-Current GAM and taxonomy source registries are disjoint. A structurally valid
-candidate can therefore have `THEME_SOURCE_BINDING_UNRESOLVED`; it is not a
-verified ingestion. Caller source identities do not ratify a cross-mapping.
-The existing report's unresolved boundaries are preserved, including its legacy
-`THEME_MEMBERSHIP_INGESTION_NOT_IMPLEMENTED` marker: that validator still does
-not implement ingestion, and this preview does not implement operational writes.
+THEME provenance uses the existing taxonomy disclosure source vocabulary.
+A literal exact binding can be verified under an independently ratified graph;
+this does not authorize operational ingestion. Different source IDs are never
+aliased, even with an identical document URL/hash. Invalid role/market/host
+lineage raises before a candidate is returned, while defined binding failures
+(including a valid but different disclosure source ID) return BLOCKED/null.
+The current empty authority registry still blocks every attempted ingestion
+preview. The report retains its operational
+`THEME_MEMBERSHIP_INGESTION_NOT_IMPLEMENTED` marker because neither that binder
+nor this preview writes a live master.
 
 `master_population_authorized=false`. Existing GAM identity-only authority,
 universe/investability/Stage/Production/trading restrictions remain unchanged.
 No registry, current master, tracked data, historical packet, scheduler, workflow
 or live consumer is modified. There is no publishing CLI or file-writing API.
-The existing GAM output and CLI remain unchanged for existing callers.
+Identity-only GAM output and the CLI interface remain unchanged. Legacy THEME
+rows using identity-provider provenance now fail closed and must be supplied
+with explicit disclosure evidence; they are never automatically rewritten.
 
-This module implements a reusable data-construction step. Source cross-mapping,
-Theme Authority, reviewed live membership migration, actual consumer use and
+This module implements a reusable data-construction step. Theme Authority,
+reviewed live membership migration, actual consumer use and
 natural ordered-pair evidence remain separate canonical gates. Passing synthetic
 fixture tests does not close Rotation, P3-01, or a natural operating gate.
 
@@ -84,6 +93,7 @@ fixture tests does not close Rotation, P3-01, or a natural operating gate.
 The adapter tests use the existing synthetic isolated authority repository and
 real GAM/ThemeTaxonomy validators. They exercise literal expected row creation,
 repeat no-op, unchanged original inputs, current empty registry rejection,
-source/identity/interval mismatches, collisions, deterministic selections,
+role/market/host/source/identity/interval mismatches, collisions, deterministic
+selections,
 retained evidence and rehashed tamper rejection. Existing GAM tests protect the
 unmodified legacy API. No market collection or historical packet is fabricated.
