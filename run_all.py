@@ -2023,6 +2023,7 @@ APPROVED_TESTS = [
     #      not silently hidden from the test-set comparison.
     "test/test_crypto_candidate_promotion.py",
     "test/test_crypto_candidate_trend_metrics.py",
+    "test/test_crypto_candidate_volume_metrics.py",
     # ★ P5-09 — Crypto PAPER Buy Eligibility: FOCUSED_REVIEW (P5-08) ->
     #   WATCH/WAIT/BLOCKED/PAPER_BUY_ELIGIBLE. Pure derivation over an
     #   already-revalidated P5-08 promotion packet only. REGIME_PERMITS_
