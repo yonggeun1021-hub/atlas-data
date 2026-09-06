@@ -1,0 +1,74 @@
+{
+  "schema_version": "crypto_strategy_rereview_trigger_readiness_contract/1",
+  "document_status": "RATIFIED_FAIL_CLOSED_READINESS_BOUNDARY",
+  "wbs_binding": {
+    "primary_row": "P10-12",
+    "primary_title": "Crypto PAPER Counterfactual Validation & Live Review Gate",
+    "supporting_rows": [
+      "P1-CR-08",
+      "P1-CR-09",
+      "P4-07"
+    ]
+  },
+  "canonical_inputs": {
+    "crypto_regime_status": "data/latest_crypto_regime_refresh_status.json",
+    "source_inventory": "config/data_coverage_registry.json"
+  },
+  "rereview_triggers": [
+    {
+      "trigger_id": "CAPITAL_AT_LEAST_10000_USD",
+      "requirement": "canonical account capital is at least USD 10000",
+      "current_evidence_contract": "MISSING_NO_CANONICAL_ACCOUNT_CAPITAL_PACKET"
+    },
+    {
+      "trigger_id": "RATIFIED_MARKET_REGIME_CHANGE",
+      "requirement": "a ratified market regime differs from a ratified baseline regime",
+      "current_evidence_contract": "MISSING_RATIFIED_BASELINE_AND_CURRENT_REGIME"
+    },
+    {
+      "trigger_id": "GENUINELY_NEW_MEASUREMENT_SOURCE",
+      "requirement": "a new measurement family is absent from the ratified failed-strategy baseline and has PIT-safe source lineage",
+      "current_evidence_contract": "MISSING_RATIFIED_MEASUREMENT_FAMILY_BASELINE"
+    },
+    {
+      "trigger_id": "MATERIAL_EXCHANGE_POLICY_OR_COST_CHANGE",
+      "requirement": "a canonical exchange policy or all-in cost observation changed materially under a ratified materiality policy",
+      "current_evidence_contract": "MISSING_CANONICAL_HISTORY_AND_MATERIALITY_POLICY"
+    }
+  ],
+  "mechanism_qualification": {
+    "entry_condition": "AT_LEAST_ONE_REREVIEW_TRIGGER_PROVEN",
+    "questions": [
+      "Q1_MARKET_INEFFICIENCY",
+      "Q2_WHY_PERSIST",
+      "Q3_WHY_CAPTUREABLE_AFTER_COSTS",
+      "Q4_WHAT_FALSIFIES_MECHANISM"
+    ],
+    "required_answer_count": 4,
+    "event_study_required_gate_count": 7,
+    "event_study_required_pass_count": 7
+  },
+  "locked_state": {
+    "candidate": "NONE",
+    "live_engine_count": 0,
+    "paper_shadow_preparation_only": true
+  },
+  "authority": {
+    "readiness_observation_only": true,
+    "trigger_ratification_authorized": false,
+    "strategy_ideation_authorized": false,
+    "backtest_authorized": false,
+    "event_study_authorized": false,
+    "candidate_authorized": false,
+    "paper_engine_authorized": false,
+    "live_engine_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "proposal_authorized": false,
+    "order_authorized": false,
+    "capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

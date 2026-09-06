@@ -146,6 +146,14 @@ APPROVED_TESTS = [
     #   source/freshness/cost/fallback 상태와 unresolved gap을 결정론적으로 남긴다.
     #   ⛔ source 선택·유료 구매·evaluator/Production/trading 연결 없음.
     "test/test_data_coverage_matrix.py",
+    # ★ P10-12 — canonical crypto strategy re-review trigger readiness.
+    #   The four allowed triggers are inventoried from retained public evidence;
+    #   missing private capital, UNKNOWN Regime, venue-feed visibility, and an
+    #   unpaired current fee quote never become a trigger. With zero proven
+    #   triggers, four-question mechanism qualification and the 7/7 Event Study
+    #   remain NOT_EVALUATED, Candidate NONE/live engine 0 stay locked, and every
+    #   strategy/backtest/PAPER/live/order/trading authority remains false.
+    "test/test_crypto_strategy_rereview_trigger_readiness.py",
     # ★ P3-01 — policy-neutral Global Security / Asset Master capability.
     #   US/Korea/Crypto identity, exchange, currency, alias, and effective-dated
     #   membership assertions share one schema with exact source lineage.
