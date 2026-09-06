@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import urllib.error
 import urllib.parse
@@ -20,6 +21,30 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "free_market_data_contract.json"
 UTC = dt.timezone.utc
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+# Daily Alpaca raw and derived evidence used to be published with
+# ``os.replace``, so a second capture on the same UTC day destroyed the
+# earlier same-day response bytes and the earlier derived observation.
+# Provider response bytes are now retained in the same append-only,
+# content-addressed shape already proven by ``collectors/fred_vix_provenance``
+# (that module is reused, never modified): the address is the SHA-256 of the
+# exact original response, so identical content deduplicates even across
+# observation times, while every genuine observation keeps its own derived
+# revision keyed by its actual capture time.
+#
+# The store lives under ``evidence/free_market_data/raw`` because the
+# unmodified capture workflow commits only ``derived``, ``raw`` and
+# ``fred/raw``. It is addressed by content alone, so it is deliberately not
+# partitioned by day; the existing per-day compatibility paths are unchanged.
+ALPACA_RAW_RETENTION = "APPEND_ONLY_CONTENT_ADDRESSED"
+ALPACA_RAW_REVISION_SCHEMA = "alpaca_iex_raw_revision/1"
+ALPACA_RAW_STORE = "evidence/free_market_data/raw/alpaca"
+ALPACA_RAW_KINDS = {
+    "latest_bars": "alpaca_iex_latest_bars.json.gz",
+    "daily_bars": "alpaca_iex_daily_bars.json.gz",
+}
+DERIVED_REVISION_SCHEMA = "free_market_data_derived_revision/1"
 
 
 def _load_fred_provenance():
@@ -594,22 +619,240 @@ def derive_us_market_reference(
     return result
 
 
-def validate_alpaca_daily_evidence(root: Path, packet: dict) -> dict:
-    """Replay the retained daily response and reproduce the US ETF reference."""
+def build_alpaca_raw_revision(kind: str, raw: bytes) -> dict:
+    """Address exact provider response bytes by content, never by capture time.
+
+    Two captures of byte-identical content therefore produce one revision,
+    while the observation identity that consumed it stays distinct in the
+    derived revision below.
+    """
+    if kind not in ALPACA_RAW_KINDS:
+        raise FreeMarketDataError(f"ALPACA_RAW_KIND_INVALID:{kind}")
+    if not isinstance(raw, bytes):
+        raise FreeMarketDataError("ALPACA_RAW_BYTES_INVALID")
+    raw_sha256 = sha256_bytes(raw)
+    raw_gzip_bytes = FRED_PROVENANCE.deterministic_gzip(raw)
+    base = f"{ALPACA_RAW_STORE}/{kind}/{raw_sha256}"
+    manifest = {
+        "schema_version": ALPACA_RAW_REVISION_SCHEMA,
+        "kind": kind,
+        "feed": "iex",
+        "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
+        "raw_retention": ALPACA_RAW_RETENTION,
+        "raw_response_sha256": raw_sha256,
+    }
+    manifest_bytes = json.dumps(
+        manifest, ensure_ascii=False, indent=2, sort_keys=True
+    ).encode("utf-8") + b"\n"
+    return {
+        "manifest": manifest,
+        "manifest_bytes": manifest_bytes,
+        "raw_gzip_bytes": raw_gzip_bytes,
+        "pointer": {
+            "kind": kind,
+            "raw_retention": ALPACA_RAW_RETENTION,
+            "raw_response_sha256": raw_sha256,
+            "raw_path": f"{base}/{ALPACA_RAW_KINDS[kind]}",
+            "raw_file_sha256": sha256_bytes(raw_gzip_bytes),
+            "manifest_path": f"{base}/manifest.json",
+            "manifest_file_sha256": sha256_bytes(manifest_bytes),
+        },
+    }
+
+
+def _safe_alpaca_raw_path(root: Path, value: object, suffix: str) -> Path:
+    if not isinstance(value, str) or Path(value).is_absolute() or ".." in Path(value).parts:
+        raise FreeMarketDataError("ALPACA_RAW_PATH_INVALID")
+    if not value.startswith(f"{ALPACA_RAW_STORE}/") or not value.endswith(suffix):
+        raise FreeMarketDataError("ALPACA_RAW_PATH_INVALID")
+    resolved_root = Path(root).resolve()
+    resolved = (Path(root) / value).resolve()
+    if resolved_root not in resolved.parents:
+        raise FreeMarketDataError("ALPACA_RAW_PATH_INVALID")
+    return resolved
+
+
+def _write_once(path: Path, data: bytes, code: str) -> None:
+    """Publish an immutable object without ever overwriting one.
+
+    Byte-identical republication is a no-op, so an identical capture is
+    idempotent; conflicting bytes at the same address fail closed before any
+    reader is pointed at the revision.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        if not path.is_file() or path.read_bytes() != data:
+            raise FreeMarketDataError(code)
+        return
+    _atomic_write(path, data)
+
+
+def publish_alpaca_raw_revision(root: Path, revision: dict) -> dict:
+    pointer = revision["pointer"]
+    filename = ALPACA_RAW_KINDS[pointer["kind"]]
+    raw_path = _safe_alpaca_raw_path(root, pointer["raw_path"], f"/{filename}")
+    manifest_path = _safe_alpaca_raw_path(root, pointer["manifest_path"], "/manifest.json")
+    _write_once(raw_path, revision["raw_gzip_bytes"], "ALPACA_RAW_REVISION_CONFLICT")
+    _write_once(manifest_path, revision["manifest_bytes"], "ALPACA_RAW_REVISION_CONFLICT")
+    return pointer
+
+
+def read_alpaca_raw_revision(root: Path, pointer: dict) -> bytes:
+    """Return the exact response bytes a pinned pointer resolves to."""
+    if not isinstance(pointer, dict) or pointer.get("kind") not in ALPACA_RAW_KINDS:
+        raise FreeMarketDataError("ALPACA_RAW_POINTER_INVALID")
+    for key in ("raw_response_sha256", "raw_file_sha256", "manifest_file_sha256"):
+        value = pointer.get(key)
+        if not isinstance(value, str) or HEX64.fullmatch(value) is None:
+            raise FreeMarketDataError("ALPACA_RAW_POINTER_INVALID")
+    filename = ALPACA_RAW_KINDS[pointer["kind"]]
+    raw_path = _safe_alpaca_raw_path(root, pointer.get("raw_path"), f"/{filename}")
+    manifest_path = _safe_alpaca_raw_path(root, pointer.get("manifest_path"), "/manifest.json")
+    try:
+        raw_gzip_bytes = raw_path.read_bytes()
+        manifest_bytes = manifest_path.read_bytes()
+        raw = gzip.decompress(raw_gzip_bytes)
+    except (OSError, ValueError, EOFError) as exc:
+        raise FreeMarketDataError("ALPACA_RAW_REVISION_MISSING") from exc
+    if sha256_bytes(raw_gzip_bytes) != pointer["raw_file_sha256"]:
+        raise FreeMarketDataError("ALPACA_RAW_FILE_BYTES_MISMATCH")
+    expected = build_alpaca_raw_revision(pointer["kind"], raw)
+    # The stored container hash was already checked above. Logical replay is
+    # re-derived from the decompressed response only, for the same reason the
+    # FRED validator excludes it: older interpreters emitted a host OS byte in
+    # an otherwise valid mtime=0 gzip header.
+    logical = expected["pointer"].keys() - {"raw_file_sha256"}
+    if manifest_bytes != expected["manifest_bytes"] or any(
+        pointer.get(key) != expected["pointer"][key] for key in logical
+    ):
+        raise FreeMarketDataError("ALPACA_RAW_REVISION_REDERIVATION_MISMATCH")
+    return raw
+
+
+def resolve_daily_raw(root: Path, packet: dict) -> tuple[bytes, str]:
+    """Resolve the exact daily response bytes this packet pins.
+
+    A packet published with its own pinned revision always resolves that
+    immutable object, so a later same-day capture cannot rebind it. An older
+    packet keeps resolving the legacy per-day compatibility path first, so
+    already recorded ``raw_path`` bindings stay byte-identical. Only when
+    those legacy bytes no longer match the packet's own ``daily_raw_sha256``
+    does resolution fall back to the preserved content-addressed revision for
+    that exact hash -- never to newer bytes.
+    """
     observed = packet.get("observed_at_utc")
     if not isinstance(observed, str) or len(observed) < 10:
         raise FreeMarketDataError("CAPTURE_TIME_INVALID")
-    day = observed[:10]
-    relative = Path("evidence/free_market_data/raw") / day / "alpaca_iex_daily_bars.json.gz"
+    alpaca = packet.get("alpaca")
+    alpaca = alpaca if isinstance(alpaca, dict) else {}
+    expected = alpaca.get("daily_raw_sha256")
+    pointer = alpaca.get("daily_raw_evidence")
+    if pointer is not None:
+        raw = read_alpaca_raw_revision(root, pointer)
+        if sha256_bytes(raw) != expected:
+            raise FreeMarketDataError("ALPACA_DAILY_RAW_HASH_MISMATCH")
+        return raw, pointer["raw_path"]
+
+    relative = (
+        Path("evidence/free_market_data/raw") / observed[:10] / ALPACA_RAW_KINDS["daily_bars"]
+    )
     path = (Path(root).resolve() / relative).resolve()
+    legacy_error: Exception | None = None
+    legacy: bytes | None = None
     try:
         path.relative_to(Path(root).resolve())
-        compressed = path.read_bytes()
-        raw = gzip.decompress(compressed)
-    except (OSError, ValueError, gzip.BadGzipFile) as exc:
-        raise FreeMarketDataError("ALPACA_DAILY_RAW_INVALID") from exc
-    if sha256_bytes(raw) != packet.get("alpaca", {}).get("daily_raw_sha256"):
-        raise FreeMarketDataError("ALPACA_DAILY_RAW_HASH_MISMATCH")
+        legacy = gzip.decompress(path.read_bytes())
+    except (OSError, ValueError, EOFError) as exc:
+        legacy_error = exc
+    if legacy is not None and sha256_bytes(legacy) == expected:
+        return legacy, relative.as_posix()
+    if isinstance(expected, str) and HEX64.fullmatch(expected) is not None:
+        filename = ALPACA_RAW_KINDS["daily_bars"]
+        candidate = f"{ALPACA_RAW_STORE}/daily_bars/{expected}/{filename}"
+        try:
+            stored = _safe_alpaca_raw_path(root, candidate, f"/{filename}")
+            preserved = gzip.decompress(stored.read_bytes())
+        except (FreeMarketDataError, OSError, ValueError, EOFError):
+            preserved = None
+        if preserved is not None and sha256_bytes(preserved) == expected:
+            return preserved, candidate
+    if legacy is None:
+        raise FreeMarketDataError("ALPACA_DAILY_RAW_INVALID") from legacy_error
+    raise FreeMarketDataError("ALPACA_DAILY_RAW_HASH_MISMATCH")
+
+
+def derived_revision_id(packet: dict) -> str:
+    """Identify one genuine observation by its actual capture time.
+
+    Two same-day captures are two observations even when both are valid, so
+    the derived revision is keyed by capture time and packet identity rather
+    than by day alone.
+    """
+    observed = packet.get("observed_at_utc")
+    packet_sha256 = packet.get("packet_sha256")
+    if not isinstance(observed, str) or len(observed) < 10:
+        raise FreeMarketDataError("CAPTURE_TIME_INVALID")
+    if not isinstance(packet_sha256, str) or HEX64.fullmatch(packet_sha256) is None:
+        raise FreeMarketDataError("PACKET_SHA256_INVALID")
+    return sha256_bytes(canonical_bytes({
+        "schema_version": DERIVED_REVISION_SCHEMA,
+        "observed_at_utc": observed,
+        "packet_sha256": packet_sha256,
+    }))
+
+
+def derived_revision_path(packet: dict) -> str:
+    # derived_revision_id validates observed_at_utc before it is indexed here,
+    # so a malformed prior manifest raises FreeMarketDataError rather than
+    # KeyError.
+    revision_id = derived_revision_id(packet)
+    day = str(packet["observed_at_utc"])[:10]
+    return f"evidence/free_market_data/derived/{day}/{revision_id}/manifest.json"
+
+
+def _packet_bytes(packet: dict) -> bytes:
+    return json.dumps(packet, indent=2, sort_keys=True).encode() + b"\n"
+
+
+def verify_packet_self_hash(packet: dict) -> None:
+    unsigned = {key: value for key, value in packet.items() if key != "packet_sha256"}
+    if packet.get("packet_sha256") != sha256_bytes(canonical_bytes(unsigned)):
+        raise FreeMarketDataError("PACKET_SHA256_MISMATCH")
+
+
+def _preserve_prior_alpaca_raw(root: Path, path: Path, kind: str) -> None:
+    """Retain compatibility-path bytes that this run is about to replace."""
+    try:
+        prior = gzip.decompress(path.read_bytes())
+    except (OSError, ValueError, EOFError):
+        return
+    publish_alpaca_raw_revision(root, build_alpaca_raw_revision(kind, prior))
+
+
+def _preserve_prior_derived_revision(root: Path, path: Path) -> None:
+    """Retain a compatibility manifest that this run is about to replace.
+
+    A prior file that cannot prove its own packet identity carries no
+    observation to preserve and is left alone rather than fabricated into a
+    revision.
+    """
+    try:
+        prior = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return
+    if not isinstance(prior, dict):
+        return
+    try:
+        verify_packet_self_hash(prior)
+        relative = derived_revision_path(prior)
+    except FreeMarketDataError:
+        return
+    _write_once(Path(root) / relative, _packet_bytes(prior), "DERIVED_REVISION_CONFLICT")
+
+
+def validate_alpaca_daily_evidence(root: Path, packet: dict) -> dict:
+    """Replay the retained daily response and reproduce the US ETF reference."""
+    raw, raw_relative = resolve_daily_raw(root, packet)
     try:
         body = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -657,7 +900,7 @@ def validate_alpaca_daily_evidence(root: Path, packet: dict) -> dict:
         raise FreeMarketDataError("US_MARKET_REFERENCE_REDERIVATION_MISMATCH")
     return {
         "reference": reference,
-        "raw_path": relative.as_posix(),
+        "raw_path": raw_relative,
         "raw_response_sha256": sha256_bytes(raw),
     }
 
@@ -756,8 +999,18 @@ def build_capture(
             "source_scope": contract["alpaca"]["source_scope"],
             "bars": bars,
             "raw_sha256": sha256_bytes(alpaca_raw) if alpaca_raw is not None else None,
+            # Pin the immutable raw revisions this observation consumed, so a
+            # later same-day capture cannot rebind this packet's replay.
+            "raw_evidence": (
+                build_alpaca_raw_revision("latest_bars", alpaca_raw)["pointer"]
+                if alpaca_raw is not None else None
+            ),
             "daily_bars": daily_bars,
             "daily_raw_sha256": sha256_bytes(daily_raw) if daily_raw is not None else None,
+            "daily_raw_evidence": (
+                build_alpaca_raw_revision("daily_bars", daily_raw)["pointer"]
+                if daily_raw is not None else None
+            ),
             "daily_timeframe": "1Day",
             "daily_adjustment": "raw",
         },
@@ -776,18 +1029,66 @@ def publish(
     fred_bundle: dict,
     alpaca_raw: bytes | None = None,
     daily_raw: bytes | None = None,
-) -> None:
+) -> dict:
+    """Publish immutable revisions first, then the mutable compatibility paths.
+
+    Every genuine observation is retained: the response bytes as
+    content-addressed raw revisions and the derived packet as a
+    capture-time-addressed observation revision. ``derived/<day>/manifest.json``,
+    ``raw/<day>/*.json.gz`` and ``data/latest_free_market_data.json`` remain
+    latest-wins compatibility pointers, and any earlier bytes still sitting at
+    those paths are preserved into the immutable store before replacement.
+    """
+    root = Path(root)
+    verify_packet_self_hash(packet)
     day = observed_at.astimezone(UTC).date().isoformat()
     derived_dir = root / "evidence" / "free_market_data" / "derived" / day
+    raw_dir = root / "evidence" / "free_market_data" / "raw" / day
     FRED_PROVENANCE.publish_evidence_bundle(root, fred_bundle)
-    _atomic_write(derived_dir / "manifest.json", json.dumps(packet, indent=2, sort_keys=True).encode() + b"\n")
+
+    raw_revisions: dict[str, dict] = {}
     if packet["alpaca"]["status"] == "READY":
         if alpaca_raw is None or daily_raw is None:
             raise FreeMarketDataError("ALPACA_READY_RAW_MISSING")
-        raw_dir = root / "evidence" / "free_market_data" / "raw" / day
-        _atomic_write(raw_dir / "alpaca_iex_latest_bars.json.gz", gzip.compress(alpaca_raw, mtime=0))
-        _atomic_write(raw_dir / "alpaca_iex_daily_bars.json.gz", gzip.compress(daily_raw, mtime=0))
-    _atomic_write(root / "data" / "latest_free_market_data.json", json.dumps(packet, indent=2, sort_keys=True).encode() + b"\n")
+        for kind, raw, pinned_key in (
+            ("latest_bars", alpaca_raw, "raw_evidence"),
+            ("daily_bars", daily_raw, "daily_raw_evidence"),
+        ):
+            _preserve_prior_alpaca_raw(root, raw_dir / ALPACA_RAW_KINDS[kind], kind)
+            pointer = publish_alpaca_raw_revision(
+                root, build_alpaca_raw_revision(kind, raw)
+            )
+            # Never point a reader at a revision whose stored bytes disagree
+            # with what this packet pinned.
+            if packet["alpaca"].get(pinned_key) != pointer:
+                raise FreeMarketDataError("ALPACA_RAW_REVISION_CONFLICT")
+            if sha256_bytes(read_alpaca_raw_revision(root, pointer)) != sha256_bytes(raw):
+                raise FreeMarketDataError("ALPACA_RAW_REVISION_CONFLICT")
+            raw_revisions[kind] = pointer
+
+    packet_bytes = _packet_bytes(packet)
+    revision_relative = derived_revision_path(packet)
+    _preserve_prior_derived_revision(root, derived_dir / "manifest.json")
+    _write_once(root / revision_relative, packet_bytes, "DERIVED_REVISION_CONFLICT")
+
+    _atomic_write(derived_dir / "manifest.json", packet_bytes)
+    if packet["alpaca"]["status"] == "READY":
+        _atomic_write(
+            raw_dir / ALPACA_RAW_KINDS["latest_bars"],
+            FRED_PROVENANCE.deterministic_gzip(alpaca_raw),
+        )
+        _atomic_write(
+            raw_dir / ALPACA_RAW_KINDS["daily_bars"],
+            FRED_PROVENANCE.deterministic_gzip(daily_raw),
+        )
+    _atomic_write(root / "data" / "latest_free_market_data.json", packet_bytes)
+    return {
+        "observation_revision_id": derived_revision_id(packet),
+        "derived_revision_path": revision_relative,
+        "alpaca_raw_revision_paths": {
+            kind: pointer["raw_path"] for kind, pointer in raw_revisions.items()
+        },
+    }
 
 
 def main() -> int:
@@ -877,7 +1178,7 @@ def main() -> int:
         daily_raw=daily_raw,
         daily_bars=daily_bars,
     )
-    publish(
+    receipt = publish(
         args.root,
         observed_at,
         packet,
@@ -890,6 +1191,7 @@ def main() -> int:
         "status": status,
         "alpaca_status": alpaca_status,
         "packet_sha256": packet["packet_sha256"],
+        "observation_revision_id": receipt["observation_revision_id"],
     }, sort_keys=True))
     return 0
 

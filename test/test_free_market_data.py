@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import copy
 import datetime as dt
+import gzip
 import importlib.util
 import inspect
 import json
@@ -13,6 +15,82 @@ import urllib.error
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("free_market_data", ROOT / "collectors" / "free_market_data.py")
 M = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(M)
+
+# Two captures on the same UTC day: the exact case that used to destroy the
+# earlier same-day raw response and derived observation via os.replace.
+FIRST_CAPTURE = dt.datetime(2026, 7, 1, 6, 0, 0, tzinfo=dt.timezone.utc)
+SECOND_CAPTURE = dt.datetime(2026, 7, 1, 12, 30, 0, tzinfo=dt.timezone.utc)
+CAPTURE_DAY = "2026-07-01"
+
+
+def _liquidity(observed_at):
+    return {
+        "status": "READY", "derivation_version": "fred_liquidity_current/v1",
+        "source_scope": "FRED_OFFICIAL_SERIES_API",
+        "raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
+        "captured_at_utc": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "series": [], "response_hashes": {},
+        "derived_payload_sha256": M.sha256_bytes(M.canonical_bytes([])),
+        "warnings": ["CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY"],
+    }
+
+
+def _contract_root(tmp):
+    """A temp root carrying the real contract, so replay re-derives identically."""
+    root = Path(tmp)
+    (root / "config").mkdir(parents=True, exist_ok=True)
+    (root / "config" / "free_market_data_contract.json").write_bytes(
+        (ROOT / "config" / "free_market_data_contract.json").read_bytes()
+    )
+    return root
+
+
+def _daily_getter(symbols, shift):
+    start = dt.date(2026, 5, 1)
+    bodies = {
+        symbol: json.dumps({"bars": [{
+            "o": 100 + step, "h": 103 + step, "l": 97 + step,
+            "c": 100 + step + index * 0.01 + shift, "v": 1000 + step,
+            "t": f"{(start + dt.timedelta(days=step)).isoformat()}T00:00:00Z",
+        } for step in range(61)]}).encode()
+        for index, symbol in enumerate(symbols)
+    }
+    return lambda url, *_: bodies[url.split("/stocks/", 1)[1].split("/", 1)[0]]
+
+
+def _ready_capture(root, observed_at, *, shift=0.0):
+    """Build a full READY packet for `root`'s contract without any network."""
+    contract = M.load_contract(root / "config" / "free_market_data_contract.json")
+    symbols = contract["alpaca"]["symbols"]
+    fred_body = json.dumps({"observations": [{
+        "date": "2026-06-30", "value": "15.5",
+        "realtime_start": "2026-07-01", "realtime_end": "2026-07-01",
+    }]}).encode()
+    latest_body = json.dumps({"bars": {symbol: {
+        "c": 100 + index + shift, "v": 1000, "t": "2026-06-30T19:59:00Z",
+    } for index, symbol in enumerate(symbols)}}).encode()
+    fred_raw, fred = M.fetch_fred("x", observed_at, getter=lambda *_: fred_body)
+    alpaca_raw, bars = M.fetch_alpaca("k", "s", symbols, getter=lambda *_: latest_body)
+    daily_raw, daily_bars = M.fetch_alpaca_daily_bars(
+        "k", "s", symbols, observed_at, getter=_daily_getter(symbols, shift)
+    )
+    fred_bundle = M.FRED_PROVENANCE.build_evidence_bundle(observed_at, fred_raw)
+    packet = M.build_capture(
+        observed_at, fred_raw, fred, contract, alpaca_status="READY",
+        fred_evidence=fred_bundle["pointer"], fred_liquidity=_liquidity(observed_at),
+        alpaca_raw=alpaca_raw, bars=bars, daily_raw=daily_raw, daily_bars=daily_bars,
+    )
+    return {
+        "packet": packet, "fred_bundle": fred_bundle,
+        "alpaca_raw": alpaca_raw, "daily_raw": daily_raw,
+    }
+
+
+def _publish(root, observed_at, capture):
+    return M.publish(
+        root, observed_at, capture["packet"], fred_bundle=capture["fred_bundle"],
+        alpaca_raw=capture["alpaca_raw"], daily_raw=capture["daily_raw"],
+    )
 
 
 class FreeMarketDataTests(unittest.TestCase):
@@ -253,6 +331,292 @@ class DedicatedMarketDataCredentialTests(unittest.TestCase):
         self.assertEqual(packet["fred"]["status"], "READY")
         self.assertEqual(packet["alpaca"]["status"], "ALPACA_CAPTURE_FAILED:HTTP_ERROR:401")
         self.assertEqual(packet["alpaca"]["bars"], [])
+
+
+class ImmutableRevisionRetentionTests(unittest.TestCase):
+    """A second capture on the same UTC day must not destroy the first one.
+
+    Raw provider bytes are content-addressed, so identical content
+    deduplicates across observation times; the derived observation revision is
+    capture-time addressed, so each genuine observation keeps its own identity.
+    """
+
+    def _daily_revisions(self, root):
+        store = root / "evidence/free_market_data/raw/alpaca/daily_bars"
+        return sorted(path.name for path in store.iterdir()) if store.is_dir() else []
+
+    def _derived_revisions(self, root, day=CAPTURE_DAY):
+        base = root / "evidence/free_market_data/derived" / day
+        return sorted(p.name for p in base.iterdir() if p.is_dir())
+
+    def test_two_same_day_publications_both_survive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            first = _ready_capture(root, FIRST_CAPTURE, shift=0.0)
+            second = _ready_capture(root, SECOND_CAPTURE, shift=0.5)
+            self.assertNotEqual(
+                first["packet"]["alpaca"]["daily_raw_sha256"],
+                second["packet"]["alpaca"]["daily_raw_sha256"],
+            )
+            first_receipt = _publish(root, FIRST_CAPTURE, first)
+            second_receipt = _publish(root, SECOND_CAPTURE, second)
+
+            self.assertNotEqual(
+                first_receipt["observation_revision_id"],
+                second_receipt["observation_revision_id"],
+            )
+            for receipt, capture in (
+                (first_receipt, first), (second_receipt, second)
+            ):
+                retained = json.loads(
+                    (root / receipt["derived_revision_path"]).read_text()
+                )
+                self.assertEqual(retained, capture["packet"])
+            self.assertEqual(len(self._derived_revisions(root)), 2)
+            self.assertEqual(len(self._daily_revisions(root)), 2)
+            for capture in (first, second):
+                pointer = capture["packet"]["alpaca"]["daily_raw_evidence"]
+                self.assertEqual(
+                    M.read_alpaca_raw_revision(root, pointer), capture["daily_raw"]
+                )
+            # The latest-wins compatibility paths still resolve to the newest.
+            self.assertEqual(
+                json.loads((root / "data/latest_free_market_data.json").read_text()),
+                second["packet"],
+            )
+            self.assertEqual(
+                json.loads(
+                    (root / "evidence/free_market_data/derived" / CAPTURE_DAY
+                     / "manifest.json").read_text()
+                ),
+                second["packet"],
+            )
+
+    def test_first_packet_still_replays_after_the_second_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            first = _ready_capture(root, FIRST_CAPTURE, shift=0.0)
+            second = _ready_capture(root, SECOND_CAPTURE, shift=0.5)
+            _publish(root, FIRST_CAPTURE, first)
+            _publish(root, SECOND_CAPTURE, second)
+            for capture in (first, second):
+                packet = capture["packet"]
+                replay = M.validate_alpaca_daily_evidence(root, packet)
+                self.assertEqual(
+                    replay["raw_response_sha256"],
+                    packet["alpaca"]["daily_raw_sha256"],
+                )
+                self.assertEqual(
+                    replay["raw_path"],
+                    packet["alpaca"]["daily_raw_evidence"]["raw_path"],
+                )
+                self.assertEqual(replay["reference"], packet["us_market_reference"])
+            self.assertNotEqual(
+                M.validate_alpaca_daily_evidence(root, first["packet"])["raw_response_sha256"],
+                second["packet"]["alpaca"]["daily_raw_sha256"],
+            )
+
+    def test_identical_response_bytes_deduplicate_across_observation_times(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            first = _ready_capture(root, FIRST_CAPTURE, shift=0.0)
+            second = _ready_capture(root, SECOND_CAPTURE, shift=0.0)
+            self.assertEqual(first["daily_raw"], second["daily_raw"])
+            _publish(root, FIRST_CAPTURE, first)
+            _publish(root, SECOND_CAPTURE, second)
+            self.assertEqual(
+                first["packet"]["alpaca"]["daily_raw_evidence"],
+                second["packet"]["alpaca"]["daily_raw_evidence"],
+            )
+            self.assertEqual(len(self._daily_revisions(root)), 1)
+            # Same bytes, but two genuine observations at two capture times.
+            self.assertNotEqual(
+                first["packet"]["observed_at_utc"],
+                second["packet"]["observed_at_utc"],
+            )
+            self.assertEqual(len(self._derived_revisions(root)), 2)
+
+    def test_identical_publication_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            capture = _ready_capture(root, FIRST_CAPTURE)
+            first_receipt = _publish(root, FIRST_CAPTURE, capture)
+            revision = root / first_receipt["derived_revision_path"]
+            before = revision.read_bytes()
+            second_receipt = _publish(root, FIRST_CAPTURE, capture)
+            self.assertEqual(first_receipt, second_receipt)
+            self.assertEqual(revision.read_bytes(), before)
+            self.assertEqual(len(self._derived_revisions(root)), 1)
+            self.assertEqual(len(self._daily_revisions(root)), 1)
+
+    def test_partial_capture_publishes_a_derived_revision_without_alpaca_raw(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            fred_raw = b'{"observations":[{"date":"2026-06-30","value":"15.5"}]}'
+            fred = {"series_id": "VIXCLS", "observation_date": "2026-06-30", "value": "15.5"}
+            bundle = M.FRED_PROVENANCE.build_evidence_bundle(FIRST_CAPTURE, fred_raw)
+            packet = M.build_capture(
+                FIRST_CAPTURE, fred_raw, fred,
+                M.load_contract(root / "config" / "free_market_data_contract.json"),
+                fred_evidence=bundle["pointer"],
+                fred_liquidity=_liquidity(FIRST_CAPTURE),
+                alpaca_status="ALPACA_CAPTURE_FAILED:HTTP_ERROR:401",
+            )
+            self.assertIsNone(packet["alpaca"]["raw_evidence"])
+            self.assertIsNone(packet["alpaca"]["daily_raw_evidence"])
+            receipt = M.publish(root, FIRST_CAPTURE, packet, fred_bundle=bundle)
+            self.assertEqual(receipt["alpaca_raw_revision_paths"], {})
+            self.assertEqual(
+                json.loads((root / receipt["derived_revision_path"]).read_text()),
+                packet,
+            )
+            self.assertTrue((root / bundle["pointer"]["raw_path"]).exists())
+            self.assertFalse(
+                (root / "evidence/free_market_data/raw/alpaca").exists()
+            )
+            self.assertFalse(
+                (root / "evidence/free_market_data/raw" / CAPTURE_DAY).exists()
+            )
+
+    def test_conflicting_bytes_at_an_immutable_address_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            capture = _ready_capture(root, FIRST_CAPTURE)
+            receipt = _publish(root, FIRST_CAPTURE, capture)
+            pointer = capture["packet"]["alpaca"]["daily_raw_evidence"]
+
+            (root / receipt["derived_revision_path"]).write_bytes(b"{}\n")
+            with self.assertRaisesRegex(M.FreeMarketDataError, "DERIVED_REVISION_CONFLICT"):
+                _publish(root, FIRST_CAPTURE, capture)
+            (root / receipt["derived_revision_path"]).write_bytes(
+                json.dumps(capture["packet"], indent=2, sort_keys=True).encode() + b"\n"
+            )
+
+            (root / pointer["raw_path"]).write_bytes(
+                M.FRED_PROVENANCE.deterministic_gzip(b'{"responses":{}}')
+            )
+            with self.assertRaisesRegex(M.FreeMarketDataError, "ALPACA_RAW_REVISION_CONFLICT"):
+                _publish(root, FIRST_CAPTURE, capture)
+            with self.assertRaisesRegex(M.FreeMarketDataError, "ALPACA_RAW_FILE_BYTES_MISMATCH"):
+                M.read_alpaca_raw_revision(root, pointer)
+            with self.assertRaisesRegex(M.FreeMarketDataError, "ALPACA_RAW_FILE_BYTES_MISMATCH"):
+                M.validate_alpaca_daily_evidence(root, capture["packet"])
+
+    def test_a_packet_that_cannot_prove_its_own_hash_is_never_published(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            capture = _ready_capture(root, FIRST_CAPTURE)
+            capture["packet"]["alpaca"]["daily_bars"][0]["close"] = "999999"
+            with self.assertRaisesRegex(M.FreeMarketDataError, "PACKET_SHA256_MISMATCH"):
+                _publish(root, FIRST_CAPTURE, capture)
+            self.assertFalse((root / "evidence/free_market_data/derived").exists())
+
+    def test_a_pointer_outside_the_evidence_store_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            capture = _ready_capture(root, FIRST_CAPTURE)
+            _publish(root, FIRST_CAPTURE, capture)
+            escaped = dict(capture["packet"]["alpaca"]["daily_raw_evidence"])
+            escaped["raw_path"] = "../alpaca_iex_daily_bars.json.gz"
+            with self.assertRaisesRegex(M.FreeMarketDataError, "ALPACA_RAW_PATH_INVALID"):
+                M.read_alpaca_raw_revision(root, escaped)
+
+
+class LegacyPacketCompatibilityTests(unittest.TestCase):
+    """Packets published before pinned revisions must keep replaying, and must
+    never be rebound to bytes captured later on the same day."""
+
+    @staticmethod
+    def _as_legacy(packet):
+        legacy = copy.deepcopy(packet)
+        legacy["alpaca"].pop("raw_evidence")
+        legacy["alpaca"].pop("daily_raw_evidence")
+        unsigned = {k: v for k, v in legacy.items() if k != "packet_sha256"}
+        legacy["packet_sha256"] = M.sha256_bytes(M.canonical_bytes(unsigned))
+        return legacy
+
+    def test_legacy_packet_resolves_the_unchanged_per_day_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            capture = _ready_capture(root, FIRST_CAPTURE)
+            _publish(root, FIRST_CAPTURE, capture)
+            legacy = self._as_legacy(capture["packet"])
+            replay = M.validate_alpaca_daily_evidence(root, legacy)
+            self.assertEqual(
+                replay["raw_path"],
+                f"evidence/free_market_data/raw/{CAPTURE_DAY}/alpaca_iex_daily_bars.json.gz",
+            )
+            self.assertEqual(
+                replay["raw_response_sha256"], legacy["alpaca"]["daily_raw_sha256"]
+            )
+            self.assertEqual(replay["reference"], legacy["us_market_reference"])
+
+    def test_legacy_packet_is_not_rebound_after_a_later_same_day_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            first = _ready_capture(root, FIRST_CAPTURE, shift=0.0)
+            second = _ready_capture(root, SECOND_CAPTURE, shift=0.5)
+            _publish(root, FIRST_CAPTURE, first)
+            legacy = self._as_legacy(first["packet"])
+            _publish(root, SECOND_CAPTURE, second)
+
+            compat = root / "evidence/free_market_data/raw" / CAPTURE_DAY / "alpaca_iex_daily_bars.json.gz"
+            self.assertEqual(
+                M.sha256_bytes(gzip.decompress(compat.read_bytes())),
+                second["packet"]["alpaca"]["daily_raw_sha256"],
+            )
+            replay = M.validate_alpaca_daily_evidence(root, legacy)
+            self.assertEqual(
+                replay["raw_response_sha256"], legacy["alpaca"]["daily_raw_sha256"]
+            )
+            self.assertNotEqual(
+                replay["raw_response_sha256"],
+                second["packet"]["alpaca"]["daily_raw_sha256"],
+            )
+            self.assertTrue(replay["raw_path"].startswith(M.ALPACA_RAW_STORE))
+            self.assertEqual(replay["reference"], legacy["us_market_reference"])
+
+    def test_pre_existing_compatibility_bytes_are_preserved_before_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            first = _ready_capture(root, FIRST_CAPTURE, shift=0.0)
+            second = _ready_capture(root, SECOND_CAPTURE, shift=0.5)
+            _publish(root, FIRST_CAPTURE, first)
+            # Simulate a day whose only surviving artifact is the legacy
+            # compatibility file written by the previous os.replace publisher.
+            for kind in ("latest_bars", "daily_bars"):
+                revision = (
+                    root / M.ALPACA_RAW_STORE / kind
+                    / first["packet"]["alpaca"][
+                        "raw_sha256" if kind == "latest_bars" else "daily_raw_sha256"
+                    ]
+                )
+                for path in sorted(revision.iterdir()):
+                    path.unlink()
+                revision.rmdir()
+            legacy = self._as_legacy(first["packet"])
+
+            _publish(root, SECOND_CAPTURE, second)
+            replay = M.validate_alpaca_daily_evidence(root, legacy)
+            self.assertEqual(
+                replay["raw_response_sha256"], legacy["alpaca"]["daily_raw_sha256"]
+            )
+            self.assertEqual(
+                M.read_alpaca_raw_revision(
+                    root, first["packet"]["alpaca"]["daily_raw_evidence"]
+                ),
+                first["daily_raw"],
+            )
+
+    def test_a_missing_daily_response_still_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            capture = _ready_capture(root, FIRST_CAPTURE)
+            legacy = self._as_legacy(capture["packet"])
+            with self.assertRaisesRegex(M.FreeMarketDataError, "ALPACA_DAILY_RAW_INVALID"):
+                M.validate_alpaca_daily_evidence(root, legacy)
+            with self.assertRaisesRegex(M.FreeMarketDataError, "ALPACA_RAW_REVISION_MISSING"):
+                M.validate_alpaca_daily_evidence(root, capture["packet"])
 
 
 if __name__ == "__main__": unittest.main()
