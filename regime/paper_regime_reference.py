@@ -161,7 +161,91 @@ def confidence(regime: str, axes: list[dict]) -> Decimal | None:
     return Decimal(sum(row["direction"] == target for row in axes)) / Decimal(5)
 
 
+US_METHODS = {
+    "TREND": "majority_positive_20_session_returns",
+    "BREADTH": "representative_etf_advance_fraction",
+    "RISK_VOL": "fred_vix_level",
+    "LIQUIDITY": "fred_reserve_balances_and_bank_credit_change_sign",
+    "LEADERSHIP": "positive_20_session_group_return_fraction",
+}
+US_LIQUIDITY_SIGNS = {
+    "positive": "both_positive",
+    "negative": "both_negative",
+    "neutral": "mixed_or_zero",
+}
+US_RATIO_AXES = (
+    ("TREND", "positive_min_fraction", "negative_max_fraction"),
+    ("BREADTH", "positive_min", "negative_max"),
+    ("LEADERSHIP", "positive_min_fraction", "negative_max_fraction"),
+)
+US_VIX_LADDER = ("positive_below", "neutral_below", "negative_below")
+
+
+def _us_policy_decimal(block: dict, axis_name: str, key: str) -> Decimal:
+    """One configured US threshold as an exact finite Decimal, or fail closed.
+
+    There is deliberately no default: an absent, non-scalar, boolean, or
+    non-finite threshold blocks the US reference instead of silently reverting
+    to a previously hardcoded value.
+    """
+    if key not in block:
+        fail("US_POLICY_VALUE_MISSING", f"{axis_name}.{key}")
+    value = block[key]
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        fail("US_POLICY_VALUE_INVALID", f"{axis_name}.{key}")
+    return decimal(value, f"US_POLICY_VALUE_INVALID:{axis_name}.{key}")
+
+
+def _us_market_policy(policy: dict) -> dict:
+    """Resolve the configured ``markets.US`` block build_us executes.
+
+    Semantics (method identity, LIQUIDITY sign vocabulary) are checked for
+    exact equality; the nine numeric thresholds are resolved as Decimals and
+    order-guarded.  ``stress_min`` carries no separate comparison: it is the
+    published alias of ``negative_below`` and must equal it.
+    """
+    markets = policy.get("markets")
+    market = markets.get("US") if isinstance(markets, dict) else None
+    if not isinstance(market, dict):
+        fail("US_POLICY_MISSING")
+
+    blocks = {}
+    for axis_name in AXES:
+        block = market.get(axis_name)
+        if not isinstance(block, dict):
+            fail("US_POLICY_BLOCK_INVALID", axis_name)
+        if block.get("method") != US_METHODS[axis_name]:
+            fail("US_POLICY_METHOD_INVALID", axis_name)
+        blocks[axis_name] = block
+
+    for key, expected in US_LIQUIDITY_SIGNS.items():
+        if blocks["LIQUIDITY"].get(key) != expected:
+            fail("US_POLICY_SIGN_INVALID", key)
+
+    resolved = {}
+    for axis_name, positive_key, negative_key in US_RATIO_AXES:
+        positive_min = _us_policy_decimal(blocks[axis_name], axis_name, positive_key)
+        negative_max = _us_policy_decimal(blocks[axis_name], axis_name, negative_key)
+        if not all(Decimal(0) <= bound <= Decimal(1) for bound in (positive_min, negative_max)):
+            fail("US_POLICY_FRACTION_RANGE_INVALID", axis_name)
+        if negative_max >= positive_min:
+            fail("US_POLICY_FRACTION_ORDER_INVALID", axis_name)
+        resolved[axis_name] = {"positive_min": positive_min, "negative_max": negative_max}
+
+    ladder = [_us_policy_decimal(blocks["RISK_VOL"], "RISK_VOL", key) for key in US_VIX_LADDER]
+    if ladder[0] < Decimal(0):
+        fail("US_POLICY_VIX_RANGE_INVALID")
+    if not ladder[0] < ladder[1] < ladder[2]:
+        fail("US_POLICY_VIX_ORDER_INVALID")
+    stress_min = _us_policy_decimal(blocks["RISK_VOL"], "RISK_VOL", "stress_min")
+    if stress_min != ladder[2]:
+        fail("US_POLICY_STRESS_ALIAS_INVALID")
+    resolved["RISK_VOL"] = {**dict(zip(US_VIX_LADDER, ladder)), "stress_min": stress_min}
+    return resolved
+
+
 def build_us(packet: dict, policy: dict) -> dict:
+    us_policy = _us_market_policy(policy)
     reference = packet.get("us_market_reference")
     if not isinstance(reference, dict) or reference.get("status") != "READY":
         fail("US_REFERENCE_NOT_READY")
@@ -172,19 +256,21 @@ def build_us(packet: dict, policy: dict) -> dict:
 
     trend_returns = [decimal(row.get("returns", {}).get("20_session_pct"), "US_TREND_INVALID") for row in trends]
     trend_positive_fraction = Decimal(sum(value > 0 for value in trend_returns)) / Decimal(len(trend_returns))
-    trend_direction = ratio_direction(trend_positive_fraction, Decimal("0.666667"), Decimal("0.333333"))
+    trend_direction = ratio_direction(trend_positive_fraction, us_policy["TREND"]["positive_min"], us_policy["TREND"]["negative_max"])
 
     breadth_value = decimal(proxy.get("BREADTH", {}).get("measurement", {}).get("advance_fraction"), "US_BREADTH_INVALID")
-    breadth_direction = ratio_direction(breadth_value, Decimal("0.55"), Decimal("0.45"))
+    breadth_direction = ratio_direction(breadth_value, us_policy["BREADTH"]["positive_min"], us_policy["BREADTH"]["negative_max"])
 
     vix = decimal(packet.get("fred", {}).get("value"), "US_VIX_INVALID")
-    if vix < Decimal("15"):
+    if vix < us_policy["RISK_VOL"]["positive_below"]:
         risk_direction = "POSITIVE"
-    elif vix < Decimal("25"):
+    elif vix < us_policy["RISK_VOL"]["neutral_below"]:
         risk_direction = "NEUTRAL"
-    elif vix < Decimal("30"):
+    elif vix < us_policy["RISK_VOL"]["negative_below"]:
         risk_direction = "NEGATIVE"
     else:
+        # stress_min is the published alias of negative_below and is validated
+        # equal to it, so this branch is exactly `vix >= stress_min`.
         risk_direction = "STRESS"
 
     liquidity_rows = packet.get("fred_liquidity", {}).get("series")
@@ -198,7 +284,7 @@ def build_us(packet: dict, policy: dict) -> dict:
         fail("US_LEADERSHIP_INVALID")
     positive_groups = sum(decimal(row.get("return_pct"), "US_LEADERSHIP_INVALID") > 0 for row in groups)
     leadership_fraction = Decimal(positive_groups) / Decimal(len(groups))
-    leadership_direction = ratio_direction(leadership_fraction, Decimal("0.666667"), Decimal("0.333333"))
+    leadership_direction = ratio_direction(leadership_fraction, us_policy["LEADERSHIP"]["positive_min"], us_policy["LEADERSHIP"]["negative_max"])
 
     rows = [
         axis("TREND", trend_direction, {"positive": sum(value > 0 for value in trend_returns), "total": 3}, f"대표지수 3개 중 {sum(value > 0 for value in trend_returns)}개가 20거래일 기준 상승입니다."),
