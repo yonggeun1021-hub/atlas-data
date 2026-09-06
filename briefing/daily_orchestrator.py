@@ -157,6 +157,17 @@ STRATEGIC_CAPITAL_POSTURE = _load(
     "atlas_daily_strategic_capital_posture",
     "portfolio/strategic_capital_posture.py",
 )
+# P2-05's readiness producer, used here only to CAPTURE its immutable frozen
+# input tuple at build time. The rederivation that turns that tuple into
+# P2_ROTATION_STATE blockers happens inside STRATEGIC_CAPITAL_POSTURE -- this
+# orchestrator never derives readiness semantics of its own.
+#
+# Deliberately the SAME loaded instance the P7-12 adapter uses, rather than a
+# second _load() of the same file: every _load() call executes the module
+# afresh, which would give capture and rederivation two distinct copies of the
+# producer's exception classes and constants. One instance keeps "the error
+# this raised" and "the error that consumer catches" the same object.
+ROTATION_STATE_READINESS = STRATEGIC_CAPITAL_POSTURE.ROTATION_STATE_READINESS
 ACTION_SUMMARY = _load("atlas_daily_action_summary", "briefing/action_risk_portfolio_summary.py")
 FLOW_FIRST_BRIEFING = _load(
     "atlas_daily_flow_first_briefing", "briefing/flow_first_briefing.py"
@@ -2801,17 +2812,75 @@ def build_long_short_invariant(rule_packet: dict | None) -> dict:
     )
 
 
-def build_capital_flow_posture_reference() -> dict:
+# P2-COM-02's immutable frozen source tuple: the exact committed bytes of the
+# ten repository inputs the cross-market flow reference is derived from, plus
+# the commit they came from. Several of those inputs are mutable rolling files
+# (the three market pointers, the P2-COM-03 ledger pointer), so re-reading them
+# at validation time made an honest archived Flow section depend on when it was
+# validated. The envelope is replayed against real Git objects instead, and the
+# live inputs are never consulted again.
+P2_FLOW_REPLAY_INPUTS = "P2_FLOW_REPLAY_INPUTS"
+
+
+class _FlowReplayInputsOmitted:
+    """Type of the omitted-input sentinel below; never instantiated elsewhere."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return "FLOW_REPLAY_INPUTS_OMITTED"
+
+
+# "This derivation does not freeze the Flow inputs at all", which is a
+# different fact from "it freezes them and was handed null". The second is a
+# supplied, unusable envelope and fails closed as a hard provenance error.
+# Same reasoning as US_ROTATION_LEDGER_OMITTED / P2_ROTATION_STATE_INPUTS_
+# OMITTED below.
+FLOW_REPLAY_INPUTS_OMITTED = _FlowReplayInputsOmitted()
+
+# The two Flow failures that are NEVER softened into a component row, exported
+# so a production caller can preserve them at its own STOP/structural boundary
+# instead of letting them escape as an untyped traceback.
+FLOW_REPLAY_UNPROVABLE_ERRORS = (
+    CAPITAL_FLOW_ENGINE.FlowReplayProvenanceError,
+    CAPITAL_FLOW_ENGINE.UnreplayableFlowHistoryError,
+)
+
+
+def build_capital_flow_posture_reference(
+    verified_flow_inputs: dict | None = None,
+) -> dict:
     """P2-COM-02's cross-market flow reference, wired as P6-06's P2_FLOW_ENGINE
-    source.  It re-reads and re-derives its own real committed evidence
-    (`data/latest_paper_regime_reference.json` plus the P2-COM-03 ledger it
-    consumes) -- there is nothing frozen/snapshotted to pass in here, unlike
-    the raw-archive sources fetched above.  This is a diagnostic reference,
-    never a decision: it stays PENDING with `readiness_inventory_only`-style
-    authority regardless of what its own status says.
+    source.  This is a diagnostic reference, never a decision: it stays PENDING
+    with `readiness_inventory_only`-style authority regardless of what its own
+    status says.
+
+    Two input modes, and the difference is only where the bytes come from --
+    never what the producer computes from them:
+
+      * an already-authenticated closure -- raw bytes taken from real Git
+        objects at the frozen source commit, materialized into an isolated
+        root for the producer to read;
+      * no closure at all, which reads today's live inputs exactly as this
+        function always did.
+
+    Provenance and closure are settled by the caller BEFORE this point, so an
+    unprovable input never gets far enough to produce a row. A failure raised
+    from here is ALWAYS raised, never degraded: a DEGRADED/DATA_BLOCKED row
+    would let an unprovable packet validate and would then replay identically
+    forever. A proven-but-semantically-invalid input still degrades, exactly
+    as a live build always has, and now does so deterministically from the
+    same frozen bytes.
     """
     try:
-        packet = CAPITAL_FLOW_ENGINE.build_reference()
+        if verified_flow_inputs is not None:
+            packet = CAPITAL_FLOW_ENGINE.build_reference_from_verified_inputs(
+                verified_flow_inputs
+            )
+        else:
+            packet = CAPITAL_FLOW_ENGINE.build_reference()
+    except FLOW_REPLAY_UNPROVABLE_ERRORS:
+        raise
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("P2_FLOW_ENGINE", exc)
     return component_row(
@@ -2871,6 +2940,56 @@ def build_p1_regime_unavailable_reasons(
         ]
 
 
+# P2-05's immutable frozen source tuple: the exact committed bytes of the
+# readiness contract, the ledger contract and the Korea rotation pointer, plus
+# the commit they came from. The Korea pointer is a mutable rolling file, so
+# re-reading it at validation time would make an honest archived verdict depend
+# on when it is validated; the envelope is replayed against real Git objects
+# instead, and the live pointer is never consulted again.
+P2_ROTATION_STATE_READINESS_INPUTS = "P2_ROTATION_STATE_READINESS_INPUTS"
+
+
+class _P2RotationReadinessInputsOmitted:
+    """Type of the omitted-input sentinel below; never instantiated elsewhere."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return "P2_ROTATION_STATE_INPUTS_OMITTED"
+
+
+# "This derivation does not bind P2_ROTATION_STATE at all", which is a
+# different fact from "this derivation binds it and was handed null". The
+# second is a supplied, unusable envelope and fails closed as a hard
+# provenance error; collapsing the two would let a null silently render as the
+# legacy generic blocker. Same reasoning as US_ROTATION_LEDGER_OMITTED above.
+P2_ROTATION_STATE_INPUTS_OMITTED = _P2RotationReadinessInputsOmitted()
+
+
+def build_p2_rotation_state_unavailable_reasons(frozen_inputs) -> list[str] | None:
+    """Exact P7-12 `P2_ROTATION_STATE` blockers from frozen committed inputs.
+
+    Returns None for the sentinel only -- the derivations that do not bind this
+    slot at all -- and then the caller keeps its existing generic blocker.
+
+    There is deliberately no try/except here, unlike the P1 helper above. A P1
+    readiness failure is a failure to *derive detail* from envelopes this run
+    already built, so degrading to a generic blocker keeps the briefing honest.
+    A P2 frozen-input failure is different in kind: it means the immutable
+    source tuple could not be authenticated at all (bad envelope, unavailable
+    Git object, untrusted commit, dirty capture, blob mismatch). Swallowing
+    that would publish a packet whose P2 row claims a derivation that was never
+    proven, so it fails the build closed instead. The one failure that IS a
+    derivation result -- authenticated bytes that fail their own contract --
+    is handled inside the adapter and reported as its fixed diagnostic.
+    """
+    if frozen_inputs is P2_ROTATION_STATE_INPUTS_OMITTED:
+        return None
+    return STRATEGIC_CAPITAL_POSTURE.p2_rotation_state_unavailable_reasons(
+        frozen_inputs
+    )
+
+
 def build_defensive_action_decision(
     component_rows: dict[str, dict],
     decision_date: str,
@@ -2928,18 +3047,25 @@ def build_strategic_capital_posture(
     decision_date: str,
     generated_at: str,
     regime_outputs: dict[str, dict] | None = None,
+    p2_rotation_readiness_inputs=P2_ROTATION_STATE_INPUTS_OMITTED,
 ) -> dict:
     """P7-12 readiness inventory.
 
     ``regime_outputs`` is the *same* optional exact-blocker wiring P6-06
     already has above, applied to P7-12's own ``P1_REGIME_DECISION`` slot and
-    bound to derivation version 2 (see RUNTIME_REGIME_READINESS_VERSION).
-    The reasons are re-derived here through
-    build_p1_regime_unavailable_reasons() rather than read out of the P6
-    packet this run also built: P7-12 must not inherit another consumer's
+    bound to derivation versions 2 and 3 (see
+    P1_EXACT_RUNTIME_BLOCKER_VERSIONS).  The reasons are re-derived here
+    through build_p1_regime_unavailable_reasons() rather than read out of the
+    P6 packet this run also built: P7-12 must not inherit another consumer's
     stored row as if it were an independently validated input.  Passing None
     keeps the original generic blocker, which is exactly what a legacy
     (marker-absent or explicit-1) replay must reproduce.
+
+    ``p2_rotation_readiness_inputs`` is the same idea for the other
+    unavailable-only slot, bound to derivation version 3: P2-05's immutable
+    frozen input tuple, re-derived independently here rather than copied from
+    any persisted reason list.  The omitted sentinel keeps the original generic
+    blocker, which is what an absent/1/2 replay must reproduce.
 
     Naming the real blockers grants nothing: the slot stays UNAVAILABLE, the
     packet stays STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED, budgets stay
@@ -2947,6 +3073,9 @@ def build_strategic_capital_posture(
     """
     contract = STRATEGIC_CAPITAL_POSTURE.load_contract()
     p1_reasons = build_p1_regime_unavailable_reasons(regime_outputs, generated_at)
+    p2_reasons = build_p2_rotation_state_unavailable_reasons(
+        p2_rotation_readiness_inputs
+    )
     name_map = {
         # Same already-validated P2-COM-02 row P6-06 consumes as P2_FLOW_ENGINE
         # in this run; P7-12 must not call it "production contract unavailable".
@@ -2966,6 +3095,8 @@ def build_strategic_capital_posture(
             source_packets[name] = None
             if name == "P1_REGIME_DECISION" and p1_reasons is not None:
                 unavailable_reasons[name] = list(p1_reasons)
+            elif name == "P2_ROTATION_STATE" and p2_reasons is not None:
+                unavailable_reasons[name] = list(p2_reasons)
             else:
                 unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
             continue
@@ -3166,6 +3297,18 @@ FROZEN_SOURCE_COMPONENTS = frozenset({
 # originals instead of trusting a ledger that merely rehashes itself.
 OPTIONAL_FROZEN_INPUTS = frozenset({US_ROTATION_LEDGER_SOURCE})
 
+# Version-bound frozen inputs, kept separate from both sets above. Unlike the
+# component snapshots, nothing fetches these per component row; unlike the
+# optional caller inputs, they are not optional -- a derivation that binds one
+# always captures it on a fresh build and always requires the persisted
+# envelope on replay, and a derivation that does not bind it rejects it
+# outright rather than carrying an input it never reads. See
+# P2_ROTATION_STATE_READINESS_INPUTS above.
+VERSIONED_FROZEN_INPUTS = frozenset({
+    P2_ROTATION_STATE_READINESS_INPUTS,
+    P2_FLOW_REPLAY_INPUTS,
+})
+
 
 # ---------------------------------------------------------------------------
 # Runtime Regime readiness derivation version
@@ -3181,10 +3324,19 @@ OPTIONAL_FROZEN_INPUTS = frozenset({US_ROTATION_LEDGER_SOURCE})
 #   absent  -- pre-wiring. Generic P1 blocker in BOTH P6-06 and P7-12.
 #   1       -- P6-06 carries the exact, independently re-derived runtime
 #              blockers; P7-12 still carries the generic one.
-#   2       -- default for every new packet. P6-06 AND P7-12 both carry the
-#              exact independently re-derived blockers, and the
-#              ACTION_RISK_PORTFOLIO_SUMMARY component row is labelled with
-#              the KST business date of its own validated summary packet.
+#   2       -- P6-06 AND P7-12 both carry the exact independently re-derived
+#              P1 blockers, and the ACTION_RISK_PORTFOLIO_SUMMARY component
+#              row is labelled with the KST business date of its own validated
+#              summary packet. P7-12's P2_ROTATION_STATE slot still carries
+#              only the generic production-contract blocker.
+#   3       -- default for every new packet. Everything version 2 derives,
+#              plus P7-12's P2_ROTATION_STATE slot carrying the exact
+#              per-market prerequisites P2-05 re-derives from an immutable,
+#              Git-authenticated snapshot of the three committed inputs, which
+#              is frozen into packet["frozen_sources"] under
+#              P2_ROTATION_STATE_READINESS_INPUTS. Version 3 packets are the
+#              only ones that capture, require or read that key; absent/1/2
+#              neither produce nor accept it.
 #
 # The absent and 1 forms are ambiguous about ONE field and one field only:
 # the summary component row's as_of_date. Packets of both kinds were issued
@@ -3195,13 +3347,22 @@ OPTIONAL_FROZEN_INPUTS = frozenset({US_ROTATION_LEDGER_SOURCE})
 # entire reconstruction. That proves the packet is a valid historical
 # derivation. It does NOT authenticate which release produced it, and it is
 # not release provenance -- see docs/strategic_capital_posture_contract.md.
-# Version 2 has exactly one derivation and never falls back to either legacy
-# form.
+# Versions 2 and 3 each have exactly one derivation and never fall back to
+# either legacy form.
 # ---------------------------------------------------------------------------
 
-RUNTIME_REGIME_READINESS_VERSION = 2
-SUPPORTED_RUNTIME_REGIME_READINESS_VERSIONS = (1, 2)
+RUNTIME_REGIME_READINESS_VERSION = 3
+SUPPORTED_RUNTIME_REGIME_READINESS_VERSIONS = (1, 2, 3)
 LEGACY_RUNTIME_REGIME_READINESS_VERSIONS = (None, 1)
+# Which derivations wire the EXACT P1 runtime blockers into P7-12. Enumerated
+# explicitly rather than tested against RUNTIME_REGIME_READINESS_VERSION: an
+# already-issued version-2 packet must keep deriving its exact P1 blockers
+# after the default moves on, so equality with "whatever today's default is"
+# would silently rewrite history.
+P1_EXACT_RUNTIME_BLOCKER_VERSIONS = (2, 3)
+# Which derivations bind the P2_ROTATION_STATE diagnostic blockers, and
+# therefore capture and require the frozen readiness inputs.
+P2_ROTATION_STATE_DIAGNOSTIC_VERSIONS = (3,)
 # Both enumerated historical summary-row bases, in the order a replay tries
 # them. Deliberately the full SUMMARY_ROW_DATE_BASES tuple: a legacy packet
 # may legitimately be either form, and for same-KST-day geometry (the 09:30Z
@@ -3210,7 +3371,7 @@ LEGACY_SUMMARY_ROW_DATE_BASES = SUMMARY_ROW_DATE_BASES
 
 
 def _checked_runtime_regime_readiness_version(value):
-    """None, or exactly int 1 or int 2. Nothing else.
+    """None, or exactly int 1, 2 or 3. Nothing else.
 
     ``type(value) is not int`` rejects bool, which would otherwise compare
     equal to 1. Strings, floats, 0, negatives and unknown integers are
@@ -3228,6 +3389,57 @@ def _checked_runtime_regime_readiness_version(value):
     return value
 
 
+# ---------------------------------------------------------------------------
+# Flow replay derivation version
+#
+# Deliberately a SEPARATE axis from runtime_regime_readiness_version above.
+# The two version different things and move independently: that one versions
+# how P1 readiness blockers are derived, this one versions where the P2-COM-02
+# cross-market flow inputs come from. Collapsing them would make a change to
+# either silently rewrite the other's history.
+#
+#   absent  -- legacy. The P2_FLOW_ENGINE row was built by re-reading whatever
+#              was on disk at build time, and the packet records nothing about
+#              which bytes those were. Replaying such a packet therefore needs
+#              an externally trusted original source commit; there is no honest
+#              way to recover it from the packet itself.
+#   1       -- default for every new packet. The exact ten committed Flow
+#              inputs are captured once at build time into packet[
+#              "frozen_sources"] under P2_FLOW_REPLAY_INPUTS and re-read from
+#              real Git objects on every replay. Version-1 packets are the only
+#              ones that capture, require or read that key; the legacy form
+#              neither produces nor accepts it.
+#
+# This axis changes NO policy, ratification, evidence quality or authority.
+# Every form leaves P2_FLOW_ENGINE a PENDING diagnostic with capital, action,
+# order, Production and trading all false.
+# ---------------------------------------------------------------------------
+
+FLOW_REPLAY_VERSION = 1
+SUPPORTED_FLOW_REPLAY_VERSIONS = (1,)
+# Which derivations freeze the Flow inputs, and therefore capture on a fresh
+# build and require the persisted envelope on replay. Enumerated explicitly
+# rather than compared against FLOW_REPLAY_VERSION so an already-issued packet
+# keeps its own derivation after the default moves on.
+FLOW_REPLAY_FROZEN_VERSIONS = (1,)
+
+
+def _checked_flow_replay_version(value):
+    """None, or exactly int 1. Nothing else.
+
+    ``type(value) is not int`` rejects bool, which would otherwise compare
+    equal to 1. Strings, floats, 0, negatives and unknown integers are
+    rejected too. An explicitly persisted null is rejected by the caller in
+    validate_packet(), because rebuilding None omits the field entirely and
+    "absent" and "present but null" are different persisted bytes.
+    """
+    if value is None:
+        return None
+    if type(value) is not int or value not in SUPPORTED_FLOW_REPLAY_VERSIONS:
+        fail("FLOW_REPLAY_VERSION_INVALID", repr(value))
+    return value
+
+
 def build_packet(
     slot: str,
     decision_date: str,
@@ -3236,8 +3448,22 @@ def build_packet(
     frozen_sources: dict[str, dict] | None = None,
     runtime_regime_readiness_version: int | None = RUNTIME_REGIME_READINESS_VERSION,
     summary_row_date_basis: str = SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,
+    *,
+    flow_replay_version: int | None = FLOW_REPLAY_VERSION,
+    historical_flow_source_commit: str | None = None,
+    trusted_repository_root: Path = ROOT,
+    trusted_validation_head: str | None = None,
 ) -> dict:
     _checked_runtime_regime_readiness_version(runtime_regime_readiness_version)
+    _checked_flow_replay_version(flow_replay_version)
+    if flow_replay_version is not None and historical_flow_source_commit is not None:
+        # A frozen derivation carries its own source commit inside the
+        # envelope. Accepting a second, caller-named one here would create a
+        # path where the two disagree and the packet still validates.
+        fail(
+            "FLOW_REPLAY_HISTORICAL_CONTEXT_NOT_SUPPORTED",
+            repr(flow_replay_version),
+        )
     if summary_row_date_basis not in SUMMARY_ROW_DATE_BASES:
         fail("SUMMARY_ROW_DATE_BASIS_INVALID", repr(summary_row_date_basis))
     if (
@@ -3262,11 +3488,99 @@ def build_packet(
     if generated_at_dt.tzinfo is None:
         fail("GENERATED_AT_INVALID", "must include a timezone offset")
     frozen_sources = frozen_sources or {}
-    accepted_frozen_sources = FROZEN_SOURCE_COMPONENTS | OPTIONAL_FROZEN_INPUTS
+    accepted_frozen_sources = (
+        FROZEN_SOURCE_COMPONENTS | OPTIONAL_FROZEN_INPUTS | VERSIONED_FROZEN_INPUTS
+    )
     if not set(frozen_sources) <= accepted_frozen_sources:
         fail(
             "FROZEN_SOURCES_INVALID",
             str(set(frozen_sources) - accepted_frozen_sources),
+        )
+
+    # P2-05's frozen readiness inputs are bound to derivation version 3 only.
+    #
+    # Absent key on a version-3 build means "capture once, now" -- the
+    # build-only default capture mode. It deliberately does NOT mean "resolve
+    # to an empty envelope": a key that is present holds whatever the caller
+    # supplied, including null or a malformed object, and that value is used
+    # as supplied so it fails closed on its own provenance rather than being
+    # quietly replaced by a fresh capture of today's repository state.
+    #
+    # A derivation that does not bind the slot never captures, never reads and
+    # never accepts the key: injecting it into an absent/1/2 build is an
+    # incompatible version/input combination, not a promotion path.
+    p2_rotation_readiness_inputs = P2_ROTATION_STATE_INPUTS_OMITTED
+    if runtime_regime_readiness_version in P2_ROTATION_STATE_DIAGNOSTIC_VERSIONS:
+        if P2_ROTATION_STATE_READINESS_INPUTS in frozen_sources:
+            p2_rotation_readiness_inputs = frozen_sources[
+                P2_ROTATION_STATE_READINESS_INPUTS
+            ]
+        else:
+            p2_rotation_readiness_inputs = (
+                ROTATION_STATE_READINESS.capture_readiness_inputs(ROOT)
+            )
+    elif P2_ROTATION_STATE_READINESS_INPUTS in frozen_sources:
+        fail(
+            "P2_ROTATION_STATE_READINESS_INPUTS_NOT_SUPPORTED",
+            repr(runtime_regime_readiness_version),
+        )
+
+    # P2-COM-02's frozen Flow inputs are bound to Flow derivation 1 only, and
+    # follow exactly the rule above: an absent key on a version-1 build means
+    # "capture once, now"; a key that is PRESENT is used as supplied --
+    # including when what was supplied is null or malformed -- so it fails
+    # closed on its own provenance instead of being quietly replaced by a
+    # fresh capture of today's repository state. The legacy derivation never
+    # captures, never reads and never accepts the key.
+    #
+    # Two variables, deliberately: `persisted_flow_inputs` is what this packet
+    # RECORDS, `flow_row_inputs` is what the P2_FLOW_ENGINE row is BUILT from.
+    # They are the same thing on a version-1 derivation. They differ for a
+    # legacy replay under external context, where the closure of the supplied
+    # commit builds the row but must not be written into the packet: adding a
+    # key a legacy build never emitted would rewrite history rather than
+    # replay it.
+    #
+    # Both forms are authenticated HERE, before any row is built, so an
+    # unprovable or unreplayable input fails immediately rather than after a
+    # whole briefing has been assembled.
+    persisted_flow_inputs = FLOW_REPLAY_INPUTS_OMITTED
+    # The sentinel, not None: a caller may legitimately have supplied null as
+    # the envelope, and that is an unusable SUPPLIED value which must fail on
+    # its own provenance -- not silently reopen the live-input path.
+    flow_envelope = FLOW_REPLAY_INPUTS_OMITTED
+    flow_row_inputs = None
+    if flow_replay_version in FLOW_REPLAY_FROZEN_VERSIONS:
+        if P2_FLOW_REPLAY_INPUTS in frozen_sources:
+            persisted_flow_inputs = frozen_sources[P2_FLOW_REPLAY_INPUTS]
+        else:
+            # The SAME trusted head the verification below anchors on, so a
+            # build captures and verifies against one chosen head rather than
+            # capturing at whatever HEAD happens to be and then proving that
+            # against a different one.
+            persisted_flow_inputs = CAPITAL_FLOW_ENGINE.capture_flow_replay_inputs(
+                trusted_repository_root,
+                trusted_validation_head=trusted_validation_head,
+            )
+        flow_envelope = persisted_flow_inputs
+    elif P2_FLOW_REPLAY_INPUTS in frozen_sources:
+        fail("P2_FLOW_REPLAY_INPUTS_NOT_SUPPORTED", repr(flow_replay_version))
+    elif historical_flow_source_commit is not None:
+        # Legacy replay under externally trusted context. The real ten-file
+        # closure of that commit is read from its ACTUAL tree; the resulting
+        # envelope is used to build the row but is deliberately NOT persisted,
+        # because adding a key a legacy build never emitted would rewrite
+        # history rather than replay it.
+        flow_envelope = CAPITAL_FLOW_ENGINE.flow_replay_inputs_at_commit(
+            historical_flow_source_commit,
+            trusted_repository_root=trusted_repository_root,
+            trusted_validation_head=trusted_validation_head,
+        )
+    if flow_envelope is not FLOW_REPLAY_INPUTS_OMITTED:
+        flow_row_inputs = CAPITAL_FLOW_ENGINE.verified_flow_replay_closure(
+            flow_envelope,
+            trusted_repository_root=trusted_repository_root,
+            trusted_validation_head=trusted_validation_head,
         )
 
     rows: dict[str, dict] = {}
@@ -3475,12 +3789,14 @@ def build_packet(
     )
     for name, reason in _POLICY_BLOCKED_ACTION_SOURCES.items():
         rows[name] = _blocked(name, "POLICY_BLOCKED", reason)
-    rows["P2_FLOW_ENGINE"] = _boundary(build_capital_flow_posture_reference())
+    rows["P2_FLOW_ENGINE"] = _boundary(
+        build_capital_flow_posture_reference(flow_row_inputs)
+    )
 
     # Derivation version 1 wired the exact runtime blockers into P6-06 only;
-    # version 2 wires them into P7-12 as well. The marker-absent form keeps
-    # the generic blocker in both. Each consumer re-derives them from these
-    # same envelopes itself -- neither reads the other's packet.
+    # versions 2 and 3 wire them into P7-12 as well. The marker-absent form
+    # keeps the generic blocker in both. Each consumer re-derives them from
+    # these same envelopes itself -- neither reads the other's packet.
     rows["DEFENSIVE_ACTION_DECISION"] = _boundary(
         build_defensive_action_decision(
             rows, decision_date, generated_at,
@@ -3491,8 +3807,9 @@ def build_packet(
         build_strategic_capital_posture(
             rows, decision_date, generated_at,
             regime_outputs
-            if runtime_regime_readiness_version == RUNTIME_REGIME_READINESS_VERSION
+            if runtime_regime_readiness_version in P1_EXACT_RUNTIME_BLOCKER_VERSIONS
             else None,
+            p2_rotation_readiness_inputs,
         )
     )
 
@@ -3603,6 +3920,29 @@ def build_packet(
                 if us_rotation_source is not US_ROTATION_LEDGER_OMITTED
                 else {}
             ),
+            # Present on exactly the derivations that bind
+            # P2_ROTATION_STATE, whether the envelope was captured by this
+            # build or replayed from a persisted one. Deep-copied for the
+            # same reason as the rotation source above: a later mutation of
+            # the caller's object must not retroactively change what this
+            # packet was built from.
+            **(
+                {
+                    P2_ROTATION_STATE_READINESS_INPUTS: copy.deepcopy(
+                        p2_rotation_readiness_inputs
+                    )
+                }
+                if p2_rotation_readiness_inputs is not P2_ROTATION_STATE_INPUTS_OMITTED
+                else {}
+            ),
+            # Present on exactly the derivations that freeze the Flow inputs,
+            # whether this build captured the envelope or replayed a persisted
+            # one. Deep-copied for the same reason as the two above.
+            **(
+                {P2_FLOW_REPLAY_INPUTS: copy.deepcopy(persisted_flow_inputs)}
+                if persisted_flow_inputs is not FLOW_REPLAY_INPUTS_OMITTED
+                else {}
+            ),
         },
         "unresolved_boundaries": [
             "REGIME_POLICY_VALUES_UNRATIFIED",
@@ -3626,6 +3966,11 @@ def build_packet(
     # Version the derivation, not policy or authority. Absent on legacy packets.
     if runtime_regime_readiness_version is not None:
         packet["runtime_regime_readiness_version"] = runtime_regime_readiness_version
+    # The Flow axis is independent of the runtime axis above and is marked
+    # separately, so a packet's own bytes say which Flow derivation produced
+    # it without any inference from the other marker.
+    if flow_replay_version is not None:
+        packet["flow_replay_version"] = flow_replay_version
     packet["packet_sha256"] = payload_sha256(packet)
     return packet
 
@@ -3646,7 +3991,31 @@ def _verify_self_hash(packet: dict) -> None:
         fail("OUTPUT_SHA_MISMATCH", "packet_sha256")
 
 
-def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+def validate_packet(
+    packet: dict,
+    contract: dict | None = None,
+    *,
+    trusted_repository_root: Path = ROOT,
+    trusted_validation_head: str | None = None,
+    historical_source_commit: str | None = None,
+) -> dict:
+    """Rebuild a persisted packet completely and accept only total equality.
+
+    The three keyword-only arguments are EXTERNAL operator context and are
+    never extracted from the packet, a locator, or the live HEAD:
+
+      * ``trusted_repository_root`` / ``trusted_validation_head`` anchor Git
+        provenance. A packet may name neither a repository, a ref, a remote
+        nor a validation HEAD.
+      * ``historical_source_commit`` is the original Flow source commit for a
+        LEGACY packet -- one carrying no ``flow_replay_version`` marker. Such
+        a packet records nothing about which input bytes produced its
+        P2_FLOW_ENGINE row, so without this context it cannot be replayed at
+        all. Supplying it does not make it the original issuing commit: it
+        proves an authentic historical closure, and the full-packet equality
+        below is what decides whether that closure actually reproduces these
+        bytes.
+    """
     contract = load_contract() if contract is None else contract
     _verify_self_hash(packet)
     # Unconditional full rebuild-and-compare, with no blind-trust exemption
@@ -3685,6 +4054,68 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     version = _checked_runtime_regime_readiness_version(
         packet.get("runtime_regime_readiness_version")
     )
+    # A derivation that binds P2_ROTATION_STATE must carry the exact envelope
+    # it was built from. Validation NEVER captures: a persisted packet missing
+    # the key is a hard error, not an invitation to freeze today's repository
+    # state and call the result a replay. (A key present but null, or holding
+    # a malformed envelope, is a supplied value and fails on its own
+    # provenance inside the rebuild below.)
+    if (
+        version in P2_ROTATION_STATE_DIAGNOSTIC_VERSIONS
+        and P2_ROTATION_STATE_READINESS_INPUTS not in frozen_sources
+    ):
+        fail(
+            "P2_ROTATION_STATE_READINESS_INPUTS_NOT_FROZEN",
+            f"frozen_sources.{P2_ROTATION_STATE_READINESS_INPUTS}",
+        )
+
+    # --- Flow replay axis, independent of the runtime axis above ------------
+    #
+    # Same absence rule, for the same reason: an explicitly persisted null is
+    # a value, not absence. No build ever emits it (build_packet omits the
+    # field for None), so it must fail rather than resolve to legacy.
+    if "flow_replay_version" in packet and packet["flow_replay_version"] is None:
+        fail("FLOW_REPLAY_VERSION_INVALID", "explicit null")
+    flow_version = _checked_flow_replay_version(packet.get("flow_replay_version"))
+    if flow_version in FLOW_REPLAY_FROZEN_VERSIONS:
+        # A frozen derivation must carry the exact envelope it was built from.
+        # Validation NEVER captures: a persisted packet missing the key is a
+        # hard error, not an invitation to freeze today's repository state and
+        # call the result a replay. A key present but null, or holding a
+        # malformed envelope, is a supplied value and fails on its own
+        # provenance inside the rebuild below.
+        if P2_FLOW_REPLAY_INPUTS not in frozen_sources:
+            fail(
+                "P2_FLOW_REPLAY_INPUTS_NOT_FROZEN",
+                f"frozen_sources.{P2_FLOW_REPLAY_INPUTS}",
+            )
+        if historical_source_commit is not None:
+            # The envelope already names its own source commit. A second,
+            # caller-named one is a mixed form, not an override.
+            fail(
+                "FLOW_REPLAY_HISTORICAL_CONTEXT_NOT_SUPPORTED", repr(flow_version)
+            )
+    else:
+        # Legacy. The marker is absent, so the frozen key must be too:
+        # marker-absent-plus-key-present is an unsupported mixed form rather
+        # than a promotion path. (build_packet refuses it as well; stating it
+        # here keeps the persisted-bytes contract readable on its own.)
+        if P2_FLOW_REPLAY_INPUTS in frozen_sources:
+            fail("P2_FLOW_REPLAY_INPUTS_NOT_SUPPORTED", repr(flow_version))
+        if historical_source_commit is None:
+            # BEHAVIOUR CHANGE, approved: this used to pass by re-reading
+            # today's Flow inputs, which meant an archived verdict silently
+            # depended on when it was validated. There is no honest way to
+            # recover the original inputs from the packet itself, and
+            # inferring them from the live HEAD would be exactly the failure
+            # this replaces -- so the caller must supply trusted context or
+            # handle this diagnostic.
+            raise DailyOrchestratorError(
+                "UNREPLAYABLE_FLOW_HISTORY_SOURCE_COMMIT_REQUIRED: "
+                "this packet carries no flow_replay_version marker; replaying "
+                "it requires an externally trusted original Flow source commit"
+            )
+
     # A legacy packet is ambiguous about exactly one field -- the summary
     # component row's as_of_date -- and nothing inside it records which of the
     # two historical bases produced it. Rebuild it fully under each enumerated
@@ -3708,6 +4139,10 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             frozen_sources=frozen_sources,
             runtime_regime_readiness_version=version,
             summary_row_date_basis=basis,
+            flow_replay_version=flow_version,
+            historical_flow_source_commit=historical_source_commit,
+            trusted_repository_root=trusted_repository_root,
+            trusted_validation_head=trusted_validation_head,
         )
         if rebuilt == packet:
             return packet
@@ -4661,6 +5096,23 @@ def run(argv=None) -> int:
 
     validate = sub.add_parser("validate")
     validate.add_argument("packet_path", type=Path)
+    # External operator context for replaying a packet. All three are
+    # optional: a current (Flow version 1) packet carries its own envelope and
+    # needs none of them. They exist so a trusted caller can replay a LEGACY
+    # packet, and they are never defaulted from the packet or from live HEAD.
+    validate.add_argument(
+        "--historical-source-commit",
+        help="externally trusted ORIGINAL Flow source commit for a legacy "
+             "packet (one with no flow_replay_version marker)",
+    )
+    validate.add_argument(
+        "--trusted-repository-root", type=Path,
+        help="trusted Git repository root used to authenticate frozen inputs",
+    )
+    validate.add_argument(
+        "--trusted-validation-head",
+        help="trusted validation HEAD the source commit must be an ancestor of",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "build":
@@ -4679,7 +5131,15 @@ def run(argv=None) -> int:
         print(f"created={'true' if result['created'] else 'false'}")
         return 0
     packet = _read_json(args.packet_path)
-    validate_packet(packet)
+    validate_packet(
+        packet,
+        trusted_repository_root=(
+            ROOT if args.trusted_repository_root is None
+            else args.trusted_repository_root
+        ),
+        trusted_validation_head=args.trusted_validation_head,
+        historical_source_commit=args.historical_source_commit,
+    )
     print(
         "Atlas daily briefing PASS"
         f" slot={packet['slot']} decision_date={packet['decision_date']}"

@@ -69,7 +69,31 @@ def _contains_post_hoc_key(value) -> bool:
     return False
 
 
-def build_locator(repo_root: Path, slot: str, decision_date: str) -> dict:
+def _history_context(repo_root: Path, context: dict | None) -> dict:
+    """Normalise the external trusted history context for ``validate_packet``.
+
+    ``None`` means "no external context supplied", which is the normal case:
+    a current (Flow version 1) packet carries its own frozen envelope. The
+    trusted repository root defaults to the repository being delivered from --
+    never to a value read out of the locator or the packet, neither of which
+    is allowed to name a repository, a ref or a validation HEAD.
+    """
+    context = context or {}
+    root = context.get("trusted_repository_root")
+    return {
+        "trusted_repository_root": Path(repo_root if root is None else root),
+        "trusted_validation_head": context.get("trusted_validation_head"),
+        "historical_source_commit": context.get("historical_source_commit"),
+    }
+
+
+def build_locator(
+    repo_root: Path,
+    slot: str,
+    decision_date: str,
+    *,
+    history_context: dict | None = None,
+) -> dict:
     if slot not in ("morning", "evening"):
         _fail("DELIVERY_SLOT_UNSUPPORTED", slot)
     date_root = Path("evidence/daily_briefing") / slot / decision_date
@@ -90,7 +114,7 @@ def build_locator(repo_root: Path, slot: str, decision_date: str) -> dict:
     packet_path = revision_root / "packet.json"
     briefing_path = revision_root / "briefing.md"
     packet = _read_json(repo_root / packet_path)
-    validate_packet(packet)
+    validate_packet(packet, **_history_context(repo_root, history_context))
     if packet.get("slot") != slot or packet.get("decision_date") != decision_date:
         _fail("DELIVERY_PACKET_IDENTITY_MISMATCH")
     if packet.get("packet_sha256") != entry.get("packet_sha256"):
@@ -137,7 +161,13 @@ def write_locator(repo_root: Path, locator: dict) -> bool:
     return True
 
 
-def consume(repo_root: Path, expected_slot: str, expected_date: str) -> dict:
+def consume(
+    repo_root: Path,
+    expected_slot: str,
+    expected_date: str,
+    *,
+    history_context: dict | None = None,
+) -> dict:
     locator = _read_json(repo_root / LOCATOR_PATH)
     if locator.get("schema_version") != SCHEMA_VERSION:
         _fail("DELIVERY_LOCATOR_SCHEMA_UNSUPPORTED")
@@ -150,15 +180,20 @@ def consume(repo_root: Path, expected_slot: str, expected_date: str) -> dict:
     if any(locator.get("authority", {}).values()):
         _fail("DELIVERY_AUTHORITY_ESCALATION")
 
-    rebuilt = build_locator(repo_root, expected_slot, expected_date)
+    rebuilt = build_locator(
+        repo_root, expected_slot, expected_date, history_context=history_context
+    )
     if locator != rebuilt:
         _fail("DELIVERY_LOCATOR_DRIFT_OR_TAMPER")
     packet = _read_json(repo_root / Path(locator["packet_path"]))
     # build_locator() validates the packet it reads while rebuilding the
     # locator, but this is a second read.  Validate the exact in-memory value
     # consumed below so a local replacement in that interval cannot bypass
-    # frozen-source identity/type/SHA/date checks.
-    validate_packet(packet)
+    # frozen-source identity/type/SHA/date checks.  The SAME external history
+    # context goes to both validations: giving one path context and not the
+    # other would let a packet pass one boundary and fail the other, or worse,
+    # pass the weaker one.
+    validate_packet(packet, **_history_context(repo_root, history_context))
     by_id = {row.get("component_id"): row for row in packet.get("components", [])}
     components = []
     for component_id in DELIVERED_COMPONENTS:
@@ -316,15 +351,37 @@ def main(argv=None) -> int:
     parser.add_argument("--slot", required=True, choices=("morning", "evening"))
     parser.add_argument("--decision-date", required=True)
     parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
+    # Optional external history context, accepted by BOTH commands. A current
+    # (Flow version 1) packet carries its own frozen envelope and needs none
+    # of these. They are never defaulted from the locator, the packet or the
+    # live HEAD.
+    parser.add_argument(
+        "--historical-source-commit",
+        help="externally trusted ORIGINAL Flow source commit for a legacy packet",
+    )
+    parser.add_argument("--trusted-repository-root", type=Path)
+    parser.add_argument("--trusted-validation-head")
     args = parser.parse_args(argv)
+    history_context = {
+        "historical_source_commit": args.historical_source_commit,
+        "trusted_repository_root": args.trusted_repository_root,
+        "trusted_validation_head": args.trusted_validation_head,
+    }
     if args.command == "publish-locator":
         changed = write_locator(
-            args.repo_root, build_locator(args.repo_root, args.slot, args.decision_date)
+            args.repo_root,
+            build_locator(
+                args.repo_root, args.slot, args.decision_date,
+                history_context=history_context,
+            ),
         )
         print(f"locator_path={LOCATOR_PATH.as_posix()}")
         print(f"locator_changed={'true' if changed else 'false'}")
         return 0
-    delivery = consume(args.repo_root, args.slot, args.decision_date)
+    delivery = consume(
+        args.repo_root, args.slot, args.decision_date,
+        history_context=history_context,
+    )
     print(render_delivery(delivery), end="")
     return 0
 

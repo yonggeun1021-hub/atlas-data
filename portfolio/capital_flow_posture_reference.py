@@ -19,12 +19,16 @@ ratified policy exists for them.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,9 +38,79 @@ LATEST_PATH = ROOT / "data" / "latest_capital_flow_posture_reference.json"
 SCHEMA_VERSION = "capital_flow_posture_reference/v1"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
+# --------------------------------------------------------------------------
+# The exact ten repository inputs this reference is derived from.
+#
+# These are the ONLY paths a frozen replay envelope may name.  An envelope
+# cannot name an extra path, an absolute path, a traversal, a repository, a
+# ref, a URL or a validation HEAD: the trusted repository root and validation
+# HEAD stay caller-supplied API arguments, exactly as build_reference(root)
+# already takes one.  Order is the contract's order and is preserved so the
+# tables in the contract and the code read the same way.
+# --------------------------------------------------------------------------
+FLOW_POLICY_REL = "config/capital_flow_posture_reference_policy_v1.json"
+PAPER_REGIME_PACKET_REL = "data/latest_paper_regime_reference.json"
+CROSS_ASSET_CONTRACT_REL = "config/cross_asset_flow_evidence_contract.json"
+PAPER_REGIME_POLICY_REL = "config/paper_regime_reference_policy_v1.json"
+FREE_MARKET_DATA_REL = "data/latest_free_market_data.json"
+KOREA_MARKET_SIGNALS_REL = "data/latest_korea_market_signals.json"
+CRYPTO_REFRESH_STATUS_REL = "data/latest_crypto_regime_refresh_status.json"
+TRANSITION_LEDGER_CONTRACT_REL = (
+    "config/cross_market_flow_transition_ledger_contract.json"
+)
+TRANSITION_LEDGER_PREDECESSOR_REL = (
+    "evidence/portfolio/cross_market_flow_transition_ledger/2026-09-02/"
+    "58f34d06c92d66d96d64a0deb0261462aaae06a4ac99da7c43d4d2cfc35161cf/packet.json"
+)
+TRANSITION_LEDGER_POINTER_REL = "data/latest_cross_market_flow_transition_ledger.json"
+
+FLOW_REPLAY_INPUT_PATHS = (
+    FLOW_POLICY_REL,
+    PAPER_REGIME_PACKET_REL,
+    CROSS_ASSET_CONTRACT_REL,
+    PAPER_REGIME_POLICY_REL,
+    FREE_MARKET_DATA_REL,
+    KOREA_MARKET_SIGNALS_REL,
+    CRYPTO_REFRESH_STATUS_REL,
+    TRANSITION_LEDGER_CONTRACT_REL,
+    TRANSITION_LEDGER_PREDECESSOR_REL,
+    TRANSITION_LEDGER_POINTER_REL,
+)
+# Inputs 1-7.  A proven-absent one of these means this Flow packet cannot be
+# rebuilt at all -- it is a closure failure, never a "normal empty" result.
+FLOW_REPLAY_REQUIRED_INPUT_PATHS = FLOW_REPLAY_INPUT_PATHS[:7]
+
+FLOW_REPLAY_SCHEMA_VERSION = "capital_flow_replay_inputs/1"
+FLOW_REPLAY_ENVELOPE_KEYS = frozenset({"schema_version", "source_commit", "files"})
+FLOW_REPLAY_FILE_KEYS = frozenset({"state", "blob_oid", "sha256"})
+FLOW_REPLAY_STATES = ("PRESENT", "ABSENT")
+# Git SHA-1 object ids, lowercase and unabbreviated.  An abbreviated,
+# uppercase or SHA-256 oid is rejected rather than resolved.
+GIT_OID_RE = re.compile(r"^[0-9a-f]{40}$")
+GIT_BLOB_MODES = ("100644", "100755")
+
 
 class CapitalFlowPostureReferenceError(ValueError):
     pass
+
+
+class FlowReplayProvenanceError(CapitalFlowPostureReferenceError):
+    """The frozen input tuple could not be PROVEN against real Git objects.
+
+    Always hard.  Never downgraded to a historical diagnostic, an empty
+    ledger state, a degraded row or a live re-read: an unprovable input is a
+    different fact from a proven-but-semantically-invalid one.
+    """
+
+
+class UnreplayableFlowHistoryError(CapitalFlowPostureReferenceError):
+    """Provenance held, but the proven closure cannot rebuild this Flow packet.
+
+    Raised only after every one of the ten entries has been authenticated, so
+    it always reports a real repository fact (a genuinely absent required
+    input, or a genuinely inconsistent optional-ledger combination) and never
+    a failure to verify.  It is an exception, not a passing row.
+    """
 
 
 def fail(code: str, detail: str = "") -> None:
@@ -750,6 +824,627 @@ def validate_reference(packet: dict, root: Path = ROOT) -> dict:
     if packet != expected:
         fail("REFERENCE_REDERIVATION_MISMATCH")
     return copy.deepcopy(packet)
+
+
+# ---------------------------------------------------------------------------
+# Frozen Flow replay inputs
+#
+# build_reference() above reads whatever is on disk right now.  That is correct
+# for a fresh build and wrong for a replay: a later market-pointer or ledger
+# move silently rewrites what a past briefing's Flow section says.  The
+# functions below freeze the exact ten inputs a build was derived from as an
+# envelope of Git object identities, and rebuild from THOSE bytes.
+#
+# The envelope carries digests and a source commit, never content.  Bytes are
+# re-read from real local Git objects at replay time, so a packet cannot hand
+# the validator the content it wants validated.  The trusted repository root
+# and validation HEAD are caller context, never read from the envelope, the
+# packet or a locator, and no git command here ever contacts a remote.
+# ---------------------------------------------------------------------------
+
+
+def _provenance(code: str, detail: str = "") -> FlowReplayProvenanceError:
+    return FlowReplayProvenanceError(f"{code}:{detail}" if detail else code)
+
+
+def _require(condition, code: str, detail: str = "") -> None:
+    if not condition:
+        raise _provenance(code, detail)
+
+
+def _git(root: Path, *args: str, binary: bool = False):
+    # Local replace refs must never rewrite the authenticated object graph.
+    try:
+        completed = subprocess.run(
+            ["git", "--no-replace-objects", *args],
+            cwd=root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise _provenance("FLOW_REPLAY_GIT_PROVENANCE_UNVERIFIED", " ".join(args)) from exc
+    return completed.stdout if binary else completed.stdout.decode("utf-8")
+
+
+def _git_result(root: Path, *args: str):
+    """Run git WITHOUT raising on non-zero, returning ``(code, stdout)``.
+
+    Used only where a specific non-zero exit is itself an answer -- "this
+    repository has never held that object", "that commit is not an ancestor"
+    -- so each of those gets its own diagnostic instead of collapsing into the
+    generic unverified code.  No command here can trigger a network fetch of
+    whatever an envelope happens to name.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "--no-replace-objects", *args],
+            cwd=root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise _provenance("FLOW_REPLAY_GIT_PROVENANCE_UNVERIFIED", " ".join(args)) from exc
+    return completed.returncode, completed.stdout.decode("utf-8")
+
+
+def _git_blob_oid(data: bytes) -> str:
+    """The Git object id of ``data`` as a loose blob, computed here rather than
+    asked of git, so stored bytes are checked against a stored oid
+    independently of whatever the repository would answer."""
+    return hashlib.sha1(f"blob {len(data)}".encode("ascii") + b"\0" + data).hexdigest()
+
+
+def _require_repository_boundary(root: Path) -> None:
+    """Prove ``root`` is the top of a real Git work tree before any lookup."""
+    code, out = _git_result(root, "rev-parse", "--show-toplevel")
+    _require(code == 0, "FLOW_REPLAY_REPOSITORY_BOUNDARY_UNVERIFIED", str(root))
+    top = out.strip()
+    _require(bool(top), "FLOW_REPLAY_REPOSITORY_BOUNDARY_UNVERIFIED", str(root))
+    _require(
+        Path(top).resolve() == root,
+        "FLOW_REPLAY_REPOSITORY_BOUNDARY_MISMATCH",
+        f"{top}!={root}",
+    )
+
+
+def _resolved_validation_head(root: Path, trusted_validation_head) -> str:
+    """The trusted validation HEAD: the caller's, or this repository's own.
+
+    Never taken from the envelope.  A caller-supplied value is resolved as a
+    real commit object in the trusted repository, so naming a ref that does
+    not exist fails rather than silently falling back to HEAD.
+    """
+    if trusted_validation_head is None:
+        code, out = _git_result(root, "rev-parse", "HEAD")
+        _require(code == 0, "FLOW_REPLAY_TRUSTED_VALIDATION_HEAD_UNRESOLVED", str(root))
+        head = out.strip()
+    else:
+        _require(
+            isinstance(trusted_validation_head, str) and trusted_validation_head,
+            "FLOW_REPLAY_TRUSTED_VALIDATION_HEAD_INVALID",
+            repr(trusted_validation_head),
+        )
+        code, out = _git_result(
+            root, "rev-parse", "--verify", "--quiet",
+            f"{trusted_validation_head}^{{commit}}",
+        )
+        _require(
+            code == 0,
+            "FLOW_REPLAY_TRUSTED_VALIDATION_HEAD_UNRESOLVED",
+            trusted_validation_head,
+        )
+        head = out.strip()
+    _require(
+        GIT_OID_RE.fullmatch(head) is not None,
+        "FLOW_REPLAY_TRUSTED_VALIDATION_HEAD_INVALID",
+        head,
+    )
+    return head
+
+
+def _tree_entry(root: Path, commit: str, relative: str):
+    """``(mode, type, oid)`` for ``relative`` in ``commit``'s tree, or None when
+    the tree genuinely does not contain that path.
+
+    A failed ``cat-file`` is never read as absence: only this real tree lookup
+    can prove a path was not committed.
+    """
+    code, out = _git_result(
+        root, "ls-tree", "-z", "--full-tree", f"{commit}^{{tree}}", "--", relative
+    )
+    _require(code == 0, "FLOW_REPLAY_TREE_UNREADABLE", relative)
+    records = [record for record in out.split("\0") if record]
+    if not records:
+        return None
+    _require(len(records) == 1, "FLOW_REPLAY_TREE_ENTRY_AMBIGUOUS", relative)
+    meta, separator, path = records[0].partition("\t")
+    _require(
+        separator == "\t" and path == relative,
+        "FLOW_REPLAY_TREE_PATH_MISMATCH",
+        relative,
+    )
+    fields = meta.split()
+    _require(len(fields) == 3, "FLOW_REPLAY_TREE_ENTRY_INVALID", relative)
+    mode, object_type, oid = fields
+    _require(GIT_OID_RE.fullmatch(oid) is not None, "FLOW_REPLAY_TREE_OID_INVALID", relative)
+    return mode, object_type, oid
+
+
+def _checked_relative_path(relative: str) -> str:
+    """One of the exact ten paths, spelled exactly.  Nothing else resolves."""
+    _require(
+        relative in FLOW_REPLAY_INPUT_PATHS,
+        "FLOW_REPLAY_PATH_NOT_ALLOWED",
+        str(relative),
+    )
+    return relative
+
+
+def _authenticated_bytes(root: Path, relative: str, oid: str) -> bytes:
+    """Raw committed bytes for ``oid``, re-checked against the id itself."""
+    data = _git(root, "cat-file", "blob", oid, binary=True)
+    _require(_git_blob_oid(data) == oid, "FLOW_REPLAY_BLOB_HASH_MISMATCH", relative)
+    return data
+
+
+def _verify_flow_replay_file(root: Path, commit: str, relative: str, entry):
+    """Authenticated raw bytes for ``relative``, or None when the commit tree
+    proves the path was genuinely absent at that commit."""
+    _require(
+        isinstance(entry, dict) and set(entry) == FLOW_REPLAY_FILE_KEYS,
+        "FLOW_REPLAY_FILE_FIELDS_MISMATCH",
+        relative,
+    )
+    state = entry["state"]
+    blob_oid = entry["blob_oid"]
+    sha256 = entry["sha256"]
+    _require(state in FLOW_REPLAY_STATES, "FLOW_REPLAY_STATE_INVALID", relative)
+    tree = _tree_entry(root, commit, relative)
+    if state == "ABSENT":
+        # An ABSENT tag cannot hide a committed entry of ANY kind -- blob,
+        # tree, symlink or submodule.
+        _require(tree is None, "FLOW_REPLAY_ABSENT_HIDES_COMMITTED_ENTRY", relative)
+        _require(
+            blob_oid is None and sha256 is None,
+            "FLOW_REPLAY_ABSENT_FIELDS_INVALID",
+            relative,
+        )
+        return None
+    _require(tree is not None, "FLOW_REPLAY_PRESENT_NOT_IN_COMMIT_TREE", relative)
+    mode, object_type, tree_oid = tree
+    # A symlink (120000), a submodule gitlink (160000) or a tree is not a
+    # regular file and is refused rather than dereferenced.
+    _require(
+        object_type == "blob" and mode in GIT_BLOB_MODES,
+        "FLOW_REPLAY_BLOB_MODE_INVALID",
+        f"{relative}:{mode}:{object_type}",
+    )
+    _require(
+        isinstance(blob_oid, str) and GIT_OID_RE.fullmatch(blob_oid) is not None,
+        "FLOW_REPLAY_BLOB_OID_INVALID",
+        relative,
+    )
+    _require(blob_oid == tree_oid, "FLOW_REPLAY_BLOB_OID_MISMATCH", relative)
+    _require(
+        isinstance(sha256, str) and SHA256.fullmatch(sha256) is not None,
+        "FLOW_REPLAY_SHA256_INVALID",
+        relative,
+    )
+    data = _authenticated_bytes(root, relative, tree_oid)
+    _require(
+        hashlib.sha256(data).hexdigest() == sha256,
+        "FLOW_REPLAY_SHA256_MISMATCH",
+        relative,
+    )
+    return data
+
+
+def _require_trusted_ancestor(root: Path, commit: str, trusted_head: str) -> None:
+    # Object existence first, so "this repository has never held that object"
+    # is reported as itself instead of as a failed ancestry test.
+    code, resolved = _git_result(root, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")
+    _require(code == 0, "FLOW_REPLAY_SOURCE_COMMIT_OBJECT_MISSING", commit)
+    _require(resolved.strip() == commit, "FLOW_REPLAY_SOURCE_COMMIT_INVALID", commit)
+    code, _ = _git_result(root, "merge-base", "--is-ancestor", commit, trusted_head)
+    if code == 1:
+        raise _provenance("FLOW_REPLAY_SOURCE_COMMIT_NOT_TRUSTED_ANCESTOR", commit)
+    _require(code == 0, "FLOW_REPLAY_GIT_PROVENANCE_UNVERIFIED", "merge-base")
+
+
+def _verify_flow_replay_inputs(
+    envelope, trusted_repository_root: Path, trusted_validation_head
+) -> dict:
+    _require(
+        isinstance(envelope, dict),
+        "FLOW_REPLAY_ENVELOPE_INVALID",
+        type(envelope).__name__,
+    )
+    _require(
+        set(envelope) == FLOW_REPLAY_ENVELOPE_KEYS,
+        "FLOW_REPLAY_ENVELOPE_FIELDS_MISMATCH",
+        str(sorted(envelope)),
+    )
+    _require(
+        envelope["schema_version"] == FLOW_REPLAY_SCHEMA_VERSION,
+        "FLOW_REPLAY_SCHEMA_VERSION_INVALID",
+        repr(envelope["schema_version"]),
+    )
+    commit = envelope["source_commit"]
+    _require(
+        isinstance(commit, str) and GIT_OID_RE.fullmatch(commit) is not None,
+        "FLOW_REPLAY_SOURCE_COMMIT_INVALID",
+        repr(commit),
+    )
+    files = envelope["files"]
+    _require(
+        isinstance(files, dict) and set(files) == set(FLOW_REPLAY_INPUT_PATHS),
+        "FLOW_REPLAY_FILE_KEYS_MISMATCH",
+        str(sorted(files)) if isinstance(files, dict) else type(files).__name__,
+    )
+
+    root = Path(trusted_repository_root).resolve()
+    _require_repository_boundary(root)
+    trusted_head = _resolved_validation_head(root, trusted_validation_head)
+    _require_trusted_ancestor(root, commit, trusted_head)
+    return {
+        relative: _verify_flow_replay_file(root, commit, relative, files[relative])
+        for relative in FLOW_REPLAY_INPUT_PATHS
+    }
+
+
+def verify_flow_replay_inputs(
+    envelope,
+    *,
+    trusted_repository_root: Path = ROOT,
+    trusted_validation_head=None,
+) -> dict:
+    """Authenticate one envelope and return ``{relative: bytes or None}``.
+
+    Every failure is hard.  The blanket re-raise is deliberate: an unexpected
+    error while PROVING provenance must never become indistinguishable from a
+    proven-but-semantically-invalid input.
+    """
+    try:
+        return _verify_flow_replay_inputs(
+            envelope, trusted_repository_root, trusted_validation_head
+        )
+    except FlowReplayProvenanceError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - unprovable input is a hard failure
+        raise _provenance(
+            "FLOW_REPLAY_PROVENANCE_UNVERIFIED", f"{type(exc).__name__}:{exc}"
+        ) from exc
+
+
+def _capture_flow_replay_file(root: Path, head: str, relative: str) -> dict:
+    # Nothing dirty or uncommitted is ever frozen, even when the resulting
+    # bytes would be semantically invalid: a genuinely broken committed input
+    # must replay as the same deterministic verdict, never be recaptured.
+    if _git(root, "status", "--porcelain", "--", relative).strip():
+        raise _provenance("FLOW_REPLAY_WORKTREE_DIRTY", relative)
+    path = root / relative
+    tree = _tree_entry(root, head, relative)
+    if tree is None:
+        _require(
+            not (path.exists() or path.is_symlink()),
+            "FLOW_REPLAY_UNCOMMITTED",
+            relative,
+        )
+        return {"state": "ABSENT", "blob_oid": None, "sha256": None}
+    mode, object_type, oid = tree
+    _require(
+        object_type == "blob" and mode in GIT_BLOB_MODES,
+        "FLOW_REPLAY_BLOB_MODE_INVALID",
+        f"{relative}:{mode}:{object_type}",
+    )
+    committed = _authenticated_bytes(root, relative, oid)
+    try:
+        live = path.read_bytes()
+    except OSError as exc:
+        raise _provenance("FLOW_REPLAY_INPUT_MISSING", relative) from exc
+    _require(live == committed, "FLOW_REPLAY_HEAD_BLOB_MISMATCH", relative)
+    return {
+        "state": "PRESENT",
+        "blob_oid": oid,
+        "sha256": hashlib.sha256(committed).hexdigest(),
+    }
+
+
+def capture_flow_replay_inputs(
+    root: Path = ROOT, *, trusted_validation_head=None
+) -> dict:
+    """Freeze the exact ten inputs at one trusted HEAD, capture-once.
+
+    Called on a fresh build only.  Validation never captures: replaying a
+    persisted packet must read that packet's own source commit, never today's
+    repository state.
+    """
+    try:
+        repository = Path(root).resolve()
+        _require_repository_boundary(repository)
+        head = _resolved_validation_head(repository, trusted_validation_head)
+        return {
+            "schema_version": FLOW_REPLAY_SCHEMA_VERSION,
+            "source_commit": head,
+            "files": {
+                relative: _capture_flow_replay_file(repository, head, relative)
+                for relative in FLOW_REPLAY_INPUT_PATHS
+            },
+        }
+    except FlowReplayProvenanceError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - an unprovable capture is hard
+        raise _provenance(
+            "FLOW_REPLAY_CAPTURE_FAILED", f"{type(exc).__name__}:{exc}"
+        ) from exc
+
+
+def flow_replay_inputs_at_commit(
+    source_commit: str,
+    *,
+    trusted_repository_root: Path = ROOT,
+    trusted_validation_head=None,
+) -> dict:
+    """The real ten-file closure of an externally supplied historical commit.
+
+    Every entry is read from that commit's ACTUAL tree, never from a claim, so
+    the returned envelope is a description of the repository rather than of
+    whatever a caller wished were true.  ``source_commit`` itself is external
+    operator context: this module never derives it from a packet, a locator or
+    the live HEAD.
+    """
+    try:
+        root = Path(trusted_repository_root).resolve()
+        _require(
+            isinstance(source_commit, str) and GIT_OID_RE.fullmatch(source_commit) is not None,
+            "FLOW_REPLAY_SOURCE_COMMIT_INVALID",
+            repr(source_commit),
+        )
+        _require_repository_boundary(root)
+        trusted_head = _resolved_validation_head(root, trusted_validation_head)
+        code, out = _git_result(
+            root, "rev-parse", "--verify", "--quiet", f"{source_commit}^{{commit}}"
+        )
+        _require(code == 0, "FLOW_REPLAY_SOURCE_COMMIT_OBJECT_MISSING", source_commit)
+        resolved = out.strip()
+        _require(
+            resolved == source_commit,
+            "FLOW_REPLAY_SOURCE_COMMIT_INVALID",
+            resolved,
+        )
+        _require_trusted_ancestor(root, resolved, trusted_head)
+        files = {}
+        for relative in FLOW_REPLAY_INPUT_PATHS:
+            tree = _tree_entry(root, resolved, relative)
+            if tree is None:
+                files[relative] = {"state": "ABSENT", "blob_oid": None, "sha256": None}
+                continue
+            mode, object_type, oid = tree
+            _require(
+                object_type == "blob" and mode in GIT_BLOB_MODES,
+                "FLOW_REPLAY_BLOB_MODE_INVALID",
+                f"{relative}:{mode}:{object_type}",
+            )
+            data = _authenticated_bytes(root, relative, oid)
+            files[relative] = {
+                "state": "PRESENT",
+                "blob_oid": oid,
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+        return {
+            "schema_version": FLOW_REPLAY_SCHEMA_VERSION,
+            "source_commit": resolved,
+            "files": files,
+        }
+    except FlowReplayProvenanceError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _provenance(
+            "FLOW_REPLAY_HISTORICAL_CLOSURE_FAILED", f"{type(exc).__name__}:{exc}"
+        ) from exc
+
+
+@contextlib.contextmanager
+def materialized_flow_replay_root(verified: dict):
+    """Write the authenticated bytes into a fresh isolated root and yield it.
+
+    Exact bytes at the exact relative path.  No JSON re-serialization, no
+    whitespace normalization, no writing into the real ROOT, no module-level
+    ROOT monkeypatch and no fixture substitution.  A proven-absent path is not
+    created, so the producer sees the same tree shape the source commit had.
+    """
+    root = Path(tempfile.mkdtemp(prefix="flow-replay-")).resolve()
+    try:
+        for relative, data in verified.items():
+            if data is None:
+                continue
+            target = root / _checked_relative_path(relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            # Re-read what actually landed: a materialization that did not
+            # reproduce the authenticated bytes must not reach the producer.
+            written = target.read_bytes()
+            _require(
+                written == data
+                and hashlib.sha256(written).hexdigest()
+                == hashlib.sha256(data).hexdigest()
+                and _git_blob_oid(written) == _git_blob_oid(data),
+                "FLOW_REPLAY_MATERIALIZATION_MISMATCH",
+                relative,
+            )
+        yield root
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def _require_replayable_closure(verified: dict) -> None:
+    """The proven closure must actually be able to rebuild this packet.
+
+    Reached only after all ten entries are authenticated, so every failure
+    here reports a real repository fact.  The optional P2-COM-03 ledger
+    combinations are checked BEFORE the producer runs so a genuinely
+    inconsistent chain is an explicit exception rather than something the
+    producer might round off to an empty-history record.
+    """
+    absent_required = [
+        relative for relative in FLOW_REPLAY_REQUIRED_INPUT_PATHS
+        if verified[relative] is None
+    ]
+    if absent_required:
+        raise UnreplayableFlowHistoryError(
+            f"FLOW_REPLAY_REQUIRED_INPUT_ABSENT:{','.join(absent_required)}"
+        )
+    contract = verified[TRANSITION_LEDGER_CONTRACT_REL] is not None
+    predecessor = verified[TRANSITION_LEDGER_PREDECESSOR_REL] is not None
+    pointer = verified[TRANSITION_LEDGER_POINTER_REL] is not None
+    if contract and predecessor and not pointer:
+        # A ratified chain exists but its canonical pointer is gone.  That is
+        # a recovery problem, never a licence to erase recorded history.
+        raise UnreplayableFlowHistoryError(
+            f"TRANSITION_LEDGER_POINTER_MISSING:{TRANSITION_LEDGER_POINTER_REL}"
+        )
+    if contract and pointer and not predecessor:
+        raise UnreplayableFlowHistoryError(
+            "TRANSITION_LEDGER_PREDECESSOR_REQUIRED:"
+            f"{TRANSITION_LEDGER_PREDECESSOR_REL}"
+        )
+
+
+def _revalidate_production_pins(materialized_root: Path, verified: dict) -> dict:
+    """Re-run the two production checks an isolated root would otherwise skip.
+
+    C4 -- ``load_contract(path)`` decides ``production`` by comparing the path
+    to the module's own CONTRACT_PATH, so a contract read from a temporary
+    root would be validated in NON-production mode and the pinned-predecessor
+    check would never run.  Call ``validate_contract(..., production=True)``
+    explicitly on the materialized bytes instead, then re-derive the real
+    predecessor file/content/hash-chain/height/tail from the isolated root.
+
+    C5 -- ``_cross_asset_flow_contract_identity`` falls back to the repository
+    ROOT copy when ``root != ROOT`` and the contract is missing, which exists
+    for older downstream unit fixtures.  A replay must never reach it: require
+    the authenticated file and pass its explicit path so the leaf validator
+    and identity check run against exactly the frozen bytes.
+    """
+    policy = validate_policy(
+        read_json(materialized_root / FLOW_POLICY_REL, "POLICY_INVALID")
+    )
+
+    # C5: the cross-asset flow contract is required, must be a real regular
+    # file in the isolated root, and is validated by explicit path.
+    cross_asset_path = materialized_root / CROSS_ASSET_CONTRACT_REL
+    if verified[CROSS_ASSET_CONTRACT_REL] is None or not cross_asset_path.is_file():
+        raise UnreplayableFlowHistoryError(
+            f"FLOW_REPLAY_REQUIRED_INPUT_ABSENT:{CROSS_ASSET_CONTRACT_REL}"
+        )
+    _cross_asset_flow_contract_identity(
+        policy, materialized_root, contract_path=cross_asset_path
+    )
+
+    # C4: production predecessor identity, on the frozen bytes.
+    ledger_contract = None
+    if verified[TRANSITION_LEDGER_CONTRACT_REL] is not None:
+        ledger = transition_ledger_module()
+        ledger_contract = _ledger_call(
+            "TRANSITION_LEDGER_CONTRACT_INVALID",
+            ledger.validate_contract,
+            read_json(
+                materialized_root / TRANSITION_LEDGER_CONTRACT_REL,
+                "TRANSITION_LEDGER_CONTRACT_INVALID",
+            ),
+            production=True,
+        )
+        if verified[TRANSITION_LEDGER_PREDECESSOR_REL] is not None:
+            _ledger_call(
+                "TRANSITION_LEDGER_PREDECESSOR_INVALID",
+                ledger.load_predecessor,
+                ledger_contract,
+                materialized_root,
+            )
+    return policy
+
+
+def verified_flow_replay_closure(
+    envelope,
+    *,
+    trusted_repository_root: Path = ROOT,
+    trusted_validation_head=None,
+) -> dict:
+    """Authenticate an envelope AND prove its closure can rebuild this packet.
+
+    Separated from the rebuild below so a caller assembling a larger document
+    can settle both hard questions -- is this provable, and is it replayable --
+    before doing any other work, rather than discovering an unprovable input
+    after everything else has been built.
+    """
+    verified = verify_flow_replay_inputs(
+        envelope,
+        trusted_repository_root=trusted_repository_root,
+        trusted_validation_head=trusted_validation_head,
+    )
+    _require_replayable_closure(verified)
+    return verified
+
+
+def build_reference_from_verified_inputs(verified: dict) -> dict:
+    """Rebuild this reference from an already-authenticated closure.
+
+    The live repository is never read for content: the bytes were taken from
+    real Git objects, are materialized byte-for-byte into an isolated root,
+    and the unchanged production builder runs against that root.  Producer
+    semantic hashing and authority are untouched -- only where the inputs come
+    from changes.
+    """
+    _require(
+        isinstance(verified, dict) and set(verified) == set(FLOW_REPLAY_INPUT_PATHS),
+        "FLOW_REPLAY_VERIFIED_CLOSURE_INVALID",
+        str(sorted(verified)) if isinstance(verified, dict) else type(verified).__name__,
+    )
+    with materialized_flow_replay_root(verified) as materialized_root:
+        _revalidate_production_pins(materialized_root, verified)
+        return build_reference(materialized_root)
+
+
+def build_reference_from_frozen_inputs(
+    envelope,
+    *,
+    trusted_repository_root: Path = ROOT,
+    trusted_validation_head=None,
+) -> dict:
+    """Authenticate one frozen input tuple and rebuild this reference from it."""
+    return build_reference_from_verified_inputs(
+        verified_flow_replay_closure(
+            envelope,
+            trusted_repository_root=trusted_repository_root,
+            trusted_validation_head=trusted_validation_head,
+        )
+    )
+
+
+def build_reference_from_source_commit(
+    source_commit: str,
+    *,
+    trusted_repository_root: Path = ROOT,
+    trusted_validation_head=None,
+) -> dict:
+    """Rebuild this reference from an externally supplied historical commit.
+
+    The commit is trusted operator context.  Being an ancestor of the trusted
+    validation HEAD proves the closure is authentic history; it does NOT prove
+    this commit is the one that originally issued any particular packet.  That
+    claim, if it is made at all, belongs to the caller that supplied it.
+    """
+    return build_reference_from_frozen_inputs(
+        flow_replay_inputs_at_commit(
+            source_commit,
+            trusted_repository_root=trusted_repository_root,
+            trusted_validation_head=trusted_validation_head,
+        ),
+        trusted_repository_root=trusted_repository_root,
+        trusted_validation_head=trusted_validation_head,
+    )
 
 
 def write_packet(packet: dict, root: Path = ROOT) -> tuple[Path, Path]:

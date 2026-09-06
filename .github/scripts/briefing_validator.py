@@ -88,8 +88,35 @@ def _run(repo_root: Path, args: list[str]) -> tuple[int, str]:
     return proc.returncode, (proc.stderr or proc.stdout or "").strip()[:2000]
 
 
+def _history_argv(history_context: dict | None) -> list[str]:
+    """The external history context as canonical CLI arguments.
+
+    Both canonical validators accept the same three optional arguments, so the
+    SAME trusted context reaches both subprocesses.  An absent context adds no
+    arguments at all -- which is the normal case, because a current (Flow
+    version 1) packet carries its own frozen envelope.
+
+    Nothing here invents a value: no live HEAD lookup, no reading a commit out
+    of the locator or the packet.  When context is required and was not
+    supplied, the subprocess fails and that stays a blocking STRUCTURAL
+    finding below, exactly as any other canonical failure does.
+    """
+    context = history_context or {}
+    argv: list[str] = []
+    for flag, key in (
+        ("--historical-source-commit", "historical_source_commit"),
+        ("--trusted-repository-root", "trusted_repository_root"),
+        ("--trusted-validation-head", "trusted_validation_head"),
+    ):
+        value = context.get(key)
+        if value is not None:
+            argv += [flag, str(value)]
+    return argv
+
+
 def check_canonical_structure(
-    repo_root: Path, kst_date: str, slot: str
+    repo_root: Path, kst_date: str, slot: str,
+    *, history_context: dict | None = None,
 ) -> tuple[list[Finding], dict | None]:
     """Delegate structural validation to the production H-24 path.
 
@@ -117,13 +144,16 @@ def check_canonical_structure(
     except (OSError, json.JSONDecodeError, KeyError) as exc:
         return [_finding("FINALIZATION_LOCATOR_UNREADABLE", "STRUCTURAL", str(exc))], None
 
-    code, detail = _run(repo_root, [CANONICAL_ORCHESTRATOR, "validate", packet_path])
+    history_argv = _history_argv(history_context)
+    code, detail = _run(repo_root, [CANONICAL_ORCHESTRATOR, "validate", packet_path,
+                                    *history_argv])
     if code != 0:
         findings.append(_finding("CANONICAL_PACKET_VALIDATION_FAILED", "STRUCTURAL",
                                  detail or f"exit {code}", validator=CANONICAL_ORCHESTRATOR))
 
     code, detail = _run(repo_root, [CANONICAL_DELIVERY, "consume",
-                                    "--slot", slot, "--decision-date", kst_date])
+                                    "--slot", slot, "--decision-date", kst_date,
+                                    *history_argv])
     if code != 0:
         findings.append(_finding("CANONICAL_CONSUME_FAILED", "STRUCTURAL",
                                  detail or f"exit {code}", validator=CANONICAL_DELIVERY))
@@ -425,10 +455,15 @@ def collect_post_delivery_inputs(repo_root: Path, kst_date: str, slot: str) -> l
 
 # --------------------------------------------------------------------- verdict
 
-def validate(repo_root: Path, kst_date: str, slot: str) -> dict:
+def validate(
+    repo_root: Path, kst_date: str, slot: str,
+    *, history_context: dict | None = None,
+) -> dict:
     payload_findings, draft = check_payload_binding(repo_root, kst_date, slot)
     findings = list(payload_findings)
-    structure_findings, bound = check_canonical_structure(repo_root, kst_date, slot)
+    structure_findings, bound = check_canonical_structure(
+        repo_root, kst_date, slot, history_context=history_context
+    )
     findings += structure_findings
     snapshot_findings, packet = load_validated_packet(repo_root, bound)
     findings += snapshot_findings
@@ -537,10 +572,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo-root", default=".")
     parser.add_argument("--emit-inbox", action="store_true",
                         help="write the verdict to the authoritative inbox path")
+    # Optional external history context, forwarded verbatim to BOTH canonical
+    # subprocesses. Never defaulted from the locator, the packet or live HEAD.
+    parser.add_argument(
+        "--historical-source-commit",
+        help="externally trusted ORIGINAL Flow source commit for a legacy packet")
+    parser.add_argument("--trusted-repository-root")
+    parser.add_argument("--trusted-validation-head")
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root).resolve()
-    verdict = validate(repo_root, args.decision_date, args.slot)
+    verdict = validate(repo_root, args.decision_date, args.slot, history_context={
+        "historical_source_commit": args.historical_source_commit,
+        "trusted_repository_root": args.trusted_repository_root,
+        "trusted_validation_head": args.trusted_validation_head,
+    })
     if args.emit_inbox:
         verdict["emitted"] = emit(repo_root, args.decision_date, args.slot, verdict)
     print(json.dumps(verdict, ensure_ascii=False, indent=2, sort_keys=True))

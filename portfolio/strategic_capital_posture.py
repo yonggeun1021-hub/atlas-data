@@ -12,11 +12,19 @@ flow reference supplies evidence only and unlocks nothing.
 ``P1_REGIME_DECISION`` is unavailable-only, but its ``unavailable_reasons``
 list may carry either one generic production-contract blocker or the exact,
 independently re-derived ``runtime_regime_readiness/v1`` blockers a caller
-validated first (daily derivation version 2 -- see
+validated first (daily derivation versions 2 and 3 -- see
 ``docs/strategic_capital_posture_contract.md``).  Either way the list is
 revalidated here as bounded, sorted, unique reason codes, the slot stays
 UNAVAILABLE with a null source identity, and naming the real gaps promotes
 nothing.
+
+``P2_ROTATION_STATE`` is the same shape (daily derivation version 3): its
+``unavailable_reasons`` may carry either the generic production-contract
+blocker alone, or that blocker plus the exact per-market prerequisites P2-05's
+readiness producer re-derives from immutable, Git-authenticated committed
+inputs.  It remains unavailable-only, wires no production rotation/state
+packet, and authorizes no state vocabulary, freshness policy, availability,
+ranking or money action.
 """
 from __future__ import annotations
 
@@ -91,6 +99,13 @@ CURRENCY = _load_validator(
 CAPITAL_FLOW_ENGINE = _load_validator(
     "atlas_capital_flow_engine_for_p712",
     "portfolio/capital_flow_posture_reference.py",
+)
+# P2-05's own repository-evidence-only readiness producer.  Loaded to obtain a
+# producer-validated inventory, never to re-implement rotation state policy,
+# ledger semantics or pointer validation here.
+ROTATION_STATE_READINESS = _load_validator(
+    "atlas_rotation_state_readiness_for_p712",
+    "rotation/rotation_state_ledger_operational_readiness.py",
 )
 
 
@@ -317,6 +332,142 @@ def _reasons(value, code: str) -> list[str]:
     ):
         raise StrategicCapitalPostureError(code)
     return list(value)
+
+
+# ---------------------------------------------------------------------------
+# P2_ROTATION_STATE diagnostic blockers
+#
+# The exact counterpart of the P1 wiring above, applied to the other
+# unavailable-only slot.  P2-05's readiness producer already knows, from real
+# committed repository evidence, which three prerequisites every market is
+# missing; forwarding those finite codes replaces one opaque placeholder with
+# the real gaps.  It wires no production rotation/state packet, authorizes no
+# state vocabulary, freshness/TTL, availability or ranking, and moves no money:
+# the slot stays UNAVAILABLE with a null source identity either way.
+#
+# The generic production-contract blocker is PRESERVED in both the success and
+# the invalid form, so nothing downstream loses the fact that the production
+# contract is still missing.
+# ---------------------------------------------------------------------------
+
+P2_ROTATION_STATE_SLOT = "P2_ROTATION_STATE"
+P2_ROTATION_STATE_GENERIC_REASON = "P2_ROTATION_STATE_PRODUCTION_CONTRACT_UNAVAILABLE"
+# The ONE fixed diagnostic a recomputed semantic failure may produce.  It
+# carries no exception text, path, hash, age or provider detail: an invalid
+# committed input is reported as exactly that, not as a description of it.
+P2_ROTATION_STATE_INVALID_REASONS = (
+    "P2_ROTATION_READINESS_INVALID:VALIDATION_FAILED",
+    P2_ROTATION_STATE_GENERIC_REASON,
+)
+P2_ROTATION_STATE_MARKETS = ("US", "KOREA", "CRYPTO")
+P2_ROTATION_STATE_BLOCKERS = (
+    "FULL_PRODUCTION_ROTATION_PACKET_MISSING",
+    "EXTERNAL_RATIFIED_STATE_POLICY_MISSING",
+    "APPEND_ONLY_OPERATIONAL_LEDGER_EVIDENCE_MISSING",
+)
+
+
+def _p2_rotation_state_reasons_from_inventory(inventory) -> list[str]:
+    """Convert a producer-validated inventory into finite blocker codes.
+
+    Accepts the exact validated markets and the exact validated blocker
+    vocabulary, and nothing else.  An unknown, forged, shortened or reordered
+    inventory raises rather than forwarding an arbitrary string into a reason
+    list that downstream contracts treat as machine-readable.
+    """
+    if (
+        not isinstance(inventory, dict)
+        or inventory.get("schema_version")
+        != ROTATION_STATE_READINESS.INVENTORY_SCHEMA_VERSION
+    ):
+        raise StrategicCapitalPostureError(
+            f"P2_ROTATION_INVENTORY_IDENTITY_INVALID:{P2_ROTATION_STATE_SLOT}"
+        )
+    authority = inventory.get("authority")
+    if not isinstance(authority, dict) or not authority:
+        raise StrategicCapitalPostureError(
+            f"P2_ROTATION_INVENTORY_AUTHORITY_INVALID:{P2_ROTATION_STATE_SLOT}"
+        )
+    for key, value in authority.items():
+        expected = key == "readiness_inventory_only"
+        if value is not expected:
+            raise StrategicCapitalPostureError(
+                f"P2_ROTATION_INVENTORY_AUTHORITY_EXPANDED:{key}"
+            )
+    rows = inventory.get("markets")
+    if not isinstance(rows, list):
+        raise StrategicCapitalPostureError(
+            f"P2_ROTATION_INVENTORY_MARKETS_INVALID:{P2_ROTATION_STATE_SLOT}"
+        )
+    reasons = [P2_ROTATION_STATE_GENERIC_REASON]
+    seen = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"market", "blockers"}:
+            raise StrategicCapitalPostureError(
+                f"P2_ROTATION_INVENTORY_ROW_INVALID:{P2_ROTATION_STATE_SLOT}"
+            )
+        market = row["market"]
+        if market not in P2_ROTATION_STATE_MARKETS or market in seen:
+            raise StrategicCapitalPostureError(
+                f"P2_ROTATION_INVENTORY_MARKET_UNKNOWN:{market!r}"
+            )
+        seen.append(market)
+        blockers = row["blockers"]
+        if not isinstance(blockers, list) or set(blockers) != set(
+            P2_ROTATION_STATE_BLOCKERS
+        ) or len(blockers) != len(P2_ROTATION_STATE_BLOCKERS):
+            raise StrategicCapitalPostureError(
+                f"P2_ROTATION_INVENTORY_BLOCKERS_UNKNOWN:{market}"
+            )
+        reasons.extend(
+            f"{P2_ROTATION_STATE_SLOT}:{market}:{blocker}" for blocker in blockers
+        )
+    if set(seen) != set(P2_ROTATION_STATE_MARKETS):
+        raise StrategicCapitalPostureError(
+            f"P2_ROTATION_INVENTORY_MARKETS_INCOMPLETE:{sorted(seen)}"
+        )
+    return _reasons(
+        sorted(set(reasons)),
+        f"UNAVAILABLE_REASONS_INVALID:{P2_ROTATION_STATE_SLOT}",
+    )
+
+
+def p2_rotation_state_unavailable_reasons(frozen_inputs, root=None) -> list[str]:
+    """Exact ``P2_ROTATION_STATE`` blockers from frozen committed inputs.
+
+    ``frozen_inputs`` is P2-05's immutable frozen-input envelope, and it is the
+    only source of derived values.  There is no caller-supplied inventory,
+    validity flag or stored error code: the inventory is recomputed here from
+    bytes the producer has authenticated against real Git objects, so a caller
+    can assert neither the blockers nor the failure.
+
+    ``root`` names the trusted validation repository and defaults to the
+    producer's own.  It is an API argument, never packet data: the envelope
+    cannot nominate a repository, ref, remote or validation HEAD, and the daily
+    producer never forwards a caller-supplied one.
+
+    Exactly one condition yields the fixed generic + ``VALIDATION_FAILED``
+    diagnostic: an independently recomputed SEMANTIC failure of authenticated
+    committed bytes (missing, malformed or contract-invalid committed input).
+    Provenance, envelope, Git, dirty-capture and missing-object failures are
+    hard failures and propagate untouched -- an input that cannot be proven is
+    never rendered as an input that was proven and found wanting.
+    """
+    evaluate = ROTATION_STATE_READINESS.evaluate_frozen_readiness_inputs
+    try:
+        inventory = (
+            evaluate(frozen_inputs)
+            if root is None
+            else evaluate(frozen_inputs, root)
+        )
+    except ROTATION_STATE_READINESS.RotationStateLedgerReadinessSemanticError:
+        return list(P2_ROTATION_STATE_INVALID_REASONS)
+    try:
+        return _p2_rotation_state_reasons_from_inventory(inventory)
+    except StrategicCapitalPostureError:
+        # Fail closed to the same fixed diagnostic rather than forwarding an
+        # unrecognized market or blocker string.
+        return list(P2_ROTATION_STATE_INVALID_REASONS)
 
 
 def _assert_execution_authority_closed(name: str, authority) -> None:
