@@ -367,7 +367,7 @@ briefing artifact instead of being restated by hand.
 ## Independent review corrections
 
 - Readiness validation compares canonical JSON bytes, rejecting Python boolean/numeric aliases even when an attacker keeps the original hash.
-- New daily packets carry the hash-bound `runtime_regime_readiness_version: 1` derivation marker. Packets without it are rebuilt through the exact pre-wiring P6 derivation, preserving archived briefing validation. A marker change without matching independent re-derivation fails; no persisted component row is trusted as an input. This is a technical derivation version, not a policy version or ratification.
+- The original P6 exact-blocker wiring introduced the hash-bound `runtime_regime_readiness_version: 1` derivation marker. For the current default version and the complete historical replay rules, see `docs/strategic_capital_posture_contract.md` and the version-specific derivations in `briefing/daily_orchestrator.py`. A marker change without matching independent full re-derivation fails; no persisted component row is trusted as an input. This is a technical derivation version, not a policy version or ratification.
 - Readiness validation failures retain their stable error code in the P6 unavailable reasons.
 
 The standalone readiness packet explicitly binds `source_validation_scope =
