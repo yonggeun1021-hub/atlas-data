@@ -339,6 +339,90 @@ class ValueChainEdgeAuthorityTests(unittest.TestCase):
         with self.assertRaises(VCEA.ValueChainEdgeAuthorityError):
             VCEA.validate_registry_record({"rule_id": "X"})
 
+    # -- cross-market linkage roll-up (descriptive only) ------------------
+    def test_us_korea_pair_is_reported_but_not_linked_without_ratified_edge(self):
+        edge = edge_claim("EDGE.LINK", self.node_us["node_ref_id"], self.node_kr["node_ref_id"])
+        packet = VCEA.build_packet(edge_input([self.node_us, self.node_kr], [edge]))
+        self.assertEqual(packet["cross_market_edge_count"], 1)
+        self.assertEqual(packet["activated_cross_market_edge_count"], 0)
+        self.assertEqual(len(packet["market_pair_linkage"]), 1)
+        row = packet["market_pair_linkage"][0]
+        self.assertEqual(row["market_pair"], ["KOREA", "US"])
+        self.assertTrue(row["cross_market"])
+        self.assertEqual(row["linkage_status"], "UNKNOWN_MARKET_PAIR_LINKAGE_NOT_RATIFIED")
+        self.assertEqual(row["edge_status_counts"], {"UNKNOWN_EDGE_AUTHORITY_NOT_RATIFIED": 1})
+
+    def test_us_korea_pair_is_linked_only_once_an_edge_is_actually_ratified(self):
+        edge = edge_claim("EDGE.LINKED", self.node_us["node_ref_id"], self.node_kr["node_ref_id"])
+        baseline = VCEA.build_packet(edge_input([self.node_us, self.node_kr], [edge]))
+        edge_hash = baseline["edges"][0]["approved_edge_payload_sha256"]
+        repo = EdgeAuthorityRepo(self.temp_root / "edge-repo-linkage", edge_hash, "EDGE.LINKED")
+        packet = VCEA.build_packet(
+            edge_input([self.node_us, self.node_kr], [edge]), registry_path=repo.registry_path,
+        )
+        row = packet["market_pair_linkage"][0]
+        self.assertEqual(row["market_pair"], ["KOREA", "US"])
+        self.assertEqual(row["linkage_status"], "RATIFIED_MARKET_PAIR_LINKAGE")
+        self.assertEqual(row["activated_edge_count"], 1)
+        self.assertEqual(packet["activated_cross_market_edge_count"], 1)
+
+    def test_same_market_edge_is_reported_and_never_counted_as_cross_market(self):
+        second_kr = node_ref(
+            "NODE.KR.005930.B", "KOREA", "KR:XKRX:005930", "MEMBERSHIP.KR.005930",
+            self.authorized_packet,
+        )
+        edge = edge_claim("EDGE.SAME", self.node_kr["node_ref_id"], second_kr["node_ref_id"])
+        # Both endpoints are KOREA, so the evidence must come from a KOREA
+        # source in the existing theme_taxonomy_contract allow-list.
+        edge["evidence"]["source_identity"] = source(
+            "dart_open_api", "https://opendart.fss.or.kr/api/EDGE.SAME.json", "d",
+        )
+        packet = VCEA.build_packet(edge_input([self.node_kr, second_kr], [edge]))
+        row = packet["market_pair_linkage"][0]
+        self.assertEqual(row["market_pair"], ["KOREA", "KOREA"])
+        self.assertFalse(row["cross_market"])
+        self.assertEqual(packet["cross_market_edge_count"], 0)
+        self.assertEqual(packet["activated_cross_market_edge_count"], 0)
+
+    def test_linkage_rollup_grants_no_authority(self):
+        edge = edge_claim("EDGE.NOGRANT", self.node_us["node_ref_id"], self.node_kr["node_ref_id"])
+        packet = VCEA.build_packet(edge_input([self.node_us, self.node_kr], [edge]))
+        self.assertFalse(packet["authority"]["edge_activation_authorized"])
+        self.assertFalse(packet["authority"]["rotation_score_authorized"])
+        self.assertFalse(packet["authority"]["trading_authorized"])
+
+    # -- CLI: operable, and still no tracked output path -----------------
+    def test_cli_writes_packet_for_an_external_edge_document(self):
+        edge = edge_claim("EDGE.CLI", self.node_us["node_ref_id"], self.node_kr["node_ref_id"])
+        document = edge_input([self.node_us, self.node_kr], [edge])
+        input_path = self.temp_root / "cli" / "edges.json"
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        out_path = self.temp_root / "cli" / "packet.json"
+        self.assertEqual(VCEA.run(input_path, out_path), 0)
+        packet = json.loads(out_path.read_text(encoding="utf-8"))
+        self.assertEqual(packet["schema_version"], VCEA.OUTPUT_SCHEMA_VERSION)
+        self.assertEqual(packet["edges"][0]["edge_status"], "UNKNOWN_EDGE_AUTHORITY_NOT_RATIFIED")
+        self.assertEqual(packet["market_pair_linkage"][0]["market_pair"], ["KOREA", "US"])
+
+    def test_cli_refuses_to_write_a_tracked_repository_path(self):
+        edge = edge_claim("EDGE.CLI2", self.node_us["node_ref_id"], self.node_kr["node_ref_id"])
+        document = edge_input([self.node_us, self.node_kr], [edge])
+        input_path = self.temp_root / "cli2" / "edges.json"
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        tracked = ROOT / "config" / "value_chain_edge_cli_output_must_not_exist.json"
+        self.assertEqual(VCEA.run(input_path, tracked), 1)
+        self.assertFalse(tracked.exists())
+
+    def test_cli_reports_malformed_input_without_writing_output(self):
+        input_path = self.temp_root / "cli3" / "edges.json"
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_text(json.dumps({"schema_version": "wrong/1"}), encoding="utf-8")
+        out_path = self.temp_root / "cli3" / "packet.json"
+        self.assertEqual(VCEA.run(input_path, out_path), 1)
+        self.assertFalse(out_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
