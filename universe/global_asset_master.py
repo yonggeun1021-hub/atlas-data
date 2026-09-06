@@ -122,6 +122,12 @@ def _validate_contract(value: dict) -> dict:
     }
     if value.get("source_coverage") != expected_coverage:
         raise AssetMasterError("SOURCE_COVERAGE_MISMATCH")
+    if value.get("theme_membership_provenance") != {
+        "contract": "theme_taxonomy/2",
+        "source_role": "DISCLOSURE_EVIDENCE",
+        "registry": "config/theme_taxonomy_contract.json",
+    }:
+        raise AssetMasterError("THEME_PROVENANCE_CONTRACT_MISMATCH")
     return copy.deepcopy(value)
 
 
@@ -248,7 +254,25 @@ def _validate_alias(row: dict, asset_id: str, contract: dict) -> dict:
     }
 
 
-def _validate_membership(row: dict, asset_id: str, contract: dict) -> dict:
+def _validate_theme_source(source, market: str, as_of_date: str, context: str) -> dict:
+    # This is a distinct evidence role, not an alias of an identity provider.
+    # Keep one canonical market/host/time validator and preserve literal inputs.
+    taxonomy = _load_theme_taxonomy()
+    try:
+        theme_contract = taxonomy.load_contract()
+        if market not in theme_contract["market_sources"]:
+            raise AssetMasterError(f"THEME_SOURCE_MARKET_UNSUPPORTED:{context}:{market}")
+        cutoff = dt.datetime.strptime(as_of_date, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59
+        )
+        return taxonomy._validate_source(source, market, cutoff, theme_contract, context)
+    except taxonomy.ThemeTaxonomyError as exc:
+        raise AssetMasterError(f"THEME_SOURCE_INVALID:{exc}") from exc
+
+
+def _validate_membership(
+    row: dict, asset_id: str, contract: dict, market: str, as_of_date: str,
+) -> dict:
     if not isinstance(row, dict):
         raise AssetMasterError(f"MEMBERSHIP_NOT_OBJECT:{asset_id}")
     membership_type = row.get("membership_type")
@@ -264,7 +288,11 @@ def _validate_membership(row: dict, asset_id: str, contract: dict) -> dict:
         "membership_id": membership_id,
         "valid_from": start,
         "valid_to": end,
-        "source_identity": _validate_source(row.get("source_identity"), contract, context),
+        "source_identity": (
+            _validate_theme_source(row.get("source_identity"), market, as_of_date, context)
+            if membership_type == "THEME"
+            else _validate_source(row.get("source_identity"), contract, context)
+        ),
     }
 
 
@@ -326,7 +354,7 @@ def _validate_record(record: dict, as_of_date: str, contract: dict) -> dict:
         raise AssetMasterError(f"IDENTIFIER_DUPLICATE:{asset_id}")
     aliases = [_validate_alias(row, asset_id, contract) for row in aliases_raw]
     memberships = [
-        _validate_membership(row, asset_id, contract) for row in memberships_raw
+        _validate_membership(row, asset_id, contract, market, as_of_date) for row in memberships_raw
     ]
     _assert_no_overlaps(
         aliases, ("alias_type", "value", "exchange_id"), "ALIAS_INTERVAL_OVERLAP"
@@ -632,7 +660,14 @@ def _shared_source_registry(contract: dict, taxonomy_contract: dict) -> set:
         for allowed in taxonomy_contract["market_sources"].values()
         for source_id in allowed
     }
-    return set(contract["source_coverage"]) & taxonomy_sources
+    # The GAM contract delegates only THEME provenance to this canonical
+    # registry. Identity/MARKET/UNIVERSE coverage stays independent.
+    gam_theme_contract = _load_theme_taxonomy().load_contract()
+    gam_theme_sources = {
+        source_id for allowed in gam_theme_contract["market_sources"].values()
+        for source_id in allowed
+    }
+    return gam_theme_sources & taxonomy_sources
 
 
 def validate_theme_source_binding(
@@ -841,11 +876,8 @@ def validate_theme_source_binding(
                 if master_identity["source_id"] != evidence_identity["source_id"]:
                     failures.append("SOURCE_EVIDENCE_MISMATCH:source_id")
             else:
-                # The two contracts publish disjoint retrieval-channel
-                # registries with no ratified cross-mapping.  Both labels are
-                # preserved verbatim below instead of being converted, and the
-                # binding stays unresolved: an identity comparison this pair of
-                # contracts does not define cannot be answered positively.
+                # Never convert a provider label if a supplied taxonomy contract
+                # cannot define the same literal THEME provenance comparison.
                 source_id_comparison = "UNCOMPARABLE_DISJOINT_SOURCE_REGISTRY"
                 unresolved.append(
                     "SOURCE_ID_COMPARISON_UNDEFINED:"
@@ -936,6 +968,7 @@ def validate_theme_source_binding(
                 "valid_to",
                 "source_url",
                 "source_sha256",
+                "source_id",
             ],
             "preserved_uncompared_fields": {
                 "audit_provenance": "GAM_MEMBERSHIP_HAS_NO_PROVENANCE_FIELD",
@@ -943,7 +976,6 @@ def validate_theme_source_binding(
                 "claim_text": "GAM_MEMBERSHIP_HAS_NO_CLAIM_FIELD",
                 "retrieved_at_utc": "RETRIEVAL_CLOCK_IS_NOT_DOCUMENT_IDENTITY",
                 "role_id": "GAM_MEMBERSHIP_HAS_NO_ROLE_FIELD",
-                "source_id": "SOURCE_ID_REGISTRY_CROSS_MAPPING_UNRATIFIED",
             },
             "shared_source_registry": sorted(shared_sources),
         },
@@ -955,7 +987,6 @@ def validate_theme_source_binding(
             "THEME_TAXONOMY_UNRATIFIED",
             "LIVE_MASTER_POPULATION_NOT_IMPLEMENTED",
             "THEME_MEMBERSHIP_INGESTION_NOT_IMPLEMENTED",
-            "SOURCE_ID_REGISTRY_CROSS_MAPPING_UNRATIFIED",
         ],
     }
     report["payload_sha256"] = payload_sha256(report)

@@ -85,11 +85,11 @@ class ThemeIngestionTests(unittest.TestCase):
         self.assertEqual(len(expected['evidence']), 2)
         self.assertEqual(expected['role_id'], 'COMPUTE_VENDOR')
         binding = result['binding_report']['bindings'][0]
-        self.assertFalse(binding['verified'])
-        self.assertEqual(binding['source_id_comparison'], 'UNCOMPARABLE_DISJOINT_SOURCE_REGISTRY')
+        self.assertTrue(binding['verified'])
+        self.assertEqual(binding['source_id_comparison'], 'COMPARED')
         self.assertEqual(binding['failure_reasons'], [])
-        self.assertEqual(result['binding_report']['verified_binding_count'], 0)
-        self.assertIn('SOURCE_ID_REGISTRY_CROSS_MAPPING_UNRATIFIED', result['unresolved_boundaries'])
+        self.assertEqual(result['binding_report']['verified_binding_count'], 1)
+        self.assertNotIn('SOURCE_ID_REGISTRY_CROSS_MAPPING_UNRATIFIED', result['unresolved_boundaries'])
 
     def test_current_committed_empty_registry_blocks(self):
         result = I.build_theme_ingestion_preview(self.master, self.graph, self.requests,
@@ -101,7 +101,7 @@ class ThemeIngestionTests(unittest.TestCase):
 
     def test_wrong_document_and_hash_block(self):
         repo = self.repo()
-        for field, value in [('source_url', 'https://example.invalid/wrong'), ('source_sha256', 'a' * 64)]:
+        for field, value in [('source_url', 'https://www.sec.gov/Archives/wrong'), ('source_sha256', 'a' * 64)]:
             with self.subTest(field=field):
                 requests = copy.deepcopy(self.requests)
                 requests[0]['gam_source_identity'][field] = value
@@ -184,8 +184,7 @@ class ThemeIngestionTests(unittest.TestCase):
     def test_successful_multi_asset_batch_is_order_independent(self):
         member = self.graph['memberships'][1]
         identity = copy.deepcopy(member['evidence'][0]['source_identity'])
-        identity['source_id'] = 'krx_open_api_stock_daily'
-        # Explicit fixture request; no production source-label mapping is implied.
+        # Literal original DART disclosure identity; no provider alias is used.
         second = dict(asset_id='KR:XKRX:005930', gam_membership_id='SEGMENT.POWER',
                       taxonomy_membership_id='MEMBERSHIP.KR.005930',
                       evidence_id='EVIDENCE.KR.005930', gam_source_identity=identity)
@@ -197,6 +196,40 @@ class ThemeIngestionTests(unittest.TestCase):
         kr = next(r for r in first['candidate_master']['records'] if r['asset_id'] == second['asset_id'])
         self.assertIn(dict(membership_type='THEME', membership_id='SEGMENT.POWER',
                            valid_from='2026-08-20', valid_to=None, source_identity=identity), kr['memberships'])
+
+    def test_literal_disclosure_preview_binding_is_verified_without_authority_expansion(self):
+        for source_id, url in [
+            ('sec_edgar', 'https://www.sec.gov/Archives/edgar/data/1/EVIDENCE.US.TEST.htm'),
+            ('microsoft_sec_issuer_disclosure', 'https://www.sec.gov/Archives/edgar/data/1/EVIDENCE.US.TEST.htm'),
+            ('tsmc_investor_relations', 'https://investor.tsmc.com/fixture.htm'),
+        ]:
+            with self.subTest(source_id=source_id):
+                identity = self.graph['memberships'][0]['evidence'][0]['source_identity']
+                identity.update(source_id=source_id, source_url=url)
+                self.requests[0]['gam_source_identity'] = copy.deepcopy(identity)
+                originals = copy.deepcopy((self.master, self.graph, self.requests))
+                repo = self.repo()
+                result = self.build(repo)
+                self.assertEqual(F.bound_membership(result['candidate_master'])['source_identity'], identity)
+                self.assertEqual(result['binding_report']['status'], 'THEME_SOURCE_BINDING_VERIFIED')
+                self.assertEqual(result['binding_report']['verified_binding_count'], 1)
+                self.assertFalse(result['authority']['master_population_authorized'])
+                self.assertFalse(result['authority']['trading_authorized'])
+                self.assertEqual((self.master, self.graph, self.requests), originals)
+
+    def test_role_market_host_and_source_mismatch_fail_closed(self):
+        repo = self.repo()
+        for field, value in [('source_id', 'nasdaq_trader_symbol_directory'),
+                             ('source_id', 'dart_open_api'),
+                             ('source_url', 'https://example.invalid/forged')]:
+            with self.subTest(field=field, value=value):
+                requests = copy.deepcopy(self.requests)
+                requests[0]['gam_source_identity'][field] = value
+                with self.assertRaisesRegex(I.AssetMasterError, 'THEME_SOURCE_INVALID'):
+                    self.build(repo, requests=requests)
+        requests = copy.deepcopy(self.requests)
+        requests[0]['gam_source_identity']['source_id'] = 'microsoft_sec_issuer_disclosure'
+        self.assert_blocked(self.build(repo, requests=requests), 'SOURCE_EVIDENCE_MISMATCH:source_id')
 
     def test_validator_rederives_and_rejects_rehashed_tampering(self):
         repo = self.repo()
@@ -210,7 +243,7 @@ class ThemeIngestionTests(unittest.TestCase):
                      lambda p: p['authority'].update(master_population_authorized=True),
                      lambda p: p.update(addition_count=99),
                      lambda p: p['taxonomy_memberships'][0]['evidence'].clear(),
-                     lambda p: p['binding_report']['bindings'][0].update(verified=True),
+                     lambda p: p['binding_report']['bindings'][0].update(verified=False),
                      lambda p: p['input_digests'].update(trusted_commit='a' * 40)]
         for mutate in mutations:
             forged = copy.deepcopy(preview)
