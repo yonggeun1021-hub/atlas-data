@@ -275,6 +275,61 @@ def _step0_ready_decision_date_and_generated_at():
     return decision_date, generated_at
 
 
+_FLOW_READY_BASIS: tuple[str, str] | None = None
+
+
+def _flow_ready_decision_date_and_generated_at():
+    """(decision_date, generated_at) under which the REAL current Flow inputs
+    resolve P2_FLOW_ENGINE to its populated PENDING diagnostic row, computed
+    from the producer's own output rather than hardcoded.
+
+    Same family of reason as _step0_ready_decision_date_and_generated_at()
+    above, for a different sensor, and sharing no literal or state with it.
+    The P2_FLOW_ENGINE row is labelled with the Flow reference's OWN time
+    (build_capital_flow_posture_reference passes as_of_date=packet
+    ["generated_at"][:10] and generated_at=packet["generated_at"]), and
+    capital_flow_posture_reference.build_reference() takes that straight from
+    data/latest_paper_regime_reference.json -- one of the ten frozen replay
+    inputs, advanced by the real P1 collector with no per-date archive behind
+    it.
+
+    Once that pointer moves past the module-level DECISION_DATE literal,
+    _enforce_temporal_boundary rebuilds the row as DATA_BLOCKED/
+    AS_OF_DATE_AFTER_DECISION_DATE with a NULL packet. That is the CORRECT
+    answer for that pair -- an August 21 decision genuinely cannot consume
+    September 6 evidence, and this axis must not pretend otherwise -- but it
+    means DECISION_DATE can no longer exercise the Flow replay axis's
+    populated positive at all. The basis is therefore resolved honestly
+    instead of the expectation being relaxed: ask the production builder what
+    its generated_at actually is, then take the EARLIEST natural morning run
+    (the same 22:05Z previous-UTC-day geometry this axis already uses, via
+    _natural_morning_generated_at) that is genuinely at or after it, on a
+    decision_date genuinely at or after its date. Both temporal-boundary
+    checks are then satisfied by real ordering, with neither one loosened.
+
+    Cached, because it costs one real producer build and the answer cannot
+    change within a single run.
+    """
+    global _FLOW_READY_BASIS
+    if _FLOW_READY_BASIS is not None:
+        return _FLOW_READY_BASIS
+    flow_generated_at = MODULE.CAPITAL_FLOW_ENGINE.build_reference()["generated_at"]
+    flow_dt = dt.datetime.fromisoformat(flow_generated_at.replace("Z", "+00:00"))
+    # Starting here keeps decision_date >= the Flow row's own as_of_date for
+    # every candidate, so only the generated_at ordering has to be searched.
+    decision_date = flow_dt.date()
+    for _ in range(4):
+        generated_at = _natural_morning_generated_at(decision_date.isoformat())
+        if dt.datetime.fromisoformat(generated_at.replace("Z", "+00:00")) >= flow_dt:
+            _FLOW_READY_BASIS = (decision_date.isoformat(), generated_at)
+            return _FLOW_READY_BASIS
+        decision_date += dt.timedelta(days=1)
+    raise AssertionError(
+        "no natural morning run lands at or after the real Flow reference "
+        f"generated_at {flow_generated_at}"
+    )
+
+
 def _walk_authorized_keys(value, path=""):
     """Yield (path, value) for every key ending in _authorized anywhere."""
     if isinstance(value, dict):
@@ -7206,6 +7261,461 @@ _PRE_P2_REPLAY_FIXTURES_LZMA_BASE64 = (
 )
 
 
+class FlowReplayAxisTests(unittest.TestCase):
+    """`flow_replay_version` freezes WHERE the Flow inputs come from.
+
+    P2_FLOW_ENGINE used to re-read whatever was on disk at validation time, so
+    a later market-pointer or P2-COM-03 ledger move silently rewrote what a
+    past briefing's Flow section said. Version 1 captures the exact ten
+    committed inputs once, as Git object identities, and replays from those.
+
+    This axis is deliberately independent of `runtime_regime_readiness_version`
+    and changes no policy, ratification, evidence quality or authority.
+
+    Packets here are real, full, real-evidence orchestrator builds and are
+    cached: the point is which bytes come out, not how often.
+    """
+
+    KEY = MODULE.P2_FLOW_REPLAY_INPUTS
+    P2_KEY = MODULE.P2_ROTATION_STATE_READINESS_INPUTS
+    PROVENANCE_ERROR = MODULE.CAPITAL_FLOW_ENGINE.FlowReplayProvenanceError
+    UNREPLAYABLE_ERROR = MODULE.CAPITAL_FLOW_ENGINE.UnreplayableFlowHistoryError
+    _CACHE: dict[tuple, dict] = {}
+
+    @classmethod
+    def basis(cls):
+        """The real, honest (decision_date, generated_at) for this axis.
+
+        NOT the module-level DECISION_DATE literal: the Flow inputs on disk
+        have advanced past it, so that pair legitimately yields a DATA_BLOCKED
+        row with a null packet and cannot exercise a populated positive. See
+        _flow_ready_decision_date_and_generated_at().
+        """
+        return _flow_ready_decision_date_and_generated_at()
+
+    @classmethod
+    def packet(cls, *, flow_version=MODULE.FLOW_REPLAY_VERSION, source_commit=None):
+        key = (flow_version, source_commit)
+        if key not in cls._CACHE:
+            decision_date, generated_at = cls.basis()
+            cls._CACHE[key] = MODULE.build_packet(
+                "morning",
+                decision_date,
+                generated_at,
+                flow_replay_version=flow_version,
+                historical_flow_source_commit=source_commit,
+            )
+        return copy.deepcopy(cls._CACHE[key])
+
+    @staticmethod
+    def _rows(packet):
+        return {row["component_id"]: row for row in packet["components"]}
+
+    @staticmethod
+    def _resign(packet):
+        return RuntimeRegimeReadinessDerivationVersionTests._resign(packet)
+
+    @staticmethod
+    def _head():
+        """This repository's own HEAD, resolved through the production helper.
+
+        Used ONLY as trusted operator context a test supplies explicitly. The
+        production code never reads it to fill in a missing history value.
+        """
+        return MODULE.CAPITAL_FLOW_ENGINE._resolved_validation_head(ROOT, None)
+
+    # -- the default form ----------------------------------------------------
+
+    def test_new_packets_default_to_flow_replay_version_one(self):
+        self.assertEqual(MODULE.FLOW_REPLAY_VERSION, 1)
+        decision_date, generated_at = self.basis()
+        default = MODULE.build_packet("morning", decision_date, generated_at)
+        marker = default["flow_replay_version"]
+        self.assertEqual(marker, 1)
+        self.assertIs(type(marker), int)
+        # The two version axes are separate markers with separate meanings.
+        self.assertEqual(default["runtime_regime_readiness_version"], 3)
+        self.assertIn(self.P2_KEY, default["frozen_sources"])
+        self.assertEqual(default, self.packet())
+
+    def test_the_default_build_captures_the_exact_ten_inputs_once(self):
+        packet = self.packet()
+        envelope = packet["frozen_sources"][self.KEY]
+        self.assertEqual(set(envelope), {"schema_version", "source_commit", "files"})
+        self.assertEqual(envelope["schema_version"], "capital_flow_replay_inputs/1")
+        self.assertEqual(
+            set(envelope["files"]),
+            set(MODULE.CAPITAL_FLOW_ENGINE.FLOW_REPLAY_INPUT_PATHS),
+        )
+        self.assertEqual(len(envelope["files"]), 10)
+        for entry in envelope["files"].values():
+            self.assertEqual(set(entry), {"state", "blob_oid", "sha256"})
+        # The envelope is inside the hashed packet like everything else.
+        unsigned = copy.deepcopy(packet)
+        unsigned.pop("packet_sha256")
+        self.assertEqual(MODULE.payload_sha256(unsigned), packet["packet_sha256"])
+
+    def test_the_default_form_validates_end_to_end_without_any_context(self):
+        """The real new-default path: build, then replay from the envelope."""
+        packet = self.packet()
+        replayed = MODULE.validate_packet(copy.deepcopy(packet))
+        self.assertEqual(replayed, packet)
+        # It really did replay from the frozen envelope rather than
+        # recapturing: capture must not be reachable from validation.
+        with mock.patch.object(
+            MODULE.CAPITAL_FLOW_ENGINE, "capture_flow_replay_inputs",
+            side_effect=AssertionError("validation must never capture"),
+        ):
+            self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
+
+    def test_the_flow_row_stays_a_diagnostic_with_no_authority(self):
+        decision_date, generated_at = self.basis()
+        row = self._rows(self.packet())["P2_FLOW_ENGINE"]
+        # The positive is reached by an honest temporal basis, not by relaxing
+        # one: the row's own evidence really is at or before the date being
+        # decided for, and really is not from after the packet's own instant.
+        # If either were false _enforce_temporal_boundary would -- correctly --
+        # have replaced this row with DATA_BLOCKED and a null packet.
+        self.assertLessEqual(row["as_of_date"], decision_date)
+        self.assertLessEqual(row["generated_at"], generated_at)
+        self.assertEqual(row["status"], "PENDING")
+        self.assertEqual(
+            row["reason"],
+            "FLOW_REFERENCE_IS_DIAGNOSTIC_NOT_A_DEFENSIVE_ACTION_DECISION",
+        )
+        authority = row["authority"]
+        for key, value in authority.items():
+            if key in {
+                "paper_reference_display_authorized",
+                "relative_strength_comparison_authorized",
+            }:
+                self.assertIs(value, True, key)
+            else:
+                self.assertIs(value, False, key)
+        flow = row["packet"]
+        self.assertEqual(flow["cross_market_flow"]["actual_money_flow"], "UNKNOWN")
+        self.assertIsNone(flow["total_exposure_review"]["invested_target_pct"])
+
+    def test_downstream_lineage_still_consumes_the_replayed_flow_row(self):
+        """The frozen row is the SAME row P6/P7 read.
+
+        Both consumers re-validate the Flow packet through P2-COM-02's own
+        re-derivation validator and record the digest THAT returned, so an
+        equal digest here means the replayed bytes are what actually reached
+        the downstream lineage -- not merely that a row with the right name
+        exists. The two slots are named differently by their own contracts
+        (P6-06 calls it P2_FLOW_ENGINE, P7-12 calls it P2_CROSS_MARKET_FLOW)
+        and the digests live in each packet's `lineage`; `source_packets`
+        holds the nested packet itself, not a digest.
+        """
+        packet = self.packet()
+        rows = self._rows(packet)
+        flow_packet = rows["P2_FLOW_ENGINE"]["packet"]
+        flow_sha = flow_packet["payload_sha256"]
+        self.assertEqual(rows["P2_FLOW_ENGINE"]["source_packet_sha256"], flow_sha)
+
+        defensive = rows["DEFENSIVE_ACTION_DECISION"]["packet"]
+        self.assertEqual(
+            defensive["lineage"]["source_packet_sha256"]["P2_FLOW_ENGINE"], flow_sha
+        )
+        self.assertEqual(defensive["source_packets"]["P2_FLOW_ENGINE"], flow_packet)
+
+        posture = rows["STRATEGIC_CAPITAL_POSTURE"]["packet"]
+        self.assertEqual(
+            posture["lineage"]["source_packet_sha256"]["P2_CROSS_MARKET_FLOW"],
+            flow_sha,
+        )
+        self.assertEqual(
+            posture["source_packets"]["P2_CROSS_MARKET_FLOW"], flow_packet
+        )
+
+        # Being consumed by both promotes nothing.
+        self.assertEqual(defensive["decision_status"], "BLOCKED")
+        self.assertEqual(
+            posture["status"], "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED"
+        )
+
+    # -- the explicit legacy build ------------------------------------------
+
+    def test_explicit_legacy_build_omits_both_the_marker_and_the_key(self):
+        legacy = self.packet(flow_version=None)
+        self.assertNotIn("flow_replay_version", legacy)
+        self.assertNotIn(self.KEY, legacy["frozen_sources"])
+        # The runtime axis is untouched by the Flow axis: this is still a
+        # version-3 packet with its own P2 rotation tuple.
+        self.assertEqual(legacy["runtime_regime_readiness_version"], 3)
+        self.assertIn(self.P2_KEY, legacy["frozen_sources"])
+
+    def test_legacy_build_bytes_are_the_pre_change_bytes(self):
+        """Same inputs, same runtime version, same basis -> same legacy bytes.
+
+        A legacy BUILD still reads live inputs, exactly as it always did. Only
+        replaying a legacy packet changed, and only by requiring context.
+        """
+        legacy = self.packet(flow_version=None)
+        default = self.packet()
+        stripped = copy.deepcopy(default)
+        stripped.pop("flow_replay_version")
+        stripped["frozen_sources"].pop(self.KEY)
+        self._resign(stripped)
+        self.assertEqual(stripped, legacy)
+
+    def test_a_legacy_build_refuses_a_supplied_flow_key(self):
+        envelope = self.packet()["frozen_sources"][self.KEY]
+        decision_date, generated_at = self.basis()
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "P2_FLOW_REPLAY_INPUTS_NOT_SUPPORTED"
+        ):
+            MODULE.build_packet(
+                "morning", decision_date, generated_at,
+                frozen_sources={self.KEY: envelope},
+                flow_replay_version=None,
+            )
+
+    def test_naming_only_the_runtime_version_does_not_select_flow_legacy(self):
+        """The two axes are not aliases for one another."""
+        decision_date, generated_at = self.basis()
+        packet = MODULE.build_packet(
+            "morning", decision_date, generated_at,
+            runtime_regime_readiness_version=2,
+        )
+        self.assertEqual(packet["runtime_regime_readiness_version"], 2)
+        # Still a Flow version-1 packet: the runtime axis says nothing here.
+        self.assertEqual(packet["flow_replay_version"], 1)
+        self.assertIn(self.KEY, packet["frozen_sources"])
+        self.assertNotIn(self.P2_KEY, packet["frozen_sources"])
+
+    # -- persisted forms -----------------------------------------------------
+
+    def test_marker_one_with_a_missing_envelope_hard_fails(self):
+        packet = self.packet()
+        packet["frozen_sources"].pop(self.KEY)
+        self._resign(packet)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "P2_FLOW_REPLAY_INPUTS_NOT_FROZEN"
+        ):
+            MODULE.validate_packet(packet)
+
+    def test_marker_one_with_a_null_or_malformed_envelope_hard_fails(self):
+        for label, value in (
+            ("null", None),
+            ("empty", {}),
+            ("list", []),
+            ("partial", {"schema_version": "capital_flow_replay_inputs/1"}),
+        ):
+            with self.subTest(case=label):
+                packet = self.packet()
+                packet["frozen_sources"][self.KEY] = value
+                self._resign(packet)
+                with self.assertRaises(self.PROVENANCE_ERROR):
+                    MODULE.validate_packet(packet)
+
+    def test_marker_absent_with_an_envelope_present_is_an_unsupported_mix(self):
+        envelope = self.packet()["frozen_sources"][self.KEY]
+        packet = self.packet(flow_version=None)
+        packet["frozen_sources"][self.KEY] = envelope
+        self._resign(packet)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "P2_FLOW_REPLAY_INPUTS_NOT_SUPPORTED"
+        ):
+            MODULE.validate_packet(packet)
+
+    def test_an_unsupported_marker_value_hard_fails(self):
+        for value in (None, True, False, "1", 1.0, 0, -1, 2, 3):
+            with self.subTest(marker=repr(value)):
+                packet = self.packet()
+                packet["flow_replay_version"] = value
+                self._resign(packet)
+                with self.assertRaisesRegex(
+                    MODULE.DailyOrchestratorError, "FLOW_REPLAY_VERSION_INVALID"
+                ):
+                    MODULE.validate_packet(packet)
+
+    def test_an_explicit_null_marker_is_not_absence(self):
+        packet = self.packet()
+        packet["flow_replay_version"] = None
+        packet["frozen_sources"].pop(self.KEY)
+        self._resign(packet)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "FLOW_REPLAY_VERSION_INVALID.*explicit null"
+        ):
+            MODULE.validate_packet(packet)
+
+    def test_a_tampered_envelope_cannot_be_re_signed_into_acceptance(self):
+        packet = self.packet()
+        pointer = MODULE.CAPITAL_FLOW_ENGINE.TRANSITION_LEDGER_POINTER_REL
+        packet["frozen_sources"][self.KEY]["files"][pointer]["sha256"] = "0" * 64
+        self._resign(packet)
+        with self.assertRaisesRegex(
+            self.PROVENANCE_ERROR, "FLOW_REPLAY_SHA256_"
+        ):
+            MODULE.validate_packet(packet)
+
+    def test_an_envelope_cannot_name_its_own_trusted_root_or_head(self):
+        packet = self.packet()
+        packet["frozen_sources"][self.KEY]["trusted_repository_root"] = "/tmp"
+        self._resign(packet)
+        with self.assertRaisesRegex(
+            self.PROVENANCE_ERROR, "FLOW_REPLAY_ENVELOPE_FIELDS_MISMATCH"
+        ):
+            MODULE.validate_packet(packet)
+
+    # -- legacy replay and its context requirement ---------------------------
+
+    def test_a_legacy_packet_without_context_is_explicitly_unreplayable(self):
+        """APPROVED BEHAVIOUR CHANGE.
+
+        This used to pass by silently re-reading today's Flow inputs, which is
+        exactly the defect being closed. It is now a precise, named failure --
+        not a DATA_BLOCKED row, not a degraded pass.
+        """
+        legacy = self.packet(flow_version=None)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError,
+            "UNREPLAYABLE_FLOW_HISTORY_SOURCE_COMMIT_REQUIRED",
+        ):
+            MODULE.validate_packet(copy.deepcopy(legacy))
+
+    def test_a_legacy_packet_replays_positively_with_its_real_source_commit(self):
+        """A genuine positive: built FROM a commit, replayed WITH that commit.
+
+        The commit is supplied by this test as external operator context. It
+        is the packet's real Flow source commit because the packet was built
+        from it here -- not because anything in the packet says so, and not
+        because it happens to be HEAD.
+        """
+        head = self._head()
+        legacy = self.packet(flow_version=None, source_commit=head)
+        self.assertNotIn("flow_replay_version", legacy)
+        replayed = MODULE.validate_packet(
+            copy.deepcopy(legacy),
+            trusted_repository_root=ROOT,
+            historical_source_commit=head,
+        )
+        self.assertEqual(replayed, legacy)
+        # Same bytes as the live legacy build, because HEAD's committed inputs
+        # are exactly the ones on disk -- so this is a real closure, not a
+        # separate derivation that merely happens to validate.
+        self.assertEqual(legacy, self.packet(flow_version=None))
+
+    def test_a_context_backed_replay_is_a_real_byte_comparison(self):
+        """The positive above is not a vacuous acceptance.
+
+        With the SAME trusted context that makes the untouched packet replay,
+        a semantic tamper of the Flow row is still refused. The nested Flow
+        packet is re-hashed on its own terms, the row's copy of that digest is
+        relabelled and the whole packet is re-signed, so the packet's own hash
+        chain is self-consistent and no self-hash check can catch it. What
+        refuses it is full-packet equality against the independently
+        re-derived closure.
+        """
+        head = self._head()
+        legacy = self.packet(flow_version=None, source_commit=head)
+        tampered = copy.deepcopy(legacy)
+        flow_row = self._rows(tampered)["P2_FLOW_ENGINE"]
+        self.assertEqual(
+            flow_row["packet"]["cross_market_flow"]["actual_money_flow"], "UNKNOWN"
+        )
+        flow_row["packet"]["cross_market_flow"]["actual_money_flow"] = "US_TO_KR"
+        # Re-sign the nested Flow packet on its own terms, then relabel the
+        # row's copy of that digest, so the only thing left that can refuse
+        # this is real re-derivation from the frozen bytes.
+        unsigned = {
+            key: value
+            for key, value in flow_row["packet"].items()
+            if key != "payload_sha256"
+        }
+        flow_row["packet"]["payload_sha256"] = (
+            MODULE.CAPITAL_FLOW_ENGINE.payload_sha256(unsigned)
+        )
+        flow_row["source_packet_sha256"] = flow_row["packet"]["payload_sha256"]
+        self.assertNotEqual(
+            flow_row["packet"]["payload_sha256"],
+            self._rows(legacy)["P2_FLOW_ENGINE"]["packet"]["payload_sha256"],
+        )
+        self._resign(tampered)
+        self.assertNotEqual(tampered["packet_sha256"], legacy["packet_sha256"])
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"
+        ):
+            MODULE.validate_packet(
+                tampered,
+                trusted_repository_root=ROOT,
+                historical_source_commit=head,
+            )
+        # The untouched original still replays under the same context.
+        self.assertEqual(
+            MODULE.validate_packet(
+                copy.deepcopy(legacy),
+                trusted_repository_root=ROOT,
+                historical_source_commit=head,
+            ),
+            legacy,
+        )
+
+    def test_a_frozen_packet_tamper_is_refused_by_full_equality(self):
+        packet = self.packet()
+        tampered = copy.deepcopy(packet)
+        for row in tampered["components"]:
+            if row["component_id"] == "P2_FLOW_ENGINE":
+                row["status"] = "READY"
+                row["reason"] = None
+        self._resign(tampered)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"
+        ):
+            MODULE.validate_packet(tampered)
+
+    def test_a_wrong_or_unprovable_context_fails_instead_of_passing(self):
+        legacy = self.packet(flow_version=None)
+        for label, kwargs, error in (
+            ("unknown commit",
+             {"historical_source_commit": "0" * 40}, self.PROVENANCE_ERROR),
+            ("not a commit",
+             {"historical_source_commit": "definitely-not-a-commit"},
+             self.PROVENANCE_ERROR),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(error):
+                    MODULE.validate_packet(copy.deepcopy(legacy), **kwargs)
+
+    def test_context_is_refused_on_a_frozen_packet_rather_than_overriding_it(self):
+        packet = self.packet()
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError,
+            "FLOW_REPLAY_HISTORICAL_CONTEXT_NOT_SUPPORTED",
+        ):
+            MODULE.validate_packet(packet, historical_source_commit=self._head())
+
+    def test_a_provenance_failure_is_never_softened_into_a_component_row(self):
+        """No DATA_BLOCKED/DEGRADED escape hatch for an unprovable input."""
+        packet = self.packet()
+        packet["frozen_sources"][self.KEY]["source_commit"] = "0" * 40
+        self._resign(packet)
+        with self.assertRaises(self.PROVENANCE_ERROR):
+            MODULE.validate_packet(packet)
+        # ...and the same input cannot be laundered through a fresh build.
+        decision_date, generated_at = self.basis()
+        with self.assertRaises(self.PROVENANCE_ERROR):
+            MODULE.build_packet(
+                "morning", decision_date, generated_at,
+                frozen_sources={self.KEY: packet["frozen_sources"][self.KEY]},
+            )
+
+    def test_the_pr600_rotation_state_guard_is_untouched(self):
+        """Flow context access must not be confused with P2 rotation access."""
+        packet = self.packet()
+        self.assertIn(self.P2_KEY, packet["frozen_sources"])
+        stripped = copy.deepcopy(packet)
+        stripped["frozen_sources"].pop(self.P2_KEY)
+        self._resign(stripped)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError,
+            "P2_ROTATION_STATE_READINESS_INPUTS_NOT_FROZEN",
+        ):
+            MODULE.validate_packet(stripped)
+
+
 # ---------------------------------------------------------------------------
 # Durable replay of packets frozen BEFORE the P2_ROTATION_STATE binding existed
 # ---------------------------------------------------------------------------
@@ -7442,51 +7952,113 @@ class PreP2FrozenPacketReplayTests(unittest.TestCase):
                 )
 
     # -- replay --------------------------------------------------------------
+    #
+    # PROVENANCE GAP, stated exactly rather than papered over.
+    #
+    # All five capsules predate the Flow replay axis, so none of them records
+    # which Flow input bytes produced its P2_FLOW_ENGINE row. Replaying them
+    # therefore requires the externally trusted ORIGINAL Flow source commit --
+    # and that value is not recoverable from the capsules, from this
+    # repository, or from anything this suite is allowed to consult. Inferring
+    # it from the live HEAD is precisely the defect the new axis closes, and
+    # attaching an arbitrary ancestor would assert an issuing provenance that
+    # nobody has established.
+    #
+    # So the previous no-context PASS expectation is REPLACED by the precise
+    # required-context failure below, and the positive that expectation used to
+    # provide is carried instead by evidence that really is independent:
+    #
+    #   * FlowReplayAxisTests.test_a_legacy_packet_replays_positively_with_its_
+    #     real_source_commit -- a full orchestrator packet built FROM a known
+    #     commit and replayed WITH that commit, byte-identically;
+    #   * FlowFrozenReplayGitProvenanceTests in
+    #     test/test_capital_flow_posture_reference.py -- real `git init`
+    #     repositories, real trees, real ancestry, positive replay plus the
+    #     tamper/absence/mode/ancestry counterexamples.
+    #
+    # The capsule bytes, their pinned digests, their version markers and the
+    # v2 entry's NOT_ISSUED provenance are unchanged. Nothing here regenerates
+    # an expected packet from the patched builder.
 
-    def test_the_four_historical_packets_replay_byte_identically(self):
-        """The absent/version-1 forms are re-derived, not merely re-read.
+    def test_the_capsules_are_unreplayable_without_external_history_context(self):
+        """The approved behaviour change, pinned on the real frozen bytes.
 
-        `validate_packet` rebuilds each one completely and accepts only total
-        equality, so this compares today's derivation against bytes frozen
-        before the change -- while every route to the new P2 source raises.
+        These used to pass by re-reading today's Flow inputs, which meant an
+        archived verdict depended on when it was validated. The failure is a
+        precise named diagnostic -- not a DATA_BLOCKED row, not a soft pass --
+        and it is raised while every route to the P2 rotation source is closed,
+        so it is the Flow context that is missing and nothing else.
         """
-        self.assertEqual(len(self.LEGACY), 4)
-        packets = [self.capsule_packet(capsule) for capsule in self.LEGACY]
-        with self._p2_source_unreadable():
-            for capsule, frozen in zip(self.LEGACY, packets):
-                with self.subTest(capsule=capsule["name"]):
-                    replayed = MODULE.validate_packet(copy.deepcopy(frozen))
-                    self.assertEqual(replayed, frozen)
-                    self.assertEqual(
-                        _independent_canonical_sha256(
-                            {
-                                key: value for key, value in replayed.items()
-                                if key != "packet_sha256"
-                            }
-                        ),
-                        capsule["packet_sha256"],
-                    )
+        self.assertEqual(len(_PRE_P2_REPLAY_CAPSULES), 5)
+        for capsule in _PRE_P2_REPLAY_CAPSULES:
+            with self.subTest(capsule=capsule["name"]):
+                frozen = self.capsule_packet(capsule)
+                self.assertNotIn("flow_replay_version", frozen)
+                self.assertNotIn(
+                    MODULE.P2_FLOW_REPLAY_INPUTS, frozen["frozen_sources"]
+                )
+                with self._p2_source_unreadable():
+                    with self.assertRaisesRegex(
+                        MODULE.DailyOrchestratorError,
+                        "UNREPLAYABLE_FLOW_HISTORY_SOURCE_COMMIT_REQUIRED",
+                    ):
+                        MODULE.validate_packet(copy.deepcopy(frozen))
 
-    def test_the_pre_p2_version_two_baseline_replays_byte_identically(self):
+    def test_the_capsules_are_not_quietly_rewritten_to_obtain_a_pass(self):
+        """Neither a marker nor an envelope may be added to make one pass.
+
+        The frozen bytes stay the frozen bytes: promoting a capsule into the
+        new form is a different packet with a different digest, and it is
+        refused rather than accepted as history.
+        """
+        capsule = self.LEGACY[0]
+        frozen = self.capsule_packet(capsule)
+        promoted = copy.deepcopy(frozen)
+        promoted["flow_replay_version"] = 1
+        RuntimeRegimeReadinessDerivationVersionTests._resign(promoted)
+        self.assertNotEqual(promoted["packet_sha256"], capsule["packet_sha256"])
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "P2_FLOW_REPLAY_INPUTS_NOT_FROZEN"
+        ):
+            MODULE.validate_packet(promoted)
+        # The original bytes are untouched by the attempt.
+        self.assertEqual(self.capsule_packet(capsule), frozen)
+
+    def test_an_unprovable_context_does_not_rescue_a_capsule(self):
+        """A named commit is not a licence: it still has to be real and to
+        actually reproduce the bytes."""
+        frozen = self.capsule_packet(self.LEGACY[0])
+        with self.assertRaises(
+            MODULE.CAPITAL_FLOW_ENGINE.FlowReplayProvenanceError
+        ):
+            MODULE.validate_packet(
+                copy.deepcopy(frozen), historical_source_commit="0" * 40
+            )
+
+    def test_the_pre_p2_version_two_baseline_keeps_its_honest_provenance(self):
         """An independent pre-P2 version-2 baseline, not an issued packet.
 
         This is the unmodified PR598 producer rebuilt from the actual AM run's
         frozen inputs, reproducing that run's prior 5276bd6a receipt. The AM
         packet actually archived in public is a version-1 packet; this fixture
         is evidence about the version-2 derivation, not evidence of issuance.
+        That labelling is preserved exactly, and the entry is NOT reclassified
+        to explain away the replay gap recorded above.
         """
         capsule = self.V2_BASELINE
         self.assertEqual(capsule["kind"], "INDEPENDENT_PRE_P2_BASELINE_NOT_ISSUED")
         frozen = self.capsule_packet(capsule)
         self.assertEqual(frozen["runtime_regime_readiness_version"], 2)
-        with self._p2_source_unreadable():
-            self.assertEqual(MODULE.validate_packet(copy.deepcopy(frozen)), frozen)
+        self.assertNotIn("flow_replay_version", frozen)
 
     def test_a_frozen_packet_cannot_be_promoted_by_rewriting_its_p2_reasons(self):
-        # Proves the replay above is a real byte comparison rather than a
-        # vacuous acceptance: give a frozen legacy packet the new exact
-        # blockers, re-sign it so its self-hash is consistent, and the rebuild
-        # still refuses it.
+        # A promoted capsule is refused, and -- the part that matters -- it is
+        # refused WITHOUT the Flow gate having to be reached: the promotion
+        # changes the capsule's digest, so it is no longer the frozen artifact
+        # at all. That the rebuild itself is a real byte comparison is proved
+        # against a context-backed packet in
+        # FlowReplayAxisTests.test_a_context_backed_replay_is_a_real_byte_
+        # comparison, which is where a genuine trusted context exists.
         capsule = self.LEGACY[0]
         frozen = self.capsule_packet(capsule)
         promoted = copy.deepcopy(frozen)
@@ -7495,11 +8067,13 @@ class PreP2FrozenPacketReplayTests(unittest.TestCase):
         )
         RuntimeRegimeReadinessDerivationVersionTests._resign(promoted)
         self.assertNotEqual(promoted["packet_sha256"], capsule["packet_sha256"])
-        with self.assertRaisesRegex(MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"):
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError,
+            "UNREPLAYABLE_FLOW_HISTORY_SOURCE_COMMIT_REQUIRED",
+        ):
             MODULE.validate_packet(promoted)
-        # The untouched original is unaffected and still replays.
-        with self._p2_source_unreadable():
-            self.assertEqual(MODULE.validate_packet(copy.deepcopy(frozen)), frozen)
+        # The original capsule bytes are untouched by the attempt.
+        self.assertEqual(self.capsule_packet(capsule), frozen)
 
 
 if __name__ == "__main__":

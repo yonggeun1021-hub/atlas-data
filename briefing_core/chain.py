@@ -40,6 +40,9 @@ PORTAL_SCHEMA = "portal_projection/2"
 NOTION_RECEIPT_SCHEMA = "notion_briefing_receipt/2"
 INDEX_SCHEMA = "briefing_chain_index/2"
 
+STEP0_STATUS_PATH = "data/briefing/step0_status.json"
+BRIEFING_STATUS_PATH = "data/briefing_status.json"
+
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -208,13 +211,88 @@ def _walk_generation_ids(value: Any) -> set[str]:
     found: set[str] = set()
     if isinstance(value, dict):
         for key, nested in value.items():
-            if key == "generation_id" and isinstance(nested, str):
+            if key == "generation_id":
+                if not isinstance(nested, str) or SHA256.fullmatch(nested) is None:
+                    raise ChainError("CORE_GENERATION_INVALID")
                 found.add(nested)
             found.update(_walk_generation_ids(nested))
     elif isinstance(value, list):
         for nested in value:
             found.update(_walk_generation_ids(nested))
     return found
+
+
+def _source_generation_id(value: dict, code: str) -> str:
+    generation = value.get("generation")
+    if not isinstance(generation, dict):
+        raise ChainError(code)
+    generation_id = generation.get("generation_id")
+    if not isinstance(generation_id, str) or SHA256.fullmatch(generation_id) is None:
+        raise ChainError(code)
+    return generation_id
+
+
+def _canonical_generation_id(
+    repo_root: Path,
+    source_commit: str,
+    packet: dict,
+) -> str:
+    """Resolve the read-model generation without conflating source lineages.
+
+    Current daily packets may contain valid nested generation IDs for several
+    independently versioned source packets.  The briefing root generation is
+    therefore read from the two canonical Step 0 read-model files at the exact
+    source commit.  Historical commits that predate both files retain the
+    original singleton rule.
+    """
+    nested_generation_ids = _walk_generation_ids(packet)
+    step0_bytes = _git_optional_bytes(repo_root, source_commit, STEP0_STATUS_PATH)
+    health_bytes = _git_optional_bytes(repo_root, source_commit, BRIEFING_STATUS_PATH)
+
+    if step0_bytes is None and health_bytes is None:
+        if len(nested_generation_ids) != 1:
+            raise ChainError("CORE_GENERATION_NOT_SINGLETON")
+        return next(iter(nested_generation_ids))
+    if step0_bytes is None or health_bytes is None:
+        raise ChainError("CORE_CANONICAL_GENERATION_SOURCE_MISSING")
+
+    step0 = _json_bytes(step0_bytes, "CORE_STEP0_STATUS_INVALID_JSON")
+    health = _json_bytes(health_bytes, "CORE_BRIEFING_STATUS_INVALID_JSON")
+    step0_generation_id = _source_generation_id(
+        step0, "CORE_STEP0_GENERATION_INVALID"
+    )
+    health_generation_id = _source_generation_id(
+        health, "CORE_BRIEFING_STATUS_GENERATION_INVALID"
+    )
+    if step0_generation_id != health_generation_id:
+        raise ChainError("CORE_CANONICAL_GENERATION_MISMATCH")
+
+    components = packet.get("components")
+    if isinstance(components, list):
+        for component in components:
+            if (
+                not isinstance(component, dict)
+                or component.get("component_id") != "STEP0_READ_MODEL_HEALTH"
+            ):
+                continue
+            embedded_packet = component.get("packet")
+            if not isinstance(embedded_packet, dict):
+                continue
+            embedded_generation = embedded_packet.get("generation")
+            if embedded_generation is None:
+                continue
+            if not isinstance(embedded_generation, dict):
+                raise ChainError("CORE_EMBEDDED_STEP0_GENERATION_INVALID")
+            embedded_generation_id = embedded_generation.get("generation_id")
+            if (
+                not isinstance(embedded_generation_id, str)
+                or SHA256.fullmatch(embedded_generation_id) is None
+            ):
+                raise ChainError("CORE_EMBEDDED_STEP0_GENERATION_INVALID")
+            if embedded_generation_id != step0_generation_id:
+                raise ChainError("CORE_EMBEDDED_STEP0_GENERATION_MISMATCH")
+
+    return step0_generation_id
 
 
 def _assert_execution_locked(value: Any, path: str = "root") -> None:
@@ -434,12 +512,7 @@ def build_input_envelope(
         raise ChainError("CORE_DATE_SLOT_LINEAGE_MISMATCH")
     packet_sha = _packet_self_hash(packet)
     _validate_dynamic_clock_frozen_source(packet, decision_date)
-    generations = _walk_generation_ids(packet)
-    if len(generations) != 1:
-        raise ChainError("CORE_GENERATION_NOT_SINGLETON")
-    generation_id = next(iter(generations))
-    if SHA256.fullmatch(generation_id) is None:
-        raise ChainError("CORE_GENERATION_INVALID")
+    generation_id = _canonical_generation_id(repo_root, source_commit, packet)
     _assert_execution_locked(packet)
     registry = _load_registry(
         registry_path or repo_root / "config/briefing_module_registry_v2.json"

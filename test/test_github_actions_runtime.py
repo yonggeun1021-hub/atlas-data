@@ -80,7 +80,7 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
 
         self.assertEqual(len(observed["actions/checkout"]), 46)
         self.assertEqual(len(observed["actions/setup-python"]), 43)
-        self.assertEqual(len(observed["actions/upload-artifact"]), 13)
+        self.assertEqual(len(observed["actions/upload-artifact"]), 14)
         self.assertEqual(len(observed["actions/download-artifact"]), 2)
 
     def test_no_mutable_or_retired_refs_remain_in_workflows(self):

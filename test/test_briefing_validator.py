@@ -12,6 +12,7 @@ re-testing semantics B no longer implements.
 """
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import os
@@ -384,6 +385,70 @@ class CanonicalDelegation(Base):
         self.assertEqual(self.run_validator()["structural_authority"],
                          [bv.CANONICAL_ORCHESTRATOR, bv.CANONICAL_DELIVERY])
 
+    # -- external trusted Flow history context -------------------------------
+    #
+    # Structural validation is delegated to two SUBPROCESSES, so the trusted
+    # history context has to survive that hop. Both get exactly the same
+    # arguments: threading it into one and not the other would let a packet
+    # clear one canonical boundary and not the other.
+
+    def test_no_context_adds_no_arguments(self):
+        self.run_validator()
+        for call in self.canonical_calls():
+            self.assertNotIn("--historical-source-commit", call)
+            self.assertNotIn("--trusted-repository-root", call)
+            self.assertNotIn("--trusted-validation-head", call)
+
+    def test_history_context_is_threaded_into_both_subprocesses(self):
+        bv.validate(self.repo, DATE, SLOT, history_context={
+            "historical_source_commit": "a" * 40,
+            "trusted_repository_root": str(self.repo),
+            "trusted_validation_head": "b" * 40,
+        })
+        calls = self.canonical_calls()
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(any("daily_orchestrator.py" in call for call in calls))
+        self.assertTrue(any("daily_briefing_delivery.py" in call for call in calls))
+        for call in calls:
+            self.assertIn(f"--historical-source-commit {'a' * 40}", call)
+            self.assertIn(f"--trusted-repository-root {self.repo}", call)
+            self.assertIn(f"--trusted-validation-head {'b' * 40}", call)
+
+    def test_a_partial_context_forwards_only_what_was_supplied(self):
+        """Nothing is invented to fill a gap -- no live HEAD, no locator value."""
+        bv.validate(self.repo, DATE, SLOT, history_context={
+            "historical_source_commit": "c" * 40,
+        })
+        for call in self.canonical_calls():
+            self.assertIn(f"--historical-source-commit {'c' * 40}", call)
+            self.assertNotIn("--trusted-validation-head", call)
+            self.assertNotIn("--trusted-repository-root", call)
+
+    def test_missing_required_context_stays_a_blocking_structural_finding(self):
+        """A canonical validator that refuses for want of context is a HOLD.
+
+        It is NOT softened to PASS, and the machine run is not entitled to
+        withdraw anything on the strength of it.
+        """
+        self.install_canonical(packet_ok=False)
+        verdict = bv.validate(self.repo, DATE, SLOT, history_context={})
+        self.assertEqual(verdict["machine_status"], "HOLD")
+        self.assertEqual(verdict["validation_status"], "HOLD")
+        self.assertFalse(verdict["clears_prior_machine_block"])
+        self.assertIn("CANONICAL_PACKET_VALIDATION_FAILED",
+                      {f["code"] for f in verdict["findings"]})
+
+    def test_the_cli_accepts_and_forwards_the_context(self):
+        bv.main(["--slot", SLOT, "--decision-date", DATE,
+                 "--repo-root", str(self.repo),
+                 "--historical-source-commit", "d" * 40,
+                 "--trusted-validation-head", "e" * 40])
+        calls = self.canonical_calls()
+        self.assertEqual(len(calls), 2)
+        for call in calls:
+            self.assertIn(f"--historical-source-commit {'d' * 40}", call)
+            self.assertIn(f"--trusted-validation-head {'e' * 40}", call)
+
     def test_packet_replacement_after_binding_fails_closed(self):
         """Arithmetic must use the packet bytes whose Dynamic Clock was checked."""
         import unittest.mock as mock
@@ -542,6 +607,254 @@ class PostDeliveryHandoff(Base):
         self.assertEqual(len(inputs), 1)
         self.assertIn("consume_sha256", inputs[0]["changed_axes"])
         self.assertEqual(inputs[0]["capital_impact"], bf.UNKNOWN)
+
+
+class FlowRecoveryPositiveE2ETests(unittest.TestCase):
+    """Real, UNMOCKED delegation of a real source-backed Flow version-1 packet.
+
+    Every other test in this file installs stand-in scripts at the canonical
+    paths, so none of them can show that the two delegated subprocesses can
+    actually replay a frozen Flow envelope -- they prove delegation and
+    argument threading, not authentication. These do: the REAL
+    ``briefing/daily_orchestrator.py validate`` and REAL
+    ``.github/scripts/daily_briefing_delivery.py consume`` are spawned by the
+    production ``check_canonical_structure``, so the production
+    ``validate_packet`` executes inside each subprocess, and with it the
+    ten-input Git authentication, the isolated materialization and the producer
+    re-derivation. Nothing here is mocked or stubbed.
+
+    The fixture repository is isolated so no test writes into the real
+    checkout, and it reaches the canonical scripts honestly:
+
+      * ``briefing/`` is a symlink, so the orchestrator's own
+        ``Path(__file__).resolve()`` still lands on the real repository and it
+        loads its real sibling builders and evidence;
+      * the delivery script is a real COPY, so its ``REPO_ROOT`` is the fixture
+        and it reads the fixture's locator rather than the real checkout's.
+
+    The TRUSTED REPOSITORY ROOT used to authenticate the frozen inputs is the
+    real repository, supplied the only legitimate way -- as explicit external
+    operator context, threaded to both subprocesses as
+    ``--trusted-repository-root``. It is never read out of the locator or the
+    packet.
+    """
+
+    SLOT = "morning"
+
+    @classmethod
+    def setUpClass(cls):
+        # Loaded lazily: importing the orchestrator is expensive and no other
+        # test in this file needs it.
+        spec = importlib.util.spec_from_file_location(
+            "flow_e2e_delivery", ROOT / ".github/scripts/daily_briefing_delivery.py"
+        )
+        cls.delivery = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.delivery)
+        import briefing.daily_orchestrator as orchestrator
+
+        cls.orchestrator = orchestrator
+        reference = orchestrator.CAPITAL_FLOW_ENGINE.build_reference()
+        flow_dt = orchestrator.dt.datetime.fromisoformat(
+            reference["generated_at"].replace("Z", "+00:00")
+        )
+        # Decide for the day AFTER the real Flow evidence and generate at the
+        # end of that KST day, so the Flow row is a POPULATED diagnostic rather
+        # than the correct-but-empty DATA_BLOCKED row a stale hardcoded date
+        # would produce. Neither temporal check is loosened.
+        decision_date = flow_dt.date() + orchestrator.dt.timedelta(days=1)
+        cls.date = decision_date.isoformat()
+        cls.generated_at = (
+            orchestrator.dt.datetime.fromisoformat(f"{cls.date}T23:59:59")
+            .replace(tzinfo=orchestrator.KST)
+            .astimezone(orchestrator.UTC)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        cls.source_packet = orchestrator.build_packet(
+            cls.SLOT, cls.date, cls.generated_at
+        )
+        # Built ONCE. Each test works on a copy, so a full orchestrator
+        # re-derivation is not repeated just to lay out files.
+        cls.template = Path(tempfile.mkdtemp())
+        cls.addClassCleanup(shutil.rmtree, cls.template, ignore_errors=True)
+        # The orchestrator resolves its own ROOT through this symlink, so it
+        # keeps reading the real repository's builders and evidence.
+        (cls.template / "briefing").symlink_to(ROOT / "briefing")
+        scripts = cls.template / ".github/scripts"
+        scripts.mkdir(parents=True)
+        # A real copy, NOT a symlink: the delivery script derives its repo root
+        # from its own resolved location, and it must land on this fixture.
+        shutil.copy2(
+            ROOT / ".github/scripts/daily_briefing_delivery.py",
+            scripts / "daily_briefing_delivery.py",
+        )
+        cls._install(cls.template, cls.source_packet)
+        (cls.template / "evidence/daily_briefing" / cls.SLOT / cls.date
+         / "rev-001/briefing.md").write_text(
+            f"# Atlas Daily Briefing {cls.date} ({cls.SLOT})\n", encoding="utf-8"
+        )
+        # A real build_locator run -- itself a real validate_packet -- so a
+        # fixture that could not be authenticated never reaches a test.
+        cls.delivery.write_locator(
+            cls.template,
+            cls.delivery.build_locator(
+                cls.template, cls.SLOT, cls.date,
+                history_context=cls.history_context(),
+            ),
+        )
+
+    def setUp(self):
+        parent = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, parent, ignore_errors=True)
+        self.repo = parent / "repo"
+        # symlinks=True keeps briefing/ a symlink to the real repository
+        # rather than duplicating it.
+        shutil.copytree(self.template, self.repo, symlinks=True)
+        self.date_root = (
+            self.repo / "evidence/daily_briefing" / self.SLOT / self.date
+        )
+
+    @classmethod
+    def history_context(cls):
+        """External operator context: the real repository to authenticate in.
+
+        A Flow version-1 packet carries its own envelope, so no historical
+        source commit is supplied -- and none is invented.
+        """
+        return {"trusted_repository_root": str(ROOT)}
+
+    @classmethod
+    def _install(cls, root: Path, packet: dict) -> None:
+        """Write the packet and an index whose digest matches it.
+
+        The index digest is kept consistent on purpose, including for the
+        tampered packet: every self-consistency check must pass so that only
+        real re-derivation can reject it.
+        """
+        date_root = root / "evidence/daily_briefing" / cls.SLOT / cls.date
+        rev = date_root / "rev-001"
+        rev.mkdir(parents=True, exist_ok=True)
+        (rev / "packet.json").write_text(
+            json.dumps(packet, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        (date_root / "index.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "slot": cls.SLOT,
+                "decision_date": cls.date,
+                "latest_revision": 1,
+                "revisions": [{
+                    "revision": 1,
+                    "path": "rev-001",
+                    "packet_sha256": packet["packet_sha256"],
+                }],
+            }, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def _canonical_codes(self, findings):
+        return {f["code"] for f in findings if f["code"].startswith("CANONICAL_")}
+
+    def test_real_positive(self):
+        """Both real canonical subprocesses accept a populated Flow-1 packet."""
+        packet = self.source_packet
+        # (1) A real frozen Flow version-1 packet.
+        self.assertEqual(packet["flow_replay_version"], 1)
+        envelope = packet["frozen_sources"][
+            self.orchestrator.P2_FLOW_REPLAY_INPUTS
+        ]
+        self.assertEqual(len(envelope["files"]), 10)
+        self.assertRegex(envelope["source_commit"], r"^[0-9a-f]{40}$")
+
+        # (2) A POPULATED Flow diagnostic, not a fail-closed empty row.
+        rows = {row["component_id"]: row for row in packet["components"]}
+        flow_row = rows["P2_FLOW_ENGINE"]
+        self.assertEqual(flow_row["status"], "PENDING")
+        self.assertIsNotNone(flow_row["packet"])
+        flow_sha = flow_row["packet"]["payload_sha256"]
+        self.assertFalse(flow_row["order_eligible"])
+
+        # (3) Downstream evidence: the same bytes reached both consumers.
+        self.assertEqual(
+            rows["DEFENSIVE_ACTION_DECISION"]["packet"]["lineage"][
+                "source_packet_sha256"]["P2_FLOW_ENGINE"],
+            flow_sha,
+        )
+        self.assertEqual(
+            rows["STRATEGIC_CAPITAL_POSTURE"]["packet"]["lineage"][
+                "source_packet_sha256"]["P2_CROSS_MARKET_FLOW"],
+            flow_sha,
+        )
+
+        # (4) The real delegation path, through two real subprocesses.
+        findings, _bound = bv.check_canonical_structure(
+            self.repo, self.date, self.SLOT,
+            history_context=self.history_context(),
+        )
+        self.assertEqual(self._canonical_codes(findings), set(), findings)
+
+    def test_resigned_tamper_rejected(self):
+        """A semantic Flow tamper, re-signed at every level, is still refused.
+
+        The nested Flow packet is re-hashed on its own terms, the row's copy of
+        that digest is relabelled, the briefing packet is re-signed and the
+        index digest is updated -- so the packet's own hash chain is
+        self-consistent and every byte-level check passes. What rejects it is
+        real re-derivation from the frozen inputs.
+
+        The exact code is asserted in-process, because the subprocess detail is
+        a truncated traceback; the subprocess assertions below then prove the
+        two canonical validators really do fail closed on it. The positive test
+        above shares this fixture, so a clean run there is what rules out the
+        fixture itself being the cause.
+        """
+        tampered = copy.deepcopy(self.source_packet)
+        flow_row = next(
+            row for row in tampered["components"]
+            if row["component_id"] == "P2_FLOW_ENGINE"
+        )
+        self.assertEqual(
+            flow_row["packet"]["cross_market_flow"]["actual_money_flow"], "UNKNOWN"
+        )
+        flow_row["packet"]["cross_market_flow"]["actual_money_flow"] = "US_TO_KR"
+        flow_row["packet"]["payload_sha256"] = (
+            self.orchestrator.CAPITAL_FLOW_ENGINE.payload_sha256({
+                key: value
+                for key, value in flow_row["packet"].items()
+                if key != "payload_sha256"
+            })
+        )
+        flow_row["source_packet_sha256"] = flow_row["packet"]["payload_sha256"]
+        tampered["packet_sha256"] = self.orchestrator.payload_sha256({
+            key: value for key, value in tampered.items()
+            if key != "packet_sha256"
+        })
+        self.assertNotEqual(
+            tampered["packet_sha256"], self.source_packet["packet_sha256"]
+        )
+
+        # The precise refusal, from the real production validator.
+        with self.assertRaisesRegex(
+            self.orchestrator.DailyOrchestratorError, "OUTPUT_MISMATCH"
+        ):
+            self.orchestrator.validate_packet(
+                copy.deepcopy(tampered), trusted_repository_root=ROOT
+            )
+
+        # ...and both real canonical subprocesses fail closed on it.
+        self._install(self.repo, tampered)
+        findings, _bound = bv.check_canonical_structure(
+            self.repo, self.date, self.SLOT,
+            history_context=self.history_context(),
+        )
+        self.assertEqual(
+            self._canonical_codes(findings),
+            {"CANONICAL_PACKET_VALIDATION_FAILED", "CANONICAL_CONSUME_FAILED"},
+            findings,
+        )
+        for finding in findings:
+            if finding["code"].startswith("CANONICAL_"):
+                self.assertEqual(finding["severity"], "STRUCTURAL")
 
 
 if __name__ == "__main__":

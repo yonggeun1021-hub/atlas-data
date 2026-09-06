@@ -142,16 +142,43 @@ class BriefingCoreV2Acceptance(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def envelope(self):
+    def envelope(self, source_commit=None):
         return chain.build_input_envelope(
             self.repo,
-            source_commit=self.source_commit,
+            source_commit=source_commit or self.source_commit,
             packet_path=self.packet_path,
             briefing_path=self.briefing_path,
             decision_date="2026-09-02",
             slot="morning",
             registry_path=ROOT / "config/briefing_module_registry_v2.json",
         )
+
+    def source_packet(self):
+        return json.loads(
+            subprocess.check_output(
+                ["git", "show", f"{self.source_commit}:{self.packet_path}"],
+                cwd=self.repo,
+            )
+        )
+
+    def write_packet(self, packet):
+        packet.pop("packet_sha256", None)
+        packet["packet_sha256"] = chain.digest(packet)
+        (self.repo / self.packet_path).write_bytes(chain.canonical(packet) + b"\n")
+
+    def write_generation_source(self, path, generation_id):
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(
+            chain.canonical({"generation": {"generation_id": generation_id}}) + b"\n"
+        )
+
+    def commit_changes(self, message):
+        subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", message], cwd=self.repo, check=True)
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
+        ).strip()
 
     def event_registry(self):
         return json.loads(
@@ -190,6 +217,86 @@ class BriefingCoreV2Acceptance(unittest.TestCase):
         self.assertEqual(rebuilt["source_commit"], self.source_commit)
         self.assertEqual(rebuilt["generation_id"], self.generation)
         self.assertEqual(rebuilt["source_refs"][0]["sha256"], old_hash)
+
+    def test_canonical_root_allows_distinct_nested_source_generations(self):
+        packet = self.source_packet()
+        packet["components"][0]["packet"]["generation"] = None
+        packet["nested_source_lineage"] = [
+            {"generation_id": "b" * 64},
+            {"generation_id": "c" * 64},
+        ]
+        self.write_packet(packet)
+        self.write_generation_source(chain.STEP0_STATUS_PATH, self.generation)
+        self.write_generation_source(chain.BRIEFING_STATUS_PATH, self.generation)
+        source_commit = self.commit_changes("canonical generation with nested sources")
+
+        envelope = self.envelope(source_commit)
+
+        self.assertEqual(envelope["generation_id"], self.generation)
+
+    def test_canonical_generation_sources_must_match(self):
+        self.write_generation_source(chain.STEP0_STATUS_PATH, self.generation)
+        self.write_generation_source(chain.BRIEFING_STATUS_PATH, "b" * 64)
+        source_commit = self.commit_changes("mismatched canonical generations")
+
+        with self.assertRaisesRegex(
+            chain.ChainError, "CORE_CANONICAL_GENERATION_MISMATCH"
+        ):
+            self.envelope(source_commit)
+
+    def test_canonical_generation_sources_must_be_present_together(self):
+        self.write_generation_source(chain.STEP0_STATUS_PATH, self.generation)
+        source_commit = self.commit_changes("one canonical generation source")
+
+        with self.assertRaisesRegex(
+            chain.ChainError, "CORE_CANONICAL_GENERATION_SOURCE_MISSING"
+        ):
+            self.envelope(source_commit)
+
+    def test_canonical_generation_source_must_be_lowercase_sha256(self):
+        self.write_generation_source(chain.STEP0_STATUS_PATH, "A" * 64)
+        self.write_generation_source(chain.BRIEFING_STATUS_PATH, "A" * 64)
+        source_commit = self.commit_changes("malformed canonical generation")
+
+        with self.assertRaisesRegex(
+            chain.ChainError, "CORE_STEP0_GENERATION_INVALID"
+        ):
+            self.envelope(source_commit)
+
+    def test_nested_generation_ids_remain_format_validated(self):
+        packet = self.source_packet()
+        packet["nested_source_lineage"] = {"generation_id": "B" * 64}
+        self.write_packet(packet)
+        self.write_generation_source(chain.STEP0_STATUS_PATH, self.generation)
+        self.write_generation_source(chain.BRIEFING_STATUS_PATH, self.generation)
+        source_commit = self.commit_changes("malformed nested generation")
+
+        with self.assertRaisesRegex(chain.ChainError, "CORE_GENERATION_INVALID"):
+            self.envelope(source_commit)
+
+    def test_embedded_step0_generation_must_match_canonical_root(self):
+        packet = self.source_packet()
+        packet["components"][0]["packet"]["generation"]["generation_id"] = "b" * 64
+        self.write_packet(packet)
+        self.write_generation_source(chain.STEP0_STATUS_PATH, self.generation)
+        self.write_generation_source(chain.BRIEFING_STATUS_PATH, self.generation)
+        source_commit = self.commit_changes("mismatched embedded generation")
+
+        with self.assertRaisesRegex(
+            chain.ChainError, "CORE_EMBEDDED_STEP0_GENERATION_MISMATCH"
+        ):
+            self.envelope(source_commit)
+
+    def test_legacy_packet_with_multiple_generations_still_fails_closed(self):
+        packet = self.source_packet()
+        packet["nested_source_lineage"] = {"generation_id": "b" * 64}
+        self.write_packet(packet)
+        source_commit = self.commit_changes("legacy multiple generations")
+
+        with self.assertRaisesRegex(
+            chain.ChainError, "CORE_GENERATION_NOT_SINGLETON"
+        ):
+            self.envelope(source_commit)
 
     def test_optional_module_failure_is_item_unknown_not_global_hold(self):
         envelope = self.envelope()
