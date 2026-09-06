@@ -1,0 +1,155 @@
+{
+  "schema_version": "ic_weekly_control_packet/v1",
+  "ic_id": "IC6-TSM-20260904",
+  "decision_date": "2026-09-05",
+  "generated_at": "2026-09-05T02:45:00Z",
+  "authority": {
+    "policy": false,
+    "threshold": false,
+    "REAL": false,
+    "order": false,
+    "trading": false
+  },
+  "real_state": "CLOSED",
+  "provenance": {
+    "source": "https://www.notion.so/3d29f2d73c8481a1bacbc46db023a13c",
+    "basis": "User-authorized IC6 seed and 2026-09-05 CIO correction; reported natural event, not independently verified price data."
+  },
+  "scheduler": {
+    "owner": "external_chatgpt_weekly_ic",
+    "schedule": "Saturday Asia/Seoul; existing controller tick materializes durable packet",
+    "scheduler_id": null,
+    "ownership_evidence": "Referenced IC6 notification and Notion IC6 scheduled-prompt record; external scheduler ID not available. No new scheduler created."
+  },
+  "kpi_deltas": {
+    "decision_readiness": {
+      "delta": null,
+      "status": "NOT_COMPUTABLE",
+      "basis": "No comparable machine-verified prior/current KPI evidence; no inferred improvement."
+    },
+    "natural_paper_readiness": {
+      "delta": null,
+      "status": "NOT_COMPUTABLE",
+      "basis": "No comparable machine-verified prior/current KPI evidence; no inferred improvement."
+    },
+    "profitability_evidence": {
+      "delta": null,
+      "status": "NOT_COMPUTABLE",
+      "basis": "No comparable machine-verified prior/current KPI evidence; no inferred improvement."
+    },
+    "limited_real_readiness": {
+      "delta": null,
+      "status": "NOT_COMPUTABLE",
+      "basis": "No comparable machine-verified prior/current KPI evidence; no inferred improvement."
+    }
+  },
+  "natural_probes": [
+    {
+      "probe_id": "IC6-TSM-20260904",
+      "event_date": "2026-09-04",
+      "asset": "TSM",
+      "expected_behavior": "Trace existing canonical gate through all blockers and Shadow/PAPER output; do not infer entry eligibility.",
+      "actual_behavior": "IC6 reports natural price gate activation, ENTRY_LANGUAGE_UNDEFINED, No Action. Machine-output audit pending.",
+      "first_blocker": "ENTRY_LANGUAGE_UNDEFINED",
+      "deepest_blocker": "RULE_UNVALIDATED/max_position=0%: canonical claim; code enforcement audit pending",
+      "shadow_paper_result": "NOT_COMPUTABLE: state/P&L/thesis/exit delta evidence pending",
+      "status": "REPORTED_NATURAL_PROBE_AUDIT_PENDING",
+      "next_check": "2026-09-10 TSMC August revenue; canonical rules only",
+      "observed_at": "2026-09-05T02:45:00Z",
+      "expected_recorded_at": "2026-09-05T02:45:00Z",
+      "expectation_basis": "retrospective_canonical_audit"
+    }
+  ],
+  "blocker_changes": [
+    {
+      "blocker": "RULE_UNVALIDATED",
+      "change": "DEEPER_CANONICAL_CLAIM_IDENTIFIED_NOT_CLOSED",
+      "basis": "IC6 CIO correction; enforcement not verified"
+    },
+    {
+      "blocker": "LIFECYCLE_AGGREGATION_GAP",
+      "change": "PROVISIONAL_D3_C1_R1_B0_NOT_CANONICAL",
+      "basis": "Manual IC6 count is not machine lifecycle aggregation"
+    }
+  ],
+  "decision_routing": [
+    {
+      "decision_id": "IC5-resource-routing",
+      "created_at": null,
+      "surfaced_to_cio_at": null,
+      "acknowledged_at": null,
+      "decided_at": null,
+      "canonicalized_at": null,
+      "surface_evidence": null,
+      "routing_status": "created",
+      "purpose": "IC5 resource allocation request: audit existing disposition; do not divert Runtime Regime worker; created on 2026-08-29 according to IC6; exact timestamp unknown and intentionally null"
+    },
+    {
+      "decision_id": "IC5-policy-routing",
+      "created_at": null,
+      "surfaced_to_cio_at": null,
+      "acknowledged_at": null,
+      "decided_at": null,
+      "canonicalized_at": null,
+      "surface_evidence": null,
+      "routing_status": "created",
+      "purpose": "IC5 Entry/Constitution request: historical routing audit only; no new signature request or rule definition; created on 2026-08-29 according to IC6; exact timestamp unknown and intentionally null"
+    }
+  ],
+  "system_actions": [
+    {
+      "action_id": "IC6-a",
+      "purpose": "Audit unvalidated -> max_position=0% code enforcement; canonical claim is not proof",
+      "kind": "code_enforcement_audit",
+      "owner_lane": "Codex/control",
+      "critical_path_relation": "secondary_nonpreemptive",
+      "safe_auto_queue": true,
+      "authority_required": false,
+      "blocker": null
+    },
+    {
+      "action_id": "IC6-b",
+      "purpose": "Verify TSM Shadow/PAPER state/P&L/thesis/exit deltas in private evidence; public summary must contain no account values",
+      "kind": "paper_evidence_audit",
+      "owner_lane": "Codex/control",
+      "critical_path_relation": "secondary_nonpreemptive",
+      "safe_auto_queue": true,
+      "authority_required": false,
+      "blocker": null
+    },
+    {
+      "action_id": "IC6-c",
+      "purpose": "Audit provisional D3/C1/R1/B0 to canonical lifecycle machine aggregation gap",
+      "kind": "lifecycle_aggregation_audit",
+      "owner_lane": "Codex/control",
+      "critical_path_relation": "secondary_nonpreemptive",
+      "safe_auto_queue": true,
+      "authority_required": false,
+      "blocker": null
+    },
+    {
+      "action_id": "IC6-d",
+      "purpose": "Audit IC5 pending decisions created/surfaced/acknowledged/decided/canonicalized receipts",
+      "kind": "decision_routing_audit",
+      "owner_lane": "Codex/control",
+      "critical_path_relation": "secondary_nonpreemptive",
+      "safe_auto_queue": true,
+      "authority_required": false,
+      "blocker": null
+    }
+  ],
+  "next_assertions": [
+    {
+      "event": "TSMC August revenue",
+      "due_at": "2026-09-10T14:30:00+09:00",
+      "expected_state_transition": "Apply existing canonical Prediction rule only: if canonical result is weakened, record C cancellation/Candidate transition; otherwise preserve its existing prescribed state. Compare Prediction/Stage/blocker/Shadow-PAPER outputs. Missing rule or release evidence remains BLOCKED.",
+      "canonical_basis": "https://www.notion.so/3d29f2d73c8481a1bacbc46db023a13c#cio-2026-09-05; existing P5-07 rule by reference, no new threshold or definition"
+    }
+  ],
+  "results": {
+    "investment_action_result": "NO_ACTION_BUY0_EXIT0",
+    "system_learning_result": "PROBE_RECORDED",
+    "routing_result": "ROUTING_EVIDENCE_MISSING",
+    "profitability_evidence_result": "NOT_COMPUTABLE"
+  }
+}
