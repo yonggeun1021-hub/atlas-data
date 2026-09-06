@@ -24,8 +24,10 @@ CIO 판정 2026-08-15 로 확정된 `Actions PASS` 계약 네 가지를 기계�
 from __future__ import annotations
 
 import filecmp
+import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2132,10 +2134,60 @@ def sha(path):
     return hashlib.sha256(open(path, "rb").read()).hexdigest()
 
 
+def redact_diagnostics(text):
+    """Do not persist credential environment values or common credential forms."""
+    for key, value in os.environ.items():
+        if value and re.search(r"TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY|API_KEY", key, re.I):
+            text = text.replace(value, "[REDACTED]")
+    text = re.sub(r"(?i)(authorization\s*[:=]\s*(?:bearer|basic)\s+)\S+",
+                  r"\1[REDACTED]", text)
+    text = re.sub(r"\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b",
+                  "[REDACTED]", text)
+    text = re.sub(r"-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----.*?-----END (?:[A-Z]+ )?PRIVATE KEY-----",
+                  "[REDACTED PRIVATE KEY]", text, flags=re.S)
+    return text
+
+
+def failure_summary(text):
+    # Keep every unittest testcase header plus the useful end of each traceback.
+    blocks = re.split(r"(?m)(?=^(?:ERROR|FAIL): )", text)
+    lines = []
+    for block in blocks:
+        chunk = block.strip().splitlines()
+        if not chunk:
+            continue
+        lines.extend(chunk if len(chunk) <= 14 else chunk[:2] + ["... (summary truncated)"] + chunk[-12:])
+    return "\n".join(lines)
+
+
 class Runner:
-    def __init__(self):
+    def __init__(self, fail_fast=False, log_dir=None):
         self.failures = []
         self.lines = []
+        self.fail_fast = fail_fast
+        self.log_dir = log_dir
+
+    def child(self, script):
+        result = subprocess.run([PY, script], cwd=ROOT, capture_output=True, text=True)
+        # Preserve both complete streams, with credentials redacted, outside checkout.
+        result.stdout = redact_diagnostics(result.stdout or "")
+        result.stderr = redact_diagnostics(result.stderr or "")
+        if self.log_dir:
+            os.makedirs(self.log_dir, mode=0o700, exist_ok=True)
+            stem = script.replace("/", "__")
+            for stream in ("stdout", "stderr"):
+                path = os.path.join(self.log_dir, stem + "." + stream + ".log")
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(getattr(result, stream))
+        return result
+
+    def child_failure(self, stage, script, result):
+        message = (f"{script} → exit {result.returncode}\n"
+                   + failure_summary(result.stdout + "\n" + result.stderr))
+        if self.log_dir:
+            message += f"\nFull redacted stdout/stderr: {self.log_dir}/{script.replace('/', '__')}.*.log"
+        self.fail(stage, message)
+        self.say(message)
 
     def fail(self, stage, msg):
         self.failures.append(f"[{stage}] {msg}")
@@ -2164,11 +2216,10 @@ class Runner:
     # ── builder 직렬 실행 ────────────────────────────────────────────
     def rebuild(self):
         for i, (script, out) in enumerate(BUILDERS, 1):
-            r = subprocess.run([PY, script], cwd=ROOT, capture_output=True, text=True)
+            r = self.child(script)
             tag = f"{i:02d} {script}"
             if r.returncode != 0:
-                self.fail("rebuild", f"{tag} → exit {r.returncode}\n"
-                                     f"{(r.stderr or r.stdout).strip()[-600:]}")
+                self.child_failure("rebuild", script, r)
                 return False           # 순서가 의미를 가지므로 즉시 중단한다
             if not os.path.exists(os.path.join(ROOT, out)):
                 self.fail("rebuild", f"{tag} → 산출물 미생성: {out}")
@@ -2195,6 +2246,27 @@ class Runner:
 
     # ── ①③ 승인 회귀 ───────────────────────────────────────────────
     def approved_tests(self):
+        if not self.test_set():
+            return False
+        ok = True
+        # Same process environment and post-rebuild inputs; no cache or second run.
+        priority = (["test/test_runner_reporting.py", "test/test_daily_orchestrator.py"]
+                    if self.fail_fast else [])
+        ordered = ([t for t in priority if t in APPROVED_TESTS]
+                   + [t for t in APPROVED_TESTS if t not in priority])
+        for t in ordered:
+            self.say(f"  RUN {t}")
+            r = self.child(t)
+            if r.returncode != 0:
+                ok = False
+                self.child_failure("regression", t, r)
+                if self.fail_fast:
+                    return False
+            else:
+                self.say(f"  {t} ok")
+        return ok
+
+    def test_set(self):
         actual = sorted("test/" + f for f in os.listdir(os.path.join(ROOT, "test"))
                         if f.startswith("test_") and f.endswith(".py"))
         expected = sorted(APPROVED_TESTS + [FI_SUITE])
@@ -2204,26 +2276,14 @@ class Runner:
                       f"        누락 {sorted(set(expected) - set(actual))}\n"
                       f"        미승인 {sorted(set(actual) - set(expected))}")
             return False
-        ok = True
-        for t in APPROVED_TESTS:
-            r = subprocess.run([PY, t], cwd=ROOT, capture_output=True, text=True)
-            if r.returncode != 0:
-                ok = False
-                self.fail("regression",
-                          f"{t} → exit {r.returncode}\n"
-                          f"{(r.stdout or r.stderr).strip()[-600:]}")
-            else:
-                self.say(f"  {t} ok")
-        return ok
+        return True
 
     # ── ④ Fault Injection ───────────────────────────────────────────
     def fault_injection(self):
-        r = subprocess.run([PY, FI_SUITE], cwd=ROOT, capture_output=True, text=True)
+        r = self.child(FI_SUITE)
         print(r.stdout, end="", flush=True)
         if r.returncode != 0:
-            self.fail("fault-injection",
-                      f"{FI_SUITE} → exit {r.returncode}\n"
-                      f"{(r.stdout or r.stderr).strip()[-600:]}")
+            self.child_failure("fault-injection", FI_SUITE, r)
             return False
         return True
 
@@ -2254,11 +2314,24 @@ def approved_test_label():
 
 
 def main():
-    r = Runner()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--authoritative", action="store_true")
+    parser.add_argument("--no-fi", action="store_true")
+    parser.add_argument("--fail-fast", action="store_true")
+    parser.add_argument("--log-dir", help="Complete redacted child logs, outside the checkout")
+    args = parser.parse_args()
+    if args.log_dir:
+        args.log_dir = os.path.realpath(args.log_dir)
+        if os.path.commonpath([args.log_dir, os.path.realpath(ROOT)]) == os.path.realpath(ROOT):
+            parser.error("--log-dir must be outside the checkout")
+    r = Runner(fail_fast=args.fail_fast, log_dir=args.log_dir)
     print("Atlas Actions runner — Python", sys.version.split()[0])
     print(f"⛔ Production HOLD · evaluator 미연결 · 이 실행은 상태를 바꾸지 않는다\n")
 
-    authoritative = "--authoritative" in sys.argv
+    authoritative = args.authoritative
+    # Cheap exact population check before any expensive work or mutation.
+    if args.fail_fast and not r.test_set():
+        return finish(r)
     with tempfile.TemporaryDirectory(prefix="atlas_committed_") as snap_dir:
         if not authoritative:
             print("[1-3/5] rebuild · byte 비교 — 건너뜀 (inspection mode)")
@@ -2275,24 +2348,39 @@ def main():
                     r.fail("guard", b)
                 print("[1-3/5] ⛔ authoritative rebuild 차단 — 어떤 파일도 건드리지 않았다")
                 kept = {}
+                if args.fail_fast:
+                    return finish(r)
             else:
                 print("[1/5] committed 산출물 사본 보존")
                 kept = r.snapshot(snap_dir)
+                if args.fail_fast and r.failures:
+                    return finish(r)
 
                 if kept:
                     print("[2/5] builder ①→⑭ 직렬 재빌드")
                     r.rebuild()
+                    if args.fail_fast and r.failures:
+                        return finish(r)
 
                     print("[3/5] committed ↔ rebuilt byte 비교")
                     r.compare(kept)
+                    if args.fail_fast and r.failures:
+                        return finish(r)
 
+        if args.fail_fast:
+            if not r.failures:
+                r.boundary()
+            if r.failures:
+                return finish(r)
         print(approved_test_label())
         r.approved_tests()
+        if args.fail_fast and r.failures:
+            return finish(r)
 
         # ★ `--no-fi` 는 **Fault Injection suite 전용** 스위치다. FI-1 · FI-4 는 이
         #   runner 자체를 사본에서 실행해 Gate 동작을 검증하는데, 그 사본이 다시 FI
         #   suite 를 부르면 무한 재귀가 된다. Actions 는 이 스위치 없이 실행한다.
-        if "--no-fi" in sys.argv:
+        if args.no_fi:
             print("[5/5] Fault Injection suite — 건너뜀 (--no-fi, FI 내부 실행)")
         else:
             print("[5/5] Fault Injection suite")
@@ -2300,6 +2388,10 @@ def main():
 
         r.boundary()
 
+    return finish(r)
+
+
+def finish(r):
     print()
     if r.failures:
         print(f"⛔ FAIL — {len(r.failures)}건")

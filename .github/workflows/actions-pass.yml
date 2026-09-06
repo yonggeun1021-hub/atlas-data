@@ -75,6 +75,14 @@ jobs:
       - name: Briefing core v2 natural-equivalent acceptance
         run: python3 validation/tests/test_briefing_core_v2.py
       - name: Actions PASS gate
-        run: python3 run_all.py --authoritative
+        run: python3 run_all.py --authoritative --fail-fast --log-dir "$RUNNER_TEMP/atlas-gate-logs"
+      - name: Preserve complete redacted gate diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: actions-pass-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/atlas-gate-logs/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: 작업 후 dirty artifact 가 없는지
         run: git diff --exit-code
