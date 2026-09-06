@@ -2,11 +2,13 @@
 """P7-12 fail-closed Strategic Capital Posture readiness regression."""
 
 import ast
+import base64
 import copy
 import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -1219,6 +1221,680 @@ class StrategicCapitalPostureRuntimeBlockerBindingTests(unittest.TestCase):
             if key != "briefing_read_model_only":
                 self.assertFalse(value, key)
         self.assert_grants_nothing(posture)
+
+
+# ---------------------------------------------------------------------------
+# P2_ROTATION_STATE diagnostic blockers
+# ---------------------------------------------------------------------------
+
+READINESS = MODULE.ROTATION_STATE_READINESS
+FROZEN_PATHS = READINESS.FROZEN_INPUT_PATHS
+KOREA_POINTER_REL = READINESS.KOREA_ROTATION_POINTER_REL
+READINESS_CONTRACT_REL = READINESS.READINESS_CONTRACT_REL
+PROVENANCE_ERROR = READINESS.RotationStateLedgerReadinessProvenanceError
+SEMANTIC_ERROR = READINESS.RotationStateLedgerReadinessSemanticError
+# The live producer's own error type. It is a ValueError subclass and the
+# provenance type is a RuntimeError subclass, so the two failure classes stay
+# distinguishable in the assertions below rather than collapsing into one.
+READINESS_ERROR = READINESS.RotationStateLedgerReadinessError
+P2_EXACT_REASONS = [
+    "P2_ROTATION_STATE:CRYPTO:APPEND_ONLY_OPERATIONAL_LEDGER_EVIDENCE_MISSING",
+    "P2_ROTATION_STATE:CRYPTO:EXTERNAL_RATIFIED_STATE_POLICY_MISSING",
+    "P2_ROTATION_STATE:CRYPTO:FULL_PRODUCTION_ROTATION_PACKET_MISSING",
+    "P2_ROTATION_STATE:KOREA:APPEND_ONLY_OPERATIONAL_LEDGER_EVIDENCE_MISSING",
+    "P2_ROTATION_STATE:KOREA:EXTERNAL_RATIFIED_STATE_POLICY_MISSING",
+    "P2_ROTATION_STATE:KOREA:FULL_PRODUCTION_ROTATION_PACKET_MISSING",
+    "P2_ROTATION_STATE:US:APPEND_ONLY_OPERATIONAL_LEDGER_EVIDENCE_MISSING",
+    "P2_ROTATION_STATE:US:EXTERNAL_RATIFIED_STATE_POLICY_MISSING",
+    "P2_ROTATION_STATE:US:FULL_PRODUCTION_ROTATION_PACKET_MISSING",
+    "P2_ROTATION_STATE_PRODUCTION_CONTRACT_UNAVAILABLE",
+]
+P2_INVALID_REASONS = [
+    "P2_ROTATION_READINESS_INVALID:VALIDATION_FAILED",
+    "P2_ROTATION_STATE_PRODUCTION_CONTRACT_UNAVAILABLE",
+]
+
+
+def git(root, *args):
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=str(root),
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return completed.stdout.decode("utf-8")
+
+
+def real_source_bytes():
+    """The three required inputs exactly as this repository committed them."""
+    return {relative: (ROOT / relative).read_bytes() for relative in FROZEN_PATHS}
+
+
+def build_source_repo(directory, sources=None):
+    """A real, throwaway Git repository holding the three required inputs.
+
+    Real objects, real trees, real ancestry -- the provenance checks below are
+    exercised against git itself rather than against a mock of it. A value of
+    None means the path is genuinely never committed.
+    """
+    root = Path(directory)
+    sources = real_source_bytes() if sources is None else sources
+    git(root, "init", "-q")
+    git(root, "config", "user.email", "atlas-test@example.invalid")
+    git(root, "config", "user.name", "Atlas Test")
+    git(root, "config", "commit.gpgsign", "false")
+    # An unrelated per-fixture marker, so two fixtures created in the same
+    # second with identical inputs cannot produce the same commit oid. It is
+    # not one of the three pinned paths and is never read.
+    (root / ".atlas-fixture").write_text(str(root), encoding="utf-8")
+    for relative, data in sources.items():
+        if data is None:
+            continue
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    # -f so a user-level excludes file cannot silently leave a required input
+    # uncommitted and turn every case below into an unrelated ABSENT.
+    git(root, "add", "-A", "-f")
+    git(root, "commit", "-q", "-m", "atlas frozen input fixture")
+    return root
+
+
+def resigned_korea_pointer(data: bytes, as_of_date="1999-01-01") -> bytes:
+    """Valid-looking Korea pointer bytes with the INNER self-hash recomputed.
+
+    The tampered file is internally consistent -- it would pass the producer's
+    own field/self-hash/semantic validation if it were ever reached -- so the
+    only thing that can reject it is the pinned commit tree and blob identity.
+    """
+    pointer = json.loads(data.decode("utf-8"))
+    pointer["as_of_date"] = as_of_date
+    pointer.pop("payload_sha256")
+    pointer["payload_sha256"] = READINESS.payload_sha256(pointer)
+    return json.dumps(pointer, ensure_ascii=False, sort_keys=True).encode("utf-8")
+
+
+class P2RotationStateFrozenInputProvenanceTests(unittest.TestCase):
+    """Immutable, Git-backed replay of P2-05's three committed inputs.
+
+    Provenance is proved BEFORE semantics: repository boundary, trusted
+    ancestry, commit tree, blob oid, recomputed blob hash and raw bytes. Every
+    failure in that stage is a hard failure -- it can never surface as the
+    semantic-invalid diagnostic, because "we could not prove this input" and
+    "we proved this input and it is invalid" are different facts.
+    """
+
+    def repo(self, sources=None):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_source_repo(directory.name, sources)
+
+    def envelope(self, root):
+        return READINESS.capture_readiness_inputs(root)
+
+    def head(self, root):
+        return git(root, "rev-parse", "HEAD").strip()
+
+    # -- capture -------------------------------------------------------------
+
+    def test_capture_pins_the_exact_committed_blobs(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        self.assertEqual(
+            set(envelope), {"schema_version", "source_commit", "files"}
+        )
+        self.assertEqual(
+            envelope["schema_version"], "p2_rotation_readiness_inputs/1"
+        )
+        self.assertEqual(envelope["source_commit"], self.head(root))
+        self.assertEqual(set(envelope["files"]), set(FROZEN_PATHS))
+        for relative, entry in envelope["files"].items():
+            with self.subTest(relative=relative):
+                self.assertEqual(entry["state"], "PRESENT")
+                self.assertEqual(
+                    entry["blob_oid"],
+                    git(root, "rev-parse", f"HEAD:{relative}").strip(),
+                )
+                self.assertEqual(
+                    base64.b64decode(entry["content_base64"], validate=True),
+                    (root / relative).read_bytes(),
+                )
+        # Deterministic at one HEAD.
+        self.assertEqual(envelope, self.envelope(root))
+
+    def test_capture_refuses_a_dirty_or_uncommitted_source(self):
+        root = self.repo()
+        pointer = root / KOREA_POINTER_REL
+        pointer.write_bytes(resigned_korea_pointer(pointer.read_bytes()))
+        with self.assertRaisesRegex(PROVENANCE_ERROR, "EVIDENCE_WORKTREE_DIRTY"):
+            self.envelope(root)
+
+    def test_capture_outside_a_repository_boundary_fails_closed(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        with self.assertRaises(PROVENANCE_ERROR):
+            READINESS.capture_readiness_inputs(directory.name)
+
+    # -- tamper --------------------------------------------------------------
+
+    def test_resigned_source_bytes_still_mismatch_the_pinned_blob(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        original = envelope["files"][KOREA_POINTER_REL]
+        forged_bytes = resigned_korea_pointer(
+            base64.b64decode(original["content_base64"], validate=True)
+        )
+        self.assertNotEqual(
+            forged_bytes,
+            base64.b64decode(original["content_base64"], validate=True),
+        )
+
+        # Bytes swapped, stored blob_oid left alone: the recomputed blob hash
+        # no longer matches the oid the tree pins.
+        swapped = copy.deepcopy(envelope)
+        swapped["files"][KOREA_POINTER_REL]["content_base64"] = base64.b64encode(
+            forged_bytes
+        ).decode("ascii")
+        with self.assertRaisesRegex(PROVENANCE_ERROR, "FROZEN_INPUT_BLOB_HASH_MISMATCH"):
+            READINESS.evaluate_frozen_readiness_inputs(swapped, root)
+
+        # Bytes AND stored blob_oid both re-signed to agree with each other:
+        # the commit tree still pins the original oid.
+        resigned = copy.deepcopy(swapped)
+        resigned["files"][KOREA_POINTER_REL]["blob_oid"] = READINESS._git_blob_oid(
+            forged_bytes
+        )
+        with self.assertRaisesRegex(PROVENANCE_ERROR, "FROZEN_INPUT_BLOB_OID_MISMATCH"):
+            READINESS.evaluate_frozen_readiness_inputs(resigned, root)
+
+    def test_resigned_contract_bytes_are_rejected_the_same_way(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        contract = json.loads(
+            base64.b64decode(
+                envelope["files"][READINESS_CONTRACT_REL]["content_base64"],
+                validate=True,
+            ).decode("utf-8")
+        )
+        contract["markets"] = ["US"]
+        forged_bytes = json.dumps(contract, sort_keys=True).encode("utf-8")
+        forged = copy.deepcopy(envelope)
+        forged["files"][READINESS_CONTRACT_REL] = {
+            "state": "PRESENT",
+            "blob_oid": READINESS._git_blob_oid(forged_bytes),
+            "content_base64": base64.b64encode(forged_bytes).decode("ascii"),
+        }
+        with self.assertRaisesRegex(PROVENANCE_ERROR, "FROZEN_INPUT_BLOB_OID_MISMATCH"):
+            READINESS.evaluate_frozen_readiness_inputs(forged, root)
+
+    def test_an_absent_tag_cannot_hide_a_committed_entry(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        hidden = copy.deepcopy(envelope)
+        hidden["files"][KOREA_POINTER_REL] = {
+            "state": "ABSENT",
+            "blob_oid": None,
+            "content_base64": None,
+        }
+        with self.assertRaisesRegex(
+            PROVENANCE_ERROR, "FROZEN_INPUT_ABSENT_HIDES_COMMITTED_ENTRY"
+        ):
+            READINESS.evaluate_frozen_readiness_inputs(hidden, root)
+
+    def test_a_present_tag_cannot_invent_an_uncommitted_entry(self):
+        sources = real_source_bytes()
+        real_pointer = sources[KOREA_POINTER_REL]
+        sources[KOREA_POINTER_REL] = None
+        root = self.repo(sources)
+        envelope = self.envelope(root)
+        self.assertEqual(envelope["files"][KOREA_POINTER_REL]["state"], "ABSENT")
+
+        invented = copy.deepcopy(envelope)
+        invented["files"][KOREA_POINTER_REL] = {
+            "state": "PRESENT",
+            "blob_oid": READINESS._git_blob_oid(real_pointer),
+            "content_base64": base64.b64encode(real_pointer).decode("ascii"),
+        }
+        with self.assertRaisesRegex(
+            PROVENANCE_ERROR, "FROZEN_INPUT_PRESENT_NOT_IN_COMMIT_TREE"
+        ):
+            READINESS.evaluate_frozen_readiness_inputs(invented, root)
+
+    def test_an_untrusted_orphan_commit_is_rejected_by_ancestry(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        # A real, locally fabricated commit object carrying the SAME tree, so
+        # every tree/blob/byte check would pass -- and it is still refused,
+        # because it is not reachable from the trusted validation HEAD.
+        tree = git(root, "rev-parse", "HEAD^{tree}").strip()
+        orphan = git(root, "commit-tree", tree, "-m", "unreachable").strip()
+        self.assertNotEqual(orphan, envelope["source_commit"])
+        forged = dict(envelope, source_commit=orphan)
+        with self.assertRaisesRegex(
+            PROVENANCE_ERROR, "FROZEN_INPUT_SOURCE_COMMIT_NOT_TRUSTED_ANCESTOR"
+        ):
+            READINESS.evaluate_frozen_readiness_inputs(forged, root)
+
+    def test_a_missing_object_is_a_hard_failure_not_a_fetch_or_a_fallback(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        forged = dict(envelope, source_commit="b" * 40)
+        with self.assertRaisesRegex(
+            PROVENANCE_ERROR, "FROZEN_INPUT_SOURCE_COMMIT_OBJECT_MISSING"
+        ):
+            READINESS.evaluate_frozen_readiness_inputs(forged, root)
+        # The packet cannot nominate a repository, ref or remote to resolve it
+        # from either: the only anchor is the caller's trusted local root.
+        self.assertEqual(set(envelope), {"schema_version", "source_commit", "files"})
+
+    def test_envelope_shape_and_base64_are_hard_boundaries(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        cases = {
+            "not_an_object": ["not", "an", "object"],
+            "extra_key": dict(envelope, extra="x"),
+            "missing_key": {
+                key: value for key, value in envelope.items() if key != "files"
+            },
+            "wrong_schema": dict(envelope, schema_version="p2_rotation/2"),
+            "short_commit": dict(envelope, source_commit="abc123"),
+            "uppercase_commit": dict(
+                envelope, source_commit=envelope["source_commit"].upper()
+            ),
+            "extra_path": dict(
+                envelope, files={**envelope["files"], "data/other.json": {}}
+            ),
+            "missing_path": dict(
+                envelope,
+                files={
+                    key: value
+                    for key, value in envelope["files"].items()
+                    if key != KOREA_POINTER_REL
+                },
+            ),
+        }
+        for name, forged in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(PROVENANCE_ERROR):
+                    READINESS.evaluate_frozen_readiness_inputs(forged, root)
+
+        bad_base64 = copy.deepcopy(envelope)
+        bad_base64["files"][KOREA_POINTER_REL]["content_base64"] = "not base64!"
+        with self.assertRaisesRegex(
+            PROVENANCE_ERROR, "FROZEN_INPUT_CONTENT_BASE64_INVALID"
+        ):
+            READINESS.evaluate_frozen_readiness_inputs(bad_base64, root)
+
+    # -- replay stability ----------------------------------------------------
+
+    def test_replay_is_stable_across_a_moved_head_and_a_changed_live_pointer(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        before = READINESS.evaluate_frozen_readiness_inputs(envelope, root)
+
+        pointer = root / KOREA_POINTER_REL
+        pointer.write_bytes(resigned_korea_pointer(pointer.read_bytes()))
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "later revision of the rolling pointer")
+        moved_head = self.head(root)
+        self.assertNotEqual(moved_head, envelope["source_commit"])
+        # A newer capture is a different envelope; the older one still replays
+        # to the same inventory from the earlier trusted commit, and the later
+        # HEAD contributes nothing to the derived values.
+        self.assertNotEqual(self.envelope(root), envelope)
+        self.assertEqual(
+            READINESS.evaluate_frozen_readiness_inputs(envelope, root), before
+        )
+        self.assertEqual(
+            MODULE.p2_rotation_state_unavailable_reasons(envelope, root),
+            P2_EXACT_REASONS,
+        )
+
+    def test_a_no_longer_trusted_history_fails_closed_instead_of_recapturing(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        other = self.repo()
+        # A different, equally real repository: the pinned commit simply is not
+        # part of its history, so the replay refuses rather than silently
+        # re-freezing whatever that repository happens to hold today.
+        with self.assertRaises(PROVENANCE_ERROR):
+            READINESS.evaluate_frozen_readiness_inputs(envelope, other)
+
+    # -- semantics over authenticated bytes ---------------------------------
+
+    def test_committed_malformed_json_is_the_only_semantic_fallback(self):
+        sources = real_source_bytes()
+        sources[KOREA_POINTER_REL] = b"{ not json at all"
+        root = self.repo(sources)
+        envelope = self.envelope(root)
+        # Provenance passes: these really are the committed bytes.
+        self.assertEqual(
+            base64.b64decode(
+                envelope["files"][KOREA_POINTER_REL]["content_base64"], validate=True
+            ),
+            b"{ not json at all",
+        )
+        READINESS.verify_readiness_inputs(envelope, root)
+        with self.assertRaises(SEMANTIC_ERROR):
+            READINESS.evaluate_frozen_readiness_inputs(envelope, root)
+        # ...and only that recomputed semantic failure reaches the fixed
+        # generic + VALIDATION_FAILED diagnostic.
+        self.assertEqual(
+            MODULE.p2_rotation_state_unavailable_reasons(envelope, root),
+            P2_INVALID_REASONS,
+        )
+
+    def test_a_committed_absent_pointer_reproduces_the_same_diagnostic(self):
+        sources = real_source_bytes()
+        sources[KOREA_POINTER_REL] = None
+        root = self.repo(sources)
+        envelope = self.envelope(root)
+        self.assertEqual(
+            envelope["files"][KOREA_POINTER_REL],
+            {"state": "ABSENT", "blob_oid": None, "content_base64": None},
+        )
+        READINESS.verify_readiness_inputs(envelope, root)
+        with self.assertRaises(SEMANTIC_ERROR):
+            READINESS.evaluate_frozen_readiness_inputs(envelope, root)
+        # ...and the ADAPTER turns exactly that recomputed semantic failure into
+        # the fixed pair of reasons -- the generic production-contract blocker is
+        # preserved beside VALIDATION_FAILED, and nothing else is emitted. The
+        # expected value is spelled out here rather than only referenced through
+        # the module constant, so a change to that constant cannot silently
+        # redefine what this proves.
+        reasons = MODULE.p2_rotation_state_unavailable_reasons(envelope, root)
+        self.assertEqual(
+            reasons,
+            [
+                "P2_ROTATION_READINESS_INVALID:VALIDATION_FAILED",
+                "P2_ROTATION_STATE_PRODUCTION_CONTRACT_UNAVAILABLE",
+            ],
+        )
+        self.assertEqual(reasons, P2_INVALID_REASONS)
+        self.assertEqual(len(reasons), 2)
+        # An absent committed input is a missing prerequisite, never an exact
+        # blocker inventory: none of the finite success codes may appear.
+        self.assertTrue(set(reasons).isdisjoint(P2_EXACT_REASONS[:-1]), reasons)
+
+    def test_a_semantically_invalid_committed_pointer_is_not_a_provenance_error(self):
+        sources = real_source_bytes()
+        pointer = json.loads(sources[KOREA_POINTER_REL].decode("utf-8"))
+        pointer["run_status"] = "DEGRADED"
+        pointer.pop("payload_sha256")
+        pointer["payload_sha256"] = READINESS.payload_sha256(pointer)
+        sources[KOREA_POINTER_REL] = json.dumps(pointer, sort_keys=True).encode("utf-8")
+        root = self.repo(sources)
+        envelope = self.envelope(root)
+        with self.assertRaises(SEMANTIC_ERROR):
+            READINESS.evaluate_frozen_readiness_inputs(envelope, root)
+
+    def test_the_inventory_carries_semantics_only(self):
+        root = self.repo()
+        envelope = self.envelope(root)
+        inventory = READINESS.evaluate_frozen_readiness_inputs(envelope, root)
+        self.assertEqual(
+            [row["market"] for row in inventory["markets"]], ["US", "KOREA", "CRYPTO"]
+        )
+        for row in inventory["markets"]:
+            self.assertEqual(set(row), {"market", "blockers"})
+            self.assertEqual(row["blockers"], list(READINESS.MARKET_BLOCKERS))
+        self.assertTrue(inventory["authority"]["readiness_inventory_only"])
+        for key, value in inventory["authority"].items():
+            if key != "readiness_inventory_only":
+                self.assertFalse(value, key)
+        body = json.dumps(inventory, sort_keys=True)
+        self.assertNotIn(envelope["source_commit"], body)
+        for entry in envelope["files"].values():
+            self.assertNotIn(entry["blob_oid"], body)
+
+    def test_the_live_producer_is_unchanged_at_the_same_head(self):
+        # The existing command still reads today's working tree, enforces its
+        # committed-HEAD checks and re-derives its own full packet. The frozen
+        # path is an addition, not a replacement.
+        packet = READINESS.build_readiness()
+        self.assertEqual(READINESS.validate_readiness(packet), packet)
+        self.assertEqual(
+            packet["overall_status"],
+            "BLOCKED_NO_MARKET_HAS_OPERATIONAL_STATE_HISTORY",
+        )
+        for row in packet["markets"]:
+            self.assertEqual(row["blockers"], list(READINESS.MARKET_BLOCKERS))
+            self.assertEqual(row["readiness_status"], "NOT_READY")
+
+    def test_the_existing_live_producer_still_rejects_a_dirty_committed_source(self):
+        """`build_readiness(root)` keeps its own working-tree check.
+
+        The frozen-input path is an ADDITION, so the compatibility fact that
+        matters is that the original entry point was not quietly relaxed: it
+        must still refuse to derive a packet from a source file that differs
+        from the commit it claims to come from. Exercised through the public
+        `build_readiness`/`validate_readiness` signatures on a real throwaway
+        repository, so nothing here depends on this checkout being dirty.
+        """
+        root = self.repo()
+        clean = READINESS.build_readiness(root)
+        self.assertEqual(READINESS.validate_readiness(clean, root), clean)
+
+        pointer = root / KOREA_POINTER_REL
+        committed = pointer.read_bytes()
+        # Internally consistent tampered bytes: the pointer would pass the
+        # producer's own field/self-hash/semantic validation if the dirty-source
+        # check ever let it through, so only that check can reject it.
+        pointer.write_bytes(resigned_korea_pointer(committed))
+        self.assertNotEqual(pointer.read_bytes(), committed)
+        self.assertTrue(git(root, "status", "--porcelain", "--", KOREA_POINTER_REL).strip())
+
+        with self.assertRaisesRegex(READINESS_ERROR, "EVIDENCE_WORKTREE_DIRTY"):
+            READINESS.build_readiness(root)
+        # ...and so does the validating entry point, which re-derives through it.
+        with self.assertRaisesRegex(READINESS_ERROR, "EVIDENCE_WORKTREE_DIRTY"):
+            READINESS.validate_readiness(clean, root)
+        # The new capture refuses the same state as a hard provenance failure,
+        # and a dirty source is never a semantic diagnostic on either path.
+        with self.assertRaisesRegex(PROVENANCE_ERROR, "EVIDENCE_WORKTREE_DIRTY"):
+            READINESS.capture_readiness_inputs(root)
+        self.assertFalse(issubclass(PROVENANCE_ERROR, READINESS_ERROR))
+        self.assertFalse(issubclass(READINESS_ERROR, PROVENANCE_ERROR))
+
+        # Restoring the committed bytes restores the original packet exactly:
+        # the refusal was about the working tree, not about the producer having
+        # changed its output.
+        pointer.write_bytes(committed)
+        self.assertEqual(READINESS.build_readiness(root), clean)
+
+
+class P2RotationStateBlockerMappingTests(unittest.TestCase):
+    """Only exact, validated markets and blockers become reason codes."""
+
+    def repo(self, sources=None):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_source_repo(directory.name, sources)
+
+    def inventory(self):
+        root = self.repo()
+        return READINESS.evaluate_frozen_readiness_inputs(
+            READINESS.capture_readiness_inputs(root), root
+        )
+
+    def convert(self, inventory):
+        return MODULE._p2_rotation_state_reasons_from_inventory(inventory)
+
+    def test_the_finite_mapping_is_exact(self):
+        self.assertEqual(self.convert(self.inventory()), P2_EXACT_REASONS)
+        self.assertEqual(P2_EXACT_REASONS, sorted(set(P2_EXACT_REASONS)))
+
+    def test_unknown_forged_or_shortened_inventories_are_rejected(self):
+        valid = self.inventory()
+        unknown_market = copy.deepcopy(valid)
+        unknown_market["markets"][0]["market"] = "JAPAN"
+        unknown_blocker = copy.deepcopy(valid)
+        unknown_blocker["markets"][0]["blockers"][0] = "ROTATION_READY"
+        shortened_blockers = copy.deepcopy(valid)
+        shortened_blockers["markets"][0]["blockers"] = [
+            "FULL_PRODUCTION_ROTATION_PACKET_MISSING"
+        ]
+        shortened_markets = copy.deepcopy(valid)
+        shortened_markets["markets"] = shortened_markets["markets"][:2]
+        duplicated = copy.deepcopy(valid)
+        duplicated["markets"].append(copy.deepcopy(duplicated["markets"][0]))
+        wrong_identity = copy.deepcopy(valid)
+        wrong_identity["schema_version"] = "something_else/1"
+        extra_row_key = copy.deepcopy(valid)
+        extra_row_key["markets"][0]["ready"] = True
+        expanded_authority = copy.deepcopy(valid)
+        expanded_authority["authority"]["production_authorized"] = True
+        cases = {
+            "unknown_market": unknown_market,
+            "unknown_blocker": unknown_blocker,
+            "shortened_blockers": shortened_blockers,
+            "shortened_markets": shortened_markets,
+            "duplicated_market": duplicated,
+            "wrong_identity": wrong_identity,
+            "extra_row_key": extra_row_key,
+            "expanded_authority": expanded_authority,
+            "not_an_object": ["US"],
+            "empty": {},
+        }
+        for name, forged in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(MODULE.StrategicCapitalPostureError):
+                    self.convert(forged)
+
+    def test_no_caller_supplied_invalid_representation_is_accepted(self):
+        # There is no stored validity flag, reason list or error code to hand
+        # in: the only argument is the frozen envelope, and anything that is
+        # not one fails closed rather than being forwarded.
+        for forged in (
+            None,
+            {},
+            {"unavailable_reasons": P2_INVALID_REASONS},
+            {"valid": False},
+            "P2_ROTATION_READINESS_INVALID:VALIDATION_FAILED",
+        ):
+            with self.subTest(forged=repr(forged)[:40]):
+                with self.assertRaises(PROVENANCE_ERROR):
+                    MODULE.p2_rotation_state_unavailable_reasons(forged)
+
+
+class P2RotationStatePostureBindingTests(unittest.TestCase):
+    """The bound reasons change the honesty of the row and nothing else."""
+
+    def repo(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return build_source_repo(directory.name)
+
+    def build(self, p2_reasons=_UNSET):
+        packets, reasons = morning_bundle()
+        if p2_reasons is not _UNSET:
+            reasons["P2_ROTATION_STATE"] = p2_reasons
+        return MODULE.build_packet(
+            packets, reasons, MORNING_AS_OF_DATE, MORNING_GENERATED_AT,
+            contract=CONTRACT,
+        )
+
+    def assert_grants_nothing(self, packet):
+        self.assertEqual(
+            packet["status"], "STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED"
+        )
+        self.assertEqual(packet["decision_status"], "BLOCKED")
+        self.assertEqual(
+            packet["market_budget"], {"CRYPTO": None, "KOREA": None, "US": None}
+        )
+        for key in (
+            "risk_posture", "cash_reserve", "hedge_budget", "max_gross_risk",
+            "max_net_risk", "theme_headroom", "allocation_proposal",
+            "target_exposures", "position_sizes", "policy_packet",
+        ):
+            self.assertIsNone(packet[key], key)
+        self.assertEqual(packet["order_intents"], [])
+        self.assertEqual(packet["summary"]["numeric_budget_field_count"], 0)
+        self.assertEqual(packet["summary"]["evaluated_constraint_count"], 0)
+        self.assertEqual(packet["authority"], CONTRACT["authority"])
+        for key, value in packet["authority"].items():
+            if key != "readiness_inventory_only":
+                self.assertFalse(value, key)
+
+    def test_exact_blockers_bind_without_creating_availability(self):
+        root = self.repo()
+        reasons = MODULE.p2_rotation_state_unavailable_reasons(
+            READINESS.capture_readiness_inputs(root), root
+        )
+        self.assertEqual(reasons, P2_EXACT_REASONS)
+
+        packet = self.build(reasons)
+        self.assertEqual(packet["unavailable_reasons"]["P2_ROTATION_STATE"], reasons)
+        row = {
+            source["name"]: source for source in packet["sources"]
+        }["P2_ROTATION_STATE"]
+        self.assertEqual(row["availability"], "UNAVAILABLE")
+        self.assertEqual(row["unavailable_reasons"], reasons)
+        self.assertIsNone(row["source_status"])
+        self.assertIsNone(row["evidence_date"])
+        self.assertIsNone(row["source_packet_sha256"])
+        self.assertIsNone(
+            packet["lineage"]["source_packet_sha256"]["P2_ROTATION_STATE"]
+        )
+        self.assertIn("P2_ROTATION_STATE", packet["summary"]["unavailable_sources"])
+        self.assertIn(
+            "SOURCE_UNAVAILABLE:P2_ROTATION_STATE", packet["binding_reasons"]
+        )
+        self.assertIn(
+            "P2_ROTATION_STATE_UNAVAILABLE", packet["unresolved_boundaries"]
+        )
+        self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+        self.assert_grants_nothing(packet)
+
+    def test_a_supplied_rotation_state_packet_is_still_refused(self):
+        # Diagnostic conveyance only: naming the gaps does not turn this slot
+        # into one that accepts a production packet.
+        packets, reasons = morning_bundle()
+        packets["P2_ROTATION_STATE"] = {"status": "READY"}
+        reasons["P2_ROTATION_STATE"] = []
+        with self.assertRaisesRegex(
+            MODULE.StrategicCapitalPostureError,
+            "SOURCE_PACKET_NOT_YET_SUPPORTED:P2_ROTATION_STATE",
+        ):
+            MODULE.build_packet(
+                packets, reasons, MORNING_AS_OF_DATE, MORNING_GENERATED_AT,
+                contract=CONTRACT,
+            )
+
+    def test_the_generic_and_invalid_forms_stay_distinguishable(self):
+        # The three forms an absent/1/2, a diagnostic-invalid and a
+        # diagnostic-valid derivation put in this slot.
+        generic = self.build(["P2_ROTATION_STATE_PRODUCTION_CONTRACT_UNAVAILABLE"])
+        invalid = self.build(P2_INVALID_REASONS)
+        exact = self.build(P2_EXACT_REASONS)
+        hashes = {
+            packet["packet_sha256"] for packet in (generic, invalid, exact)
+        }
+        self.assertEqual(len(hashes), 3)
+        for packet in (generic, invalid, exact):
+            # Every form preserves the generic production-contract blocker.
+            self.assertIn(
+                "P2_ROTATION_STATE_PRODUCTION_CONTRACT_UNAVAILABLE",
+                packet["unavailable_reasons"]["P2_ROTATION_STATE"],
+            )
+            self.assertEqual(MODULE.validate_packet(packet, CONTRACT), packet)
+            self.assert_grants_nothing(packet)
+        ignored = {"unavailable_reasons", "sources", "packet_sha256"}
+        self.assertEqual(
+            {k: v for k, v in generic.items() if k not in ignored},
+            {k: v for k, v in exact.items() if k not in ignored},
+        )
+
+    def test_malformed_blocker_lists_fail_closed_at_this_boundary(self):
+        for bad in ([], ["lowercase"], ["B_REASON", "A_REASON"],
+                    ["A_REASON", "A_REASON"], [None], "A_REASON", None):
+            with self.subTest(reasons=bad):
+                with self.assertRaisesRegex(
+                    MODULE.StrategicCapitalPostureError,
+                    "UNAVAILABLE_REASONS_INVALID:P2_ROTATION_STATE",
+                ):
+                    self.build(bad)
 
 
 if __name__ == "__main__":
