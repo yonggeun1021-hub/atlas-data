@@ -1,0 +1,25 @@
+{
+  "capture_version": "btc-price-capture/v1",
+  "fetched_at_utc": "2026-09-06T00:41:52Z",
+  "raw": {
+    "byte_length": 62273,
+    "current_excluded_day": "2026-09-06",
+    "file": "kraken_ohlc_xbtusd.json.gz",
+    "finalized_rows": 720,
+    "latest_finalized_day": "2026-09-05",
+    "response_rows": 721,
+    "response_sha256": "33eca4cc40f1508c0c5877ae2f61f5cbbd66dbd08520dc2f01f3e7d1ce51f3e9"
+  },
+  "schema_version": 1,
+  "snapshot_date": "2026-09-06",
+  "source": {
+    "close_semantics": "last_trade_in_finalized_utc_daily_bucket",
+    "current_candle_policy": "exclude_last_row_always",
+    "endpoint": "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440&assetVersion=1",
+    "interval_minutes": 1440,
+    "market_timezone": "UTC",
+    "name": "kraken_spot_ohlc",
+    "request_pair": "XBTUSD",
+    "response_pair": "BTC/USD"
+  }
+}
