@@ -1,0 +1,4441 @@
+{
+  "auth_required": false,
+  "order_or_withdrawal_endpoints_called": false,
+  "private_channel_subscribed": false,
+  "run": {
+    "candle_ledger": {
+      "KRW-BTC|15m": [],
+      "KRW-BTC|1h": [],
+      "KRW-BTC|4h": [],
+      "KRW-ETH|15m": [],
+      "KRW-ETH|1h": [],
+      "KRW-ETH|4h": []
+    },
+    "capture_mode": "PUBLIC_TRANSPORT_VALIDATION_ONLY",
+    "ended_at": "2026-09-06T11:50:28Z",
+    "evidence_class": "NATURAL_AUTOMATED",
+    "finalized_only_action_gate": {
+      "action_generation_authorized": false,
+      "decision_eligible": false,
+      "finalized_candle_ledger_count": 0,
+      "finalized_candle_only": true,
+      "in_progress_candle_count": 6,
+      "order_authorized": false,
+      "pending_gap_count": 0,
+      "status": "UNKNOWN"
+    },
+    "latest_public_messages": {
+      "candle|15m|KRW-BTC": {
+        "kind": "candle",
+        "market": "KRW-BTC",
+        "raw": {
+          "candle_acc_trade_price": 88681431.08116,
+          "candle_acc_trade_volume": 0.81408946,
+          "candle_date_time_kst": "2026-09-06T20:45:00",
+          "candle_date_time_utc": "2026-09-06T11:45:00",
+          "code": "KRW-BTC",
+          "high_price": 108944000.0,
+          "low_price": 108925000.0,
+          "opening_price": 108925000.0,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695407405,
+          "trade_price": 108943000.0,
+          "type": "candle.15m"
+        },
+        "received_at": "2026-09-06T11:50:08.158885Z",
+        "source_sha256": "7ea51793944967b8386a4f9a1434ffc48fd6d0963c65d0ab30dd4783dc9a2ea9",
+        "timeframe": "15m"
+      },
+      "candle|15m|KRW-ETH": {
+        "kind": "candle",
+        "market": "KRW-ETH",
+        "raw": {
+          "candle_acc_trade_price": 42546472.28167,
+          "candle_acc_trade_volume": 12.48141171,
+          "candle_date_time_kst": "2026-09-06T20:45:00",
+          "candle_date_time_utc": "2026-09-06T11:45:00",
+          "code": "KRW-ETH",
+          "high_price": 3411000.0,
+          "low_price": 3407000.0,
+          "opening_price": 3408000.0,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695398287,
+          "trade_price": 3410000.0,
+          "type": "candle.15m"
+        },
+        "received_at": "2026-09-06T11:49:59.149033Z",
+        "source_sha256": "f3dcf24e92a835da348916355fa80a59fa5de4a8343601cb79642721c3e3f5b5",
+        "timeframe": "15m"
+      },
+      "candle|1h|KRW-BTC": {
+        "kind": "candle",
+        "market": "KRW-BTC",
+        "raw": {
+          "candle_acc_trade_price": 2321422311.27103,
+          "candle_acc_trade_volume": 21.29858766,
+          "candle_date_time_kst": "2026-09-06T20:00:00",
+          "candle_date_time_utc": "2026-09-06T11:00:00",
+          "code": "KRW-BTC",
+          "high_price": 109062000.0,
+          "low_price": 108925000.0,
+          "opening_price": 109050000.0,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695407405,
+          "trade_price": 108943000.0,
+          "type": "candle.60m"
+        },
+        "received_at": "2026-09-06T11:50:08.149438Z",
+        "source_sha256": "725ccc18ef21de6bbfb6e99347d2d2729ec2c07ff9bda5a727c4df7eab2ef485",
+        "timeframe": "1h"
+      },
+      "candle|1h|KRW-ETH": {
+        "kind": "candle",
+        "market": "KRW-ETH",
+        "raw": {
+          "candle_acc_trade_price": 1301456703.92512,
+          "candle_acc_trade_volume": 381.7813403,
+          "candle_date_time_kst": "2026-09-06T20:00:00",
+          "candle_date_time_utc": "2026-09-06T11:00:00",
+          "code": "KRW-ETH",
+          "high_price": 3413000.0,
+          "low_price": 3403000.0,
+          "opening_price": 3408000.0,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695398287,
+          "trade_price": 3410000.0,
+          "type": "candle.60m"
+        },
+        "received_at": "2026-09-06T11:49:59.149322Z",
+        "source_sha256": "b4a27fcb94bd965d82943d8c9d1d5c06a3c44ba1b850477aaf955e4eac1b6126",
+        "timeframe": "1h"
+      },
+      "candle|4h|KRW-BTC": {
+        "kind": "candle",
+        "market": "KRW-BTC",
+        "raw": {
+          "candle_acc_trade_price": 5648540220.5717,
+          "candle_acc_trade_volume": 51.84295956,
+          "candle_date_time_kst": "2026-09-06T17:00:00",
+          "candle_date_time_utc": "2026-09-06T08:00:00",
+          "code": "KRW-BTC",
+          "high_price": 109064000.0,
+          "low_price": 108792000.0,
+          "opening_price": 108884000.0,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695407405,
+          "trade_price": 108943000.0,
+          "type": "candle.240m"
+        },
+        "received_at": "2026-09-06T11:50:08.159058Z",
+        "source_sha256": "15220762d3c3bdbaeb931c237d44712b7876f2f6fa0a610ada8378f6b87d3869",
+        "timeframe": "4h"
+      },
+      "candle|4h|KRW-ETH": {
+        "kind": "candle",
+        "market": "KRW-ETH",
+        "raw": {
+          "candle_acc_trade_price": 6403863920.13861,
+          "candle_acc_trade_volume": 1881.32289132,
+          "candle_date_time_kst": "2026-09-06T17:00:00",
+          "candle_date_time_utc": "2026-09-06T08:00:00",
+          "code": "KRW-ETH",
+          "high_price": 3413000.0,
+          "low_price": 3394000.0,
+          "opening_price": 3407000.0,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695398287,
+          "trade_price": 3410000.0,
+          "type": "candle.240m"
+        },
+        "received_at": "2026-09-06T11:49:59.158767Z",
+        "source_sha256": "7bc69fb3cf8994d98a2392a82ec2b5ac5226e7d3bc92dd3d912d7915b19a9bd1",
+        "timeframe": "4h"
+      },
+      "orderbook|-|KRW-BTC": {
+        "kind": "orderbook",
+        "market": "KRW-BTC",
+        "raw": {
+          "code": "KRW-BTC",
+          "level": 0,
+          "orderbook_units": [
+            {
+              "ask_price": 108943000.0,
+              "ask_size": 0.11241561,
+              "bid_price": 108926000.0,
+              "bid_size": 0.36997502
+            },
+            {
+              "ask_price": 108944000.0,
+              "ask_size": 0.61560425,
+              "bid_price": 108925000.0,
+              "bid_size": 1.37411016
+            },
+            {
+              "ask_price": 108945000.0,
+              "ask_size": 0.62828048,
+              "bid_price": 108924000.0,
+              "bid_size": 0.00096397
+            },
+            {
+              "ask_price": 108946000.0,
+              "ask_size": 0.30035197,
+              "bid_price": 108923000.0,
+              "bid_size": 0.00348793
+            },
+            {
+              "ask_price": 108947000.0,
+              "ask_size": 4.59e-05,
+              "bid_price": 108922000.0,
+              "bid_size": 0.02360458
+            },
+            {
+              "ask_price": 108950000.0,
+              "ask_size": 0.01926997,
+              "bid_price": 108921000.0,
+              "bid_size": 0.00012507
+            },
+            {
+              "ask_price": 108952000.0,
+              "ask_size": 4.59e-05,
+              "bid_price": 108920000.0,
+              "bid_size": 0.00901416
+            },
+            {
+              "ask_price": 108957000.0,
+              "ask_size": 0.0004,
+              "bid_price": 108919000.0,
+              "bid_size": 0.00116769
+            },
+            {
+              "ask_price": 108965000.0,
+              "ask_size": 4.589e-05,
+              "bid_price": 108918000.0,
+              "bid_size": 0.01331806
+            },
+            {
+              "ask_price": 108968000.0,
+              "ask_size": 0.44745862,
+              "bid_price": 108917000.0,
+              "bid_size": 0.00021399
+            },
+            {
+              "ask_price": 108969000.0,
+              "ask_size": 2.09715309,
+              "bid_price": 108916000.0,
+              "bid_size": 4.636e-05
+            },
+            {
+              "ask_price": 108970000.0,
+              "ask_size": 4.589e-05,
+              "bid_price": 108910000.0,
+              "bid_size": 0.00473722
+            },
+            {
+              "ask_price": 108996000.0,
+              "ask_size": 4.588e-05,
+              "bid_price": 108909000.0,
+              "bid_size": 0.00035
+            },
+            {
+              "ask_price": 108997000.0,
+              "ask_size": 0.08262429,
+              "bid_price": 108908000.0,
+              "bid_size": 0.02418648
+            },
+            {
+              "ask_price": 108999000.0,
+              "ask_size": 0.34417258,
+              "bid_price": 108907000.0,
+              "bid_size": 0.00095656
+            },
+            {
+              "ask_price": 109000000.0,
+              "ask_size": 0.78651453,
+              "bid_price": 108906000.0,
+              "bid_size": 4.637e-05
+            },
+            {
+              "ask_price": 109001000.0,
+              "ask_size": 4.588e-05,
+              "bid_price": 108901000.0,
+              "bid_size": 0.00090533
+            },
+            {
+              "ask_price": 109002000.0,
+              "ask_size": 4.588e-05,
+              "bid_price": 108900000.0,
+              "bid_size": 0.0589485
+            },
+            {
+              "ask_price": 109003000.0,
+              "ask_size": 4.588e-05,
+              "bid_price": 108899000.0,
+              "bid_size": 0.00207725
+            },
+            {
+              "ask_price": 109004000.0,
+              "ask_size": 4.587e-05,
+              "bid_price": 108897000.0,
+              "bid_size": 0.03114901
+            },
+            {
+              "ask_price": 109005000.0,
+              "ask_size": 0.0001237,
+              "bid_price": 108896000.0,
+              "bid_size": 9.183e-05
+            },
+            {
+              "ask_price": 109006000.0,
+              "ask_size": 0.01380659,
+              "bid_price": 108890000.0,
+              "bid_size": 0.01636546
+            },
+            {
+              "ask_price": 109007000.0,
+              "ask_size": 4.587e-05,
+              "bid_price": 108889000.0,
+              "bid_size": 0.02604594
+            },
+            {
+              "ask_price": 109014000.0,
+              "ask_size": 0.002,
+              "bid_price": 108888000.0,
+              "bid_size": 0.01332905
+            },
+            {
+              "ask_price": 109015000.0,
+              "ask_size": 0.63116572,
+              "bid_price": 108887000.0,
+              "bid_size": 0.05299673
+            },
+            {
+              "ask_price": 109016000.0,
+              "ask_size": 4.587e-05,
+              "bid_price": 108886000.0,
+              "bid_size": 0.01004596
+            },
+            {
+              "ask_price": 109017000.0,
+              "ask_size": 4.587e-05,
+              "bid_price": 108885000.0,
+              "bid_size": 0.00192956
+            },
+            {
+              "ask_price": 109018000.0,
+              "ask_size": 4.587e-05,
+              "bid_price": 108884000.0,
+              "bid_size": 0.00280161
+            },
+            {
+              "ask_price": 109020000.0,
+              "ask_size": 0.01126836,
+              "bid_price": 108883000.0,
+              "bid_size": 0.00331273
+            },
+            {
+              "ask_price": 109021000.0,
+              "ask_size": 0.07985434,
+              "bid_price": 108882000.0,
+              "bid_size": 0.00605906
+            }
+          ],
+          "stream_type": "REALTIME",
+          "timestamp": 1788695411166,
+          "total_ask_size": 6.17306055,
+          "total_bid_size": 2.05236164,
+          "type": "orderbook"
+        },
+        "received_at": "2026-09-06T11:50:11.269392Z",
+        "source_sha256": "d5d28a10ec9cd6f76e57f99bfd507beaff1e790a626b473b2bd92bfedad04361",
+        "timeframe": null
+      },
+      "orderbook|-|KRW-ETH": {
+        "kind": "orderbook",
+        "market": "KRW-ETH",
+        "raw": {
+          "code": "KRW-ETH",
+          "level": 0,
+          "orderbook_units": [
+            {
+              "ask_price": 3410000.0,
+              "ask_size": 0.79650788,
+              "bid_price": 3409000.0,
+              "bid_size": 3.4748233
+            },
+            {
+              "ask_price": 3411000.0,
+              "ask_size": 0.47600926,
+              "bid_price": 3408000.0,
+              "bid_size": 9.53462566
+            },
+            {
+              "ask_price": 3412000.0,
+              "ask_size": 12.38621909,
+              "bid_price": 3407000.0,
+              "bid_size": 22.1324951
+            },
+            {
+              "ask_price": 3413000.0,
+              "ask_size": 69.90926673,
+              "bid_price": 3406000.0,
+              "bid_size": 46.34450148
+            },
+            {
+              "ask_price": 3414000.0,
+              "ask_size": 26.77197528,
+              "bid_price": 3405000.0,
+              "bid_size": 21.71953824
+            },
+            {
+              "ask_price": 3415000.0,
+              "ask_size": 27.89090022,
+              "bid_price": 3404000.0,
+              "bid_size": 54.02423322
+            },
+            {
+              "ask_price": 3416000.0,
+              "ask_size": 2.21323501,
+              "bid_price": 3403000.0,
+              "bid_size": 23.46295645
+            },
+            {
+              "ask_price": 3417000.0,
+              "ask_size": 9.69374178,
+              "bid_price": 3402000.0,
+              "bid_size": 9.93294861
+            },
+            {
+              "ask_price": 3418000.0,
+              "ask_size": 6.48123578,
+              "bid_price": 3401000.0,
+              "bid_size": 20.14943854
+            },
+            {
+              "ask_price": 3419000.0,
+              "ask_size": 3.29111606,
+              "bid_price": 3400000.0,
+              "bid_size": 66.06311953
+            },
+            {
+              "ask_price": 3420000.0,
+              "ask_size": 10.91370544,
+              "bid_price": 3399000.0,
+              "bid_size": 31.94967727
+            },
+            {
+              "ask_price": 3421000.0,
+              "ask_size": 5.14486934,
+              "bid_price": 3398000.0,
+              "bid_size": 5.37187149
+            },
+            {
+              "ask_price": 3422000.0,
+              "ask_size": 7.28631863,
+              "bid_price": 3397000.0,
+              "bid_size": 8.08188424
+            },
+            {
+              "ask_price": 3423000.0,
+              "ask_size": 3.62055668,
+              "bid_price": 3396000.0,
+              "bid_size": 8.08584205
+            },
+            {
+              "ask_price": 3424000.0,
+              "ask_size": 3.5120078,
+              "bid_price": 3395000.0,
+              "bid_size": 12.30382564
+            },
+            {
+              "ask_price": 3425000.0,
+              "ask_size": 9.83238306,
+              "bid_price": 3394000.0,
+              "bid_size": 27.11523729
+            },
+            {
+              "ask_price": 3426000.0,
+              "ask_size": 19.46327989,
+              "bid_price": 3393000.0,
+              "bid_size": 1.7953193
+            },
+            {
+              "ask_price": 3427000.0,
+              "ask_size": 2.35619256,
+              "bid_price": 3392000.0,
+              "bid_size": 9.56766137
+            },
+            {
+              "ask_price": 3428000.0,
+              "ask_size": 18.72541804,
+              "bid_price": 3391000.0,
+              "bid_size": 3.97849315
+            },
+            {
+              "ask_price": 3429000.0,
+              "ask_size": 11.70439746,
+              "bid_price": 3390000.0,
+              "bid_size": 46.89976122
+            },
+            {
+              "ask_price": 3430000.0,
+              "ask_size": 24.59596959,
+              "bid_price": 3389000.0,
+              "bid_size": 2.49170525
+            },
+            {
+              "ask_price": 3431000.0,
+              "ask_size": 1.21165314,
+              "bid_price": 3388000.0,
+              "bid_size": 6.11630652
+            },
+            {
+              "ask_price": 3432000.0,
+              "ask_size": 0.15204841,
+              "bid_price": 3387000.0,
+              "bid_size": 15.35915011
+            },
+            {
+              "ask_price": 3433000.0,
+              "ask_size": 11.60962458,
+              "bid_price": 3386000.0,
+              "bid_size": 6.8736988
+            },
+            {
+              "ask_price": 3434000.0,
+              "ask_size": 6.97985424,
+              "bid_price": 3385000.0,
+              "bid_size": 20.62949176
+            },
+            {
+              "ask_price": 3435000.0,
+              "ask_size": 12.25042868,
+              "bid_price": 3384000.0,
+              "bid_size": 5.36151492
+            },
+            {
+              "ask_price": 3436000.0,
+              "ask_size": 7.99510616,
+              "bid_price": 3383000.0,
+              "bid_size": 3.06700311
+            },
+            {
+              "ask_price": 3437000.0,
+              "ask_size": 4.55933911,
+              "bid_price": 3382000.0,
+              "bid_size": 24.24687521
+            },
+            {
+              "ask_price": 3438000.0,
+              "ask_size": 3.26053369,
+              "bid_price": 3381000.0,
+              "bid_size": 17.82858772
+            },
+            {
+              "ask_price": 3439000.0,
+              "ask_size": 17.66787736,
+              "bid_price": 3380000.0,
+              "bid_size": 43.49561583
+            }
+          ],
+          "stream_type": "REALTIME",
+          "timestamp": 1788695411134,
+          "total_ask_size": 342.75177095,
+          "total_bid_size": 577.45820238,
+          "type": "orderbook"
+        },
+        "received_at": "2026-09-06T11:50:11.249821Z",
+        "source_sha256": "5732a4b492b85a1dbc85bb5700bc0d256d029ff433a80c9f67868b9a5e05cfbb",
+        "timeframe": null
+      },
+      "ticker|-|KRW-BTC": {
+        "kind": "ticker",
+        "market": "KRW-BTC",
+        "raw": {
+          "acc_ask_volume": 126.839458,
+          "acc_bid_volume": 95.84079439,
+          "acc_trade_price": 24276323036.67644,
+          "acc_trade_price_24h": 45417718054.59114,
+          "acc_trade_volume": 222.68025239,
+          "acc_trade_volume_24h": 416.57315165,
+          "ask_bid": "ASK",
+          "change": "FALL",
+          "change_price": 55000.0,
+          "change_rate": 0.0005045964,
+          "code": "KRW-BTC",
+          "delisting_date": null,
+          "high_price": 109280000.0,
+          "highest_52_week_date": "2025-10-09",
+          "highest_52_week_price": 179869000.0,
+          "is_trading_suspended": false,
+          "low_price": 108600000.0,
+          "lowest_52_week_date": "2026-08-14",
+          "lowest_52_week_price": 88342000.0,
+          "market_state": "ACTIVE",
+          "market_warning": "NONE",
+          "opening_price": 108954000.0,
+          "prev_closing_price": 108998000.0,
+          "signed_change_price": -55000.0,
+          "signed_change_rate": -0.0005045964,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695407585,
+          "trade_date": "20260906",
+          "trade_price": 108943000.0,
+          "trade_time": "115007",
+          "trade_timestamp": 1788695407357,
+          "trade_volume": 0.001,
+          "type": "ticker"
+        },
+        "received_at": "2026-09-06T11:50:07.708878Z",
+        "source_sha256": "9f44197f141fba29340d504050555b8343177b870e7ee794aa5643bb46ad4f9f",
+        "timeframe": null
+      },
+      "ticker|-|KRW-ETH": {
+        "kind": "ticker",
+        "market": "KRW-ETH",
+        "raw": {
+          "acc_ask_volume": 3938.4462366,
+          "acc_bid_volume": 4445.65355508,
+          "acc_trade_price": 28603408815.16089,
+          "acc_trade_price_24h": 43602282948.572,
+          "acc_trade_volume": 8384.09979168,
+          "acc_trade_volume_24h": 12826.79616129,
+          "ask_bid": "BID",
+          "change": "RISE",
+          "change_price": 23000.0,
+          "change_rate": 0.0067906702,
+          "code": "KRW-ETH",
+          "delisting_date": null,
+          "high_price": 3439000.0,
+          "highest_52_week_date": "2025-10-07",
+          "highest_52_week_price": 6793000.0,
+          "is_trading_suspended": false,
+          "low_price": 3382000.0,
+          "lowest_52_week_date": "2026-06-06",
+          "lowest_52_week_price": 2300000.0,
+          "market_state": "ACTIVE",
+          "market_warning": "NONE",
+          "opening_price": 3387000.0,
+          "prev_closing_price": 3387000.0,
+          "signed_change_price": 23000.0,
+          "signed_change_rate": 0.0067906702,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695410195,
+          "trade_date": "20260906",
+          "trade_price": 3410000.0,
+          "trade_time": "114958",
+          "trade_timestamp": 1788695398233,
+          "trade_volume": 0.02932551,
+          "type": "ticker"
+        },
+        "received_at": "2026-09-06T11:50:10.319194Z",
+        "source_sha256": "16203619fb86c31c08522c9b7195ad6113004441e3d9a2e6228296728480e213",
+        "timeframe": null
+      },
+      "trade|-|KRW-BTC": {
+        "kind": "trade",
+        "market": "KRW-BTC",
+        "raw": {
+          "ask_bid": "ASK",
+          "best_ask_price": 108943000,
+          "best_ask_size": 0.0207,
+          "best_bid_price": 108926000,
+          "best_bid_size": 0.36997502,
+          "change": "FALL",
+          "change_price": 55000.0,
+          "code": "KRW-BTC",
+          "prev_closing_price": 108998000.0,
+          "sequential_id": 17886954073570000,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695407405,
+          "trade_date": "2026-09-06",
+          "trade_price": 108943000.0,
+          "trade_time": "11:50:07",
+          "trade_timestamp": 1788695407357,
+          "trade_volume": 0.001,
+          "type": "trade"
+        },
+        "received_at": "2026-09-06T11:50:07.519519Z",
+        "source_sha256": "490bb0dda4c51e5a6e023e4985d65c2b88f926aec88521c22da3d474f3e503b3",
+        "timeframe": null
+      },
+      "trade|-|KRW-ETH": {
+        "kind": "trade",
+        "market": "KRW-ETH",
+        "raw": {
+          "ask_bid": "BID",
+          "best_ask_price": 3410000,
+          "best_ask_size": 0.79650788,
+          "best_bid_price": 3409000,
+          "best_bid_size": 0.54287772,
+          "change": "RISE",
+          "change_price": 23000.0,
+          "code": "KRW-ETH",
+          "prev_closing_price": 3387000.0,
+          "sequential_id": 17886953982330000,
+          "stream_type": "REALTIME",
+          "timestamp": 1788695398287,
+          "trade_date": "2026-09-06",
+          "trade_price": 3410000.0,
+          "trade_time": "11:49:58",
+          "trade_timestamp": 1788695398233,
+          "trade_volume": 0.02932551,
+          "type": "trade"
+        },
+        "received_at": "2026-09-06T11:49:58.399077Z",
+        "source_sha256": "fb454182f00070f4785d7d6a76472debf7448806c2011e7b44a57cbc29f605fb",
+        "timeframe": null
+      }
+    },
+    "latest_public_messages_schema_version": "upbit_realtime_latest_public_messages/1",
+    "markets": [
+      "KRW-BTC",
+      "KRW-ETH"
+    ],
+    "message_log": [
+      {
+        "received_at": "2026-09-06T11:49:42.189241Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.189529Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.189694Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.189827Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.189958Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.190264Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.190535Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.192018Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.192223Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.192368Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.192518Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.192660Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.239116Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.329253Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.329460Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.438994Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.529238Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.579656Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 12,
+            "from": "2026-09-06T11:49:29Z",
+            "gap_id": "b12615c5d5570ebca016067255fcc136c973ff023e0db8ddbd4ee0e7abd421ea",
+            "kind": "trade",
+            "market": "KRW-ETH",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:49:42Z"
+          },
+          "kind": "trade",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.589490Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 12,
+            "from": "2026-09-06T11:49:29Z",
+            "gap_id": "b7d09f2026fb1e1fc6cb56e932dcb059206818a0121ad1c60caed52590084f9b",
+            "kind": "ticker",
+            "market": "KRW-ETH",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:49:42Z"
+          },
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.649305Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.729421Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.779253Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.828999Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:42.970142Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:43.039612Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:43.139207Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:43.149235Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:43.149490Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:43.159025Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:43.229268Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:43.739033Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:43.829252Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:43.939748Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:44.369653Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:44.439912Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:44.559057Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:44.738987Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:44.828916Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:44.929280Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:45.239254Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:45.339703Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:45.428871Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:45.569322Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:45.829381Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:45.938873Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.038880Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.138971Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.339290Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.438934Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.469715Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.528853Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.638670Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.739189Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 8,
+            "from": "2026-09-06T11:49:38Z",
+            "gap_id": "708873ed9715eaa468d99a3b93f588bfd2a64a8b6ef672f8166a63e94b4e9eeb",
+            "kind": "trade",
+            "market": "KRW-BTC",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:49:46Z"
+          },
+          "kind": "trade",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.749164Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 8,
+            "from": "2026-09-06T11:49:38Z",
+            "gap_id": "1284279beed2e00c60b2bced1cd77dda859ec9d4794da3ac19ceba019c1ca4cd",
+            "kind": "ticker",
+            "market": "KRW-BTC",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:49:46Z"
+          },
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.780868Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.781264Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.809156Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.809335Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.818876Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.839070Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:46.939235Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.089376Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.138937Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.148950Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.149229Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.149387Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.160444Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.160617Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.160763Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.229235Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.329129Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.428808Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.789326Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.839045Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:47.939435Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:48.030189Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:48.239155Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:48.339409Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:48.439301Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:48.739469Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:48.789271Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:48.838976Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.039199Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.129033Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.239229Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.339038Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.438988Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.458932Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.471038Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.669419Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.839022Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.929269Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:49.958918Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.039121Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.148765Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.158851Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.159067Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.168874Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.340421Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.340854Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.349260Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.439022Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.529047Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.580227Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.639390Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.739028Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.839179Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:50.930150Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.029328Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.129386Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.148859Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.149130Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.158939Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.239134Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.329122Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.439436Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.539523Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.639340Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.688871Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.699033Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.729051Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.829173Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.848978Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.939054Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.969027Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:51.979563Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.028896Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.139319Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.149123Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.149336Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.159132Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.169216Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.179688Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.180046Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 5,
+            "from": "2026-09-06T11:49:46Z",
+            "gap_id": "183401e67248954c8c4c6717c388b754e91f3e11511c11243cd4a48082016c16",
+            "kind": "trade",
+            "market": "KRW-BTC",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:49:52Z"
+          },
+          "kind": "trade",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.188818Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 5,
+            "from": "2026-09-06T11:49:46Z",
+            "gap_id": "64acf910865d0df823f5d9297d8b1f27a607e0fbbc0ed32cf4f291fb8eb6aec1",
+            "kind": "ticker",
+            "market": "KRW-BTC",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:49:52Z"
+          },
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.239147Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.239488Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.249030Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.279832Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.438961Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.489217Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.489415Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.529314Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.738923Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.839078Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:52.939029Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.038836Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.158954Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.159237Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.159421Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.238876Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.339209Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.639459Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.650033Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "trade",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.658839Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.679497Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.729203Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.768978Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:53.839114Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.129164Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.159145Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.159393Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.159553Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.229231Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.329350Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.438985Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.539580Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.628993Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.729238Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.729456Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.828862Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:54.939034Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:55.349244Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:55.369831Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:55.389477Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:55.439338Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:55.539418Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:55.639873Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:55.739179Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:55.839006Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:55.929318Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:56.028829Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:56.139056Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:56.239187Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:56.339188Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:56.428912Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:56.538958Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:56.739419Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:56.828889Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:57.029129Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:57.139910Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:57.239132Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:57.339283Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:57.439298Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:57.539164Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:57.738874Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:57.829024Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.239302Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.279820Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.339281Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.399077Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 6,
+            "from": "2026-09-06T11:49:51Z",
+            "gap_id": "2032f2d8d4f75516eb520a0de1b6e6e6dff6c2cb4876c457f1fbb98236461e7f",
+            "kind": "trade",
+            "market": "KRW-ETH",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:49:58Z"
+          },
+          "kind": "trade",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.409867Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 6,
+            "from": "2026-09-06T11:49:51Z",
+            "gap_id": "3d46f697f16dce9437aff2f7db26ca6d5ab5d0ee50dc13b4a5f9073ac8b914bf",
+            "kind": "ticker",
+            "market": "KRW-ETH",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:49:58Z"
+          },
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.429303Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.539443Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.599022Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.639859Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.829394Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:58.939499Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.039670Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.139206Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.149033Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.149322Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.158767Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.239760Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.339910Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.439922Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.539616Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.639811Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.839805Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:49:59.939270Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:00.039409Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:00.139695Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:00.229201Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:00.439164Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:00.529162Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:00.729312Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:00.829030Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:00.939218Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:01.039327Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:01.139817Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:01.439698Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:01.539069Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:01.639622Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:01.729122Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:01.839052Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:02.439399Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:03.249519Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:03.539276Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:03.649271Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:03.679756Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 5,
+            "from": "2026-09-06T11:49:58Z",
+            "gap_id": "3e37395f2f2d4916e1f02ca8f9113d27544a36088655ba2d59247925ecc54d01",
+            "kind": "orderbook",
+            "market": "KRW-BTC",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:50:03Z"
+          },
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:03.839153Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:04.449880Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:04.650287Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:04.720056Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:04.949300Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:05.048978Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:06.149266Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:06.249823Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:06.339252Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:06.449194Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:07.379848Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:07.449316Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:07.480746Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:07.519519Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 13,
+            "from": "2026-09-06T11:49:53Z",
+            "gap_id": "18bf50e1d883b9dc305ba8b12d939baee02b1d84eca4fe1c0f79052c859b89b8",
+            "kind": "trade",
+            "market": "KRW-BTC",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:50:07Z"
+          },
+          "kind": "trade",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:07.529411Z",
+        "result": {
+          "action": "ACCEPTED",
+          "detected_gap": {
+            "bounded": true,
+            "duration_seconds": 13,
+            "from": "2026-09-06T11:49:53Z",
+            "gap_id": "cfd0ae269dde263f494f1a309417e4f94197e3a17a70586b4a1da2f85019f998",
+            "kind": "ticker",
+            "market": "KRW-BTC",
+            "max_backfill_window_seconds": 300,
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "status": "PENDING",
+            "timeframe": null,
+            "to": "2026-09-06T11:50:07Z"
+          },
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:07.549211Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:07.708878Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:07.749005Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:07.938897Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.049127Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.149062Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.149438Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.158885Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.159058Z",
+        "result": {
+          "action": "ACCEPTED",
+          "candle_ingest": {
+            "added_open_times": [],
+            "duplicate_row_count": 0,
+            "in_progress_count": 1
+          },
+          "kind": "candle",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.238872Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.349433Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.449009Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.549147Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.848997Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:08.949257Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:09.079473Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:09.219346Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:09.249057Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:09.339316Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:09.439059Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:09.539233Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:09.648956Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:09.854943Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:09.949071Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:10.049257Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:10.319194Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "ticker",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:10.549172Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:10.649055Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:10.749612Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:10.849425Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:10.938928Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:11.049050Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:11.149059Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:11.249821Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-ETH"
+        }
+      },
+      {
+        "received_at": "2026-09-06T11:50:11.269392Z",
+        "result": {
+          "action": "ACCEPTED",
+          "kind": "orderbook",
+          "market": "KRW-BTC"
+        }
+      }
+    ],
+    "public_rest_backfill_errors": [],
+    "public_rest_backfill_receipts": [
+      {
+        "auth_required": false,
+        "authority": {
+          "action_generation_authorized": false,
+          "decision_eligible": false,
+          "entry_eligibility_authorized": false,
+          "exit_eligibility_authorized": false,
+          "order_authorized": false,
+          "order_channel_subscribed": false,
+          "private_channel_subscribed": false,
+          "production_authorized": false,
+          "trading_authorized": false
+        },
+        "evidence_class": "NATURAL_AUTOMATED",
+        "gap_ids": [
+          "1284279beed2e00c60b2bced1cd77dda859ec9d4794da3ac19ceba019c1ca4cd",
+          "183401e67248954c8c4c6717c388b754e91f3e11511c11243cd4a48082016c16",
+          "18bf50e1d883b9dc305ba8b12d939baee02b1d84eca4fe1c0f79052c859b89b8",
+          "2032f2d8d4f75516eb520a0de1b6e6e6dff6c2cb4876c457f1fbb98236461e7f",
+          "3d46f697f16dce9437aff2f7db26ca6d5ab5d0ee50dc13b4a5f9073ac8b914bf",
+          "3e37395f2f2d4916e1f02ca8f9113d27544a36088655ba2d59247925ecc54d01",
+          "64acf910865d0df823f5d9297d8b1f27a607e0fbbc0ed32cf4f291fb8eb6aec1",
+          "708873ed9715eaa468d99a3b93f588bfd2a64a8b6ef672f8166a63e94b4e9eeb",
+          "b12615c5d5570ebca016067255fcc136c973ff023e0db8ddbd4ee0e7abd421ea",
+          "b7d09f2026fb1e1fc6cb56e932dcb059206818a0121ad1c60caed52590084f9b",
+          "cfd0ae269dde263f494f1a309417e4f94197e3a17a70586b4a1da2f85019f998"
+        ],
+        "generated_at": "2026-09-06T11:50:28Z",
+        "private_or_order_endpoint_called": false,
+        "receipt_sha256": "17f5e6ce25071ecf661cb2b48f8c4ba003f6141c3430f3aa70747f8fe21668ae",
+        "responses": [
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "6c3104d3a13cc370ce09683c9abf6fc42d20173691810c1d0ce08a7ee368101a",
+            "request_range": {
+              "from": "2026-09-06T11:49:38Z",
+              "to": "2026-09-06T11:49:46Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "15m",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:12Z",
+              "requested_at": "2026-09-06T11:50:11Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/15?market=KRW-BTC&to=2026-09-06T11%3A49%3A46Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "d8254395bd6ccb74d8db8981d179745d421de0e5040992d40867c3c48f57954b",
+            "request_range": {
+              "from": "2026-09-06T11:49:46Z",
+              "to": "2026-09-06T11:49:52Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "15m",
+            "transport_time": {
+              "duration_milliseconds": 0,
+              "received_at": "2026-09-06T11:50:12Z",
+              "requested_at": "2026-09-06T11:50:12Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/15?market=KRW-BTC&to=2026-09-06T11%3A49%3A52Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "37bd349948fa852038e9fe59d95a1e0107b77d888861c8fa1e8d03bd23f1d3c1",
+            "request_range": {
+              "from": "2026-09-06T11:49:53Z",
+              "to": "2026-09-06T11:50:07Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "15m",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:13Z",
+              "requested_at": "2026-09-06T11:50:12Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/15?market=KRW-BTC&to=2026-09-06T11%3A50%3A07Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "2928771673f49c1ad6afb239323f9b858d972883cf8a71ac464fd9c1c6ca215b",
+            "request_range": {
+              "from": "2026-09-06T11:49:58Z",
+              "to": "2026-09-06T11:50:03Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "15m",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:14Z",
+              "requested_at": "2026-09-06T11:50:13Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/15?market=KRW-BTC&to=2026-09-06T11%3A50%3A03Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-ETH",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "beba92b81dce96c1f78d5b4aa4d947caf202edb8143217a36ac3c42df56b09f1",
+            "request_range": {
+              "from": "2026-09-06T11:49:29Z",
+              "to": "2026-09-06T11:49:42Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "15m",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:15Z",
+              "requested_at": "2026-09-06T11:50:14Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/15?market=KRW-ETH&to=2026-09-06T11%3A49%3A42Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-ETH",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "d8cb959551be06687965a391b63feb495e57ac1f11f96a27ef7ec5a27e158fa0",
+            "request_range": {
+              "from": "2026-09-06T11:49:51Z",
+              "to": "2026-09-06T11:49:58Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "15m",
+            "transport_time": {
+              "duration_milliseconds": 0,
+              "received_at": "2026-09-06T11:50:15Z",
+              "requested_at": "2026-09-06T11:50:15Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/15?market=KRW-ETH&to=2026-09-06T11%3A49%3A58Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "9b8ea12ec8137b02c47cf7d7fd2944da97409412f50739faa708a7e1197152e7",
+            "request_range": {
+              "from": "2026-09-06T11:49:38Z",
+              "to": "2026-09-06T11:49:46Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "1h",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:16Z",
+              "requested_at": "2026-09-06T11:50:15Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/60?market=KRW-BTC&to=2026-09-06T11%3A49%3A46Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "866013a05432327e616fd067d15f278650e7dab307d69f5369f8e426357f5362",
+            "request_range": {
+              "from": "2026-09-06T11:49:46Z",
+              "to": "2026-09-06T11:49:52Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "1h",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:17Z",
+              "requested_at": "2026-09-06T11:50:16Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/60?market=KRW-BTC&to=2026-09-06T11%3A49%3A52Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "cb989451e98705c027a3afb6061d6b7d12fdd563194cb9e145d694b179e75e80",
+            "request_range": {
+              "from": "2026-09-06T11:49:53Z",
+              "to": "2026-09-06T11:50:07Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "1h",
+            "transport_time": {
+              "duration_milliseconds": 0,
+              "received_at": "2026-09-06T11:50:17Z",
+              "requested_at": "2026-09-06T11:50:17Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/60?market=KRW-BTC&to=2026-09-06T11%3A50%3A07Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "ab07e249fe4ac7002797330668ef987b43c6065042f4b5da489c879c688691ee",
+            "request_range": {
+              "from": "2026-09-06T11:49:58Z",
+              "to": "2026-09-06T11:50:03Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "1h",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:18Z",
+              "requested_at": "2026-09-06T11:50:17Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/60?market=KRW-BTC&to=2026-09-06T11%3A50%3A03Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-ETH",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "c822ed9cea0bd19482e9a802871f202f8b0b4615d36a820ef22fcf4fc63b1297",
+            "request_range": {
+              "from": "2026-09-06T11:49:29Z",
+              "to": "2026-09-06T11:49:42Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "1h",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:19Z",
+              "requested_at": "2026-09-06T11:50:18Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/60?market=KRW-ETH&to=2026-09-06T11%3A49%3A42Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-ETH",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "b3e2dcdbcd9cd9dad2c502ad1e87204d71e060a5a537804dd021c8ac495fe8b1",
+            "request_range": {
+              "from": "2026-09-06T11:49:51Z",
+              "to": "2026-09-06T11:49:58Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "1h",
+            "transport_time": {
+              "duration_milliseconds": 0,
+              "received_at": "2026-09-06T11:50:19Z",
+              "requested_at": "2026-09-06T11:50:19Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/60?market=KRW-ETH&to=2026-09-06T11%3A49%3A58Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "9661a0bbc32845b7a4641f51677bf50d0fb679325453ef8e38c14feb92bcf69e",
+            "request_range": {
+              "from": "2026-09-06T11:49:38Z",
+              "to": "2026-09-06T11:49:46Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "4h",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:20Z",
+              "requested_at": "2026-09-06T11:50:19Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/240?market=KRW-BTC&to=2026-09-06T11%3A49%3A46Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "49457385430a0220e25f4b530081f38091730c2748917a543788fcbabec9c889",
+            "request_range": {
+              "from": "2026-09-06T11:49:46Z",
+              "to": "2026-09-06T11:49:52Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "4h",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:21Z",
+              "requested_at": "2026-09-06T11:50:20Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/240?market=KRW-BTC&to=2026-09-06T11%3A49%3A52Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "19875b15b89d9cefc1da8c9a42e83e4a87aabc5be2edcef9e7993a3afd6b68ca",
+            "request_range": {
+              "from": "2026-09-06T11:49:53Z",
+              "to": "2026-09-06T11:50:07Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "4h",
+            "transport_time": {
+              "duration_milliseconds": 0,
+              "received_at": "2026-09-06T11:50:21Z",
+              "requested_at": "2026-09-06T11:50:21Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/240?market=KRW-BTC&to=2026-09-06T11%3A50%3A07Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "c835265904d0b312b3abb791c2d58b95af2e9b398793e4845e71f6819b85cae9",
+            "request_range": {
+              "from": "2026-09-06T11:49:58Z",
+              "to": "2026-09-06T11:50:03Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "4h",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:22Z",
+              "requested_at": "2026-09-06T11:50:21Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/240?market=KRW-BTC&to=2026-09-06T11%3A50%3A03Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-ETH",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "12df132ba0a8601f0ac8990383d698eb1e7592e8858f973b111c209655d0d0c6",
+            "request_range": {
+              "from": "2026-09-06T11:49:29Z",
+              "to": "2026-09-06T11:49:42Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "4h",
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:23Z",
+              "requested_at": "2026-09-06T11:50:22Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/240?market=KRW-ETH&to=2026-09-06T11%3A49%3A42Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "candle",
+            "market": "KRW-ETH",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "7fb9f70ab302586f91ffd899bc6c1c8087ceab913cb4c85bd825386b40fe0137",
+            "request_range": {
+              "from": "2026-09-06T11:49:51Z",
+              "to": "2026-09-06T11:49:58Z"
+            },
+            "requested_count": 3,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": "4h",
+            "transport_time": {
+              "duration_milliseconds": 0,
+              "received_at": "2026-09-06T11:50:23Z",
+              "requested_at": "2026-09-06T11:50:23Z"
+            },
+            "url": "https://api.upbit.com/v1/candles/minutes/240?market=KRW-ETH&to=2026-09-06T11%3A49%3A58Z&count=3"
+          },
+          {
+            "auth_required": false,
+            "kind": "trade",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [
+              {
+                "ask_bid": "BID",
+                "change_price": -54000.0,
+                "market": "KRW-BTC",
+                "prev_closing_price": 108998000.0,
+                "sequential_id": 17886953782940001,
+                "timestamp": 1788695378294,
+                "trade_date_utc": "2026-09-06",
+                "trade_price": 108944000.0,
+                "trade_time_utc": "11:49:38",
+                "trade_volume": 0.01571374
+              },
+              {
+                "ask_bid": "BID",
+                "change_price": -55000.0,
+                "market": "KRW-BTC",
+                "prev_closing_price": 108998000.0,
+                "sequential_id": 17886953782940000,
+                "timestamp": 1788695378294,
+                "trade_date_utc": "2026-09-06",
+                "trade_price": 108943000.0,
+                "trade_time_utc": "11:49:38",
+                "trade_volume": 0.00264431
+              }
+            ],
+            "payload_sha256": "edf9395f45363293f13bad1efe2e918688a59ee4653d2c0814b6eea65d515678",
+            "provider_time": {
+              "first_returned_at": "2026-09-06T11:49:38Z",
+              "last_returned_at": "2026-09-06T11:49:38Z"
+            },
+            "request_id": "fd3b2c391d9e7d39afddc4dfab7fba81b9b4b31e6f84a29e80127094e7f4c349",
+            "request_range": {
+              "from": "2026-09-06T11:49:38Z",
+              "to": "2026-09-06T11:49:46Z"
+            },
+            "requested_count": 20,
+            "returned_range": {
+              "from": "2026-09-06T11:49:38Z",
+              "row_count": 2,
+              "to": "2026-09-06T11:49:38Z"
+            },
+            "timeframe": null,
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:24Z",
+              "requested_at": "2026-09-06T11:50:23Z"
+            },
+            "url": "https://api.upbit.com/v1/trades/ticks?market=KRW-BTC&to=11%3A49%3A46&count=20"
+          },
+          {
+            "auth_required": false,
+            "kind": "trade",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [
+              {
+                "ask_bid": "BID",
+                "change_price": -54000.0,
+                "market": "KRW-BTC",
+                "prev_closing_price": 108998000.0,
+                "sequential_id": 17886953865730000,
+                "timestamp": 1788695386573,
+                "trade_date_utc": "2026-09-06",
+                "trade_price": 108944000.0,
+                "trade_time_utc": "11:49:46",
+                "trade_volume": 0.01376289
+              }
+            ],
+            "payload_sha256": "722289e3259de8382bd6f876a284d1a4e374dfa12cdfd8e1716e90abada6c9de",
+            "provider_time": {
+              "first_returned_at": "2026-09-06T11:49:46Z",
+              "last_returned_at": "2026-09-06T11:49:46Z"
+            },
+            "request_id": "12f2fba0ba6ecb6c3245081228b9bd4255b4a16b5f3ef92df095db0cd5b428ce",
+            "request_range": {
+              "from": "2026-09-06T11:49:46Z",
+              "to": "2026-09-06T11:49:52Z"
+            },
+            "requested_count": 20,
+            "returned_range": {
+              "from": "2026-09-06T11:49:46Z",
+              "row_count": 1,
+              "to": "2026-09-06T11:49:46Z"
+            },
+            "timeframe": null,
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:25Z",
+              "requested_at": "2026-09-06T11:50:24Z"
+            },
+            "url": "https://api.upbit.com/v1/trades/ticks?market=KRW-BTC&to=11%3A49%3A52&count=20"
+          },
+          {
+            "auth_required": false,
+            "kind": "trade",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [
+              {
+                "ask_bid": "BID",
+                "change_price": -54000.0,
+                "market": "KRW-BTC",
+                "prev_closing_price": 108998000.0,
+                "sequential_id": 17886953934880000,
+                "timestamp": 1788695393488,
+                "trade_date_utc": "2026-09-06",
+                "trade_price": 108944000.0,
+                "trade_time_utc": "11:49:53",
+                "trade_volume": 0.00312223
+              }
+            ],
+            "payload_sha256": "e9cdc5b19b86027f2faff3297eba42c2c057484a0f008606ac3282a6a6fc3fce",
+            "provider_time": {
+              "first_returned_at": "2026-09-06T11:49:53Z",
+              "last_returned_at": "2026-09-06T11:49:53Z"
+            },
+            "request_id": "333c191f4fd10336328efe26af49674e4f40e311db7c765febb10fa13cdbf7d8",
+            "request_range": {
+              "from": "2026-09-06T11:49:53Z",
+              "to": "2026-09-06T11:50:07Z"
+            },
+            "requested_count": 20,
+            "returned_range": {
+              "from": "2026-09-06T11:49:53Z",
+              "row_count": 1,
+              "to": "2026-09-06T11:49:53Z"
+            },
+            "timeframe": null,
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:26Z",
+              "requested_at": "2026-09-06T11:50:25Z"
+            },
+            "url": "https://api.upbit.com/v1/trades/ticks?market=KRW-BTC&to=11%3A50%3A07&count=20"
+          },
+          {
+            "auth_required": false,
+            "kind": "trade",
+            "market": "KRW-BTC",
+            "method": "GET",
+            "payload": [],
+            "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "provider_time": {
+              "first_returned_at": null,
+              "last_returned_at": null
+            },
+            "request_id": "5266756b77864b56c2b85327f5e13ddd84880c812d7c497bbe52df2328f7031f",
+            "request_range": {
+              "from": "2026-09-06T11:49:58Z",
+              "to": "2026-09-06T11:50:03Z"
+            },
+            "requested_count": 20,
+            "returned_range": {
+              "from": null,
+              "row_count": 0,
+              "to": null
+            },
+            "timeframe": null,
+            "transport_time": {
+              "duration_milliseconds": 0,
+              "received_at": "2026-09-06T11:50:26Z",
+              "requested_at": "2026-09-06T11:50:26Z"
+            },
+            "url": "https://api.upbit.com/v1/trades/ticks?market=KRW-BTC&to=11%3A50%3A03&count=20"
+          },
+          {
+            "auth_required": false,
+            "kind": "trade",
+            "market": "KRW-ETH",
+            "method": "GET",
+            "payload": [
+              {
+                "ask_bid": "ASK",
+                "change_price": 23000.0,
+                "market": "KRW-ETH",
+                "prev_closing_price": 3387000.0,
+                "sequential_id": 17886953698200000,
+                "timestamp": 1788695369820,
+                "trade_date_utc": "2026-09-06",
+                "trade_price": 3410000.0,
+                "trade_time_utc": "11:49:29",
+                "trade_volume": 0.02050461
+              }
+            ],
+            "payload_sha256": "94eb75e0d2c55d9ce6784589da7118a39712caf50c1c4ff44cf666ca1f0fce74",
+            "provider_time": {
+              "first_returned_at": "2026-09-06T11:49:29Z",
+              "last_returned_at": "2026-09-06T11:49:29Z"
+            },
+            "request_id": "ee594553ef2dc336049cdb77a9fd8e1e8e00762559664b5661dbc241c8749af7",
+            "request_range": {
+              "from": "2026-09-06T11:49:29Z",
+              "to": "2026-09-06T11:49:42Z"
+            },
+            "requested_count": 20,
+            "returned_range": {
+              "from": "2026-09-06T11:49:29Z",
+              "row_count": 1,
+              "to": "2026-09-06T11:49:29Z"
+            },
+            "timeframe": null,
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:27Z",
+              "requested_at": "2026-09-06T11:50:26Z"
+            },
+            "url": "https://api.upbit.com/v1/trades/ticks?market=KRW-ETH&to=11%3A49%3A42&count=20"
+          },
+          {
+            "auth_required": false,
+            "kind": "trade",
+            "market": "KRW-ETH",
+            "method": "GET",
+            "payload": [
+              {
+                "ask_bid": "BID",
+                "change_price": 23000.0,
+                "market": "KRW-ETH",
+                "prev_closing_price": 3387000.0,
+                "sequential_id": 17886953918060000,
+                "timestamp": 1788695391806,
+                "trade_date_utc": "2026-09-06",
+                "trade_price": 3410000.0,
+                "trade_time_utc": "11:49:51",
+                "trade_volume": 0.0319
+              },
+              {
+                "ask_bid": "BID",
+                "change_price": 23000.0,
+                "market": "KRW-ETH",
+                "prev_closing_price": 3387000.0,
+                "sequential_id": 17886953915270000,
+                "timestamp": 1788695391527,
+                "trade_date_utc": "2026-09-06",
+                "trade_price": 3410000.0,
+                "trade_time_utc": "11:49:51",
+                "trade_volume": 0.29325513
+              }
+            ],
+            "payload_sha256": "2842073f9d626313250ff5f065ac604b01e96666112359cfc42f9a97d2b48234",
+            "provider_time": {
+              "first_returned_at": "2026-09-06T11:49:51Z",
+              "last_returned_at": "2026-09-06T11:49:51Z"
+            },
+            "request_id": "496686c47c8c92194f7fa5a6b2b2cdd6284d5ea322bd30f7886cec4880203e6c",
+            "request_range": {
+              "from": "2026-09-06T11:49:51Z",
+              "to": "2026-09-06T11:49:58Z"
+            },
+            "requested_count": 20,
+            "returned_range": {
+              "from": "2026-09-06T11:49:51Z",
+              "row_count": 2,
+              "to": "2026-09-06T11:49:51Z"
+            },
+            "timeframe": null,
+            "transport_time": {
+              "duration_milliseconds": 1000,
+              "received_at": "2026-09-06T11:50:28Z",
+              "requested_at": "2026-09-06T11:50:27Z"
+            },
+            "url": "https://api.upbit.com/v1/trades/ticks?market=KRW-ETH&to=11%3A49%3A58&count=20"
+          }
+        ],
+        "schema_version": "upbit_public_rest_backfill_receipt/1",
+        "source": "UPBIT_PUBLIC_REST"
+      }
+    ],
+    "ratified_freshness_policy": {
+      "consumer_result": {
+        "reason": null,
+        "result": {
+          "authority": {
+            "action_generation_authorized": false,
+            "broker_submission_authorized": false,
+            "entry_eligibility_authorized": false,
+            "exit_eligibility_authorized": false,
+            "freshness_guard_only": true,
+            "order_generation_authorized": false,
+            "production_authorized": false,
+            "provider_selection_authorized": false,
+            "trading_authorized": false
+          },
+          "batch_id": "P9_06_20260906T115028Z",
+          "contract_version": "intraday_freshness_guard/1",
+          "lineage": {
+            "policy_sha256": "7caecead701b47b21f0d2b1ecfd74c6bf63d9952a8493bca5f6c06d67b397f34",
+            "quote_batch_sha256": "f4352d6084efa74aa95516780f23752a53e6032a6d7be34cbb6a3c07645802fa"
+          },
+          "observed_at": "2026-09-06T11:50:28Z",
+          "packet_sha256": "440372934623817a1a55a472106893ef84990ae64a11e02930f32df992837468",
+          "policy_id": "P9_06_UPBIT_CRYPTO_PAPER_V1",
+          "policy_packet": {
+            "approval_status": "RATIFIED",
+            "effective_from_utc": "2026-08-30T00:00:00Z",
+            "effective_to_utc": "9999-12-31T23:59:59Z",
+            "input_contract_version": "intraday_freshness_guard/1",
+            "max_provider_age_seconds_by_market": {
+              "CRYPTO": 20,
+              "KOREA": 45,
+              "US": 60
+            },
+            "max_transport_delay_seconds_by_market": {
+              "CRYPTO": 3,
+              "KOREA": 8,
+              "US": 10
+            },
+            "packet_sha256": "7caecead701b47b21f0d2b1ecfd74c6bf63d9952a8493bca5f6c06d67b397f34",
+            "policy_id": "P9_06_UPBIT_CRYPTO_PAPER_V1",
+            "ratified_at_utc": "2026-08-29T23:51:27Z",
+            "ratified_by": "CIO/User Notion policy 3cb9f2d7-3c84-8181-bd69-fe7d425aefd0",
+            "schema_version": "intraday_freshness_policy/1"
+          },
+          "results": [
+            {
+              "action": null,
+              "asset_id": "CRYPTO.UPBIT.KRW-BTC",
+              "entry_eligibility": null,
+              "fresh_for_intraday_consumption": false,
+              "freshness_status": "STALE",
+              "market": "CRYPTO",
+              "max_provider_age_seconds": 20,
+              "max_transport_delay_seconds": 3,
+              "order": null,
+              "price": "108943000.0",
+              "provider_age_seconds": 21,
+              "provider_id": "UPBIT.WS.PUBLIC",
+              "provider_timestamp": "2026-09-06T11:50:07Z",
+              "quote_currency": "KRW",
+              "received_at": "2026-09-06T11:50:07Z",
+              "source_ref": "wss://api.upbit.com/websocket/v1#ticker",
+              "source_sha256": "9f44197f141fba29340d504050555b8343177b870e7ee794aa5643bb46ad4f9f",
+              "stale_reasons": [
+                "PROVIDER_AGE_EXCEEDED"
+              ],
+              "transport_delay_seconds": 0,
+              "volume": "0.001"
+            },
+            {
+              "action": null,
+              "asset_id": "CRYPTO.UPBIT.KRW-ETH",
+              "entry_eligibility": null,
+              "fresh_for_intraday_consumption": false,
+              "freshness_status": "STALE",
+              "market": "CRYPTO",
+              "max_provider_age_seconds": 20,
+              "max_transport_delay_seconds": 3,
+              "order": null,
+              "price": "3410000.0",
+              "provider_age_seconds": 30,
+              "provider_id": "UPBIT.WS.PUBLIC",
+              "provider_timestamp": "2026-09-06T11:49:58Z",
+              "quote_currency": "KRW",
+              "received_at": "2026-09-06T11:50:10Z",
+              "source_ref": "wss://api.upbit.com/websocket/v1#ticker",
+              "source_sha256": "16203619fb86c31c08522c9b7195ad6113004441e3d9a2e6228296728480e213",
+              "stale_reasons": [
+                "PROVIDER_AGE_EXCEEDED",
+                "TRANSPORT_DELAY_EXCEEDED"
+              ],
+              "transport_delay_seconds": 12,
+              "volume": "0.02932551"
+            }
+          ],
+          "schema_version": "intraday_freshness_result/2",
+          "status": "FRESHNESS_EVALUATED_NO_ENTRY_AUTHORITY",
+          "summary": {
+            "entry_eligible_count": 0,
+            "fresh_count": 0,
+            "orders_created": 0,
+            "quote_count": 2,
+            "stale_count": 2
+          },
+          "unresolved_boundaries": [
+            "MARKET_DATA_FEED_SELECTION_NOT_AUTHORIZED",
+            "REPOSITORY_DEFAULT_FRESHNESS_POLICY_ABSENT",
+            "ENTRY_EXIT_ELIGIBILITY_NOT_AUTHORIZED",
+            "ACTION_ORDER_GENERATION_NOT_AUTHORIZED",
+            "PRODUCTION_WIRING_NOT_IMPLEMENTED"
+          ]
+        },
+        "status": "EVALUATED"
+      },
+      "packet_sha256": "7caecead701b47b21f0d2b1ecfd74c6bf63d9952a8493bca5f6c06d67b397f34",
+      "path": "config/upbit_realtime_freshness_policy_ratified.json"
+    },
+    "requested_duration_seconds": 30.0,
+    "started_at": "2026-09-06T11:49:41Z",
+    "status": {
+      "authority": {
+        "action_generation_authorized": false,
+        "decision_eligible": false,
+        "entry_eligibility_authorized": false,
+        "exit_eligibility_authorized": false,
+        "order_authorized": false,
+        "order_channel_subscribed": false,
+        "private_channel_subscribed": false,
+        "production_authorized": false,
+        "trading_authorized": false
+      },
+      "closed_candle_promotion": {
+        "added": [],
+        "added_count": 0
+      },
+      "connection_state": "CONNECTED",
+      "counts": {
+        "accepted": 290,
+        "duplicate_ignored": 0,
+        "out_of_order": 0,
+        "rejected_malformed": 0,
+        "rejected_out_of_scope_market": 0,
+        "rest_backfill_candles_added": 0,
+        "rest_backfill_receipts_applied": 1,
+        "rest_backfill_receipts_revalidated": 0
+      },
+      "duplicate_guard_size": 260,
+      "finalized_candle_ledger_count": 0,
+      "generated_at": "2026-09-06T11:50:28Z",
+      "in_progress_candle_count": 6,
+      "last_disconnect_reason": null,
+      "markets": [
+        {
+          "freshness_by_kind": {
+            "orderbook": {
+              "age_seconds": 17,
+              "max_staleness_seconds": 15,
+              "status": "STALE"
+            },
+            "ticker": {
+              "age_seconds": 20,
+              "max_staleness_seconds": 30,
+              "status": "FRESH"
+            },
+            "trade": {
+              "age_seconds": 20,
+              "max_staleness_seconds": 30,
+              "status": "FRESH"
+            }
+          },
+          "market": "KRW-BTC"
+        },
+        {
+          "freshness_by_kind": {
+            "orderbook": {
+              "age_seconds": 17,
+              "max_staleness_seconds": 15,
+              "status": "STALE"
+            },
+            "ticker": {
+              "age_seconds": 18,
+              "max_staleness_seconds": 30,
+              "status": "FRESH"
+            },
+            "trade": {
+              "age_seconds": 30,
+              "max_staleness_seconds": 30,
+              "status": "FRESH"
+            }
+          },
+          "market": "KRW-ETH"
+        }
+      ],
+      "overall_status": "STALE",
+      "payload_sha256": "4b20b83381f83243dc184772cf885d30bb1be506476686b48bbeff0737645b86",
+      "pending_connection_gap_windows": [],
+      "pending_gap_windows": [],
+      "receipt_ledger_count": 1,
+      "reconnect_count": 0,
+      "schema_version": "upbit_realtime_gate_status/1"
+    },
+    "transport_validation": {
+      "action_generation_authorized": false,
+      "decision_eligible": false,
+      "entry_eligibility_authorized": false,
+      "expected_public_channel_keys": [
+        "candle|15m|KRW-BTC",
+        "candle|15m|KRW-ETH",
+        "candle|1h|KRW-BTC",
+        "candle|1h|KRW-ETH",
+        "candle|4h|KRW-BTC",
+        "candle|4h|KRW-ETH",
+        "orderbook|-|KRW-BTC",
+        "orderbook|-|KRW-ETH",
+        "ticker|-|KRW-BTC",
+        "ticker|-|KRW-ETH",
+        "trade|-|KRW-BTC",
+        "trade|-|KRW-ETH"
+      ],
+      "missing_public_channel_keys": [],
+      "observed_public_channel_keys": [
+        "candle|15m|KRW-BTC",
+        "candle|15m|KRW-ETH",
+        "candle|1h|KRW-BTC",
+        "candle|1h|KRW-ETH",
+        "candle|4h|KRW-BTC",
+        "candle|4h|KRW-ETH",
+        "orderbook|-|KRW-BTC",
+        "orderbook|-|KRW-ETH",
+        "ticker|-|KRW-BTC",
+        "ticker|-|KRW-ETH",
+        "trade|-|KRW-BTC",
+        "trade|-|KRW-ETH"
+      ],
+      "order_authorized": false,
+      "production_authorized": false,
+      "status": "COMPLETE",
+      "trading_authorized": false
+    }
+  },
+  "schema_version": "upbit_realtime_capture_run/1",
+  "source_sha256": "42e1833f5e04dd4dbf70bb6a79ce728ef4bfbc389f9418a6a9f7da93b6057c09",
+  "transform_version": "upbit_realtime_gate/1"
+}
