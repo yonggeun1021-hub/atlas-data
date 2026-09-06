@@ -2023,6 +2023,21 @@ APPROVED_TESTS = [
     #      not silently hidden from the test-set comparison.
     "test/test_crypto_candidate_promotion.py",
     "test/test_crypto_candidate_trend_metrics.py",
+    # ★ P5-08 — price-distance OBSERVATION capability on top of the merged
+    #   trend calculator. Reports (latest_close-latest_ema)/latest_ema and
+    #   (latest_close-lagged_close)/lagged_close as fractions, per timeframe,
+    #   for two explicitly required return_lag_candles values. The EMA is
+    #   reused, never reimplemented; P4-07 finality/freshness/quality/malformed
+    #   guards are reused as-is. Zero denominators are named and null, source/
+    #   history unavailability stays unavailable while healthy observations are
+    #   retained, and the validator requires every original input independently
+    #   so a self-rehashed substitution cannot pass. evaluate_overextension
+    #   still returns UNKNOWN; no threshold, predicate, wiring or authority is
+    #   added and every authority field stays false.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_crypto_candidate_trend_metrics.py above so
+    #      it is not silently hidden from the test-set comparison.
+    "test/test_crypto_candidate_price_distance_metrics.py",
     # ★ P5-09 — Crypto PAPER Buy Eligibility: FOCUSED_REVIEW (P5-08) ->
     #   WATCH/WAIT/BLOCKED/PAPER_BUY_ELIGIBLE. Pure derivation over an
     #   already-revalidated P5-08 promotion packet only. REGIME_PERMITS_
