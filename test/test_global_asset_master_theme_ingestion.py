@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("gam_ingestion_fixture", ROOT / "test" / "test_global_asset_master.py")
@@ -35,6 +38,22 @@ class ThemeIngestionTests(unittest.TestCase):
                     authority_registry_path=repo.registry_path)
         args.update(overrides)
         return I.build_theme_ingestion_preview(**args)
+
+    def destination(self, packet):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        path = Path(temp.name) / 'master.json'
+        F.GAM.write_json_atomic(path, packet)
+        return path
+
+    def apply_args(self, repo, preview, path, expected, **overrides):
+        args = dict(preview=preview, master_source=self.master, taxonomy_source=self.graph,
+                    requests=self.requests, trusted_commit=repo.head(),
+                    authority_registry_path=repo.registry_path, destination_path=path,
+                    expected_previous_master_sha256=expected,
+                    operational_application_approved=True)
+        args.update(overrides)
+        return args
 
     def assert_blocked(self, result, reason):
         self.assertEqual(result['status'], 'BLOCKED')
@@ -262,6 +281,220 @@ class ThemeIngestionTests(unittest.TestCase):
         graph['memberships'][0]['evidence'] = []
         with self.assertRaisesRegex(I.AssetMasterError, 'TAXONOMY_SOURCE_INVALID'):
             self.build(repo, taxonomy_source=graph)
+
+    def test_application_append_and_rebuilt_no_change(self):
+        repo = self.repo()
+        original = F.GAM.build_master(self.master)
+        path = self.destination(original)
+        preview = self.build(repo)
+        result = I.apply_theme_ingestion_preview(**self.apply_args(repo, preview, path, original['payload_sha256']))
+        self.assertEqual(result['outcome'], 'APPLIED_APPEND')
+        self.assertTrue(result['published'])
+        self.assertEqual(result['change'], 'APPEND')
+        self.assertEqual(result['addition_count'], 1)
+        self.assertEqual(result['previous_master'], {k: original[k] for k in I.MASTER_IDENTITY_FIELDS})
+        published = json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(published, preview['candidate_master'])
+        self.assertEqual(result['master'], {k: published[k] for k in I.MASTER_IDENTITY_FIELDS})
+        self.assertEqual(F.bound_membership(published), self.expected_row)
+        # NO_CHANGE only via a preview the caller explicitly rebuilt from the
+        # new destination, with the updated expected digest.
+        rebuilt = self.build(repo, master_source=published)
+        self.assertEqual(rebuilt['change'], 'NO_CHANGE')
+        before = path.read_bytes()
+        repeat = I.apply_theme_ingestion_preview(**self.apply_args(
+            repo, rebuilt, path, published['payload_sha256'], master_source=published))
+        self.assertEqual(repeat['outcome'], 'APPLIED_NO_CHANGE')
+        self.assertFalse(repeat['published'])
+        self.assertEqual(repeat['unchanged_count'], 1)
+        self.assertEqual(repeat['previous_master'], repeat['master'])
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_application_stale_preview_conflicts(self):
+        repo = self.repo()
+        original = F.GAM.build_master(self.master)
+        path = self.destination(original)
+        stale = self.build(repo)
+        applied = I.apply_theme_ingestion_preview(**self.apply_args(repo, stale, path, original['payload_sha256']))
+        self.assertEqual(applied['outcome'], 'APPLIED_APPEND')
+        after = path.read_bytes()
+        published = json.loads(path.read_text(encoding='utf-8'))
+        cases = [
+            ('EXPECTED_PREVIOUS_MASTER_MISMATCH', dict(expected_previous_master_sha256=original['payload_sha256'])),
+            ('ORIGINAL_MASTER_MISMATCH:payload_sha256', dict(expected_previous_master_sha256=published['payload_sha256'])),
+            ('INGESTION_PREVIEW_DERIVATION_MISMATCH', dict(expected_previous_master_sha256=published['payload_sha256'],
+                                                           master_source=published)),
+        ]
+        for reason, override in cases:
+            with self.subTest(reason=reason), self.assertRaisesRegex(I.AssetMasterError, reason):
+                I.apply_theme_ingestion_preview(**self.apply_args(
+                    repo, stale, path, original['payload_sha256'], **override))
+        self.assertEqual(path.read_bytes(), after)
+
+    def test_application_approval_and_destination_guards(self):
+        repo = self.repo()
+        original = F.GAM.build_master(self.master)
+        path = self.destination(original)
+        preview = self.build(repo)
+        before = path.read_bytes()
+        digest = original['payload_sha256']
+        cases = [
+            ('APPROVAL_NOT_EXACTLY_TRUE', dict(operational_application_approved=False)),
+            ('APPROVAL_NOT_EXACTLY_TRUE', dict(operational_application_approved=1)),
+            ('APPROVAL_NOT_EXACTLY_TRUE', dict(operational_application_approved='true')),
+            ('APPROVAL_NOT_EXACTLY_TRUE', dict(operational_application_approved=None)),
+            ('DESTINATION_PATH_REQUIRED', dict(destination_path=None)),
+            ('DESTINATION_PATH_REQUIRED', dict(destination_path='   ')),
+            ('DESTINATION_NOT_AN_EXISTING_FILE', dict(destination_path=path.parent / 'absent.json')),
+            ('DESTINATION_NOT_AN_EXISTING_FILE', dict(destination_path=path.parent)),
+            ('DESTINATION_NOT_AN_EXISTING_FILE', dict(destination_path=path.parent / 'missing' / 'master.json')),
+            ('EXPECTED_PREVIOUS_SHA256_INVALID', dict(expected_previous_master_sha256=None)),
+            ('EXPECTED_PREVIOUS_SHA256_INVALID', dict(expected_previous_master_sha256='ABSENT')),
+            ('EXPECTED_PREVIOUS_MASTER_MISMATCH', dict(expected_previous_master_sha256='a' * 64)),
+        ]
+        for reason, override in cases:
+            with self.subTest(reason=reason), self.assertRaisesRegex(I.AssetMasterError, reason):
+                I.apply_theme_ingestion_preview(**self.apply_args(repo, preview, path, digest, **override))
+        blocked_repo = self.repo(status='PROPOSED')
+        blocked = self.build(blocked_repo)
+        with self.assertRaisesRegex(I.AssetMasterError, 'PREVIEW_NOT_APPLICABLE'):
+            I.apply_theme_ingestion_preview(**self.apply_args(blocked_repo, blocked, path, digest))
+        # Nothing is initialized, defaulted or marked where a target was absent.
+        self.assertFalse((path.parent / 'absent.json').exists())
+        self.assertFalse((path.parent / 'missing').exists())
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_application_original_identity_mismatch_preserves_destination(self):
+        repo = self.repo()
+        preview = self.build(repo)
+        other_id = copy.deepcopy(self.master)
+        other_id['master_id'] = 'ATLAS_OTHER_ASSETS'
+        other_date = copy.deepcopy(self.master)
+        other_date['as_of_date'] = '2026-08-21'
+        cases = [
+            ('master_id', F.GAM.build_master(other_id)),
+            ('as_of_date', F.GAM.build_master(other_date)),
+            # Same identity, already-appended content: a changed previous master.
+            ('payload_sha256', F.GAM.build_master(F.binding_master_input())),
+        ]
+        for field, packet in cases:
+            with self.subTest(field=field):
+                path = self.destination(packet)
+                before = path.read_bytes()
+                with self.assertRaisesRegex(I.AssetMasterError, f'ORIGINAL_MASTER_MISMATCH:{field}'):
+                    I.apply_theme_ingestion_preview(**self.apply_args(
+                        repo, preview, path, packet['payload_sha256']))
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_application_cooperative_writers_are_serialized(self):
+        repo = self.repo()
+        original = F.GAM.build_master(self.master)
+        path = self.destination(original)
+        preview = self.build(repo)
+        args = self.apply_args(repo, preview, path, original['payload_sha256'])
+        before = path.read_bytes()
+        started = [threading.Event(), threading.Event()]
+        outcomes, failures = {}, {}
+
+        def worker(index):
+            started[index].set()
+            try:
+                outcomes[index] = I.apply_theme_ingestion_preview(**args)
+            except I.AssetMasterError as exc:
+                failures[index] = str(exc)
+
+        threads = [threading.Thread(target=worker, args=(index,), daemon=True) for index in (0, 1)]
+        with I._destination_apply_lock(path):
+            for thread in threads:
+                thread.start()
+            for event in started:
+                self.assertTrue(event.wait(30))
+            # Neither cooperating caller can publish while the boundary is held.
+            self.assertEqual(path.read_bytes(), before)
+        for thread in threads:
+            thread.join(120)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(len(outcomes), 1, (outcomes, failures))
+        self.assertEqual(len(failures), 1, (outcomes, failures))
+        self.assertEqual(next(iter(outcomes.values()))['outcome'], 'APPLIED_APPEND')
+        self.assertIn('EXPECTED_PREVIOUS_MASTER_MISMATCH', next(iter(failures.values())))
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8')), preview['candidate_master'])
+
+    def test_application_symlink_alias_writers_are_serialized(self):
+        repo = self.repo()
+        original = F.GAM.build_master(self.master)
+        path = self.destination(original).resolve(strict=True)
+        alias = path.with_name('master-alias.json')
+        alias.symlink_to(path)
+        preview = self.build(repo)
+        publish_entered, release_publish = threading.Event(), threading.Event()
+        outcomes, failures = {}, {}
+        write_json_atomic = I.GAM.write_json_atomic
+
+        def paused_publish(destination, value):
+            publish_entered.set()
+            if not release_publish.wait(10):
+                raise RuntimeError('test publication release timed out')
+            write_json_atomic(destination, value)
+
+        def worker(index, destination):
+            try:
+                outcomes[index] = I.apply_theme_ingestion_preview(**self.apply_args(
+                    repo, preview, destination, original['payload_sha256']))
+            except Exception as exc:
+                failures[index] = exc
+
+        threads = []
+        with mock.patch.object(I.GAM, 'write_json_atomic', paused_publish):
+            try:
+                # Ensure the alias caller has validated the old master before
+                # the real-path caller starts; both then compete to publish.
+                threads.append(threading.Thread(target=worker, args=(0, alias), daemon=True))
+                threads[0].start()
+                self.assertTrue(publish_entered.wait(10))
+                threads.append(threading.Thread(target=worker, args=(1, path), daemon=True))
+                threads[1].start()
+            finally:
+                release_publish.set()
+                for thread in threads:
+                    thread.join(10)
+                    self.assertFalse(thread.is_alive())
+        self.assertEqual(len(outcomes), 1, (outcomes, failures))
+        self.assertEqual(len(failures), 1, (outcomes, failures))
+        result = next(iter(outcomes.values()))
+        self.assertEqual(result['outcome'], 'APPLIED_APPEND')
+        self.assertEqual(result['destination_path'], str(path))
+        failure = next(iter(failures.values()))
+        self.assertIsInstance(failure, I.AssetMasterError)
+        self.assertIn('EXPECTED_PREVIOUS_MASTER_MISMATCH', str(failure))
+        self.assertTrue(alias.is_symlink())
+        self.assertEqual(alias.read_bytes(), path.read_bytes())
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8')), preview['candidate_master'])
+        self.assertFalse(I._lock_path(alias).exists())
+
+    def test_application_pre_publish_failure_preserves_destination(self):
+        repo = self.repo()
+        original = F.GAM.build_master(self.master)
+        path = self.destination(original)
+        preview = self.build(repo)
+        before = path.read_bytes()
+        published = []
+
+        def fail(destination, value):
+            published.append((Path(destination), value))
+            raise OSError('injected pre-publish failure')
+
+        with mock.patch.object(I.GAM, 'write_json_atomic', fail):
+            with self.assertRaisesRegex(OSError, 'injected pre-publish failure'):
+                I.apply_theme_ingestion_preview(**self.apply_args(repo, preview, path, original['payload_sha256']))
+        self.assertEqual(published, [(path.resolve(strict=True), preview['candidate_master'])])
+        self.assertEqual(path.read_bytes(), before)
+        expected_files = {path.name, I._lock_path(path).name}
+        self.assertEqual([p.name for p in path.parent.iterdir() if p.name not in expected_files], [])
+        # The boundary is released, so the same application still succeeds.
+        result = I.apply_theme_ingestion_preview(**self.apply_args(repo, preview, path, original['payload_sha256']))
+        self.assertEqual(result['outcome'], 'APPLIED_APPEND')
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8')), preview['candidate_master'])
 
 
 if __name__ == '__main__':
