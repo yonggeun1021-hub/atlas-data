@@ -1,0 +1,49 @@
+{
+  "main": "4dbb9e6a44eda18cb54e23c7ec88fde32c5decb6",
+  "checks": [
+    {
+      "command": [
+        "python3",
+        "test/test_capital_flow_posture_reference.py"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "python3",
+        "test/test_cross_market_flow_transition_ledger.py"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "python3",
+        "test/test_defensive_action_decision.py"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "python3",
+        "portfolio/capital_flow_posture_reference.py",
+        "--verify",
+        "data/latest_capital_flow_posture_reference.json"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "python3",
+        "portfolio/cross_market_flow_transition_ledger.py",
+        "--verify",
+        "data/latest_cross_market_flow_transition_ledger.json"
+      ],
+      "returncode": 0
+    }
+  ],
+  "hash_binding": "PASS",
+  "live_run_readback": "PASS",
+  "checked_at": "2026-09-05T06:44:00Z",
+  "scope": "Engineering integration of existing scheduled Flow producer and NATURAL ledger; latest-main consumer regressions. Not a new post-Runtime-Regime natural execution or investment policy/WBS completion.",
+  "actual_flow_claim": "UNKNOWN"
+}
