@@ -83,7 +83,10 @@ jobs:
 
   briefing:
     runs-on: [self-hosted, Linux, X64, atlas-data]
-    timeout-minutes: 15
+    # Natural runs now freeze and validate the P2 flow replay plus the
+    # provenance-heavy Phase-C sidecars before sealing.  A verified 2026-09-07
+    # run reached 14m51s in this step and was cancelled by the former bound.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
