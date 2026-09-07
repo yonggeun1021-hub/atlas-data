@@ -215,6 +215,8 @@ def _git_blob(commit: str, relative: str) -> bytes:
 def _exact_validator_sparse_path(value: object, *, directory: bool = False) -> str:
     if not isinstance(value, str) or not value:
         raise OperationalDecisionLineageError("EXACT_VALIDATOR_SOURCE_PATH_INVALID")
+    if any(character in value for character in ("\x00", "\n", "\r")):
+        raise OperationalDecisionLineageError("EXACT_VALIDATOR_SOURCE_PATH_INVALID")
     parsed = PurePosixPath(value)
     if (
         parsed.is_absolute()
@@ -224,6 +226,50 @@ def _exact_validator_sparse_path(value: object, *, directory: bool = False) -> s
         raise OperationalDecisionLineageError("EXACT_VALIDATOR_SOURCE_PATH_INVALID")
     suffix = "/" if directory else ""
     return f"/{parsed.as_posix()}{suffix}"
+
+
+def _literal_sparse_pattern(path: str) -> str:
+    """Encode one validated repo path as a literal non-cone Git pattern."""
+    directory = path.endswith("/")
+    body = path[1:-1] if directory else path[1:]
+    escaped = "".join(
+        f"\\{character}" if character in "\\*?[] " else character
+        for character in body
+    )
+    return f"/{escaped}{'/' if directory else ''}"
+
+
+def _require_exact_validator_payloads(
+    commit: str, payload_paths: tuple[str, ...]
+) -> None:
+    """Fail closed unless every requested literal payload exists at commit."""
+    for path in payload_paths:
+        directory = path.endswith("/")
+        relative = path[1:-1] if directory else path[1:]
+        if _exact_validator_sparse_path(relative, directory=directory) != path:
+            raise OperationalDecisionLineageError(
+                "EXACT_VALIDATOR_SOURCE_PATH_INVALID"
+            )
+        command = (
+            [
+                "git", "--literal-pathspecs", "ls-tree", "-r", "--name-only",
+                commit, "--", relative,
+            ]
+            if directory
+            else ["git", "cat-file", "-e", f"{commit}:{relative}"]
+        )
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if completed.returncode != 0 or (directory and not completed.stdout.strip()):
+            raise OperationalDecisionLineageError(
+                "EXACT_VALIDATOR_REQUIRED_PAYLOAD_MISSING"
+            )
 
 
 def _exact_validator_payload_patterns(unified: dict) -> tuple[str, ...]:
@@ -336,7 +382,11 @@ def _materialize_exact_commit(
     )
     if resolved.returncode != 0 or resolved.stdout.strip() != commit:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_NOT_IMMUTABLE")
-    sparse_patterns = (*EXACT_VALIDATOR_SPARSE_PATTERNS, *payload_patterns)
+    _require_exact_validator_payloads(commit, payload_patterns)
+    sparse_patterns = (
+        *EXACT_VALIDATOR_SPARSE_PATTERNS,
+        *(_literal_sparse_pattern(path) for path in payload_patterns),
+    )
     commands = (
         [
             "git", "worktree", "add", "--quiet", "--detach", "--no-checkout",

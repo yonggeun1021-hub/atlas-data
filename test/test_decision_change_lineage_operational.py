@@ -374,6 +374,58 @@ class OperationalDecisionLineageTests(unittest.TestCase):
         rotation["source_packet"] = None
         self.assertEqual(MODULE._exact_validator_payload_patterns(unified), ())
 
+    def test_sparse_checkout_treats_payload_metacharacters_as_literal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+            subprocess.run(
+                ["git", "config", "user.name", "Atlas Test"], cwd=source, check=True
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "atlas@example.invalid"],
+                cwd=source,
+                check=True,
+            )
+            (source / "validator.py").write_text("VALID = True\n", encoding="utf-8")
+            payload_root = source / "data" / "raw"
+            payload_root.mkdir(parents=True)
+            exact = payload_root / "[ab]*?.json"
+            neighbor = payload_root / "a-neighbor-x.json"
+            exact.write_text('{"exact":true}\n', encoding="utf-8")
+            neighbor.write_text('{"neighbor":true}\n', encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=source, check=True)
+            subprocess.run(
+                ["git", "commit", "--quiet", "-m", "fixture"],
+                cwd=source,
+                check=True,
+            )
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=source, text=True
+            ).strip()
+            path = MODULE._exact_validator_sparse_path(
+                "data/raw/[ab]*?.json"
+            )
+            with mock.patch.object(MODULE, "ROOT", source):
+                with MODULE._exact_commit_checkout(commit, (path,)) as checkout:
+                    self.assertTrue((checkout / "data/raw/[ab]*?.json").is_file())
+                    self.assertFalse((checkout / "data/raw/a-neighbor-x.json").exists())
+                with self.assertRaisesRegex(
+                    MODULE.OperationalDecisionLineageError,
+                    "EXACT_VALIDATOR_REQUIRED_PAYLOAD_MISSING",
+                ):
+                    with MODULE._exact_commit_checkout(
+                        commit, ("/data/raw/missing.json",)
+                    ):
+                        pass
+
+        for invalid in ("data/raw/line\nbreak.json", "data/raw/nul\x00byte.json"):
+            with self.assertRaisesRegex(
+                MODULE.OperationalDecisionLineageError,
+                "EXACT_VALIDATOR_SOURCE_PATH_INVALID",
+            ):
+                MODULE._exact_validator_sparse_path(invalid)
+
     def test_real_committed_briefing_builds_created_zero_authority_record(self):
         record = self.record()
         self.assertEqual(record["lineage_packet"]["entries"][0]["change_type"], "CREATED")
