@@ -1385,6 +1385,10 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
     component_reason = None if component_status == "READY" else alpaca_status
     return component_row(
         "FREE_MARKET_DATA", component_status, component_reason,
+        # Retain the established FRED clock here because the cross-asset
+        # flow contract consumes this field as VIX observation time. The US
+        # session clock is independently retained in us_market_reference
+        # below and is what the human-facing market board displays.
         as_of_date=fred.get("observation_date"),
         generated_at=payload.get("observed_at_utc"),
         available_at=payload.get("observed_at_utc"),
@@ -1441,6 +1445,9 @@ def _classify_btc_trend(snapshot: dict) -> dict:
         "BTC_TREND",
         "READY",
         None,
+        # Keep the component's historical capture-vintage clock for replay
+        # compatibility. The distinct finalized measurement day is retained
+        # in packet.latest_finalized_day and used by briefing presentation.
         as_of_date=resolved.name,
         generated_at=snapshot["downloaded_at"],
         source_packet_path=snapshot["resolved_dir"],
@@ -1449,7 +1456,12 @@ def _classify_btc_trend(snapshot: dict) -> dict:
         validated=True,
         authority={k: v for k, v in packet.items() if k.endswith("_authorized")},
         contract_version=packet.get("transform_version"),
-        packet={"direction": packet.get("direction"), "dma_200": packet.get("dma_200") if "dma_200" in packet else None},
+        packet={
+            "direction": packet.get("direction"),
+            "dma_200": packet.get("dma_200") if "dma_200" in packet else None,
+            "latest_finalized_day": packet.get("latest_finalized_day"),
+            "capture_date": resolved.name,
+        },
     )
 
 
@@ -1476,6 +1488,8 @@ def _classify_btc_risk(snapshot: dict) -> dict:
         "BTC_RISK",
         "READY",
         None,
+        # Same clock split as BTC_TREND: preserve the capture vintage here;
+        # render packet.latest_finalized_day as the measurement date.
         as_of_date=resolved.name,
         generated_at=snapshot["downloaded_at"],
         source_packet_path=snapshot["resolved_dir"],
@@ -1484,6 +1498,8 @@ def _classify_btc_risk(snapshot: dict) -> dict:
         packet={
             "status": packet.get("status"),
             "risk_point": packet.get("risk_point"),
+            "latest_finalized_day": packet.get("latest_finalized_day"),
+            "capture_date": resolved.name,
         },
     )
 
@@ -4248,6 +4264,12 @@ def _format_component_detail(
         elif cid == "FREE_MARKET_DATA":
             vix = packet.get("vixcls", {})
             bars = packet.get("alpaca_iex_bars", [])
+            market_reference = packet.get("us_market_reference") or {}
+            lines.append(
+                "    - clocks: "
+                f"market_session={market_reference.get('as_of_session_date') or row.get('as_of_date') or 'UNKNOWN'} "
+                f"VIXCLS_observation={vix.get('date') or 'UNKNOWN'}"
+            )
             if decision_date and row.get("as_of_date") != decision_date:
                 # US evidence is never a substitute for the KRX briefing
                 # date.  Keep its own date visible, but do not present an
@@ -4258,15 +4280,15 @@ def _format_component_detail(
                 )
             else:
                 lines.append(
-                    f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
-                )
-                lines.append(
                     "    - Alpaca IEX partial: "
                     + (
                         ", ".join(f"{bar.get('symbol')}={bar.get('close')}" for bar in bars)
                         if bars else f"{packet.get('alpaca_status')}"
                     )
                 )
+            lines.append(
+                f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
+            )
             lines.append(f"    - scope: {packet.get('scope_warning')}")
         elif cid == "BTC_TREND":
             lines.append(
@@ -4370,6 +4392,13 @@ def _format_component_detail(
                 )
         elif cid == "ROTATION_DISCOVERY":
             summary = packet.get("summary", {})
+            authority = packet.get("authority") or {}
+            promotion_authorized = authority.get("stage_promotion_authorized") is True
+            promoted_count = (
+                "UNKNOWN"
+                if promotion_authorized
+                else 0
+            )
             lines.append(
                 f"    - rotation_changes={summary.get('rotation_change_count')} "
                 f"discovery_cases={summary.get('discovery_case_count')} "
@@ -4378,6 +4407,12 @@ def _format_component_detail(
                 f"signal_observations={summary.get('signal_observation_count')} "
                 f"dart_observations={summary.get('dart_observation_count')} "
                 f"ready={summary.get('ready_count')} entry={summary.get('entry_trigger_count')}"
+            )
+            lines.append(
+                "    - formal_candidate_changes: "
+                f"new={summary.get('new_candidate_count')} "
+                f"promoted={promoted_count} dropped=UNKNOWN maintained=UNKNOWN "
+                "blocker=CANONICAL_DROPPED_MAINTAINED_TRANSITION_EVIDENCE_NOT_AVAILABLE"
             )
             dart = packet.get("dart_observations", {})
             if (
@@ -4551,6 +4586,7 @@ def _format_component_detail(
             markets = packet.get("markets", {})
             for market, m in sorted(markets.items()):
                 tier_counts = m.get("tier_counts", {})
+                due_counts = m.get("review_due_counts", {})
                 lines.append(
                     f"    - {market}: raw_triggers(audit only)={m.get('raw_trigger_count_audit_only')} "
                     f"immediate_review={tier_counts.get('IMMEDIATE_REVIEW')} "
@@ -4558,7 +4594,10 @@ def _format_component_detail(
                     f"observation_only={tier_counts.get('OBSERVATION_ONLY')} "
                     f"expired={len(m.get('expired_triggers', []))} "
                     f"calendar_confidence={m.get('calendar_confidence')} "
-                    f"not_computable={m.get('not_computable_trigger_types')}"
+                    f"not_computable={m.get('not_computable_trigger_types')} "
+                    f"review_overdue={due_counts.get('REVIEW_OVERDUE', 0)} "
+                    f"review_due_today={due_counts.get('REVIEW_DUE_TODAY', 0)} "
+                    f"review_upcoming={due_counts.get('REVIEW_UPCOMING', 0)}"
                 )
                 # NOTE: every field rendered per candidate below (subject,
                 # tier, trigger_types+confirmation_count, price_state,
@@ -4594,7 +4633,9 @@ def _format_component_detail(
                             f"reflection_status={c.get('reflection_status')} "
                             f"data_state={c.get('data_state')} "
                             f"threshold_basis={c.get('threshold_basis')} "
-                            f"price_as_of={c.get('price_as_of')} "
+                            f"price_observation_date={c.get('price_observation_date')} "
+                            f"price_captured_at={c.get('price_captured_at')} "
+                            f"review_due={c.get('review_due_status')} "
                             f"next_review_at={c.get('next_review_at')} "
                             f"authority={c.get('authority')} money_action={c.get('money_action')} "
                             f"reason={c.get('reason')}"
@@ -4649,12 +4690,42 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         row = by_id.get(component_id) or {}
         return row.get("as_of_date") or "UNKNOWN"
 
+    def measurement_date(component_id: str) -> str:
+        row = by_id.get(component_id) or {}
+        component_packet = row.get("packet") or {}
+        if component_id == "FREE_MARKET_DATA":
+            return (
+                (component_packet.get("us_market_reference") or {}).get(
+                    "as_of_session_date"
+                )
+                or source_date(component_id)
+            )
+        if component_id == "BTC_TREND":
+            return component_packet.get("latest_finalized_day") or source_date(component_id)
+        if component_id == "BTC_RISK":
+            return (
+                component_packet.get("latest_finalized_day")
+                or (component_packet.get("risk_point") or {}).get("as_of_date")
+                or source_date(component_id)
+            )
+        return source_date(component_id)
+
     krx = by_id.get("KOREA_MARKET_SIGNALS") or {}
+    krx_post_close = by_id.get("KRX_POST_CLOSE") or {}
+    krx_post_close_packet = krx_post_close.get("packet") or {}
+    krx_post_close_summary = krx_post_close_packet.get("summary") or {}
+    observed_symbol_count = krx_post_close_summary.get("observed_symbol_count")
+    krx_observed_unconfirmed = (
+        krx_post_close.get("as_of_date")
+        if isinstance(observed_symbol_count, int) and observed_symbol_count > 0
+        else "UNKNOWN"
+    )
     krx_fresh = krx.get("status") == "READY" and krx.get("as_of_date") == decision_date
     us = by_id.get("FREE_MARKET_DATA") or {}
-    us_fresh = us.get("status") == "READY" and us.get("as_of_date") == decision_date
+    us_session_date = measurement_date("FREE_MARKET_DATA")
+    us_fresh = us.get("status") == "READY" and us_session_date == decision_date
     crypto_ids = ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE")
-    crypto_dates = [source_date(component_id) for component_id in crypto_ids]
+    crypto_dates = [measurement_date(component_id) for component_id in crypto_ids]
     crypto_fresh = all(date == decision_date for date in crypto_dates)
 
     lines = ["## 3-market session board"]
@@ -4663,7 +4734,12 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         "### KRX · 한국",
         ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
         + f"; evidence_date={source_date('KOREA_MARKET_SIGNALS')}",
-        "- latest_completed_close_date: " + source_date("KOREA_MARKET_SIGNALS"),
+        "- latest_confirmed_close_date: " + source_date("KOREA_MARKET_SIGNALS"),
+        "- latest_observed_unconfirmed_date: " + krx_observed_unconfirmed,
+        "- pending_reason: same-day post-close observations remain decision-ineligible "
+        "until canonical confirmation."
+        if krx_observed_unconfirmed != "UNKNOWN"
+        else "- pending_reason: no same-day post-close observation is available.",
     ])
     if krx_fresh:
         lines.extend(_format_component_detail(krx, decision_date))
@@ -4679,8 +4755,10 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
     lines.extend([
         "### US · 미국",
         ("- session: CURRENT_SESSION_EVIDENCE" if us_fresh else "- session: INDEPENDENT_SESSION_PENDING")
-        + f"; evidence_date={source_date('FREE_MARKET_DATA')}",
-        "- latest_verified_us_evidence_date: " + source_date("FREE_MARKET_DATA"),
+        + f"; evidence_date={us_session_date}",
+        "- latest_verified_us_session_date: " + us_session_date,
+        "- latest_verified_vix_observation_date: "
+        + str(((us.get("packet") or {}).get("vixcls") or {}).get("date") or "UNKNOWN"),
     ])
     if us_fresh:
         lines.extend(_format_component_detail(us, decision_date))
@@ -4695,8 +4773,14 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         (
             "- session: CONTINUOUS_CURRENT_EVIDENCE"
             if crypto_fresh else "- session: CONTINUOUS_EVIDENCE_PENDING"
-        ) + f"; evidence_dates={','.join(crypto_dates)}",
+        ) + "; evidence_dates=" + ",".join(
+            f"{component_id}={measurement_date(component_id)}"
+            for component_id in crypto_ids
+        ),
         "- continuous_observation_date: " + (decision_date if crypto_fresh else "PENDING"),
+        "- pending_reason: component measurement dates are not all current/equal."
+        if not crypto_fresh
+        else "- pending_reason: NONE",
     ])
     if crypto_fresh:
         for component_id in crypto_ids:

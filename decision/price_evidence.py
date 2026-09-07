@@ -403,6 +403,34 @@ def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
     }
 
 
+def krx_price_temporal_metadata(code: str, decision_date: str) -> dict:
+    """Return the two KRX clocks without changing the P8-10 packet shape.
+
+    ``price_as_of`` in the established price-reflection contract is the
+    collection instant of the selected snapshot.  A briefing also needs the
+    date of the price observation itself.  Keep both facts distinct here so
+    the presentation layer cannot relabel collection time as market time.
+    """
+    snapshots = ei.find_krx_snapshots()
+    series = ps.build_krx_series(code, snapshots)
+    live_dates = series.live_trading_dates_at_or_before(decision_date)
+    lg.assert_no_signal_lookahead(
+        decision_date,
+        [series.first_capture_date_for(day) for day in live_dates],
+        label=f"krx_price_temporal_metadata:{code}",
+    )
+    latest_snapshot = ei.snapshot_at_or_before(snapshots, decision_date)
+    if latest_snapshot is None or not live_dates:
+        return {
+            "price_observation_date": None,
+            "price_captured_at": None,
+        }
+    return {
+        "price_observation_date": live_dates[-1],
+        "price_captured_at": _utc_z(latest_snapshot.collected_at_utc),
+    }
+
+
 def _us_price_points(
     symbol: str,
     base_dir: Path = FREE_MARKET_DATA_RAW_DIR,

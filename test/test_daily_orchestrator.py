@@ -398,6 +398,78 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(row["source_packet_path"], relative_path)
         self.assertEqual(row["source_packet_sha256"], expected)
         self.assertNotEqual(expected, snapshot["value"].get("packet_sha256"))
+        if (
+            snapshot["value"].get("schema_version") == "free_market_data_capture/5"
+            and snapshot["value"].get("alpaca", {}).get("status") == "READY"
+        ):
+            self.assertEqual(
+                row["packet"]["us_market_reference"]["as_of_session_date"],
+                snapshot["value"]["us_market_reference"]["as_of_session_date"],
+            )
+            self.assertEqual(
+                row["packet"]["vixcls"]["date"],
+                snapshot["value"]["fred"]["observation_date"],
+            )
+
+    def test_btc_components_use_finalized_measurement_day_not_capture_day(self):
+        snapshot = {
+            "kind": "present",
+            "resolved_dir": "evidence/crypto/btc/raw/2026-09-07",
+            "downloaded_at": "2026-09-07T00:05:00Z",
+        }
+        trend = {
+            "transform_version": "btc_trend/v1",
+            "direction": "ABOVE_200DMA",
+            "dma_200": "100",
+            "latest_finalized_day": "2026-09-06",
+            "regime_score_authorized": False,
+            "threshold_authorized": False,
+            "production_wiring_authorized": False,
+        }
+        risk = {
+            "transform_version": "btc_risk/v1",
+            "status": "AVAILABLE_UNCALIBRATED",
+            "latest_finalized_day": "2026-09-06",
+            "risk_point": {"as_of_date": "2026-09-06"},
+        }
+        with mock.patch.object(MODULE.BTC_TREND, "build_transform", return_value=trend):
+            row = MODULE._classify_btc_trend(snapshot)
+        self.assertEqual(row["as_of_date"], "2026-09-07")
+        self.assertEqual(row["packet"]["latest_finalized_day"], "2026-09-06")
+        self.assertEqual(row["packet"]["capture_date"], "2026-09-07")
+        with mock.patch.object(MODULE.BTC_RISK, "build_transform", return_value=risk):
+            row = MODULE._classify_btc_risk(snapshot)
+        self.assertEqual(row["as_of_date"], "2026-09-07")
+        self.assertEqual(row["packet"]["latest_finalized_day"], "2026-09-06")
+        self.assertEqual(row["packet"]["capture_date"], "2026-09-07")
+
+    def test_rotation_render_keeps_zero_formal_candidates_and_unknown_changes(self):
+        row = {
+            "component_id": "ROTATION_DISCOVERY",
+            "packet": {
+                "authority": {"stage_promotion_authorized": False},
+                "summary": {
+                    "rotation_change_count": 0,
+                    "discovery_case_count": 18,
+                    "new_candidate_count": 0,
+                    "existing_candidate_change_count": 0,
+                    "signal_observation_count": 88,
+                    "dart_observation_count": 3,
+                    "ready_count": 0,
+                    "entry_trigger_count": 0,
+                },
+            },
+        }
+        detail = "\n".join(MODULE._format_component_detail(row))
+        self.assertIn(
+            "formal_candidate_changes: new=0 promoted=0 "
+            "dropped=UNKNOWN maintained=UNKNOWN",
+            detail,
+        )
+        self.assertIn(
+            "CANONICAL_DROPPED_MAINTAINED_TRANSITION_EVIDENCE_NOT_AVAILABLE",
+            detail,
+        )
 
     def test_korea_market_signals_row_binds_exact_dated_packet_bytes(self):
         snapshot = MODULE._fetch_korea_market_signals_snapshot()
@@ -2022,7 +2094,16 @@ class DailyOrchestratorTest(unittest.TestCase):
         packet = {"decision_date": "2026-09-01"}
         by_id = {
             "KOREA_MARKET_SIGNALS": {"status": "READY", "as_of_date": "2026-08-31"},
-            "FREE_MARKET_DATA": {"status": "READY", "as_of_date": "2026-08-28"},
+            "KRX_POST_CLOSE": {
+                "status": "READY",
+                "as_of_date": "2026-09-01",
+                "packet": {"summary": {"observed_symbol_count": 7}},
+            },
+            "FREE_MARKET_DATA": {
+                "status": "READY",
+                "as_of_date": "2026-08-28",
+                "packet": {"vixcls": {"date": "2026-08-27"}},
+            },
             "BTC_TREND": {"as_of_date": "2026-09-01"},
             "BTC_RISK": {"as_of_date": "2026-09-01"},
             "STABLECOIN_NET_ISSUANCE": {"as_of_date": "2026-09-01"},
@@ -2032,9 +2113,12 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("### KRX · 한국", context)
         self.assertIn("session: FRESH_CLOSE_PENDING", context)
         self.assertIn("evidence_date=2026-08-31", context)
+        self.assertIn("latest_confirmed_close_date: 2026-08-31", context)
+        self.assertIn("latest_observed_unconfirmed_date: 2026-09-01", context)
         self.assertIn("### US · 미국", context)
         self.assertIn("session: INDEPENDENT_SESSION_PENDING", context)
         self.assertIn("evidence_date=2026-08-28", context)
+        self.assertIn("latest_verified_vix_observation_date: 2026-08-27", context)
         self.assertIn("### Crypto · 코인", context)
         self.assertIn("session: CONTINUOUS_CURRENT_EVIDENCE", context)
         self.assertIn("continuous_observation_date: 2026-09-01", context)
@@ -2067,7 +2151,8 @@ class DailyOrchestratorTest(unittest.TestCase):
         }
         us_detail = "\n".join(MODULE._format_component_detail(us, "2026-09-01"))
         self.assertIn("US close values withheld", us_detail)
-        self.assertNotIn("VIXCLS=14.43", us_detail)
+        self.assertIn("market_session=2026-08-28", us_detail)
+        self.assertIn("VIXCLS=14.43 as_of=2026-08-28", us_detail)
 
     def test_weekend_morning_discloses_closed_session_without_date_relabelling(self):
         packet = MODULE.build_packet(

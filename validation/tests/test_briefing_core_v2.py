@@ -364,6 +364,215 @@ class BriefingCoreV2Acceptance(unittest.TestCase):
             ["complete_market_conclusion_allowed"]
         )
 
+    def test_delivery_claims_cover_dates_numbers_causality_and_review_due(self):
+        packet = self.source_packet()
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        by_id["FREE_MARKET_DATA"]["packet"] = {
+            "vixcls": {"date": "2026-08-31", "value": "17.25"},
+            "us_market_reference": {"as_of_session_date": "2026-09-01"},
+            "scope_warning": "IEX_PARTIAL_EVIDENCE_ONLY_NOT_MARKET_WIDE_OR_TRADE_AUTHORITY",
+        }
+        packet["components"].extend([
+            {
+                "component_id": "BTC_TREND",
+                "status": "READY",
+                "reason": None,
+                "as_of_date": "2026-09-01",
+                "source_packet_path": None,
+                "source_packet_sha256": None,
+                "packet": {
+                    "latest_finalized_day": "2026-09-01",
+                    "direction": "ABOVE_200DMA",
+                    "dma_200": "70000.0",
+                },
+            },
+            {
+                "component_id": "BTC_RISK",
+                "status": "READY",
+                "reason": None,
+                "as_of_date": "2026-09-01",
+                "source_packet_path": None,
+                "source_packet_sha256": None,
+                "packet": {
+                    "risk_point": {
+                        "as_of_date": "2026-09-01",
+                        "drawdown": {
+                            "current_fraction": "-0.01",
+                            "maximum_fraction": "-0.10",
+                        },
+                        "realized_volatility": {"annualized_fraction": "0.45"},
+                    }
+                },
+            },
+            {
+                "component_id": "STABLECOIN_NET_ISSUANCE",
+                "status": "READY",
+                "reason": None,
+                "as_of_date": "2026-09-02",
+                "source_packet_path": None,
+                "source_packet_sha256": None,
+                "packet": {
+                    "observation_date": "2026-09-02",
+                    "daily_net_issuance_native_usd_peg": "10",
+                    "weekly_net_issuance_native_usd_peg": "70",
+                },
+            },
+            {
+                "component_id": "KOREA_MARKET_SIGNALS",
+                "status": "READY",
+                "reason": None,
+                "as_of_date": "2026-09-01",
+                "source_packet_path": None,
+                "source_packet_sha256": None,
+                "packet": {"as_of_date": "2026-09-01"},
+            },
+            {
+                "component_id": "KRX_POST_CLOSE",
+                "status": "READY",
+                "reason": None,
+                "as_of_date": "2026-09-02",
+                "source_packet_path": None,
+                "source_packet_sha256": None,
+                "packet": {
+                    "observation_status": "observed_unconfirmed",
+                    "summary": {
+                        "observed_symbol_count": 2,
+                        "decision_eligible_symbol_count": 0,
+                        "confirmed_same_day_count": 0,
+                    },
+                    "symbols": [
+                        {
+                            "latest_observed_day": "2026-09-02",
+                            "latest_trading_day": "2026-09-01",
+                        },
+                        {
+                            "latest_observed_day": "2026-09-02",
+                            "latest_trading_day": "2026-09-01",
+                        },
+                    ],
+                },
+            },
+            {
+                "component_id": "DYNAMIC_CLOCK",
+                "status": "READY",
+                "reason": None,
+                "as_of_date": "2026-09-02",
+                "source_packet_path": None,
+                "source_packet_sha256": None,
+                "packet": {
+                    "decision_date": "2026-09-02",
+                    "markets": {
+                        "CRYPTO": {
+                            "watch_review": [
+                                {"subject": "AAA/USD", "next_review_at": "2026-09-01"},
+                                {"subject": "BBB/USD", "next_review_at": "2026-09-02"},
+                            ]
+                        }
+                    },
+                },
+            },
+            {
+                "component_id": "ROTATION_DISCOVERY",
+                "status": "PENDING",
+                "reason": "PROMOTION_NOT_AUTHORIZED",
+                "as_of_date": "2026-09-02",
+                "source_packet_path": None,
+                "source_packet_sha256": None,
+                "packet": {
+                    "discovery": {
+                        "case_count": 3,
+                        "new_candidates": [],
+                        "existing_candidate_changes": [],
+                    },
+                    "signal_observations": {"observation_count": 2},
+                },
+            },
+            {
+                "component_id": "BUSINESS_ACCELERATION",
+                "status": "PENDING",
+                "reason": "RANKING_UNRATIFIED",
+                "as_of_date": "2026-09-02",
+                "source_packet_path": None,
+                "source_packet_sha256": None,
+                "packet": {
+                    "series": [{
+                        "metric": "MONTHLY_REVENUE_YOY",
+                        "pattern": "LATEST_STEP_NOT_UP",
+                        "values_pct": ["30.1", "67.9", "44.7"],
+                        "candidate_eligible": False,
+                    }]
+                },
+            },
+        ])
+        by_id["OFFICIAL_RELEASE_SUMMARY"]["packet"] = {
+            "counts": {
+                "observed_registered_releases": 1,
+                "observed_summary_items": 1,
+            },
+            "observations": [{
+                "subject": "SNDK",
+                "published_at": "2026-08-05",
+                "summary_items": [{
+                    "text": "Revenue rose because the company reported higher volume and pricing."
+                }],
+            }],
+        }
+        self.write_packet(packet)
+        source_commit = self.commit_changes("rich delivery claims")
+
+        envelope = self.envelope(source_commit=source_commit)
+        artifacts = chain.build_chain_artifacts(envelope)
+        ledger = artifacts["claim-ledger.json"]
+        claims = {row["claim_id"]: row for row in ledger["claims"]}
+        for claim_id in (
+            "freshness.us.market_session_date",
+            "freshness.us.vix_observation_date",
+            "numeric.us.vixcls",
+            "freshness.crypto.btc_trend_finalized_date",
+            "freshness.crypto.btc_risk_finalized_date",
+            "numeric.crypto.btc_risk",
+            "freshness.krx.latest_confirmed_close_date",
+            "freshness.krx.post_close_observed_dates",
+            "numeric.krx.post_close_summary",
+            "review_due.dynamic_clock.crypto",
+            "review_due.dynamic_clock.all",
+            "numeric.rotation.discovery_summary",
+            "numeric.business_acceleration.series_1",
+            "official_release.attributed_summary_1",
+            "boundary.official_release.causality",
+        ):
+            self.assertIn(claim_id, claims)
+        self.assertIn("2026-09-01", claims["freshness.us.market_session_date"]["statement"])
+        self.assertIn("2026-08-31", claims["freshness.us.vix_observation_date"]["statement"])
+        self.assertIn(
+            "overdue=1, due_today=1, upcoming=0, unclassified=0, total=2",
+            claims["review_due.dynamic_clock.all"]["statement"],
+        )
+        self.assertEqual(claims["boundary.official_release.causality"]["kind"], "UNKNOWN")
+        self.assertEqual(
+            set(claims["numeric.crypto.btc_risk"]),
+            {"claim_id", "kind", "statement", "status", "source_ref_paths"},
+        )
+        PORTAL_PRODUCER.validate_claim_ledger(self.repo, ledger)
+
+    def test_retained_20260907_packet_claims_exact_24_of_93_overdue_watch_reviews(self):
+        relative = (
+            "evidence/daily_briefing/evening/2026-09-07/rev-001/packet.json"
+        )
+        packet = json.loads(
+            subprocess.check_output(
+                ["git", "show", f"HEAD:{relative}"], cwd=ROOT
+            )
+        )
+        claims = {
+            row["claim_id"]: row
+            for row in chain._delivery_claims(packet, relative)
+        }
+        self.assertIn(
+            "overdue=24, due_today=16, upcoming=53, unclassified=0, total=93",
+            claims["review_due.dynamic_clock.all"]["statement"],
+        )
+
     def test_20260902_major_event_omission_enters_correction_loop_then_passes(self):
         registry = major_events.validate_registry(
             self.event_registry(), briefing_date="2026-09-02", slot="AM"

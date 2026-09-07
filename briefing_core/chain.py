@@ -485,6 +485,319 @@ def _major_event_registry(
     return registry, explicit_path, body
 
 
+def _delivery_claims(packet: dict, packet_ref: str) -> list[dict]:
+    """Project bounded delivery facts from the exact sealed packet.
+
+    The generic module claims below prove only that a component is present.
+    They do not identify the independently dated observations or the numeric
+    facts that the human-facing briefing renders.  Keep those facts in the
+    existing ``claim_ledger/1`` claim shape and bind every verified statement
+    to the exact packet bytes.  UNKNOWN statements intentionally carry no
+    source reference: they describe conclusions the packet does not prove.
+    """
+
+    claims: list[dict] = []
+
+    def fact(claim_id: str, statement: str) -> None:
+        claims.append({
+            "claim_id": claim_id,
+            "kind": "FACT",
+            "statement": statement,
+            "status": "VERIFIED",
+            "source_ref_paths": [packet_ref],
+        })
+
+    def unknown(claim_id: str, statement: str) -> None:
+        claims.append({
+            "claim_id": claim_id,
+            "kind": "UNKNOWN",
+            "statement": statement,
+            "status": "UNKNOWN",
+            "source_ref_paths": [],
+        })
+
+    components = {
+        row.get("component_id"): row
+        for row in packet.get("components", [])
+        if isinstance(row, dict) and isinstance(row.get("component_id"), str)
+    }
+    counts = packet.get("component_status_counts")
+    if isinstance(counts, dict):
+        rendered = ", ".join(f"{key}={counts[key]}" for key in sorted(counts))
+        fact(
+            "numeric.components.status_counts",
+            f"The sealed packet reports component status counts: {rendered}.",
+        )
+
+    free_market = components.get("FREE_MARKET_DATA") or {}
+    free_packet = free_market.get("packet") or {}
+    us_reference = free_packet.get("us_market_reference") or {}
+    us_session_date = us_reference.get("as_of_session_date")
+    vix = free_packet.get("vixcls") or {}
+    vix_date = vix.get("date")
+    if isinstance(us_session_date, str):
+        fact(
+            "freshness.us.market_session_date",
+            f"The representative US market session evidence is dated {us_session_date}.",
+        )
+    if isinstance(vix_date, str):
+        fact(
+            "freshness.us.vix_observation_date",
+            f"The FRED VIXCLS observation is dated {vix_date}.",
+        )
+    if vix.get("value") is not None:
+        fact(
+            "numeric.us.vixcls",
+            f"The sealed packet reports VIXCLS={vix.get('value')} for {vix_date or 'UNKNOWN'}.",
+        )
+    if us_session_date and vix_date and us_session_date != vix_date:
+        unknown(
+            "boundary.us.independent_evidence_clocks",
+            "The US market-session date and FRED VIX observation date are independent clocks; "
+            "their mismatch does not establish a missing market session or a market-wide conclusion.",
+        )
+    if free_packet.get("scope_warning"):
+        unknown(
+            "boundary.us.market_wide_scope",
+            "The retained IEX evidence is partial and does not establish a market-wide or causal US conclusion.",
+        )
+
+    btc_trend = components.get("BTC_TREND") or {}
+    trend_packet = btc_trend.get("packet") or {}
+    trend_date = trend_packet.get("latest_finalized_day") or btc_trend.get("as_of_date")
+    if isinstance(trend_date, str):
+        fact(
+            "freshness.crypto.btc_trend_finalized_date",
+            f"The BTC trend measurement uses finalized daily closes through {trend_date}.",
+        )
+    if trend_packet.get("direction") is not None or trend_packet.get("dma_200") is not None:
+        fact(
+            "numeric.crypto.btc_trend",
+            "The sealed packet reports BTC trend "
+            f"direction={trend_packet.get('direction')} and dma_200={trend_packet.get('dma_200')}.",
+        )
+
+    btc_risk = components.get("BTC_RISK") or {}
+    risk_packet = btc_risk.get("packet") or {}
+    risk_point = risk_packet.get("risk_point") or {}
+    risk_date = (
+        risk_packet.get("latest_finalized_day")
+        or risk_point.get("as_of_date")
+        or btc_risk.get("as_of_date")
+    )
+    if isinstance(risk_date, str):
+        fact(
+            "freshness.crypto.btc_risk_finalized_date",
+            f"The BTC risk measurement uses finalized daily closes through {risk_date}.",
+        )
+    drawdown = risk_point.get("drawdown") or {}
+    volatility = risk_point.get("realized_volatility") or {}
+    if any(
+        value is not None
+        for value in (
+            drawdown.get("current_fraction"),
+            drawdown.get("maximum_fraction"),
+            volatility.get("annualized_fraction"),
+        )
+    ):
+        fact(
+            "numeric.crypto.btc_risk",
+            "The sealed packet reports BTC risk values "
+            f"current_drawdown={drawdown.get('current_fraction')}, "
+            f"maximum_drawdown={drawdown.get('maximum_fraction')}, and "
+            f"annualized_realized_volatility={volatility.get('annualized_fraction')}.",
+        )
+
+    stablecoin = components.get("STABLECOIN_NET_ISSUANCE") or {}
+    stable_packet = stablecoin.get("packet") or {}
+    stable_date = stable_packet.get("observation_date") or stablecoin.get("as_of_date")
+    if isinstance(stable_date, str):
+        fact(
+            "freshness.crypto.stablecoin_observation_date",
+            f"The stablecoin net-issuance observation is dated {stable_date}.",
+        )
+    if (
+        stable_packet.get("daily_net_issuance_native_usd_peg") is not None
+        or stable_packet.get("weekly_net_issuance_native_usd_peg") is not None
+    ):
+        fact(
+            "numeric.crypto.stablecoin_net_issuance",
+            "The sealed packet reports stablecoin net issuance "
+            f"daily={stable_packet.get('daily_net_issuance_native_usd_peg')} and "
+            f"weekly={stable_packet.get('weekly_net_issuance_native_usd_peg')} "
+            f"for {stable_date or 'UNKNOWN'}.",
+        )
+
+    korea = components.get("KOREA_MARKET_SIGNALS") or {}
+    korea_packet = korea.get("packet") or {}
+    confirmed_date = korea_packet.get("as_of_date") or korea.get("as_of_date")
+    if isinstance(confirmed_date, str):
+        fact(
+            "freshness.krx.latest_confirmed_close_date",
+            f"The confirmed Korea five-axis market observation is dated {confirmed_date}.",
+        )
+
+    post_close = components.get("KRX_POST_CLOSE") or {}
+    post_packet = post_close.get("packet") or {}
+    post_symbols = [row for row in post_packet.get("symbols", []) if isinstance(row, dict)]
+    observed_dates = sorted({
+        row.get("latest_observed_day")
+        for row in post_symbols
+        if isinstance(row.get("latest_observed_day"), str)
+    })
+    confirmed_dates = sorted({
+        row.get("latest_trading_day")
+        for row in post_symbols
+        if isinstance(row.get("latest_trading_day"), str)
+    })
+    if observed_dates:
+        fact(
+            "freshness.krx.post_close_observed_dates",
+            "The KRX post-close bundle contains observed, unconfirmed rows dated "
+            + ", ".join(observed_dates) + ".",
+        )
+    if confirmed_dates:
+        fact(
+            "freshness.krx.post_close_confirmed_history_dates",
+            "The KRX post-close decision history remains confirmed only through "
+            + ", ".join(confirmed_dates) + ".",
+        )
+    post_summary = post_packet.get("summary") or {}
+    if any(
+        post_summary.get(key) is not None
+        for key in (
+            "observed_symbol_count",
+            "decision_eligible_symbol_count",
+            "confirmed_same_day_count",
+        )
+    ):
+        fact(
+            "numeric.krx.post_close_summary",
+            "The KRX post-close bundle reports "
+            f"observed_symbols={post_summary.get('observed_symbol_count')}, "
+            f"decision_eligible_symbols={post_summary.get('decision_eligible_symbol_count')}, and "
+            f"confirmed_same_day={post_summary.get('confirmed_same_day_count')}.",
+        )
+    if post_packet.get("observation_status") == "observed_unconfirmed":
+        unknown(
+            "boundary.krx.same_day_confirmation",
+            "The same-day KRX post-close rows are observed but unconfirmed and cannot establish "
+            "a confirmed close, rule input, or investment conclusion until the existing confirmation path does so.",
+        )
+
+    dynamic = components.get("DYNAMIC_CLOCK") or {}
+    dynamic_packet = dynamic.get("packet") or {}
+    dynamic_date = dynamic_packet.get("decision_date") or packet.get("decision_date")
+    markets = dynamic_packet.get("markets") or {}
+    aggregate = {"overdue": 0, "due_today": 0, "upcoming": 0, "unclassified": 0, "total": 0}
+    if isinstance(dynamic_date, str):
+        for market, market_packet in sorted(markets.items()):
+            if not isinstance(market_packet, dict):
+                continue
+            rows = [row for row in market_packet.get("watch_review", []) if isinstance(row, dict)]
+            due = {"overdue": 0, "due_today": 0, "upcoming": 0, "unclassified": 0}
+            for row in rows:
+                next_review = row.get("next_review_at")
+                if not isinstance(next_review, str) or DATE.fullmatch(next_review) is None:
+                    due["unclassified"] += 1
+                elif next_review < dynamic_date:
+                    due["overdue"] += 1
+                elif next_review == dynamic_date:
+                    due["due_today"] += 1
+                else:
+                    due["upcoming"] += 1
+            for key in due:
+                aggregate[key] += due[key]
+            aggregate["total"] += len(rows)
+            fact(
+                f"review_due.dynamic_clock.{str(market).lower()}",
+                f"At decision date {dynamic_date}, {market} WATCH_REVIEW has "
+                f"overdue={due['overdue']}, due_today={due['due_today']}, "
+                f"upcoming={due['upcoming']}, unclassified={due['unclassified']}, "
+                f"total={len(rows)}.",
+            )
+        if markets:
+            fact(
+                "review_due.dynamic_clock.all",
+                f"At decision date {dynamic_date}, all WATCH_REVIEW queues have "
+                f"overdue={aggregate['overdue']}, due_today={aggregate['due_today']}, "
+                f"upcoming={aggregate['upcoming']}, unclassified={aggregate['unclassified']}, "
+                f"total={aggregate['total']}.",
+            )
+            unknown(
+                "boundary.dynamic_clock.review_due_not_promotion",
+                "A due or overdue WATCH_REVIEW date is a review-routing state only; it does not "
+                "authorize candidate promotion, entry, action, order, production, or trading.",
+            )
+
+    rotation = components.get("ROTATION_DISCOVERY") or {}
+    rotation_packet = rotation.get("packet") or {}
+    discovery = rotation_packet.get("discovery") or {}
+    signal = rotation_packet.get("signal_observations") or {}
+    if discovery or signal:
+        fact(
+            "numeric.rotation.discovery_summary",
+            "The sealed packet reports rotation discovery "
+            f"cases={discovery.get('case_count')}, new_candidates={len(discovery.get('new_candidates', []))}, "
+            f"existing_candidate_changes={len(discovery.get('existing_candidate_changes', []))}, and "
+            f"signal_observations={signal.get('observation_count')}.",
+        )
+        unknown(
+            "boundary.rotation.observation_not_promotion",
+            "Rotation discovery and Dynamic Clock observations do not establish candidate promotion "
+            "or an investment action when the packet says promotion is not authorized.",
+        )
+
+    acceleration = components.get("BUSINESS_ACCELERATION") or {}
+    acceleration_packet = acceleration.get("packet") or {}
+    for index, series in enumerate(acceleration_packet.get("series", []), start=1):
+        if not isinstance(series, dict):
+            continue
+        fact(
+            f"numeric.business_acceleration.series_{index}",
+            "The sealed packet reports business-acceleration series "
+            f"metric={series.get('metric')}, pattern={series.get('pattern')}, "
+            f"values={series.get('values_pct')}, candidate_eligible={series.get('candidate_eligible')}.",
+        )
+
+    release = components.get("OFFICIAL_RELEASE_SUMMARY") or {}
+    release_packet = release.get("packet") or {}
+    release_counts = release_packet.get("counts") or {}
+    if release_counts:
+        fact(
+            "numeric.official_release.summary_counts",
+            "The sealed packet reports official-release "
+            f"observations={release_counts.get('observed_registered_releases')} and "
+            f"summary_items={release_counts.get('observed_summary_items')}.",
+        )
+    release_item_count = 0
+    for observation_index, observation in enumerate(release_packet.get("observations", []), start=1):
+        if not isinstance(observation, dict):
+            continue
+        published_at = observation.get("published_at")
+        if isinstance(published_at, str):
+            fact(
+                f"date.official_release.observation_{observation_index}",
+                f"The retained official release for {observation.get('subject')} was published on {published_at}.",
+            )
+        for item in observation.get("summary_items", []):
+            if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+                continue
+            release_item_count += 1
+            fact(
+                f"official_release.attributed_summary_{release_item_count}",
+                "The retained official release states: " + item["text"],
+            )
+    if release_item_count:
+        unknown(
+            "boundary.official_release.causality",
+            "Company-stated explanations in the retained official release are attributed source facts; "
+            "independent market causality, importance, ranking, and investment interpretation remain unverified.",
+        )
+
+    return claims
+
+
 def build_input_envelope(
     repo_root: Path,
     *,
@@ -543,6 +856,7 @@ def build_input_envelope(
             "sha256": digest_bytes(event_registry_bytes),
             "generation_id": generation_id,
         })
+    delivery_claims = _delivery_claims(packet, packet_path)
     snapshot = {
         "source_commit": source_commit,
         "generation_id": generation_id,
@@ -560,6 +874,7 @@ def build_input_envelope(
         "source_refs": source_refs,
         "packet_self_sha256": packet_sha,
         "modules": modules,
+        "delivery_claims": delivery_claims,
         "major_event_registry_path": event_registry_path,
         "major_event_registry": event_registry,
         "core_failure_policy": {
@@ -614,6 +929,7 @@ def _claims(envelope: dict) -> list[dict]:
                 "status": "UNKNOWN",
                 "source_ref_paths": [],
             })
+    claims.extend(copy.deepcopy(envelope.get("delivery_claims", [])))
     registry_path = envelope.get("major_event_registry_path")
     registry = envelope.get("major_event_registry", {})
     if registry.get("source_status") == "AVAILABLE" and registry_path:

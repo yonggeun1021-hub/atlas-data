@@ -200,6 +200,32 @@ def link_price_reflection(subject: str, market: str, decision_date: str) -> dict
         }
 
 
+def price_temporal_metadata(subject: str, market: str, decision_date: str) -> dict:
+    """Expose observation and capture clocks for briefing presentation only.
+
+    This does not enter the P8-10 price-reflection packet, its allowlist, or
+    candidate tiering. Unsupported markets remain explicitly unknown.
+    """
+    if market != "KOREA" or not price_reflection_supported(subject, market):
+        return {
+            "price_observation_date": "UNKNOWN",
+            "price_captured_at": "UNKNOWN",
+        }
+    try:
+        metadata = _price_evidence().krx_price_temporal_metadata(
+            subject, decision_date
+        )
+    except Exception:  # noqa: BLE001 -- presentation metadata fails closed
+        return {
+            "price_observation_date": "UNKNOWN",
+            "price_captured_at": "UNKNOWN",
+        }
+    return {
+        "price_observation_date": metadata.get("price_observation_date") or "UNKNOWN",
+        "price_captured_at": metadata.get("price_captured_at") or "UNKNOWN",
+    }
+
+
 def to_price_reflection_status(link_result: dict) -> dict:
     """Turns a `link_price_reflection()` result into the
     `price_reflection_status` sub-dict `clock/review_candidate.py` attaches

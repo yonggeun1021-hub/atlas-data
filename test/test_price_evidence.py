@@ -17,6 +17,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -114,6 +115,28 @@ class KoreaMarketMembershipLoaderTests(unittest.TestCase):
 
 
 class KrxStockEvidenceTests(unittest.TestCase):
+    def test_temporal_metadata_separates_observation_date_from_capture_time(self):
+        class Series:
+            def live_trading_dates_at_or_before(self, decision_date):
+                self.assertion_date = decision_date
+                return ["2026-09-03", "2026-09-04"]
+
+            def first_capture_date_for(self, day):
+                return day
+
+        class Snapshot:
+            collected_at_utc = "2026-09-06T21:00:05Z"
+
+        with (
+            mock.patch.object(pe.ei, "find_krx_snapshots", return_value=[Snapshot()]),
+            mock.patch.object(pe.ps, "build_krx_series", return_value=Series()),
+            mock.patch.object(pe.ei, "snapshot_at_or_before", return_value=Snapshot()),
+            mock.patch.object(pe.lg, "assert_no_signal_lookahead"),
+        ):
+            metadata = pe.krx_price_temporal_metadata("298040", "2026-09-07")
+        self.assertEqual(metadata["price_observation_date"], "2026-09-04")
+        self.assertEqual(metadata["price_captured_at"], "2026-09-06T21:00:05Z")
+
     def test_hyosung_298040_produces_real_differentiated_evidence(self):
         ev = pe.assemble_krx_stock_evidence("298040", DECISION_DATE)
         self.assertIsNotNone(ev["price_as_of"])
