@@ -3,12 +3,23 @@
 This is the missing construction step before the existing source-binding
 validator. A structural preview is never permission to populate a live master.
 The disjoint source registries remain unresolved; no source label is inferred.
+
+``apply_theme_ingestion_preview()`` publishes a revalidated preview onto one
+caller-designated existing destination file. It is a library capability with no
+CLI, scheduler or operational caller, and it does not raise any authority flag.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
+import json
 from pathlib import Path
 import sys
+
+try:  # advisory locking is POSIX; preview-only callers must still import.
+    import fcntl
+except ImportError:  # pragma: no cover - unsupported platform
+    fcntl = None
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -18,6 +29,7 @@ from universe import global_asset_master as GAM
 
 AssetMasterError = GAM.AssetMasterError
 SCHEMA = "global_asset_master_theme_ingestion_preview/1"
+MASTER_IDENTITY_FIELDS = ("master_id", "as_of_date", "payload_sha256")
 REQUEST_FIELDS = set(GAM.BINDING_REFERENCE_FIELDS) | {"gam_source_identity"}
 SOURCE_FIELDS = {
     "source_id", "source_url", "source_sha256", "available_at", "retrieved_at_utc"
@@ -169,3 +181,182 @@ def validate_theme_ingestion_preview(
     if GAM.canonical_json(preview) != GAM.canonical_json(expected):
         raise AssetMasterError("INGESTION_PREVIEW_DERIVATION_MISMATCH")
     return copy.deepcopy(expected)
+
+
+def _lock_path(destination: Path) -> Path:
+    return destination.parent / f".{destination.name}.gam-apply.lock"
+
+
+@contextlib.contextmanager
+def _destination_apply_lock(destination: Path):
+    """Hold the cooperative exclusive boundary for one destination path.
+
+    Every caller of :func:`apply_theme_ingestion_preview` shares this protocol,
+    and it only excludes such callers: an unrelated writer that does not take
+    the same lock is not blocked, so this is never claimed as a compare-and-swap
+    against arbitrary writers. The lock is a separate zero-byte sidecar next to
+    an already existing destination, never the destination inode itself, because
+    the atomic publish replaces that inode and a lock on a replaced inode does
+    not exclude anything. It carries no master data, is never read as state and
+    is not an absence marker; it is not removed, so its identity stays stable.
+    """
+    if fcntl is None:  # pragma: no cover - unsupported platform
+        raise AssetMasterError("APPLICATION_LOCK_UNSUPPORTED_PLATFORM")
+    path = _lock_path(destination)
+    try:
+        handle = open(path, "a+b")
+    except OSError as exc:
+        raise AssetMasterError(f"APPLICATION_LOCK_UNAVAILABLE:{path}:{exc}") from exc
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except OSError as exc:
+            raise AssetMasterError(f"APPLICATION_LOCK_FAILED:{path}:{exc}") from exc
+        try:
+            yield path
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
+def _master_identity(packet):
+    return {field: packet[field] for field in MASTER_IDENTITY_FIELDS}
+
+
+def _destination_master(destination: Path, contract):
+    """Re-derive the existing destination bytes through the real validator."""
+    try:
+        existing = json.loads(destination.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AssetMasterError(f"APPLICATION_DESTINATION_UNREADABLE:{destination}:{exc}") from exc
+    try:
+        return GAM.validate_packet(existing, contract)
+    except AssetMasterError as exc:
+        raise AssetMasterError(f"APPLICATION_DESTINATION_INVALID:{destination}:{exc}") from exc
+
+
+def apply_theme_ingestion_preview(
+    preview, master_source, taxonomy_source, requests, *, trusted_commit,
+    authority_registry_path=None, destination_path,
+    expected_previous_master_sha256, operational_application_approved,
+):
+    """Publish one revalidated preview onto one existing master destination.
+
+    ``operational_application_approved`` must be exactly ``True``. It is a
+    trusted library caller boundary only: it does not substitute Theme authority
+    or PIT validation, does not attest to itself, and does not change the
+    preview's ``master_population_authorized=false`` output. No CLI, scheduler,
+    web or live caller is wired to this function.
+
+    Everything is recomputed from the supplied originals at ``trusted_commit``:
+    a caller boolean never skips original, digest or authority validation. Only
+    an existing normal master file is supported; a missing target fails closed
+    without creating a destination, a parent directory, an absence marker or an
+    inferred canonical path. The destination read, previous-digest check,
+    original-master identity check, original revalidation and publish all happen
+    inside one cooperative per-destination exclusion boundary.
+
+    A stale preview conflicts. ``NO_CHANGE`` is only an explicitly rebuilt
+    preview whose original is the current destination; no rebase, retry or
+    implicit acceptance of an old preview exists here.
+
+    Failures before the final ``os.replace`` inside the reused
+    :func:`global_asset_master.write_json_atomic` leave the destination bytes
+    exactly as they were. After that replace the publication may already have
+    happened, so a failure raised at or after that point is not a promise that
+    the old bytes survived.
+
+    Returns a minimal in-memory outcome with the before/after master identity.
+    Nothing is persisted besides the destination packet itself.
+    """
+    if operational_application_approved is not True:
+        raise AssetMasterError("APPLICATION_APPROVAL_NOT_EXACTLY_TRUE")
+    if destination_path is None or (
+        isinstance(destination_path, str) and not destination_path.strip()
+    ):
+        raise AssetMasterError("APPLICATION_DESTINATION_PATH_REQUIRED")
+    if (
+        not isinstance(expected_previous_master_sha256, str)
+        or GAM.SHA256_RE.fullmatch(expected_previous_master_sha256) is None
+    ):
+        raise AssetMasterError("APPLICATION_EXPECTED_PREVIOUS_SHA256_INVALID")
+    destination = Path(destination_path)
+    # Resolve existing aliases once so every cooperating caller locks, reads,
+    # and replaces the same target rather than replacing a supplied symlink.
+    try:
+        destination = destination.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise AssetMasterError(
+            f"APPLICATION_DESTINATION_NOT_AN_EXISTING_FILE:{destination}"
+        ) from exc
+    # Checked before anything is opened or created; the same check is repeated
+    # authoritatively inside the boundary below.
+    if not destination.is_file():
+        raise AssetMasterError(f"APPLICATION_DESTINATION_NOT_AN_EXISTING_FILE:{destination}")
+
+    contract = GAM.load_contract()
+    with _destination_apply_lock(destination):
+        if not destination.is_file():
+            raise AssetMasterError(f"APPLICATION_DESTINATION_NOT_AN_EXISTING_FILE:{destination}")
+        previous = _destination_master(destination, contract)
+        if previous["payload_sha256"] != expected_previous_master_sha256:
+            raise AssetMasterError(
+                "APPLICATION_EXPECTED_PREVIOUS_MASTER_MISMATCH:"
+                f"{expected_previous_master_sha256}:{previous['payload_sha256']}"
+            )
+        # The supplied original is re-derived, not read from the preview. The
+        # identity fields are redundant under an intact digest and are compared
+        # anyway so each one fails closed on its own.
+        original = GAM._validated_master(copy.deepcopy(master_source), contract)
+        for field in MASTER_IDENTITY_FIELDS:
+            if original[field] != previous[field]:
+                raise AssetMasterError(
+                    f"APPLICATION_ORIGINAL_MASTER_MISMATCH:{field}:"
+                    f"{original[field]}:{previous[field]}"
+                )
+
+        preview = validate_theme_ingestion_preview(
+            preview, master_source, taxonomy_source, requests,
+            trusted_commit=trusted_commit,
+            authority_registry_path=authority_registry_path,
+        )
+        lineage = preview["input_digests"]["original_master_payload_sha256"]
+        if lineage != previous["payload_sha256"]:
+            raise AssetMasterError(
+                f"APPLICATION_PREVIEW_LINEAGE_MISMATCH:{lineage}:{previous['payload_sha256']}"
+            )
+        binding_status = preview["binding_report"]["status"]
+        if (
+            preview["status"] != "STRUCTURAL_PREVIEW"
+            or preview["failure_reasons"]
+            or preview["candidate_master"] is None
+            or binding_status != "THEME_SOURCE_BINDING_VERIFIED"
+        ):
+            raise AssetMasterError(
+                f"APPLICATION_PREVIEW_NOT_APPLICABLE:{preview['status']}:{binding_status}"
+            )
+        candidate = preview["candidate_master"]
+        change = preview["change"]
+        if change == "NO_CHANGE":
+            # Only an explicitly rebuilt preview reaches here, so the candidate
+            # must already be the destination packet byte for byte.
+            if GAM.canonical_json(candidate) != GAM.canonical_json(previous):
+                raise AssetMasterError("APPLICATION_NO_CHANGE_NOT_IDENTICAL")
+            applied, outcome = previous, "APPLIED_NO_CHANGE"
+        elif change == "APPEND":
+            GAM.write_json_atomic(destination, candidate)
+            applied, outcome = candidate, "APPLIED_APPEND"
+        else:
+            raise AssetMasterError(f"APPLICATION_CHANGE_UNSUPPORTED:{change}")
+
+    return {
+        "outcome": outcome,
+        "change": change,
+        "destination_path": str(destination),
+        "addition_count": preview["addition_count"],
+        "unchanged_count": preview["unchanged_count"],
+        "previous_master": _master_identity(previous),
+        "master": _master_identity(applied),
+        "published": outcome == "APPLIED_APPEND",
+    }
