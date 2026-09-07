@@ -41,6 +41,60 @@ def current_decision_at() -> str:
 
 
 DECISION_AT = current_decision_at()
+RETAINED_DECISION_AT = "2026-08-31T21:00:39Z"
+
+
+def retained_raw_fixture(root: Path) -> tuple[Path, Path, Path]:
+    """Bind raw-index assertions to one retained historical filing.
+
+    Rolling latest inputs may legitimately be metadata-only.  This bounded
+    fixture retains the matching historical source snapshot plus exactly one
+    manifest, ZIP, and member payload for raw-byte tests.
+    """
+    subject_id = "012450"
+    rcept_no = "20260831800137"
+    source = json.loads((ROOT / "data/2026-09-01/dart.json").read_text(encoding="utf-8"))
+    source["stocks"] = {subject_id: source["stocks"][subject_id]}
+    source["summary"] = {"ok": 1, "failed": 0}
+    source_path = root / "dart.json"
+    source_path.write_text(json.dumps(source), encoding="utf-8")
+
+    record = json.loads((
+        ROOT / "data/dart_content" / subject_id / rcept_no / "_manifest.json"
+    ).read_text(encoding="utf-8"))
+    record["publication_status"] = "OK"
+    content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+    content.update({
+        "source_file": str(source_path),
+        "collected_for_kst_date": source["collected_for_kst_date"],
+        "observed_at_utc": record["retrieved_at_utc"],
+        "run_status": "OK",
+        "records": [record],
+        "counts": {"captured": 0, "failed": 0, "not_applicable": 0, "skipped": 1},
+    })
+    content["source_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    content_path = root / "dart_content.json"
+    content_path.write_text(json.dumps(content), encoding="utf-8")
+
+    data_root = root / "data"
+    shutil.copytree(
+        ROOT / "data/dart_content" / subject_id / rcept_no,
+        data_root / "dart_content" / subject_id / rcept_no,
+    )
+    return source_path, content_path, data_root
+
+
+def build_retained_raw_packet(root: Path) -> tuple[dict, Path, Path, Path]:
+    source_path, content_path, data_root = retained_raw_fixture(root)
+    return (
+        MODULE.build_packet(
+            decision_at=RETAINED_DECISION_AT, source_path=source_path,
+            content_path=content_path, data_root=data_root,
+        ),
+        source_path,
+        content_path,
+        data_root,
+    )
 
 
 class DartStructuralContentIndexTests(unittest.TestCase):
@@ -49,51 +103,30 @@ class DartStructuralContentIndexTests(unittest.TestCase):
         cls.packet = MODULE.build_packet(decision_at=DECISION_AT)
 
     def test_real_retained_filings_are_indexed_without_semantic_items(self):
-        packet = self.packet
-        self.assertEqual(packet["schema_version"], "dart_structural_content_index_packet/1")
-        self.assertEqual(
-            packet["status"],
-            "STRUCTURAL_INDEX_RECORDED_ITEM_EXTRACTION_UNRATIFIED",
-        )
-        source_observations = MODULE.DART_OBSERVATION.build_packet(
-            decision_at=DECISION_AT
-        )["observations"]
-        raw_source_identities = {
-            (row["subject_id"], row["rcept_no"])
-            for row in source_observations
-            if row["evidence"]["status"]
-            == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
-        }
-        indexed_identities = {
-            (row["subject_id"], row["rcept_no"])
-            for row in packet["indexed_filings"]
-        }
-        self.assertEqual(
-            packet["summary"]["source_observation_count"], len(source_observations)
-        )
-        self.assertEqual(
-            packet["summary"]["raw_bytes_verified_count"], len(raw_source_identities)
-        )
-        self.assertEqual(
-            packet["summary"]["indexed_filing_count"], len(packet["indexed_filings"])
-        )
-        self.assertEqual(indexed_identities, raw_source_identities)
-        self.assertEqual(
-            packet["summary"]["indexed_document_count"], len(packet["documents"])
-        )
-        self.assertEqual(
-            packet["summary"]["text_document_count"],
-            sum(
-                document["status"] == "STRUCTURE_ONLY_ITEM_EXTRACTION_UNRATIFIED"
-                for document in packet["documents"]
-            ),
-        )
-        self.assertGreater(len(packet["indexed_filings"]), 0)
-        self.assertGreater(packet["summary"]["table_count"], 0)
-        self.assertGreater(packet["summary"]["row_count"], 0)
-        self.assertGreater(packet["summary"]["cell_count"], 0)
-        self.assertEqual(packet["summary"]["semantic_item_count"], 0)
-        self.assertTrue(all(document["semantic_items"] == [] for document in packet["documents"]))
+        with tempfile.TemporaryDirectory() as temporary:
+            packet, source_path, content_path, data_root = build_retained_raw_packet(Path(temporary))
+            self.assertEqual(packet["schema_version"], "dart_structural_content_index_packet/1")
+            self.assertEqual(packet["status"], "STRUCTURAL_INDEX_RECORDED_ITEM_EXTRACTION_UNRATIFIED")
+            source_observations = MODULE.DART_OBSERVATION.build_packet(
+                decision_at=RETAINED_DECISION_AT, source_path=source_path,
+                content_path=content_path, data_root=data_root,
+            )["observations"]
+            raw_source_identities = {(row["subject_id"], row["rcept_no"]) for row in source_observations}
+            indexed_identities = {(row["subject_id"], row["rcept_no"]) for row in packet["indexed_filings"]}
+            self.assertEqual(packet["summary"]["source_observation_count"], len(source_observations))
+            self.assertEqual(packet["summary"]["raw_bytes_verified_count"], len(raw_source_identities))
+            self.assertEqual(packet["summary"]["indexed_filing_count"], len(packet["indexed_filings"]))
+            self.assertEqual(indexed_identities, raw_source_identities)
+            self.assertEqual(packet["summary"]["indexed_document_count"], len(packet["documents"]))
+            self.assertEqual(packet["summary"]["text_document_count"], sum(
+                document["status"] == "STRUCTURE_ONLY_ITEM_EXTRACTION_UNRATIFIED" for document in packet["documents"]
+            ))
+            self.assertGreater(len(packet["indexed_filings"]), 0)
+            self.assertGreater(packet["summary"]["table_count"], 0)
+            self.assertGreater(packet["summary"]["row_count"], 0)
+            self.assertGreater(packet["summary"]["cell_count"], 0)
+            self.assertEqual(packet["summary"]["semantic_item_count"], 0)
+            self.assertTrue(all(document["semantic_items"] == [] for document in packet["documents"]))
 
     def test_metadata_only_filing_is_not_presented_as_content_indexed(self):
         source_observations = MODULE.DART_OBSERVATION.build_packet(
@@ -158,26 +191,30 @@ class DartStructuralContentIndexTests(unittest.TestCase):
             self.assertEqual(self.packet["summary"][key], 0)
 
     def test_append_only_publication_keeps_exact_input_snapshots(self):
-        source_bytes = MODULE.DEFAULT_SOURCE.read_bytes()
-        content_bytes = MODULE.DEFAULT_CONTENT.read_bytes()
         with tempfile.TemporaryDirectory() as temporary:
-            out = Path(temporary)
+            root = Path(temporary)
+            packet, source_path, content_path, data_root = build_retained_raw_packet(root)
+            source_bytes = source_path.read_bytes()
+            content_bytes = content_path.read_bytes()
+            out = root / "out"
             first, created = MODULE.publish_append_only(
-                self.packet,
+                packet,
                 source_bytes=source_bytes,
                 content_bytes=content_bytes,
+                data_root=data_root,
                 out_root=out,
             )
             second, repeated = MODULE.publish_append_only(
-                self.packet,
+                packet,
                 source_bytes=source_bytes,
                 content_bytes=content_bytes,
+                data_root=data_root,
                 out_root=out,
             )
             self.assertTrue(created)
             self.assertFalse(repeated)
             self.assertEqual(first, second)
-            lineage = self.packet["lineage"]
+            lineage = packet["lineage"]
             self.assertEqual(
                 (first.parent / lineage["source_snapshot_file"]).read_bytes(),
                 source_bytes,
@@ -186,10 +223,10 @@ class DartStructuralContentIndexTests(unittest.TestCase):
                 (first.parent / lineage["content_run_snapshot_file"]).read_bytes(),
                 content_bytes,
             )
-            filing = self.packet["indexed_filings"][0]
+            filing = packet["indexed_filings"][0]
             manifest_snapshot = first.parent / filing["manifest_snapshot_file"]
             manifest_path = (
-                MODULE.DEFAULT_DATA_ROOT
+                data_root
                 / "dart_content"
                 / filing["subject_id"]
                 / filing["rcept_no"]
@@ -198,11 +235,11 @@ class DartStructuralContentIndexTests(unittest.TestCase):
             self.assertEqual(manifest_snapshot.read_bytes(), manifest_path.read_bytes())
             self.assertEqual(
                 MODULE.validate_packet(
-                    self.packet,
+                    packet,
                     snapshot_dir=first.parent,
-                    data_root=MODULE.DEFAULT_DATA_ROOT,
+                    data_root=data_root,
                 ),
-                self.packet,
+                packet,
             )
 
     def test_same_inputs_at_later_workflow_time_are_byte_identical_no_op(self):
@@ -257,21 +294,18 @@ class DartStructuralContentIndexTests(unittest.TestCase):
                 )
 
     def test_exact_manifest_snapshot_not_mutable_current_manifest_is_replayed(self):
-        source_bytes = MODULE.DEFAULT_SOURCE.read_bytes()
-        content_bytes = MODULE.DEFAULT_CONTENT.read_bytes()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             out = root / "out"
-            data_root = root / "data"
-            shutil.copytree(MODULE.DEFAULT_DATA_ROOT / "dart_content", data_root / "dart_content")
+            packet, source_path, content_path, data_root = build_retained_raw_packet(root)
             target, _ = MODULE.publish_append_only(
-                self.packet,
-                source_bytes=source_bytes,
-                content_bytes=content_bytes,
+                packet,
+                source_bytes=source_path.read_bytes(),
+                content_bytes=content_path.read_bytes(),
                 data_root=data_root,
                 out_root=out,
             )
-            filing = self.packet["indexed_filings"][0]
+            filing = packet["indexed_filings"][0]
             current_manifest = (
                 data_root / "dart_content" / filing["subject_id"]
                 / filing["rcept_no"] / "_manifest.json"
@@ -281,31 +315,32 @@ class DartStructuralContentIndexTests(unittest.TestCase):
             current_manifest.write_text(json.dumps(mutated), encoding="utf-8")
             self.assertEqual(
                 MODULE.validate_packet(
-                    self.packet, snapshot_dir=target.parent, data_root=data_root
+                    packet, snapshot_dir=target.parent, data_root=data_root
                 ),
-                self.packet,
+                packet,
             )
 
     def test_manifest_snapshot_tamper_fails_before_rebuild(self):
-        source_bytes = MODULE.DEFAULT_SOURCE.read_bytes()
-        content_bytes = MODULE.DEFAULT_CONTENT.read_bytes()
         with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            packet, source_path, content_path, data_root = build_retained_raw_packet(root)
             target, _ = MODULE.publish_append_only(
-                self.packet,
-                source_bytes=source_bytes,
-                content_bytes=content_bytes,
-                out_root=Path(temporary),
+                packet,
+                source_bytes=source_path.read_bytes(),
+                content_bytes=content_path.read_bytes(),
+                data_root=data_root,
+                out_root=root / "out",
             )
-            filing = self.packet["indexed_filings"][0]
+            filing = packet["indexed_filings"][0]
             manifest_snapshot = target.parent / filing["manifest_snapshot_file"]
             manifest_snapshot.write_bytes(manifest_snapshot.read_bytes() + b"\n")
             with self.assertRaisesRegex(
                 MODULE.DartStructuralIndexError, "MANIFEST_SNAPSHOT_HASH_MISMATCH"
             ):
                 MODULE.validate_packet(
-                    self.packet,
+                    packet,
                     snapshot_dir=target.parent,
-                    data_root=MODULE.DEFAULT_DATA_ROOT,
+                    data_root=data_root,
                 )
 
     def test_self_rehashed_semantic_or_count_tamper_fails_independent_rebuild(self):
@@ -334,9 +369,9 @@ class DartStructuralContentIndexTests(unittest.TestCase):
 
     def test_retained_member_tamper_fails_before_indexing(self):
         with tempfile.TemporaryDirectory() as temporary:
-            data_root = Path(temporary) / "data"
-            shutil.copytree(MODULE.DEFAULT_DATA_ROOT / "dart_content", data_root / "dart_content")
-            document = self.packet["documents"][0]
+            root = Path(temporary)
+            packet, source_path, content_path, data_root = build_retained_raw_packet(root)
+            document = packet["documents"][0]
             member = (
                 data_root
                 / "dart_content"
@@ -353,7 +388,9 @@ class DartStructuralContentIndexTests(unittest.TestCase):
                 MODULE.DartStructuralIndexError,
             )):
                 MODULE.build_packet(
-                    decision_at=DECISION_AT,
+                    decision_at=RETAINED_DECISION_AT,
+                    source_path=source_path,
+                    content_path=content_path,
                     data_root=data_root,
                 )
 
