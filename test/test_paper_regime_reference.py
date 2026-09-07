@@ -197,6 +197,29 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             self.assertEqual(MODULE.validate_reference(json.loads(latest.read_text())), packet)
             MODULE.write_packet(packet, root)
 
+    def test_kr_trend_summary_matches_positive_negative_mixed_and_zero(self):
+        cases = (
+            # Reported 2026-09-04 measurements; explicit local fixture only.
+            ("1.637363", "2.947318", "POSITIVE", "두 지수가 모두 상승했습니다."),
+            ("-1.637363", "-2.947318", "NEGATIVE", "두 지수가 모두 하락했습니다."),
+            ("1.0", "-1.0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+            ("-1.0", "1.0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+            ("0", "1.0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+            ("-1.0", "0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+            ("0", "0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+        )
+        for kospi, kosdaq, direction, explanation in cases:
+            with self.subTest(kospi=kospi, kosdaq=kosdaq):
+                packet = MODULE.build_kr(
+                    kr_packet_fixture(kospi=kospi, kosdaq=kosdaq), kr_policy_fixture()
+                )
+                trend = next(row for row in packet["axes"] if row["axis"] == "TREND")
+                self.assertEqual(trend["direction"], direction)
+                self.assertEqual(
+                    trend["summary_ko"],
+                    f"코스피 {MODULE.Decimal(kospi):+.2f}%, 코스닥 {MODULE.Decimal(kosdaq):+.2f}%로 {explanation}",
+                )
+
     def test_kr_policy_baseline_boundaries(self):
         policy = kr_policy_fixture()
         # TREND has no threshold; its three declared sign semantics.

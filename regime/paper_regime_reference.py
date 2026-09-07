@@ -391,8 +391,13 @@ def normalize_kr_measurements(packet: dict, policy: dict) -> list[dict]:
     leadership_fraction = Decimal(positive_sectors) / Decimal(len(sectors))
     leadership_direction = ratio_direction(leadership_fraction, thresholds["LEADERSHIP"]["positive_min"], thresholds["LEADERSHIP"]["negative_max"])
 
+    trend_summary = {
+        "POSITIVE": "두 지수가 모두 상승했습니다.",
+        "NEGATIVE": "두 지수가 모두 하락했습니다.",
+        "NEUTRAL": "혼조 또는 보합을 보였습니다.",
+    }[trend_direction]
     rows = [
-        axis("TREND", trend_direction, {"KOSPI": str(trend_values[0]), "KOSDAQ": str(trend_values[1])}, f"코스피 {trend_values[0]:+.2f}%, 코스닥 {trend_values[1]:+.2f}%로 방향이 엇갈렸습니다."),
+        axis("TREND", trend_direction, {"KOSPI": str(trend_values[0]), "KOSDAQ": str(trend_values[1])}, f"코스피 {trend_values[0]:+.2f}%, 코스닥 {trend_values[1]:+.2f}%로 {trend_summary}"),
         axis("BREADTH", breadth_direction, {"advance_fraction": str(breadth_value)}, f"전체 종목 중 상승 비중은 {breadth_value * 100:.1f}%입니다."),
         axis("RISK_VOL", risk_direction, {"mean_absolute_move_pct": str(move)}, f"종목 평균 절대 등락폭은 {move:.2f}%로 보통 구간입니다."),
         axis("LIQUIDITY", liquidity_direction, {"trading_value_change_pct": str(trading_value_change)}, f"거래대금은 이전 거래일보다 {trading_value_change:+.1f}% 변했습니다."),
