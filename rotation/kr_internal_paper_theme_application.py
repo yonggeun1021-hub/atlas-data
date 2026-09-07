@@ -37,8 +37,8 @@ CONTRACT_SCHEMA = "kr_internal_paper_theme_application_contract/1"
 REGISTRY_SCHEMA = "kr_internal_paper_theme_source_admission_registry/1"
 EVIDENCE_SCHEMA = "kr_internal_paper_theme_source_admission_evidence/1"
 OUTPUT_SCHEMA = "kr_internal_paper_theme_application/1"
-NEXT_SESSION_CONTRACT_SCHEMA = "kr_internal_paper_theme_next_session_contract/2"
-NEXT_SESSION_OUTPUT_SCHEMA = "kr_internal_paper_theme_next_session_application/2"
+NEXT_SESSION_CONTRACT_SCHEMA = "kr_internal_paper_theme_next_session_contract/3"
+NEXT_SESSION_OUTPUT_SCHEMA = "kr_internal_paper_theme_next_session_application/3"
 KST = ZoneInfo("Asia/Seoul")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -227,16 +227,15 @@ def _expected_next_session_contract() -> dict:
             "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_adoption_20260908.json",
             "sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b",
         },
-        "session_relation": {
-            "validator": ".github/scripts/korea_market_signals.py::validate_packet",
-            "schema_version": "korea_market_signals_observation/1",
-            "required_relation": "packet.previous_date == D AND packet.as_of_date == E AND independently verified calendar proves no OPEN_REGULAR session between D and E",
+        "session_boundary": {
+            "required_proof": "independently verified calendar proves D is the immediately previous OPEN_REGULAR session before E",
             "calendar_validator": "market_data/krx_session_bars.py::validate_calendar",
             "calendar_validator_sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0",
             "calendar_contract": "config/krx_market_data_contract.json",
             "calendar_contract_sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649",
             "calendar_source_schema_version": "krx_date_specific_session_source/1",
             "calendar_coverage": "exact committed snapshot for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
+            "post_close_market_signals_relation_required": False,
             "calendar_day_subtraction_authorized": False,
             "d_minus_two_fallback_authorized": False,
         },
@@ -625,7 +624,7 @@ def verify_immediate_session_calendar(
         raise ThemeApplicationError("SESSION_CALENDAR_COVERAGE_INCOMPLETE")
 
     evaluation = _timestamp(evaluation_at, "SESSION_CALENDAR_EVALUATION_AT_INVALID")
-    calendar_binding = _expected_next_session_contract()["session_relation"]
+    calendar_binding = _expected_next_session_contract()["session_boundary"]
     validator_path = ROOT / calendar_binding["calendar_validator"].split("::", 1)[0]
     calendar_contract_path = ROOT / calendar_binding["calendar_contract"]
     if sha256_bytes(validator_path.read_bytes()) != calendar_binding["calendar_validator_sha256"]:
@@ -722,7 +721,6 @@ def verify_immediate_session_calendar(
 
 
 def derive_verified_session_boundary(
-    session_relation_packet_path: Path,
     session_calendar_packet_paths: list[Path],
     context_session_date: str,
     execution_session_date: str,
@@ -731,36 +729,17 @@ def derive_verified_session_boundary(
     evaluation_at: str,
     trusted_commit: str,
 ) -> dict:
-    """Derive the D-to-E freshness TTL from the existing verified relation.
+    """Derive D-to-E freshness from retained date-specific calendar evidence.
 
-    The relation packet is the same immutable, committed input used by the
-    bounded next-session profile.  Both close timestamps must be the regular
-    15:30 KST close of the dates named by that packet.  The caller cannot turn
-    a duration into a rolling window: evaluation must occur after the relation
-    became usable and strictly before E close.
+    Both close timestamps must be the regular 15:30 KST close of the dates
+    proven by complete committed calendar snapshots.  The caller cannot turn
+    a duration into a rolling window: evaluation must occur after the calendar
+    evidence became usable and strictly before E close.
     """
     contract = load_next_session_contract()
     repo, commit = _repo_and_commit(NEXT_SESSION_CONTRACT_PATH, trusted_commit)
-    relation_raw_bytes, relation_first_seen = _load_exact_packet(
-        Path(session_relation_packet_path), repo, commit,
-        "SESSION_RELATION_NOT_EXACT_COMMITTED_BYTES",
-    )
-    relation_module = _load_module(
-        "kr_internal_paper_verified_session_boundary",
-        ".github/scripts/korea_market_signals.py",
-    )
-    try:
-        relation = relation_module.validate_packet(relation_raw_bytes)
-    except relation_module.KoreaMarketSignalsError as exc:
-        raise ThemeApplicationError(f"SESSION_RELATION_INVALID:{exc}") from exc
-
     context_day = _date(context_session_date, "CONTEXT_SESSION_DATE_INVALID")
     execution_day = _date(execution_session_date, "EXECUTION_SESSION_DATE_INVALID")
-    if (
-        relation.get("previous_date") != context_day.isoformat()
-        or relation.get("as_of_date") != execution_day.isoformat()
-    ):
-        raise ThemeApplicationError("SESSION_RELATION_D_E_MISMATCH")
 
     calendar = verify_immediate_session_calendar(
         session_calendar_packet_paths,
@@ -798,34 +777,28 @@ def derive_verified_session_boundary(
         raise ThemeApplicationError("SESSION_CLOSE_CALENDAR_BINDING_MISMATCH")
 
     evaluation = _timestamp(evaluation_at, "SESSION_BOUNDARY_EVALUATION_AT_INVALID")
-    relation_available = _timestamp(
-        relation.get("available_at"), "SESSION_RELATION_AVAILABLE_AT_INVALID"
+    calendar_usable_from = max(
+        _timestamp(row[field], "SESSION_CALENDAR_AVAILABILITY_INVALID")
+        for row in calendar["sessions"]
+        for field in ("available_at", "first_seen_at")
     )
-    first_seen = _timestamp(
-        relation_first_seen, "SESSION_RELATION_FIRST_SEEN_INVALID"
-    )
-    usable_from = max(relation_available, first_seen)
-    if usable_from > evaluation:
-        raise ThemeApplicationError("SESSION_RELATION_FUTURE_AT_EVALUATION")
+    if calendar_usable_from > evaluation:
+        raise ThemeApplicationError("SESSION_CALENDAR_FUTURE_AT_EVALUATION")
     if evaluation >= execution_close:
         raise ThemeApplicationError("SESSION_BOUNDARY_EXPIRED")
     ttl = (execution_close - context_close).total_seconds()
     if not ttl.is_integer() or ttl <= 0:
         raise ThemeApplicationError("DERIVED_SESSION_TTL_INVALID")
 
-    relation_bytes = Path(session_relation_packet_path).read_bytes()
     return {
-        "schema_version": "kr_paper_runtime_session_boundary_freshness/2",
+        "schema_version": "kr_paper_runtime_session_boundary_freshness/3",
         "context_session_date": context_day.isoformat(),
         "execution_session_date": execution_day.isoformat(),
         "context_session_close_at": context_close.isoformat().replace("+00:00", "Z"),
         "execution_session_close_at": execution_close.isoformat().replace("+00:00", "Z"),
         "calendar_receipt_sha256": calendar["calendar_receipt_sha256"],
         "session_calendar": copy.deepcopy(calendar["sessions"]),
-        "session_relation_file_sha256": sha256_bytes(relation_bytes),
-        "session_relation_payload_sha256": relation["payload_sha256"],
-        "session_relation_first_seen_at": relation_first_seen,
-        "session_relation_usable_from": usable_from.isoformat().replace("+00:00", "Z"),
+        "calendar_usable_from": calendar_usable_from.isoformat().replace("+00:00", "Z"),
         "derived_ttl_seconds": int(ttl),
         "trusted_commit": commit,
     }
@@ -1033,7 +1006,6 @@ def evaluate_next_session_application(
     context_master_packet_path: Path,
     context_leadership_packet_path: Path,
     execution_master_packet_path: Path,
-    session_relation_packet_path: Path,
     session_calendar_packet_paths: list[Path],
     evaluation_at: str,
     forward_execution_at: str,
@@ -1064,11 +1036,6 @@ def evaluate_next_session_application(
         Path(execution_master_packet_path), repo, commit,
         "EXECUTION_MASTER_NOT_EXACT_COMMITTED_BYTES",
     )
-    relation_raw, relation_first_seen = _load_exact_packet(
-        Path(session_relation_packet_path), repo, commit,
-        "SESSION_RELATION_NOT_EXACT_COMMITTED_BYTES",
-    )
-
     population = _load_module(
         "kr_internal_paper_next_session_global_universe_population",
         ".github/scripts/korea_global_universe_populate.py",
@@ -1079,23 +1046,10 @@ def evaluate_next_session_application(
     except population.PopulationError as exc:
         raise ThemeApplicationError(f"NEXT_SESSION_MASTER_INVALID:{exc}") from exc
     d_leadership = _validate_leadership_wrapper(d_leadership_wrapper)
-    relation_module = _load_module(
-        "kr_internal_paper_next_session_relation",
-        ".github/scripts/korea_market_signals.py",
-    )
-    try:
-        relation = relation_module.validate_packet(relation_raw)
-    except relation_module.KoreaMarketSignalsError as exc:
-        raise ThemeApplicationError(f"SESSION_RELATION_INVALID:{exc}") from exc
-
     context_date = d_master["as_of_date"]
     execution_date = e_master["as_of_date"]
     if d_leadership_wrapper["observation_date"] != context_date:
         raise ThemeApplicationError("CONTEXT_SAME_DATE_MISMATCH")
-    relation_exact = (
-        relation.get("previous_date") == context_date
-        and relation.get("as_of_date") == execution_date
-    )
     try:
         session_calendar = verify_immediate_session_calendar(
             session_calendar_packet_paths,
@@ -1142,8 +1096,6 @@ def evaluate_next_session_application(
     )
     execution_availability = [
         _master_latest_available_at(e_master, e_master_first_seen),
-        _timestamp(relation.get("available_at"), "SESSION_RELATION_AVAILABLE_AT_INVALID"),
-        _timestamp(relation_first_seen, "SESSION_RELATION_FIRST_SEEN_INVALID"),
     ]
     if session_calendar is not None:
         execution_availability.extend(
@@ -1161,14 +1113,11 @@ def evaluate_next_session_application(
     ttl_seconds = contract["execution_session"]["decision_to_forward_execution_max_seconds"]
     within_ttl = ordered and (execution - evaluation).total_seconds() <= ttl_seconds
     active = (
-        relation_exact and session_calendar is not None
-        and inputs_available and evaluation_active
+        session_calendar is not None and inputs_available and evaluation_active
         and execution_active and within_ttl
     )
 
-    if not relation_exact:
-        status = "UNKNOWN_CONTEXT_NOT_IMMEDIATE_PREVIOUS_SESSION"
-    elif session_calendar is None:
+    if session_calendar is None:
         status = "UNKNOWN_" + session_calendar_reason
     elif not interval_nonempty:
         status = "UNKNOWN_EMPTY_EXECUTION_MEMBERSHIP_INTERVAL"
@@ -1190,7 +1139,7 @@ def evaluate_next_session_application(
         "context_label": "PREVIOUS_COMPLETED_SESSION_CONTEXT",
         "context_session_date": context_date,
         "execution_session_date": execution_date,
-        "session_relation_exact": relation_exact,
+        "immediate_session_predecessor_verified": session_calendar is not None,
         "session_calendar_verified": session_calendar is not None,
         "session_calendar_reason": session_calendar_reason,
         "theme_id": admission["theme_id"],
@@ -1229,8 +1178,6 @@ def evaluate_next_session_application(
             "context_leadership_first_seen_at": d_leadership_first_seen,
             "execution_master_payload_sha256": e_master["payload_sha256"],
             "execution_master_first_seen_at": e_master_first_seen,
-            "session_relation_payload_sha256": relation["payload_sha256"],
-            "session_relation_first_seen_at": relation_first_seen,
             "session_calendar_receipt_sha256": (
                 None if session_calendar is None
                 else session_calendar["calendar_receipt_sha256"]

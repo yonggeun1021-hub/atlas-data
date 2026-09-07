@@ -29,10 +29,10 @@ _spec = importlib.util.spec_from_file_location(
 SOURCE = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(SOURCE)
 SCHEMA = "kr_paper_runtime_decision/1"
-SESSION_BOUNDARY_SCHEMA = "kr_paper_runtime_decision/3"
-SESSION_BOUNDARY_INPUT_SCHEMA = "kr_paper_runtime_session_boundary_freshness_input/2"
-SESSION_BOUNDARY_POLICY_SCHEMA = "kr_paper_runtime_policy/3"
-SESSION_BOUNDARY_QUALIFICATION_SCHEMA = "kr_paper_runtime_qualification/3"
+SESSION_BOUNDARY_SCHEMA = "kr_paper_runtime_decision/4"
+SESSION_BOUNDARY_INPUT_SCHEMA = "kr_paper_runtime_session_boundary_freshness_input/3"
+SESSION_BOUNDARY_POLICY_SCHEMA = "kr_paper_runtime_policy/4"
+SESSION_BOUNDARY_QUALIFICATION_SCHEMA = "kr_paper_runtime_qualification/4"
 SESSION_BOUNDARY_CONTRACT_PATH = (
     ROOT / "config" / "kr_internal_paper_session_boundary_freshness_contract.json"
 )
@@ -109,7 +109,7 @@ def _trusted(raw, expected, code):
 
 def _expected_session_boundary_contract():
     return {
-        "schema_version": "kr_internal_paper_session_boundary_freshness_contract/2",
+        "schema_version": "kr_internal_paper_session_boundary_freshness_contract/3",
         "decision_id": "KR_INTERNAL_PAPER_SESSION_BOUNDARY_FRESHNESS_V1",
         "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0",
         "decision_evidence": {
@@ -120,16 +120,16 @@ def _expected_session_boundary_contract():
             "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_adoption_20260908.json",
             "sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b",
         },
-        "session_relation": {
+        "session_boundary": {
             "profile_contract_path": "config/kr_internal_paper_theme_next_session_contract.json",
-            "profile_contract_sha256": "e78b604afecbfb21900a7f6028b249998dfddcffd0facc00693bfacfe72b0b8d",
-            "validator": ".github/scripts/korea_market_signals.py::validate_packet",
-            "required_relation": "packet.previous_date == D AND packet.as_of_date == E",
+            "profile_contract_sha256": "1f682b5f5ba54cae243c284ba041c15987015d3cb6e41ddf339c8e470458f5f4",
+            "required_proof": "independently verified calendar proves D is the immediately previous OPEN_REGULAR session before E",
             "calendar_validator": "market_data/krx_session_bars.py::validate_calendar",
             "calendar_validator_sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0",
             "calendar_contract": "config/krx_market_data_contract.json",
             "calendar_contract_sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649",
             "calendar_coverage": "exact committed date-specific CTCA0903R snapshots for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
+            "post_close_market_signals_relation_required": False,
             "calendar_day_subtraction_authorized": False,
             "assumed_holiday_authorized": False,
         },
@@ -184,9 +184,9 @@ def _session_boundary_decision(trusted_commit, now):
         repo, commit, SESSION_BOUNDARY_CONTRACT_PATH, contract_raw,
         "SESSION_BOUNDARY_CONTRACT_NOT_EXACT_COMMITTED_BYTES",
     )
-    profile_path = repo / contract["session_relation"]["profile_contract_path"]
+    profile_path = repo / contract["session_boundary"]["profile_contract_path"]
     profile_raw = profile_path.read_bytes()
-    require(digest(profile_raw) == contract["session_relation"]["profile_contract_sha256"],
+    require(digest(profile_raw) == contract["session_boundary"]["profile_contract_sha256"],
             "SESSION_BOUNDARY_PROFILE_CONTRACT_HASH_MISMATCH")
     SESSION_PROFILE._require_exact_committed_bytes(
         repo, commit, profile_path, profile_raw,
@@ -233,12 +233,11 @@ def _session_boundary_binding(value, now):
         value,
         "schema_version context_session_date execution_session_date "
         "context_session_close_at execution_session_close_at "
-        "session_relation_packet_path session_calendar_packet_paths trusted_commit",
+        "session_calendar_packet_paths trusted_commit",
         "SESSION_BOUNDARY_INPUT_SCHEMA_INVALID",
     )
     require(value["schema_version"] == SESSION_BOUNDARY_INPUT_SCHEMA,
             "SESSION_BOUNDARY_INPUT_SCHEMA_INVALID")
-    _text(value["session_relation_packet_path"], "SESSION_RELATION_PATH_REQUIRED")
     require(
         isinstance(value["session_calendar_packet_paths"], list)
         and all(isinstance(path, str) and path for path in value["session_calendar_packet_paths"]),
@@ -246,11 +245,7 @@ def _session_boundary_binding(value, now):
     )
     _text(value["trusted_commit"], "SESSION_BOUNDARY_TRUSTED_COMMIT_REQUIRED")
     contract, commit, usable = _session_boundary_decision(value["trusted_commit"], now)
-    relation_path = Path(value["session_relation_packet_path"])
-    if not relation_path.is_absolute():
-        relation_path = ROOT / relation_path
     boundary = SESSION_PROFILE.derive_verified_session_boundary(
-        relation_path,
         [
             path if Path(path).is_absolute() else ROOT / path
             for path in value["session_calendar_packet_paths"]

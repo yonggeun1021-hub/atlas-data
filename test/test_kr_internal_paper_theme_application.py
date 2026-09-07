@@ -370,30 +370,12 @@ class SyntheticNextSessionTests(unittest.TestCase):
             ],
         })
 
-    @classmethod
-    def _relation(
-        cls,
-        previous_date: str | None = None,
-        execution_date: str | None = None,
-    ) -> dict:
-        source = json.loads(
-            (ROOT / "data/observations/korea_market_signals/2026-09-04/packet.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        source.update({
-            "previous_date": previous_date or cls.context_date,
-            "as_of_date": execution_date or cls.execution_date,
-            "generated_at": "2026-09-09T00:10:00Z",
-            "available_at": "2026-09-09T00:10:00Z",
-        })
-        source["payload_sha256"] = APP.payload_sha256(
-            {key: value for key, value in source.items() if key != "payload_sha256"}
-        )
-        return source
-
     @staticmethod
-    def _calendar(day: str, status: str) -> dict:
+    def _calendar(
+        day: str,
+        status: str,
+        available_at: str = "2026-08-30T00:00:00Z",
+    ) -> dict:
         source_ref = f"fixture:ctca0903r:{day}"
         source_sha256 = hashlib.sha256(source_ref.encode("utf-8")).hexdigest()
         calendar = {
@@ -402,8 +384,8 @@ class SyntheticNextSessionTests(unittest.TestCase):
             "timezone": "Asia/Seoul",
             "open_at": f"{day}T09:00:00+09:00" if status == "OPEN_REGULAR" else None,
             "close_at": f"{day}T15:30:00+09:00" if status == "OPEN_REGULAR" else None,
-            "observed_at": "2026-08-30T00:00:00Z",
-            "available_at": "2026-08-30T00:00:00Z",
+            "observed_at": available_at,
+            "available_at": available_at,
             "source_ref": source_ref,
             "source_sha256": source_sha256,
             "provider_id": "KIS_OPEN_API_DOMESTIC_HOLIDAY_CTCA0903R",
@@ -428,24 +410,36 @@ class SyntheticNextSessionTests(unittest.TestCase):
     def _evaluate(
         self,
         *,
-        relation_previous: str | None = None,
         e_first_seen: str = "2026-09-09T00:05:00Z",
-        relation_first_seen: str = "2026-09-09T00:15:00Z",
         execution_at: str = "2026-09-09T15:05:00+09:00",
         calendar_statuses: list[str] | None = None,
+        calendar_available_at: str = "2026-09-08T00:00:00Z",
+        calendar_commit_at: str = "2026-09-08T00:05:00+00:00",
     ) -> dict:
-        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-        packets = [
-            (self._master(self.context_date, "2026-09-08T00:30:00Z"), "2026-09-08T00:35:00Z"),
-            (SyntheticEndToEndTests._leadership(), "2026-09-08T09:15:00Z"),
-            (self._master(self.execution_date, "2026-09-09T00:00:00Z"), e_first_seen),
-            (self._relation(relation_previous), relation_first_seen),
-        ]
         if calendar_statuses is None:
             calendar_statuses = ["OPEN_REGULAR", "OPEN_REGULAR"]
         with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Synthetic Test"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "synthetic@example.invalid"], cwd=repo, check=True)
+
+            def commit(message: str, committed_at: str) -> None:
+                subprocess.run(["git", "add", "."], cwd=repo, check=True)
+                environment = os.environ.copy()
+                environment.update(
+                    GIT_AUTHOR_DATE=committed_at,
+                    GIT_COMMITTER_DATE=committed_at,
+                )
+                subprocess.run(
+                    ["git", "commit", "-q", "--allow-empty", "-m", message],
+                    cwd=repo,
+                    env=environment,
+                    check=True,
+                )
+
             calendar_paths = [
-                Path(directory) / f"calendar-{index}.json"
+                repo / f"calendar-{index}.json"
                 for index in range(len(calendar_statuses))
             ]
             for path, day, status in zip(
@@ -453,9 +447,44 @@ class SyntheticNextSessionTests(unittest.TestCase):
                 [self.context_date, self.execution_date],
                 calendar_statuses,
             ):
-                packet = self._calendar(day, status)
+                packet = self._calendar(day, status, calendar_available_at)
                 path.write_text(json.dumps(packet, sort_keys=True), encoding="utf-8")
-                packets.append((packet, "2026-08-30T00:00:00Z"))
+            commit("synthetic calendar evidence", calendar_commit_at)
+
+            d_master_path = repo / "d-master.json"
+            d_leadership_path = repo / "d-leadership.json"
+            d_master_path.write_text(
+                json.dumps(
+                    self._master(self.context_date, "2026-09-08T00:30:00Z"),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            d_leadership_path.write_text(
+                json.dumps(
+                    SyntheticEndToEndTests._leadership(),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            commit("synthetic D inputs", "2026-09-08T09:15:00+00:00")
+
+            e_master_path = repo / "e-master.json"
+            e_master_path.write_text(
+                json.dumps(
+                    self._master(self.execution_date, "2026-09-09T00:00:00Z"),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            commit("synthetic E master", e_first_seen)
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+
             with (
                 mock.patch.object(
                     APP,
@@ -463,13 +492,30 @@ class SyntheticNextSessionTests(unittest.TestCase):
                     return_value=SyntheticEndToEndTests._admission(),
                 ),
                 mock.patch.object(APP, "resolve_next_session_decision", return_value=self._decision()),
-                mock.patch.object(APP, "_load_exact_packet", side_effect=packets),
+                mock.patch.object(APP, "_repo_and_commit", return_value=(repo, head)),
+                mock.patch.object(
+                    APP,
+                    "_target_identities_for_session",
+                    return_value=[
+                        {
+                            "asset_id": "KR:XKRX:000660",
+                            "canonical_instrument_id": "KRX:000660:COMMON",
+                            "canonical_issuer_id": "DART:00164779",
+                            "listing_id": "XKRX:000660",
+                        },
+                        {
+                            "asset_id": "KR:XKRX:005930",
+                            "canonical_instrument_id": "KRX:005930:COMMON",
+                            "canonical_issuer_id": "DART:00126380",
+                            "listing_id": "XKRX:005930",
+                        },
+                    ],
+                ),
             ):
                 return APP.evaluate_next_session_application(
-                    Path("SYNTHETIC_D_MASTER"),
-                    Path("SYNTHETIC_D_LEADERSHIP"),
-                    Path("SYNTHETIC_E_MASTER"),
-                    Path("SYNTHETIC_D_E_RELATION"),
+                    d_master_path,
+                    d_leadership_path,
+                    e_master_path,
                     calendar_paths,
                     self.evaluation_at,
                     execution_at,
@@ -481,7 +527,7 @@ class SyntheticNextSessionTests(unittest.TestCase):
         self.assertEqual(result["status"], "ACTIVE_PREVIOUS_COMPLETED_SESSION_CONTEXT_INPUT")
         self.assertEqual(result["context_session_date"], self.context_date)
         self.assertEqual(result["execution_session_date"], self.execution_date)
-        self.assertTrue(result["session_relation_exact"])
+        self.assertTrue(result["immediate_session_predecessor_verified"])
         self.assertTrue(result["authority"]["previous_completed_session_context_input_authorized"])
         self.assertFalse(result["authority"]["new_entry_authorized"])
         self.assertFalse(result["authority"]["regime_gate_authorized"])
@@ -492,10 +538,19 @@ class SyntheticNextSessionTests(unittest.TestCase):
         self.assertEqual(result["status"], "UNKNOWN_INPUT_AVAILABLE_AFTER_EVALUATION")
         self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
 
-    def test_non_immediate_context_session_is_rejected(self):
-        result = self._evaluate(relation_previous="2026-09-07")
-        self.assertEqual(result["status"], "UNKNOWN_CONTEXT_NOT_IMMEDIATE_PREVIOUS_SESSION")
-        self.assertFalse(result["session_relation_exact"])
+    def test_future_calendar_available_at_is_rejected_by_real_validator(self):
+        result = self._evaluate(calendar_available_at="2026-09-09T06:10:00Z")
+        self.assertEqual(result["status"], "UNKNOWN_SESSION_CALENDAR_INVALID")
+        self.assertEqual(result["session_calendar_reason"], "SESSION_CALENDAR_INVALID")
+        self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
+
+    def test_future_calendar_first_seen_is_rejected_by_exact_loader_path(self):
+        result = self._evaluate(calendar_commit_at="2026-09-09T06:10:00+00:00")
+        self.assertEqual(result["status"], "UNKNOWN_SESSION_CALENDAR_FUTURE_AT_EVALUATION")
+        self.assertEqual(
+            result["session_calendar_reason"],
+            "SESSION_CALENDAR_FUTURE_AT_EVALUATION",
+        )
         self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
 
     def test_execution_after_e_session_close_is_rejected(self):

@@ -1,5 +1,5 @@
 {
-  "schema_version": "kr_internal_paper_session_boundary_freshness_contract/2",
+  "schema_version": "kr_internal_paper_session_boundary_freshness_contract/3",
   "decision_id": "KR_INTERNAL_PAPER_SESSION_BOUNDARY_FRESHNESS_V1",
   "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0",
   "decision_evidence": {
@@ -10,16 +10,16 @@
     "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_adoption_20260908.json",
     "sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b"
   },
-  "session_relation": {
+  "session_boundary": {
     "profile_contract_path": "config/kr_internal_paper_theme_next_session_contract.json",
-    "profile_contract_sha256": "e78b604afecbfb21900a7f6028b249998dfddcffd0facc00693bfacfe72b0b8d",
-    "validator": ".github/scripts/korea_market_signals.py::validate_packet",
-    "required_relation": "packet.previous_date == D AND packet.as_of_date == E",
+    "profile_contract_sha256": "1f682b5f5ba54cae243c284ba041c15987015d3cb6e41ddf339c8e470458f5f4",
+    "required_proof": "independently verified calendar proves D is the immediately previous OPEN_REGULAR session before E",
     "calendar_validator": "market_data/krx_session_bars.py::validate_calendar",
     "calendar_validator_sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0",
     "calendar_contract": "config/krx_market_data_contract.json",
     "calendar_contract_sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649",
     "calendar_coverage": "exact committed date-specific CTCA0903R snapshots for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
+    "post_close_market_signals_relation_required": false,
     "calendar_day_subtraction_authorized": false,
     "assumed_holiday_authorized": false
   },
@@ -34,10 +34,10 @@
     "decision_or_fill_at_or_after_e_close_authorized": false
   },
   "runtime_binding": {
-    "input_schema_version": "kr_paper_runtime_session_boundary_freshness_input/2",
-    "policy_schema_version": "kr_paper_runtime_policy/3",
-    "qualification_schema_version": "kr_paper_runtime_qualification/3",
-    "decision_schema_version": "kr_paper_runtime_decision/3",
+    "input_schema_version": "kr_paper_runtime_session_boundary_freshness_input/3",
+    "policy_schema_version": "kr_paper_runtime_policy/4",
+    "qualification_schema_version": "kr_paper_runtime_qualification/4",
+    "decision_schema_version": "kr_paper_runtime_decision/4",
     "policy_and_qualification_must_bind_same_freshness": true
   },
   "separate_evidence_gates": [

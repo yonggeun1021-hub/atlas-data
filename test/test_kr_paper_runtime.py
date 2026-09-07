@@ -119,7 +119,6 @@ def make_session_boundary_inputs():
         "execution_session_date": "2026-08-31",
         "context_session_close_at": "2026-08-28T06:30:00Z",
         "execution_session_close_at": "2026-08-31T06:30:00Z",
-        "session_relation_packet_path": "synthetic/committed/session-relation.json",
         "session_calendar_packet_paths": [
             "synthetic/committed/calendar-2026-08-28.json",
             "synthetic/committed/calendar-2026-08-29.json",
@@ -145,17 +144,14 @@ def make_session_boundary_inputs():
         )
     ]
     binding = {
-        "schema_version": "kr_paper_runtime_session_boundary_freshness/2",
+        "schema_version": "kr_paper_runtime_session_boundary_freshness/3",
         "context_session_date": "2026-08-28",
         "execution_session_date": "2026-08-31",
         "context_session_close_at": "2026-08-28T06:30:00Z",
         "execution_session_close_at": "2026-08-31T06:30:00Z",
         "calendar_receipt_sha256": R.digest(b"synthetic committed D-E relation"),
         "session_calendar": calendar_rows,
-        "session_relation_file_sha256": R.digest(b"synthetic relation file"),
-        "session_relation_payload_sha256": R.digest(b"synthetic relation payload"),
-        "session_relation_first_seen_at": "2026-08-30T22:00:00Z",
-        "session_relation_usable_from": "2026-08-30T22:00:00Z",
+        "calendar_usable_from": "2026-08-30T01:00:00Z",
         "derived_ttl_seconds": 259200,
         "trusted_commit": "98537aaf64b3bdcd84d157f9b13841094df2811f",
         "decision_id": "KR_INTERNAL_PAPER_SESSION_BOUNDARY_FRESHNESS_V1",
@@ -374,19 +370,7 @@ class KRRuntimeTest(unittest.TestCase):
             self.assertEqual(output, R.validate_kr_paper_runtime(output, **args))
 
     def test_profile_derives_weekend_spanning_ttl_from_exact_close_boundaries(self):
-        relation = json.loads(
-            (R.ROOT / "data/observations/korea_market_signals/2026-09-04/packet.json").read_text()
-        )
-        relation.update(
-            previous_date="2026-08-28", as_of_date="2026-08-31",
-            generated_at="2026-08-30T22:00:00Z", available_at="2026-08-30T22:00:00Z",
-        )
-        relation.pop("payload_sha256")
-        relation["payload_sha256"] = R.SESSION_PROFILE.payload_sha256(relation)
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "relation.json"
-            raw = encoded(relation)
-            path.write_bytes(raw)
             days_and_statuses = (
                 ("2026-08-28", "OPEN_REGULAR"),
                 ("2026-08-29", "CLOSED"),
@@ -408,14 +392,11 @@ class KRRuntimeTest(unittest.TestCase):
                 ),
                 mock.patch.object(
                     R.SESSION_PROFILE, "_load_exact_packet",
-                    side_effect=[
-                        (relation, "2026-08-30T22:00:00Z"),
-                        *calendar_packets,
-                    ],
+                    side_effect=calendar_packets,
                 ),
             ):
                 binding = R.SESSION_PROFILE.derive_verified_session_boundary(
-                    path, calendar_paths, "2026-08-28", "2026-08-31",
+                    calendar_paths, "2026-08-28", "2026-08-31",
                     "2026-08-28T06:30:00Z", "2026-08-31T06:30:00Z",
                     "2026-08-31T05:00:00Z", "9" * 40,
                 )
@@ -424,7 +405,7 @@ class KRRuntimeTest(unittest.TestCase):
             [row["status"] for row in binding["session_calendar"]],
             [status for _, status in days_and_statuses],
         )
-        self.assertEqual(binding["session_relation_file_sha256"], R.digest(raw))
+        self.assertEqual(binding["calendar_usable_from"], "2026-08-30T01:00:00Z")
         self.assertEqual(binding["trusted_commit"], "9" * 40)
 
     def test_session_boundary_policy_and_qualification_must_bind_derived_values(self):
@@ -449,9 +430,8 @@ class KRRuntimeTest(unittest.TestCase):
 
     def test_wrong_future_or_expired_session_boundary_fails_closed(self):
         for reason in (
-            "SESSION_RELATION_D_E_MISMATCH",
             "SESSION_CALENDAR_INTERVENING_OPEN_SESSION",
-            "SESSION_RELATION_FUTURE_AT_EVALUATION",
+            "SESSION_CALENDAR_FUTURE_AT_EVALUATION",
             "SESSION_BOUNDARY_EXPIRED",
         ):
             args, _ = make_session_boundary_inputs()
