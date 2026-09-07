@@ -69,6 +69,17 @@ class ContractAndAdmissionTests(unittest.TestCase):
             result["registry_record_first_seen_at"],
         )
 
+    def test_committed_next_session_decision_is_independently_verified(self):
+        head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip()
+        result = APP.resolve_next_session_decision(head)
+        self.assertEqual(result["status"], "ADOPTED_EXACT_D_TO_E_SCOPE")
+        self.assertGreaterEqual(
+            result["decision_real_usable_from"],
+            result["decision_evidence_first_seen_at"],
+        )
+
 
 class ActualTimeMembershipTests(unittest.TestCase):
     usable = "2026-09-07T16:05:50Z"  # 2026-09-08 01:05:50 KST
@@ -303,6 +314,147 @@ class SyntheticEndToEndTests(unittest.TestCase):
         self.assertEqual(result["status"], "UNKNOWN_INPUTS_NOT_AVAILABLE_BY_EVALUATION")
         self.assertFalse(result["inputs_available_by_evaluation"])
         self.assertFalse(result["authority"]["bounded_internal_paper_entry_filter_input_authorized"])
+
+
+class SyntheticNextSessionTests(unittest.TestCase):
+    """Exercise the adopted D-to-E mechanism; fixtures are never market evidence."""
+
+    context_date = "2026-09-08"
+    execution_date = "2026-09-09"
+    evaluation_at = "2026-09-09T15:00:00+09:00"
+
+    @classmethod
+    def _master(cls, day: str, retrieved_at: str) -> dict:
+        day8 = day.replace("-", "")
+        kru = APP._load_module(
+            f"synthetic_next_session_krx_universe_{day8}",
+            "universe/krx_global_universe.py",
+        )
+
+        def row(code: str, name: str, market: str) -> dict:
+            value = SyntheticEndToEndTests._krx_row(code, name, market)
+            value["BAS_DD"] = day8
+            return value
+
+        def snapshot(market: str, rows: list[dict]) -> dict:
+            body = json.dumps(
+                {"OutBlock_1": rows}, ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")
+            endpoint = {"KOSPI": "stk_bydd_trd", "KOSDAQ": "ksq_bydd_trd"}[market]
+            return {
+                "market": market,
+                "response_body_base64": base64.b64encode(body).decode("ascii"),
+                "source_identity": {
+                    "source_id": "krx_open_api_stock_daily",
+                    "source_url": (
+                        f"https://data-dbg.krx.co.kr/svc/apis/sto/{endpoint}?basDd={day8}"
+                    ),
+                    "source_sha256": hashlib.sha256(body).hexdigest(),
+                    "available_at": day,
+                    "retrieved_at_utc": retrieved_at,
+                },
+            }
+
+        return kru.build_packet({
+            "schema_version": "krx_global_universe_input/1",
+            "master_id": f"SYNTHETIC.KR.NEXT.SESSION.{day8}",
+            "as_of_date": day,
+            "snapshots": [
+                snapshot("KOSPI", [
+                    row("000660", "SYNTHETIC SK HYNIX", "KOSPI"),
+                    row("005930", "SYNTHETIC SAMSUNG", "KOSPI"),
+                ]),
+                snapshot("KOSDAQ", [row("999999", "SYNTHETIC CONTROL", "KOSDAQ")]),
+            ],
+        })
+
+    @classmethod
+    def _relation(cls, previous_date: str | None = None) -> dict:
+        source = json.loads(
+            (ROOT / "data/observations/korea_market_signals/2026-09-04/packet.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        source.update({
+            "previous_date": previous_date or cls.context_date,
+            "as_of_date": cls.execution_date,
+            "generated_at": "2026-09-09T00:10:00Z",
+            "available_at": "2026-09-09T00:10:00Z",
+        })
+        source["payload_sha256"] = APP.payload_sha256(
+            {key: value for key, value in source.items() if key != "payload_sha256"}
+        )
+        return source
+
+    @staticmethod
+    def _decision() -> dict:
+        return {
+            "status": "ADOPTED_EXACT_D_TO_E_SCOPE",
+            "decision_id": "KR_INTERNAL_PAPER_PREVIOUS_COMPLETED_SESSION_CONTEXT_V1",
+            "decision_real_usable_from": "2026-09-07T16:50:00Z",
+        }
+
+    def _evaluate(
+        self,
+        *,
+        relation_previous: str | None = None,
+        e_first_seen: str = "2026-09-09T00:05:00Z",
+        relation_first_seen: str = "2026-09-09T00:15:00Z",
+        execution_at: str = "2026-09-09T15:05:00+09:00",
+    ) -> dict:
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        packets = [
+            (self._master(self.context_date, "2026-09-08T00:30:00Z"), "2026-09-08T00:35:00Z"),
+            (SyntheticEndToEndTests._leadership(), "2026-09-08T09:15:00Z"),
+            (self._master(self.execution_date, "2026-09-09T00:00:00Z"), e_first_seen),
+            (self._relation(relation_previous), relation_first_seen),
+        ]
+        with (
+            mock.patch.object(
+                APP,
+                "resolve_source_admission",
+                return_value=SyntheticEndToEndTests._admission(),
+            ),
+            mock.patch.object(APP, "resolve_next_session_decision", return_value=self._decision()),
+            mock.patch.object(APP, "_load_exact_packet", side_effect=packets),
+        ):
+            return APP.evaluate_next_session_application(
+                Path("SYNTHETIC_D_MASTER"),
+                Path("SYNTHETIC_D_LEADERSHIP"),
+                Path("SYNTHETIC_E_MASTER"),
+                Path("SYNTHETIC_D_E_RELATION"),
+                self.evaluation_at,
+                execution_at,
+                head,
+            )
+
+    def test_immediate_previous_session_context_is_bounded_input_only(self):
+        result = self._evaluate()
+        self.assertEqual(result["status"], "ACTIVE_PREVIOUS_COMPLETED_SESSION_CONTEXT_INPUT")
+        self.assertEqual(result["context_session_date"], self.context_date)
+        self.assertEqual(result["execution_session_date"], self.execution_date)
+        self.assertTrue(result["session_relation_exact"])
+        self.assertTrue(result["authority"]["previous_completed_session_context_input_authorized"])
+        self.assertFalse(result["authority"]["new_entry_authorized"])
+        self.assertFalse(result["authority"]["regime_gate_authorized"])
+        self.assertFalse(result["context_series_observation"]["top_bucket_verified"])
+
+    def test_future_available_execution_input_is_rejected(self):
+        result = self._evaluate(e_first_seen="2026-09-09T06:10:00Z")
+        self.assertEqual(result["status"], "UNKNOWN_INPUT_AVAILABLE_AFTER_EVALUATION")
+        self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
+
+    def test_non_immediate_context_session_is_rejected(self):
+        result = self._evaluate(relation_previous="2026-09-07")
+        self.assertEqual(result["status"], "UNKNOWN_CONTEXT_NOT_IMMEDIATE_PREVIOUS_SESSION")
+        self.assertFalse(result["session_relation_exact"])
+        self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
+
+    def test_execution_after_e_session_close_is_rejected(self):
+        result = self._evaluate(execution_at="2026-09-09T15:31:00+09:00")
+        self.assertEqual(result["status"], "UNKNOWN_EXECUTION_MEMBERSHIP_EXPIRED")
+        self.assertFalse(result["execution_membership"]["forward_execution_active"])
+        self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
 
 
 if __name__ == "__main__":

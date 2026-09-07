@@ -32,10 +32,13 @@ from rotation import theme_taxonomy_authority as TTA
 
 CONTRACT_PATH = ROOT / "config" / "kr_internal_paper_theme_application_contract.json"
 REGISTRY_PATH = ROOT / "config" / "kr_internal_paper_theme_source_admission_registry.json"
+NEXT_SESSION_CONTRACT_PATH = ROOT / "config" / "kr_internal_paper_theme_next_session_contract.json"
 CONTRACT_SCHEMA = "kr_internal_paper_theme_application_contract/1"
 REGISTRY_SCHEMA = "kr_internal_paper_theme_source_admission_registry/1"
 EVIDENCE_SCHEMA = "kr_internal_paper_theme_source_admission_evidence/1"
 OUTPUT_SCHEMA = "kr_internal_paper_theme_application/1"
+NEXT_SESSION_CONTRACT_SCHEMA = "kr_internal_paper_theme_next_session_contract/1"
+NEXT_SESSION_OUTPUT_SCHEMA = "kr_internal_paper_theme_next_session_application/1"
 KST = ZoneInfo("Asia/Seoul")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -66,6 +69,20 @@ AUTHORITY_FALSE = {
     "real_authority": False,
     "order_authorized": False,
     "trading_authorized": False,
+}
+
+NEXT_SESSION_AUTHORITY = {
+    "previous_completed_session_context_input_only": True,
+    "baseline_entry_eligibility_authorized": False,
+    "new_entry_authorized": False,
+    "regime_gate_authorized": False,
+    "global_taxonomy_authority_changed": False,
+    "stage_promotion_authorized": False,
+    "production_authorized": False,
+    "real_authority": False,
+    "order_authorized": False,
+    "trading_authorized": False,
+    "profitability_claimed": False,
 }
 
 
@@ -193,6 +210,129 @@ def validate_contract(value: dict) -> dict:
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
     return validate_contract(_read_json(Path(path))[1])
+
+
+def _expected_next_session_contract() -> dict:
+    return {
+        "schema_version": NEXT_SESSION_CONTRACT_SCHEMA,
+        "decision_id": "KR_INTERNAL_PAPER_PREVIOUS_COMPLETED_SESSION_CONTEXT_V1",
+        "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0_ENTRY_FILTER",
+        "base_profile": {
+            "proposal_id": "KR_INTERNAL_PAPER_TWO_STOCK_THEME_APPLICATION_CONTRACT_V1",
+            "commit": "d14b17a1c33beb1e25bfc5a9921e588ddf8e5971",
+            "contract_path": "config/kr_internal_paper_theme_application_contract.json",
+            "contract_sha256": "77453d7c6637b0a5b1538b8587e557ad3f5998c39e68527d1158121ec24d0472",
+        },
+        "decision_evidence": {
+            "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_adoption_20260908.json",
+            "sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b",
+        },
+        "session_relation": {
+            "validator": ".github/scripts/korea_market_signals.py::validate_packet",
+            "schema_version": "korea_market_signals_observation/1",
+            "required_relation": "packet.previous_date == D AND packet.as_of_date == E",
+            "calendar_day_subtraction_authorized": False,
+            "d_minus_two_fallback_authorized": False,
+        },
+        "context_session": {
+            "label": "PREVIOUS_COMPLETED_SESSION_CONTEXT",
+            "required_same_date_inputs": ["D master", "D leadership"],
+            "must_be_available_before_evaluation": True,
+            "d_price_as_execution_fill_authorized": False,
+        },
+        "execution_session": {
+            "required_same_date_inputs": [
+                "E master", "E candidate identity", "E prospective application membership",
+            ],
+            "market_timezone": "Asia/Seoul",
+            "regular_session_close_local": "15:30:00",
+            "decision_to_forward_execution_max_seconds": 600,
+            "active_predicate": "membership_from <= evaluation_at <= forward_execution_at < E_regular_session_close",
+            "e_plus_one_carry_authorized": False,
+        },
+        "membership": {
+            "membership_from_rule": "max(E 00:00:00 KST, source_admission_real_usable_from, D/E_decision_real_usable_from)",
+            "membership_to_rule": "E 15:30:00 KST",
+            "d_master_interval_extension_authorized": False,
+            "backdating_authorized": False,
+        },
+        "separate_required_inputs": [
+            "Exact D rotation TOP bucket",
+            "Qualified current E price/spread/impact and causal execution observations",
+            "Actual E tradability evidence",
+            "Any separately required E-day regime state",
+        ],
+        "authority": dict(NEXT_SESSION_AUTHORITY),
+    }
+
+
+def load_next_session_contract(path: Path = NEXT_SESSION_CONTRACT_PATH) -> dict:
+    value = _read_json(Path(path))[1]
+    if value != _expected_next_session_contract():
+        raise ThemeApplicationError("NEXT_SESSION_CONTRACT_MISMATCH")
+    return copy.deepcopy(value)
+
+
+def resolve_next_session_decision(
+    trusted_commit: str,
+    contract_path: Path = NEXT_SESSION_CONTRACT_PATH,
+) -> dict:
+    contract_raw, contract = _read_json(Path(contract_path))
+    if contract != _expected_next_session_contract():
+        raise ThemeApplicationError("NEXT_SESSION_CONTRACT_MISMATCH")
+    repo, commit = _repo_and_commit(Path(contract_path), trusted_commit)
+    contract_first_seen = _require_exact_committed_bytes(
+        repo, commit, Path(contract_path), contract_raw,
+        "NEXT_SESSION_CONTRACT_NOT_EXACT_COMMITTED_BYTES",
+    )
+    base = contract["base_profile"]
+    base_path = repo / base["contract_path"]
+    base_raw = base_path.read_bytes()
+    if (
+        sha256_bytes(base_raw) != base["contract_sha256"]
+        or TTA._git_blob(repo, base["commit"], base["contract_path"]) != base_raw
+        or TTA._git_blob(repo, commit, base["contract_path"]) != base_raw
+    ):
+        raise ThemeApplicationError("NEXT_SESSION_BASE_PROFILE_PIN_MISMATCH")
+    evidence_path = repo / contract["decision_evidence"]["path"]
+    evidence_raw, evidence = _read_json(evidence_path)
+    if sha256_bytes(evidence_raw) != contract["decision_evidence"]["sha256"]:
+        raise ThemeApplicationError("NEXT_SESSION_DECISION_EVIDENCE_SHA_MISMATCH")
+    evidence_first_seen = _require_exact_committed_bytes(
+        repo, commit, evidence_path, evidence_raw,
+        "NEXT_SESSION_DECISION_EVIDENCE_NOT_EXACT_COMMITTED_BYTES",
+    )
+    if (
+        evidence.get("schema_version")
+        != "kr_internal_paper_previous_completed_session_context_adoption/1"
+        or evidence.get("decision_id") != contract["decision_id"]
+        or evidence.get("application_scope") != contract["application_scope"]
+        or evidence.get("status") != "ADOPTED_UNVALIDATED_INTERNAL_PAPER_HYPOTHESIS"
+        or evidence.get("authority_changes") != {
+            "real": False,
+            "production": False,
+            "global_taxonomy": False,
+            "profitability_claim": False,
+        }
+    ):
+        raise ThemeApplicationError("NEXT_SESSION_DECISION_EVIDENCE_MISMATCH")
+    recorded = _timestamp(
+        evidence.get("recorded_after_decision_at_utc"),
+        "NEXT_SESSION_DECISION_TIME_INVALID",
+    )
+    usable = max(
+        recorded,
+        _timestamp(evidence_first_seen, "NEXT_SESSION_DECISION_FIRST_SEEN_INVALID"),
+        _timestamp(contract_first_seen, "NEXT_SESSION_CONTRACT_FIRST_SEEN_INVALID"),
+    )
+    return {
+        "status": "ADOPTED_EXACT_D_TO_E_SCOPE",
+        "decision_id": contract["decision_id"],
+        "contract_first_seen_at": contract_first_seen,
+        "decision_evidence_first_seen_at": evidence_first_seen,
+        "decision_real_usable_from": usable.isoformat().replace("+00:00", "Z"),
+        "authority": dict(NEXT_SESSION_AUTHORITY),
+    }
 
 
 def determining_payload(record: dict) -> dict:
@@ -590,6 +730,239 @@ def evaluate_application(
         "authority": {
             "bounded_internal_paper_entry_filter_input_authorized": authorized,
             **AUTHORITY_FALSE,
+        },
+    }
+    output["payload_sha256"] = payload_sha256(output)
+    return output
+
+
+def _target_identities_for_session(master: dict, session_date: str, commit: str) -> list[dict]:
+    rows = {row["asset_id"]: row for row in master["asset_master"]["records"]}
+    authority = CI.load_authority()
+    expected = {
+        "KR:XKRX:000660": ("000660", "KRX:000660:COMMON", "DART:00164779", "XKRX:000660"),
+        "KR:XKRX:005930": ("005930", "KRX:005930:COMMON", "DART:00126380", "XKRX:005930"),
+    }
+    identities = []
+    for asset_id in sorted(expected):
+        row = rows.get(asset_id)
+        if row is None or row.get("market") != "KOREA" or row.get("asset_class") != "EQUITY":
+            raise ThemeApplicationError(f"TARGET_ASSET_MISSING_OR_INVALID:{asset_id}")
+        ticker, instrument_id, issuer_id, listing_id = expected[asset_id]
+        if row.get("primary_symbol") != ticker or not any(
+            membership.get("membership_type") == "UNIVERSE"
+            and membership.get("membership_id") == "KOSPI"
+            for membership in row.get("active_memberships", [])
+        ):
+            raise ThemeApplicationError(f"TARGET_ASSET_NOT_ACTIVE_KOSPI:{asset_id}")
+        resolved = CI.resolve_instrument_identity(
+            "krx_open_api_stock_daily", ticker, "KOREA", session_date,
+            authority, trusted_commit=commit,
+        )
+        if (
+            resolved.get("status") != CI.RESOLVED
+            or resolved.get("canonical_instrument_id") != instrument_id
+            or resolved.get("canonical_issuer_id") != issuer_id
+            or resolved.get("listing_id") != listing_id
+        ):
+            raise ThemeApplicationError(
+                f"CANONICAL_IDENTITY_NOT_EXACT:{asset_id}:{resolved.get('status')}"
+            )
+        identities.append({
+            "asset_id": asset_id,
+            "canonical_instrument_id": instrument_id,
+            "canonical_issuer_id": issuer_id,
+            "listing_id": listing_id,
+        })
+    return identities
+
+
+def _master_latest_available_at(master: dict, first_seen: str) -> dt.datetime:
+    return max(
+        [_timestamp(first_seen, "MASTER_FIRST_SEEN_INVALID")]
+        + [
+            _timestamp(source["retrieved_at_utc"], "MASTER_RETRIEVED_AT_INVALID")
+            for source in master["source_snapshots"]
+        ]
+    )
+
+
+def evaluate_next_session_application(
+    context_master_packet_path: Path,
+    context_leadership_packet_path: Path,
+    execution_master_packet_path: Path,
+    session_relation_packet_path: Path,
+    evaluation_at: str,
+    forward_execution_at: str,
+    trusted_commit: str,
+) -> dict:
+    """Validate D context for only the immediately following execution session E.
+
+    D and E are taken from independently validated packets.  The function
+    never computes a session by subtracting calendar days, extends D's master
+    interval, or authorizes an entry.  It only emits a bounded input that a
+    separate private consumer may combine with current E execution evidence,
+    an exact D TOP bucket, and any separately required E regime state.
+    """
+    admission = resolve_source_admission(trusted_commit)
+    decision = resolve_next_session_decision(trusted_commit)
+    contract = load_next_session_contract()
+    repo, commit = _repo_and_commit(NEXT_SESSION_CONTRACT_PATH, trusted_commit)
+
+    d_master_raw, d_master_first_seen = _load_exact_packet(
+        Path(context_master_packet_path), repo, commit,
+        "CONTEXT_MASTER_NOT_EXACT_COMMITTED_BYTES",
+    )
+    d_leadership_wrapper, d_leadership_first_seen = _load_exact_packet(
+        Path(context_leadership_packet_path), repo, commit,
+        "CONTEXT_LEADERSHIP_NOT_EXACT_COMMITTED_BYTES",
+    )
+    e_master_raw, e_master_first_seen = _load_exact_packet(
+        Path(execution_master_packet_path), repo, commit,
+        "EXECUTION_MASTER_NOT_EXACT_COMMITTED_BYTES",
+    )
+    relation_raw, relation_first_seen = _load_exact_packet(
+        Path(session_relation_packet_path), repo, commit,
+        "SESSION_RELATION_NOT_EXACT_COMMITTED_BYTES",
+    )
+
+    population = _load_module(
+        "kr_internal_paper_next_session_global_universe_population",
+        ".github/scripts/korea_global_universe_populate.py",
+    )
+    try:
+        d_master = population.validate_packet(d_master_raw)
+        e_master = population.validate_packet(e_master_raw)
+    except population.PopulationError as exc:
+        raise ThemeApplicationError(f"NEXT_SESSION_MASTER_INVALID:{exc}") from exc
+    d_leadership = _validate_leadership_wrapper(d_leadership_wrapper)
+    relation_module = _load_module(
+        "kr_internal_paper_next_session_relation",
+        ".github/scripts/korea_market_signals.py",
+    )
+    try:
+        relation = relation_module.validate_packet(relation_raw)
+    except relation_module.KoreaMarketSignalsError as exc:
+        raise ThemeApplicationError(f"SESSION_RELATION_INVALID:{exc}") from exc
+
+    context_date = d_master["as_of_date"]
+    execution_date = e_master["as_of_date"]
+    if d_leadership_wrapper["observation_date"] != context_date:
+        raise ThemeApplicationError("CONTEXT_SAME_DATE_MISMATCH")
+    relation_exact = (
+        relation.get("previous_date") == context_date
+        and relation.get("as_of_date") == execution_date
+    )
+
+    context_identities = _target_identities_for_session(d_master, context_date, commit)
+    execution_identities = _target_identities_for_session(e_master, execution_date, commit)
+    series = d_leadership["rows"].get(admission["rotation_series_identity"])
+    if series is None or series["role"] not in {"SECTOR", "THEME"}:
+        raise ThemeApplicationError("CONTEXT_BOUND_ROTATION_SERIES_MISSING")
+
+    evaluation = _timestamp(evaluation_at, "NEXT_SESSION_EVALUATION_AT_INVALID")
+    execution = _timestamp(
+        forward_execution_at, "NEXT_SESSION_FORWARD_EXECUTION_AT_INVALID"
+    )
+    e_day = _date(execution_date, "EXECUTION_SESSION_DATE_INVALID")
+    e_start = dt.datetime.combine(e_day, dt.time.min, tzinfo=KST).astimezone(dt.timezone.utc)
+    close_time = dt.time.fromisoformat(contract["execution_session"]["regular_session_close_local"])
+    e_close = dt.datetime.combine(e_day, close_time, tzinfo=KST).astimezone(dt.timezone.utc)
+    membership_from = max(
+        e_start,
+        _timestamp(admission["admission_real_usable_from"], "ADMISSION_REAL_USABLE_FROM_INVALID"),
+        _timestamp(decision["decision_real_usable_from"], "NEXT_SESSION_DECISION_REAL_USABLE_INVALID"),
+    )
+
+    context_available_by = max(
+        _master_latest_available_at(d_master, d_master_first_seen),
+        d_leadership["available_at"],
+        _timestamp(d_leadership_first_seen, "CONTEXT_LEADERSHIP_FIRST_SEEN_INVALID"),
+    )
+    execution_available_by = max(
+        _master_latest_available_at(e_master, e_master_first_seen),
+        _timestamp(relation.get("available_at"), "SESSION_RELATION_AVAILABLE_AT_INVALID"),
+        _timestamp(relation_first_seen, "SESSION_RELATION_FIRST_SEEN_INVALID"),
+    )
+    latest_available = max(context_available_by, execution_available_by)
+    inputs_available = latest_available <= evaluation
+    interval_nonempty = membership_from < e_close
+    evaluation_active = interval_nonempty and membership_from <= evaluation < e_close
+    execution_active = interval_nonempty and membership_from <= execution < e_close
+    ordered = evaluation <= execution
+    ttl_seconds = contract["execution_session"]["decision_to_forward_execution_max_seconds"]
+    within_ttl = ordered and (execution - evaluation).total_seconds() <= ttl_seconds
+    active = (
+        relation_exact and inputs_available and evaluation_active
+        and execution_active and within_ttl
+    )
+
+    if not relation_exact:
+        status = "UNKNOWN_CONTEXT_NOT_IMMEDIATE_PREVIOUS_SESSION"
+    elif not interval_nonempty:
+        status = "UNKNOWN_EMPTY_EXECUTION_MEMBERSHIP_INTERVAL"
+    elif not inputs_available:
+        status = "UNKNOWN_INPUT_AVAILABLE_AFTER_EVALUATION"
+    elif not evaluation_active:
+        status = "UNKNOWN_EVALUATION_OUTSIDE_EXECUTION_SESSION_MEMBERSHIP"
+    elif not execution_active:
+        status = "UNKNOWN_EXECUTION_MEMBERSHIP_EXPIRED"
+    elif not within_ttl:
+        status = "UNKNOWN_FORWARD_EXECUTION_ORDER_OR_600_SECOND_TTL"
+    else:
+        status = "ACTIVE_PREVIOUS_COMPLETED_SESSION_CONTEXT_INPUT"
+
+    output = {
+        "schema_version": NEXT_SESSION_OUTPUT_SCHEMA,
+        "status": status,
+        "application_scope": admission["application_scope"],
+        "context_label": "PREVIOUS_COMPLETED_SESSION_CONTEXT",
+        "context_session_date": context_date,
+        "execution_session_date": execution_date,
+        "session_relation_exact": relation_exact,
+        "theme_id": admission["theme_id"],
+        "rotation_series_identity": admission["rotation_series_identity"],
+        "context_series_observation": {
+            "role": series["role"],
+            "benchmark_identity": series["benchmark_identity"],
+            "relative_strength_vs_benchmark": str(series["relative_strength_vs_benchmark"]),
+            "top_bucket_verified": False,
+        },
+        "context_identities": context_identities,
+        "execution_identities": execution_identities,
+        "execution_membership": {
+            "membership_from": membership_from.isoformat().replace("+00:00", "Z"),
+            "membership_to": e_close.isoformat().replace("+00:00", "Z"),
+            "evaluation_at": evaluation.isoformat().replace("+00:00", "Z"),
+            "forward_execution_at": execution.isoformat().replace("+00:00", "Z"),
+            "interval_nonempty": interval_nonempty,
+            "evaluation_active": evaluation_active,
+            "forward_execution_active": execution_active,
+            "decision_to_execution_seconds": (
+                (execution - evaluation).total_seconds() if ordered else None
+            ),
+            "within_600_second_window": within_ttl,
+        },
+        "inputs_available_by_evaluation": inputs_available,
+        "latest_required_input_available_at": latest_available.isoformat().replace("+00:00", "Z"),
+        "lineage": {
+            "trusted_commit": commit,
+            "decision_id": decision["decision_id"],
+            "source_admission_real_usable_from": admission["admission_real_usable_from"],
+            "next_session_decision_real_usable_from": decision["decision_real_usable_from"],
+            "context_master_payload_sha256": d_master["payload_sha256"],
+            "context_master_first_seen_at": d_master_first_seen,
+            "context_leadership_payload_sha256": d_leadership_wrapper["payload_sha256"],
+            "context_leadership_first_seen_at": d_leadership_first_seen,
+            "execution_master_payload_sha256": e_master["payload_sha256"],
+            "execution_master_first_seen_at": e_master_first_seen,
+            "session_relation_payload_sha256": relation["payload_sha256"],
+            "session_relation_first_seen_at": relation_first_seen,
+        },
+        "separate_required_inputs": copy.deepcopy(contract["separate_required_inputs"]),
+        "authority": {
+            "previous_completed_session_context_input_authorized": active,
+            **NEXT_SESSION_AUTHORITY,
         },
     }
     output["payload_sha256"] = payload_sha256(output)
