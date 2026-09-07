@@ -1861,6 +1861,7 @@ APPROVED_TESTS = [
     # freshness prerequisites can resolve, but accountFact stays null until
     # a separate account-fact authority is ratified.
     "test/test_portfolio_account_fact_v3.py",
+    "test/test_portfolio_account_fact_v3_producer.py",
     # ★ Portfolio position provider-identity lineage transport.  Alpaca's
     #   exact /v2/positions asset_id is retained with its provider name;
     #   manual source pairs remain unverified/fail-closed.  This does not
