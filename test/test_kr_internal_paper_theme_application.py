@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -8,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -134,6 +136,148 @@ class ExistingValidatorReuseTests(unittest.TestCase):
                 "2026-09-08T10:00:00+09:00",
                 head,
             )
+
+
+class SyntheticEndToEndTests(unittest.TestCase):
+    """Exercise the full reducer with explicitly synthetic source packets."""
+
+    observation_date = "2026-09-08"
+    evaluation_at = "2026-09-08T10:00:00+09:00"
+
+    @staticmethod
+    def _krx_row(code: str, name: str, market: str) -> dict:
+        return {
+            "BAS_DD": "20260908",
+            "ISU_CD": code,
+            "ISU_NM": name,
+            "MKT_NM": market,
+            "SECT_TP_NM": "SYNTHETIC_VALIDATOR_FIXTURE",
+            "TDD_CLSPRC": "100",
+            "CMPPREVDD_PRC": "1",
+            "FLUC_RT": "1.00",
+            "TDD_OPNPRC": "99",
+            "TDD_HGPRC": "101",
+            "TDD_LWPRC": "98",
+            "ACC_TRDVOL": "1000",
+            "ACC_TRDVAL": "100000",
+            "MKTCAP": "1000000",
+            "LIST_SHRS": "10000",
+        }
+
+    @classmethod
+    def _snapshot(cls, market: str, rows: list[dict]) -> dict:
+        body = json.dumps(
+            {"OutBlock_1": rows}, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        endpoint = {"KOSPI": "stk_bydd_trd", "KOSDAQ": "ksq_bydd_trd"}[market]
+        return {
+            "market": market,
+            "response_body_base64": base64.b64encode(body).decode("ascii"),
+            "source_identity": {
+                "source_id": "krx_open_api_stock_daily",
+                "source_url": (
+                    f"https://data-dbg.krx.co.kr/svc/apis/sto/{endpoint}?basDd=20260908"
+                ),
+                "source_sha256": hashlib.sha256(body).hexdigest(),
+                "available_at": "2026-09-08T00:20:00Z",
+                "retrieved_at_utc": "2026-09-08T00:30:00Z",
+            },
+        }
+
+    @classmethod
+    def _master(cls) -> dict:
+        kru = APP._load_module("synthetic_krx_universe_for_application_test", "universe/krx_global_universe.py")
+        source = {
+            "schema_version": "krx_global_universe_input/1",
+            "master_id": "SYNTHETIC.KR.THEME.APPLICATION.20260908",
+            "as_of_date": cls.observation_date,
+            "snapshots": [
+                cls._snapshot("KOSPI", [
+                    cls._krx_row("000660", "SYNTHETIC SK HYNIX", "KOSPI"),
+                    cls._krx_row("005930", "SYNTHETIC SAMSUNG", "KOSPI"),
+                ]),
+                cls._snapshot("KOSDAQ", [
+                    cls._krx_row("999999", "SYNTHETIC CONTROL", "KOSDAQ"),
+                ]),
+            ],
+        }
+        return kru.build_packet(source)
+
+    @classmethod
+    def _leadership(cls) -> dict:
+        source_path = ROOT / "data/observations/korea_leadership_context/2026-09-04/packet.json"
+        wrapper = json.loads(source_path.read_text(encoding="utf-8"))
+        packet = wrapper["leadership_packet"]
+        packet["observation_date"] = cls.observation_date
+        packet["available_at"] = "2026-09-08T09:40:00+09:00"
+        packet["window"] = {
+            "first_input_session": "2026-09-07",
+            "first_return_session": cls.observation_date,
+            "last_return_session": cls.observation_date,
+            "lookback_sessions": 1,
+            "exact_expected_sessions": True,
+        }
+        packet["payload_sha256"] = APP.payload_sha256(
+            {key: value for key, value in packet.items() if key != "payload_sha256"}
+        )
+        wrapper.update({
+            "generated_at": "2026-09-08T00:40:00Z",
+            "observation_date": cls.observation_date,
+            "prior_date": "2026-09-07",
+            "leadership_packet_sha256": packet["payload_sha256"],
+        })
+        wrapper["payload_sha256"] = APP.payload_sha256(
+            {key: value for key, value in wrapper.items() if key != "payload_sha256"}
+        )
+        return wrapper
+
+    @staticmethod
+    def _admission() -> dict:
+        return {
+            "status": "RATIFIED_EXACT_SCOPE",
+            "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0_ENTRY_FILTER",
+            "allowed_asset_ids": ["KR:XKRX:000660", "KR:XKRX:005930"],
+            "allowed_canonical_instrument_ids": ["KRX:000660:COMMON", "KRX:005930:COMMON"],
+            "theme_id": "THEME.KR.KOSPI.ELECTRICAL_ELECTRONIC_EQUIPMENT",
+            "rotation_series_identity": "KOSPI::전기전자",
+            "admission_real_usable_from": "2026-09-07T16:34:25Z",
+        }
+
+    def _evaluate(self, first_seen: str) -> dict:
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        with (
+            mock.patch.object(APP, "resolve_source_admission", return_value=self._admission()),
+            mock.patch.object(
+                APP,
+                "_load_exact_packet",
+                side_effect=[(self._master(), first_seen), (self._leadership(), first_seen)],
+            ),
+        ):
+            return APP.evaluate_application(
+                Path("SYNTHETIC_MASTER_PACKET"),
+                Path("SYNTHETIC_LEADERSHIP_PACKET"),
+                self.evaluation_at,
+                head,
+                "2026-09-08T15:00:00+09:00",
+            )
+
+    def test_full_validator_path_emits_bounded_active_input(self):
+        result = self._evaluate("2026-09-08T00:45:00Z")
+        self.assertEqual(result["status"], "ACTIVE_BOUNDED_INTERNAL_PAPER_INPUT")
+        self.assertTrue(result["authority"]["bounded_internal_paper_entry_filter_input_authorized"])
+        self.assertEqual(
+            [row["canonical_instrument_id"] for row in result["assets"]],
+            ["KRX:000660:COMMON", "KRX:005930:COMMON"],
+        )
+        self.assertEqual(result["rotation_series_identity"], "KOSPI::전기전자")
+        self.assertFalse(result["authority"]["real_authority"])
+        self.assertFalse(result["authority"]["trading_authorized"])
+
+    def test_future_packet_first_seen_keeps_input_unauthorized(self):
+        result = self._evaluate("2026-09-08T01:30:00Z")
+        self.assertEqual(result["status"], "UNKNOWN_INPUTS_NOT_AVAILABLE_BY_EVALUATION")
+        self.assertFalse(result["inputs_available_by_evaluation"])
+        self.assertFalse(result["authority"]["bounded_internal_paper_entry_filter_input_authorized"])
 
 
 if __name__ == "__main__":
