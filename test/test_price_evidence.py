@@ -114,6 +114,14 @@ class KoreaMarketMembershipLoaderTests(unittest.TestCase):
 
 
 class KrxStockEvidenceTests(unittest.TestCase):
+    def test_temporal_metadata_is_bound_to_the_same_krx_assembly(self):
+        evidence = pe.assemble_krx_stock_evidence(
+            "298040", DECISION_DATE, include_temporal_metadata=True
+        )
+        metadata = evidence.pop("_temporal_metadata")
+        self.assertEqual(metadata["price_captured_at"], evidence["price_as_of"])
+        self.assertLessEqual(metadata["price_observation_date"], DECISION_DATE)
+
     def test_hyosung_298040_produces_real_differentiated_evidence(self):
         ev = pe.assemble_krx_stock_evidence("298040", DECISION_DATE)
         self.assertIsNotNone(ev["price_as_of"])
