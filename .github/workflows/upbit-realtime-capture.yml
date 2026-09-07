@@ -49,6 +49,8 @@ jobs:
         run: python3 test/test_crypto_paper_decision_snapshot.py
       - name: Offline P5-10 Crypto five-axis entry and exit bridge regression
         run: python3 test/test_crypto_axis_trade_bridge.py
+      - name: Offline P5-10 Crypto five-axis bridge state explanation regression
+        run: python3 test/test_crypto_axis_trade_bridge_explanation.py
       - name: Offline P1-CR-08 hash-bound live component registry regression
         run: python3 test/test_crypto_live_component_registry.py
       - name: Offline P8-16 Crypto funnel briefing regression
@@ -150,6 +152,22 @@ jobs:
           set -euo pipefail
           test -n "$DECISION_PATH"
           python3 decision/crypto_axis_trade_bridge.py --decision-packet "$DECISION_PATH"
+      # Read-only explanation of the exact bridge packet produced immediately
+      # above -- it consumes only that step's own output path and derives no
+      # new state, threshold, aggregate Regime reading or authority. It runs
+      # only when the producer succeeded; a missing path fails the step rather
+      # than falling back to another generation or an empty explanation.
+      - name: P5-10 Crypto five-axis bridge state explanation (read-only)
+        id: crypto_axis_trade_bridge_explanation
+        if: steps.crypto_axis_trade_bridge.outcome == 'success'
+        env:
+          BRIDGE_PATH: ${{ steps.crypto_axis_trade_bridge.outputs.path }}
+        run: |
+          set -euo pipefail
+          test -n "$BRIDGE_PATH"
+          python3 decision/crypto_axis_trade_bridge_explanation.py \
+            --bridge-packet "$BRIDGE_PATH" \
+            --output-root evidence/crypto_axis_trade_bridge_explanation
       # P8-16 consumes only the exact decision packet created immediately
       # above. It performs no fallback, network call, threshold evaluation,
       # candidate promotion, PAPER execution, or private-ledger read.
@@ -244,6 +262,10 @@ jobs:
           # P5-10 read-only, per-symbol five-axis entry/exit policy bridge.
           # It contains no private position/account bytes and no authority.
           git add evidence/crypto_axis_trade_bridge || true
+          # Same-generation read-only explanation of that bridge packet; it is
+          # absent whenever the producer or explanation step did not run, which
+          # this staging convention tolerates without masking step failure.
+          git add evidence/crypto_axis_trade_bridge_explanation || true
           # P8-16 is the read-only API/briefing projection of that exact
           # decision generation. Private P10/P7 state is never copied here.
           git add evidence/crypto_funnel_briefing || true
