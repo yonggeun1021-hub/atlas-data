@@ -18,6 +18,30 @@ def encoded(value):
     return R.COMMON.canonical_bytes(value)
 
 
+def synthetic_calendar(day, status):
+    source_ref = "fixture:ctca0903r:" + day
+    source_sha256 = R.digest(source_ref.encode())
+    return {
+        "schema_version": "krx_date_specific_session_source/1",
+        "as_of_date": day,
+        "official_response_ref": source_ref,
+        "official_response_sha256": source_sha256,
+        "calendar": {
+            "session_date": day,
+            "status": status,
+            "timezone": "Asia/Seoul",
+            "open_at": day + "T09:00:00+09:00" if status == "OPEN_REGULAR" else None,
+            "close_at": day + "T15:30:00+09:00" if status == "OPEN_REGULAR" else None,
+            "observed_at": "2026-08-30T00:00:00Z",
+            "available_at": "2026-08-30T00:00:00Z",
+            "source_ref": source_ref,
+            "source_sha256": source_sha256,
+            "provider_id": "KIS_OPEN_API_DOMESTIC_HOLIDAY_CTCA0903R",
+            "market_rule_source": "KRX_EQUITY_MARKET_OPERATION_RULES",
+        },
+    }
+
+
 def make_inputs(evidence_class="SYNTHETIC_OFFLINE_FIXTURE", *, stress=False):
     common = R.COMMON.load_common_v1_policy()
     policy = {
@@ -96,15 +120,39 @@ def make_session_boundary_inputs():
         "context_session_close_at": "2026-08-28T06:30:00Z",
         "execution_session_close_at": "2026-08-31T06:30:00Z",
         "session_relation_packet_path": "synthetic/committed/session-relation.json",
+        "session_calendar_packet_paths": [
+            "synthetic/committed/calendar-2026-08-28.json",
+            "synthetic/committed/calendar-2026-08-29.json",
+            "synthetic/committed/calendar-2026-08-30.json",
+            "synthetic/committed/calendar-2026-08-31.json",
+        ],
         "trusted_commit": "98537aaf64b3bdcd84d157f9b13841094df2811f",
     }
+    calendar_rows = [
+        {
+            "session_date": day,
+            "status": status,
+            "source_file_sha256": R.digest((day + status).encode()),
+            "official_response_sha256": R.digest(("source:" + day).encode()),
+            "available_at": "2026-08-30T00:00:00Z",
+            "first_seen_at": "2026-08-30T01:00:00Z",
+        }
+        for day, status in (
+            ("2026-08-28", "OPEN_REGULAR"),
+            ("2026-08-29", "CLOSED"),
+            ("2026-08-30", "CLOSED"),
+            ("2026-08-31", "OPEN_REGULAR"),
+        )
+    ]
     binding = {
-        "schema_version": "kr_paper_runtime_session_boundary_freshness/1",
+        "schema_version": "kr_paper_runtime_session_boundary_freshness/2",
         "context_session_date": "2026-08-28",
         "execution_session_date": "2026-08-31",
         "context_session_close_at": "2026-08-28T06:30:00Z",
         "execution_session_close_at": "2026-08-31T06:30:00Z",
         "calendar_receipt_sha256": R.digest(b"synthetic committed D-E relation"),
+        "session_calendar": calendar_rows,
+        "session_relation_file_sha256": R.digest(b"synthetic relation file"),
         "session_relation_payload_sha256": R.digest(b"synthetic relation payload"),
         "session_relation_first_seen_at": "2026-08-30T22:00:00Z",
         "session_relation_usable_from": "2026-08-30T22:00:00Z",
@@ -339,6 +387,20 @@ class KRRuntimeTest(unittest.TestCase):
             path = Path(directory) / "relation.json"
             raw = encoded(relation)
             path.write_bytes(raw)
+            days_and_statuses = (
+                ("2026-08-28", "OPEN_REGULAR"),
+                ("2026-08-29", "CLOSED"),
+                ("2026-08-30", "CLOSED"),
+                ("2026-08-31", "OPEN_REGULAR"),
+            )
+            calendar_paths = []
+            calendar_packets = []
+            for day, status in days_and_statuses:
+                calendar_path = Path(directory) / f"calendar-{day}.json"
+                calendar = synthetic_calendar(day, status)
+                calendar_path.write_bytes(encoded(calendar))
+                calendar_paths.append(calendar_path)
+                calendar_packets.append((calendar, "2026-08-30T01:00:00Z"))
             with (
                 mock.patch.object(
                     R.SESSION_PROFILE, "_repo_and_commit",
@@ -346,16 +408,23 @@ class KRRuntimeTest(unittest.TestCase):
                 ),
                 mock.patch.object(
                     R.SESSION_PROFILE, "_load_exact_packet",
-                    return_value=(relation, "2026-08-30T22:00:00Z"),
+                    side_effect=[
+                        (relation, "2026-08-30T22:00:00Z"),
+                        *calendar_packets,
+                    ],
                 ),
             ):
                 binding = R.SESSION_PROFILE.derive_verified_session_boundary(
-                    path, "2026-08-28", "2026-08-31",
+                    path, calendar_paths, "2026-08-28", "2026-08-31",
                     "2026-08-28T06:30:00Z", "2026-08-31T06:30:00Z",
                     "2026-08-31T05:00:00Z", "9" * 40,
                 )
         self.assertEqual(binding["derived_ttl_seconds"], 259200)
-        self.assertEqual(binding["calendar_receipt_sha256"], R.digest(raw))
+        self.assertEqual(
+            [row["status"] for row in binding["session_calendar"]],
+            [status for _, status in days_and_statuses],
+        )
+        self.assertEqual(binding["session_relation_file_sha256"], R.digest(raw))
         self.assertEqual(binding["trusted_commit"], "9" * 40)
 
     def test_session_boundary_policy_and_qualification_must_bind_derived_values(self):
@@ -381,6 +450,7 @@ class KRRuntimeTest(unittest.TestCase):
     def test_wrong_future_or_expired_session_boundary_fails_closed(self):
         for reason in (
             "SESSION_RELATION_D_E_MISMATCH",
+            "SESSION_CALENDAR_INTERVENING_OPEN_SESSION",
             "SESSION_RELATION_FUTURE_AT_EVALUATION",
             "SESSION_BOUNDARY_EXPIRED",
         ):

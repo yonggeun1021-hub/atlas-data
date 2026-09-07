@@ -5,9 +5,11 @@ import base64
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -369,7 +371,11 @@ class SyntheticNextSessionTests(unittest.TestCase):
         })
 
     @classmethod
-    def _relation(cls, previous_date: str | None = None) -> dict:
+    def _relation(
+        cls,
+        previous_date: str | None = None,
+        execution_date: str | None = None,
+    ) -> dict:
         source = json.loads(
             (ROOT / "data/observations/korea_market_signals/2026-09-04/packet.json").read_text(
                 encoding="utf-8"
@@ -377,7 +383,7 @@ class SyntheticNextSessionTests(unittest.TestCase):
         )
         source.update({
             "previous_date": previous_date or cls.context_date,
-            "as_of_date": cls.execution_date,
+            "as_of_date": execution_date or cls.execution_date,
             "generated_at": "2026-09-09T00:10:00Z",
             "available_at": "2026-09-09T00:10:00Z",
         })
@@ -385,6 +391,31 @@ class SyntheticNextSessionTests(unittest.TestCase):
             {key: value for key, value in source.items() if key != "payload_sha256"}
         )
         return source
+
+    @staticmethod
+    def _calendar(day: str, status: str) -> dict:
+        source_ref = f"fixture:ctca0903r:{day}"
+        source_sha256 = hashlib.sha256(source_ref.encode("utf-8")).hexdigest()
+        calendar = {
+            "session_date": day,
+            "status": status,
+            "timezone": "Asia/Seoul",
+            "open_at": f"{day}T09:00:00+09:00" if status == "OPEN_REGULAR" else None,
+            "close_at": f"{day}T15:30:00+09:00" if status == "OPEN_REGULAR" else None,
+            "observed_at": "2026-08-30T00:00:00Z",
+            "available_at": "2026-08-30T00:00:00Z",
+            "source_ref": source_ref,
+            "source_sha256": source_sha256,
+            "provider_id": "KIS_OPEN_API_DOMESTIC_HOLIDAY_CTCA0903R",
+            "market_rule_source": "KRX_EQUITY_MARKET_OPERATION_RULES",
+        }
+        return {
+            "schema_version": "krx_date_specific_session_source/1",
+            "as_of_date": day,
+            "official_response_ref": source_ref,
+            "official_response_sha256": source_sha256,
+            "calendar": calendar,
+        }
 
     @staticmethod
     def _decision() -> dict:
@@ -401,6 +432,7 @@ class SyntheticNextSessionTests(unittest.TestCase):
         e_first_seen: str = "2026-09-09T00:05:00Z",
         relation_first_seen: str = "2026-09-09T00:15:00Z",
         execution_at: str = "2026-09-09T15:05:00+09:00",
+        calendar_statuses: list[str] | None = None,
     ) -> dict:
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         packets = [
@@ -409,24 +441,40 @@ class SyntheticNextSessionTests(unittest.TestCase):
             (self._master(self.execution_date, "2026-09-09T00:00:00Z"), e_first_seen),
             (self._relation(relation_previous), relation_first_seen),
         ]
-        with (
-            mock.patch.object(
-                APP,
-                "resolve_source_admission",
-                return_value=SyntheticEndToEndTests._admission(),
-            ),
-            mock.patch.object(APP, "resolve_next_session_decision", return_value=self._decision()),
-            mock.patch.object(APP, "_load_exact_packet", side_effect=packets),
-        ):
-            return APP.evaluate_next_session_application(
-                Path("SYNTHETIC_D_MASTER"),
-                Path("SYNTHETIC_D_LEADERSHIP"),
-                Path("SYNTHETIC_E_MASTER"),
-                Path("SYNTHETIC_D_E_RELATION"),
-                self.evaluation_at,
-                execution_at,
-                head,
-            )
+        if calendar_statuses is None:
+            calendar_statuses = ["OPEN_REGULAR", "OPEN_REGULAR"]
+        with tempfile.TemporaryDirectory() as directory:
+            calendar_paths = [
+                Path(directory) / f"calendar-{index}.json"
+                for index in range(len(calendar_statuses))
+            ]
+            for path, day, status in zip(
+                calendar_paths,
+                [self.context_date, self.execution_date],
+                calendar_statuses,
+            ):
+                packet = self._calendar(day, status)
+                path.write_text(json.dumps(packet, sort_keys=True), encoding="utf-8")
+                packets.append((packet, "2026-08-30T00:00:00Z"))
+            with (
+                mock.patch.object(
+                    APP,
+                    "resolve_source_admission",
+                    return_value=SyntheticEndToEndTests._admission(),
+                ),
+                mock.patch.object(APP, "resolve_next_session_decision", return_value=self._decision()),
+                mock.patch.object(APP, "_load_exact_packet", side_effect=packets),
+            ):
+                return APP.evaluate_next_session_application(
+                    Path("SYNTHETIC_D_MASTER"),
+                    Path("SYNTHETIC_D_LEADERSHIP"),
+                    Path("SYNTHETIC_E_MASTER"),
+                    Path("SYNTHETIC_D_E_RELATION"),
+                    calendar_paths,
+                    self.evaluation_at,
+                    execution_at,
+                    head,
+                )
 
     def test_immediate_previous_session_context_is_bounded_input_only(self):
         result = self._evaluate()
@@ -455,6 +503,71 @@ class SyntheticNextSessionTests(unittest.TestCase):
         self.assertEqual(result["status"], "UNKNOWN_EXECUTION_MEMBERSHIP_EXPIRED")
         self.assertFalse(result["execution_membership"]["forward_execution_active"])
         self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
+
+    def test_missing_calendar_evidence_is_unknown(self):
+        result = self._evaluate(calendar_statuses=[])
+        self.assertEqual(result["status"], "UNKNOWN_SESSION_CALENDAR_EVIDENCE_MISSING")
+        self.assertFalse(result["session_calendar_verified"])
+
+    def test_committed_calendar_proves_weekend_and_rejects_intervening_open(self):
+        for middle_status, expected in (
+            ("CLOSED", None),
+            ("OPEN_REGULAR", "SESSION_CALENDAR_INTERVENING_OPEN_SESSION"),
+        ):
+            with self.subTest(middle_status=middle_status), tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory)
+                subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+                subprocess.run(["git", "config", "user.name", "Synthetic Test"], cwd=repo, check=True)
+                subprocess.run(["git", "config", "user.email", "synthetic@example.invalid"], cwd=repo, check=True)
+                days = ["2026-08-28", "2026-08-29", "2026-08-30", "2026-08-31"]
+                statuses = ["OPEN_REGULAR", middle_status, "CLOSED", "OPEN_REGULAR"]
+                paths = []
+                for day, status in zip(days, statuses):
+                    path = repo / f"calendar-{day}.json"
+                    path.write_text(
+                        json.dumps(self._calendar(day, status), sort_keys=True),
+                        encoding="utf-8",
+                    )
+                    paths.append(path)
+                subprocess.run(["git", "add", "."], cwd=repo, check=True)
+                environment = os.environ.copy()
+                environment.update(
+                    GIT_AUTHOR_DATE="2026-08-30T01:00:00+00:00",
+                    GIT_COMMITTER_DATE="2026-08-30T01:00:00+00:00",
+                )
+                subprocess.run(
+                    ["git", "commit", "-q", "-m", "synthetic calendar evidence"],
+                    cwd=repo,
+                    env=environment,
+                    check=True,
+                )
+                head = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+                ).strip()
+                if expected is None:
+                    result = APP.verify_immediate_session_calendar(
+                        paths,
+                        "2026-08-28",
+                        "2026-08-31",
+                        "2026-08-31T05:00:00Z",
+                        repo,
+                        head,
+                    )
+                    self.assertTrue(result["verified"])
+                    self.assertEqual(
+                        [row["status"] for row in result["sessions"]],
+                        statuses,
+                    )
+                else:
+                    with self.assertRaisesRegex(APP.ThemeApplicationError, expected):
+                        APP.verify_immediate_session_calendar(
+                            paths,
+                            "2026-08-28",
+                            "2026-08-31",
+                            "2026-08-31T05:00:00Z",
+                            repo,
+                            head,
+                        )
 
 
 if __name__ == "__main__":

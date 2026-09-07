@@ -29,10 +29,10 @@ _spec = importlib.util.spec_from_file_location(
 SOURCE = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(SOURCE)
 SCHEMA = "kr_paper_runtime_decision/1"
-SESSION_BOUNDARY_SCHEMA = "kr_paper_runtime_decision/2"
-SESSION_BOUNDARY_INPUT_SCHEMA = "kr_paper_runtime_session_boundary_freshness_input/1"
-SESSION_BOUNDARY_POLICY_SCHEMA = "kr_paper_runtime_policy/2"
-SESSION_BOUNDARY_QUALIFICATION_SCHEMA = "kr_paper_runtime_qualification/2"
+SESSION_BOUNDARY_SCHEMA = "kr_paper_runtime_decision/3"
+SESSION_BOUNDARY_INPUT_SCHEMA = "kr_paper_runtime_session_boundary_freshness_input/2"
+SESSION_BOUNDARY_POLICY_SCHEMA = "kr_paper_runtime_policy/3"
+SESSION_BOUNDARY_QUALIFICATION_SCHEMA = "kr_paper_runtime_qualification/3"
 SESSION_BOUNDARY_CONTRACT_PATH = (
     ROOT / "config" / "kr_internal_paper_session_boundary_freshness_contract.json"
 )
@@ -109,7 +109,7 @@ def _trusted(raw, expected, code):
 
 def _expected_session_boundary_contract():
     return {
-        "schema_version": "kr_internal_paper_session_boundary_freshness_contract/1",
+        "schema_version": "kr_internal_paper_session_boundary_freshness_contract/2",
         "decision_id": "KR_INTERNAL_PAPER_SESSION_BOUNDARY_FRESHNESS_V1",
         "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0",
         "decision_evidence": {
@@ -122,9 +122,14 @@ def _expected_session_boundary_contract():
         },
         "session_relation": {
             "profile_contract_path": "config/kr_internal_paper_theme_next_session_contract.json",
-            "profile_contract_sha256": "d673641ed7726e60b0c5eeff45a1eb79edddcb22ee2da0e05f953daa71a3007f",
+            "profile_contract_sha256": "e78b604afecbfb21900a7f6028b249998dfddcffd0facc00693bfacfe72b0b8d",
             "validator": ".github/scripts/korea_market_signals.py::validate_packet",
             "required_relation": "packet.previous_date == D AND packet.as_of_date == E",
+            "calendar_validator": "market_data/krx_session_bars.py::validate_calendar",
+            "calendar_validator_sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0",
+            "calendar_contract": "config/krx_market_data_contract.json",
+            "calendar_contract_sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649",
+            "calendar_coverage": "exact committed date-specific CTCA0903R snapshots for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
             "calendar_day_subtraction_authorized": False,
             "assumed_holiday_authorized": False,
         },
@@ -228,12 +233,17 @@ def _session_boundary_binding(value, now):
         value,
         "schema_version context_session_date execution_session_date "
         "context_session_close_at execution_session_close_at "
-        "session_relation_packet_path trusted_commit",
+        "session_relation_packet_path session_calendar_packet_paths trusted_commit",
         "SESSION_BOUNDARY_INPUT_SCHEMA_INVALID",
     )
     require(value["schema_version"] == SESSION_BOUNDARY_INPUT_SCHEMA,
             "SESSION_BOUNDARY_INPUT_SCHEMA_INVALID")
     _text(value["session_relation_packet_path"], "SESSION_RELATION_PATH_REQUIRED")
+    require(
+        isinstance(value["session_calendar_packet_paths"], list)
+        and all(isinstance(path, str) and path for path in value["session_calendar_packet_paths"]),
+        "SESSION_CALENDAR_PATHS_REQUIRED",
+    )
     _text(value["trusted_commit"], "SESSION_BOUNDARY_TRUSTED_COMMIT_REQUIRED")
     contract, commit, usable = _session_boundary_decision(value["trusted_commit"], now)
     relation_path = Path(value["session_relation_packet_path"])
@@ -241,6 +251,10 @@ def _session_boundary_binding(value, now):
         relation_path = ROOT / relation_path
     boundary = SESSION_PROFILE.derive_verified_session_boundary(
         relation_path,
+        [
+            path if Path(path).is_absolute() else ROOT / path
+            for path in value["session_calendar_packet_paths"]
+        ],
         value["context_session_date"], value["execution_session_date"],
         value["context_session_close_at"], value["execution_session_close_at"],
         now.isoformat().replace("+00:00", "Z"), commit,
@@ -377,7 +391,10 @@ def evaluate_kr_paper_runtime(*, source_packets: list[bytes], evaluation_at: str
         "market_judgement/krx_market_judgement.py", ".github/scripts/korea_leadership.py",
     ]
     if boundary_mode:
-        implementation_files.append("rotation/kr_internal_paper_theme_application.py")
+        implementation_files.extend([
+            "rotation/kr_internal_paper_theme_application.py",
+            "market_data/krx_session_bars.py",
+        ])
     packet = {
         "schema_version": SESSION_BOUNDARY_SCHEMA if boundary_mode else SCHEMA,
         "market": "KR", "evaluation_at": evaluation_at,
