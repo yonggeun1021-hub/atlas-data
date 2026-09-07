@@ -353,7 +353,12 @@ def kr_policy(policy: dict) -> dict:
     return bound
 
 
-def build_kr(packet: dict, policy: dict) -> dict:
+def normalize_kr_measurements(packet: dict, policy: dict) -> list[dict]:
+    """Derive signed KR axes using the explicitly supplied reference policy.
+
+    This is arithmetic reuse, not sensor-policy or runtime ratification.
+    Source qualification and point-in-time acceptance belong to the caller.
+    """
     thresholds = kr_policy(policy)
     if packet.get("status") != "OBSERVED_UNCLASSIFIED" or packet.get("coverage", {}).get("ratio") != "5/5":
         fail("KR_REFERENCE_NOT_READY")
@@ -393,6 +398,11 @@ def build_kr(packet: dict, policy: dict) -> dict:
         axis("LIQUIDITY", liquidity_direction, {"trading_value_change_pct": str(trading_value_change)}, f"거래대금은 이전 거래일보다 {trading_value_change:+.1f}% 변했습니다."),
         axis("LEADERSHIP", leadership_direction, {"positive_sectors": positive_sectors, "total": len(sectors)}, f"업종 {len(sectors)}개 중 {positive_sectors}개가 상승했습니다."),
     ]
+    return rows
+
+
+def build_kr(packet: dict, policy: dict) -> dict:
+    rows = normalize_kr_measurements(packet, policy)
     regime, score, explanation = classify(rows, policy)
     return market_packet("KR", packet["as_of_date"], rows, regime, score, explanation)
 
