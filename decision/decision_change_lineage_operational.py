@@ -9,6 +9,7 @@ Decision and has no money, action, order, or trading authority.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import datetime as dt
 import functools
@@ -16,7 +17,7 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
@@ -31,6 +32,11 @@ UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 RAW_DAILY_PREFIX = (
     "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/"
 )
+# Exact-source validators execute code and contracts from the source commit;
+# the immutable packet itself is supplied from ``git show`` over stdin.  Do
+# not materialize the repository's multi-gigabyte observation payload trees
+# once per historical lineage record.
+EXACT_VALIDATOR_SPARSE_PATTERNS = ("/*", "!/data/", "!/evidence/")
 
 
 def _load(name: str, relative: str):
@@ -206,13 +212,117 @@ def _git_blob(commit: str, relative: str) -> bytes:
     return completed.stdout
 
 
-def _materialize_exact_commit(commit: str, checkout: Path) -> None:
-    """Create an isolated exact-commit checkout while retaining git history.
+def _exact_validator_sparse_path(value: object, *, directory: bool = False) -> str:
+    if not isinstance(value, str) or not value:
+        raise OperationalDecisionLineageError("EXACT_VALIDATOR_SOURCE_PATH_INVALID")
+    parsed = PurePosixPath(value)
+    if (
+        parsed.is_absolute()
+        or ".." in parsed.parts
+        or parsed.parts[0] not in {"data", "evidence"}
+    ):
+        raise OperationalDecisionLineageError("EXACT_VALIDATOR_SOURCE_PATH_INVALID")
+    suffix = "/" if directory else ""
+    return f"/{parsed.as_posix()}{suffix}"
 
-    ``git archive`` is insufficient for Atlas validators that independently
-    prove first-seen provenance from commit history. Fetching the immutable
-    commit and its ancestry into a new local repository preserves that
-    evidence without consulting a branch name or the network.
+
+def _exact_validator_payload_patterns(unified: dict) -> tuple[str, ...]:
+    """Return the finite external payload paths the Unified validator reads."""
+    if not isinstance(unified, dict) or not isinstance(unified.get("components"), list):
+        raise OperationalDecisionLineageError("UNIFIED_COMPONENTS_INVALID")
+    rotation_rows = [
+        row for row in unified["components"]
+        if isinstance(row, dict) and row.get("component") == "ROTATION_DISCOVERY"
+    ]
+    if len(rotation_rows) != 1:
+        raise OperationalDecisionLineageError("UNIFIED_ROTATION_COMPONENT_INVALID")
+    rotation = rotation_rows[0].get("source_packet")
+    # Valid historical AM packets can carry a fail-closed, unavailable
+    # ROTATION_DISCOVERY component with no external source packet.  The exact
+    # source validator still judges that component; it simply needs no sparse
+    # payload paths for this case.
+    if rotation is None:
+        return ()
+    if not isinstance(rotation, dict):
+        raise OperationalDecisionLineageError("UNIFIED_ROTATION_PACKET_INVALID")
+    patterns: set[str] = set()
+
+    wildcard = rotation.get("wildcard_observations", {})
+    envelopes = wildcard.get("source_envelopes", []) if isinstance(wildcard, dict) else []
+    if not isinstance(envelopes, list):
+        raise OperationalDecisionLineageError("UNIFIED_WILDCARD_ENVELOPES_INVALID")
+    for envelope in envelopes:
+        if not isinstance(envelope, dict):
+            raise OperationalDecisionLineageError("UNIFIED_WILDCARD_ENVELOPE_INVALID")
+        lineage = envelope.get("submission_lineage", [])
+        submissions = envelope.get("packet", {}).get("submissions", [])
+        if not isinstance(lineage, list) or not isinstance(submissions, list):
+            raise OperationalDecisionLineageError("UNIFIED_WILDCARD_ENVELOPE_INVALID")
+        for item in lineage:
+            if not isinstance(item, dict):
+                raise OperationalDecisionLineageError("UNIFIED_WILDCARD_LINEAGE_INVALID")
+            patterns.add(_exact_validator_sparse_path(item.get("path")))
+        for submission in submissions:
+            if not isinstance(submission, dict) or not isinstance(
+                submission.get("evidence", []), list
+            ):
+                raise OperationalDecisionLineageError("UNIFIED_WILDCARD_SUBMISSION_INVALID")
+            for evidence in submission.get("evidence", []):
+                if not isinstance(evidence, dict):
+                    raise OperationalDecisionLineageError("UNIFIED_WILDCARD_EVIDENCE_INVALID")
+                provenance = evidence.get("audit_provenance")
+                if provenance is not None:
+                    if not isinstance(provenance, dict):
+                        raise OperationalDecisionLineageError(
+                            "UNIFIED_WILDCARD_PROVENANCE_INVALID"
+                        )
+                    patterns.add(
+                        _exact_validator_sparse_path(provenance.get("record_locator"))
+                    )
+
+    dart = rotation.get("dart_observations", {})
+    dart_packet = dart.get("source_packet") if isinstance(dart, dict) else None
+    if dart_packet is not None:
+        if not isinstance(dart_packet, dict) or not isinstance(
+            dart_packet.get("lineage"), dict
+        ):
+            raise OperationalDecisionLineageError("UNIFIED_DART_PACKET_INVALID")
+        lineage = dart_packet["lineage"]
+        patterns.add(_exact_validator_sparse_path(lineage.get("source_path")))
+        patterns.add(_exact_validator_sparse_path(lineage.get("content_run_path")))
+        observations = dart_packet.get("observations", [])
+        if not isinstance(observations, list):
+            raise OperationalDecisionLineageError("UNIFIED_DART_OBSERVATIONS_INVALID")
+        for observation in observations:
+            if not isinstance(observation, dict):
+                raise OperationalDecisionLineageError("UNIFIED_DART_OBSERVATION_INVALID")
+            evidence = observation.get("evidence")
+            if (
+                isinstance(evidence, dict)
+                and evidence.get("status")
+                == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+            ):
+                ticker = observation.get("subject_id")
+                receipt = observation.get("rcept_no")
+                patterns.add(
+                    _exact_validator_sparse_path(
+                        f"data/dart_content/{ticker}/{receipt}", directory=True
+                    )
+                )
+    return tuple(sorted(patterns))
+
+
+def _materialize_exact_commit(
+    commit: str, checkout: Path, payload_patterns: tuple[str, ...] = ()
+) -> None:
+    """Create a lightweight exact-code checkout with local Git provenance.
+
+    The prior implementation fetched and checked out every ``data/`` and
+    ``evidence/`` blob for every historical record.  A linked worktree keeps
+    the source repository's complete Git graph and, for a partial clone, its
+    promisor configuration while sparse-checking out only code, contracts,
+    and the finite packet-derived payload set.  No branch or mutable payload
+    file becomes validation authority.
     """
     if not isinstance(commit, str) or FULL_SHA_RE.fullmatch(commit) is None:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_MUST_BE_FULL_SHA")
@@ -226,11 +336,15 @@ def _materialize_exact_commit(commit: str, checkout: Path) -> None:
     )
     if resolved.returncode != 0 or resolved.stdout.strip() != commit:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_NOT_IMMUTABLE")
+    sparse_patterns = (*EXACT_VALIDATOR_SPARSE_PATTERNS, *payload_patterns)
     commands = (
-        ["git", "init", "--quiet", str(checkout)],
         [
-            "git", "-C", str(checkout), "fetch", "--quiet", "--no-tags",
-            str(ROOT), commit,
+            "git", "worktree", "add", "--quiet", "--detach", "--no-checkout",
+            str(checkout), commit,
+        ],
+        [
+            "git", "-C", str(checkout), "sparse-checkout", "set", "--no-cone",
+            *sparse_patterns,
         ],
         ["git", "-C", str(checkout), "checkout", "--quiet", "--detach", commit],
     )
@@ -270,6 +384,39 @@ def _materialize_exact_commit(commit: str, checkout: Path) -> None:
         or dirty.stdout.strip()
     ):
         raise OperationalDecisionLineageError("SOURCE_COMMIT_CHECKOUT_INVALID")
+
+
+def _remove_exact_commit(checkout: Path) -> None:
+    completed = subprocess.run(
+        ["git", "worktree", "remove", "--force", str(checkout)],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode != 0:
+        subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        raise OperationalDecisionLineageError("SOURCE_COMMIT_CHECKOUT_CLEANUP_FAILED")
+
+
+@contextlib.contextmanager
+def _exact_commit_checkout(commit: str, payload_patterns: tuple[str, ...]):
+    with tempfile.TemporaryDirectory(prefix="atlas-exact-source-") as temporary:
+        checkout = Path(temporary) / "repo"
+        try:
+            _materialize_exact_commit(commit, checkout, payload_patterns)
+            yield checkout
+        finally:
+            if checkout.exists():
+                _remove_exact_commit(checkout)
 
 
 @functools.lru_cache(maxsize=16)
@@ -319,9 +466,9 @@ def _validate_daily_at_commit(commit: str, relative: str, blob_sha256: str) -> d
         raise OperationalDecisionLineageError(
             "DAILY_COMPONENT_NOT_VALIDATED:UNIFIED_DECISION"
         )
-    with tempfile.TemporaryDirectory(prefix="atlas-p10-04-validate-") as temporary:
-        checkout = Path(temporary) / "repo"
-        _materialize_exact_commit(commit, checkout)
+    with _exact_commit_checkout(
+        commit, _exact_validator_payload_patterns(unified)
+    ) as checkout:
         validator = """
 import importlib.util
 import json
