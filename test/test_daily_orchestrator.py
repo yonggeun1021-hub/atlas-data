@@ -2104,8 +2104,14 @@ class DailyOrchestratorTest(unittest.TestCase):
                 "as_of_date": "2026-08-28",
                 "packet": {"vixcls": {"date": "2026-08-27"}},
             },
-            "BTC_TREND": {"as_of_date": "2026-09-01"},
-            "BTC_RISK": {"as_of_date": "2026-09-01"},
+            "BTC_TREND": {
+                "as_of_date": "2026-09-01",
+                "packet": {"latest_finalized_day": "2026-09-01"},
+            },
+            "BTC_RISK": {
+                "as_of_date": "2026-09-01",
+                "packet": {"latest_finalized_day": "2026-09-01"},
+            },
             "STABLECOIN_NET_ISSUANCE": {"as_of_date": "2026-09-01"},
         }
         context = "\n".join(MODULE._market_session_freshness_lines(packet, by_id))
@@ -2153,6 +2159,45 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("US close values withheld", us_detail)
         self.assertIn("market_session=2026-08-28", us_detail)
         self.assertIn("VIXCLS=14.43 as_of=2026-08-28", us_detail)
+
+        current_us = copy.deepcopy(us)
+        current_us["packet"]["us_market_reference"] = {
+            "as_of_session_date": "2026-09-01"
+        }
+        current_us["packet"]["vixcls"]["date"] = "2026-08-31"
+        current_detail = "\n".join(
+            MODULE._format_component_detail(current_us, "2026-09-01")
+        )
+        self.assertIn("Alpaca IEX partial: SPY=766.87", current_detail)
+        self.assertNotIn("US close values withheld", current_detail)
+
+    def test_retained_20260907_packet_renders_legacy_review_debt_truthfully(self):
+        packet = MODULE._read_json(
+            ROOT / "evidence/daily_briefing/evening/2026-09-07/rev-001/packet.json"
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        detail = "\n".join(
+            MODULE._format_component_detail(
+                by_id["DYNAMIC_CLOCK"], packet["decision_date"]
+            )
+        )
+        self.assertIn("KOREA: raw_triggers(audit only)=", detail)
+        self.assertIn("review_overdue=2", detail)
+        self.assertIn("CRYPTO: raw_triggers(audit only)=", detail)
+        self.assertIn("review_overdue=22", detail)
+        self.assertNotIn("price_captured_at=None", detail)
+        self.assertNotIn("review_due=None", detail)
+        self.assertIn("price_observation_date=UNKNOWN", detail)
+
+        board = "\n".join(
+            MODULE._market_session_freshness_lines(packet, by_id)
+        )
+        self.assertIn(
+            "evidence_dates=BTC_TREND=UNKNOWN,BTC_RISK=2026-09-06,"
+            "STABLECOIN_NET_ISSUANCE=2026-09-07",
+            board,
+        )
+        self.assertNotIn("BTC_TREND=2026-09-07", board)
 
     def test_weekend_morning_discloses_closed_session_without_date_relabelling(self):
         packet = MODULE.build_packet(

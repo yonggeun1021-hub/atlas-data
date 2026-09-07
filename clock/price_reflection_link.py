@@ -37,8 +37,10 @@ established call pattern -- not reimplemented).
 
 ★ Field allowlist (integration spec item 3): only `subject`,
   `decision_date`, `price_state`, `reflection_status`, `data_state`,
-  `threshold_basis`, `price_as_of`, `contract_version`/`packet_sha256`
-  (price-evidence lineage), and `reasons` ever flow out of this module --
+  `threshold_basis`, `price_as_of`, presentation-only
+  `price_observation_date`/`price_captured_at`,
+  `contract_version`/`packet_sha256` (price-evidence lineage), and `reasons`
+  ever flow out of this module --
   never `relative_strength`/`recent_return_windows`/`confidence`/the inert
   `event_reaction`/`reflection_reference` sub-objects.
 
@@ -93,6 +95,7 @@ def _price_reflection():
 ALLOWED_FIELDS = frozenset({
     "status", "subject", "decision_date", "price_state", "reflection_status",
     "data_state", "threshold_basis", "price_as_of", "reasons",
+    "price_observation_date", "price_captured_at",
     "contract_version", "packet_sha256",
 })
 
@@ -185,12 +188,24 @@ def link_price_reflection(subject: str, market: str, decision_date: str) -> dict
         price_reflection = _price_reflection()
         contract = price_reflection.load_contract()
         generated_at = _deterministic_generated_at(decision_date)
-        evidence = price_evidence.assemble_price_evidence(subject, decision_date)
+        temporal_metadata = None
+        if market == "KOREA":
+            evidence = price_evidence.assemble_krx_stock_evidence(
+                subject,
+                decision_date,
+                include_temporal_metadata=True,
+            )
+            temporal_metadata = evidence.pop("_temporal_metadata")
+        else:
+            evidence = price_evidence.assemble_price_evidence(subject, decision_date)
         packet = price_reflection.build_packet(
             subject=subject, decision_date=decision_date, generated_at=generated_at,
             contract=contract, **evidence,
         )
-        return verify_and_extract(packet, subject, decision_date, contract)
+        result = verify_and_extract(packet, subject, decision_date, contract)
+        if temporal_metadata is not None:
+            result.update(temporal_metadata)
+        return result
     except Exception as exc:  # noqa: BLE001 -- fail-closed per candidate, never crash the whole run
         return {
             "status": "LINK_FAILED",
@@ -198,34 +213,6 @@ def link_price_reflection(subject: str, market: str, decision_date: str) -> dict
             "market": market,
             "error": f"{type(exc).__name__}:{exc}",
         }
-
-
-def price_temporal_metadata(subject: str, market: str, decision_date: str) -> dict:
-    """Expose observation and capture clocks for briefing presentation only.
-
-    This does not enter the P8-10 price-reflection packet, its allowlist, or
-    candidate tiering. Unsupported markets remain explicitly unknown.
-    """
-    if market != "KOREA" or not price_reflection_supported(subject, market):
-        return {
-            "price_observation_date": "UNKNOWN",
-            "price_captured_at": "UNKNOWN",
-        }
-    try:
-        metadata = _price_evidence().krx_price_temporal_metadata(
-            subject, decision_date
-        )
-    except Exception:  # noqa: BLE001 -- presentation metadata fails closed
-        return {
-            "price_observation_date": "UNKNOWN",
-            "price_captured_at": "UNKNOWN",
-        }
-    return {
-        "price_observation_date": metadata.get("price_observation_date") or "UNKNOWN",
-        "price_captured_at": metadata.get("price_captured_at") or "UNKNOWN",
-    }
-
-
 def to_price_reflection_status(link_result: dict) -> dict:
     """Turns a `link_price_reflection()` result into the
     `price_reflection_status` sub-dict `clock/review_candidate.py` attaches

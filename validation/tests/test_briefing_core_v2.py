@@ -572,6 +572,14 @@ class BriefingCoreV2Acceptance(unittest.TestCase):
             "overdue=24, due_today=16, upcoming=53, unclassified=0, total=93",
             claims["review_due.dynamic_clock.all"]["statement"],
         )
+        self.assertEqual(
+            claims["freshness.crypto.btc_trend_finalized_date"]["kind"],
+            "UNKNOWN",
+        )
+        self.assertNotIn(
+            "2026-09-07",
+            claims["freshness.crypto.btc_trend_finalized_date"]["statement"],
+        )
 
     def test_20260902_major_event_omission_enters_correction_loop_then_passes(self):
         registry = major_events.validate_registry(

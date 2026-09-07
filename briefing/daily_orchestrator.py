@@ -4265,18 +4265,23 @@ def _format_component_detail(
             vix = packet.get("vixcls", {})
             bars = packet.get("alpaca_iex_bars", [])
             market_reference = packet.get("us_market_reference") or {}
+            us_session_date = (
+                market_reference.get("as_of_session_date")
+                or row.get("as_of_date")
+                or "UNKNOWN"
+            )
             lines.append(
                 "    - clocks: "
-                f"market_session={market_reference.get('as_of_session_date') or row.get('as_of_date') or 'UNKNOWN'} "
+                f"market_session={us_session_date} "
                 f"VIXCLS_observation={vix.get('date') or 'UNKNOWN'}"
             )
-            if decision_date and row.get("as_of_date") != decision_date:
+            if decision_date and us_session_date != decision_date:
                 # US evidence is never a substitute for the KRX briefing
                 # date.  Keep its own date visible, but do not present an
                 # older close as if it described the current KST session.
                 lines.append(
                     "    - US close values withheld: independent session evidence "
-                    f"is dated {row.get('as_of_date') or 'UNKNOWN'}, not {decision_date}"
+                    f"is dated {us_session_date}, not {decision_date}"
                 )
             else:
                 lines.append(
@@ -4584,9 +4589,37 @@ def _format_component_detail(
         elif cid == "DYNAMIC_CLOCK":
             lines.append(f"    - policy_approval_status={packet.get('policy_approval_status')}")
             markets = packet.get("markets", {})
+            dynamic_decision_date = packet.get("decision_date") or decision_date
+
+            def rendered_due_status(candidate: dict) -> str:
+                retained = candidate.get("review_due_status")
+                if retained in {
+                    "REVIEW_OVERDUE", "REVIEW_DUE_TODAY",
+                    "REVIEW_UPCOMING", "UNKNOWN",
+                }:
+                    return retained
+                try:
+                    return _review_due_status(
+                        candidate.get("next_review_at"), dynamic_decision_date
+                    )
+                except (DailyOrchestratorError, TypeError, ValueError):
+                    return "UNKNOWN"
+
             for market, m in sorted(markets.items()):
                 tier_counts = m.get("tier_counts", {})
-                due_counts = m.get("review_due_counts", {})
+                due_counts = m.get("review_due_counts")
+                if not isinstance(due_counts, dict):
+                    due_counts = {
+                        "REVIEW_OVERDUE": 0,
+                        "REVIEW_DUE_TODAY": 0,
+                        "REVIEW_UPCOMING": 0,
+                        "UNKNOWN": 0,
+                    }
+                    for candidate in (
+                        list(m.get("immediate_review", []))
+                        + list(m.get("watch_review", []))
+                    ):
+                        due_counts[rendered_due_status(candidate)] += 1
                 lines.append(
                     f"    - {market}: raw_triggers(audit only)={m.get('raw_trigger_count_audit_only')} "
                     f"immediate_review={tier_counts.get('IMMEDIATE_REVIEW')} "
@@ -4602,7 +4635,8 @@ def _format_component_detail(
                 # NOTE: every field rendered per candidate below (subject,
                 # tier, trigger_types+confirmation_count, price_state,
                 # reflection_status, data_state, threshold_basis,
-                # price_as_of, reason, authority, money_action) is the
+                # price observation/capture clocks, review due state,
+                # reason, authority, money_action) is the
                 # EXACT allowlist the integration spec's section 7
                 # requires -- `reason` is always template-derived, never a
                 # forward-return/MFE/post-hoc-audit figure (section 8).
@@ -4626,6 +4660,14 @@ def _format_component_detail(
                 for tier_key, tier_label in (("immediate_review", "IMMEDIATE_REVIEW"), ("watch_review", "WATCH_REVIEW")):
                     candidates = m.get(tier_key, [])
                     for c in candidates[:_RENDER_CAP]:
+                        price_observation_date = (
+                            c.get("price_observation_date") or "UNKNOWN"
+                        )
+                        price_captured_at = (
+                            c.get("price_captured_at")
+                            or c.get("price_as_of")
+                            or "UNKNOWN"
+                        )
                         lines.append(
                             f"      - {tier_label} {c.get('subject')} "
                             f"trigger_types={c.get('trigger_types')} "
@@ -4633,9 +4675,9 @@ def _format_component_detail(
                             f"reflection_status={c.get('reflection_status')} "
                             f"data_state={c.get('data_state')} "
                             f"threshold_basis={c.get('threshold_basis')} "
-                            f"price_observation_date={c.get('price_observation_date')} "
-                            f"price_captured_at={c.get('price_captured_at')} "
-                            f"review_due={c.get('review_due_status')} "
+                            f"price_observation_date={price_observation_date} "
+                            f"price_captured_at={price_captured_at} "
+                            f"review_due={rendered_due_status(c)} "
                             f"next_review_at={c.get('next_review_at')} "
                             f"authority={c.get('authority')} money_action={c.get('money_action')} "
                             f"reason={c.get('reason')}"
@@ -4701,12 +4743,12 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
                 or source_date(component_id)
             )
         if component_id == "BTC_TREND":
-            return component_packet.get("latest_finalized_day") or source_date(component_id)
+            return component_packet.get("latest_finalized_day") or "UNKNOWN"
         if component_id == "BTC_RISK":
             return (
                 component_packet.get("latest_finalized_day")
                 or (component_packet.get("risk_point") or {}).get("as_of_date")
-                or source_date(component_id)
+                or "UNKNOWN"
             )
         return source_date(component_id)
 

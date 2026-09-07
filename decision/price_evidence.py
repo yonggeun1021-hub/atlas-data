@@ -332,7 +332,12 @@ def _vs_market_pct(
     return (stock_gross / bench_gross - 1) * 100
 
 
-def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
+def assemble_krx_stock_evidence(
+    code: str,
+    decision_date: str,
+    *,
+    include_temporal_metadata: bool = False,
+) -> dict:
     """Real KRX evidence -> `build_packet()` kwargs for a Korea subject.
     Never fabricates: any figure the real committed window cannot support is
     left `None` -- including `relative_strength.vs_market`, which stays
@@ -353,12 +358,18 @@ def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
 
     latest_snapshot = ei.snapshot_at_or_before(snapshots, decision_date)
     if latest_snapshot is None or not live_dates:
-        return {
+        result = {
             "price_as_of": None,
             "data_source_scope": "KRX_OFFICIAL",
             "recent_return_windows": None,
             "relative_strength": None,
         }
+        if include_temporal_metadata:
+            result["_temporal_metadata"] = {
+                "price_observation_date": None,
+                "price_captured_at": None,
+            }
+        return result
 
     latest_date = live_dates[-1]
     price_as_of = _utc_z(latest_snapshot.collected_at_utc)
@@ -395,40 +406,18 @@ def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
             "volume_change_pct": _pct_str(volume_change) if volume_change is not None else None,
         }
 
-    return {
+    result = {
         "price_as_of": price_as_of,
         "data_source_scope": "KRX_OFFICIAL",
         "recent_return_windows": windows,
         "relative_strength": strength,
     }
-
-
-def krx_price_temporal_metadata(code: str, decision_date: str) -> dict:
-    """Return the two KRX clocks without changing the P8-10 packet shape.
-
-    ``price_as_of`` in the established price-reflection contract is the
-    collection instant of the selected snapshot.  A briefing also needs the
-    date of the price observation itself.  Keep both facts distinct here so
-    the presentation layer cannot relabel collection time as market time.
-    """
-    snapshots = ei.find_krx_snapshots()
-    series = ps.build_krx_series(code, snapshots)
-    live_dates = series.live_trading_dates_at_or_before(decision_date)
-    lg.assert_no_signal_lookahead(
-        decision_date,
-        [series.first_capture_date_for(day) for day in live_dates],
-        label=f"krx_price_temporal_metadata:{code}",
-    )
-    latest_snapshot = ei.snapshot_at_or_before(snapshots, decision_date)
-    if latest_snapshot is None or not live_dates:
-        return {
-            "price_observation_date": None,
-            "price_captured_at": None,
+    if include_temporal_metadata:
+        result["_temporal_metadata"] = {
+            "price_observation_date": latest_date,
+            "price_captured_at": price_as_of,
         }
-    return {
-        "price_observation_date": live_dates[-1],
-        "price_captured_at": _utc_z(latest_snapshot.collected_at_utc),
-    }
+    return result
 
 
 def _us_price_points(

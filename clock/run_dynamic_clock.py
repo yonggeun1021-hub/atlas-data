@@ -125,7 +125,6 @@ from clock.dynamic_clock import build_episode_history, close_stale_episodes
 #   (called exclusively from `run_with_diagnostics()`) lazily imports them.
 from clock.price_reflection_link import (
     link_price_reflection,
-    price_temporal_metadata,
     to_price_reflection_status,
 )
 from clock.review_candidate import (
@@ -522,16 +521,20 @@ def _briefing_candidate_summary(r: dict, market: str, decision_date: str) -> dic
     """The EXACT per-subject shape the integration spec's section 7
     requires -- subject, tier, trigger_types+confirmation_count,
     price_state, reflection_status (always "UNKNOWN" whenever present),
-    data_state, threshold_basis, a data-as-of timestamp, a templated
+    data_state, threshold_basis, distinct price observation/capture clocks,
+    a templated
     `reason`, and authority=REVIEW_ONLY/money_action=NONE. Deliberately
     excludes everything section 8 forbids: no forward return, no MFE/MAE,
     no post-hoc Miss/Defense result, no invented expected-return figure, no
     Buy/Entry/Order-style field or language."""
     pr = r["price_reflection_status"]
     linked = pr.get("status") == "LINKED"
-    price_clocks = price_temporal_metadata(
-        r["subject"], market, decision_date
-    ) if linked else {
+    price_clocks = {
+        "price_observation_date": pr.get("price_observation_date") or "UNKNOWN",
+        "price_captured_at": (
+            pr.get("price_captured_at") or pr.get("price_as_of") or "UNKNOWN"
+        ),
+    } if linked else {
         "price_observation_date": "UNKNOWN",
         "price_captured_at": "UNKNOWN",
     }

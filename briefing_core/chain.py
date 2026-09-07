@@ -564,11 +564,17 @@ def _delivery_claims(packet: dict, packet_ref: str) -> list[dict]:
 
     btc_trend = components.get("BTC_TREND") or {}
     trend_packet = btc_trend.get("packet") or {}
-    trend_date = trend_packet.get("latest_finalized_day") or btc_trend.get("as_of_date")
+    trend_date = trend_packet.get("latest_finalized_day")
     if isinstance(trend_date, str):
         fact(
             "freshness.crypto.btc_trend_finalized_date",
             f"The BTC trend measurement uses finalized daily closes through {trend_date}.",
+        )
+    elif btc_trend:
+        unknown(
+            "freshness.crypto.btc_trend_finalized_date",
+            "The exact packet does not retain the BTC trend finalized measurement date; "
+            "its component as_of_date is a capture vintage and is not substituted.",
         )
     if trend_packet.get("direction") is not None or trend_packet.get("dma_200") is not None:
         fact(
@@ -583,12 +589,17 @@ def _delivery_claims(packet: dict, packet_ref: str) -> list[dict]:
     risk_date = (
         risk_packet.get("latest_finalized_day")
         or risk_point.get("as_of_date")
-        or btc_risk.get("as_of_date")
     )
     if isinstance(risk_date, str):
         fact(
             "freshness.crypto.btc_risk_finalized_date",
             f"The BTC risk measurement uses finalized daily closes through {risk_date}.",
+        )
+    elif btc_risk:
+        unknown(
+            "freshness.crypto.btc_risk_finalized_date",
+            "The exact packet does not retain the BTC risk finalized measurement date; "
+            "its component as_of_date is a capture vintage and is not substituted.",
         )
     drawdown = risk_point.get("drawdown") or {}
     volatility = risk_point.get("realized_volatility") or {}
