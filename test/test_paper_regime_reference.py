@@ -561,6 +561,7 @@ class PaperRegimeReferenceTest(unittest.TestCase):
                 MODULE.build_kr(
                     json.loads(retained_kr_path.read_text(encoding="utf-8")),
                     kr_policy_fixture(),
+                    render_version=baseline.get("render_version"),
                 ),
             )
             base_breadth = {row["axis"]: row for row in base_kr["axes"]}["BREADTH"]
