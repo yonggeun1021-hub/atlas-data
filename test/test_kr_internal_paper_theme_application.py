@@ -142,7 +142,7 @@ class SyntheticEndToEndTests(unittest.TestCase):
     """Exercise the full reducer with explicitly synthetic source packets."""
 
     observation_date = "2026-09-08"
-    evaluation_at = "2026-09-08T10:00:00+09:00"
+    evaluation_at = "2026-09-08T19:00:00+09:00"
 
     @staticmethod
     def _krx_row(code: str, name: str, market: str) -> dict:
@@ -205,27 +205,50 @@ class SyntheticEndToEndTests(unittest.TestCase):
 
     @classmethod
     def _leadership(cls) -> dict:
-        source_path = ROOT / "data/observations/korea_leadership_context/2026-09-04/packet.json"
-        wrapper = json.loads(source_path.read_text(encoding="utf-8"))
-        packet = wrapper["leadership_packet"]
-        packet["observation_date"] = cls.observation_date
-        packet["available_at"] = "2026-09-08T09:40:00+09:00"
-        packet["window"] = {
-            "first_input_session": "2026-09-07",
-            "first_return_session": cls.observation_date,
-            "last_return_session": cls.observation_date,
-            "lookback_sessions": 1,
-            "exact_expected_sessions": True,
-        }
-        packet["payload_sha256"] = APP.payload_sha256(
-            {key: value for key, value in packet.items() if key != "payload_sha256"}
+        producer = APP._load_module(
+            "synthetic_korea_leadership_for_application_test",
+            ".github/scripts/korea_leadership.py",
         )
-        wrapper.update({
-            "generated_at": "2026-09-08T00:40:00Z",
+        policy = producer.load_policy(producer.POLICY_PATH)
+        active = sorted({
+            row["series_identity"]
+            for row in policy["records"]
+            if row["effective_from"] <= cls.observation_date
+            and (row["effective_to"] is None or cls.observation_date < row["effective_to"])
+        })
+        packet = producer.build_transform({
+            "schema_version": 1,
+            "source_name": policy["source_name"],
+            "market": policy["market"],
+            "market_timezone": policy["market_timezone"],
+            "run_mode": "FORWARD_SHADOW",
+            "observation_date": cls.observation_date,
+            "fetched_at": "2026-09-08T18:05:00+09:00",
+            "available_at": "2026-09-08T18:00:00+09:00",
+            "decision_at": "2026-09-08T18:10:00+09:00",
+            "expected_session_dates": ["2026-09-07", cls.observation_date],
+            "series_rows": [
+                {
+                    "series_identity": identity,
+                    "rows": [
+                        {"session_date": "2026-09-07", "close": "100"},
+                        {"session_date": cls.observation_date, "close": str(101 + index)},
+                    ],
+                }
+                for index, identity in enumerate(active)
+            ],
+        })
+        wrapper = {
+            "generated_at": "2026-09-08T09:10:00Z",
             "observation_date": cls.observation_date,
             "prior_date": "2026-09-07",
             "leadership_packet_sha256": packet["payload_sha256"],
-        })
+            "leadership_packet": packet,
+            "markets": ["KOSDAQ", "KOSPI"],
+            "outcome": "synthetic_validator_fixture",
+            "reason": "SYNTHETIC_ONLY_NOT_MARKET_EVIDENCE",
+            "schema_version": "korea_leadership_live_fetch/1",
+        }
         wrapper["payload_sha256"] = APP.payload_sha256(
             {key: value for key, value in wrapper.items() if key != "payload_sha256"}
         )
@@ -258,7 +281,7 @@ class SyntheticEndToEndTests(unittest.TestCase):
                 Path("SYNTHETIC_LEADERSHIP_PACKET"),
                 self.evaluation_at,
                 head,
-                "2026-09-08T15:00:00+09:00",
+                "2026-09-08T19:10:00+09:00",
             )
 
     def test_full_validator_path_emits_bounded_active_input(self):
@@ -271,10 +294,12 @@ class SyntheticEndToEndTests(unittest.TestCase):
         )
         self.assertEqual(result["rotation_series_identity"], "KOSPI::전기전자")
         self.assertFalse(result["authority"]["real_authority"])
+        self.assertFalse(result["authority"]["baseline_entry_eligibility_authorized"])
+        self.assertFalse(result["authority"]["new_entry_authorized"])
         self.assertFalse(result["authority"]["trading_authorized"])
 
     def test_future_packet_first_seen_keeps_input_unauthorized(self):
-        result = self._evaluate("2026-09-08T01:30:00Z")
+        result = self._evaluate("2026-09-08T10:30:00Z")
         self.assertEqual(result["status"], "UNKNOWN_INPUTS_NOT_AVAILABLE_BY_EVALUATION")
         self.assertFalse(result["inputs_available_by_evaluation"])
         self.assertFalse(result["authority"]["bounded_internal_paper_entry_filter_input_authorized"])

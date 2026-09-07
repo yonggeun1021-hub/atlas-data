@@ -59,6 +59,8 @@ AUTHORITY_FALSE = {
     "official_krx_index_constituency_claimed": False,
     "krx_issued_theme_id_claimed": False,
     "historical_backfill_authorized": False,
+    "baseline_entry_eligibility_authorized": False,
+    "new_entry_authorized": False,
     "stage_promotion_authorized": False,
     "production_authorized": False,
     "real_authority": False,
