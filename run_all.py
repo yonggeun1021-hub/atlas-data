@@ -1502,6 +1502,7 @@ APPROVED_TESTS = [
     #   PASS/REJECTED/BLOCKED packet을 exact SHA chain으로 기록하되 proposal 관측은
     #   Shadow 편입·Stage 변경·capital/action/order로 승격되지 않는다.
     "test/test_investment_review_shadow_ledger.py",
+    "test/test_investment_review_shadow_store.py",
     # ★ P10-02 — Atlas vs existing judgment same-period evidence alignment.
     #   P7/P9 lineage를 포함한 Shadow v4 record·external legacy judgment·external
     #   outcome을 decision_id+market로 exact match하고 세 source를 packet에 보존한다.
