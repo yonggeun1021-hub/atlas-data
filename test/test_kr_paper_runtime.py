@@ -1,6 +1,7 @@
 """Synthetic contract tests; no actual market acceptance or forward claims."""
 import copy
 import json
+import tempfile
 import unittest
 import sys
 from pathlib import Path
@@ -15,6 +16,30 @@ from test_paper_regime_reference import kr_packet_fixture, kr_policy_fixture
 
 def encoded(value):
     return R.COMMON.canonical_bytes(value)
+
+
+def synthetic_calendar(day, status):
+    source_ref = "fixture:ctca0903r:" + day
+    source_sha256 = R.digest(source_ref.encode())
+    return {
+        "schema_version": "krx_date_specific_session_source/1",
+        "as_of_date": day,
+        "official_response_ref": source_ref,
+        "official_response_sha256": source_sha256,
+        "calendar": {
+            "session_date": day,
+            "status": status,
+            "timezone": "Asia/Seoul",
+            "open_at": day + "T09:00:00+09:00" if status == "OPEN_REGULAR" else None,
+            "close_at": day + "T15:30:00+09:00" if status == "OPEN_REGULAR" else None,
+            "observed_at": "2026-08-30T00:00:00Z",
+            "available_at": "2026-08-30T00:00:00Z",
+            "source_ref": source_ref,
+            "source_sha256": source_sha256,
+            "provider_id": "KIS_OPEN_API_DOMESTIC_HOLIDAY_CTCA0903R",
+            "market_rule_source": "KRX_EQUITY_MARKET_OPERATION_RULES",
+        },
+    }
 
 
 def make_inputs(evidence_class="SYNTHETIC_OFFLINE_FIXTURE", *, stress=False):
@@ -83,6 +108,75 @@ def replace_policy(inputs, change):
     inputs["experiment_policy"] = encoded(value)
     inputs["expected_policy_sha256"] = R.digest(inputs["experiment_policy"])
     replace_receipt(inputs, lambda r: r.update(policy_sha256=inputs["expected_policy_sha256"]))
+
+
+def make_session_boundary_inputs():
+    inputs = make_inputs()
+    inputs["evaluation_at"] = "2026-08-31T05:00:00Z"
+    inputs["session_boundary_freshness"] = {
+        "schema_version": R.SESSION_BOUNDARY_INPUT_SCHEMA,
+        "context_session_date": "2026-08-28",
+        "execution_session_date": "2026-08-31",
+        "context_session_close_at": "2026-08-28T06:30:00Z",
+        "execution_session_close_at": "2026-08-31T06:30:00Z",
+        "session_calendar_packet_paths": [
+            "synthetic/committed/calendar-2026-08-28.json",
+            "synthetic/committed/calendar-2026-08-29.json",
+            "synthetic/committed/calendar-2026-08-30.json",
+            "synthetic/committed/calendar-2026-08-31.json",
+        ],
+        "trusted_commit": "98537aaf64b3bdcd84d157f9b13841094df2811f",
+    }
+    calendar_rows = [
+        {
+            "session_date": day,
+            "status": status,
+            "source_file_sha256": R.digest((day + status).encode()),
+            "official_response_sha256": R.digest(("source:" + day).encode()),
+            "available_at": "2026-08-30T00:00:00Z",
+            "first_seen_at": "2026-08-30T01:00:00Z",
+        }
+        for day, status in (
+            ("2026-08-28", "OPEN_REGULAR"),
+            ("2026-08-29", "CLOSED"),
+            ("2026-08-30", "CLOSED"),
+            ("2026-08-31", "OPEN_REGULAR"),
+        )
+    ]
+    binding = {
+        "schema_version": "kr_paper_runtime_session_boundary_freshness/3",
+        "context_session_date": "2026-08-28",
+        "execution_session_date": "2026-08-31",
+        "context_session_close_at": "2026-08-28T06:30:00Z",
+        "execution_session_close_at": "2026-08-31T06:30:00Z",
+        "calendar_receipt_sha256": R.digest(b"synthetic committed D-E relation"),
+        "session_calendar": calendar_rows,
+        "calendar_usable_from": "2026-08-30T01:00:00Z",
+        "derived_ttl_seconds": 259200,
+        "trusted_commit": "98537aaf64b3bdcd84d157f9b13841094df2811f",
+        "decision_id": "KR_INTERNAL_PAPER_SESSION_BOUNDARY_FRESHNESS_V1",
+        "decision_real_usable_from": "2026-08-30T21:00:00Z",
+        "paper_policy_use_authorized": True,
+        "actual_source_qualification": "UNKNOWN",
+    }
+    policy = json.loads(inputs["experiment_policy"])
+    policy.update(
+        schema_version=R.SESSION_BOUNDARY_POLICY_SCHEMA,
+        ttl_seconds=binding["derived_ttl_seconds"],
+        session_boundary_freshness=copy.deepcopy(binding),
+    )
+    inputs["experiment_policy"] = encoded(policy)
+    inputs["expected_policy_sha256"] = R.digest(inputs["experiment_policy"])
+    receipt = json.loads(inputs["qualification_receipt"])
+    receipt.update(
+        schema_version=R.SESSION_BOUNDARY_QUALIFICATION_SCHEMA,
+        policy_sha256=inputs["expected_policy_sha256"],
+        calendar_receipt_sha256=binding["calendar_receipt_sha256"],
+        session_boundary_freshness=copy.deepcopy(binding),
+    )
+    inputs["qualification_receipt"] = encoded(receipt)
+    inputs["expected_qualification_sha256"] = R.digest(inputs["qualification_receipt"])
+    return inputs, binding
 
 
 class KRRuntimeTest(unittest.TestCase):
@@ -260,6 +354,97 @@ class KRRuntimeTest(unittest.TestCase):
             tampered.pop("decision_id"); tampered["decision_id"] = "kr-paper-regime:" + R.COMMON.payload_sha256(tampered)
             with self.assertRaisesRegex(R.KRRuntimeError, "RUNTIME_REDERIVATION_MISMATCH"):
                 R.validate_kr_paper_runtime(tampered, **args)
+
+    def test_verified_session_boundary_derives_policy_ttl_without_qualifying_source(self):
+        args, binding = make_session_boundary_inputs()
+        with mock.patch.object(R, "_session_boundary_binding", return_value=binding):
+            output = R.evaluate_kr_paper_runtime(**args)
+            self.assertEqual(output["reasons"], [])
+            self.assertEqual(output["schema_version"], R.SESSION_BOUNDARY_SCHEMA)
+            self.assertEqual(output["policy_binding"]["ttl_seconds"], 259200)
+            self.assertEqual(output["session_boundary_freshness"], binding)
+            self.assertTrue(output["paper_policy_use_authorized"])
+            self.assertEqual(output["actual_source_qualification"], "UNKNOWN")
+            self.assertFalse(output["runtime_decision_available"])
+            self.assertFalse(output["authority"]["real_order_authorized"])
+            self.assertEqual(output, R.validate_kr_paper_runtime(output, **args))
+
+    def test_profile_derives_weekend_spanning_ttl_from_exact_close_boundaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            days_and_statuses = (
+                ("2026-08-28", "OPEN_REGULAR"),
+                ("2026-08-29", "CLOSED"),
+                ("2026-08-30", "CLOSED"),
+                ("2026-08-31", "OPEN_REGULAR"),
+            )
+            calendar_paths = []
+            calendar_packets = []
+            for day, status in days_and_statuses:
+                calendar_path = Path(directory) / f"calendar-{day}.json"
+                calendar = synthetic_calendar(day, status)
+                calendar_path.write_bytes(encoded(calendar))
+                calendar_paths.append(calendar_path)
+                calendar_packets.append((calendar, "2026-08-30T01:00:00Z"))
+            with (
+                mock.patch.object(
+                    R.SESSION_PROFILE, "_repo_and_commit",
+                    return_value=(R.ROOT, "9" * 40),
+                ),
+                mock.patch.object(
+                    R.SESSION_PROFILE, "_load_exact_packet",
+                    side_effect=calendar_packets,
+                ),
+            ):
+                binding = R.SESSION_PROFILE.derive_verified_session_boundary(
+                    calendar_paths, "2026-08-28", "2026-08-31",
+                    "2026-08-28T06:30:00Z", "2026-08-31T06:30:00Z",
+                    "2026-08-31T05:00:00Z", "9" * 40,
+                )
+        self.assertEqual(binding["derived_ttl_seconds"], 259200)
+        self.assertEqual(
+            [row["status"] for row in binding["session_calendar"]],
+            [status for _, status in days_and_statuses],
+        )
+        self.assertEqual(binding["calendar_usable_from"], "2026-08-30T01:00:00Z")
+        self.assertEqual(binding["trusted_commit"], "9" * 40)
+
+    def test_session_boundary_policy_and_qualification_must_bind_derived_values(self):
+        args, binding = make_session_boundary_inputs()
+        replace_policy(args, lambda p: p.update(ttl_seconds=14400))
+        with mock.patch.object(R, "_session_boundary_binding", return_value=binding):
+            self.assertEqual(
+                R.evaluate_kr_paper_runtime(**args)["reasons"],
+                ["POLICY_DERIVED_TTL_MISMATCH"],
+            )
+
+        args, binding = make_session_boundary_inputs()
+        receipt = json.loads(args["qualification_receipt"])
+        receipt["session_boundary_freshness"]["execution_session_date"] = "2026-09-01"
+        args["qualification_receipt"] = encoded(receipt)
+        args["expected_qualification_sha256"] = R.digest(args["qualification_receipt"])
+        with mock.patch.object(R, "_session_boundary_binding", return_value=binding):
+            self.assertEqual(
+                R.evaluate_kr_paper_runtime(**args)["reasons"],
+                ["QUALIFICATION_SESSION_BOUNDARY_BINDING_MISMATCH"],
+            )
+
+    def test_wrong_future_or_expired_session_boundary_fails_closed(self):
+        for reason in (
+            "SESSION_CALENDAR_INTERVENING_OPEN_SESSION",
+            "SESSION_CALENDAR_FUTURE_AT_EVALUATION",
+            "SESSION_BOUNDARY_EXPIRED",
+        ):
+            args, _ = make_session_boundary_inputs()
+            with mock.patch.object(
+                R,
+                "_session_boundary_binding",
+                side_effect=R.SESSION_PROFILE.ThemeApplicationError(reason),
+            ):
+                output = R.evaluate_kr_paper_runtime(**args)
+            self.assertEqual(output["reasons"], [reason])
+            self.assertFalse(output["paper_policy_use_authorized"])
+            self.assertEqual(output["actual_source_qualification"], "UNKNOWN")
+            self.assertFalse(output["runtime_decision_available"])
 
 
 if __name__ == "__main__":
