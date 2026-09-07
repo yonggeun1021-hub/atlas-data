@@ -20,6 +20,7 @@ from regime import decision_authority as COMMON
 from regime import paper_regime_reference as REFERENCE
 from decision import common_paper_candidate_funnel as FUNNEL
 from market_judgement import krx_market_judgement as JUDGEMENT
+from rotation import kr_internal_paper_theme_application as SESSION_PROFILE
 
 ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
@@ -28,6 +29,13 @@ _spec = importlib.util.spec_from_file_location(
 SOURCE = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(SOURCE)
 SCHEMA = "kr_paper_runtime_decision/1"
+SESSION_BOUNDARY_SCHEMA = "kr_paper_runtime_decision/2"
+SESSION_BOUNDARY_INPUT_SCHEMA = "kr_paper_runtime_session_boundary_freshness_input/1"
+SESSION_BOUNDARY_POLICY_SCHEMA = "kr_paper_runtime_policy/2"
+SESSION_BOUNDARY_QUALIFICATION_SCHEMA = "kr_paper_runtime_qualification/2"
+SESSION_BOUNDARY_CONTRACT_PATH = (
+    ROOT / "config" / "kr_internal_paper_session_boundary_freshness_contract.json"
+)
 CLASSES = {"LIVE_NATURAL", "HISTORICAL_REPLAY", "SYNTHETIC_OFFLINE_FIXTURE"}
 SHA = re.compile(r"[0-9a-f]{64}")
 
@@ -99,12 +107,168 @@ def _trusted(raw, expected, code):
     return _object(raw)
 
 
-def _policy(raw, expected, common, now):
+def _expected_session_boundary_contract():
+    return {
+        "schema_version": "kr_internal_paper_session_boundary_freshness_contract/1",
+        "decision_id": "KR_INTERNAL_PAPER_SESSION_BOUNDARY_FRESHNESS_V1",
+        "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0",
+        "decision_evidence": {
+            "path": "evidence/authority/kr_internal_paper_session_boundary_freshness_adoption_20260908.json",
+            "sha256": "dd36637960e22d54ee9ca28771f604088a9914198cfa9c80038a6d1f91138afe",
+        },
+        "previous_session_decision": {
+            "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_adoption_20260908.json",
+            "sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b",
+        },
+        "session_relation": {
+            "profile_contract_path": "config/kr_internal_paper_theme_next_session_contract.json",
+            "profile_contract_sha256": "d673641ed7726e60b0c5eeff45a1eb79edddcb22ee2da0e05f953daa71a3007f",
+            "validator": ".github/scripts/korea_market_signals.py::validate_packet",
+            "required_relation": "packet.previous_date == D AND packet.as_of_date == E",
+            "calendar_day_subtraction_authorized": False,
+            "assumed_holiday_authorized": False,
+        },
+        "freshness": {
+            "market_timezone": "Asia/Seoul",
+            "regular_session_close_local": "15:30:00",
+            "freshness_from": "D session_close",
+            "freshness_to_exclusive": "E session_close",
+            "derived_ttl_seconds_rule": "E.session_close - D.session_close",
+            "rolling_extension_from_current_time_authorized": False,
+            "arbitrary_14400_seconds_authorized": False,
+            "decision_or_fill_at_or_after_e_close_authorized": False,
+        },
+        "runtime_binding": {
+            "input_schema_version": SESSION_BOUNDARY_INPUT_SCHEMA,
+            "policy_schema_version": SESSION_BOUNDARY_POLICY_SCHEMA,
+            "qualification_schema_version": SESSION_BOUNDARY_QUALIFICATION_SCHEMA,
+            "decision_schema_version": SESSION_BOUNDARY_SCHEMA,
+            "policy_and_qualification_must_bind_same_freshness": True,
+        },
+        "separate_evidence_gates": [
+            "Actual LIVE_NATURAL source classification",
+            "Original-byte retention",
+            "Complete admitted source chain",
+            "Common-v1 two-packet confirmation",
+            "Independently supplied qualification receipt and trusted hash",
+            "Actual E identity/master and qualified current forward observations",
+        ],
+        "authority": {
+            "paper_policy_use_authorized": True,
+            "actual_source_qualification_known": False,
+            "source_qualification_auto_population_authorized": False,
+            "new_entry_authorized": False,
+            "production_authorized": False,
+            "real_authority": False,
+            "order_authorized": False,
+            "trading_authorized": False,
+            "profitability_validated": False,
+        },
+    }
+
+
+def _session_boundary_decision(trusted_commit, now):
+    contract_raw = SESSION_BOUNDARY_CONTRACT_PATH.read_bytes()
+    contract = _object(contract_raw)
+    require(contract == _expected_session_boundary_contract(),
+            "SESSION_BOUNDARY_CONTRACT_MISMATCH")
+    repo, commit = SESSION_PROFILE._repo_and_commit(
+        SESSION_BOUNDARY_CONTRACT_PATH, trusted_commit
+    )
+    contract_first_seen = SESSION_PROFILE._require_exact_committed_bytes(
+        repo, commit, SESSION_BOUNDARY_CONTRACT_PATH, contract_raw,
+        "SESSION_BOUNDARY_CONTRACT_NOT_EXACT_COMMITTED_BYTES",
+    )
+    profile_path = repo / contract["session_relation"]["profile_contract_path"]
+    profile_raw = profile_path.read_bytes()
+    require(digest(profile_raw) == contract["session_relation"]["profile_contract_sha256"],
+            "SESSION_BOUNDARY_PROFILE_CONTRACT_HASH_MISMATCH")
+    SESSION_PROFILE._require_exact_committed_bytes(
+        repo, commit, profile_path, profile_raw,
+        "SESSION_BOUNDARY_PROFILE_CONTRACT_NOT_EXACT_COMMITTED_BYTES",
+    )
+    evidence_path = repo / contract["decision_evidence"]["path"]
+    evidence_raw = evidence_path.read_bytes()
+    require(digest(evidence_raw) == contract["decision_evidence"]["sha256"],
+            "SESSION_BOUNDARY_DECISION_EVIDENCE_HASH_MISMATCH")
+    evidence_first_seen = SESSION_PROFILE._require_exact_committed_bytes(
+        repo, commit, evidence_path, evidence_raw,
+        "SESSION_BOUNDARY_DECISION_EVIDENCE_NOT_EXACT_COMMITTED_BYTES",
+    )
+    evidence = _object(evidence_raw)
+    require(
+        evidence.get("schema_version")
+        == "kr_internal_paper_session_boundary_freshness_adoption/1"
+        and evidence.get("decision_id") == contract["decision_id"]
+        and evidence.get("application_scope") == contract["application_scope"]
+        and evidence.get("status") == "POLICY_ADOPTED_ACTUAL_SOURCE_QUALIFICATION_UNKNOWN"
+        and evidence.get("implementation_authorized") is True
+        and evidence.get("real_authority") is False,
+        "SESSION_BOUNDARY_DECISION_EVIDENCE_MISMATCH",
+    )
+    previous_path = repo / contract["previous_session_decision"]["path"]
+    previous_raw = previous_path.read_bytes()
+    require(digest(previous_raw) == contract["previous_session_decision"]["sha256"],
+            "SESSION_BOUNDARY_PREVIOUS_DECISION_HASH_MISMATCH")
+    SESSION_PROFILE._require_exact_committed_bytes(
+        repo, commit, previous_path, previous_raw,
+        "SESSION_BOUNDARY_PREVIOUS_DECISION_NOT_EXACT_COMMITTED_BYTES",
+    )
+    usable = max(
+        _time(evidence["recorded_after_decision_at_utc"]),
+        _time(contract_first_seen),
+        _time(evidence_first_seen),
+    )
+    require(usable <= now, "SESSION_BOUNDARY_POLICY_FUTURE_AT_EVALUATION")
+    return contract, commit, usable
+
+
+def _session_boundary_binding(value, now):
+    _keys(
+        value,
+        "schema_version context_session_date execution_session_date "
+        "context_session_close_at execution_session_close_at "
+        "session_relation_packet_path trusted_commit",
+        "SESSION_BOUNDARY_INPUT_SCHEMA_INVALID",
+    )
+    require(value["schema_version"] == SESSION_BOUNDARY_INPUT_SCHEMA,
+            "SESSION_BOUNDARY_INPUT_SCHEMA_INVALID")
+    _text(value["session_relation_packet_path"], "SESSION_RELATION_PATH_REQUIRED")
+    _text(value["trusted_commit"], "SESSION_BOUNDARY_TRUSTED_COMMIT_REQUIRED")
+    contract, commit, usable = _session_boundary_decision(value["trusted_commit"], now)
+    relation_path = Path(value["session_relation_packet_path"])
+    if not relation_path.is_absolute():
+        relation_path = ROOT / relation_path
+    boundary = SESSION_PROFILE.derive_verified_session_boundary(
+        relation_path,
+        value["context_session_date"], value["execution_session_date"],
+        value["context_session_close_at"], value["execution_session_close_at"],
+        now.isoformat().replace("+00:00", "Z"), commit,
+    )
+    return {
+        **boundary,
+        "decision_id": contract["decision_id"],
+        "decision_real_usable_from": usable.isoformat().replace("+00:00", "Z"),
+        "paper_policy_use_authorized": True,
+        "actual_source_qualification": "UNKNOWN",
+    }
+
+
+def _policy(raw, expected, common, now, session_boundary=None):
     policy = _trusted(raw, expected, "POLICY")
-    _keys(policy, "schema_version market evidence_class policy_id acceptance_refs "
-          "effective_from effective_until reference_policy_sha256 "
-          "common_policy_binding_sha256 source_contract_sha256 leadership_policy_sha256 ttl_seconds", "POLICY_SCHEMA_INVALID")
-    require(policy["schema_version"] == "kr_paper_runtime_policy/1"
+    fields = (
+        "schema_version market evidence_class policy_id acceptance_refs "
+        "effective_from effective_until reference_policy_sha256 "
+        "common_policy_binding_sha256 source_contract_sha256 leadership_policy_sha256 ttl_seconds"
+    )
+    if session_boundary is not None:
+        fields += " session_boundary_freshness"
+    _keys(policy, fields, "POLICY_SCHEMA_INVALID")
+    expected_schema = (
+        SESSION_BOUNDARY_POLICY_SCHEMA if session_boundary is not None
+        else "kr_paper_runtime_policy/1"
+    )
+    require(policy["schema_version"] == expected_schema
             and policy["market"] == "KR" and policy["evidence_class"] in CLASSES,
             "POLICY_SCOPE_INVALID")
     _text(policy["policy_id"], "POLICY_ID_REQUIRED")
@@ -114,6 +278,11 @@ def _policy(raw, expected, common, now):
         _text(ref, "POLICY_ACCEPTANCE_REF_INVALID")
     require(type(policy["ttl_seconds"]) is int and policy["ttl_seconds"] > 0,
             "EXPLICIT_TTL_REQUIRED")
+    if session_boundary is not None:
+        require(policy["session_boundary_freshness"] == session_boundary,
+                "POLICY_SESSION_BOUNDARY_BINDING_MISMATCH")
+        require(policy["ttl_seconds"] == session_boundary["derived_ttl_seconds"],
+                "POLICY_DERIVED_TTL_MISMATCH")
     start, end = _time(policy["effective_from"]), _time(policy["effective_until"])
     require(start < end and start <= now < end, "POLICY_OUTSIDE_EFFECTIVE_WINDOW")
     require(policy["reference_policy_sha256"] == common["binding"]["paper_baseline_policy_sha256"],
@@ -186,7 +355,8 @@ def evaluate_kr_paper_runtime(*, source_packets: list[bytes], evaluation_at: str
                               code_revision: str, experiment_policy: bytes | None = None,
                               expected_policy_sha256: str | None = None,
                               qualification_receipt: bytes | None = None,
-                              expected_qualification_sha256: str | None = None) -> dict:
+                              expected_qualification_sha256: str | None = None,
+                              session_boundary_freshness: dict | None = None) -> dict:
     """Pure calculation. No IO writes, registry ratification, or order authority.
 
     qualification_receipt is an owner-admitted ordered complete session chain,
@@ -199,14 +369,22 @@ def evaluate_kr_paper_runtime(*, source_packets: list[bytes], evaluation_at: str
             "CODE_REVISION_REQUIRED")
     require(isinstance(source_packets, list), "SOURCE_LIST_REQUIRED")
     hashes = [digest(raw) for raw in source_packets]
+    boundary_mode = session_boundary_freshness is not None
+    implementation_files = [
+        "regime/kr_paper_runtime.py", "regime/paper_regime_reference.py",
+        "regime/decision_authority.py", ".github/scripts/korea_market_signals.py",
+        "decision/common_paper_candidate_funnel.py",
+        "market_judgement/krx_market_judgement.py", ".github/scripts/korea_leadership.py",
+    ]
+    if boundary_mode:
+        implementation_files.append("rotation/kr_internal_paper_theme_application.py")
     packet = {
-        "schema_version": SCHEMA, "market": "KR", "evaluation_at": evaluation_at,
+        "schema_version": SESSION_BOUNDARY_SCHEMA if boundary_mode else SCHEMA,
+        "market": "KR", "evaluation_at": evaluation_at,
         "code_revision": code_revision, "evidence_class": None,
-        "implementation_sha256": {name: digest((ROOT / name).read_bytes()) for name in (
-            "regime/kr_paper_runtime.py", "regime/paper_regime_reference.py",
-            "regime/decision_authority.py", ".github/scripts/korea_market_signals.py",
-            "decision/common_paper_candidate_funnel.py",
-            "market_judgement/krx_market_judgement.py", ".github/scripts/korea_leadership.py")},
+        "implementation_sha256": {
+            name: digest((ROOT / name).read_bytes()) for name in implementation_files
+        },
         "source_sha256": hashes, "policy_sha256": None,
         "qualification_sha256": None, "policy_binding": None, "source_chain": [],
         "signed_axes": [], "aggregation": None, "decision_status": "BLOCKED",
@@ -219,10 +397,25 @@ def evaluate_kr_paper_runtime(*, source_packets: list[bytes], evaluation_at: str
         "verification_scope": "OWNER_PINNED_SOURCE_BYTES_AND_STRUCTURAL_SOURCE_VALIDATOR",
         "raw_provider_bytes_authenticated": False,
     }
+    if boundary_mode:
+        packet.update(
+            session_boundary_freshness=None,
+            paper_policy_use_authorized=False,
+            actual_source_qualification="UNKNOWN",
+        )
     try:
         require(experiment_policy is not None, "EXPLICIT_PAPER_POLICY_MISSING")
+        boundary = None
+        if boundary_mode:
+            boundary = _session_boundary_binding(session_boundary_freshness, now)
+            packet.update(
+                session_boundary_freshness=copy.deepcopy(boundary),
+                paper_policy_use_authorized=True,
+            )
         common = COMMON.load_common_v1_policy()
-        policy = _policy(experiment_policy, expected_policy_sha256, common, now)
+        policy = _policy(
+            experiment_policy, expected_policy_sha256, common, now, boundary
+        )
         reference_bytes = COMMON.PAPER_BASELINE_POLICY_PATH.read_bytes()
         require(digest(reference_bytes) == policy["reference_policy_sha256"],
                 "REFERENCE_POLICY_BINDING_MISMATCH")
@@ -231,20 +424,35 @@ def evaluate_kr_paper_runtime(*, source_packets: list[bytes], evaluation_at: str
                       evidence_class=policy["evidence_class"], policy_binding=copy.deepcopy(policy))
         require(qualification_receipt is not None, "SOURCE_QUALIFICATION_MISSING")
         receipt = _trusted(qualification_receipt, expected_qualification_sha256, "QUALIFICATION")
-        _keys(receipt, "schema_version market evidence_class policy_sha256 "
-              "calendar_receipt_sha256 sources", "QUALIFICATION_SCHEMA_INVALID")
-        require(receipt["schema_version"] == "kr_paper_runtime_qualification/1"
+        receipt_fields = (
+            "schema_version market evidence_class policy_sha256 "
+            "calendar_receipt_sha256 sources"
+        )
+        if boundary_mode:
+            receipt_fields += " session_boundary_freshness"
+        _keys(receipt, receipt_fields, "QUALIFICATION_SCHEMA_INVALID")
+        expected_receipt_schema = (
+            SESSION_BOUNDARY_QUALIFICATION_SCHEMA if boundary_mode
+            else "kr_paper_runtime_qualification/1"
+        )
+        require(receipt["schema_version"] == expected_receipt_schema
                 and receipt["market"] == "KR" and receipt["evidence_class"] == policy["evidence_class"]
                 and receipt["policy_sha256"] == expected_policy_sha256, "QUALIFICATION_SCOPE_MISMATCH")
         _sha(receipt["calendar_receipt_sha256"], "CALENDAR_RECEIPT_HASH_REQUIRED")
+        if boundary_mode:
+            require(receipt["session_boundary_freshness"] == boundary,
+                    "QUALIFICATION_SESSION_BOUNDARY_BINDING_MISMATCH")
+            require(receipt["calendar_receipt_sha256"] == boundary["calendar_receipt_sha256"],
+                    "QUALIFICATION_CALENDAR_BINDING_MISMATCH")
         require(isinstance(receipt["sources"], list) and len(receipt["sources"]) == len(source_packets)
                 and bool(source_packets), "QUALIFIED_SOURCE_CHAIN_INCOMPLETE")
         require(len(set(hashes)) == len(hashes), "DUPLICATE_SOURCE_PACKET")
         packet["qualification_sha256"] = expected_qualification_sha256
         contract = SOURCE.load_contract()
-        steps, previous_date, previous_time = [], None, None
+        steps, previous_date, previous_time, latest_source = [], None, None, None
         for raw, row in zip(source_packets, receipt["sources"]):
             source, axes = _source(raw, row, policy, contract, reference_policy)
+            latest_source = source
             if previous_date is not None:
                 require(source["previous_date"] == previous_date, "SESSION_CHAIN_GAP")
                 require(_time(row["decision_at"]) > previous_time, "DECISION_TIME_ORDER_INVALID")
@@ -256,7 +464,13 @@ def evaluate_kr_paper_runtime(*, source_packets: list[bytes], evaluation_at: str
                                    for a in axes}})
             packet["signed_axes"].append({"source_sha256": row["source_sha256"],
                 "axes": {a["axis"]: {"signed_direction": a["direction"],
-                    "normalized_value": COMMON.common_v1_signed_value(common, a["direction"])} for a in axes}})
+                           "normalized_value": COMMON.common_v1_signed_value(common, a["direction"])} for a in axes}})
+        if boundary_mode:
+            require(latest_source["as_of_date"] == boundary["context_session_date"],
+                    "LATEST_SOURCE_NOT_CONTEXT_SESSION_D")
+            require(receipt["sources"][-1]["session_close_at"]
+                    == boundary["context_session_close_at"],
+                    "LATEST_SOURCE_CLOSE_NOT_CONTEXT_BOUNDARY")
         require((now - _time(receipt["sources"][-1]["session_close_at"])).total_seconds()
                 <= policy["ttl_seconds"], "LATEST_SOURCE_STALE")
         packet["source_chain"] = copy.deepcopy(receipt["sources"])
@@ -275,12 +489,15 @@ def evaluate_kr_paper_runtime(*, source_packets: list[bytes], evaluation_at: str
             packet["decision_status"] = "PAPER_SIMULATION_CLASSIFIED"
     except (KRRuntimeError, SOURCE.KoreaMarketSignalsError, REFERENCE.PaperRegimeReferenceError,
             COMMON.DecisionAuthorityError, JUDGEMENT.KrxMarketJudgementError,
-            JUDGEMENT.KOREA_LEADERSHIP.KoreaLeadershipError, KeyError, TypeError, ValueError) as exc:
+            JUDGEMENT.KOREA_LEADERSHIP.KoreaLeadershipError,
+            SESSION_PROFILE.ThemeApplicationError, OSError,
+            KeyError, TypeError, ValueError) as exc:
         # Errors never expose raw source values or filesystem/provider details.
         code = str(exc).split(":", 1)[0] if isinstance(exc, (
             KRRuntimeError, SOURCE.KoreaMarketSignalsError, REFERENCE.PaperRegimeReferenceError,
             COMMON.DecisionAuthorityError, JUDGEMENT.KrxMarketJudgementError,
-            JUDGEMENT.KOREA_LEADERSHIP.KoreaLeadershipError)) else "INPUT_SHAPE_INVALID"
+            JUDGEMENT.KOREA_LEADERSHIP.KoreaLeadershipError,
+            SESSION_PROFILE.ThemeApplicationError)) else "INPUT_SHAPE_INVALID"
         packet["reasons"] = [code]
         packet["signed_axes"] = []
     packet["decision_id"] = "kr-paper-regime:" + COMMON.payload_sha256(packet)

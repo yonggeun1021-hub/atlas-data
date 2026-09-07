@@ -589,6 +589,97 @@ def _load_exact_packet(path: Path, repo: Path, commit: str, code: str) -> tuple[
     return value, first_seen
 
 
+def derive_verified_session_boundary(
+    session_relation_packet_path: Path,
+    context_session_date: str,
+    execution_session_date: str,
+    context_session_close_at: str,
+    execution_session_close_at: str,
+    evaluation_at: str,
+    trusted_commit: str,
+) -> dict:
+    """Derive the D-to-E freshness TTL from the existing verified relation.
+
+    The relation packet is the same immutable, committed input used by the
+    bounded next-session profile.  Both close timestamps must be the regular
+    15:30 KST close of the dates named by that packet.  The caller cannot turn
+    a duration into a rolling window: evaluation must occur after the relation
+    became usable and strictly before E close.
+    """
+    contract = load_next_session_contract()
+    repo, commit = _repo_and_commit(NEXT_SESSION_CONTRACT_PATH, trusted_commit)
+    relation_raw_bytes, relation_first_seen = _load_exact_packet(
+        Path(session_relation_packet_path), repo, commit,
+        "SESSION_RELATION_NOT_EXACT_COMMITTED_BYTES",
+    )
+    relation_module = _load_module(
+        "kr_internal_paper_verified_session_boundary",
+        ".github/scripts/korea_market_signals.py",
+    )
+    try:
+        relation = relation_module.validate_packet(relation_raw_bytes)
+    except relation_module.KoreaMarketSignalsError as exc:
+        raise ThemeApplicationError(f"SESSION_RELATION_INVALID:{exc}") from exc
+
+    context_day = _date(context_session_date, "CONTEXT_SESSION_DATE_INVALID")
+    execution_day = _date(execution_session_date, "EXECUTION_SESSION_DATE_INVALID")
+    if (
+        relation.get("previous_date") != context_day.isoformat()
+        or relation.get("as_of_date") != execution_day.isoformat()
+    ):
+        raise ThemeApplicationError("SESSION_RELATION_D_E_MISMATCH")
+
+    context_close = _timestamp(
+        context_session_close_at, "CONTEXT_SESSION_CLOSE_AT_INVALID"
+    )
+    execution_close = _timestamp(
+        execution_session_close_at, "EXECUTION_SESSION_CLOSE_AT_INVALID"
+    )
+    regular_close = dt.time.fromisoformat(
+        contract["execution_session"]["regular_session_close_local"]
+    )
+    for value, day, code in (
+        (context_close, context_day, "CONTEXT_SESSION_CLOSE_BOUNDARY_MISMATCH"),
+        (execution_close, execution_day, "EXECUTION_SESSION_CLOSE_BOUNDARY_MISMATCH"),
+    ):
+        local = value.astimezone(KST)
+        if local.date() != day or local.timetz().replace(tzinfo=None) != regular_close:
+            raise ThemeApplicationError(code)
+    if not context_close < execution_close:
+        raise ThemeApplicationError("SESSION_CLOSE_ORDER_INVALID")
+
+    evaluation = _timestamp(evaluation_at, "SESSION_BOUNDARY_EVALUATION_AT_INVALID")
+    relation_available = _timestamp(
+        relation.get("available_at"), "SESSION_RELATION_AVAILABLE_AT_INVALID"
+    )
+    first_seen = _timestamp(
+        relation_first_seen, "SESSION_RELATION_FIRST_SEEN_INVALID"
+    )
+    usable_from = max(relation_available, first_seen)
+    if usable_from > evaluation:
+        raise ThemeApplicationError("SESSION_RELATION_FUTURE_AT_EVALUATION")
+    if evaluation >= execution_close:
+        raise ThemeApplicationError("SESSION_BOUNDARY_EXPIRED")
+    ttl = (execution_close - context_close).total_seconds()
+    if not ttl.is_integer() or ttl <= 0:
+        raise ThemeApplicationError("DERIVED_SESSION_TTL_INVALID")
+
+    relation_bytes = Path(session_relation_packet_path).read_bytes()
+    return {
+        "schema_version": "kr_paper_runtime_session_boundary_freshness/1",
+        "context_session_date": context_day.isoformat(),
+        "execution_session_date": execution_day.isoformat(),
+        "context_session_close_at": context_close.isoformat().replace("+00:00", "Z"),
+        "execution_session_close_at": execution_close.isoformat().replace("+00:00", "Z"),
+        "calendar_receipt_sha256": sha256_bytes(relation_bytes),
+        "session_relation_payload_sha256": relation["payload_sha256"],
+        "session_relation_first_seen_at": relation_first_seen,
+        "session_relation_usable_from": usable_from.isoformat().replace("+00:00", "Z"),
+        "derived_ttl_seconds": int(ttl),
+        "trusted_commit": commit,
+    }
+
+
 def _validate_leadership_wrapper(value: dict) -> dict:
     fields = {
         "generated_at", "leadership_packet", "leadership_packet_sha256", "markets",

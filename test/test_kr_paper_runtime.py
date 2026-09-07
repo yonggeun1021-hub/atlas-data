@@ -1,6 +1,7 @@
 """Synthetic contract tests; no actual market acceptance or forward claims."""
 import copy
 import json
+import tempfile
 import unittest
 import sys
 from pathlib import Path
@@ -83,6 +84,55 @@ def replace_policy(inputs, change):
     inputs["experiment_policy"] = encoded(value)
     inputs["expected_policy_sha256"] = R.digest(inputs["experiment_policy"])
     replace_receipt(inputs, lambda r: r.update(policy_sha256=inputs["expected_policy_sha256"]))
+
+
+def make_session_boundary_inputs():
+    inputs = make_inputs()
+    inputs["evaluation_at"] = "2026-08-31T05:00:00Z"
+    inputs["session_boundary_freshness"] = {
+        "schema_version": R.SESSION_BOUNDARY_INPUT_SCHEMA,
+        "context_session_date": "2026-08-28",
+        "execution_session_date": "2026-08-31",
+        "context_session_close_at": "2026-08-28T06:30:00Z",
+        "execution_session_close_at": "2026-08-31T06:30:00Z",
+        "session_relation_packet_path": "synthetic/committed/session-relation.json",
+        "trusted_commit": "98537aaf64b3bdcd84d157f9b13841094df2811f",
+    }
+    binding = {
+        "schema_version": "kr_paper_runtime_session_boundary_freshness/1",
+        "context_session_date": "2026-08-28",
+        "execution_session_date": "2026-08-31",
+        "context_session_close_at": "2026-08-28T06:30:00Z",
+        "execution_session_close_at": "2026-08-31T06:30:00Z",
+        "calendar_receipt_sha256": R.digest(b"synthetic committed D-E relation"),
+        "session_relation_payload_sha256": R.digest(b"synthetic relation payload"),
+        "session_relation_first_seen_at": "2026-08-30T22:00:00Z",
+        "session_relation_usable_from": "2026-08-30T22:00:00Z",
+        "derived_ttl_seconds": 259200,
+        "trusted_commit": "98537aaf64b3bdcd84d157f9b13841094df2811f",
+        "decision_id": "KR_INTERNAL_PAPER_SESSION_BOUNDARY_FRESHNESS_V1",
+        "decision_real_usable_from": "2026-08-30T21:00:00Z",
+        "paper_policy_use_authorized": True,
+        "actual_source_qualification": "UNKNOWN",
+    }
+    policy = json.loads(inputs["experiment_policy"])
+    policy.update(
+        schema_version=R.SESSION_BOUNDARY_POLICY_SCHEMA,
+        ttl_seconds=binding["derived_ttl_seconds"],
+        session_boundary_freshness=copy.deepcopy(binding),
+    )
+    inputs["experiment_policy"] = encoded(policy)
+    inputs["expected_policy_sha256"] = R.digest(inputs["experiment_policy"])
+    receipt = json.loads(inputs["qualification_receipt"])
+    receipt.update(
+        schema_version=R.SESSION_BOUNDARY_QUALIFICATION_SCHEMA,
+        policy_sha256=inputs["expected_policy_sha256"],
+        calendar_receipt_sha256=binding["calendar_receipt_sha256"],
+        session_boundary_freshness=copy.deepcopy(binding),
+    )
+    inputs["qualification_receipt"] = encoded(receipt)
+    inputs["expected_qualification_sha256"] = R.digest(inputs["qualification_receipt"])
+    return inputs, binding
 
 
 class KRRuntimeTest(unittest.TestCase):
@@ -260,6 +310,91 @@ class KRRuntimeTest(unittest.TestCase):
             tampered.pop("decision_id"); tampered["decision_id"] = "kr-paper-regime:" + R.COMMON.payload_sha256(tampered)
             with self.assertRaisesRegex(R.KRRuntimeError, "RUNTIME_REDERIVATION_MISMATCH"):
                 R.validate_kr_paper_runtime(tampered, **args)
+
+    def test_verified_session_boundary_derives_policy_ttl_without_qualifying_source(self):
+        args, binding = make_session_boundary_inputs()
+        with mock.patch.object(R, "_session_boundary_binding", return_value=binding):
+            output = R.evaluate_kr_paper_runtime(**args)
+            self.assertEqual(output["reasons"], [])
+            self.assertEqual(output["schema_version"], R.SESSION_BOUNDARY_SCHEMA)
+            self.assertEqual(output["policy_binding"]["ttl_seconds"], 259200)
+            self.assertEqual(output["session_boundary_freshness"], binding)
+            self.assertTrue(output["paper_policy_use_authorized"])
+            self.assertEqual(output["actual_source_qualification"], "UNKNOWN")
+            self.assertFalse(output["runtime_decision_available"])
+            self.assertFalse(output["authority"]["real_order_authorized"])
+            self.assertEqual(output, R.validate_kr_paper_runtime(output, **args))
+
+    def test_profile_derives_weekend_spanning_ttl_from_exact_close_boundaries(self):
+        relation = json.loads(
+            (R.ROOT / "data/observations/korea_market_signals/2026-09-04/packet.json").read_text()
+        )
+        relation.update(
+            previous_date="2026-08-28", as_of_date="2026-08-31",
+            generated_at="2026-08-30T22:00:00Z", available_at="2026-08-30T22:00:00Z",
+        )
+        relation.pop("payload_sha256")
+        relation["payload_sha256"] = R.SESSION_PROFILE.payload_sha256(relation)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "relation.json"
+            raw = encoded(relation)
+            path.write_bytes(raw)
+            with (
+                mock.patch.object(
+                    R.SESSION_PROFILE, "_repo_and_commit",
+                    return_value=(R.ROOT, "9" * 40),
+                ),
+                mock.patch.object(
+                    R.SESSION_PROFILE, "_load_exact_packet",
+                    return_value=(relation, "2026-08-30T22:00:00Z"),
+                ),
+            ):
+                binding = R.SESSION_PROFILE.derive_verified_session_boundary(
+                    path, "2026-08-28", "2026-08-31",
+                    "2026-08-28T06:30:00Z", "2026-08-31T06:30:00Z",
+                    "2026-08-31T05:00:00Z", "9" * 40,
+                )
+        self.assertEqual(binding["derived_ttl_seconds"], 259200)
+        self.assertEqual(binding["calendar_receipt_sha256"], R.digest(raw))
+        self.assertEqual(binding["trusted_commit"], "9" * 40)
+
+    def test_session_boundary_policy_and_qualification_must_bind_derived_values(self):
+        args, binding = make_session_boundary_inputs()
+        replace_policy(args, lambda p: p.update(ttl_seconds=14400))
+        with mock.patch.object(R, "_session_boundary_binding", return_value=binding):
+            self.assertEqual(
+                R.evaluate_kr_paper_runtime(**args)["reasons"],
+                ["POLICY_DERIVED_TTL_MISMATCH"],
+            )
+
+        args, binding = make_session_boundary_inputs()
+        receipt = json.loads(args["qualification_receipt"])
+        receipt["session_boundary_freshness"]["execution_session_date"] = "2026-09-01"
+        args["qualification_receipt"] = encoded(receipt)
+        args["expected_qualification_sha256"] = R.digest(args["qualification_receipt"])
+        with mock.patch.object(R, "_session_boundary_binding", return_value=binding):
+            self.assertEqual(
+                R.evaluate_kr_paper_runtime(**args)["reasons"],
+                ["QUALIFICATION_SESSION_BOUNDARY_BINDING_MISMATCH"],
+            )
+
+    def test_wrong_future_or_expired_session_boundary_fails_closed(self):
+        for reason in (
+            "SESSION_RELATION_D_E_MISMATCH",
+            "SESSION_RELATION_FUTURE_AT_EVALUATION",
+            "SESSION_BOUNDARY_EXPIRED",
+        ):
+            args, _ = make_session_boundary_inputs()
+            with mock.patch.object(
+                R,
+                "_session_boundary_binding",
+                side_effect=R.SESSION_PROFILE.ThemeApplicationError(reason),
+            ):
+                output = R.evaluate_kr_paper_runtime(**args)
+            self.assertEqual(output["reasons"], [reason])
+            self.assertFalse(output["paper_policy_use_authorized"])
+            self.assertEqual(output["actual_source_qualification"], "UNKNOWN")
+            self.assertFalse(output["runtime_decision_available"])
 
 
 if __name__ == "__main__":
