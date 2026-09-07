@@ -725,7 +725,6 @@ APPROVED_TESTS = [
     #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
     "test/test_kr_paper_runtime.py",
-    "test/test_kis_realtime_trade_observation.py",
     "test/test_us_paper_policy_binding.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — normalization replay-readiness
     #   evidence (SHADOW only). Reuses build_us/build_kr from
@@ -1968,6 +1967,7 @@ APPROVED_TESTS = [
     # kis_paper_domestic_balance/071050 chain. Proposal artifacts stay
     # PROPOSED and every money/trading authority remains false.
     "test/test_kis_071050_identity_authority.py",
+    "test/test_kis_realtime_trade_observation.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.
