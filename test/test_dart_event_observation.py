@@ -48,10 +48,46 @@ def recount_content_records(content: dict) -> None:
         "captured": sum(row.get("operation") == "captured" for row in records),
         "failed": sum(row.get("operation") == "failed" for row in records),
         "not_applicable": sum(
-            row.get("publication_status") == "NOT_APPLICABLE" for row in records
+            row.get("content_status") == "NOT_APPLICABLE" for row in records
         ),
         "skipped": sum(row.get("operation") == "skipped" for row in records),
     }
+
+
+def retained_raw_fixture(root: Path) -> tuple[Path, Path, Path, str, str]:
+    """Build a bounded test envelope from one retained DART filing.
+
+    The rolling `latest_*` inputs may correctly contain metadata-only rows.
+    Raw-byte assertions instead use this explicitly historical fixture; its
+    source snapshot, manifest, ZIP and member bytes remain mutually bound.
+    """
+    subject_id = "012450"
+    rcept_no = "20260831800137"
+    source = json.loads((ROOT / "data/2026-09-01/dart.json").read_text(encoding="utf-8"))
+    source["stocks"] = {subject_id: source["stocks"][subject_id]}
+    source["summary"] = {"ok": 1, "failed": 0}
+    source_path = root / "dart.json"
+    source_path.write_text(json.dumps(source), encoding="utf-8")
+
+    manifest_path = ROOT / "data/dart_content" / subject_id / rcept_no / "_manifest.json"
+    record = json.loads(manifest_path.read_text(encoding="utf-8"))
+    record["publication_status"] = "OK"
+    content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+    content.update({
+        "collected_for_kst_date": source["collected_for_kst_date"],
+        "observed_at_utc": record["retrieved_at_utc"],
+        "run_status": "OK",
+        "records": [record],
+    })
+    recount_content_records(content)
+    content["source_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    content_path = root / "dart_content.json"
+    content_path.write_text(json.dumps(content), encoding="utf-8")
+
+    data_root = root / "data"
+    retained = ROOT / "data/dart_content" / subject_id / rcept_no
+    shutil.copytree(retained, data_root / "dart_content" / subject_id / rcept_no)
+    return source_path, content_path, data_root, subject_id, rcept_no
 
 
 class DartEventObservationTests(unittest.TestCase):
@@ -136,21 +172,18 @@ class DartEventObservationTests(unittest.TestCase):
                 MODULE.validate_packet(legacy)
 
     def test_real_retained_zip_and_member_bytes_are_independently_revalidated(self):
-        linked = next(
-            row for row in self.packet["observations"]
-            if row["evidence"]["status"]
-            == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
-        )
-        manifest = MODULE.DART.load_existing_manifest(
-            MODULE.DEFAULT_DATA_ROOT, linked["subject_id"], linked["rcept_no"]
-        )
-        self.assertIsNotNone(manifest)
-        self.assertEqual(linked["evidence"]["status"], "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED")
-        self.assertEqual(
-            linked["evidence"]["source_sha256"],
-            manifest["source_archive"]["content_sha256"],
-        )
-        self.assertIn("DART_ITEM_EXTRACTION_POLICY_UNRATIFIED", linked["blocked_reasons"])
+        with tempfile.TemporaryDirectory() as temporary:
+            source_path, content_path, data_root, subject_id, rcept_no = retained_raw_fixture(Path(temporary))
+            packet = MODULE.build_packet(
+                decision_at="2026-08-31T21:00:39Z", source_path=source_path,
+                content_path=content_path, data_root=data_root,
+            )
+            linked = packet["observations"][0]
+            manifest = MODULE.DART.load_existing_manifest(data_root, subject_id, rcept_no)
+            self.assertIsNotNone(manifest)
+            self.assertEqual(linked["evidence"]["status"], "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED")
+            self.assertEqual(linked["evidence"]["source_sha256"], manifest["source_archive"]["content_sha256"])
+            self.assertIn("DART_ITEM_EXTRACTION_POLICY_UNRATIFIED", linked["blocked_reasons"])
 
     def test_metadata_only_row_cannot_be_presented_as_content_verified(self):
         # The latest DART inputs are rolling evidence.  A particular stock can
@@ -404,32 +437,21 @@ class DartEventObservationTests(unittest.TestCase):
 
     def test_retained_raw_member_tamper_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
-            data_root = Path(temporary) / "data"
-            shutil.copytree(ROOT / "data/dart_content", data_root / "dart_content")
-            linked = next(
-                row for row in self.packet["observations"]
-                if row["evidence"]["status"]
-                == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
-            )
-            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
-            record = next(
-                row for row in content["records"]
-                if row["filing_identity"]
-                == {
-                    "stock_code": linked["subject_id"],
-                    "rcept_no": linked["rcept_no"],
-                }
-            )
+            source_path, content_path, data_root, subject_id, rcept_no = retained_raw_fixture(Path(temporary))
+            record = json.loads((data_root / "dart_content" / subject_id / rcept_no / "_manifest.json").read_text(encoding="utf-8"))
             member = (
                 data_root
                 / "dart_content"
-                / linked["subject_id"]
-                / linked["rcept_no"]
+                / subject_id
+                / rcept_no
                 / record["documents"][0]["cache_name"]
             )
             member.write_bytes(member.read_bytes() + b"tamper")
             with self.assertRaisesRegex(MODULE.DartEventObservationError, "DART_RAW_CONTENT_INVALID"):
-                MODULE.build_packet(decision_at=DECISION_AT, data_root=data_root)
+                MODULE.build_packet(
+                    decision_at="2026-08-31T21:00:39Z", source_path=source_path,
+                    content_path=content_path, data_root=data_root,
+                )
 
     def test_append_only_is_idempotent_and_detects_drift(self):
         with tempfile.TemporaryDirectory() as temporary:

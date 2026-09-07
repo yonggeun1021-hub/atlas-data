@@ -229,6 +229,7 @@ class DailyBriefingRecoveryTest(unittest.TestCase):
             self.assertIn(schedule, workflow)
         self.assertIn("actions: write", workflow)
         self.assertIn("contents: read", workflow)
+        self.assertIn("fetch-depth: 0", workflow)
         self.assertIn("runs-on: [self-hosted, Linux, X64, atlas-data]", workflow)
         self.assertNotIn("workflow_dispatch:", workflow)
         for forbidden in ("ORDER", "TRADING", "PRODUCTION", "KIS_", "UPBIT_"):
