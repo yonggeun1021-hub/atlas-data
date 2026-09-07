@@ -2671,7 +2671,10 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(WF["permissions"], {"contents": "write"})
         self.assertEqual(WF["concurrency"]["cancel-in-progress"], False)
         steps = WF["jobs"]["briefing"]["steps"]
-        regression_steps = WF["jobs"]["offline-regression"]["steps"]
+        regression_job = WF["jobs"]["offline-regression"]
+        self.assertEqual(regression_job["needs"], "briefing")
+        self.assertEqual(regression_job["if"], "always()")
+        regression_steps = regression_job["steps"]
         regression = next(
             step for step in regression_steps
             if step.get("name") == "Offline daily orchestrator regression"

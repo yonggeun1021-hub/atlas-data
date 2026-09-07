@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
@@ -65,7 +67,38 @@ def select_target_run(runs: list[dict], decision_date: str, slot: str) -> dict |
     return max(candidates, key=lambda row: (_parse_utc(row["created_at"]), int(row.get("run_attempt", 0))))
 
 
-def classify_recovery(run: dict, jobs: list[dict]) -> str:
+def _load_handoff_report(repo_root: Path, slot: str, decision_date: str) -> dict:
+    """Read the canonical handoff state instead of re-deriving delivery health."""
+    script = Path(__file__).with_name("briefing_handoff_watchdog.py")
+    spec = importlib.util.spec_from_file_location("briefing_handoff_watchdog", script)
+    if spec is None or spec.loader is None:
+        raise RecoveryError("HANDOFF_WATCHDOG_IMPORT_FAILED")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    report = module.run_check(repo_root, slot, decision_date)
+    if not isinstance(report, dict) or not isinstance(report.get("status"), str):
+        raise RecoveryError("HANDOFF_WATCHDOG_REPORT_INVALID")
+    return report
+
+
+def _classify_successful_producer(handoff_report: dict | None) -> str:
+    if handoff_report is None:
+        return "HANDOFF_STATUS_REQUIRED"
+    if handoff_report.get("status") == "COMPLETE":
+        return "HEALTHY"
+    semantic = (handoff_report.get("checks") or {}).get("semantic_verdict") or {}
+    if semantic.get("exists") and semantic.get("status_deliverable") is False:
+        return "HANDOFF_HOLD"
+    if handoff_report.get("alert") is True:
+        return "HANDOFF_FAILED"
+    return "HANDOFF_WAIT"
+
+
+def classify_recovery(
+    run: dict,
+    jobs: list[dict],
+    handoff_report: dict | None = None,
+) -> str:
     attempt = int(run.get("run_attempt", 1))
     briefing = next((job for job in jobs if job.get("name") == "briefing"), None)
     if run.get("status") != "completed":
@@ -73,7 +106,7 @@ def classify_recovery(run: dict, jobs: list[dict]) -> str:
     if briefing is not None and briefing.get("status") != "completed":
         return "WAIT_RUNNING"
     if briefing is not None and briefing.get("conclusion") == "success":
-        return "HEALTHY"
+        return _classify_successful_producer(handoff_report)
     if attempt >= MAX_RUN_ATTEMPTS:
         return "ATTEMPTS_EXHAUSTED"
     if briefing is not None and briefing.get("conclusion") in RETRYABLE_CONCLUSIONS:
@@ -122,7 +155,13 @@ class GitHubApi:
         return value
 
 
-def run_watchdog(slot: str, decision_date: str, final_check: bool, api: GitHubApi) -> str:
+def run_watchdog(
+    slot: str,
+    decision_date: str,
+    final_check: bool,
+    api: GitHubApi,
+    repo_root: Path | None = None,
+) -> str:
     payload = api.request(
         "GET", "/actions/workflows/daily-briefing.yml/runs?event=schedule&per_page=50"
     )
@@ -142,9 +181,39 @@ def run_watchdog(slot: str, decision_date: str, final_check: bool, api: GitHubAp
     jobs = jobs_payload.get("jobs")
     if not isinstance(jobs, list):
         raise RecoveryError("WORKFLOW_JOBS_INVALID")
-    action = classify_recovery(target, jobs)
+    briefing = next((job for job in jobs if job.get("name") == "briefing"), None)
+    handoff_report = None
+    if (
+        target.get("status") == "completed"
+        and briefing is not None
+        and briefing.get("status") == "completed"
+        and briefing.get("conclusion") == "success"
+    ):
+        handoff_report = _load_handoff_report(
+            (repo_root or Path.cwd()).resolve(), slot, decision_date
+        )
+    action = classify_recovery(target, jobs, handoff_report)
     if action == "HEALTHY":
-        return f"PASS: {slot} briefing job succeeded for {decision_date} (run {run_id})"
+        return (
+            f"PASS: {slot} briefing handoff is COMPLETE for {decision_date} "
+            f"(producer run {run_id})"
+        )
+    if action in {"HANDOFF_WAIT", "HANDOFF_HOLD"}:
+        status = handoff_report["status"]
+        reason = handoff_report.get("reason", status)
+        prefix = "HOLD" if action == "HANDOFF_HOLD" else "WAIT"
+        return (
+            f"{prefix}: {slot} producer run {run_id} succeeded but handoff is "
+            f"{status} ({reason}); no producer rerun requested"
+        )
+    if action == "HANDOFF_FAILED":
+        status = handoff_report["status"]
+        reason = handoff_report.get("reason", status)
+        raise RecoveryError(
+            f"BRIEFING_HANDOFF_FAILED:run={run_id}:status={status}:reason={reason}"
+        )
+    if action == "HANDOFF_STATUS_REQUIRED":
+        raise RecoveryError(f"BRIEFING_HANDOFF_STATUS_REQUIRED:run={run_id}")
     if action == "WAIT_RUNNING":
         return f"WAIT: {slot} briefing run {run_id} is still running"
     if action == "RERUN_FAILED_JOBS":
