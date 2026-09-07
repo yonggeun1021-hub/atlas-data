@@ -81,6 +81,135 @@ def _load_handoff_report(repo_root: Path, slot: str, decision_date: str) -> dict
     return report
 
 
+def _load_finalization_module():
+    script = Path(__file__).with_name("briefing_finalization.py")
+    spec = importlib.util.spec_from_file_location("briefing_finalization", script)
+    if spec is None or spec.loader is None:
+        raise RecoveryError("FINALIZATION_IMPORT_FAILED")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _validate_delivery_receipt(
+    finalization,
+    directory: Path,
+    draft: dict,
+    validation: dict,
+    receipt: dict,
+) -> None:
+    payload = finalization._read_bytes(
+        directory / f"payload-rev-{draft['rev']:03d}.md",
+        "FINALIZATION_PAYLOAD_MISSING",
+    )
+    payload_sha = finalization._sha256(payload)
+    expected = {
+        "contract_version": finalization.CONTRACT_VERSION,
+        "briefing_id": draft.get("briefing_id"),
+        "slot": draft.get("slot"),
+        "kst_date": draft.get("kst_date"),
+        "sealed_payload_sha256": payload_sha,
+        "delivery_marker": draft.get("delivery_marker"),
+        "source_briefing_sha256": (draft.get("source") or {}).get("briefing_sha256"),
+        "source_revision": (draft.get("source") or {}).get("revision"),
+        "draft_rev": draft.get("rev"),
+        "validation_rev": validation.get("rev"),
+        "validation_status_at_delivery": validation.get("validation_status"),
+        "immutable": True,
+    }
+    if draft.get("delivery_payload_sha256") != payload_sha:
+        raise RecoveryError("FINAL_HANDOFF_SEALED_PAYLOAD_MISMATCH")
+    if any(receipt.get(key) != value for key, value in expected.items()):
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_IDENTITY_MISMATCH")
+
+    required = receipt.get("required_channels")
+    channels = receipt.get("channels")
+    proofs = receipt.get("delivery_proofs")
+    if (
+        not isinstance(required, list)
+        or not required
+        or not all(isinstance(channel, str) and channel for channel in required)
+        or len(required) != len(set(required))
+        or not isinstance(channels, list)
+        or not all(isinstance(channel, str) and channel for channel in channels)
+        or len(channels) != len(set(channels))
+        or not set(required).issubset(channels)
+        or not isinstance(proofs, list)
+        or not all(isinstance(proof, dict) for proof in proofs)
+    ):
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_CHANNELS_INVALID")
+    proof_channels = [proof.get("channel") for proof in proofs]
+    if (
+        len(proof_channels) != len(set(proof_channels))
+        or set(proof_channels) != set(channels)
+        or any(not isinstance(proof.get("covers_full_payload"), bool) for proof in proofs)
+    ):
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_PROOFS_INVALID")
+    full_payload = sorted(
+        proof["channel"] for proof in proofs if proof["covers_full_payload"]
+    )
+    if receipt.get("full_payload_channels") != full_payload:
+        raise RecoveryError("FINAL_HANDOFF_FULL_PAYLOAD_CHANNELS_INVALID")
+    if not isinstance(receipt.get("attempts"), int) or receipt["attempts"] < 1:
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_ATTEMPTS_INVALID")
+    try:
+        delivered_at = _parse_utc(receipt["delivered_at_utc"])
+        sealed_at = _parse_utc(draft["sealed_at_utc"])
+    except (KeyError, TypeError):
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_TIME_INVALID") from None
+    if delivered_at < sealed_at:
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_TIME_INVALID")
+
+
+def _validate_complete_handoff(repo_root: Path, slot: str, decision_date: str) -> None:
+    """Validate the existing finalization chain without invoking any writer."""
+    finalization = _load_finalization_module()
+    directory = finalization.slot_dir(repo_root, decision_date, slot)
+    draft_path = finalization._latest(directory, "draft")
+    if draft_path is None:
+        raise RecoveryError("FINAL_HANDOFF_DRAFT_MISSING")
+    try:
+        draft = finalization._read_json(draft_path, "FINALIZATION_DRAFT_UNREADABLE")
+        validation, problem = finalization.resolve_validation(directory)
+        if problem is not None or validation is None:
+            raise RecoveryError("FINAL_HANDOFF_GOVERNING_VALIDATION_MISSING")
+        expected_identity = {
+            "contract_version": finalization.CONTRACT_VERSION,
+            "briefing_id": finalization.briefing_id(decision_date, slot),
+            "slot": slot,
+            "kst_date": decision_date,
+        }
+        if any(draft.get(key) != value for key, value in expected_identity.items()):
+            raise RecoveryError("FINAL_HANDOFF_DRAFT_IDENTITY_MISMATCH")
+        if (
+            any(validation.get(key) != value for key, value in expected_identity.items())
+            or validation.get("delivery_payload_sha256")
+            != draft.get("delivery_payload_sha256")
+        ):
+            raise RecoveryError("FINAL_HANDOFF_VALIDATION_IDENTITY_MISMATCH")
+        routing = validation.get("routing") or finalization.derive_routing(
+            validation, finalization.load_ratified_specs(repo_root)
+        )
+        if routing.get("status_deliverable") is not True:
+            raise RecoveryError("FINAL_HANDOFF_VALIDATION_NOT_DELIVERABLE")
+        finalization.verify_pre_delivery_portal_receipt(
+            repo_root,
+            decision_date,
+            slot,
+            draft=draft,
+            validation=validation,
+        )
+        receipt = finalization._read_json(
+            finalization.receipt_path(repo_root, decision_date, slot),
+            "FINALIZATION_RECEIPT_UNREADABLE",
+        )
+        _validate_delivery_receipt(
+            finalization, directory, draft, validation, receipt
+        )
+    except finalization.FinalizationError as exc:
+        raise RecoveryError(f"FINAL_HANDOFF_INVALID:{exc.code}") from None
+
+
 def _classify_successful_producer(handoff_report: dict | None) -> str:
     if handoff_report is None:
         return "HANDOFF_STATUS_REQUIRED"
@@ -192,6 +321,10 @@ def run_watchdog(
         handoff_report = _load_handoff_report(
             (repo_root or Path.cwd()).resolve(), slot, decision_date
         )
+        if handoff_report.get("status") == "COMPLETE":
+            _validate_complete_handoff(
+                (repo_root or Path.cwd()).resolve(), slot, decision_date
+            )
     action = classify_recovery(target, jobs, handoff_report)
     if action == "HEALTHY":
         return (

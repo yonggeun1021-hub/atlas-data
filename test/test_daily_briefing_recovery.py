@@ -107,6 +107,53 @@ class DailyBriefingRecoveryTest(unittest.TestCase):
         )
 
     def test_run_watchdog_accepts_only_the_canonical_complete_receipt_chain(self):
+        date = "2026-09-02"
+        slot = "morning"
+        target = run("2026-09-01T22:05:00Z", conclusion="cancelled")
+        api = FakeApi(target, [job("success")])
+        result = RECOVERY.run_watchdog(slot, date, False, api, ROOT)
+        self.assertIn("handoff is COMPLETE", result)
+        self.assertEqual(api.posts, [])
+
+    def test_empty_or_stale_delivery_receipt_never_proves_health(self):
+        finalization = RECOVERY._load_finalization_module()
+        directory = finalization.slot_dir(ROOT, "2026-09-02", "morning")
+        draft = finalization._read_json(
+            finalization._latest(directory, "draft"), "TEST_DRAFT_UNREADABLE"
+        )
+        validation, problem = finalization.resolve_validation(directory)
+        self.assertIsNone(problem)
+        receipt = finalization._read_json(
+            finalization.receipt_path(ROOT, "2026-09-02", "morning"),
+            "TEST_RECEIPT_UNREADABLE",
+        )
+        RECOVERY._validate_delivery_receipt(
+            finalization, directory, draft, validation, receipt
+        )
+        with self.assertRaisesRegex(
+            RECOVERY.RecoveryError, "FINAL_HANDOFF_DELIVERY_IDENTITY_MISMATCH"
+        ):
+            RECOVERY._validate_delivery_receipt(
+                finalization, directory, draft, validation, {}
+            )
+        stale = dict(receipt)
+        stale["sealed_payload_sha256"] = "0" * 64
+        with self.assertRaisesRegex(
+            RECOVERY.RecoveryError, "FINAL_HANDOFF_DELIVERY_IDENTITY_MISMATCH"
+        ):
+            RECOVERY._validate_delivery_receipt(
+                finalization, directory, draft, validation, stale
+            )
+        other_date = dict(receipt)
+        other_date["kst_date"] = "2026-09-01"
+        with self.assertRaisesRegex(
+            RECOVERY.RecoveryError, "FINAL_HANDOFF_DELIVERY_IDENTITY_MISMATCH"
+        ):
+            RECOVERY._validate_delivery_receipt(
+                finalization, directory, draft, validation, other_date
+            )
+
+    def test_successful_producer_with_missing_delivery_never_posts_a_rerun(self):
         date = "2026-08-31"
         slot = "morning"
         target = run("2026-08-30T22:05:00Z", conclusion="cancelled")
@@ -123,18 +170,7 @@ class DailyBriefingRecoveryTest(unittest.TestCase):
                 f"data/briefing/finalization/{date}/{slot}/portal-final-receipt-rev-001.json",
                 {},
             )
-            delivery = (
-                repo
-                / f"data/briefing/finalization/{date}/{slot}/delivery_receipt.json"
-            )
-            delivery.parent.mkdir(parents=True, exist_ok=True)
-            delivery.write_text("{}", encoding="utf-8")
             api = FakeApi(target, [job("success")])
-            result = RECOVERY.run_watchdog(slot, date, False, api, repo)
-            self.assertIn("handoff is COMPLETE", result)
-            self.assertEqual(api.posts, [])
-
-            delivery.unlink()
             with self.assertRaisesRegex(
                 RECOVERY.RecoveryError,
                 "BRIEFING_HANDOFF_FAILED.*FINAL_DRAIN_MISSING",
