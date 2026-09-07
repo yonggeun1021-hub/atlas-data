@@ -2057,6 +2057,7 @@ APPROVED_TESTS = [
     #   priority remains verbatim. No numeric threshold, order draft,
     #   network/exchange call, Production/Trading/REAL authority is added.
     "test/test_crypto_axis_trade_bridge.py",
+    "test/test_crypto_axis_trade_bridge_explanation.py",
     # ★ P1-CR-08 Crypto live-component registry -- exact public natural
     #   BTC trend/risk, stablecoin and breadth rows, bound by point-in-time
     #   retained download cutoff plus full directory fingerprint. Evidence
