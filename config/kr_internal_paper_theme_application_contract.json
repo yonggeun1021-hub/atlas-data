@@ -1,0 +1,64 @@
+{
+  "schema_version": "kr_internal_paper_theme_application_contract/1",
+  "proposal_id": "KR_INTERNAL_PAPER_TWO_STOCK_THEME_APPLICATION_CONTRACT_V1",
+  "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0_ENTRY_FILTER",
+  "market": "KOREA",
+  "allowed_asset_ids": [
+    "KR:XKRX:000660",
+    "KR:XKRX:005930"
+  ],
+  "allowed_canonical_instrument_ids": [
+    "KRX:000660:COMMON",
+    "KRX:005930:COMMON"
+  ],
+  "rule_id": "KR.KOSPI.INDUSTRY_MIDDLE_DIVISION_TO_THEME_V1",
+  "theme_id": "THEME.KR.KOSPI.ELECTRICAL_ELECTRONIC_EQUIPMENT",
+  "rotation_series_identity": "KOSPI::전기전자",
+  "industry_code_pattern": "^03-26-[0-9]{2}$",
+  "membership_semantics": "INTERNAL_INDUSTRY_PROXY_NOT_OFFICIAL_KRX_INDEX_CONSTITUENCY",
+  "source_manifest_path": "evidence/theme_taxonomy/source_snapshots/2026-09-08/manifest.json",
+  "source_manifest_sha256": "8f3ed580e33d5f76390107d3bdb8fd256cbd31522e0e6891b4271c625aae1ef0",
+  "source_first_seen_commit": "60c3a6e1569e6c61eda518ddafc981fdd0680a71",
+  "source_first_seen_at_utc": "2026-09-07T15:32:29Z",
+  "source_admission_ids": [
+    "krx_kind_listing_notice",
+    "krx_kospi_industrial_classification_pdf"
+  ],
+  "proposal_artifact": {
+    "path": "outputs/KR_ROTATION_REAL_INPUT_CLOSURE.json",
+    "sha256": "ba83919845616f05678afae0f63e7927aa4688d0ad5a08d9f6f66389589bc7c0"
+  },
+  "rule_decision_artifact": {
+    "path": "outputs/KR_INTERNAL_PAPER_TWO_STOCK_THEME_RULE_ADOPTION.json",
+    "sha256": "ecc1729160bbfef1bebd4a63a5ec1dc7e4917f2d1f4aac7ab37059d55d0dc2f7"
+  },
+  "temporal_correction": {
+    "correction_id": "KR_INTERNAL_PAPER_TWO_STOCK_THEME_ACTUAL_TIME_CORRECTION_V1",
+    "source_thread_id": "01a0712e-eb4f-71d1-b487-f326d6a6bcc3",
+    "recorded_after_approval_at_utc": "2026-09-07T16:05:50Z",
+    "membership_from_rule": "max(observation_date_start_kst, admission_real_usable_from)",
+    "membership_to_rule": "next_calendar_date_start_kst",
+    "active_predicate": "membership_from <= timestamp < membership_to",
+    "evaluation_at_must_be_active": true,
+    "forward_execution_at_must_be_active_when_supplied": true,
+    "empty_interval_emits_active_membership": false,
+    "next_day_carry_authorized": false
+  },
+  "observation_alignment_rule": "master.as_of_date == leadership.observation_date == evaluation_observation_date",
+  "availability_rule": "all source, admission, master, and leadership actual availability/first-seen timestamps must be <= evaluation_at",
+  "admission_real_usable_from_rule": "max(ratified_at, effective_from, registry_record_first_seen_at, approval_evidence_first_seen_at, source_manifest_first_seen_at, every_source_snapshot_first_seen_at)",
+  "authority": {
+    "bounded_internal_paper_entry_filter_input_only": true,
+    "global_taxonomy_authority_changed": false,
+    "global_source_allowlist_changed": false,
+    "global_authority_registry_changed": false,
+    "official_krx_index_constituency_claimed": false,
+    "krx_issued_theme_id_claimed": false,
+    "historical_backfill_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "real_authority": false,
+    "order_authorized": false,
+    "trading_authorized": false
+  }
+}
