@@ -132,15 +132,24 @@ def _validate_shadow_inputs_at_commit(
     source commit.
     """
     # _git_blob performs the full immutable-SHA verification before checkout.
-    DAILY_LINEAGE._git_blob(source_commit, relative)
+    # Pass those exact bytes over stdin so the lightweight exact-code checkout
+    # does not need to materialize the repository's evidence payload tree.
+    daily_blob = DAILY_LINEAGE._git_blob(source_commit, relative)
+    try:
+        daily = json.loads(daily_blob)
+        unified = DAILY_LINEAGE._component(daily, "UNIFIED_DECISION")["packet"]
+        payload_patterns = DAILY_LINEAGE._exact_validator_payload_patterns(unified)
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ThreeMarketShadowOperationalReadinessError(
+            "DAILY_PACKET_INVALID_FOR_EXACT_CHECKOUT"
+        ) from exc
     program = r'''
 import importlib.util
 import json
 from pathlib import Path
 import sys
 
-relative = sys.argv[1]
-daily = json.loads(Path(relative).read_text(encoding="utf-8"))
+daily = json.load(sys.stdin)
 components = {
     row["component_id"]: row["packet"]
     for row in daily["components"]
@@ -165,22 +174,24 @@ print(json.dumps({
     "intraday_risk": intraday_risk,
 }, sort_keys=True))
 '''
-    with tempfile.TemporaryDirectory(prefix="atlas-p10-01-validate-") as temporary:
-        checkout = Path(temporary) / "repo"
-        try:
-            DAILY_LINEAGE._materialize_exact_commit(source_commit, checkout)
-        except DAILY_LINEAGE.OperationalDecisionLineageError as exc:
-            raise ThreeMarketShadowOperationalReadinessError(
-                f"SOURCE_COMMIT_CHECKOUT_FAILED:{exc}"
-            ) from exc
-        completed = subprocess.run(
-            [sys.executable, "-c", program, relative],
-            cwd=checkout,
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+    try:
+        context = DAILY_LINEAGE._exact_commit_checkout(
+            source_commit, payload_patterns
         )
+        with context as checkout:
+            completed = subprocess.run(
+                [sys.executable, "-c", program],
+                cwd=checkout,
+                check=False,
+                text=True,
+                input=daily_blob.decode("utf-8"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+    except DAILY_LINEAGE.OperationalDecisionLineageError as exc:
+        raise ThreeMarketShadowOperationalReadinessError(
+            f"SOURCE_COMMIT_CHECKOUT_FAILED:{exc}"
+        ) from exc
     if completed.returncode != 0:
         raise ThreeMarketShadowOperationalReadinessError(
             f"P9_LIVE_INPUTS_INVALID_AT_SOURCE_COMMIT:{completed.stdout.strip()}"
