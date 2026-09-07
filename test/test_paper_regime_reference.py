@@ -86,6 +86,49 @@ def kr_packet_fixture(
     }
 
 
+def frozen_render_sources(root: Path) -> None:
+    """Small deterministic synthetic inputs; no mutable latest market data."""
+    (root / "config").mkdir()
+    (root / "data").mkdir()
+    (root / "config/paper_regime_reference_policy_v1.json").write_bytes(POLICY_PATH.read_bytes())
+    us = {
+        "observed_at_utc": "2026-09-03T10:00:00Z",
+        "fred": {"value": "20"},
+        "fred_liquidity": {"series": [
+            {"series_id": "WRESBAL", "change": "1"},
+            {"series_id": "TOTBKCR", "change": "-1"},
+        ]},
+        "us_market_reference": {
+            "status": "READY", "as_of_session_date": "2026-09-03",
+            "trend_etfs": [{"returns": {"20_session_pct": "1"}} for _ in range(3)],
+            "proxy_axes": {
+                "BREADTH": {"measurement": {"advance_fraction": "0.50"}},
+                "LEADERSHIP": {"measurement": {"ordered_groups": [
+                    {"return_pct": "1"} for _ in range(12)
+                ]}},
+            },
+        },
+    }
+    kr = kr_packet_fixture(kospi="1.637363", kosdaq="2.947318")
+    kr["generated_at"] = "2026-09-03T10:00:00Z"
+    crypto = {
+        "schema_version": "crypto_regime_refresh_status/1",
+        "generated_at": "2026-09-03T10:00:00Z",
+        "authority": {"read_only_reference": True},
+        "current_reference": {"as_of_date": "2026-09-03"},
+        "official_decision": {"coverage": {
+            "required_count": 5, "defined_count": 0, "ratio": "0/5",
+            "defined_axes": [], "missing_axes": list(MODULE.AXES),
+        }},
+    }
+    crypto["payload_sha256"] = MODULE.payload_sha256(crypto)
+    for name, value in (("free_market_data", us), ("korea_market_signals", kr),
+                        ("crypto_regime_refresh_status", crypto)):
+        (root / f"data/latest_{name}.json").write_text(
+            MODULE.canonical_json(value), encoding="utf-8"
+        )
+
+
 def kr_direction(axis_name: str, policy: dict, **measurement) -> str:
     rows = {row["axis"]: row for row in MODULE.build_kr(kr_packet_fixture(**measurement), policy)["axes"]}
     return rows[axis_name]["direction"]
@@ -196,6 +239,86 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             self.assertEqual(evidence.read_bytes(), latest.read_bytes())
             self.assertEqual(MODULE.validate_reference(json.loads(latest.read_text())), packet)
             MODULE.write_packet(packet, root)
+
+    def test_kr_trend_summary_matches_positive_negative_mixed_and_zero(self):
+        cases = (
+            # Reported 2026-09-04 measurements; explicit local fixture only.
+            ("1.637363", "2.947318", "POSITIVE", "두 지수가 모두 상승했습니다."),
+            ("-1.637363", "-2.947318", "NEGATIVE", "두 지수가 모두 하락했습니다."),
+            ("1.0", "-1.0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+            ("-1.0", "1.0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+            ("0", "1.0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+            ("-1.0", "0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+            ("0", "0", "NEUTRAL", "혼조 또는 보합을 보였습니다."),
+        )
+        for kospi, kosdaq, direction, explanation in cases:
+            with self.subTest(kospi=kospi, kosdaq=kosdaq):
+                packet = MODULE.build_kr(
+                    kr_packet_fixture(kospi=kospi, kosdaq=kosdaq), kr_policy_fixture(),
+                    render_version=MODULE.KR_TREND_RENDER_VERSION,
+                )
+                trend = next(row for row in packet["axes"] if row["axis"] == "TREND")
+                self.assertEqual(trend["direction"], direction)
+                self.assertEqual(
+                    trend["summary_ko"],
+                    f"코스피 {MODULE.Decimal(kospi):+.2f}%, 코스닥 {MODULE.Decimal(kosdaq):+.2f}%로 {explanation}",
+                )
+
+    def test_render_legacy_v2_and_frozen_leaf_hashes_are_preserved(self):
+        # Frozen using the exact PR618 a87ab66d renderer on these synthetic inputs.
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw); frozen_render_sources(root)
+            legacy = MODULE.build_reference(root, render_version=None)
+            self.assertNotIn("render_version", legacy)
+            self.assertEqual(legacy["generation_id"], "bf64db06627fdb5ed075410545a6c648bd08bbcd541a4ce6e9836fd9f334896f")
+            self.assertEqual(legacy["payload_sha256"], "64e4574db1d72f6a6a70d6c91a388787a5c3b9039b43807a406813f24d0a1a1a")
+            self.assertEqual(MODULE.validate_reference(legacy, root), legacy)
+            leaf = MODULE.build_kr(
+                json.loads((root / "data/latest_korea_market_signals.json").read_text()),
+                kr_policy_fixture(),
+            )
+            self.assertEqual(MODULE.payload_sha256(leaf), "5089784fce9c91ed53d8a90796a54dd270c6f5942f68db98152cafaedd88c5e2")
+            self.assertIn("방향이 엇갈렸습니다.", leaf["axes"][0]["summary_ko"])
+
+    def test_render_new_namespace_coexists_without_overwriting_retained_v2(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw); frozen_render_sources(root)
+            legacy = MODULE.build_reference(root, render_version=None)
+            old_path, _ = MODULE.write_packet(legacy, root)
+            retained = old_path.read_bytes()
+            current = MODULE.build_reference(root)
+            self.assertEqual(current["render_version"], MODULE.KR_TREND_RENDER_VERSION)
+            self.assertNotEqual(current["generation_id"], legacy["generation_id"])
+            self.assertNotEqual(current["payload_sha256"], legacy["payload_sha256"])
+            new_path, latest = MODULE.write_packet(current, root)
+            self.assertNotEqual(old_path, new_path)
+            self.assertEqual(old_path.read_bytes(), retained)
+            self.assertEqual(new_path.read_bytes(), latest.read_bytes())
+            MODULE.write_packet(current, root)
+            for packet in (legacy, current):
+                self.assertEqual(MODULE.validate_reference(packet, root), packet)
+            before, after = copy.deepcopy(legacy["markets"]), copy.deepcopy(current["markets"])
+            before[1]["axes"][0].pop("summary_ko")
+            after[1]["axes"][0].pop("summary_ko")
+            self.assertEqual(before, after)
+            self.assertIn("두 지수가 모두 상승했습니다.", current["markets"][1]["axes"][0]["summary_ko"])
+
+    def test_render_dispatch_rejects_unknown_null_and_resigned_downgrade(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw); frozen_render_sources(root)
+            current = MODULE.build_reference(root)
+            for version in (None, "unknown/v9", True):
+                packet = copy.deepcopy(current); packet["render_version"] = version
+                packet.pop("payload_sha256"); packet["payload_sha256"] = MODULE.payload_sha256(packet)
+                with self.assertRaisesRegex(MODULE.PaperRegimeReferenceError, "REFERENCE_RENDER_VERSION_INVALID"):
+                    MODULE.validate_reference(packet, root)
+            downgraded = copy.deepcopy(current); downgraded.pop("render_version")
+            downgraded["generation_id"] = MODULE.build_reference(root, render_version=None)["generation_id"]
+            downgraded.pop("payload_sha256"); downgraded["payload_sha256"] = MODULE.payload_sha256(downgraded)
+            with self.assertRaisesRegex(MODULE.PaperRegimeReferenceError, "REFERENCE_REDERIVATION_MISMATCH"):
+                MODULE.validate_reference(downgraded, root)
+            with self.assertRaisesRegex(MODULE.PaperRegimeReferenceError, "REFERENCE_RENDER_VERSION_INVALID"):
+                MODULE.build_reference(root, render_version="unknown/v9")
 
     def test_kr_policy_baseline_boundaries(self):
         policy = kr_policy_fixture()
@@ -438,6 +561,7 @@ class PaperRegimeReferenceTest(unittest.TestCase):
                 MODULE.build_kr(
                     json.loads(retained_kr_path.read_text(encoding="utf-8")),
                     kr_policy_fixture(),
+                    render_version=baseline.get("render_version"),
                 ),
             )
             base_breadth = {row["axis"]: row for row in base_kr["axes"]}["BREADTH"]

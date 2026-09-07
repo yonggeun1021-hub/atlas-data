@@ -25,6 +25,8 @@ KR_PATH = ROOT / "data" / "latest_korea_market_signals.json"
 CRYPTO_PATH = ROOT / "data" / "latest_crypto_regime_refresh_status.json"
 LATEST_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
 SCHEMA_VERSION = "paper_regime_reference/v2"
+# Absent version is the retained v2 renderer and its original identity recipe.
+KR_TREND_RENDER_VERSION = "kr_trend_direction/v1"
 AXES = ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 ZERO = Decimal("0")
@@ -353,7 +355,18 @@ def kr_policy(policy: dict) -> dict:
     return bound
 
 
-def build_kr(packet: dict, policy: dict) -> dict:
+def normalize_kr_measurements(
+    packet: dict, policy: dict, *, render_version: str | None = None,
+) -> list[dict]:
+    """Derive signed KR axes using the explicitly supplied reference policy.
+
+    This is arithmetic reuse, not sensor-policy or runtime ratification.
+    Source qualification and point-in-time acceptance belong to the caller.
+    Versionless leaf calls retain historical v2 text. The current reference
+    producer explicitly requests KR_TREND_RENDER_VERSION for its new namespace.
+    """
+    if render_version is not None and render_version != KR_TREND_RENDER_VERSION:
+        fail("REFERENCE_RENDER_VERSION_INVALID")
     thresholds = kr_policy(policy)
     if packet.get("status") != "OBSERVED_UNCLASSIFIED" or packet.get("coverage", {}).get("ratio") != "5/5":
         fail("KR_REFERENCE_NOT_READY")
@@ -386,13 +399,26 @@ def build_kr(packet: dict, policy: dict) -> dict:
     leadership_fraction = Decimal(positive_sectors) / Decimal(len(sectors))
     leadership_direction = ratio_direction(leadership_fraction, thresholds["LEADERSHIP"]["positive_min"], thresholds["LEADERSHIP"]["negative_max"])
 
+    trend_summary = {
+        "POSITIVE": "두 지수가 모두 상승했습니다.",
+        "NEGATIVE": "두 지수가 모두 하락했습니다.",
+        "NEUTRAL": "혼조 또는 보합을 보였습니다.",
+    }[trend_direction] if render_version == KR_TREND_RENDER_VERSION else "방향이 엇갈렸습니다."
     rows = [
-        axis("TREND", trend_direction, {"KOSPI": str(trend_values[0]), "KOSDAQ": str(trend_values[1])}, f"코스피 {trend_values[0]:+.2f}%, 코스닥 {trend_values[1]:+.2f}%로 방향이 엇갈렸습니다."),
+        axis("TREND", trend_direction, {"KOSPI": str(trend_values[0]), "KOSDAQ": str(trend_values[1])}, f"코스피 {trend_values[0]:+.2f}%, 코스닥 {trend_values[1]:+.2f}%로 {trend_summary}"),
         axis("BREADTH", breadth_direction, {"advance_fraction": str(breadth_value)}, f"전체 종목 중 상승 비중은 {breadth_value * 100:.1f}%입니다."),
         axis("RISK_VOL", risk_direction, {"mean_absolute_move_pct": str(move)}, f"종목 평균 절대 등락폭은 {move:.2f}%로 보통 구간입니다."),
         axis("LIQUIDITY", liquidity_direction, {"trading_value_change_pct": str(trading_value_change)}, f"거래대금은 이전 거래일보다 {trading_value_change:+.1f}% 변했습니다."),
         axis("LEADERSHIP", leadership_direction, {"positive_sectors": positive_sectors, "total": len(sectors)}, f"업종 {len(sectors)}개 중 {positive_sectors}개가 상승했습니다."),
     ]
+    return rows
+
+
+def build_kr(
+    packet: dict, policy: dict, *, render_version: str | None = None,
+) -> dict:
+    # Versionless historical callers retain their original text and hashes.
+    rows = normalize_kr_measurements(packet, policy, render_version=render_version)
     regime, score, explanation = classify(rows, policy)
     return market_packet("KR", packet["as_of_date"], rows, regime, score, explanation)
 
@@ -464,7 +490,11 @@ def build_crypto(packet: dict) -> dict:
     }
 
 
-def build_reference(root: Path = ROOT) -> dict:
+def build_reference(
+    root: Path = ROOT, *, render_version: str | None = KR_TREND_RENDER_VERSION,
+) -> dict:
+    if render_version is not None and render_version != KR_TREND_RENDER_VERSION:
+        fail("REFERENCE_RENDER_VERSION_INVALID")
     policy_path = root / "config" / "paper_regime_reference_policy_v1.json"
     us_path = root / "data" / "latest_free_market_data.json"
     kr_path = root / "data" / "latest_korea_market_signals.json"
@@ -487,10 +517,13 @@ def build_reference(root: Path = ROOT) -> dict:
         {"market": "KR", "path": "data/latest_korea_market_signals.json", "sha256": file_sha256(kr_path)},
         {"market": "CRYPTO", "path": "data/latest_crypto_regime_refresh_status.json", "sha256": file_sha256(crypto_path)},
     ]
-    generation_id = payload_sha256({"policy_sha256": file_sha256(policy_path), "sources": sources})
+    generation_binding = {"policy_sha256": file_sha256(policy_path), "sources": sources}
+    if render_version is not None:
+        generation_binding["render_version"] = render_version
+    generation_id = payload_sha256(generation_binding)
     markets = [
         build_us(us_source, policy),
-        build_kr(kr_source, policy),
+        build_kr(kr_source, policy, render_version=render_version),
         build_crypto(crypto_source),
     ]
     packet = {
@@ -509,6 +542,8 @@ def build_reference(root: Path = ROOT) -> dict:
         "markets": markets,
         "authority": copy.deepcopy(authority),
     }
+    if render_version is not None:
+        packet["render_version"] = render_version
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
 
@@ -520,7 +555,9 @@ def validate_reference(packet: dict, root: Path = ROOT) -> dict:
     claimed = unsigned.pop("payload_sha256", None)
     if not isinstance(claimed, str) or SHA256.fullmatch(claimed) is None or payload_sha256(unsigned) != claimed:
         fail("REFERENCE_SHA_INVALID")
-    expected = build_reference(root)
+    if "render_version" in packet and packet["render_version"] != KR_TREND_RENDER_VERSION:
+        fail("REFERENCE_RENDER_VERSION_INVALID")
+    expected = build_reference(root, render_version=packet.get("render_version"))
     if packet != expected:
         fail("REFERENCE_REDERIVATION_MISMATCH")
     return copy.deepcopy(packet)
