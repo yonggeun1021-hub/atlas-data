@@ -725,6 +725,7 @@ APPROVED_TESTS = [
     #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
     "test/test_kr_paper_runtime.py",
+    "test/test_kis_realtime_trade_observation.py",
     "test/test_us_paper_policy_binding.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — normalization replay-readiness
     #   evidence (SHADOW only). Reuses build_us/build_kr from
