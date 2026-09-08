@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import datetime as dt
 import json
 import shutil
@@ -18,11 +19,26 @@ from identity.candidate_identity_authority_proposal import (
 )
 
 
+from identity import canonical_identity as ci
+from identity.candidate_identity_gap_inventory import _load_taxonomy, build_inventory
+from identity.candidate_identity_observation import DEFAULT_OUTPUT, DEFAULT_REPORT
+
+
 class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.gaps = json.loads((ROOT / "evidence/operational/dynamic_clock/candidate_identity_gap_inventory.json").read_text())
         cls.taxonomy = ROOT / "config/crypto_breadth_exclusion_taxonomy.json"
+        # The rolling inventory pins its generation-time taxonomy bytes. A
+        # legitimate taxonomy change must be tested with an inventory rebuilt
+        # from the same current inputs the production consumer revalidates.
+        # Keep the committed historical inventory untouched.
+        taxonomy, records = _load_taxonomy(cls.taxonomy)
+        cls.gaps = build_inventory(
+            json.loads(DEFAULT_OUTPUT.read_text()),
+            json.loads(DEFAULT_REPORT.read_text()),
+            ci.load_authority(), ci.load_scope_authority(), taxonomy, records,
+            taxonomy_bytes_sha256=hashlib.sha256(cls.taxonomy.read_bytes()).hexdigest(),
+        )
         cls.raw = ROOT / "evidence/crypto/breadth/raw"
         cls.packet = build_packet(cls.gaps, cls.taxonomy, cls.raw)
 
