@@ -90,13 +90,36 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     return contract
 
 
+# Repository-relative identity of every module this orchestrator executes,
+# captured from the bytes that were actually executed, at the moment they were
+# executed. Keyed by the exact origin path the loader compiles into each
+# function's __code__.co_filename, so a callable can be matched back to the
+# file it really came from rather than to whatever happens to sit at the same
+# relative path later. Read only by _derivation_metadata(); nothing else
+# consults it and nothing ever mutates an entry after its module is loaded.
+_MODULE_CODE_IDENTITY: dict[str, dict] = {}
+
+
 def _load(name: str, relative_path: str):
     path = ROOT / relative_path
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         fail("MODULE_LOAD_FAILED", relative_path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    origin = spec.origin or str(path)
+    source_bytes = Path(origin).read_bytes()
+    # Execute the same bytes we hash. exec_module() may instead select an old
+    # timestamp-valid .pyc, or reread source that changed after our first read.
+    exec(compile(source_bytes, origin, "exec", dont_inherit=True), module.__dict__)
+    _MODULE_CODE_IDENTITY[origin] = {
+        "code_path": relative_path,
+        "code_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "code_root": str(ROOT),
+        "code_objects": tuple(
+            value.__code__ for value in vars(module).values()
+            if getattr(getattr(value, "__code__", None), "co_filename", None) == origin
+        ),
+    }
     return module
 
 
@@ -1439,15 +1462,158 @@ BTC_RAW_ROOT = Path("evidence/crypto/btc/raw")
 STABLECOIN_RAW_ROOT = Path("evidence/stablecoin/raw")
 
 
-def _classify_btc_trend(snapshot: dict) -> dict:
+# ---------------------------------------------------------------------------
+# Crypto component derivation identity
+#
+# BTC_TREND, BTC_RISK and STABLECOIN_NET_ISSUANCE are the three component rows
+# whose packet holds numbers this orchestrator COMPUTED by running a transform,
+# rather than fields copied out of a captured document. A consumer could read
+# those numbers but had no way to bind the exact transform code they were
+# computed by. This records that identity and nothing else:
+#
+#   * code_path   -- the repository-relative path this orchestrator actually
+#                    loaded the transform module from, recorded by _load() at
+#                    the moment that file's bytes were executed.
+#   * code_sha256 -- SHA-256 of those exact bytes, re-read and re-compared at
+#                    emission time.
+#   * status/reason -- VERIFIED, or UNPROVEN plus a machine reason.
+#
+# What this is NOT: a source grade, a point-in-time attestation, a publication
+# or trading permission, or any claim about how a historical packet was
+# produced. It is evidence metadata about a computation this process really
+# performed. The values, formulas, capture vintage, finalized measurement day,
+# source paths, status and authority of every component are untouched by it.
+#
+# A component whose code identity cannot be established stays UNPROVEN with
+# both fields null -- never a fabricated or substituted digest -- and that
+# disclosure is per component: an unproven BTC_TREND leaves BTC_RISK,
+# STABLECOIN_NET_ISSUANCE and every other component exactly as they were.
+#
+# Two false-attribution routes are closed structurally rather than by
+# convention:
+#
+#   * A SUBSTITUTED transform. The identity is looked up from the
+#     __code__.co_filename of the exact function object that was invoked, so a
+#     patched, wrapped or foreign callable matches no load record and is
+#     reported UNPROVEN instead of inheriting the real module's digest.
+#   * A DIFFERENT ROOT. The path and the bytes come from the load-time origin
+#     that was really executed, never from ``ROOT / code_path`` recomputed now.
+#     regime/crypto_live_component_registry.py deliberately reassigns this
+#     module's ROOT to an independently verified observation checkout while
+#     still executing the code root's transforms; consulting the active ROOT
+#     would attribute that checkout's file -- or a decoy placed there -- to an
+#     execution it never performed.
+#
+# Versioned like the two derivation axes near build_packet(), and for the same
+# reason: absent (None) is the legacy form that emits no field at all, so every
+# packet issued before this axis still rebuilds byte-identically and no old
+# record is upgraded or rewritten. The three component builders below default
+# to the legacy form because a derivation used outside a packet build has no
+# packet to record which derivation produced it; build_packet() is what opts a
+# packet in and marks it.
+# ---------------------------------------------------------------------------
+
+CRYPTO_DERIVATION_VERSION = 1
+SUPPORTED_CRYPTO_DERIVATION_VERSIONS = (1,)
+# Which derivations carry packet["derivation"]. Enumerated explicitly rather
+# than compared against CRYPTO_DERIVATION_VERSION so an already-issued packet
+# keeps its own derivation after the default moves on.
+CRYPTO_DERIVATION_METADATA_VERSIONS = (1,)
+DERIVATION_VERIFIED = "VERIFIED"
+DERIVATION_UNPROVEN = "UNPROVEN"
+
+
+def _checked_crypto_derivation_version(value):
+    """None, or exactly int 1. Nothing else.
+
+    ``type(value) is not int`` rejects bool, which would otherwise compare
+    equal to 1. An explicitly persisted null is rejected by the caller in
+    validate_packet(), because rebuilding None omits the marker entirely and
+    "absent" and "present but null" are different persisted bytes.
+    """
+    if value is None:
+        return None
+    if type(value) is not int or value not in SUPPORTED_CRYPTO_DERIVATION_VERSIONS:
+        fail("CRYPTO_DERIVATION_VERSION_INVALID", repr(value))
+    return value
+
+
+def _unproven_derivation(reason: str) -> dict:
+    """Stable carriage with no claim: the shape never varies, the identity is
+    simply absent and says why."""
+    return {
+        "status": DERIVATION_UNPROVEN,
+        "code_path": None,
+        "code_sha256": None,
+        "reason": reason,
+    }
+
+
+def _derivation_metadata(transform) -> dict:
+    """The exact module file whose code object ``transform`` came from.
+
+    ``transform`` must be the very function object that was invoked, not a
+    module attribute looked up again afterwards: re-reading the attribute
+    would describe whatever is bound now rather than what actually ran.
+    """
+    try:
+        code = getattr(transform, "__code__", None)
+        origin = getattr(code, "co_filename", None)
+        record = (
+            _MODULE_CODE_IDENTITY.get(origin) if isinstance(origin, str) else None
+        )
+        if record is None or not any(code is loaded for loaded in record["code_objects"]):
+            return _unproven_derivation("EXECUTED_CODE_NOT_A_LOADED_MODULE")
+        try:
+            current = hashlib.sha256(Path(origin).read_bytes()).hexdigest()
+        except OSError:
+            return _unproven_derivation("EXECUTED_CODE_FILE_UNREADABLE")
+        if current != record["code_sha256"]:
+            # The file on disk is no longer the file that ran. Report no
+            # identity rather than attributing today's bytes to that execution.
+            return _unproven_derivation("EXECUTED_CODE_FILE_CHANGED_SINCE_LOAD")
+        return {
+            "status": DERIVATION_VERIFIED,
+            "code_path": record["code_path"],
+            "code_sha256": current,
+            "reason": None,
+        }
+    except Exception:  # noqa: BLE001
+        # Failure isolation: an identity that cannot be established is
+        # unproven. It never demotes the component that computed real values,
+        # and never propagates to another component.
+        return _unproven_derivation("DERIVATION_IDENTITY_UNAVAILABLE")
+
+
+def _derivation_field(transform, derivation_version) -> dict:
+    """``{"derivation": ...}`` on the derivations that carry it, else ``{}``.
+
+    The strict int test mirrors _checked_crypto_derivation_version() (bool is
+    not an accepted version) but returns the legacy empty form instead of
+    raising: an unrecognised marker must never take down a component row.
+    """
+    if (
+        type(derivation_version) is not int
+        or derivation_version not in CRYPTO_DERIVATION_METADATA_VERSIONS
+    ):
+        return {}
+    return {"derivation": _derivation_metadata(transform)}
+
+
+def _classify_btc_trend(
+    snapshot: dict, *, derivation_version: int | None = None
+) -> dict:
     if snapshot["kind"] == "absent":
         return _blocked("BTC_TREND", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
     guard = _downloaded_at_guard("BTC_TREND", snapshot)
     if guard is not None:
         return guard
     resolved = ROOT / snapshot["resolved_dir"]
+    # Bind the exact function object about to run, so the derivation identity
+    # below describes the code that really produced the values on this row.
+    transform = BTC_TREND.build_transform
     try:
-        packet = BTC_TREND.build_transform(resolved)
+        packet = transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("BTC_TREND", exc)
     return component_row(
@@ -1470,25 +1636,35 @@ def _classify_btc_trend(snapshot: dict) -> dict:
             "dma_200": packet.get("dma_200") if "dma_200" in packet else None,
             "latest_finalized_day": packet.get("latest_finalized_day"),
             "capture_date": resolved.name,
+            **_derivation_field(transform, derivation_version),
         },
     )
 
 
-def build_btc_trend(decision_date: str, snapshot: dict | None = None) -> dict:
+def build_btc_trend(
+    decision_date: str,
+    snapshot: dict | None = None,
+    *,
+    derivation_version: int | None = None,
+) -> dict:
     if snapshot is None:
         snapshot = _fetch_dated_evidence_snapshot(ROOT / BTC_RAW_ROOT, decision_date)
-    return _classify_btc_trend(snapshot)
+    return _classify_btc_trend(snapshot, derivation_version=derivation_version)
 
 
-def _classify_btc_risk(snapshot: dict) -> dict:
+def _classify_btc_risk(
+    snapshot: dict, *, derivation_version: int | None = None
+) -> dict:
     if snapshot["kind"] == "absent":
         return _blocked("BTC_RISK", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
     guard = _downloaded_at_guard("BTC_RISK", snapshot)
     if guard is not None:
         return guard
     resolved = ROOT / snapshot["resolved_dir"]
+    # Same binding as BTC_TREND: the invoked object, not a later lookup.
+    transform = BTC_RISK.build_transform
     try:
-        packet = BTC_RISK.build_transform(resolved)
+        packet = transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("BTC_RISK", exc)
     return component_row(
@@ -1507,17 +1683,25 @@ def _classify_btc_risk(snapshot: dict) -> dict:
             "risk_point": packet.get("risk_point"),
             "latest_finalized_day": packet.get("latest_finalized_day"),
             "capture_date": resolved.name,
+            **_derivation_field(transform, derivation_version),
         },
     )
 
 
-def build_btc_risk(decision_date: str, snapshot: dict | None = None) -> dict:
+def build_btc_risk(
+    decision_date: str,
+    snapshot: dict | None = None,
+    *,
+    derivation_version: int | None = None,
+) -> dict:
     if snapshot is None:
         snapshot = _fetch_dated_evidence_snapshot(ROOT / BTC_RAW_ROOT, decision_date)
-    return _classify_btc_risk(snapshot)
+    return _classify_btc_risk(snapshot, derivation_version=derivation_version)
 
 
-def _classify_stablecoin(snapshot: dict) -> dict:
+def _classify_stablecoin(
+    snapshot: dict, *, derivation_version: int | None = None
+) -> dict:
     if snapshot["kind"] == "absent":
         return _blocked(
             "STABLECOIN_NET_ISSUANCE", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE"
@@ -1526,8 +1710,10 @@ def _classify_stablecoin(snapshot: dict) -> dict:
     if guard is not None:
         return guard
     resolved = ROOT / snapshot["resolved_dir"]
+    # Same binding as the two BTC components above.
+    transform = STABLECOIN.build_transform
     try:
-        packet = STABLECOIN.build_transform(resolved)
+        packet = transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("STABLECOIN_NET_ISSUANCE", exc)
     latest_row = packet["rows"][-1] if packet.get("rows") else {}
@@ -1549,14 +1735,20 @@ def _classify_stablecoin(snapshot: dict) -> dict:
                 "weekly_net_issuance_native_usd_peg"
             ),
             "weekly_status": latest_row.get("weekly_status"),
+            **_derivation_field(transform, derivation_version),
         },
     )
 
 
-def build_stablecoin(decision_date: str, snapshot: dict | None = None) -> dict:
+def build_stablecoin(
+    decision_date: str,
+    snapshot: dict | None = None,
+    *,
+    derivation_version: int | None = None,
+) -> dict:
     if snapshot is None:
         snapshot = _fetch_dated_evidence_snapshot(ROOT / STABLECOIN_RAW_ROOT, decision_date)
-    return _classify_stablecoin(snapshot)
+    return _classify_stablecoin(snapshot, derivation_version=derivation_version)
 
 
 # ---------------------------------------------------------------------------
@@ -3740,6 +3932,11 @@ SUPPORTED_FLOW_REPLAY_VERSIONS = (1,)
 # keeps its own derivation after the default moves on.
 FLOW_REPLAY_FROZEN_VERSIONS = (1,)
 
+# A third, equally separate axis -- the Crypto component derivation identity --
+# is defined next to the three classifiers it belongs to (see
+# CRYPTO_DERIVATION_VERSION above). It versions only which evidence metadata a
+# computed Crypto row carries, and no policy, evidence quality or authority.
+
 
 def _checked_flow_replay_version(value):
     """None, or exactly int 1. Nothing else.
@@ -3767,12 +3964,14 @@ def build_packet(
     summary_row_date_basis: str = SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,
     *,
     flow_replay_version: int | None = FLOW_REPLAY_VERSION,
+    crypto_derivation_version: int | None = CRYPTO_DERIVATION_VERSION,
     historical_flow_source_commit: str | None = None,
     trusted_repository_root: Path = ROOT,
     trusted_validation_head: str | None = None,
 ) -> dict:
     _checked_runtime_regime_readiness_version(runtime_regime_readiness_version)
     _checked_flow_replay_version(flow_replay_version)
+    _checked_crypto_derivation_version(crypto_derivation_version)
     if flow_replay_version is not None and historical_flow_source_commit is not None:
         # A frozen derivation carries its own source commit inside the
         # envelope. Accepting a second, caller-named one here would create a
@@ -3996,15 +4195,27 @@ def build_packet(
         )
 
     btc_snapshot = _crypto_snapshot("BTC_TREND", ROOT / BTC_RAW_ROOT)
-    rows["BTC_TREND"] = _boundary(_classify_btc_trend(btc_snapshot))
+    rows["BTC_TREND"] = _boundary(
+        _classify_btc_trend(
+            btc_snapshot, derivation_version=crypto_derivation_version
+        )
+    )
 
     btc_risk_snapshot = _crypto_snapshot("BTC_RISK", ROOT / BTC_RAW_ROOT)
-    rows["BTC_RISK"] = _boundary(_classify_btc_risk(btc_risk_snapshot))
+    rows["BTC_RISK"] = _boundary(
+        _classify_btc_risk(
+            btc_risk_snapshot, derivation_version=crypto_derivation_version
+        )
+    )
 
     stablecoin_snapshot = _crypto_snapshot(
         "STABLECOIN_NET_ISSUANCE", ROOT / STABLECOIN_RAW_ROOT
     )
-    rows["STABLECOIN_NET_ISSUANCE"] = _boundary(_classify_stablecoin(stablecoin_snapshot))
+    rows["STABLECOIN_NET_ISSUANCE"] = _boundary(
+        _classify_stablecoin(
+            stablecoin_snapshot, derivation_version=crypto_derivation_version
+        )
+    )
 
     crypto_breadth_snapshot = frozen_sources.get("CRYPTO_BREADTH")
     if crypto_breadth_snapshot is None:
@@ -4048,7 +4259,19 @@ def build_packet(
         dynamic_clock_snapshot, decision_date
     )
 
-    regime_outputs = build_regime_outputs(generated_at, rows)
+    # The live-axis adapter independently rederives the legacy value packets
+    # and compares their complete shape. Derivation identity is carriage on
+    # the emitted briefing rows, outside that adapter's input contract.
+    regime_rows = dict(rows)
+    for component_id in ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE"):
+        row = rows[component_id]
+        if isinstance(row.get("packet"), dict) and "derivation" in row["packet"]:
+            regime_rows[component_id] = {
+                **row,
+                "packet": {key: value for key, value in row["packet"].items()
+                           if key != "derivation"},
+            }
+    regime_outputs = build_regime_outputs(generated_at, regime_rows)
     rows["THREE_MARKET_REGIME_HEADER"] = _boundary(build_three_market_header(
         regime_outputs, slot, generated_at
     ))
@@ -4296,6 +4519,12 @@ def build_packet(
     # it without any inference from the other marker.
     if flow_replay_version is not None:
         packet["flow_replay_version"] = flow_replay_version
+    # The Crypto derivation-identity axis is independent of both markers above
+    # and is marked separately for the same reason: a packet's own bytes say
+    # which form produced it, so a packet issued before this axis rebuilds
+    # exactly as it was issued instead of acquiring a field it never emitted.
+    if crypto_derivation_version is not None:
+        packet["crypto_derivation_version"] = crypto_derivation_version
     packet["packet_sha256"] = payload_sha256(packet)
     return packet
 
@@ -4441,6 +4670,25 @@ def validate_packet(
                 "it requires an externally trusted original Flow source commit"
             )
 
+    # --- Crypto derivation-identity axis, independent of both axes above ----
+    #
+    # Same absence rule, for the same reason: an explicitly persisted null is a
+    # value, not absence. No build ever emits it (build_packet omits the marker
+    # for None), so it must fail rather than resolve to the legacy form. The
+    # marker is read from the packet's OWN bytes rather than inferred from
+    # whether a component row happens to carry a derivation field, so stripping
+    # that field from a row cannot excuse itself into a legacy rebuild. This
+    # axis needs no frozen envelope: the identity it replays is the executed
+    # code's own, which the rebuild re-establishes independently.
+    if (
+        "crypto_derivation_version" in packet
+        and packet["crypto_derivation_version"] is None
+    ):
+        fail("CRYPTO_DERIVATION_VERSION_INVALID", "explicit null")
+    crypto_derivation_version = _checked_crypto_derivation_version(
+        packet.get("crypto_derivation_version")
+    )
+
     # A legacy packet is ambiguous about exactly one field -- the summary
     # component row's as_of_date -- and nothing inside it records which of the
     # two historical bases produced it. Rebuild it fully under each enumerated
@@ -4465,6 +4713,7 @@ def validate_packet(
             runtime_regime_readiness_version=version,
             summary_row_date_basis=basis,
             flow_replay_version=flow_version,
+            crypto_derivation_version=crypto_derivation_version,
             historical_flow_source_commit=historical_source_commit,
             trusted_repository_root=trusted_repository_root,
             trusted_validation_head=trusted_validation_head,

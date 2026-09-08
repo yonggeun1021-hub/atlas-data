@@ -344,6 +344,77 @@ def _walk_authorized_keys(value, path=""):
             yield from _walk_authorized_keys(item, f"{path}[{index}]")
 
 
+# ---------------------------------------------------------------------------
+# Crypto derivation-identity fixtures
+#
+# The three components whose packet values the orchestrator COMPUTES by running
+# a transform, and the exact module file each one runs. Written out here rather
+# than read back from the module under test, so a builder that hashed or named
+# the wrong file disagrees with this list instead of agreeing with itself.
+# ---------------------------------------------------------------------------
+
+CRYPTO_TRANSFORM_CODE_PATHS = {
+    "BTC_TREND": ".github/scripts/btc_trend.py",
+    "BTC_RISK": ".github/scripts/btc_risk.py",
+    "STABLECOIN_NET_ISSUANCE": ".github/scripts/stablecoin_net_issuance.py",
+}
+# A real committed capture date that BOTH crypto archives hold, so the rows
+# below are produced by the real transforms over real evidence bytes.
+CRYPTO_DERIVATION_DATE = "2026-09-08"
+# Later than either retained capture's own _downloaded_at (BTC 00:42Z,
+# stablecoin 06:38Z on the same day) and still inside the 2026-09-08 KST
+# business day, so the shared temporal boundary leaves all three rows READY.
+CRYPTO_DERIVATION_GENERATED_AT = "2026-09-08T12:00:00Z"
+# The retained morning packet, used ONLY as a source of already-frozen inputs
+# for the components this regression is not about; the three crypto entries are
+# popped so they are captured afresh from the real archives. Same technique as
+# CryptoStaleReferencePresentationTests._build_fresh_crypto_packet.
+RETAINED_MORNING_PACKET = (
+    ROOT / "evidence/daily_briefing/morning/2026-09-08/rev-001/packet.json"
+)
+
+PROBE_TRANSFORM_SOURCE = '''"""Disposable probe module for the derivation-identity regressions."""
+
+
+def build_transform(_directory):
+    return {"probe": True}
+'''
+
+
+def _crypto_snapshots():
+    """The two real committed capture snapshots the three components read."""
+    btc = MODULE._fetch_dated_evidence_snapshot(
+        ROOT / MODULE.BTC_RAW_ROOT, CRYPTO_DERIVATION_DATE
+    )
+    stablecoin = MODULE._fetch_dated_evidence_snapshot(
+        ROOT / MODULE.STABLECOIN_RAW_ROOT, CRYPTO_DERIVATION_DATE
+    )
+    return btc, stablecoin
+
+
+def _crypto_component_rows(derivation_version, snapshots=None):
+    """The three computed crypto rows at one derivation version, built by the
+    real transforms over the real committed captures."""
+    btc, stablecoin = _crypto_snapshots() if snapshots is None else snapshots
+    return {
+        "BTC_TREND": MODULE._classify_btc_trend(
+            btc, derivation_version=derivation_version
+        ),
+        "BTC_RISK": MODULE._classify_btc_risk(
+            btc, derivation_version=derivation_version
+        ),
+        "STABLECOIN_NET_ISSUANCE": MODULE._classify_stablecoin(
+            stablecoin, derivation_version=derivation_version
+        ),
+    }
+
+
+def _row_without_derivation(row):
+    stripped = copy.deepcopy(row)
+    stripped["packet"].pop("derivation", None)
+    return stripped
+
+
 class DailyOrchestratorTest(unittest.TestCase):
     def test_filing_content_rows_bind_the_content_status_file_bytes(self):
         for component_id, relative_path in (
@@ -443,6 +514,347 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(row["as_of_date"], "2026-09-07")
         self.assertEqual(row["packet"]["latest_finalized_day"], "2026-09-06")
         self.assertEqual(row["packet"]["capture_date"], "2026-09-07")
+
+    def _fresh_crypto_derivation_packet(self):
+        """A real packet for CRYPTO_DERIVATION_DATE whose three crypto rows are
+        captured afresh from the committed archives, with every unrelated
+        component replayed from the retained packet's own frozen inputs."""
+        retained = json.loads(RETAINED_MORNING_PACKET.read_text(encoding="utf-8"))
+        sources = copy.deepcopy(retained["frozen_sources"])
+        for component_id in CRYPTO_TRANSFORM_CODE_PATHS:
+            sources.pop(component_id, None)
+        return MODULE.build_packet(
+            "morning",
+            CRYPTO_DERIVATION_DATE,
+            CRYPTO_DERIVATION_GENERATED_AT,
+            frozen_sources=sources,
+        )
+
+    def test_crypto_derivation_metadata_binds_executed_transform(self):
+        """The three computed crypto rows carry the exact module file that
+        produced them -- additively, and provably the real one."""
+        snapshots = _crypto_snapshots()
+        for snapshot in snapshots:
+            self.assertEqual(snapshot["kind"], "present")
+        legacy = _crypto_component_rows(None, snapshots)
+        current = _crypto_component_rows(
+            MODULE.CRYPTO_DERIVATION_VERSION, snapshots
+        )
+
+        for component_id, code_path in CRYPTO_TRANSFORM_CODE_PATHS.items():
+            with self.subTest(component_id=component_id):
+                row = current[component_id]
+                self.assertEqual(row["status"], "READY", row["reason"])
+                derivation = row["packet"]["derivation"]
+                # Recomputed here from the real file's bytes: a builder that
+                # hashed a substituted output, a different module, or simply
+                # relabelled another digest as the code hash disagrees with
+                # this instead of agreeing with itself.
+                expected = hashlib.sha256(
+                    (ROOT / code_path).read_bytes()
+                ).hexdigest()
+                self.assertEqual(derivation["status"], "VERIFIED")
+                self.assertEqual(derivation["code_path"], code_path)
+                self.assertEqual(derivation["code_sha256"], expected)
+                self.assertIsNone(derivation["reason"])
+
+                # Strictly additive. Every other field of the row -- every
+                # computed value, the capture-vintage as_of_date, the capture
+                # clock in generated_at, the source path, contract_version, the
+                # authority block and every eligibility flag -- is identical to
+                # the legacy derivation that emits no metadata at all.
+                self.assertNotIn("derivation", legacy[component_id]["packet"])
+                self.assertEqual(
+                    _row_without_derivation(row), legacy[component_id]
+                )
+
+        # The finalized-measurement clock split this row family exists to keep
+        # visible is unchanged by the new field.
+        self.assertEqual(
+            current["BTC_TREND"]["as_of_date"], CRYPTO_DERIVATION_DATE
+        )
+        self.assertEqual(
+            current["BTC_TREND"]["packet"]["capture_date"], CRYPTO_DERIVATION_DATE
+        )
+        self.assertNotEqual(
+            current["BTC_TREND"]["packet"]["latest_finalized_day"],
+            current["BTC_TREND"]["packet"]["capture_date"],
+        )
+        # No authority is opened by carrying code identity.
+        for component_id in CRYPTO_TRANSFORM_CODE_PATHS:
+            row = current[component_id]
+            self.assertFalse(row["decision_eligible"], component_id)
+            self.assertFalse(row["action_eligible"], component_id)
+            self.assertFalse(row["order_eligible"], component_id)
+            for path, value in _walk_authorized_keys(row):
+                self.assertFalse(value, f"{component_id}:{path}")
+
+        # ...and the same identity really travels on a packet, under the
+        # packet's own marker, and the whole packet still replays exactly.
+        packet = self._fresh_crypto_derivation_packet()
+        self.assertEqual(
+            packet["crypto_derivation_version"], MODULE.CRYPTO_DERIVATION_VERSION
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        for component_id, code_path in CRYPTO_TRANSFORM_CODE_PATHS.items():
+            with self.subTest(component_id=component_id, carriage="packet"):
+                self.assertEqual(
+                    by_id[component_id]["status"],
+                    "READY",
+                    by_id[component_id]["reason"],
+                )
+                derivation = by_id[component_id]["packet"]["derivation"]
+                self.assertEqual(derivation["status"], "VERIFIED")
+                self.assertEqual(derivation["code_path"], code_path)
+                self.assertEqual(
+                    derivation["code_sha256"],
+                    current[component_id]["packet"]["derivation"]["code_sha256"],
+                )
+        self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
+
+        # A packet built under the legacy form carries neither the marker nor
+        # the field, so nothing issued before this axis is rewritten, and it
+        # still replays byte-identically.
+        legacy_packet = MODULE.build_packet(
+            "morning",
+            CRYPTO_DERIVATION_DATE,
+            CRYPTO_DERIVATION_GENERATED_AT,
+            frozen_sources=copy.deepcopy(packet["frozen_sources"]),
+            crypto_derivation_version=None,
+        )
+        self.assertNotIn("crypto_derivation_version", legacy_packet)
+        legacy_by_id = {
+            row["component_id"]: row for row in legacy_packet["components"]
+        }
+        for component_id in CRYPTO_TRANSFORM_CODE_PATHS:
+            self.assertNotIn(
+                "derivation", legacy_by_id[component_id]["packet"], component_id
+            )
+        self.assertEqual(
+            MODULE.validate_packet(copy.deepcopy(legacy_packet)), legacy_packet
+        )
+
+        # Whole-packet proof that the marker plus those three fields are the
+        # ONLY difference: removing exactly them from the current packet
+        # reproduces the legacy packet, so no other row, count, clock, frozen
+        # input, authority flag or boundary moved.
+        reduced = copy.deepcopy(packet)
+        del reduced["crypto_derivation_version"]
+        for row in reduced["components"]:
+            if row["component_id"] in CRYPTO_TRANSFORM_CODE_PATHS:
+                del row["packet"]["derivation"]
+        reduced.pop("packet_sha256")
+        expected_legacy = copy.deepcopy(legacy_packet)
+        expected_legacy.pop("packet_sha256")
+        self.assertEqual(reduced, expected_legacy)
+
+    def test_crypto_derivation_metadata_rejects_substitution(self):
+        """Code identity is never attributed to an execution that did not
+        produce it: not to a substituted transform, not to a changed or missing
+        file, and not to a decoy under a different ROOT."""
+        snapshots = _crypto_snapshots()
+        btc_snapshot, stablecoin_snapshot = snapshots
+        version = MODULE.CRYPTO_DERIVATION_VERSION
+        genuine = _crypto_component_rows(version, snapshots)
+        # The baseline every counterexample below is compared against really is
+        # a proven identity, so "unchanged from genuine" means something.
+        for component_id in CRYPTO_TRANSFORM_CODE_PATHS:
+            self.assertEqual(
+                genuine[component_id]["packet"]["derivation"]["status"],
+                "VERIFIED",
+                component_id,
+            )
+
+        # 1. A substituted callable. It returns exactly what the real transform
+        #    returned, so the row's values are identical -- and the derivation
+        #    still refuses to hand it the real module's digest.
+        real_trend = MODULE.BTC_TREND.build_transform(
+            ROOT / btc_snapshot["resolved_dir"]
+        )
+
+        def _substitute_trend(_directory):
+            return copy.deepcopy(real_trend)
+
+        with mock.patch.object(
+            MODULE.BTC_TREND, "build_transform", _substitute_trend
+        ):
+            substituted = MODULE._classify_btc_trend(
+                btc_snapshot, derivation_version=version
+            )
+            # Failure isolation, proved while the substitution is in place:
+            # the sibling component that shares this very archive is untouched.
+            sibling = MODULE._classify_btc_risk(
+                btc_snapshot, derivation_version=version
+            )
+        self.assertEqual(
+            substituted["packet"]["derivation"],
+            {
+                "status": "UNPROVEN",
+                "code_path": None,
+                "code_sha256": None,
+                "reason": "EXECUTED_CODE_NOT_A_LOADED_MODULE",
+            },
+        )
+        self.assertEqual(
+            _row_without_derivation(substituted),
+            _row_without_derivation(genuine["BTC_TREND"]),
+        )
+        self.assertEqual(
+            sibling["packet"]["derivation"],
+            genuine["BTC_RISK"]["packet"]["derivation"],
+        )
+        self.assertEqual(sibling["packet"]["derivation"]["status"], "VERIFIED")
+
+        # 2. A callable with no code object at all (a mock) is unproven for the
+        #    same reason rather than raising or inheriting a digest.
+        real_stablecoin = MODULE.STABLECOIN.build_transform(
+            ROOT / stablecoin_snapshot["resolved_dir"]
+        )
+        with mock.patch.object(
+            MODULE.STABLECOIN,
+            "build_transform",
+            return_value=copy.deepcopy(real_stablecoin),
+        ):
+            mocked = MODULE._classify_stablecoin(
+                stablecoin_snapshot, derivation_version=version
+            )
+        self.assertEqual(mocked["packet"]["derivation"]["status"], "UNPROVEN")
+        self.assertIsNone(mocked["packet"]["derivation"]["code_path"])
+        self.assertIsNone(mocked["packet"]["derivation"]["code_sha256"])
+        self.assertEqual(
+            _row_without_derivation(mocked),
+            _row_without_derivation(genuine["STABLECOIN_NET_ISSUANCE"]),
+        )
+
+        # 3. A file that really changed, and then really disappeared, after the
+        #    module was loaded. A disposable probe module is used so the
+        #    committed transforms are never written to.
+        tmp = tempfile.TemporaryDirectory(dir=ROOT)
+        self.addCleanup(tmp.cleanup)
+        probe_relative = f"{Path(tmp.name).name}/probe_transform.py"
+        probe_path = ROOT / probe_relative
+        probe_path.write_text(PROBE_TRANSFORM_SOURCE, encoding="utf-8")
+        probe = MODULE._load("atlas_derivation_probe", probe_relative)
+        self.assertEqual(
+            MODULE._derivation_metadata(probe.build_transform),
+            {
+                "status": "VERIFIED",
+                "code_path": probe_relative,
+                "code_sha256": hashlib.sha256(
+                    probe_path.read_bytes()
+                ).hexdigest(),
+                "reason": None,
+            },
+        )
+        probe_path.write_text(
+            PROBE_TRANSFORM_SOURCE + "\n# edited after load\n", encoding="utf-8"
+        )
+        self.assertEqual(
+            MODULE._derivation_metadata(probe.build_transform),
+            {
+                "status": "UNPROVEN",
+                "code_path": None,
+                "code_sha256": None,
+                "reason": "EXECUTED_CODE_FILE_CHANGED_SINCE_LOAD",
+            },
+        )
+        probe_path.unlink()
+        self.assertEqual(
+            MODULE._derivation_metadata(probe.build_transform),
+            {
+                "status": "UNPROVEN",
+                "code_path": None,
+                "code_sha256": None,
+                "reason": "EXECUTED_CODE_FILE_UNREADABLE",
+            },
+        )
+
+        # 4. An alternate ROOT holding a decoy transform file at the same
+        #    relative path. regime/crypto_live_component_registry.py really does
+        #    redirect this module's ROOT at an observation checkout while still
+        #    executing the code root's transforms, so the decoy must never be
+        #    attributed to that execution.
+        alternate = tempfile.TemporaryDirectory()
+        self.addCleanup(alternate.cleanup)
+        alternate_root = Path(alternate.name)
+        decoy = alternate_root / CRYPTO_TRANSFORM_CODE_PATHS["BTC_TREND"]
+        decoy.parent.mkdir(parents=True)
+        decoy.write_text("# decoy, never executed\n", encoding="utf-8")
+        shutil.copytree(
+            ROOT / btc_snapshot["resolved_dir"],
+            alternate_root / btc_snapshot["resolved_dir"],
+        )
+        with mock.patch.object(MODULE, "ROOT", alternate_root):
+            relocated_snapshot = MODULE._fetch_dated_evidence_snapshot(
+                alternate_root / MODULE.BTC_RAW_ROOT, CRYPTO_DERIVATION_DATE
+            )
+            relocated = MODULE._classify_btc_trend(
+                relocated_snapshot, derivation_version=version
+            )
+        self.assertEqual(
+            relocated_snapshot["resolved_dir"], btc_snapshot["resolved_dir"]
+        )
+        self.assertEqual(
+            relocated["packet"]["derivation"],
+            genuine["BTC_TREND"]["packet"]["derivation"],
+        )
+        self.assertNotEqual(
+            relocated["packet"]["derivation"]["code_sha256"],
+            hashlib.sha256(decoy.read_bytes()).hexdigest(),
+        )
+        # The relocated build really did run over the relocated evidence and
+        # produced the same real values -- so the decoy was bypassed, not the
+        # whole component.
+        self.assertEqual(
+            _row_without_derivation(relocated),
+            _row_without_derivation(genuine["BTC_TREND"]),
+        )
+
+        # 5. The packet marker itself cannot be forged or nulled into a pass.
+        packet = self._fresh_crypto_derivation_packet()
+        for forged in (None, 0, 2, True, "1"):
+            with self.subTest(forged=forged):
+                tampered = copy.deepcopy(packet)
+                tampered["crypto_derivation_version"] = forged
+                tampered.pop("packet_sha256")
+                tampered["packet_sha256"] = MODULE.payload_sha256(tampered)
+                with self.assertRaisesRegex(
+                    MODULE.DailyOrchestratorError,
+                    "CRYPTO_DERIVATION_VERSION_INVALID",
+                ):
+                    MODULE.validate_packet(tampered)
+
+    def test_crypto_derivation_identity_executes_hashed_bytes_despite_stale_cache(self):
+        import os
+        import py_compile
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            path = Path(tmp) / "cached_transform.py"
+            old = b"def build_transform():\n    return 1\n"
+            current = b"def build_transform():\n    return 2\n"
+            path.write_bytes(old)
+            clock = path.stat()
+            py_compile.compile(str(path), doraise=True)
+            # Equal size and modification time deliberately keep the old
+            # timestamp cache valid, although the source now computes 2.
+            path.write_bytes(current)
+            os.utime(path, ns=(clock.st_atime_ns, clock.st_mtime_ns))
+            relative = path.relative_to(ROOT).as_posix()
+            module = MODULE._load("atlas_cached_derivation_probe", relative)
+            self.assertEqual(module.build_transform(), 2)
+            identity = MODULE._derivation_metadata(module.build_transform)
+            self.assertEqual(identity["status"], "VERIFIED")
+            self.assertEqual(identity["code_path"], relative)
+            self.assertEqual(identity["code_sha256"], hashlib.sha256(current).hexdigest())
+
+            # A different code object with the same filename was not loaded
+            # from those bytes and must not inherit their verified identity.
+            foreign = {}
+            exec(compile(old, str(path), "exec"), foreign)
+            self.assertEqual(
+                MODULE._derivation_metadata(foreign["build_transform"])["status"],
+                "UNPROVEN",
+            )
 
     def test_rotation_render_keeps_zero_formal_candidates_and_unknown_changes(self):
         row = {
