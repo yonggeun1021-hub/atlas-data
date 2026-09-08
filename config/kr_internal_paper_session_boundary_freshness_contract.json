@@ -1,0 +1,62 @@
+{
+  "schema_version": "kr_internal_paper_session_boundary_freshness_contract/3",
+  "decision_id": "KR_INTERNAL_PAPER_SESSION_BOUNDARY_FRESHNESS_V1",
+  "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0",
+  "decision_evidence": {
+    "path": "evidence/authority/kr_internal_paper_session_boundary_freshness_adoption_20260908.json",
+    "sha256": "dd36637960e22d54ee9ca28771f604088a9914198cfa9c80038a6d1f91138afe"
+  },
+  "previous_session_decision": {
+    "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_adoption_20260908.json",
+    "sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b"
+  },
+  "session_boundary": {
+    "profile_contract_path": "config/kr_internal_paper_theme_next_session_contract.json",
+    "profile_contract_sha256": "1f682b5f5ba54cae243c284ba041c15987015d3cb6e41ddf339c8e470458f5f4",
+    "required_proof": "independently verified calendar proves D is the immediately previous OPEN_REGULAR session before E",
+    "calendar_validator": "market_data/krx_session_bars.py::validate_calendar",
+    "calendar_validator_sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0",
+    "calendar_contract": "config/krx_market_data_contract.json",
+    "calendar_contract_sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649",
+    "calendar_coverage": "exact committed date-specific CTCA0903R snapshots for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
+    "post_close_market_signals_relation_required": false,
+    "calendar_day_subtraction_authorized": false,
+    "assumed_holiday_authorized": false
+  },
+  "freshness": {
+    "market_timezone": "Asia/Seoul",
+    "regular_session_close_local": "15:30:00",
+    "freshness_from": "D session_close",
+    "freshness_to_exclusive": "E session_close",
+    "derived_ttl_seconds_rule": "E.session_close - D.session_close",
+    "rolling_extension_from_current_time_authorized": false,
+    "arbitrary_14400_seconds_authorized": false,
+    "decision_or_fill_at_or_after_e_close_authorized": false
+  },
+  "runtime_binding": {
+    "input_schema_version": "kr_paper_runtime_session_boundary_freshness_input/3",
+    "policy_schema_version": "kr_paper_runtime_policy/4",
+    "qualification_schema_version": "kr_paper_runtime_qualification/4",
+    "decision_schema_version": "kr_paper_runtime_decision/4",
+    "policy_and_qualification_must_bind_same_freshness": true
+  },
+  "separate_evidence_gates": [
+    "Actual LIVE_NATURAL source classification",
+    "Original-byte retention",
+    "Complete admitted source chain",
+    "Common-v1 two-packet confirmation",
+    "Independently supplied qualification receipt and trusted hash",
+    "Actual E identity/master and qualified current forward observations"
+  ],
+  "authority": {
+    "paper_policy_use_authorized": true,
+    "actual_source_qualification_known": false,
+    "source_qualification_auto_population_authorized": false,
+    "new_entry_authorized": false,
+    "production_authorized": false,
+    "real_authority": false,
+    "order_authorized": false,
+    "trading_authorized": false,
+    "profitability_validated": false
+  }
+}
