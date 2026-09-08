@@ -19,6 +19,7 @@ import importlib.util
 import json
 import lzma
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -3057,6 +3058,415 @@ class DailyOrchestratorTest(unittest.TestCase):
         # either sibling collector workflow's schedule.
         self.assertIn("cron: '55 20 * * 0-4'", collect_yml)
         self.assertIn("cron: '5 7 * * 1-5'", krx_post_close_yml)
+
+
+class CryptoStaleReferencePresentationTests(unittest.TestCase):
+    """Briefing C: when the exact decision-date Crypto capture is absent, the
+    board must additionally disclose the latest PRIOR confirmed measurement
+    dates with an explicit stale reason -- while the decision itself stays
+    exactly as blocked as before.
+
+    Every measurement date asserted here comes from the real
+    btc_trend/btc_risk/stablecoin transforms run over the retained
+    2026-09-07 capture bytes (copied verbatim into a temporary archive so
+    the committed archives are never written to), not from a stubbed
+    success date: the retained BTC capture confirms 2026-09-06 and the
+    retained stablecoin capture observes 2026-09-07, which is exactly the
+    two-clock split this display exists to keep visible.
+    """
+
+    DECISION_DATE = "2026-09-08"
+    CAPTURE_DATE = "2026-09-07"
+    RETAINED_BTC = ROOT / "evidence" / "crypto" / "btc" / "raw" / "2026-09-07"
+    RETAINED_STABLECOIN = ROOT / "evidence" / "stablecoin" / "raw" / "2026-09-07"
+    CRYPTO_IDS = ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE")
+
+    def _build_fresh_crypto_packet(self, generated_at: str) -> dict:
+        # Keep unrelated P2/Rotation inputs fixed to the retained before-packet.
+        # Only the three Crypto sources are captured afresh by this test; their
+        # real transforms and whole-packet revalidation remain active.
+        retained = json.loads((
+            ROOT / "evidence/daily_briefing/morning/2026-09-08/rev-001/packet.json"
+        ).read_text(encoding="utf-8"))
+        sources = copy.deepcopy(retained["frozen_sources"])
+        for component_id in self.CRYPTO_IDS:
+            sources.pop(component_id)
+        return MODULE.build_packet(
+            "morning", self.DECISION_DATE, generated_at, frozen_sources=sources
+        )
+
+    def _temporary_root(self):
+        """A temporary directory INSIDE ROOT.
+
+        The module addresses evidence by a ROOT-relative resolved_dir (see
+        _fetch_dated_evidence_snapshot), so an archive outside ROOT is not
+        addressable at all. Placing the copy under ROOT keeps the real code
+        path exercised while leaving every committed archive untouched.
+        """
+        tmp = tempfile.TemporaryDirectory(dir=ROOT)
+        self.addCleanup(tmp.cleanup)
+        return Path(tmp.name)
+
+    def _temporary_crypto_archives(self):
+        """(btc_root, stablecoin_root) holding a verbatim copy of the
+        retained 2026-09-07 captures under their own real date name -- both
+        transforms derive their vintage from the directory name, so the copy
+        keeps the same name and stays a coherent capture."""
+        root = self._temporary_root()
+        btc_root = root / "crypto" / "btc" / "raw"
+        stablecoin_root = root / "stablecoin" / "raw"
+        shutil.copytree(self.RETAINED_BTC, btc_root / self.CAPTURE_DATE)
+        shutil.copytree(self.RETAINED_STABLECOIN, stablecoin_root / self.CAPTURE_DATE)
+        return btc_root, stablecoin_root
+
+    @staticmethod
+    def _capture_dir(root: Path, name: str, downloaded_at: str | None) -> Path:
+        """A minimally-shaped capture directory: only the availability
+        timestamp the eligibility scan itself reads."""
+        path = Path(root) / name
+        path.mkdir(parents=True)
+        if downloaded_at is not None:
+            (path / "_downloaded_at.txt").write_text(
+                f"{downloaded_at}\n", encoding="utf-8"
+            )
+        return path
+
+    @staticmethod
+    def _generated_at_dt(generated_at: str) -> dt.datetime:
+        return dt.datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+
+    def _reference(self, packet: dict, component_id: str) -> dict:
+        return packet["frozen_sources"][component_id][
+            MODULE.PRIOR_CONFIRMED_REFERENCE
+        ]
+
+    def test_absent_exact_date_capture_shows_frozen_prior_confirmed_dates(self):
+        btc_root, stablecoin_root = self._temporary_crypto_archives()
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        with mock.patch.object(MODULE, "BTC_RAW_ROOT", btc_root), mock.patch.object(
+            MODULE, "STABLECOIN_RAW_ROOT", stablecoin_root
+        ):
+            packet = self._build_fresh_crypto_packet(generated_at)
+            persisted = copy.deepcopy(packet)
+            self.assertEqual(MODULE.validate_packet(persisted), packet)
+        by_id = {row["component_id"]: row for row in packet["components"]}
+
+        # The decision itself is untouched: still no capture for this date.
+        for component_id in self.CRYPTO_IDS:
+            row = by_id[component_id]
+            self.assertEqual(row["status"], "DATA_BLOCKED", component_id)
+            self.assertEqual(row["reason"], "NO_CAPTURE_FOR_DECISION_DATE", component_id)
+            self.assertFalse(row["validated"], component_id)
+            self.assertFalse(row["decision_eligible"], component_id)
+            self.assertIsNone(row["packet"], component_id)
+            self.assertEqual(
+                packet["frozen_sources"][component_id]["kind"], "absent", component_id
+            )
+
+        # ...while the prior confirmed measurement is now visible, on its own
+        # clock: the 09-07 BTC capture confirms 09-06, the 09-07 stablecoin
+        # capture observes 09-07. Two different stale dates, neither of them
+        # the capture folder name relabelled as a measurement.
+        for component_id, measurement_date, basis in (
+            ("BTC_TREND", "2026-09-06", "latest_finalized_day"),
+            ("BTC_RISK", "2026-09-06", "latest_finalized_day"),
+            ("STABLECOIN_NET_ISSUANCE", "2026-09-07", "observation_date"),
+        ):
+            reference = self._reference(packet, component_id)
+            self.assertEqual(reference["measurement_date"], measurement_date, component_id)
+            self.assertEqual(reference["measurement_basis"], basis, component_id)
+            self.assertIsNone(reference["unknown_reason"], component_id)
+            self.assertEqual(
+                reference["selected_capture"]["capture_date"],
+                self.CAPTURE_DATE,
+                component_id,
+            )
+
+        # CRYPTO_BREADTH keeps its own taxonomy blocker and is never given a
+        # "confirmed reference date" that would read as a complete universe.
+        self.assertNotIn(
+            MODULE.PRIOR_CONFIRMED_REFERENCE,
+            packet["frozen_sources"]["CRYPTO_BREADTH"],
+        )
+
+        rendered = MODULE.render_markdown(packet)
+        self.assertIn(
+            "evidence_dates=BTC_TREND=UNKNOWN,BTC_RISK=UNKNOWN,"
+            "STABLECOIN_NET_ISSUANCE=UNKNOWN",
+            rendered,
+        )
+        self.assertIn("- continuous_observation_date: PENDING", rendered)
+        self.assertIn(
+            "- latest_prior_confirmed_reference_dates: "
+            "BTC_TREND=2026-09-06(capture=2026-09-07),"
+            "BTC_RISK=2026-09-06(capture=2026-09-07),"
+            "STABLECOIN_NET_ISSUANCE=2026-09-07(capture=2026-09-07)",
+            rendered,
+        )
+        self.assertIn(
+            "- prior_confirmed_reference_reason: NO_CAPTURE_FOR_DECISION_DATE; "
+            "the dates above are frozen prior confirmed measurements shown for "
+            "reference only, never relabelled as 2026-09-08 evidence and never "
+            "used for this decision.",
+            rendered,
+        )
+        # The prior evidence is never forward-filled into the current line,
+        # and the BTC capture folder name is never shown as its measurement.
+        self.assertNotIn("evidence_dates=BTC_TREND=2026-09-06", rendered)
+        self.assertNotIn("BTC_TREND=2026-09-07(", rendered)
+        self.assertNotIn("- prior_confirmed_reference_unknown:", rendered)
+
+    def test_missing_prior_capture_stays_unknown_and_is_never_guessed(self):
+        btc_root = self._temporary_root() / "crypto" / "btc" / "raw"
+        btc_root.mkdir(parents=True)
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        generated_at_dt = self._generated_at_dt(generated_at)
+        self.assertIsNone(
+            MODULE._eligible_prior_capture(
+                btc_root, self.DECISION_DATE, generated_at_dt
+            )
+        )
+        snapshot = MODULE._prior_confirmed_reference_snapshot(
+            {"kind": "absent"},
+            "BTC_TREND",
+            self.DECISION_DATE,
+            generated_at_dt,
+            archive_root=btc_root,
+        )
+        reference = snapshot[MODULE.PRIOR_CONFIRMED_REFERENCE]
+        self.assertIsNone(reference["selected_capture"])
+        self.assertIsNone(reference["measurement_date"])
+        self.assertEqual(reference["unknown_reason"], "NO_ELIGIBLE_PRIOR_CAPTURE")
+
+        board = "\n".join(
+            MODULE._market_session_freshness_lines(
+                {
+                    "decision_date": self.DECISION_DATE,
+                    "frozen_sources": {"BTC_TREND": snapshot},
+                },
+                {},
+            )
+        )
+        self.assertIn(
+            "- latest_prior_confirmed_reference_dates: BTC_TREND=UNKNOWN", board
+        )
+        self.assertIn(
+            "- prior_confirmed_reference_unknown: "
+            "BTC_TREND=NO_ELIGIBLE_PRIOR_CAPTURE",
+            board,
+        )
+        # Nothing is invented for the missing prior: no capture is named and
+        # the current evidence date stays UNKNOWN.
+        self.assertNotIn("capture=", board)
+        self.assertIn("evidence_dates=BTC_TREND=UNKNOWN", board)
+
+    def test_future_and_not_yet_available_prior_captures_are_excluded(self):
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        generated_at_dt = self._generated_at_dt(generated_at)
+        available = "2026-09-05T00:30:00Z"
+        # Every one of these is strictly ineligible on its own, so each is
+        # checked alone rather than being hidden behind a later candidate.
+        ineligible = (
+            ("2026-09-09", available, "capture dated after the decision date"),
+            ("2026-09-08", available, "capture dated on the decision date"),
+            ("2026-09-06", "2026-09-08T03:00:00Z", "available only after generated_at"),
+            ("2026-09-05", None, "no retained availability timestamp"),
+            ("2026-09-04", "not-a-timestamp", "unparseable availability timestamp"),
+            # Would each parse to a date earlier than the decision date if the
+            # name were taken loosely -- and would then order wrongly against
+            # the canonical decision_date string.
+            ("20260907", available, "non-canonical date directory name"),
+            ("2026-9-7", available, "non-canonical date directory name"),
+            ("latest", available, "not a dated directory at all"),
+        )
+        for name, downloaded_at, why in ineligible:
+            with self.subTest(directory=name, why=why):
+                root = self._temporary_root() / "raw"
+                self._capture_dir(root, name, downloaded_at)
+                self.assertIsNone(
+                    MODULE._eligible_prior_capture(
+                        root, self.DECISION_DATE, generated_at_dt
+                    )
+                )
+
+        # With one genuinely eligible capture present among all of them, that
+        # one -- and only that one -- is selected.
+        mixed = self._temporary_root() / "raw"
+        for name, downloaded_at, _ in ineligible:
+            self._capture_dir(mixed, name, downloaded_at)
+        shutil.copytree(self.RETAINED_BTC, mixed / self.CAPTURE_DATE)
+        selected = MODULE._eligible_prior_capture(
+            mixed, self.DECISION_DATE, generated_at_dt
+        )
+        self.assertEqual(selected["capture_date"], self.CAPTURE_DATE)
+        self.assertEqual(Path(selected["resolved_dir"]).name, self.CAPTURE_DATE)
+
+        # A frozen choice is re-verified against the same two clocks, so a
+        # resealed future or not-yet-available capture cannot be replayed
+        # into the display either.
+        for forged in (
+            {**selected, "capture_date": "2026-09-09"},
+            {**selected, "downloaded_at": "2026-09-08T23:59:00Z"},
+            {**selected, "downloaded_at": "not-a-timestamp"},
+        ):
+            with self.subTest(forged=forged):
+                reference = MODULE._prior_confirmed_reference(
+                    "BTC_TREND", forged, self.DECISION_DATE, generated_at_dt
+                )
+                self.assertIsNone(reference["selected_capture"])
+                self.assertIsNone(reference["measurement_date"])
+                self.assertEqual(
+                    reference["unknown_reason"],
+                    "PRIOR_CAPTURE_NOT_POINT_IN_TIME_SAFE",
+                )
+
+    def test_frozen_prior_choice_survives_later_archive_additions(self):
+        btc_root, stablecoin_root = self._temporary_crypto_archives()
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        generated_at_dt = self._generated_at_dt(generated_at)
+        with mock.patch.object(MODULE, "BTC_RAW_ROOT", btc_root), mock.patch.object(
+            MODULE, "STABLECOIN_RAW_ROOT", stablecoin_root
+        ):
+            packet = self._build_fresh_crypto_packet(generated_at)
+        rendered = MODULE.render_markdown(packet)
+
+        # The decision date's own capture lands afterwards, and a later prior
+        # capture is committed too. Neither may reach an already-issued
+        # revision: presence was frozen, and so was the reference choice.
+        self._capture_dir(btc_root, self.DECISION_DATE, "2026-09-08T00:30:00Z")
+        self.assertEqual(
+            MODULE.validate_packet(copy.deepcopy(packet)), packet
+        )
+        self.assertEqual(MODULE.render_markdown(packet), rendered)
+        self.assertEqual(
+            self._reference(packet, "BTC_TREND")["measurement_date"], "2026-09-06"
+        )
+
+        # A fresh build for a LATER decision date would now genuinely prefer
+        # the newly committed capture -- but replaying the frozen choice never
+        # consults the archive, so the issued packet keeps naming 2026-09-07.
+        next_day = "2026-09-09"
+        next_day_generated_at = _natural_morning_generated_at(next_day)
+        rescan = MODULE._eligible_prior_capture(
+            btc_root, next_day, self._generated_at_dt(next_day_generated_at)
+        )
+        self.assertEqual(rescan["capture_date"], self.DECISION_DATE)
+        replayed = MODULE._prior_confirmed_reference_snapshot(
+            copy.deepcopy(packet["frozen_sources"]["BTC_TREND"]),
+            "BTC_TREND",
+            self.DECISION_DATE,
+            generated_at_dt,
+            archive_root=None,
+        )
+        self.assertEqual(
+            replayed[MODULE.PRIOR_CONFIRMED_REFERENCE],
+            self._reference(packet, "BTC_TREND"),
+        )
+        self.assertEqual(
+            replayed[MODULE.PRIOR_CONFIRMED_REFERENCE]["selected_capture"][
+                "capture_date"
+            ],
+            self.CAPTURE_DATE,
+        )
+
+    def test_presentation_reference_never_promotes_status_or_authority(self):
+        btc_root, stablecoin_root = self._temporary_crypto_archives()
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        with mock.patch.object(MODULE, "BTC_RAW_ROOT", btc_root), mock.patch.object(
+            MODULE, "STABLECOIN_RAW_ROOT", stablecoin_root
+        ):
+            packet = self._build_fresh_crypto_packet(generated_at)
+
+        # The identical build with the legacy (field-less) frozen snapshots.
+        # Legacy bytes are replayed exactly as persisted -- the field is never
+        # back-filled onto a packet that never emitted it.
+        legacy_sources = copy.deepcopy(packet["frozen_sources"])
+        for component_id in self.CRYPTO_IDS:
+            legacy_sources[component_id].pop(MODULE.PRIOR_CONFIRMED_REFERENCE)
+        legacy = MODULE.build_packet(
+            "morning",
+            self.DECISION_DATE,
+            generated_at,
+            frozen_sources=legacy_sources,
+        )
+        for component_id in self.CRYPTO_IDS:
+            self.assertEqual(
+                legacy["frozen_sources"][component_id], {"kind": "absent"}, component_id
+            )
+        self.assertEqual(
+            MODULE.validate_packet(copy.deepcopy(legacy)), legacy
+        )
+        self.assertNotIn(
+            "- latest_prior_confirmed_reference_dates:",
+            MODULE.render_markdown(legacy),
+        )
+
+        # Presentation-only, proved by construction rather than asserted per
+        # field: outside frozen_sources (and the packet digest over it), the
+        # two packets are byte-identical, so no row, status count, authority
+        # flag or eligibility field can have seen the reference at all.
+        for candidate in (packet, legacy):
+            del candidate["frozen_sources"]
+            del candidate["packet_sha256"]
+        self.assertEqual(packet, legacy)
+        # The retained P2 Flow row already permits two display/comparison
+        # capabilities (also asserted in FlowReplayAxisTests). The full
+        # equality above proves these are unchanged; money/action flags stay false.
+        structural_true_allowed = {
+            "aggregation_only", "component_build_authorized",
+            "daily_decision_assembly_only", "briefing_read_model_only",
+            "evidence_only", "paper_reference_display_authorized",
+            "relative_strength_comparison_authorized",
+        }
+        for path, value in _walk_authorized_keys(packet):
+            if path.rsplit(".", 1)[-1] in structural_true_allowed:
+                continue
+            self.assertFalse(value, path)
+
+    def test_resealed_prior_reference_forgery_is_rejected(self):
+        btc_root, stablecoin_root = self._temporary_crypto_archives()
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        with mock.patch.object(MODULE, "BTC_RAW_ROOT", btc_root), mock.patch.object(
+            MODULE, "STABLECOIN_RAW_ROOT", stablecoin_root
+        ):
+            packet = self._build_fresh_crypto_packet(generated_at)
+
+        forgeries = (
+            ("measurement_date", "2026-09-08"),
+            ("measurement_basis", "capture_date"),
+            ("unknown_reason", "NO_ELIGIBLE_PRIOR_CAPTURE"),
+        )
+        for field, value in forgeries:
+            with self.subTest(field=field):
+                tampered = copy.deepcopy(packet)
+                tampered["frozen_sources"]["BTC_TREND"][
+                    MODULE.PRIOR_CONFIRMED_REFERENCE
+                ][field] = value
+                unsigned = copy.deepcopy(tampered)
+                del unsigned["packet_sha256"]
+                tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+                with self.assertRaisesRegex(
+                    MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"
+                ):
+                    MODULE.validate_packet(tampered)
+
+        # Naming a different capture is re-derived from that capture's own
+        # bytes rather than accepted, so the resealed date cannot stand.
+        tampered = copy.deepcopy(packet)
+        selected = tampered["frozen_sources"]["BTC_TREND"][
+            MODULE.PRIOR_CONFIRMED_REFERENCE
+        ]["selected_capture"]
+        selected["capture_date"] = "2026-09-09"
+        selected["resolved_dir"] = str(
+            Path(selected["resolved_dir"]).with_name("2026-09-09")
+        )
+        unsigned = copy.deepcopy(tampered)
+        del unsigned["packet_sha256"]
+        tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"
+        ):
+            MODULE.validate_packet(tampered)
 
 
 class DynamicClockRenderCapTest(unittest.TestCase):
