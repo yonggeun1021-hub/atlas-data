@@ -25,6 +25,16 @@ ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 MARKET_RE = re.compile(r"^KRW-[A-Z0-9]{2,20}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
+ORDER_DRAFT_SOURCE_CONDITIONS = {
+    "planned_stop_price": "PRICE_AT_OR_BELOW",
+    "expires_at": "TIME_AT_OR_AFTER",
+    "next_review_at": "TIME_AT_OR_AFTER",
+}
+TRIGGER_BINDING_FIELDS = {
+    "source_field", "trigger_id", "category", "action", "quantity_fraction",
+    "paper_order_id", "paper_order_idempotency_key",
+}
+
 
 class CryptoPaperExitManagerError(ValueError):
     """Fail-closed P7-13 contract or derivation violation."""
@@ -386,6 +396,75 @@ def validate_exit_plan(value: dict, contract: dict | None = None) -> dict:
         raise CryptoPaperExitManagerError("PLAN_PACKET_SHA_MISMATCH")
     normalized["packet_sha256"] = digest
     return normalized
+
+
+def _order_draft_threshold(order_draft: dict, source_field: str, index: int) -> str:
+    """Read one requested draft field, failing closed on missing/malformed values."""
+    if source_field not in order_draft:
+        raise CryptoPaperExitManagerError(f"ORDER_DRAFT_SOURCE_FIELD_MISSING:{index}:{source_field}")
+    value = order_draft[source_field]
+    if ORDER_DRAFT_SOURCE_CONDITIONS[source_field] == "PRICE_AT_OR_BELOW":
+        return _format_decimal(_decimal(value, f"ORDER_DRAFT_PRICE_INVALID:{index}", positive=True))
+    _utc(value, f"ORDER_DRAFT_TIME_INVALID:{index}")
+    return value
+
+
+def build_exit_plan_from_order_draft(
+    *, plan_id: str, market: str, source_entry_order_id: str, created_at: str,
+    order_draft: dict, trigger_bindings: list[dict], source_entry_account: dict,
+    source_entry_plan_ref: str, source_entry_plan_sha256: str,
+    contract: dict | None = None,
+) -> dict:
+    """Map explicitly bound P5-09 order-draft fields onto P7-13 exit triggers.
+
+    Every trigger identity, category, action, quantity fraction, and deterministic
+    PAPER order identity is supplied by the caller in ``trigger_bindings``. This
+    adapter only reads the requested ``order_draft`` field and derives its fixed
+    condition; it adds no default stop, expiry, category, action, or fraction, and
+    it never reorders bindings. The plan is built by the unchanged
+    ``build_exit_plan``/``validate_exit_plan`` pair, so every existing entry
+    account, quantity, ordering, and authority rule still applies.
+
+    This helper does not authenticate the draft, ratify policy, or permit runtime
+    activation. Draft provenance and operational approval remain separate caller
+    prerequisites; ``source_entry_plan_ref``/``source_entry_plan_sha256`` keep
+    their existing entry-plan meaning.
+    """
+    contract = load_contract() if contract is None else _validate_contract(contract)
+    if not isinstance(order_draft, dict) or any(not isinstance(key, str) for key in order_draft):
+        raise CryptoPaperExitManagerError("ORDER_DRAFT_INVALID")
+    if not isinstance(trigger_bindings, list):
+        raise CryptoPaperExitManagerError("TRIGGER_BINDINGS_INVALID")
+    if not trigger_bindings:
+        raise CryptoPaperExitManagerError("TRIGGER_BINDINGS_EMPTY")
+    triggers = []
+    for index, binding in enumerate(trigger_bindings):
+        if not isinstance(binding, dict) or set(binding) != TRIGGER_BINDING_FIELDS:
+            raise CryptoPaperExitManagerError(f"TRIGGER_BINDING_FIELDS_MISMATCH:{index}")
+        source_field = binding["source_field"]
+        if not isinstance(source_field, str) or source_field not in ORDER_DRAFT_SOURCE_CONDITIONS:
+            raise CryptoPaperExitManagerError(f"ORDER_DRAFT_SOURCE_FIELD_UNSUPPORTED:{index}")
+        triggers.append({
+            "trigger_id": binding["trigger_id"],
+            "category": binding["category"],
+            "condition": ORDER_DRAFT_SOURCE_CONDITIONS[source_field],
+            "threshold": _order_draft_threshold(order_draft, source_field, index),
+            "action": binding["action"],
+            "quantity_fraction": binding["quantity_fraction"],
+            "paper_order_id": binding["paper_order_id"],
+            "paper_order_idempotency_key": binding["paper_order_idempotency_key"],
+        })
+    return build_exit_plan(
+        plan_id=plan_id,
+        market=market,
+        source_entry_order_id=source_entry_order_id,
+        created_at=created_at,
+        triggers=triggers,
+        source_entry_account=source_entry_account,
+        source_entry_plan_ref=source_entry_plan_ref,
+        source_entry_plan_sha256=source_entry_plan_sha256,
+        contract=contract,
+    )
 
 
 def build_observation(

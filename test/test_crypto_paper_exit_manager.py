@@ -149,6 +149,103 @@ def plan(*, triggers=None, entry_account=None):
     )
 
 
+def submitted_ledger():
+    ledger = SIM.create_ledger(
+        ledger_id="PAPER.EXIT.TEST",
+        initial_cash="1000",
+        opened_at="2026-08-29T01:00:00Z",
+        idempotency_key="PAPER.ACCOUNT.OPEN",
+    )
+    return SIM.submit_order(ledger, sim_intent())
+
+
+def partially_filled_ledger():
+    return SIM.match_order(
+        submitted_ledger(),
+        order_id="PAPER.ENTRY.1",
+        snapshot=book(asks=[{"price": "100", "quantity": "1"}]),
+        event_at="2026-08-29T01:31:01Z",
+        idempotency_key="PAPER.ENTRY.MATCH.1",
+    )
+
+
+def draft_entry_account():
+    return account(observed_at="2026-08-29T01:32:00Z", price="101", source_sha="e" * 64)
+
+
+def order_draft(**changes):
+    """A P5-09 order draft as an upstream producer would hand it to a caller."""
+    value = {
+        "draft_id": "P509.ORDER.DRAFT.1",
+        "market": "KRW-BTC",
+        "planned_stop_price": "90",
+        "expires_at": "2026-08-29T02:30:00Z",
+        "next_review_at": "2026-08-29T03:00:00Z",
+    }
+    value.update(changes)
+    return value
+
+
+def binding(
+    source_field, trigger_id, category, action, *, fraction=None,
+    order_id=None, key=None,
+):
+    return {
+        "source_field": source_field,
+        "trigger_id": trigger_id,
+        "category": category,
+        "action": action,
+        "quantity_fraction": fraction,
+        "paper_order_id": order_id,
+        "paper_order_idempotency_key": key,
+    }
+
+
+def default_bindings():
+    return [
+        binding(
+            "planned_stop_price", "TRIGGER.STOP", "HARD_EXIT", "EXIT_REVIEW",
+            fraction="1", order_id="PAPER.EXIT.STOP", key="PAPER.EXIT.STOP.SUBMIT",
+        ),
+        binding(
+            "next_review_at", "TRIGGER.TIME", "TIME_REVIEW", "EXIT_REVIEW",
+            fraction="1", order_id="PAPER.EXIT.TIME", key="PAPER.EXIT.TIME.SUBMIT",
+        ),
+    ]
+
+
+def expected_draft_triggers():
+    return [
+        trigger(
+            "TRIGGER.STOP", "HARD_EXIT", "PRICE_AT_OR_BELOW", "EXIT_REVIEW",
+            threshold="90", fraction="1", order_id="PAPER.EXIT.STOP",
+            key="PAPER.EXIT.STOP.SUBMIT",
+        ),
+        trigger(
+            "TRIGGER.TIME", "TIME_REVIEW", "TIME_AT_OR_AFTER", "EXIT_REVIEW",
+            threshold="2026-08-29T03:00:00Z", fraction="1",
+            order_id="PAPER.EXIT.TIME", key="PAPER.EXIT.TIME.SUBMIT",
+        ),
+    ]
+
+
+def draft_plan(*, draft=None, bindings=None, source_account=None, **changes):
+    source_account = draft_entry_account() if source_account is None else source_account
+    arguments = {
+        "plan_id": "PAPER.EXIT.PLAN.1",
+        "market": "KRW-BTC",
+        "source_entry_order_id": "PAPER.ENTRY.1",
+        "created_at": source_account["observed_at"],
+        "order_draft": order_draft() if draft is None else draft,
+        "trigger_bindings": default_bindings() if bindings is None else bindings,
+        "source_entry_account": source_account,
+        "source_entry_plan_ref": "test://entry-plan/PAPER.ENTRY.1",
+        "source_entry_plan_sha256": "a" * 64,
+    }
+    arguments.update(changes)
+    return MODULE.build_exit_plan_from_order_draft(**arguments)
+
+
 def signals(**changes):
     value = {
         "kill_switch": "CLEAR",
@@ -386,6 +483,220 @@ class EvaluationTests(unittest.TestCase):
                 MODULE.CryptoPaperExitManagerError, "OUTPUT_DERIVATION_MISMATCH"
             ):
                 MODULE.validate_output(tampered)
+
+
+class OrderDraftAdapterTests(unittest.TestCase):
+    def test_adapter_mirrors_build_exit_plan_arguments_without_policy_defaults(self):
+        signature = inspect.signature(MODULE.build_exit_plan_from_order_draft)
+        direct = inspect.signature(MODULE.build_exit_plan)
+        for parameter in signature.parameters.values():
+            self.assertIs(parameter.kind, inspect.Parameter.KEYWORD_ONLY, parameter.name)
+        self.assertNotIn("triggers", signature.parameters)
+        self.assertEqual(
+            set(signature.parameters) - {"order_draft", "trigger_bindings"},
+            set(direct.parameters) - {"triggers"},
+        )
+        for name in ("order_draft", "trigger_bindings"):
+            self.assertIs(signature.parameters[name].default, inspect.Parameter.empty)
+        for name in ("stop_price", "harvest_fraction", "category", "action", "quantity_fraction"):
+            self.assertNotIn(name, signature.parameters)
+
+    def test_adapter_maps_declared_source_fields_to_exact_conditions_and_values(self):
+        value = draft_plan()
+        self.assertEqual(value["triggers"], expected_draft_triggers())
+        self.assertEqual(value["initial_quantity"], "2")
+        self.assertEqual(value["entry_price"], "100.5")
+        self.assertEqual(MODULE.validate_exit_plan(value), value)
+        self.assertEqual(value["authority"], CONTRACT["plan_authority"])
+
+    def test_adapter_output_equals_direct_build_exit_plan(self):
+        source = draft_entry_account()
+        adapted = draft_plan(source_account=source)
+        direct = MODULE.build_exit_plan(
+            plan_id="PAPER.EXIT.PLAN.1",
+            market="KRW-BTC",
+            source_entry_order_id="PAPER.ENTRY.1",
+            created_at=source["observed_at"],
+            triggers=expected_draft_triggers(),
+            source_entry_account=source,
+            source_entry_plan_ref="test://entry-plan/PAPER.ENTRY.1",
+            source_entry_plan_sha256="a" * 64,
+        )
+        self.assertEqual(MODULE.canonical_json(adapted), MODULE.canonical_json(direct))
+        self.assertEqual(adapted["packet_sha256"], direct["packet_sha256"])
+        self.assertEqual(draft_plan(source_account=source, contract=CONTRACT), direct)
+
+    def test_adapter_plan_drives_the_existing_evaluate_path(self):
+        result = evaluate(exit_plan=draft_plan(), observed=observation(price="90", prior_high="115"))
+        self.assertEqual(result["status"], "TRIGGER_SELECTED_REVIEW_ONLY")
+        self.assertEqual(result["selected_trigger_id"], "TRIGGER.STOP")
+        self.assertEqual(result["action"], "EXIT_REVIEW")
+        self.assertEqual(result["target_quantity"], "2")
+        self.assertEqual(result["paper_order_identity_candidate"]["order_id"], "PAPER.EXIT.STOP")
+        self.assertTrue(result["human_review_required"])
+        self.assertFalse(result["authority"]["exchange_order_authorized"])
+
+    def test_adapter_uses_only_caller_supplied_category_action_and_fraction(self):
+        bindings = [
+            binding(
+                "planned_stop_price", "TRIGGER.RISK", "RISK_REGIME", "REDUCE",
+                fraction="0.25", order_id="PAPER.EXIT.RISK", key="PAPER.EXIT.RISK.SUBMIT",
+            ),
+            binding(
+                "expires_at", "TRIGGER.EXPIRY", "TIME_REVIEW", "HARVEST_PARTIAL",
+                fraction="0.5", order_id="PAPER.EXIT.EXPIRY", key="PAPER.EXIT.EXPIRY.SUBMIT",
+            ),
+        ]
+        value = draft_plan(bindings=bindings)
+        self.assertEqual(
+            [
+                (row["condition"], row["threshold"], row["category"], row["action"], row["quantity_fraction"])
+                for row in value["triggers"]
+            ],
+            [
+                ("PRICE_AT_OR_BELOW", "90", "RISK_REGIME", "REDUCE", "0.25"),
+                ("TIME_AT_OR_AFTER", "2026-08-29T02:30:00Z", "TIME_REVIEW", "HARVEST_PARTIAL", "0.5"),
+            ],
+        )
+        observed = observation(observed_at="2026-08-29T02:30:00Z", price="110", source_sha="7" * 64)
+        result = evaluate(
+            exit_plan=value,
+            current_account=account(observed_at=observed["observed_at"], price="110", source_sha="7" * 64),
+            observed=observed,
+        )
+        self.assertEqual(result["selected_trigger_id"], "TRIGGER.EXPIRY")
+        self.assertEqual(result["target_quantity"], "1")
+
+    def test_adapter_rejects_missing_null_and_malformed_source_values(self):
+        cases = (
+            ({"planned_stop_price": None}, "ORDER_DRAFT_PRICE_INVALID:0"),
+            ({"planned_stop_price": "0"}, "ORDER_DRAFT_PRICE_INVALID:0"),
+            ({"planned_stop_price": "-5"}, "ORDER_DRAFT_PRICE_INVALID:0"),
+            ({"planned_stop_price": 90}, "ORDER_DRAFT_PRICE_INVALID:0"),
+            ({"planned_stop_price": "90.50"}, "ORDER_DRAFT_PRICE_INVALID:0:NON_CANONICAL"),
+            ({"next_review_at": None}, "ORDER_DRAFT_TIME_INVALID:1"),
+            ({"next_review_at": "2026-08-29 03:00:00"}, "ORDER_DRAFT_TIME_INVALID:1"),
+            ({"next_review_at": "2026-02-30T03:00:00Z"}, "ORDER_DRAFT_TIME_INVALID:1"),
+        )
+        for changes, code in cases:
+            with self.subTest(changes=changes), self.assertRaisesRegex(
+                MODULE.CryptoPaperExitManagerError, code
+            ):
+                draft_plan(draft=order_draft(**changes))
+        missing = order_draft()
+        del missing["planned_stop_price"]
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "ORDER_DRAFT_SOURCE_FIELD_MISSING:0:planned_stop_price"
+        ):
+            draft_plan(draft=missing)
+
+    def test_adapter_rejects_unsupported_source_fields_and_binding_shapes(self):
+        unsupported = [
+            binding(
+                "planned_take_profit_price", "TRIGGER.TP", "PROFIT_TRAIL", "HARVEST_PARTIAL",
+                fraction="0.5", order_id="PAPER.EXIT.TP", key="PAPER.EXIT.TP.SUBMIT",
+            )
+        ]
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "ORDER_DRAFT_SOURCE_FIELD_UNSUPPORTED:0"
+        ):
+            draft_plan(bindings=unsupported)
+        caller_condition = default_bindings()
+        caller_condition[1]["condition"] = "PRICE_AT_OR_ABOVE"
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_BINDING_FIELDS_MISMATCH:1"):
+            draft_plan(bindings=caller_condition)
+        incomplete = default_bindings()
+        del incomplete[0]["quantity_fraction"]
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_BINDING_FIELDS_MISMATCH:0"):
+            draft_plan(bindings=incomplete)
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_BINDINGS_EMPTY"):
+            draft_plan(bindings=[])
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_BINDINGS_INVALID"):
+            draft_plan(bindings=tuple(default_bindings()))
+        for bad_draft in ([("planned_stop_price", "90")], {1: "90"}):
+            with self.subTest(draft=bad_draft), self.assertRaisesRegex(
+                MODULE.CryptoPaperExitManagerError, "ORDER_DRAFT_INVALID"
+            ):
+                draft_plan(draft=bad_draft)
+
+    def test_adapter_rejects_invalid_categories_actions_and_quantity_metadata(self):
+        cases = (
+            ("MOMENTUM", "EXIT_REVIEW", "1", "PAPER.EXIT.STOP", "TRIGGER.STOP", "TRIGGER_CATEGORY_INVALID:0"),
+            ("HARD_EXIT", "SELL", "1", "PAPER.EXIT.STOP", "TRIGGER.STOP", "TRIGGER_ACTION_INVALID:0"),
+            ("HARD_EXIT", "EXIT_REVIEW", "0", "PAPER.EXIT.STOP", "TRIGGER.STOP", "TRIGGER_QUANTITY_FRACTION_INVALID:0"),
+            ("HARD_EXIT", "EXIT_REVIEW", "1.5", "PAPER.EXIT.STOP", "TRIGGER.STOP", "TRIGGER_QUANTITY_FRACTION_INVALID:0"),
+            ("HARD_EXIT", "EXIT_REVIEW", "1", None, "TRIGGER.STOP", "TRIGGER_PAPER_ORDER_ID_INVALID:0"),
+            (
+                "PROFIT_TRAIL", "TRAIL", "1", "PAPER.EXIT.STOP", "TRIGGER.STOP",
+                "NON_QUANTITY_TRIGGER_ORDER_IDENTITY_FORBIDDEN:0",
+            ),
+            ("HARD_EXIT", "EXIT_REVIEW", "1", "PAPER.EXIT.STOP", "trigger.stop", "TRIGGER_ID_INVALID:0"),
+        )
+        for category, action, fraction, order_id, trigger_id, code in cases:
+            row = binding(
+                "planned_stop_price", trigger_id, category, action,
+                fraction=fraction, order_id=order_id, key="PAPER.EXIT.STOP.SUBMIT",
+            )
+            with self.subTest(code=code), self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, code):
+                draft_plan(bindings=[row])
+
+    def test_adapter_rejects_duplicate_identities_and_never_sorts_bindings(self):
+        duplicated_id = default_bindings()
+        duplicated_id[1]["trigger_id"] = duplicated_id[0]["trigger_id"]
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_ID_DUPLICATE"):
+            draft_plan(bindings=duplicated_id)
+        duplicated_order = default_bindings()
+        duplicated_order[1]["paper_order_id"] = duplicated_order[0]["paper_order_id"]
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "PAPER_ORDER_IDENTITY_DUPLICATE"):
+            draft_plan(bindings=duplicated_order)
+        duplicated_key = default_bindings()
+        duplicated_key[1]["paper_order_idempotency_key"] = duplicated_key[0]["paper_order_idempotency_key"]
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "PAPER_ORDER_IDENTITY_DUPLICATE"):
+            draft_plan(bindings=duplicated_key)
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "PRIORITY_ORDER"):
+            draft_plan(bindings=list(reversed(default_bindings())))
+
+    def test_adapter_preserves_existing_entry_account_boundaries(self):
+        unfilled = account(
+            submitted_ledger(), observed_at="2026-08-29T01:32:00Z", price="101", source_sha="e" * 64,
+        )
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "SOURCE_ENTRY_ORDER_NOT_FILLED_BUY"):
+            draft_plan(source_account=unfilled)
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "SOURCE_ENTRY_ORDER_NOT_FOUND"):
+            draft_plan(source_entry_order_id="PAPER.ENTRY.404")
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "PLAN_MARKET_ENTRY_ORDER_MISMATCH"):
+            draft_plan(market="KRW-ETH")
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "PLAN_CREATED_AT_MUST_EQUAL_ENTRY_ACCOUNT_OBSERVED_AT"
+        ):
+            draft_plan(created_at="2026-08-29T01:40:00Z")
+        partial = draft_plan(source_account=account(
+            partially_filled_ledger(), observed_at="2026-08-29T01:32:00Z", price="101", source_sha="e" * 64,
+        ))
+        self.assertEqual(partial["initial_quantity"], "1")
+        self.assertEqual(partial["entry_price"], "100")
+        self.assertEqual(partial["triggers"], expected_draft_triggers())
+
+    def test_adapter_leaves_caller_inputs_unchanged_and_repeats_deterministically(self):
+        draft = order_draft()
+        bindings = default_bindings()
+        source = draft_entry_account()
+        draft_before = copy.deepcopy(draft)
+        bindings_before = copy.deepcopy(bindings)
+        source_before = copy.deepcopy(source)
+        first = draft_plan(draft=draft, bindings=bindings, source_account=source)
+        second = draft_plan(draft=draft, bindings=bindings, source_account=source)
+        self.assertEqual(draft, draft_before)
+        self.assertEqual(bindings, bindings_before)
+        self.assertEqual(source, source_before)
+        self.assertEqual(first, second)
+        first["triggers"][0]["threshold"] = "1"
+        first["triggers"].append("TAMPER")
+        self.assertEqual(draft_plan(draft=draft, bindings=bindings, source_account=source), second)
+        draft["planned_stop_price"] = "80"
+        bindings[0]["trigger_id"] = "TRIGGER.MUTATED"
+        self.assertEqual(second["triggers"][0]["threshold"], "90")
+        self.assertEqual(second["triggers"][0]["trigger_id"], "TRIGGER.STOP")
 
 
 class EndToEndPaperLifecycleTests(unittest.TestCase):
