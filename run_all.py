@@ -2041,6 +2041,15 @@ APPROVED_TESTS = [
     "test/test_crypto_candidate_promotion.py",
     "test/test_crypto_candidate_trend_metrics.py",
     "test/test_crypto_candidate_volume_metrics.py",
+    # ★ P5-08 observation capability, deliberately unwired: the two
+    #   price-distance measurements (close-to-EMA fraction, lagged close
+    #   return fraction) the merged trend calculator never reported. Pure
+    #   arithmetic over already-validated candles; status is only ever
+    #   CALCULATED/UNAVAILABLE. No overextension predicate, bound or
+    #   threshold is added -- evaluate_overextension stays UNKNOWN /
+    #   NO_RATIFIED_OVEREXTENSION_THRESHOLD and U2 stays unresolved. No
+    #   capture/network call; every authority field stays false.
+    "test/test_crypto_candidate_price_distance_metrics.py",
     # ★ P5-09 — Crypto PAPER Buy Eligibility: FOCUSED_REVIEW (P5-08) ->
     #   WATCH/WAIT/BLOCKED/PAPER_BUY_ELIGIBLE. Pure derivation over an
     #   already-revalidated P5-08 promotion packet only. REGIME_PERMITS_
