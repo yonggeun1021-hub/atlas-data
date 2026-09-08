@@ -1969,6 +1969,7 @@ APPROVED_TESTS = [
     # kis_paper_domestic_balance/071050 chain. Proposal artifacts stay
     # PROPOSED and every money/trading authority remains false.
     "test/test_kis_071050_identity_authority.py",
+    "test/test_kis_realtime_trade_observation.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.
