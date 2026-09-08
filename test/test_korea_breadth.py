@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """P1-KR-05 KRX stock PIT universe and raw breadth regression."""
 
+import hashlib
+from http.client import IncompleteRead
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
+from urllib.error import HTTPError, URLError
 
 import yaml
 
@@ -53,11 +57,21 @@ class SequenceOpener:
         self.requests.append(request)
         payload = self.payloads.pop(0)
         status = self.statuses.pop(0)
+        # A queued exception models a transport-level failure (HTTPError /
+        # URLError) for the same one-request-per-market-date sequence.
+        if isinstance(payload, BaseException):
+            raise payload
         if isinstance(payload, bytes):
             body = payload
         else:
             body = json.dumps(payload).encode("utf-8")
         return FakeResponse(body, status)
+
+
+def http_error(code, body=b"", url="https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd"):
+    """A real urllib HTTPError whose body is still readable, matching the
+    provider error responses _http_fetch must keep evidence for."""
+    return HTTPError(url, code, "fixture-error", None, io.BytesIO(body))
 
 
 def row(day, code, close, name=RAW_NAME, market="KOSPI"):
@@ -305,6 +319,172 @@ class KoreaBreadthTest(unittest.TestCase):
         self.assertNotIn(RAW_NAME, summaries)
         self.assertNotIn(RAW_CODE, summaries)
         self.assertNotIn("123456", summaries)
+
+    def test_http_fetch_still_returns_plain_bytes_without_an_evidence_mapping(self):
+        # Compatibility: the existing callers pass no evidence mapping and
+        # must keep receiving exactly the response bytes.
+        raw = json.dumps(payload([row("20100104", "A", "1")])).encode("utf-8")
+        request = MODULE.build_request(TOKEN, "20100104", "kospi")
+        self.assertEqual(
+            MODULE._http_fetch(request, opener=SequenceOpener([raw])), raw
+        )
+
+    def test_response_evidence_is_captured_before_validation_rejects_the_body(self):
+        # The exact diagnostic loss: a zero-row response used to discard
+        # its own status/digest/shape because they were only computed
+        # after validate_snapshot had already raised.
+        raw = json.dumps(payload([])).encode("utf-8")
+        evidence = MODULE.new_response_evidence(CONTRACT)
+        request = MODULE.build_request(TOKEN, "20100104", "kospi")
+        body = MODULE._http_fetch(
+            request, opener=SequenceOpener([raw]), evidence=evidence
+        )
+
+        self.assertEqual(body, raw)
+        self.assertEqual(evidence["http_status"], 200)
+        self.assertEqual(evidence["response_sha256"], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(evidence["response_byte_count"], len(raw))
+        self.assertTrue(evidence["response_shape"]["parseable_json"])
+        self.assertTrue(evidence["response_shape"]["expected_block_present"])
+        self.assertEqual(evidence["response_shape"]["expected_block_row_count"], 0)
+        self.assertIsNotNone(evidence["captured_at"])
+        # The evidence never rescues the body: the same response still
+        # fails closed downstream with the unchanged code.
+        with self.assertRaisesRegex(MODULE.BreadthError, "RESPONSE_ZERO_ROWS"):
+            MODULE.validate_snapshot(
+                MODULE._decode_payload(body), "20100104", "kospi"
+            )
+
+    def test_incomplete_http_error_body_preserves_original_status(self):
+        class PartialBody(io.BytesIO):
+            def read(self, *args, **kwargs):
+                raise IncompleteRead(b"PRIVATE-PARTIAL-BODY-SENTINEL", 90)
+
+        request = MODULE.build_request(TOKEN, "20100104", "kospi")
+        evidence = MODULE.new_response_evidence(CONTRACT)
+        failure = HTTPError("https://data-dbg.krx.co.kr/x", 502, "m", None, PartialBody())
+        with self.assertRaisesRegex(MODULE.BreadthError, "KRX_HTTP_ERROR_502"):
+            MODULE._http_fetch(request, opener=SequenceOpener([failure]), evidence=evidence)
+        self.assertEqual(evidence["http_status"], 502)
+        self.assertIsNone(evidence["response_sha256"])
+        self.assertIsNone(evidence["response_byte_count"])
+        self.assertIsNotNone(evidence["captured_at"])
+        self.assertNotIn("PRIVATE-PARTIAL-BODY-SENTINEL", json.dumps(evidence))
+
+    def test_http_error_and_non_200_keep_observed_status_and_digest(self):
+        raw = json.dumps(payload([])).encode("utf-8")
+        request = MODULE.build_request(TOKEN, "20100104", "kospi")
+
+        readable = MODULE.new_response_evidence(CONTRACT)
+        with self.assertRaisesRegex(MODULE.BreadthError, "KRX_HTTP_ERROR_500"):
+            MODULE._http_fetch(
+                request,
+                opener=SequenceOpener([http_error(500, raw)]),
+                evidence=readable,
+            )
+        self.assertEqual(readable["http_status"], 500)
+        self.assertEqual(readable["response_sha256"], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(readable["response_byte_count"], len(raw))
+        self.assertEqual(readable["response_shape"]["expected_block_row_count"], 0)
+
+        # An unreadable HTTPError body degrades to "no observed body"
+        # instead of inventing one, and never changes the failure code.
+        class UnreadableBody(io.BytesIO):
+            def read(self, *args, **kwargs):
+                raise OSError("fixture body cannot be read")
+
+        # HTTPError normalizes fp=None to a readable BytesIO, so model
+        # the actual read failure explicitly rather than assuming None
+        # survives urllib's constructor.
+        unreadable = MODULE.new_response_evidence(CONTRACT)
+        with self.assertRaisesRegex(MODULE.BreadthError, "KRX_HTTP_ERROR_403"):
+            MODULE._http_fetch(
+                request,
+                opener=SequenceOpener(
+                    [HTTPError("https://data-dbg.krx.co.kr/x", 403, "m", None, UnreadableBody())]
+                ),
+                evidence=unreadable,
+            )
+        self.assertEqual(unreadable["http_status"], 403)
+        self.assertIsNone(unreadable["response_sha256"])
+        self.assertIsNone(unreadable["response_byte_count"])
+        self.assertIsNotNone(unreadable["captured_at"])
+
+        empty = MODULE.new_response_evidence(CONTRACT)
+        with self.assertRaisesRegex(MODULE.BreadthError, "KRX_HTTP_ERROR_500"):
+            MODULE._http_fetch(
+                request, opener=SequenceOpener([http_error(500, b"")]), evidence=empty
+            )
+        self.assertEqual(empty["response_sha256"], hashlib.sha256(b"").hexdigest())
+        self.assertEqual(empty["response_byte_count"], 0)
+
+        non_200 = MODULE.new_response_evidence(CONTRACT)
+        with self.assertRaisesRegex(MODULE.BreadthError, "KRX_HTTP_ERROR_204"):
+            MODULE._http_fetch(
+                request,
+                opener=SequenceOpener([raw], statuses=[204]),
+                evidence=non_200,
+            )
+        self.assertEqual(non_200["http_status"], 204)
+        self.assertEqual(non_200["response_sha256"], hashlib.sha256(raw).hexdigest())
+
+    def test_network_error_records_no_unobserved_status_digest_or_message(self):
+        evidence = MODULE.new_response_evidence(CONTRACT)
+        request = MODULE.build_request(TOKEN, "20100104", "kospi")
+        with self.assertRaisesRegex(MODULE.BreadthError, "KRX_NETWORK_ERROR"):
+            MODULE._http_fetch(
+                request,
+                opener=SequenceOpener([URLError("reason carrying %s" % TOKEN)]),
+                evidence=evidence,
+            )
+        # No response existed, so status/digest/shape stay null rather
+        # than being filled with an unobserved stand-in -- and the raw
+        # transport message never reaches the evidence.
+        self.assertIsNone(evidence["http_status"])
+        self.assertIsNone(evidence["response_sha256"])
+        self.assertIsNone(evidence["response_byte_count"])
+        self.assertIsNone(evidence["response_shape"])
+        self.assertIsNotNone(evidence["captured_at"])
+        self.assertNotIn(TOKEN, json.dumps(evidence))
+
+    def test_response_shape_is_metadata_only_for_every_malformed_body(self):
+        block = CONTRACT["response_block"]
+
+        for body in (b"\xff\xfe not utf8", b"{bad-json"):
+            with self.subTest(body=body[:4]):
+                shape = MODULE.inspect_response_shape(body, block)
+                self.assertFalse(shape["parseable_json"])
+                self.assertIsNone(shape["root_type"])
+                self.assertIsNone(shape["expected_block_present"])
+                self.assertIsNone(shape["expected_block_row_count"])
+
+        wrong_root = MODULE.inspect_response_shape(b"[]", block)
+        self.assertTrue(wrong_root["parseable_json"])
+        self.assertEqual(wrong_root["root_type"], "list")
+        self.assertIsNone(wrong_root["expected_block_present"])
+
+        missing_block = MODULE.inspect_response_shape(
+            json.dumps({"OtherBlock": []}).encode("utf-8"), block
+        )
+        self.assertFalse(missing_block["expected_block_present"])
+        self.assertIsNone(missing_block["expected_block_type"])
+
+        wrong_block_type = MODULE.inspect_response_shape(
+            json.dumps({block: {}}).encode("utf-8"), block
+        )
+        self.assertEqual(wrong_block_type["expected_block_type"], "dict")
+        self.assertIsNone(wrong_block_type["expected_block_row_count"])
+
+        # A fully populated body still yields only a count -- never an
+        # identity, a display name, or a price.
+        populated = MODULE.inspect_response_shape(
+            json.dumps(payload([row("20100104", RAW_CODE, "123456")])).encode("utf-8"),
+            block,
+        )
+        self.assertEqual(populated["expected_block_row_count"], 1)
+        dump = json.dumps(populated)
+        for forbidden in (RAW_CODE, RAW_NAME, "123456", TOKEN):
+            self.assertNotIn(forbidden, dump)
 
     def test_live_workflow_is_manual_non_persistent_four_point_matrix(self):
         triggers = WF.get("on", WF.get(True))
