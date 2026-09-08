@@ -327,3 +327,28 @@ breadth, where these September 6 records remain inapplicable; existing blocked
 historical receipts are unchanged. Top-100 selection, 90% observation coverage,
 all existing exclusions and all authority flags remain unchanged. This is
 source coverage, not investment eligibility, Regime activation or trading.
+
+
+### Official identity slice (2026-09-08)
+
+RAY and DRV are `eligible_crypto` effective 2026-09-08 in the existing
+breadth source-coverage taxonomy. Each literal Kraken identity was matched to
+an official project source and is not inferred from ticker text alone:
+
+- RAY is Raydium's native SPL token, as stated by the official
+  [Raydium brand documentation](https://docs.raydium.io/resources/brand-kit),
+  and independently identified as Raydium's token by
+  [Kraken](https://www.kraken.com/learn/what-is-raydium-ray).
+- DRV is Derive's token on Ethereum Mainnet and Derive L2, with ticker `DRV`,
+  as stated by the official [Derive token documentation](https://docs.derive.xyz/docs/token)
+  and independently identified as Derive on Ethereum (ERC-20) by
+  [Kraken](https://support.kraken.com/hc/articles/360000678446-cryptocurrencies-available-on-kraken).
+
+The official pages were captured on 2026-09-08 at 12:42:49Z. Retained content
+SHA256 values are `f84759e6c1251a8bff3a403af6a78f417fdafec50aa7926113674301f01e56ce`
+(Raydium) and `4170941f75c0d131e63dda7283fd906d82e409e29be675a15c984d0d8ce05cc3`
+(Derive). The effective date does not backfill historical PIT output.
+Top-100 selection, coverage requirements, existing exclusions, all authority
+flags and fail-closed behavior remain unchanged. This is source coverage only;
+it does not authorize investment eligibility, Regime activation, candidate
+promotion or trading.
