@@ -16,7 +16,7 @@ from pathlib import Path
 import re
 from zoneinfo import ZoneInfo
 
-from market_data import krx_session_bars as KRX
+from market_data import krx_session_calendar_v2 as KRX
 
 
 ROOT = Path(__file__).resolve().parents[1]
