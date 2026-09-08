@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -364,7 +365,8 @@ class BriefingCoreV2Acceptance(unittest.TestCase):
             ["complete_market_conclusion_allowed"]
         )
 
-    def test_delivery_claims_cover_dates_numbers_causality_and_review_due(self):
+    def rich_delivery_packet(self):
+        """The exact packet shape that renders dated, numeric delivery claims."""
         packet = self.source_packet()
         by_id = {row["component_id"]: row for row in packet["components"]}
         by_id["FREE_MARKET_DATA"]["packet"] = {
@@ -517,7 +519,10 @@ class BriefingCoreV2Acceptance(unittest.TestCase):
                 }],
             }],
         }
-        self.write_packet(packet)
+        return packet
+
+    def test_delivery_claims_cover_dates_numbers_causality_and_review_due(self):
+        self.write_packet(self.rich_delivery_packet())
         source_commit = self.commit_changes("rich delivery claims")
 
         envelope = self.envelope(source_commit=source_commit)
@@ -554,6 +559,528 @@ class BriefingCoreV2Acceptance(unittest.TestCase):
             {"claim_id", "kind", "statement", "status", "source_ref_paths"},
         )
         PORTAL_PRODUCER.validate_claim_ledger(self.repo, ledger)
+
+    def write_evidence(self, path, body: bytes) -> bytes:
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+        return body
+
+    def primary_evidence(self):
+        """Write the exact provider documents behind the external claims."""
+        fred_response = b'{"observations":[{"date":"2026-08-31","value":"17.25"}]}\n'
+        fred_raw_path = (
+            "evidence/free_market_data/fred/raw/2026-09-01/rev-001/fred_vixcls.json.gz"
+        )
+        fred_manifest_path = (
+            "evidence/free_market_data/fred/raw/2026-09-01/rev-001/manifest.json"
+        )
+        fred_raw = self.write_evidence(fred_raw_path, gzip.compress(fred_response))
+        fred_manifest = self.write_evidence(
+            fred_manifest_path,
+            chain.canonical({
+                "realtime_start": "2026-09-01", "series_id": "VIXCLS",
+                "captured_at_utc": "2026-09-01T21:43:00Z",
+                "observation": {"observation_date": "2026-08-31"},
+            }) + b"\n",
+        )
+        alpaca_response = b'{"bars":{"SPY":[{"c":"770.18"}]}}\n'
+        alpaca_raw_path = (
+            "evidence/free_market_data/raw/alpaca/daily_bars/rev-001/"
+            "alpaca_iex_daily_bars.json.gz"
+        )
+        self.write_evidence(alpaca_raw_path, gzip.compress(alpaca_response))
+        capture_path = "data/latest_free_market_data.json"
+        capture = self.write_evidence(capture_path, chain.canonical({
+            "contract_version": "free_market_data/3",
+            "fred": {
+                "observation_date": "2026-08-31",
+                "response_sha256": chain.digest_bytes(fred_response),
+                "series_id": "VIXCLS",
+                "value": "17.25",
+            },
+            "observed_at_utc": "2026-09-01T21:43:00Z",
+            "us_market_reference": {"as_of_session_date": "2026-09-01"},
+        }) + b"\n")
+
+        btc_directory = "evidence/crypto/btc/raw/2026-09-02"
+        btc_response = b'{"result":{"XXBTZUSD":[[1,"70000.0"]]}}\n'
+        btc_raw_path = f"{btc_directory}/kraken_ohlc_xbtusd.json.gz"
+        btc_manifest_path = f"{btc_directory}/_manifest.json"
+        self.write_evidence(btc_raw_path, gzip.compress(btc_response))
+        self.write_evidence(btc_manifest_path, chain.canonical({
+            "capture_version": "btc-price-capture/v1",
+            "fetched_at_utc": "2026-09-02T00:42:02Z",
+            "raw": {
+                "current_excluded_day": "2026-09-02",
+                "file": "kraken_ohlc_xbtusd.json.gz",
+                "latest_finalized_day": "2026-09-01",
+                "response_sha256": chain.digest_bytes(btc_response),
+            },
+            "schema_version": 1,
+            "snapshot_date": "2026-09-02",
+            "source": {"name": "kraken_spot_ohlc"},
+        }) + b"\n")
+        self.write_evidence(
+            f"{btc_directory}/_sha256.txt",
+            f"{chain.digest_bytes(btc_response)}  kraken_ohlc_xbtusd.json\n".encode("utf-8"),
+        )
+        derivation_path = "tools/derivations/btc_trend_v1.py"
+        derivation = self.write_evidence(
+            derivation_path, b"# pinned 200DMA derivation consumed by the capture\n"
+        )
+
+        stablecoin_directory = "evidence/stablecoin/raw/2026-09-02"
+        stablecoin_response = b'{"totalCirculatingUSD":{"peggedUSD":1}}\n'
+        stablecoin_raw_path = f"{stablecoin_directory}/stablecoincharts_all.json.gz"
+        stablecoin_manifest_path = f"{stablecoin_directory}/_manifest.json"
+        self.write_evidence(stablecoin_raw_path, gzip.compress(stablecoin_response))
+        self.write_evidence(stablecoin_manifest_path, chain.canonical({
+            "capture_mode": "direct_fetch_append_only",
+            "endpoints": [{
+                "endpoint": "https://stablecoins.llama.fi/stablecoincharts/all",
+                "fetched_at_utc": "2026-09-02T06:38:27Z",
+                "name": "stablecoincharts_all",
+                "raw_file": "stablecoincharts_all.json.gz",
+                "response_sha256": chain.digest_bytes(stablecoin_response),
+                "semantics": "historical_series",
+            }],
+            "schema_version": 1,
+            "snapshot_date": "2026-09-02",
+        }) + b"\n")
+        self.write_evidence(
+            f"{stablecoin_directory}/_sha256.txt",
+            f"{chain.digest_bytes(stablecoin_response)}  stablecoincharts_all.json\n"
+            .encode("utf-8"),
+        )
+
+        release_root = "data/sec_content/SNDK/0001628280-26-053346"
+        release_document = b"<html>Sandisk Reports Fiscal Fourth Quarter 2026 Results</html>\n"
+        release_document_path = f"{release_root}/sndkq4-26ex991xpressrelease.htm.gz"
+        release_manifest_path = f"{release_root}/_manifest.json"
+        self.write_evidence(release_document_path, gzip.compress(release_document))
+        release_manifest = self.write_evidence(release_manifest_path, chain.canonical({
+            "accession": "0001628280-26-053346",
+            "filing_date": "2026-08-05",
+            "retrieved_at_utc": "2026-08-20T21:59:19Z",
+            "documents": [{
+                "content_sha256": chain.digest_bytes(release_document),
+                "name": "sndkq4-26ex991xpressrelease.htm",
+            }],
+        }) + b"\n")
+        return {
+            "alpaca_raw_path": alpaca_raw_path,
+            "alpaca_response_sha256": chain.digest_bytes(alpaca_response),
+            "btc_directory": btc_directory,
+            "btc_manifest_path": btc_manifest_path,
+            "btc_raw_path": btc_raw_path,
+            "capture_path": capture_path,
+            "capture_sha256": chain.digest_bytes(capture),
+            "derivation_path": derivation_path,
+            "derivation_sha256": chain.digest_bytes(derivation),
+            "fred_manifest_file_sha256": chain.digest_bytes(fred_manifest),
+            "fred_manifest_path": fred_manifest_path,
+            "fred_raw_file_sha256": chain.digest_bytes(fred_raw),
+            "fred_raw_path": fred_raw_path,
+            "fred_response_sha256": chain.digest_bytes(fred_response),
+            "release_content_sha256": chain.digest_bytes(release_document),
+            "release_document_path": release_document_path,
+            "release_manifest_path": release_manifest_path,
+            "release_manifest_sha256": chain.digest_bytes(release_manifest),
+            "stablecoin_directory": stablecoin_directory,
+            "stablecoin_manifest_path": stablecoin_manifest_path,
+            "stablecoin_raw_path": stablecoin_raw_path,
+        }
+
+    def source_bound_packet(self):
+        """Bind the retained primary evidence into the rich delivery packet."""
+        evidence = self.primary_evidence()
+        packet = self.rich_delivery_packet()
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        free = by_id["FREE_MARKET_DATA"]
+        free["source_packet_path"] = evidence["capture_path"]
+        free["source_packet_sha256"] = evidence["capture_sha256"]
+        free["packet"].update({
+            "alpaca_daily_evidence": {
+                "raw_path": evidence["alpaca_raw_path"],
+                "raw_response_sha256": evidence["alpaca_response_sha256"],
+            },
+            "fred_evidence": {
+                "manifest_file_sha256": evidence["fred_manifest_file_sha256"],
+                "manifest_path": evidence["fred_manifest_path"],
+                "raw_file_sha256": evidence["fred_raw_file_sha256"],
+                "raw_path": evidence["fred_raw_path"],
+                "raw_response_sha256": evidence["fred_response_sha256"],
+            },
+        })
+        trend = by_id["BTC_TREND"]
+        trend["source_packet_path"] = evidence["btc_directory"]
+        trend["packet"]["capture_date"] = "2026-09-02"
+        trend["packet"]["derivation"] = {
+            "code_path": evidence["derivation_path"],
+            "code_sha256": evidence["derivation_sha256"],
+        }
+        # BTC_RISK deliberately pins no derivation code and keeps the older
+        # risk_point.as_of_date fallback for its finalized measurement day.
+        risk = by_id["BTC_RISK"]
+        risk["source_packet_path"] = evidence["btc_directory"]
+        risk["packet"]["capture_date"] = "2026-09-02"
+        by_id["STABLECOIN_NET_ISSUANCE"]["source_packet_path"] = (
+            evidence["stablecoin_directory"]
+        )
+        by_id["OFFICIAL_RELEASE_SUMMARY"]["packet"]["observations"][0]["lineage"] = {
+            "manifest_ref": evidence["release_manifest_path"],
+            "manifest_sha256": evidence["release_manifest_sha256"],
+            "release_content_sha256": evidence["release_content_sha256"],
+            "release_document_ref": evidence["release_document_path"],
+            "release_source_uri": (
+                "https://www.sec.gov/Archives/edgar/data/2023554/"
+                "000162828026053346/sndkq4-26ex991xpressrelease.htm"
+            ),
+            "retrieved_at_utc": "2026-08-20T21:59:19Z",
+        }
+        return packet, evidence
+
+    def bound_envelope(self, packet, message):
+        self.write_packet(packet)
+        return self.envelope(source_commit=self.commit_changes(message))
+
+    def test_external_claims_bind_exact_primary_sources_and_clocks(self):
+        packet, evidence = self.source_bound_packet()
+        envelope = self.bound_envelope(packet, "exact primary source binding")
+        artifacts = chain.build_chain_artifacts(envelope)
+        ledger = artifacts["claim-ledger.json"]
+        claims = {row["claim_id"]: row for row in ledger["claims"]}
+        bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+        compat = {
+            row["claim_id"]: row
+            for row in artifacts["claude-handoff-v1.json"]["claims"]
+        }
+        self.assertEqual(
+            envelope["claim_source_binding_schema"],
+            "briefing_claim_source_binding/1",
+        )
+
+        # FRED VIXCLS: the observation date and the capture clock stay separate.
+        vix = bindings["numeric.us.vixcls"]
+        self.assertEqual(vix["source_grade"], "PRIMARY_DIRECT")
+        self.assertEqual(vix["reason_codes"], [])
+        self.assertEqual(vix["observation_date"], "2026-08-31")
+        self.assertEqual(vix["observed_at"], "2026-09-01T21:43:00Z")
+        self.assertIn(evidence["fred_raw_path"], claims["numeric.us.vixcls"]["source_ref_paths"])
+        self.assertIn(
+            evidence["fred_manifest_path"],
+            claims["freshness.us.vix_observation_date"]["source_ref_paths"],
+        )
+        self.assertEqual(compat["numeric.us.vixcls"]["source_grade"], "PRIMARY_DIRECT")
+        self.assertEqual(compat["numeric.us.vixcls"]["observed_at"], "2026-09-01T21:43:00Z")
+        self.assertEqual(
+            compat["numeric.us.vixcls"]["compared_dates"], ["2026-08-31", "2026-09-01"]
+        )
+
+        # The US session clock stays its own date and grants no PIT permission.
+        session = bindings["freshness.us.market_session_date"]
+        self.assertEqual(session["source_grade"], "PRIMARY_DIRECT")
+        self.assertEqual(session["observation_date"], "2026-09-01")
+        self.assertIn(evidence["alpaca_raw_path"], session["source_ref_paths"])
+        clocks = bindings["boundary.us.independent_evidence_clocks"]
+        self.assertEqual(clocks["source_grade"], "UNKNOWN")
+        self.assertEqual(clocks["compared_dates"], ["2026-08-31", "2026-09-01"])
+        self.assertEqual(claims["boundary.us.independent_evidence_clocks"]["source_ref_paths"], [])
+
+        # BTC: the finalized measurement day and the capture day stay distinct.
+        trend_date = bindings["freshness.crypto.btc_trend_finalized_date"]
+        self.assertEqual(trend_date["source_grade"], "PRIMARY_DIRECT")
+        self.assertEqual(trend_date["observation_date"], "2026-09-01")
+        self.assertEqual(trend_date["observed_at"], "2026-09-02T00:42:02Z")
+        self.assertEqual(trend_date["compared_dates"], ["2026-09-01", "2026-09-02"])
+        self.assertEqual(
+            bindings["freshness.crypto.btc_risk_finalized_date"]["observation_date"],
+            "2026-09-01",
+        )
+
+        # Raw/code binding identifies a calculation, never a direct provider value.
+        self.assertEqual(bindings["numeric.crypto.btc_trend"]["source_grade"], "INTERNAL_LOGIC_CHECK")
+        self.assertIn(
+            evidence["derivation_path"],
+            claims["numeric.crypto.btc_trend"]["source_ref_paths"],
+        )
+        risk = bindings["numeric.crypto.btc_risk"]
+        self.assertEqual(risk["source_grade"], "UNKNOWN")
+        self.assertEqual(risk["reason_codes"], ["DERIVATION_CODE_NOT_PINNED"])
+        self.assertEqual(
+            bindings["numeric.crypto.stablecoin_net_issuance"]["reason_codes"],
+            ["DERIVATION_CODE_NOT_PINNED"],
+        )
+
+        # The retained stablecoin capture is readable compressed primary evidence.
+        stablecoin = bindings["freshness.crypto.stablecoin_observation_date"]
+        self.assertEqual(stablecoin["source_grade"], "PRIMARY_DIRECT")
+        self.assertEqual(stablecoin["observed_at"], "2026-09-02T06:38:27Z")
+        self.assertIn(evidence["stablecoin_raw_path"], stablecoin["source_ref_paths"])
+        self.assertIn(
+            f"{evidence['stablecoin_directory']}/_sha256.txt",
+            stablecoin["source_ref_paths"],
+        )
+
+        # The official release stays attributed, never independent causality.
+        summary = bindings["official_release.attributed_summary_1"]
+        self.assertEqual(summary["source_grade"], "OFFICIAL_STATEMENT_RELAY")
+        self.assertEqual(summary["observation_date"], "2026-08-05")
+        self.assertEqual(summary["observed_at"], "2026-08-20T21:59:19Z")
+        self.assertIn(evidence["release_document_path"], summary["source_ref_paths"])
+        self.assertEqual(
+            bindings["date.official_release.observation_1"]["source_grade"],
+            "OFFICIAL_STATEMENT_RELAY",
+        )
+        self.assertEqual(compat["boundary.official_release.causality"]["source_grade"], "UNKNOWN")
+
+        # Aggregate and internal facts are never relabelled as provider statements.
+        for claim_id in (
+            "numeric.components.status_counts",
+            "numeric.official_release.summary_counts",
+            "numeric.krx.post_close_summary",
+            "core.lineage",
+        ):
+            self.assertNotIn(claim_id, bindings)
+            self.assertEqual(compat[claim_id]["source_grade"], "INTERNAL_LOGIC_CHECK")
+            self.assertEqual(compat[claim_id]["observed_at"], "UNKNOWN")
+
+        # Every added claim reference is an exact Git-byte, generation-bound ref.
+        refs = {row["path"]: row for row in ledger["source_refs"]}
+        for path in (
+            evidence["capture_path"],
+            evidence["fred_raw_path"],
+            evidence["btc_raw_path"],
+            evidence["btc_manifest_path"],
+            evidence["derivation_path"],
+            evidence["release_document_path"],
+        ):
+            self.assertIn(path, refs)
+            self.assertEqual(refs[path]["generation_id"], envelope["generation_id"])
+            self.assertEqual(
+                refs[path]["sha256"],
+                chain.digest_bytes((self.repo / path).read_bytes()),
+            )
+        self.assertEqual(ledger["source_refs"][0]["path"], self.packet_path)
+        self.assertEqual(ledger["source_refs"][1]["path"], self.briefing_path)
+        for claim in ledger["claims"]:
+            self.assertEqual(
+                set(claim),
+                {"claim_id", "kind", "statement", "status", "source_ref_paths"},
+            )
+            self.assertTrue(set(claim["source_ref_paths"]).issubset(set(refs)))
+
+        # Capture alone never grants point-in-time admissibility.
+        for binding in bindings.values():
+            self.assertIsNone(binding["source_available_at"])
+            self.assertFalse(binding["point_in_time_admissible"])
+        PORTAL_PRODUCER.validate_claim_ledger(self.repo, ledger)
+
+    def test_missing_mismatched_and_unreadable_evidence_stays_unknown(self):
+        packet, evidence = self.source_bound_packet()
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        by_id["FREE_MARKET_DATA"]["packet"]["fred_evidence"]["raw_response_sha256"] = "0" * 64
+        by_id["BTC_TREND"]["packet"]["derivation"]["code_sha256"] = "0" * 64
+        (self.repo / evidence["btc_manifest_path"]).unlink()
+        (self.repo / evidence["stablecoin_raw_path"]).write_bytes(b"not gzip bytes\n")
+        (self.repo / evidence["release_manifest_path"]).write_bytes(b"{}\n")
+
+        envelope = self.bound_envelope(packet, "degraded primary evidence")
+        artifacts = chain.build_chain_artifacts(envelope)
+        ledger = artifacts["claim-ledger.json"]
+        claims = {row["claim_id"]: row for row in ledger["claims"]}
+        bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+
+        vix = bindings["numeric.us.vixcls"]
+        self.assertEqual(vix["source_grade"], "UNKNOWN")
+        self.assertIn("FRED_SOURCE_CONTENT_DIGEST_MISMATCH", vix["reason_codes"])
+        self.assertIn("US_CAPTURE_FRED_RESPONSE_DIGEST_MISMATCH", vix["reason_codes"])
+        self.assertNotIn(evidence["fred_raw_path"], claims["numeric.us.vixcls"]["source_ref_paths"])
+
+        trend_date = bindings["freshness.crypto.btc_trend_finalized_date"]
+        self.assertEqual(trend_date["source_grade"], "UNKNOWN")
+        self.assertEqual(trend_date["reason_codes"], ["CAPTURE_CLOCK_MISSING", "RETAINED_MANIFEST_UNAVAILABLE"])
+        self.assertEqual(trend_date["observed_at"], "UNKNOWN")
+        self.assertEqual(trend_date["observation_date"], "2026-09-01")
+        self.assertIn(
+            "DERIVATION_SOURCE_FILE_DIGEST_MISMATCH",
+            bindings["numeric.crypto.btc_trend"]["reason_codes"],
+        )
+
+        stablecoin = bindings["freshness.crypto.stablecoin_observation_date"]
+        self.assertEqual(stablecoin["source_grade"], "UNKNOWN")
+        self.assertIn(
+            "STABLECOIN_RESPONSE_SOURCE_COMPRESSED_UNREADABLE", stablecoin["reason_codes"]
+        )
+
+        summary = bindings["official_release.attributed_summary_1"]
+        self.assertEqual(summary["source_grade"], "UNKNOWN")
+        self.assertIn("RELEASE_SOURCE_FILE_DIGEST_MISMATCH", summary["reason_codes"])
+
+        # A degraded claim keeps its id, kind, statement and packet binding, and
+        # the strict ledger still passes the unchanged producer intake.
+        self.assertEqual(claims["numeric.us.vixcls"]["kind"], "FACT")
+        self.assertIn("17.25", claims["numeric.us.vixcls"]["statement"])
+        self.assertEqual(
+            claims["freshness.crypto.btc_trend_finalized_date"]["source_ref_paths"],
+            [self.packet_path],
+        )
+        PORTAL_PRODUCER.validate_claim_ledger(self.repo, ledger)
+
+    def test_future_dated_primary_evidence_is_not_admitted(self):
+        packet, evidence = self.source_bound_packet()
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        by_id["STABLECOIN_NET_ISSUANCE"]["packet"]["observation_date"] = "2026-09-05"
+        manifest_path = self.repo / evidence["stablecoin_manifest_path"]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["snapshot_date"] = "2026-09-05"
+        manifest_path.write_bytes(chain.canonical(manifest) + b"\n")
+
+        envelope = self.bound_envelope(packet, "future stablecoin observation")
+        bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+        stablecoin = bindings["freshness.crypto.stablecoin_observation_date"]
+        self.assertEqual(stablecoin["source_grade"], "UNKNOWN")
+        self.assertIn("FUTURE_EVIDENCE", stablecoin["reason_codes"])
+        self.assertEqual(stablecoin["observation_date"], "2026-09-05")
+        self.assertEqual(
+            bindings["numeric.crypto.stablecoin_net_issuance"]["source_grade"], "UNKNOWN"
+        )
+        # An unrelated, correctly dated claim keeps its own primary grade.
+        self.assertEqual(
+            bindings["freshness.crypto.btc_trend_finalized_date"]["source_grade"],
+            "PRIMARY_DIRECT",
+        )
+
+    def rewrite_source_manifest(self, packet, evidence, kind, mutate):
+        path = self.repo / evidence[f"{kind}_manifest_path"]
+        value = json.loads(path.read_bytes())
+        mutate(value)
+        path.write_bytes(chain.canonical(value) + b"\n")
+        components = {row["component_id"]: row for row in packet["components"]}
+        if kind == "fred":
+            components["FREE_MARKET_DATA"]["packet"]["fred_evidence"]["manifest_file_sha256"] = chain.digest_bytes(path.read_bytes())
+        elif kind == "release":
+            components["OFFICIAL_RELEASE_SUMMARY"]["packet"]["observations"][0]["lineage"]["manifest_sha256"] = chain.digest_bytes(path.read_bytes())
+
+    def test_all_bound_computations_keep_internal_grade_and_unbound_code_stays_unknown(self):
+        packet, evidence = self.source_bound_packet()
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        for component_id, name in [("BTC_RISK", "btc_risk"), ("STABLECOIN_NET_ISSUANCE", "stablecoin_net_issuance")]:
+            path = f"tools/derivations/{name}.py"
+            body = self.write_evidence(path, f"# isolated {name} test derivation\n".encode())
+            by_id[component_id]["packet"]["derivation"] = {"code_path": path, "code_sha256": chain.digest_bytes(body)}
+        envelope = self.bound_envelope(packet, "bound computed values retain internal grade")
+        bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+        for name in ("btc_trend", "btc_risk", "stablecoin_net_issuance"):
+            self.assertEqual(bindings[f"numeric.crypto.{name}"]["source_grade"], "INTERNAL_LOGIC_CHECK")
+            self.assertEqual(bindings[f"numeric.crypto.{name}"]["reason_codes"], [])
+        for component_id in ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE"):
+            by_id[component_id]["packet"]["derivation"]["code_sha256"] = "0" * 64
+        rejected = self.bound_envelope(packet, "computed code mismatch remains unknown")
+        rejected_bindings = {row["claim_id"]: row for row in rejected["claim_source_bindings"]}
+        for name in ("btc_trend", "btc_risk", "stablecoin_net_issuance"):
+            self.assertEqual(rejected_bindings[f"numeric.crypto.{name}"]["source_grade"], "UNKNOWN")
+            self.assertIn("DERIVATION_SOURCE_FILE_DIGEST_MISMATCH", rejected_bindings[f"numeric.crypto.{name}"]["reason_codes"])
+
+    def test_missing_invalid_or_mismatched_provider_clocks_are_claim_local_unknown(self):
+        cases = [
+            ("fred", "captured_at_utc", None, "numeric.us.vixcls", "FRED_CAPTURE_CLOCK_MISSING"),
+            ("fred", "captured_at_utc", "2026-09-01T21:43:00", "numeric.us.vixcls", "FRED_CAPTURE_CLOCK_INVALID"),
+            ("fred", "captured_at_utc", "2026-09-01T21:44:00Z", "numeric.us.vixcls", "FRED_CAPTURE_CLOCK_MISMATCH"),
+            ("release", "retrieved_at_utc", None, "official_release.attributed_summary_1", "RELEASE_CAPTURE_CLOCK_MISSING"),
+            ("release", "retrieved_at_utc", "2026-02-30T12:00:00Z", "official_release.attributed_summary_1", "RELEASE_CAPTURE_CLOCK_INVALID"),
+            ("release", "retrieved_at_utc", "2026-08-20T22:00:00Z", "official_release.attributed_summary_1", "RELEASE_CAPTURE_CLOCK_MISMATCH"),
+            ("release", "filing_date", "2026-08-06", "official_release.attributed_summary_1", "RELEASE_MANIFEST_PUBLICATION_DATE_MISMATCH"),
+            ("btc", "fetched_at_utc", None, "freshness.crypto.btc_trend_finalized_date", "CAPTURE_CLOCK_MISSING"),
+            ("btc", "fetched_at_utc", "not-an-instant", "freshness.crypto.btc_trend_finalized_date", "CAPTURE_CLOCK_INVALID"),
+        ]
+        for kind, key, value, claim_id, reason in cases:
+            with self.subTest(kind=kind, key=key, value=value):
+                packet, evidence = self.source_bound_packet()
+                self.rewrite_source_manifest(packet, evidence, kind, lambda manifest: manifest.__setitem__(key, value))
+                envelope = self.bound_envelope(packet, f"invalid {kind} {key} {value}")
+                bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+                self.assertEqual(bindings[claim_id]["source_grade"], "UNKNOWN")
+                self.assertIn(reason, bindings[claim_id]["reason_codes"])
+                unaffected = "freshness.crypto.btc_trend_finalized_date" if kind != "btc" else "numeric.us.vixcls"
+                self.assertEqual(bindings[unaffected]["source_grade"], "PRIMARY_DIRECT")
+                self.assertIsNone(bindings[claim_id]["source_available_at"])
+                self.assertFalse(bindings[claim_id]["point_in_time_admissible"])
+                PORTAL_PRODUCER.validate_claim_ledger(self.repo, chain.build_chain_artifacts(envelope)["claim-ledger.json"])
+
+    def test_missing_or_invalid_measurement_dates_do_not_use_capture_vintage(self):
+        for component_id, field, claim_id in [
+            ("BTC_TREND", "latest_finalized_day", "numeric.crypto.btc_trend"),
+            ("STABLECOIN_NET_ISSUANCE", "observation_date", "numeric.crypto.stablecoin_net_issuance"),
+        ]:
+            for value in (None, "2026-02-30"):
+                with self.subTest(component=component_id, value=value):
+                    packet, evidence = self.source_bound_packet()
+                    component = next(row for row in packet["components"] if row["component_id"] == component_id)
+                    component["packet"][field] = value
+                    envelope = self.bound_envelope(packet, f"measurement {component_id} {value}")
+                    bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+                    self.assertEqual(bindings[claim_id]["source_grade"], "UNKNOWN")
+                    self.assertEqual(bindings[claim_id]["observation_date"], "UNKNOWN")
+                    self.assertIn("OBSERVATION_DATE_MISSING" if value is None else "OBSERVATION_DATE_INVALID", bindings[claim_id]["reason_codes"])
+        packet, evidence = self.source_bound_packet()
+        self.rewrite_source_manifest(packet, evidence, "fred", lambda manifest: manifest["observation"].__setitem__("observation_date", "2026-09-01"))
+        envelope = self.bound_envelope(packet, "FRED measurement must match provider manifest")
+        bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+        self.assertIn("FRED_MANIFEST_OBSERVATION_DATE_MISMATCH", bindings["numeric.us.vixcls"]["reason_codes"])
+        self.assertEqual(bindings["numeric.us.vixcls"]["source_grade"], "UNKNOWN")
+
+    def test_equivalent_zoned_clocks_match_and_one_missing_endpoint_still_rejects(self):
+        packet, evidence = self.source_bound_packet()
+        self.rewrite_source_manifest(packet, evidence, "fred", lambda manifest: manifest.__setitem__("captured_at_utc", "2026-09-02T06:43:00+09:00"))
+        self.rewrite_source_manifest(packet, evidence, "release", lambda manifest: manifest.__setitem__("retrieved_at_utc", "2026-08-21T06:59:19+09:00"))
+        envelope = self.bound_envelope(packet, "equivalent explicit timezone clocks")
+        bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+        self.assertEqual(bindings["numeric.us.vixcls"]["source_grade"], "PRIMARY_DIRECT")
+        self.assertEqual(bindings["official_release.attributed_summary_1"]["source_grade"], "OFFICIAL_STATEMENT_RELAY")
+
+        # A valid second endpoint cannot hide an absent capture time on the first.
+        manifest_path = self.repo / evidence["stablecoin_manifest_path"]
+        manifest = json.loads(manifest_path.read_bytes())
+        other = copy.deepcopy(manifest["endpoints"][0])
+        other.update(name="other", raw_file="other.json.gz")
+        body = (self.repo / evidence["stablecoin_raw_path"]).read_bytes()
+        self.write_evidence(f"{evidence['stablecoin_directory']}/other.json.gz", body)
+        index = self.repo / evidence["stablecoin_directory"] / "_sha256.txt"
+        index.write_bytes(index.read_bytes() + f"{other['response_sha256']}  other.json\n".encode())
+        manifest["endpoints"].append(other)
+        del manifest["endpoints"][0]["fetched_at_utc"]
+        manifest_path.write_bytes(chain.canonical(manifest) + b"\n")
+        envelope = self.bound_envelope(packet, "one absent endpoint capture cannot be hidden")
+        bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+        stable = bindings["freshness.crypto.stablecoin_observation_date"]
+        self.assertEqual(stable["source_grade"], "UNKNOWN")
+        self.assertIn("ENDPOINT_CAPTURE_CLOCK_MISSING", stable["reason_codes"])
+
+    def test_retained_digest_index_and_each_exact_response_entry_are_required(self):
+        for kind, claim_id in [
+            ("btc", "freshness.crypto.btc_trend_finalized_date"),
+            ("stablecoin", "freshness.crypto.stablecoin_observation_date"),
+        ]:
+            for mode in ("missing", "unreadable", "malformed", "empty", "absent_entry", "duplicate"):
+                with self.subTest(kind=kind, mode=mode):
+                    packet, evidence = self.source_bound_packet()
+                    path = self.repo / evidence[f"{kind}_directory"] / "_sha256.txt"
+                    original = path.read_bytes()
+                    if mode == "missing":
+                        path.unlink()
+                    else:
+                        body = {"unreadable": b"\xff", "malformed": original + b"not a digest line\n", "empty": b"\n", "absent_entry": b"0" * 64 + b"  unrelated.json\n", "duplicate": original + original}[mode]
+                        path.write_bytes(body)
+                    envelope = self.bound_envelope(packet, f"required retained index {kind} {mode}")
+                    bindings = {row["claim_id"]: row for row in envelope["claim_source_bindings"]}
+                    binding = bindings[claim_id]
+                    self.assertEqual(binding["source_grade"], "UNKNOWN")
+                    self.assertTrue(any("RETAINED_DIGEST" in reason for reason in binding["reason_codes"]))
+                    self.assertNotIn(evidence[f"{kind}_raw_path"], binding["source_ref_paths"])
+                    unaffected = "freshness.crypto.stablecoin_observation_date" if kind == "btc" else "freshness.crypto.btc_trend_finalized_date"
+                    self.assertEqual(bindings[unaffected]["source_grade"], "PRIMARY_DIRECT")
 
     def test_retained_20260907_packet_claims_exact_24_of_93_overdue_watch_reviews(self):
         relative = (
