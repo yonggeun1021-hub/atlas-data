@@ -54,7 +54,7 @@ def recount_content_records(content: dict) -> None:
     }
 
 
-def retained_raw_fixture(root: Path) -> tuple[Path, Path, Path, str, str]:
+def retained_raw_fixture(root: Path, *, second_filing: bool = False) -> tuple[Path, Path, Path, str, str]:
     """Build a bounded test envelope from one retained DART filing.
 
     The rolling `latest_*` inputs may correctly contain metadata-only rows.
@@ -64,8 +64,9 @@ def retained_raw_fixture(root: Path) -> tuple[Path, Path, Path, str, str]:
     subject_id = "012450"
     rcept_no = "20260831800137"
     source = json.loads((ROOT / "data/2026-09-01/dart.json").read_text(encoding="utf-8"))
-    source["stocks"] = {subject_id: source["stocks"][subject_id]}
-    source["summary"] = {"ok": 1, "failed": 0}
+    subjects = (subject_id, "329180") if second_filing else (subject_id,)
+    source["stocks"] = {ticker: source["stocks"][ticker] for ticker in subjects}
+    source["summary"] = {"ok": len(subjects), "failed": 0}
     source_path = root / "dart.json"
     source_path.write_text(json.dumps(source), encoding="utf-8")
 
@@ -79,6 +80,11 @@ def retained_raw_fixture(root: Path) -> tuple[Path, Path, Path, str, str]:
         "run_status": "OK",
         "records": [record],
     })
+    if second_filing:
+        second_manifest = ROOT / "data/dart_content/329180/20260827800389/_manifest.json"
+        second = json.loads(second_manifest.read_text(encoding="utf-8"))
+        second["publication_status"] = "OK"
+        content["records"].append(second)
     recount_content_records(content)
     content["source_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
     content_path = root / "dart_content.json"
@@ -87,6 +93,9 @@ def retained_raw_fixture(root: Path) -> tuple[Path, Path, Path, str, str]:
     data_root = root / "data"
     retained = ROOT / "data/dart_content" / subject_id / rcept_no
     shutil.copytree(retained, data_root / "dart_content" / subject_id / rcept_no)
+    if second_filing:
+        shutil.copytree(ROOT / "data/dart_content/329180/20260827800389",
+                        data_root / "dart_content/329180/20260827800389")
     return source_path, content_path, data_root, subject_id, rcept_no
 
 
@@ -99,7 +108,12 @@ class DartEventObservationTests(unittest.TestCase):
         self.assertEqual(self.packet["schema_version"], "dart_event_observation_packet/2")
         self.assertEqual(self.packet["status"], "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED")
         observations = self.packet["observations"]
-        self.assertGreater(len(observations), 0)
+        source = json.loads(MODULE.DEFAULT_DART.read_text(encoding="utf-8"))
+        self.assertEqual(
+            len(observations),
+            sum(len(stock.get("relevant", [])) for stock in source["stocks"].values()
+                if stock["status"] == "ok"),
+        )
         self.assertEqual(self.packet["summary"]["relevant_filing_count"], len(observations))
         self.assertEqual(
             self.packet["summary"]["raw_bytes_verified_count"],
@@ -134,6 +148,30 @@ class DartEventObservationTests(unittest.TestCase):
             self.assertIsNone(row["direction"])
             self.assertIsNone(row["importance"])
             self.assertEqual(row["status"], "OBSERVED_ESCALATION_BLOCKED")
+
+    def test_an_explicit_empty_snapshot_records_no_filings_or_authority(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source_path, content_path, data_root, _, _ = retained_raw_fixture(Path(temporary))
+            source = json.loads(source_path.read_text(encoding="utf-8"))
+            for stock in source["stocks"].values():
+                stock.update(relevant=[], relevant_count=0, total_count=0)
+            source_path.write_text(json.dumps(source), encoding="utf-8")
+            content = json.loads(content_path.read_text(encoding="utf-8"))
+            content["records"] = []
+            recount_content_records(content)
+            content["source_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+            content_path.write_text(json.dumps(content), encoding="utf-8")
+            packet = MODULE.build_packet(
+                decision_at="2026-08-31T21:00:39Z", source_path=source_path,
+                content_path=content_path, data_root=data_root,
+            )
+            self.assertEqual(packet["status"], "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED")
+            self.assertEqual(packet["observations"], [])
+            self.assertEqual(packet["summary"]["relevant_filing_count"], 0)
+            self.assertEqual(packet["summary"]["content_failure_count"], 0)
+            self.assertEqual(packet["summary"]["source_failed_count"], 0)
+            self.assertTrue(all(value is False for key, value in packet["authority"].items()
+                                if key != "observation_recording_only"))
 
     def test_legacy_v1_validation_never_substitutes_newer_mutable_inputs(self):
         # The append-only observation directory can contain newer schema
@@ -178,6 +216,7 @@ class DartEventObservationTests(unittest.TestCase):
                 decision_at="2026-08-31T21:00:39Z", source_path=source_path,
                 content_path=content_path, data_root=data_root,
             )
+            self.assertEqual(len(packet["observations"]), 1)
             linked = packet["observations"][0]
             manifest = MODULE.DART.load_existing_manifest(data_root, subject_id, rcept_no)
             self.assertIsNotNone(manifest)
@@ -186,16 +225,12 @@ class DartEventObservationTests(unittest.TestCase):
             self.assertIn("DART_ITEM_EXTRACTION_POLICY_UNRATIFIED", linked["blocked_reasons"])
 
     def test_metadata_only_row_cannot_be_presented_as_content_verified(self):
-        # The latest DART inputs are rolling evidence.  A particular stock can
-        # legitimately disappear from the next collection, so construct the
-        # contract case from a record that is present instead of pinning this
-        # invariant to the former 034020 fixture.
+        # Use a pinned nonempty filing; latest may legitimately contain none.
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source_path = root / "latest_dart.json"
-            content_path = root / "latest_dart_content.json"
-            source = json.loads(MODULE.DEFAULT_DART.read_text(encoding="utf-8"))
-            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+            source_path, content_path, data_root, _, _ = retained_raw_fixture(root)
+            source = json.loads(source_path.read_text(encoding="utf-8"))
+            content = json.loads(content_path.read_text(encoding="utf-8"))
             record = content["records"][0]
             subject_id = record["filing_identity"]["stock_code"]
             source["stocks"][subject_id]["atlas_stage"] = None
@@ -221,9 +256,9 @@ class DartEventObservationTests(unittest.TestCase):
             content_path.write_text(json.dumps(content), encoding="utf-8")
 
             packet = MODULE.build_packet(
-                decision_at=DECISION_AT,
+                decision_at="2026-08-31T21:00:39Z",
                 source_path=source_path,
-                content_path=content_path,
+                content_path=content_path, data_root=data_root,
             )
             row = next(
                 row for row in packet["observations"]
@@ -282,19 +317,25 @@ class DartEventObservationTests(unittest.TestCase):
 
     def test_missing_or_extra_content_records_fail_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source_path = root / "latest_dart.json"
-            content_path = root / "latest_dart_content.json"
-            shutil.copy2(MODULE.DEFAULT_DART, source_path)
-            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
-            content["records"] = content["records"][:1]
-            recount_content_records(content)
-            content_path.write_text(json.dumps(content), encoding="utf-8")
-            with self.assertRaisesRegex(MODULE.DartEventObservationError, "DART_CONTENT_RECORD_MISSING"):
-                MODULE.build_packet(
-                    decision_at=DECISION_AT, source_path=source_path,
-                    content_path=content_path,
-                )
+            source_path, content_path, data_root, _, _ = retained_raw_fixture(Path(temporary))
+            original = json.loads(content_path.read_text(encoding="utf-8"))
+            for kind in ("MISSING", "EXTRA"):
+                with self.subTest(kind=kind):
+                    content = copy.deepcopy(original)
+                    if kind == "MISSING":
+                        content["records"] = []
+                    else:
+                        extra = copy.deepcopy(content["records"][0])
+                        extra["filing_identity"]["rcept_no"] = "20260831999999"
+                        content["records"].append(extra)
+                    recount_content_records(content)
+                    content_path.write_text(json.dumps(content), encoding="utf-8")
+                    reason = "DART_CONTENT_RECORD_MISSING" if kind == "MISSING" else "DART_CONTENT_RECORD_NOT_IN_SOURCE"
+                    with self.assertRaisesRegex(MODULE.DartEventObservationError, reason):
+                        MODULE.build_packet(
+                            decision_at="2026-08-31T21:00:39Z", source_path=source_path,
+                            content_path=content_path, data_root=data_root,
+                        )
 
     def test_partial_source_failure_is_isolated_to_that_symbol(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -372,20 +413,13 @@ class DartEventObservationTests(unittest.TestCase):
     def test_degraded_content_failure_isolated_to_one_filing(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source_path = root / "latest_dart.json"
-            content_path = root / "latest_dart_content.json"
-            source_path.write_bytes(MODULE.DEFAULT_DART.read_bytes())
-            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
-            # Pick whichever filing is first in the live rolling snapshot rather
-            # than a hardcoded stock_code: the daily DART collect.yml cron
-            # continuously rolls data/latest_dart_content.json forward, so any
-            # ticker literal captured at authoring time eventually ages out of
-            # the current window (see e.g. commit 430d82c7, authored against a
-            # snapshot that has since rolled past its "329180" filing). Which
-            # filing gets the injected content-capture failure is immaterial to
-            # this test: it only asserts that exactly one filing is marked
-            # CONTENT_CAPTURE_FAILED and every other filing is unaffected.
-            self.assertTrue(content["records"], "DEFAULT_CONTENT has no records to fail")
+            source_path, content_path, data_root, _, _ = retained_raw_fixture(root, second_filing=True)
+            content = json.loads(content_path.read_text(encoding="utf-8"))
+            baseline = MODULE.build_packet(
+                decision_at="2026-08-31T21:00:39Z", source_path=source_path,
+                content_path=content_path, data_root=data_root,
+            )
+            self.assertEqual(len(baseline["observations"]), 2)
             failed = content["records"][0]
             failed["operation"] = "failed"
             failed["publication_status"] = "FAILED"
@@ -395,8 +429,8 @@ class DartEventObservationTests(unittest.TestCase):
             content_path.write_text(json.dumps(content), encoding="utf-8")
 
             packet = MODULE.build_packet(
-                decision_at=DECISION_AT, source_path=source_path,
-                content_path=content_path,
+                decision_at="2026-08-31T21:00:39Z", source_path=source_path,
+                content_path=content_path, data_root=data_root,
             )
             failed_observation = next(
                 row for row in packet["observations"]
@@ -405,14 +439,16 @@ class DartEventObservationTests(unittest.TestCase):
             self.assertEqual(failed_observation["evidence"]["status"], "CONTENT_CAPTURE_FAILED")
             self.assertIn("DART_CONTENT_CAPTURE_FAILED", failed_observation["blocked_reasons"])
             self.assertEqual(packet["summary"]["content_failure_count"], 1)
+            self.assertEqual(
+                [row for row in packet["observations"] if row["rcept_no"] != failed["filing_identity"]["rcept_no"]],
+                [row for row in baseline["observations"] if row["rcept_no"] != failed["filing_identity"]["rcept_no"]],
+            )
 
     def test_failed_content_run_preserves_metadata_observations(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source_path = root / "latest_dart.json"
-            content_path = root / "latest_dart_content.json"
-            source_path.write_bytes(MODULE.DEFAULT_DART.read_bytes())
-            content = json.loads(MODULE.DEFAULT_CONTENT.read_text(encoding="utf-8"))
+            source_path, content_path, data_root, _, _ = retained_raw_fixture(root)
+            content = json.loads(content_path.read_text(encoding="utf-8"))
             content["run_status"] = "FAILED"
             content["counts"] = {"captured": 0, "failed": 1, "not_applicable": 0, "skipped": 0}
             content["records"] = []
@@ -420,14 +456,14 @@ class DartEventObservationTests(unittest.TestCase):
             content_path.write_text(json.dumps(content), encoding="utf-8")
 
             packet = MODULE.build_packet(
-                decision_at=DECISION_AT, source_path=source_path,
-                content_path=content_path,
+                decision_at="2026-08-31T21:00:39Z", source_path=source_path,
+                content_path=content_path, data_root=data_root,
             )
             self.assertEqual(
-                packet["summary"]["relevant_filing_count"], len(self.packet["observations"])
+                packet["summary"]["relevant_filing_count"], 1
             )
             self.assertEqual(
-                packet["summary"]["content_failure_count"], len(self.packet["observations"])
+                packet["summary"]["content_failure_count"], 1
             )
             self.assertEqual(
                 {row["evidence"]["status"] for row in packet["observations"]},
