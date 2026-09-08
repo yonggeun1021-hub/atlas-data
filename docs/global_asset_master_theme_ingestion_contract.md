@@ -5,6 +5,13 @@ an original ThemeTaxonomy/2 graph, and explicit caller selections. It connects
 the missing membership-construction step to the existing GAM builder and
 `validate_theme_source_binding()`. It does not populate an operational master.
 
+The library-only scope described below now has an explicit-file caller:
+[Theme application CLI](global_asset_master_theme_application_cli.md). It
+validates by default and applies only with the explicit caller switch and
+designated existing destination. Earlier references to no CLI describe the
+original library implementation; they do not prohibit this adopted connection
+or authorize an actual master migration. The library guarantees are unchanged.
+
 ## Inputs and API
 
 `universe.global_asset_master_theme_ingestion.build_theme_ingestion_preview()`

@@ -156,6 +156,7 @@ APPROVED_TESTS = [
     #   ⛔ live network/tracked master 없음 — synthetic inputs + temp output only.
     "test/test_global_asset_master.py",
     "test/test_global_asset_master_theme_ingestion.py",
+    "test/test_global_asset_master_theme_application_cli.py",
     # ★ P3-01 committed three-market population readiness.
     #   latest US source-coverage packet is independently rebuilt from the
     #   immutable raw archive; Crypto's real coverage blocker and Korea's
