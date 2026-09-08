@@ -2,11 +2,13 @@
 """P3-04 deterministic taxonomy gap review inventory regression."""
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +42,28 @@ def gap_fixture(root: Path):
         {"BTC": "eligible_crypto", "A": "eligible_crypto", "C": "stablecoin"},
     )
     return snapshot, policy, taxonomy
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def revision_dir(data_root: Path, source_date: str) -> Path:
+    return Path(data_root) / source_date / INVENTORY.TAXONOMY_REVISION_DIRNAME
+
+
+def ratify_b(taxonomy: Path) -> Path:
+    """Advance the taxonomy exactly like PR608 did: ratify the asset that
+    was an unknown-before-cutoff in the already published inventory."""
+    return FIXTURES.write_taxonomy(
+        taxonomy,
+        {
+            "BTC": "eligible_crypto",
+            "A": "eligible_crypto",
+            "B": "eligible_crypto",
+            "C": "stablecoin",
+        },
+    )
 
 
 class CryptoTaxonomyGapInventoryTests(unittest.TestCase):
@@ -170,6 +194,344 @@ class CryptoTaxonomyGapInventoryTests(unittest.TestCase):
             self.assertIsNone(context["known_eligible_count_so_far"])
         self.assertEqual(record["authority"]["records_ratified"], 0)
         self.assertFalse(record["authority"]["investability_authorized"])
+
+    def test_populate_retains_pinned_taxonomy_revision_before_publishing(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            result = INVENTORY.populate(
+                snapshot.name,
+                raw_root=snapshot.parent,
+                data_root=Path(data),
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+            )
+            record = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+            pinned = record["lineage"]["taxonomy_policy_sha256"]
+            retained = revision_dir(Path(data), snapshot.name) / f"{pinned}.json"
+            self.assertTrue(retained.is_file())
+            self.assertEqual(retained.read_bytes(), taxonomy.read_bytes())
+            self.assertEqual(file_sha256(retained), pinned)
+            # The revision lives inside the source-date directory the capture
+            # workflow already commits, so no workflow change is required.
+            self.assertEqual(retained.parent.parent, Path(result["path"]).parent)
+
+    def test_repeat_populate_reuses_retained_revision_without_rewriting_it(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            args = dict(
+                source_date=snapshot.name,
+                raw_root=snapshot.parent,
+                data_root=Path(data),
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+            )
+            INVENTORY.populate(**args)
+            revisions = revision_dir(Path(data), snapshot.name)
+            before = {path.name: path.read_bytes() for path in revisions.iterdir()}
+            second = INVENTORY.populate(**args)
+            self.assertEqual(second["outcome"], "verified_existing")
+            after = {path.name: path.read_bytes() for path in revisions.iterdir()}
+            self.assertEqual(before, after)
+            self.assertEqual(len(after), 1)
+
+    def test_published_record_replays_byte_identically_under_pinned_taxonomy(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            args = dict(
+                source_date=snapshot.name,
+                raw_root=snapshot.parent,
+                data_root=Path(data),
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+            )
+            first = INVENTORY.populate(**args)
+            packet = Path(first["path"])
+            before = packet.read_bytes()
+            pinned = json.loads(before)["lineage"]["taxonomy_policy_sha256"]
+
+            ratify_b(taxonomy)
+            current = file_sha256(taxonomy)
+            self.assertNotEqual(current, pinned)
+
+            mode = INVENTORY.validate_inventory(
+                json.loads(before),
+                raw_root=snapshot.parent,
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+                data_root=Path(data),
+            )
+            self.assertEqual(mode, "pinned_taxonomy_revision")
+
+            second = INVENTORY.populate(**args)
+            self.assertEqual(second["outcome"], "verified_existing")
+            self.assertEqual(packet.read_bytes(), before)
+            self.assertEqual(first["payload_sha256"], second["payload_sha256"])
+            # Verifying an existing record must not snapshot today's taxonomy.
+            self.assertEqual(
+                sorted(path.name for path in revision_dir(Path(data), snapshot.name).iterdir()),
+                [f"{pinned}.json"],
+            )
+
+    def test_replay_keeps_the_record_review_only_with_no_authority(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            result = INVENTORY.populate(
+                snapshot.name,
+                raw_root=snapshot.parent,
+                data_root=Path(data),
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+            )
+            record = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+            ratify_b(taxonomy)
+            INVENTORY.validate_inventory(
+                record,
+                raw_root=snapshot.parent,
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+                data_root=Path(data),
+            )
+            self.assertEqual(record["status"], "REVIEW_INVENTORY_ONLY")
+            self.assertEqual(record["authority"]["classifications_created"], 0)
+            self.assertEqual(record["authority"]["records_ratified"], 0)
+            for key, value in record["authority"].items():
+                if key not in {"classifications_created", "records_ratified"}:
+                    self.assertFalse(value, key)
+
+    def test_real_2026_09_08_record_replays_under_its_pinned_revision(self):
+        source_date = "2026-09-08"
+        packet = INVENTORY.DATA_ROOT / source_date / "packet.json"
+        before = packet.read_bytes()
+        record = json.loads(before)
+        pinned = record["lineage"]["taxonomy_policy_sha256"]
+        current = file_sha256(INVENTORY.CB.EXCLUSION_TAXONOMY_PATH)
+        # The real defect: PR608 advanced the current taxonomy after this
+        # record was committed against the earlier one.
+        self.assertNotEqual(current, pinned)
+        mode = INVENTORY.validate_inventory(record, data_root=INVENTORY.DATA_ROOT)
+        self.assertEqual(mode, "pinned_taxonomy_revision")
+        self.assertEqual(packet.read_bytes(), before)
+        self.assertEqual(
+            file_sha256(
+                INVENTORY.taxonomy_revision_path(
+                    source_date, pinned, INVENTORY.DATA_ROOT
+                )
+            ),
+            pinned,
+        )
+        self.assertEqual(record["authority"]["records_ratified"], 0)
+        self.assertFalse(record["authority"]["investability_authorized"])
+
+    def test_missing_pinned_revision_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            args = dict(
+                source_date=snapshot.name,
+                raw_root=snapshot.parent,
+                data_root=Path(data),
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+            )
+            result = INVENTORY.populate(**args)
+            pinned = json.loads(Path(result["path"]).read_text(encoding="utf-8"))[
+                "lineage"
+            ]["taxonomy_policy_sha256"]
+            (revision_dir(Path(data), snapshot.name) / f"{pinned}.json").unlink()
+            ratify_b(taxonomy)
+            with self.assertRaisesRegex(
+                INVENTORY.InventoryError,
+                "HISTORICAL_TAXONOMY_REVISION_UNAVAILABLE:missing",
+            ):
+                INVENTORY.populate(**args)
+
+    def test_wrong_hash_pinned_revision_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            args = dict(
+                source_date=snapshot.name,
+                raw_root=snapshot.parent,
+                data_root=Path(data),
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+            )
+            result = INVENTORY.populate(**args)
+            pinned = json.loads(Path(result["path"]).read_text(encoding="utf-8"))[
+                "lineage"
+            ]["taxonomy_policy_sha256"]
+            revision = revision_dir(Path(data), snapshot.name) / f"{pinned}.json"
+            # Valid taxonomy JSON, but not the bytes this record pinned.
+            ratify_b(revision)
+            ratify_b(taxonomy)
+            with self.assertRaisesRegex(
+                INVENTORY.InventoryError,
+                "HISTORICAL_TAXONOMY_REVISION_UNAVAILABLE:hash_mismatch",
+            ):
+                INVENTORY.populate(**args)
+
+    def test_malformed_pinned_revision_fails_closed(self):
+        with tempfile.TemporaryDirectory() as data:
+            raw = b"{not json"
+            digest = hashlib.sha256(raw).hexdigest()
+            path = INVENTORY.taxonomy_revision_path("2026-09-08", digest, Path(data))
+            path.parent.mkdir(parents=True)
+            path.write_bytes(raw)
+            with self.assertRaisesRegex(
+                INVENTORY.InventoryError,
+                "HISTORICAL_TAXONOMY_REVISION_UNAVAILABLE:malformed",
+            ):
+                INVENTORY.resolve_taxonomy_revision("2026-09-08", digest, Path(data))
+
+    def test_symlinked_pinned_revision_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            args = dict(
+                source_date=snapshot.name,
+                raw_root=snapshot.parent,
+                data_root=Path(data),
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+            )
+            result = INVENTORY.populate(**args)
+            pinned = json.loads(Path(result["path"]).read_text(encoding="utf-8"))[
+                "lineage"
+            ]["taxonomy_policy_sha256"]
+            revision = revision_dir(Path(data), snapshot.name) / f"{pinned}.json"
+            # Correct bytes, but reached through a link the packet does not
+            # commit: the evidence is no longer immutable in place.
+            outside = Path(tmp) / "pinned_taxonomy_source.json"
+            outside.write_bytes(revision.read_bytes())
+            revision.unlink()
+            revision.symlink_to(outside)
+            ratify_b(taxonomy)
+            with self.assertRaisesRegex(
+                INVENTORY.InventoryError,
+                "HISTORICAL_TAXONOMY_REVISION_UNAVAILABLE:symlink",
+            ):
+                INVENTORY.populate(**args)
+
+    def test_replay_still_rejects_drift_in_any_other_recorded_input(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            args = dict(
+                source_date=snapshot.name,
+                raw_root=snapshot.parent,
+                data_root=Path(data),
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+            )
+            INVENTORY.populate(**args)
+            # A resolvable pinned taxonomy revision must not excuse a
+            # universe policy that no longer matches the stored lineage.
+            ratify_b(taxonomy)
+            FIXTURES.write_policy(policy, target=4)
+            with self.assertRaisesRegex(
+                INVENTORY.InventoryError, "INVENTORY_DRIFT_OR_TAMPER"
+            ):
+                INVENTORY.populate(**args)
+
+    def test_resolvable_revision_does_not_launder_a_tampered_record(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            args = dict(
+                source_date=snapshot.name,
+                raw_root=snapshot.parent,
+                data_root=Path(data),
+                universe_policy_path=policy,
+                taxonomy_path=taxonomy,
+            )
+            result = INVENTORY.populate(**args)
+            target = Path(result["path"])
+            ratify_b(taxonomy)
+            record = json.loads(target.read_text(encoding="utf-8"))
+            record["authority"]["records_ratified"] = 1
+            record["payload_sha256"] = INVENTORY.payload_sha256(
+                {key: value for key, value in record.items() if key != "payload_sha256"}
+            )
+            target.write_text(
+                json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                INVENTORY.InventoryError, "INVENTORY_DRIFT_OR_TAMPER"
+            ):
+                INVENTORY.populate(**args)
+
+    def test_concurrent_identical_revision_preserves_existing_inode(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            target = INVENTORY.taxonomy_revision_path(
+                snapshot.name, file_sha256(taxonomy), Path(data)
+            )
+            real_link = INVENTORY.os.link
+            winner_inodes = []
+
+            def another_writer_wins(temp, destination):
+                self.assertEqual(Path(destination), target)
+                target.write_bytes(taxonomy.read_bytes())
+                winner_inodes.append(target.stat().st_ino)
+                return real_link(temp, destination)
+
+            with mock.patch.object(INVENTORY.os, "link", side_effect=another_writer_wins):
+                result = INVENTORY.populate(
+                    snapshot.name, raw_root=snapshot.parent, data_root=Path(data),
+                    universe_policy_path=policy, taxonomy_path=taxonomy,
+                )
+            self.assertEqual(len(winner_inodes), 1)
+            self.assertEqual(target.stat().st_ino, winner_inodes[0])
+            self.assertEqual(target.read_bytes(), taxonomy.read_bytes())
+            self.assertTrue(Path(result["path"]).is_file())
+            self.assertEqual(list(target.parent.glob(".*.tmp.*")), [])
+
+    def test_concurrent_conflicting_revision_is_not_overwritten_or_published(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            target = INVENTORY.taxonomy_revision_path(
+                snapshot.name, file_sha256(taxonomy), Path(data)
+            )
+            real_link = INVENTORY.os.link
+            winner_inodes = []
+
+            def another_writer_wins(temp, destination):
+                self.assertEqual(Path(destination), target)
+                target.write_bytes(b"{}\n")
+                winner_inodes.append(target.stat().st_ino)
+                return real_link(temp, destination)
+
+            with mock.patch.object(INVENTORY.os, "link", side_effect=another_writer_wins):
+                with self.assertRaisesRegex(
+                    INVENTORY.InventoryError, "existing_content_mismatch"
+                ):
+                    INVENTORY.populate(
+                        snapshot.name, raw_root=snapshot.parent, data_root=Path(data),
+                        universe_policy_path=policy, taxonomy_path=taxonomy,
+                    )
+            self.assertEqual(len(winner_inodes), 1)
+            self.assertEqual(target.stat().st_ino, winner_inodes[0])
+            self.assertEqual(target.read_bytes(), b"{}\n")
+            self.assertFalse(INVENTORY.output_path(snapshot.name, Path(data)).exists())
+            self.assertEqual(list(target.parent.glob(".*.tmp.*")), [])
+
+    def test_failed_revision_retention_publishes_no_inventory(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            snapshot, policy, taxonomy = gap_fixture(Path(tmp))
+            occupied = (
+                revision_dir(Path(data), snapshot.name)
+                / f"{file_sha256(taxonomy)}.json"
+            )
+            occupied.parent.mkdir(parents=True)
+            occupied.write_bytes(b"{}\n")
+            with self.assertRaisesRegex(
+                INVENTORY.InventoryError, "TAXONOMY_REVISION_RETENTION_FAILED"
+            ):
+                INVENTORY.populate(
+                    snapshot.name,
+                    raw_root=snapshot.parent,
+                    data_root=Path(data),
+                    universe_policy_path=policy,
+                    taxonomy_path=taxonomy,
+                )
+            self.assertFalse(
+                INVENTORY.output_path(snapshot.name, Path(data)).exists()
+            )
 
     def test_workflow_reuses_capture_and_commits_inventory_after_raw(self):
         text = WORKFLOW.read_text(encoding="utf-8")
