@@ -1975,6 +1975,11 @@ APPROVED_TESTS = [
     # observations may prove only an OPEN_REGULAR date; missing rows never
     # infer CLOSED and price/flow finality plus all money authority stay shut.
     "test/test_krx_post_close_session_calendar.py",
+    # Official KRX Global [01023] calendar bridge for KIS PAPER quotes.
+    # Exact response bytes and point-in-time availability are retained; listed
+    # holidays/weekends close deterministically, while every money and order
+    # authority remains shut. The test suite is offline against committed bytes.
+    "test/test_krx_official_holiday_calendar.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.
