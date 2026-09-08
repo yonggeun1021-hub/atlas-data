@@ -3012,8 +3012,8 @@ class DailyOrchestratorTest(unittest.TestCase):
         # a component whose evidence only became available later that day.
         original = MODULE._classify_btc_trend
 
-        def _afternoon_evidence(snapshot):
-            row = copy.deepcopy(original(snapshot))
+        def _afternoon_evidence(snapshot, *, derivation_version=None):
+            row = copy.deepcopy(original(snapshot, derivation_version=derivation_version))
             row["available_at"] = "2026-08-21T15:00:00Z"
             return row
 
