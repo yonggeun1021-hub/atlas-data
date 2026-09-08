@@ -230,9 +230,9 @@ def _expected_next_session_contract() -> dict:
         "session_boundary": {
             "required_proof": "independently verified calendar proves D is the immediately previous OPEN_REGULAR session before E",
             "calendar_validator": "market_data/krx_session_calendar_v2.py::validate_calendar",
-            "calendar_validator_sha256": "2f9438093d3eba63eca47de47e1a7c1b66733e3483a7f8070fcffeaf92abe329",
+            "calendar_validator_sha256": "6660af3f9d12cc1ca8f0d417186fad0c6919ef16ad6d05973ae3ab8104f117ca",
             "calendar_contract": "config/krx_session_calendar_sources_v2.json",
-            "calendar_contract_sha256": "7914f65da8245cc5dd6ed8441b874837dbd63289aaffbffecbc7fd47f8e1e293",
+            "calendar_contract_sha256": "58698d8d8045c9e084f250bb37becc667cfb3161073b6789af22cacc9456e813",
             "calendar_source_schema_version": "krx_date_specific_session_source/1",
             "calendar_coverage": "exact committed approved-source snapshot for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
             "post_close_market_signals_relation_required": False,
@@ -670,7 +670,10 @@ def verify_immediate_session_calendar(
             or checked["source_sha256"] != envelope.get("official_response_sha256")
         ):
             raise ThemeApplicationError("SESSION_CALENDAR_SOURCE_BINDING_MISMATCH")
-        if checked["provider_id"] == "KRX_INFORMATION_DATA_SYSTEM_EXACT_DATE_OHLCV":
+        if checked["provider_id"] in {
+            "KRX_INFORMATION_DATA_SYSTEM_EXACT_DATE_OHLCV",
+            "KRX_GLOBAL_MARKET_CLOSING_HOLIDAY_01023",
+        }:
             source_path = repo / checked["source_ref"]
             source_relative = TTA._relative(repo, source_path)
             if source_relative is None:
@@ -683,15 +686,23 @@ def verify_immediate_session_calendar(
             )
             if sha256_bytes(source_raw) != checked["source_sha256"]:
                 raise ThemeApplicationError("SESSION_CALENDAR_KRX_SOURCE_HASH_MISMATCH")
-            adapter = _load_module(
-                "kr_internal_paper_krx_post_close_calendar_adapter",
-                "market_data/krx_post_close_session_calendar.py",
-            )
+            if checked["provider_id"] == "KRX_INFORMATION_DATA_SYSTEM_EXACT_DATE_OHLCV":
+                adapter = _load_module(
+                    "kr_internal_paper_krx_post_close_calendar_adapter",
+                    "market_data/krx_post_close_session_calendar.py",
+                )
+                adapter_error = adapter.KrxPostCloseCalendarError
+            else:
+                adapter = _load_module(
+                    "kr_internal_paper_krx_official_holiday_calendar_adapter",
+                    "market_data/krx_official_holiday_calendar.py",
+                )
+                adapter_error = adapter.KrxOfficialHolidayCalendarError
             try:
                 derived, _ = adapter.build_calendar_packet(
                     source_raw, checked["source_ref"], expected_day.isoformat()
                 )
-            except adapter.KrxPostCloseCalendarError as exc:
+            except adapter_error as exc:
                 raise ThemeApplicationError(
                     f"SESSION_CALENDAR_KRX_SOURCE_INVALID:{exc}"
                 ) from exc

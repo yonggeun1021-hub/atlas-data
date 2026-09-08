@@ -1,0 +1,25 @@
+{
+  "authority": {
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "market_calendar_observation_only": true,
+    "order_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false
+  },
+  "decision": "APPROVED",
+  "decision_time_precision": "DATE_ONLY",
+  "evidence_contract": {
+    "paper_quote_source_remains": "KIS_OPEN_API_PAPER_READ_ONLY",
+    "calendar_source": "KRX_GLOBAL_MARKET_CLOSING_HOLIDAY_01023",
+    "combination": "EXTERNAL_HASH_PINNED_CALENDAR_PACKET_PLUS_PAPER_QUOTE_PACKET",
+    "closed_dates": "WEEKEND_OR_EXACT_DATE_LISTED_BY_KRX",
+    "open_regular_dates": "WEEKDAY_NOT_LISTED_BY_KRX_WITH_KRX_PUBLISHED_REGULAR_HOURS",
+    "provider_response_bytes_retained": true,
+    "point_in_time_availability_required": true,
+    "unknown_or_tampered_input": "FAIL_CLOSED"
+  },
+  "scope": "SEPARATE_OFFICIAL_KRX_CALENDAR_COMBINED_WITH_PAPER_QUOTES",
+  "recorded_on_kst": "2026-09-09",
+  "schema_version": "krx_official_holiday_calendar_source_adoption/1"
+}

@@ -7,6 +7,10 @@
     "path": "evidence/authority/krx_direct_exact_date_calendar_source_adoption_20260908.json",
     "sha256": "327f2095ac2b3d9eceac9fe9270b1ba4f0c76d8465680f13ea8d5c9af92214e8"
   },
+  "holiday_decision_evidence": {
+    "path": "evidence/authority/krx_official_holiday_calendar_source_adoption_20260909.json",
+    "sha256": "dec7ca773ec5d189fdb6e1aaad13633ce4d16045cad528ceda48c96d0e7515b1"
+  },
   "base_validator": {
     "path": "market_data/krx_session_bars.py",
     "sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0"
@@ -17,7 +21,8 @@
   },
   "allowed_open_source_identities": [
     "KIS_OPEN_API_DOMESTIC_HOLIDAY_CTCA0903R",
-    "KRX_INFORMATION_DATA_SYSTEM_EXACT_DATE_OHLCV"
+    "KRX_INFORMATION_DATA_SYSTEM_EXACT_DATE_OHLCV",
+    "KRX_GLOBAL_MARKET_CLOSING_HOLIDAY_01023"
   ],
   "krx_observation_profile": {
     "adapter_path": "market_data/krx_post_close_session_calendar.py",
@@ -31,6 +36,22 @@
     "exact_date_positive_ohlcv_required": true,
     "price_or_flow_finality_promoted": false,
     "closed_session_derivation_authorized": false
+  },
+  "krx_official_holiday_profile": {
+    "adapter_path": "market_data/krx_official_holiday_calendar.py",
+    "capture_path": "collectors/krx_official_holiday_calendar.py",
+    "capture_schema": "krx_official_holiday_capture/1",
+    "page_url": "https://global.krx.co.kr/contents/GLB/05/0501/0501110000/GLB0501110000.jsp",
+    "market_rule_url": "https://global.krx.co.kr/contents/GLB/06/0602/0602010201/GLB0602010201T1.jsp",
+    "provider_response_bytes_retained": true,
+    "allowed_statuses": [
+      "OPEN_REGULAR",
+      "CLOSED"
+    ],
+    "weekend_closed_by_krx_rule": true,
+    "listed_date_closed": true,
+    "unlisted_weekday_uses_published_regular_hours": true,
+    "paper_quote_source_changed": false
   },
   "market_rule_identity": "KRX_EQUITY_MARKET_OPERATION_RULES",
   "regular_session": {
