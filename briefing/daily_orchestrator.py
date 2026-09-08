@@ -1433,9 +1433,10 @@ def build_free_market_data(
 # The two exact-date crypto archives read by more than one component each
 # (BTC_TREND/BTC_RISK share one; STABLECOIN_NET_ISSUANCE has its own). Named
 # once so the per-component fetch and the prior-confirmed-reference scan
-# below cannot drift apart into two different ideas of where the evidence is.
-BTC_RAW_ROOT = ROOT / "evidence" / "crypto" / "btc" / "raw"
-STABLECOIN_RAW_ROOT = ROOT / "evidence" / "stablecoin" / "raw"
+# agree. Resolve them against the active ROOT at use time so an isolated
+# observation checkout never falls back to this module's import-time root.
+BTC_RAW_ROOT = Path("evidence/crypto/btc/raw")
+STABLECOIN_RAW_ROOT = Path("evidence/stablecoin/raw")
 
 
 def _classify_btc_trend(snapshot: dict) -> dict:
@@ -1475,7 +1476,7 @@ def _classify_btc_trend(snapshot: dict) -> dict:
 
 def build_btc_trend(decision_date: str, snapshot: dict | None = None) -> dict:
     if snapshot is None:
-        snapshot = _fetch_dated_evidence_snapshot(BTC_RAW_ROOT, decision_date)
+        snapshot = _fetch_dated_evidence_snapshot(ROOT / BTC_RAW_ROOT, decision_date)
     return _classify_btc_trend(snapshot)
 
 
@@ -1512,7 +1513,7 @@ def _classify_btc_risk(snapshot: dict) -> dict:
 
 def build_btc_risk(decision_date: str, snapshot: dict | None = None) -> dict:
     if snapshot is None:
-        snapshot = _fetch_dated_evidence_snapshot(BTC_RAW_ROOT, decision_date)
+        snapshot = _fetch_dated_evidence_snapshot(ROOT / BTC_RAW_ROOT, decision_date)
     return _classify_btc_risk(snapshot)
 
 
@@ -1554,7 +1555,7 @@ def _classify_stablecoin(snapshot: dict) -> dict:
 
 def build_stablecoin(decision_date: str, snapshot: dict | None = None) -> dict:
     if snapshot is None:
-        snapshot = _fetch_dated_evidence_snapshot(STABLECOIN_RAW_ROOT, decision_date)
+        snapshot = _fetch_dated_evidence_snapshot(ROOT / STABLECOIN_RAW_ROOT, decision_date)
     return _classify_stablecoin(snapshot)
 
 
@@ -3994,14 +3995,14 @@ def build_packet(
             archive_root=archive_root if fresh else None,
         )
 
-    btc_snapshot = _crypto_snapshot("BTC_TREND", BTC_RAW_ROOT)
+    btc_snapshot = _crypto_snapshot("BTC_TREND", ROOT / BTC_RAW_ROOT)
     rows["BTC_TREND"] = _boundary(_classify_btc_trend(btc_snapshot))
 
-    btc_risk_snapshot = _crypto_snapshot("BTC_RISK", BTC_RAW_ROOT)
+    btc_risk_snapshot = _crypto_snapshot("BTC_RISK", ROOT / BTC_RAW_ROOT)
     rows["BTC_RISK"] = _boundary(_classify_btc_risk(btc_risk_snapshot))
 
     stablecoin_snapshot = _crypto_snapshot(
-        "STABLECOIN_NET_ISSUANCE", STABLECOIN_RAW_ROOT
+        "STABLECOIN_NET_ISSUANCE", ROOT / STABLECOIN_RAW_ROOT
     )
     rows["STABLECOIN_NET_ISSUANCE"] = _boundary(_classify_stablecoin(stablecoin_snapshot))
 
