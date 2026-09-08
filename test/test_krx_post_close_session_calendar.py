@@ -2,7 +2,10 @@ import datetime as dt
 import hashlib
 import json
 from pathlib import Path
+import sys
 import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from market_data import krx_post_close_session_calendar as CAL
 from market_data import krx_session_calendar_v2 as BARS
