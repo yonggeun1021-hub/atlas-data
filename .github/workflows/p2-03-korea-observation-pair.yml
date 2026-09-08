@@ -129,6 +129,15 @@ jobs:
             --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
             --workflow-run-id "${{ github.run_id }}" \
             --capture-mode forward_live
+          # Same already-built p3-03 artifact the live-proof job produced --
+          # this persists the KRX Global Master exactly as
+          # p1-kr05-korea-breadth-live.yml does, with no extra KRX request.
+          # Without it this pair run committed Leadership for its observation
+          # date while dropping that date's master, so the D consumer tuple in
+          # rotation/kr_internal_paper_theme_application.py had no same-date
+          # master to pair with the Leadership it just wrote.
+          python3 .github/scripts/korea_global_universe_populate.py \
+            --derived-dir "$RUNNER_TEMP/p1-kr05-derived"
           ARTIFACT_DIGEST="${{ needs.korea-breadth-live-proof.outputs.artifact_digest }}"
           case "$ARTIFACT_DIGEST" in
             sha256:*) ;;
@@ -154,7 +163,7 @@ jobs:
           # have already pushed since then, so re-sync to the real current
           # tip before committing, or this push can be rejected as
           # non-fast-forward even though nothing here actually conflicts.
-          git add data/observations/korea_breadth_context data/observations/korea_breadth_aggregate
+          git add data/observations/korea_breadth_context data/observations/krx_global_universe data/observations/korea_breadth_aggregate
           if git diff --cached --quiet; then
             echo "no change (verified_existing) -- nothing to commit"
           else
