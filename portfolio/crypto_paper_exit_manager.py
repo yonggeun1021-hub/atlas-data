@@ -34,6 +34,7 @@ TRIGGER_BINDING_FIELDS = {
     "source_field", "trigger_id", "category", "action", "quantity_fraction",
     "paper_order_id", "paper_order_idempotency_key",
 }
+PAPER_ORDER_IDENTITY_FIELDS = {"order_id", "idempotency_key", "side", "market"}
 
 
 class CryptoPaperExitManagerError(ValueError):
@@ -737,3 +738,91 @@ def validate_output(value: dict, contract: dict | None = None) -> dict:
     if value != expected:
         raise CryptoPaperExitManagerError("OUTPUT_DERIVATION_MISMATCH")
     return copy.deepcopy(value)
+
+
+def build_sell_intent_from_exit_decision(
+    *, exit_decision: dict, order_type: str, limit_price: str | None,
+    fee_rate: str, queue_fraction: str, submitted_at: str, expires_at: str,
+    source_exit_plan_ref: str, source_observation_ref: str,
+    contract: dict | None = None,
+) -> dict:
+    """Map one validated exit decision onto a separate P10-11 PAPER sell intent.
+
+    The decision is first fully revalidated by the unchanged ``validate_output``,
+    so its embedded plan, current account, and observation are re-derived and
+    re-hashed before anything is mapped. Only a ``TRIGGER_SELECTED_REVIEW_ONLY``
+    decision whose action is a quantity action, whose SELL PAPER order identity
+    is present, and whose canonical ``target_quantity`` is strictly positive is
+    accepted. HOLD, every WAIT variant, ``TRIGGER_ALREADY_APPLIED``, a
+    non-quantity action, a quantity that floored to zero, and any altered or
+    rehashed decision or embedded packet are rejected fail closed.
+
+    ``order_id``, ``idempotency_key``, ``market``, the SELL side, and ``quantity``
+    are taken exactly from the validated decision, and
+    ``observation.signals.regime`` is passed through unchanged as
+    ``market_regime_status`` with no promotion. Every execution term - order
+    type, limit price or an explicit ``None``, fee rate, queue fraction,
+    submission time, expiry - and both source packet locators are required
+    caller inputs. This helper supplies no policy value, no default, no implicit
+    market-order choice, no TTL, and no fabricated fill. The only submission rule
+    it adds is that ``submitted_at`` may not precede the decision's
+    ``observed_at``; all remaining numeric, expiry, order-type, and source-ref
+    checks stay in the unchanged ``SIMULATOR.build_intent``/``validate_intent``.
+
+    ``source_exit_plan_ref``/``source_observation_ref`` are caller-supplied
+    locators for exactly the packets embedded in this decision, and they are
+    bound to the embedded ``exit_plan.packet_sha256`` and
+    ``observation.packet_sha256``. Those hashes only pin the embedded packet
+    bytes; they do not authenticate external provenance, and the exit plan's
+    ``source_entry_plan_ref``/``source_entry_plan_sha256`` keep their existing
+    entry-plan meaning and are never reinterpreted here.
+
+    The result is exactly the existing simulator intent schema, byte-identical to
+    a direct ``build_intent`` call with the mapped values, detached and
+    deterministic, and no caller input is mutated. Calling this helper is the
+    caller's explicit offline PAPER simulation request; it is not human approval,
+    policy ratification, or operational activation. The decision's
+    ``human_review_required`` flag and every existing authority value stay
+    unchanged. The helper never submits or matches an order, mutates a ledger,
+    writes state, or touches the network; ``submit_order``/``match_order`` remain
+    separate explicit lab consumer calls.
+    """
+    contract = load_contract() if contract is None else _validate_contract(contract)
+    decision = validate_output(exit_decision, contract)
+    status = decision["status"]
+    if status != "TRIGGER_SELECTED_REVIEW_ONLY":
+        raise CryptoPaperExitManagerError(f"SELL_INTENT_DECISION_STATUS_INVALID:{status}")
+    action = decision["action"]
+    if action not in contract["quantity_actions"]:
+        raise CryptoPaperExitManagerError(f"SELL_INTENT_DECISION_ACTION_NOT_QUANTITY:{action}")
+    identity = decision["paper_order_identity_candidate"]
+    if not isinstance(identity, dict) or set(identity) != PAPER_ORDER_IDENTITY_FIELDS:
+        raise CryptoPaperExitManagerError("SELL_INTENT_ORDER_IDENTITY_MISSING")
+    if identity["side"] != "SELL":
+        raise CryptoPaperExitManagerError(f"SELL_INTENT_ORDER_IDENTITY_SIDE_INVALID:{identity['side']}")
+    quantity = decision["target_quantity"]
+    if _decimal(quantity, "SELL_INTENT_TARGET_QUANTITY_INVALID") <= 0:
+        raise CryptoPaperExitManagerError("SELL_INTENT_TARGET_QUANTITY_NOT_POSITIVE")
+    observed_at = _utc(decision["observed_at"], "OUTPUT_OBSERVED_AT_INVALID")
+    if _utc(submitted_at, "SELL_INTENT_SUBMITTED_AT_INVALID") < observed_at:
+        raise CryptoPaperExitManagerError("SELL_INTENT_SUBMITTED_AT_PRECEDES_DECISION")
+    exit_plan = decision["source_packets"]["exit_plan"]
+    observation = decision["source_packets"]["observation"]
+    return SIMULATOR.build_intent(
+        order_id=identity["order_id"],
+        idempotency_key=identity["idempotency_key"],
+        market=identity["market"],
+        side=identity["side"],
+        order_type=order_type,
+        quantity=quantity,
+        limit_price=limit_price,
+        fee_rate=fee_rate,
+        queue_fraction=queue_fraction,
+        submitted_at=submitted_at,
+        expires_at=expires_at,
+        market_regime_status=observation["signals"]["regime"],
+        source_plan_ref=source_exit_plan_ref,
+        source_plan_sha256=exit_plan["packet_sha256"],
+        source_evidence_ref=source_observation_ref,
+        source_evidence_sha256=observation["packet_sha256"],
+    )
