@@ -19,6 +19,7 @@ import importlib.util
 import json
 import lzma
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -343,6 +344,77 @@ def _walk_authorized_keys(value, path=""):
             yield from _walk_authorized_keys(item, f"{path}[{index}]")
 
 
+# ---------------------------------------------------------------------------
+# Crypto derivation-identity fixtures
+#
+# The three components whose packet values the orchestrator COMPUTES by running
+# a transform, and the exact module file each one runs. Written out here rather
+# than read back from the module under test, so a builder that hashed or named
+# the wrong file disagrees with this list instead of agreeing with itself.
+# ---------------------------------------------------------------------------
+
+CRYPTO_TRANSFORM_CODE_PATHS = {
+    "BTC_TREND": ".github/scripts/btc_trend.py",
+    "BTC_RISK": ".github/scripts/btc_risk.py",
+    "STABLECOIN_NET_ISSUANCE": ".github/scripts/stablecoin_net_issuance.py",
+}
+# A real committed capture date that BOTH crypto archives hold, so the rows
+# below are produced by the real transforms over real evidence bytes.
+CRYPTO_DERIVATION_DATE = "2026-09-08"
+# Later than either retained capture's own _downloaded_at (BTC 00:42Z,
+# stablecoin 06:38Z on the same day) and still inside the 2026-09-08 KST
+# business day, so the shared temporal boundary leaves all three rows READY.
+CRYPTO_DERIVATION_GENERATED_AT = "2026-09-08T12:00:00Z"
+# The retained morning packet, used ONLY as a source of already-frozen inputs
+# for the components this regression is not about; the three crypto entries are
+# popped so they are captured afresh from the real archives. Same technique as
+# CryptoStaleReferencePresentationTests._build_fresh_crypto_packet.
+RETAINED_MORNING_PACKET = (
+    ROOT / "evidence/daily_briefing/morning/2026-09-08/rev-001/packet.json"
+)
+
+PROBE_TRANSFORM_SOURCE = '''"""Disposable probe module for the derivation-identity regressions."""
+
+
+def build_transform(_directory):
+    return {"probe": True}
+'''
+
+
+def _crypto_snapshots():
+    """The two real committed capture snapshots the three components read."""
+    btc = MODULE._fetch_dated_evidence_snapshot(
+        ROOT / MODULE.BTC_RAW_ROOT, CRYPTO_DERIVATION_DATE
+    )
+    stablecoin = MODULE._fetch_dated_evidence_snapshot(
+        ROOT / MODULE.STABLECOIN_RAW_ROOT, CRYPTO_DERIVATION_DATE
+    )
+    return btc, stablecoin
+
+
+def _crypto_component_rows(derivation_version, snapshots=None):
+    """The three computed crypto rows at one derivation version, built by the
+    real transforms over the real committed captures."""
+    btc, stablecoin = _crypto_snapshots() if snapshots is None else snapshots
+    return {
+        "BTC_TREND": MODULE._classify_btc_trend(
+            btc, derivation_version=derivation_version
+        ),
+        "BTC_RISK": MODULE._classify_btc_risk(
+            btc, derivation_version=derivation_version
+        ),
+        "STABLECOIN_NET_ISSUANCE": MODULE._classify_stablecoin(
+            stablecoin, derivation_version=derivation_version
+        ),
+    }
+
+
+def _row_without_derivation(row):
+    stripped = copy.deepcopy(row)
+    stripped["packet"].pop("derivation", None)
+    return stripped
+
+
 class DailyOrchestratorTest(unittest.TestCase):
     def test_filing_content_rows_bind_the_content_status_file_bytes(self):
         for component_id, relative_path in (
@@ -398,6 +470,419 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(row["source_packet_path"], relative_path)
         self.assertEqual(row["source_packet_sha256"], expected)
         self.assertNotEqual(expected, snapshot["value"].get("packet_sha256"))
+        if (
+            snapshot["value"].get("schema_version") == "free_market_data_capture/5"
+            and snapshot["value"].get("alpaca", {}).get("status") == "READY"
+        ):
+            self.assertEqual(
+                row["packet"]["us_market_reference"]["as_of_session_date"],
+                snapshot["value"]["us_market_reference"]["as_of_session_date"],
+            )
+            self.assertEqual(
+                row["packet"]["vixcls"]["date"],
+                snapshot["value"]["fred"]["observation_date"],
+            )
+
+    def test_btc_components_use_finalized_measurement_day_not_capture_day(self):
+        snapshot = {
+            "kind": "present",
+            "resolved_dir": "evidence/crypto/btc/raw/2026-09-07",
+            "downloaded_at": "2026-09-07T00:05:00Z",
+        }
+        trend = {
+            "transform_version": "btc_trend/v1",
+            "direction": "ABOVE_200DMA",
+            "dma_200": "100",
+            "latest_finalized_day": "2026-09-06",
+            "regime_score_authorized": False,
+            "threshold_authorized": False,
+            "production_wiring_authorized": False,
+        }
+        risk = {
+            "transform_version": "btc_risk/v1",
+            "status": "AVAILABLE_UNCALIBRATED",
+            "latest_finalized_day": "2026-09-06",
+            "risk_point": {"as_of_date": "2026-09-06"},
+        }
+        with mock.patch.object(MODULE.BTC_TREND, "build_transform", return_value=trend):
+            row = MODULE._classify_btc_trend(snapshot)
+        self.assertEqual(row["as_of_date"], "2026-09-07")
+        self.assertEqual(row["packet"]["latest_finalized_day"], "2026-09-06")
+        self.assertEqual(row["packet"]["capture_date"], "2026-09-07")
+        with mock.patch.object(MODULE.BTC_RISK, "build_transform", return_value=risk):
+            row = MODULE._classify_btc_risk(snapshot)
+        self.assertEqual(row["as_of_date"], "2026-09-07")
+        self.assertEqual(row["packet"]["latest_finalized_day"], "2026-09-06")
+        self.assertEqual(row["packet"]["capture_date"], "2026-09-07")
+
+    def _fresh_crypto_derivation_packet(self):
+        """A real packet for CRYPTO_DERIVATION_DATE whose three crypto rows are
+        captured afresh from the committed archives, with every unrelated
+        component replayed from the retained packet's own frozen inputs."""
+        retained = json.loads(RETAINED_MORNING_PACKET.read_text(encoding="utf-8"))
+        sources = copy.deepcopy(retained["frozen_sources"])
+        for component_id in CRYPTO_TRANSFORM_CODE_PATHS:
+            sources.pop(component_id, None)
+        return MODULE.build_packet(
+            "morning",
+            CRYPTO_DERIVATION_DATE,
+            CRYPTO_DERIVATION_GENERATED_AT,
+            frozen_sources=sources,
+        )
+
+    def test_crypto_derivation_metadata_binds_executed_transform(self):
+        """The three computed crypto rows carry the exact module file that
+        produced them -- additively, and provably the real one."""
+        snapshots = _crypto_snapshots()
+        for snapshot in snapshots:
+            self.assertEqual(snapshot["kind"], "present")
+        legacy = _crypto_component_rows(None, snapshots)
+        current = _crypto_component_rows(
+            MODULE.CRYPTO_DERIVATION_VERSION, snapshots
+        )
+
+        for component_id, code_path in CRYPTO_TRANSFORM_CODE_PATHS.items():
+            with self.subTest(component_id=component_id):
+                row = current[component_id]
+                self.assertEqual(row["status"], "READY", row["reason"])
+                derivation = row["packet"]["derivation"]
+                # Recomputed here from the real file's bytes: a builder that
+                # hashed a substituted output, a different module, or simply
+                # relabelled another digest as the code hash disagrees with
+                # this instead of agreeing with itself.
+                expected = hashlib.sha256(
+                    (ROOT / code_path).read_bytes()
+                ).hexdigest()
+                self.assertEqual(derivation["status"], "VERIFIED")
+                self.assertEqual(derivation["code_path"], code_path)
+                self.assertEqual(derivation["code_sha256"], expected)
+                self.assertIsNone(derivation["reason"])
+
+                # Strictly additive. Every other field of the row -- every
+                # computed value, the capture-vintage as_of_date, the capture
+                # clock in generated_at, the source path, contract_version, the
+                # authority block and every eligibility flag -- is identical to
+                # the legacy derivation that emits no metadata at all.
+                self.assertNotIn("derivation", legacy[component_id]["packet"])
+                self.assertEqual(
+                    _row_without_derivation(row), legacy[component_id]
+                )
+
+        # The finalized-measurement clock split this row family exists to keep
+        # visible is unchanged by the new field.
+        self.assertEqual(
+            current["BTC_TREND"]["as_of_date"], CRYPTO_DERIVATION_DATE
+        )
+        self.assertEqual(
+            current["BTC_TREND"]["packet"]["capture_date"], CRYPTO_DERIVATION_DATE
+        )
+        self.assertNotEqual(
+            current["BTC_TREND"]["packet"]["latest_finalized_day"],
+            current["BTC_TREND"]["packet"]["capture_date"],
+        )
+        # No authority is opened by carrying code identity.
+        for component_id in CRYPTO_TRANSFORM_CODE_PATHS:
+            row = current[component_id]
+            self.assertFalse(row["decision_eligible"], component_id)
+            self.assertFalse(row["action_eligible"], component_id)
+            self.assertFalse(row["order_eligible"], component_id)
+            for path, value in _walk_authorized_keys(row):
+                self.assertFalse(value, f"{component_id}:{path}")
+
+        # ...and the same identity really travels on a packet, under the
+        # packet's own marker, and the whole packet still replays exactly.
+        packet = self._fresh_crypto_derivation_packet()
+        self.assertEqual(
+            packet["crypto_derivation_version"], MODULE.CRYPTO_DERIVATION_VERSION
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        for component_id, code_path in CRYPTO_TRANSFORM_CODE_PATHS.items():
+            with self.subTest(component_id=component_id, carriage="packet"):
+                self.assertEqual(
+                    by_id[component_id]["status"],
+                    "READY",
+                    by_id[component_id]["reason"],
+                )
+                derivation = by_id[component_id]["packet"]["derivation"]
+                self.assertEqual(derivation["status"], "VERIFIED")
+                self.assertEqual(derivation["code_path"], code_path)
+                self.assertEqual(
+                    derivation["code_sha256"],
+                    current[component_id]["packet"]["derivation"]["code_sha256"],
+                )
+        self.assertEqual(MODULE.validate_packet(copy.deepcopy(packet)), packet)
+
+        # A packet built under the legacy form carries neither the marker nor
+        # the field, so nothing issued before this axis is rewritten, and it
+        # still replays byte-identically.
+        legacy_packet = MODULE.build_packet(
+            "morning",
+            CRYPTO_DERIVATION_DATE,
+            CRYPTO_DERIVATION_GENERATED_AT,
+            frozen_sources=copy.deepcopy(packet["frozen_sources"]),
+            crypto_derivation_version=None,
+        )
+        self.assertNotIn("crypto_derivation_version", legacy_packet)
+        legacy_by_id = {
+            row["component_id"]: row for row in legacy_packet["components"]
+        }
+        for component_id in CRYPTO_TRANSFORM_CODE_PATHS:
+            self.assertNotIn(
+                "derivation", legacy_by_id[component_id]["packet"], component_id
+            )
+        self.assertEqual(
+            MODULE.validate_packet(copy.deepcopy(legacy_packet)), legacy_packet
+        )
+
+        # Whole-packet proof that the marker plus those three fields are the
+        # ONLY difference: removing exactly them from the current packet
+        # reproduces the legacy packet, so no other row, count, clock, frozen
+        # input, authority flag or boundary moved.
+        reduced = copy.deepcopy(packet)
+        del reduced["crypto_derivation_version"]
+        for row in reduced["components"]:
+            if row["component_id"] in CRYPTO_TRANSFORM_CODE_PATHS:
+                del row["packet"]["derivation"]
+        reduced.pop("packet_sha256")
+        expected_legacy = copy.deepcopy(legacy_packet)
+        expected_legacy.pop("packet_sha256")
+        self.assertEqual(reduced, expected_legacy)
+
+    def test_crypto_derivation_metadata_rejects_substitution(self):
+        """Code identity is never attributed to an execution that did not
+        produce it: not to a substituted transform, not to a changed or missing
+        file, and not to a decoy under a different ROOT."""
+        snapshots = _crypto_snapshots()
+        btc_snapshot, stablecoin_snapshot = snapshots
+        version = MODULE.CRYPTO_DERIVATION_VERSION
+        genuine = _crypto_component_rows(version, snapshots)
+        # The baseline every counterexample below is compared against really is
+        # a proven identity, so "unchanged from genuine" means something.
+        for component_id in CRYPTO_TRANSFORM_CODE_PATHS:
+            self.assertEqual(
+                genuine[component_id]["packet"]["derivation"]["status"],
+                "VERIFIED",
+                component_id,
+            )
+
+        # 1. A substituted callable. It returns exactly what the real transform
+        #    returned, so the row's values are identical -- and the derivation
+        #    still refuses to hand it the real module's digest.
+        real_trend = MODULE.BTC_TREND.build_transform(
+            ROOT / btc_snapshot["resolved_dir"]
+        )
+
+        def _substitute_trend(_directory):
+            return copy.deepcopy(real_trend)
+
+        with mock.patch.object(
+            MODULE.BTC_TREND, "build_transform", _substitute_trend
+        ):
+            substituted = MODULE._classify_btc_trend(
+                btc_snapshot, derivation_version=version
+            )
+            # Failure isolation, proved while the substitution is in place:
+            # the sibling component that shares this very archive is untouched.
+            sibling = MODULE._classify_btc_risk(
+                btc_snapshot, derivation_version=version
+            )
+        self.assertEqual(
+            substituted["packet"]["derivation"],
+            {
+                "status": "UNPROVEN",
+                "code_path": None,
+                "code_sha256": None,
+                "reason": "EXECUTED_CODE_NOT_A_LOADED_MODULE",
+            },
+        )
+        self.assertEqual(
+            _row_without_derivation(substituted),
+            _row_without_derivation(genuine["BTC_TREND"]),
+        )
+        self.assertEqual(
+            sibling["packet"]["derivation"],
+            genuine["BTC_RISK"]["packet"]["derivation"],
+        )
+        self.assertEqual(sibling["packet"]["derivation"]["status"], "VERIFIED")
+
+        # 2. A callable with no code object at all (a mock) is unproven for the
+        #    same reason rather than raising or inheriting a digest.
+        real_stablecoin = MODULE.STABLECOIN.build_transform(
+            ROOT / stablecoin_snapshot["resolved_dir"]
+        )
+        with mock.patch.object(
+            MODULE.STABLECOIN,
+            "build_transform",
+            return_value=copy.deepcopy(real_stablecoin),
+        ):
+            mocked = MODULE._classify_stablecoin(
+                stablecoin_snapshot, derivation_version=version
+            )
+        self.assertEqual(mocked["packet"]["derivation"]["status"], "UNPROVEN")
+        self.assertIsNone(mocked["packet"]["derivation"]["code_path"])
+        self.assertIsNone(mocked["packet"]["derivation"]["code_sha256"])
+        self.assertEqual(
+            _row_without_derivation(mocked),
+            _row_without_derivation(genuine["STABLECOIN_NET_ISSUANCE"]),
+        )
+
+        # 3. A file that really changed, and then really disappeared, after the
+        #    module was loaded. A disposable probe module is used so the
+        #    committed transforms are never written to.
+        tmp = tempfile.TemporaryDirectory(dir=ROOT)
+        self.addCleanup(tmp.cleanup)
+        probe_relative = f"{Path(tmp.name).name}/probe_transform.py"
+        probe_path = ROOT / probe_relative
+        probe_path.write_text(PROBE_TRANSFORM_SOURCE, encoding="utf-8")
+        probe = MODULE._load("atlas_derivation_probe", probe_relative)
+        self.assertEqual(
+            MODULE._derivation_metadata(probe.build_transform),
+            {
+                "status": "VERIFIED",
+                "code_path": probe_relative,
+                "code_sha256": hashlib.sha256(
+                    probe_path.read_bytes()
+                ).hexdigest(),
+                "reason": None,
+            },
+        )
+        probe_path.write_text(
+            PROBE_TRANSFORM_SOURCE + "\n# edited after load\n", encoding="utf-8"
+        )
+        self.assertEqual(
+            MODULE._derivation_metadata(probe.build_transform),
+            {
+                "status": "UNPROVEN",
+                "code_path": None,
+                "code_sha256": None,
+                "reason": "EXECUTED_CODE_FILE_CHANGED_SINCE_LOAD",
+            },
+        )
+        probe_path.unlink()
+        self.assertEqual(
+            MODULE._derivation_metadata(probe.build_transform),
+            {
+                "status": "UNPROVEN",
+                "code_path": None,
+                "code_sha256": None,
+                "reason": "EXECUTED_CODE_FILE_UNREADABLE",
+            },
+        )
+
+        # 4. An alternate ROOT holding a decoy transform file at the same
+        #    relative path. regime/crypto_live_component_registry.py really does
+        #    redirect this module's ROOT at an observation checkout while still
+        #    executing the code root's transforms, so the decoy must never be
+        #    attributed to that execution.
+        alternate = tempfile.TemporaryDirectory()
+        self.addCleanup(alternate.cleanup)
+        alternate_root = Path(alternate.name)
+        decoy = alternate_root / CRYPTO_TRANSFORM_CODE_PATHS["BTC_TREND"]
+        decoy.parent.mkdir(parents=True)
+        decoy.write_text("# decoy, never executed\n", encoding="utf-8")
+        shutil.copytree(
+            ROOT / btc_snapshot["resolved_dir"],
+            alternate_root / btc_snapshot["resolved_dir"],
+        )
+        with mock.patch.object(MODULE, "ROOT", alternate_root):
+            relocated_snapshot = MODULE._fetch_dated_evidence_snapshot(
+                alternate_root / MODULE.BTC_RAW_ROOT, CRYPTO_DERIVATION_DATE
+            )
+            relocated = MODULE._classify_btc_trend(
+                relocated_snapshot, derivation_version=version
+            )
+        self.assertEqual(
+            relocated_snapshot["resolved_dir"], btc_snapshot["resolved_dir"]
+        )
+        self.assertEqual(
+            relocated["packet"]["derivation"],
+            genuine["BTC_TREND"]["packet"]["derivation"],
+        )
+        self.assertNotEqual(
+            relocated["packet"]["derivation"]["code_sha256"],
+            hashlib.sha256(decoy.read_bytes()).hexdigest(),
+        )
+        # The relocated build really did run over the relocated evidence and
+        # produced the same real values -- so the decoy was bypassed, not the
+        # whole component.
+        self.assertEqual(
+            _row_without_derivation(relocated),
+            _row_without_derivation(genuine["BTC_TREND"]),
+        )
+
+        # 5. The packet marker itself cannot be forged or nulled into a pass.
+        packet = self._fresh_crypto_derivation_packet()
+        for forged in (None, 0, 2, True, "1"):
+            with self.subTest(forged=forged):
+                tampered = copy.deepcopy(packet)
+                tampered["crypto_derivation_version"] = forged
+                tampered.pop("packet_sha256")
+                tampered["packet_sha256"] = MODULE.payload_sha256(tampered)
+                with self.assertRaisesRegex(
+                    MODULE.DailyOrchestratorError,
+                    "CRYPTO_DERIVATION_VERSION_INVALID",
+                ):
+                    MODULE.validate_packet(tampered)
+
+    def test_crypto_derivation_identity_executes_hashed_bytes_despite_stale_cache(self):
+        import os
+        import py_compile
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            path = Path(tmp) / "cached_transform.py"
+            old = b"def build_transform():\n    return 1\n"
+            current = b"def build_transform():\n    return 2\n"
+            path.write_bytes(old)
+            clock = path.stat()
+            py_compile.compile(str(path), doraise=True)
+            # Equal size and modification time deliberately keep the old
+            # timestamp cache valid, although the source now computes 2.
+            path.write_bytes(current)
+            os.utime(path, ns=(clock.st_atime_ns, clock.st_mtime_ns))
+            relative = path.relative_to(ROOT).as_posix()
+            module = MODULE._load("atlas_cached_derivation_probe", relative)
+            self.assertEqual(module.build_transform(), 2)
+            identity = MODULE._derivation_metadata(module.build_transform)
+            self.assertEqual(identity["status"], "VERIFIED")
+            self.assertEqual(identity["code_path"], relative)
+            self.assertEqual(identity["code_sha256"], hashlib.sha256(current).hexdigest())
+
+            # A different code object with the same filename was not loaded
+            # from those bytes and must not inherit their verified identity.
+            foreign = {}
+            exec(compile(old, str(path), "exec"), foreign)
+            self.assertEqual(
+                MODULE._derivation_metadata(foreign["build_transform"])["status"],
+                "UNPROVEN",
+            )
+
+    def test_rotation_render_keeps_zero_formal_candidates_and_unknown_changes(self):
+        row = {
+            "component_id": "ROTATION_DISCOVERY",
+            "packet": {
+                "authority": {"stage_promotion_authorized": False},
+                "summary": {
+                    "rotation_change_count": 0,
+                    "discovery_case_count": 18,
+                    "new_candidate_count": 0,
+                    "existing_candidate_change_count": 0,
+                    "signal_observation_count": 88,
+                    "dart_observation_count": 3,
+                    "ready_count": 0,
+                    "entry_trigger_count": 0,
+                },
+            },
+        }
+        detail = "\n".join(MODULE._format_component_detail(row))
+        self.assertIn(
+            "formal_candidate_changes: new=0 promoted=0 "
+            "dropped=UNKNOWN maintained=UNKNOWN",
+            detail,
+        )
+        self.assertIn(
+            "CANONICAL_DROPPED_MAINTAINED_TRANSITION_EVIDENCE_NOT_AVAILABLE",
+            detail,
+        )
 
     def test_korea_market_signals_row_binds_exact_dated_packet_bytes(self):
         snapshot = MODULE._fetch_korea_market_signals_snapshot()
@@ -2022,9 +2507,24 @@ class DailyOrchestratorTest(unittest.TestCase):
         packet = {"decision_date": "2026-09-01"}
         by_id = {
             "KOREA_MARKET_SIGNALS": {"status": "READY", "as_of_date": "2026-08-31"},
-            "FREE_MARKET_DATA": {"status": "READY", "as_of_date": "2026-08-28"},
-            "BTC_TREND": {"as_of_date": "2026-09-01"},
-            "BTC_RISK": {"as_of_date": "2026-09-01"},
+            "KRX_POST_CLOSE": {
+                "status": "READY",
+                "as_of_date": "2026-09-01",
+                "packet": {"summary": {"observed_symbol_count": 7}},
+            },
+            "FREE_MARKET_DATA": {
+                "status": "READY",
+                "as_of_date": "2026-08-28",
+                "packet": {"vixcls": {"date": "2026-08-27"}},
+            },
+            "BTC_TREND": {
+                "as_of_date": "2026-09-01",
+                "packet": {"latest_finalized_day": "2026-09-01"},
+            },
+            "BTC_RISK": {
+                "as_of_date": "2026-09-01",
+                "packet": {"latest_finalized_day": "2026-09-01"},
+            },
             "STABLECOIN_NET_ISSUANCE": {"as_of_date": "2026-09-01"},
         }
         context = "\n".join(MODULE._market_session_freshness_lines(packet, by_id))
@@ -2032,9 +2532,12 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertIn("### KRX · 한국", context)
         self.assertIn("session: FRESH_CLOSE_PENDING", context)
         self.assertIn("evidence_date=2026-08-31", context)
+        self.assertIn("latest_confirmed_close_date: 2026-08-31", context)
+        self.assertIn("latest_observed_unconfirmed_date: 2026-09-01", context)
         self.assertIn("### US · 미국", context)
         self.assertIn("session: INDEPENDENT_SESSION_PENDING", context)
         self.assertIn("evidence_date=2026-08-28", context)
+        self.assertIn("latest_verified_vix_observation_date: 2026-08-27", context)
         self.assertIn("### Crypto · 코인", context)
         self.assertIn("session: CONTINUOUS_CURRENT_EVIDENCE", context)
         self.assertIn("continuous_observation_date: 2026-09-01", context)
@@ -2067,7 +2570,47 @@ class DailyOrchestratorTest(unittest.TestCase):
         }
         us_detail = "\n".join(MODULE._format_component_detail(us, "2026-09-01"))
         self.assertIn("US close values withheld", us_detail)
-        self.assertNotIn("VIXCLS=14.43", us_detail)
+        self.assertIn("market_session=2026-08-28", us_detail)
+        self.assertIn("VIXCLS=14.43 as_of=2026-08-28", us_detail)
+
+        current_us = copy.deepcopy(us)
+        current_us["packet"]["us_market_reference"] = {
+            "as_of_session_date": "2026-09-01"
+        }
+        current_us["packet"]["vixcls"]["date"] = "2026-08-31"
+        current_detail = "\n".join(
+            MODULE._format_component_detail(current_us, "2026-09-01")
+        )
+        self.assertIn("Alpaca IEX partial: SPY=766.87", current_detail)
+        self.assertNotIn("US close values withheld", current_detail)
+
+    def test_retained_20260907_packet_renders_legacy_review_debt_truthfully(self):
+        packet = MODULE._read_json(
+            ROOT / "evidence/daily_briefing/evening/2026-09-07/rev-001/packet.json"
+        )
+        by_id = {row["component_id"]: row for row in packet["components"]}
+        detail = "\n".join(
+            MODULE._format_component_detail(
+                by_id["DYNAMIC_CLOCK"], packet["decision_date"]
+            )
+        )
+        self.assertIn("KOREA: raw_triggers(audit only)=", detail)
+        self.assertIn("review_overdue=2", detail)
+        self.assertIn("CRYPTO: raw_triggers(audit only)=", detail)
+        self.assertIn("review_overdue=22", detail)
+        self.assertNotIn("price_captured_at=None", detail)
+        self.assertNotIn("review_due=None", detail)
+        self.assertIn("price_observation_date=UNKNOWN", detail)
+
+        board = "\n".join(
+            MODULE._market_session_freshness_lines(packet, by_id)
+        )
+        self.assertIn(
+            "evidence_dates=BTC_TREND=UNKNOWN,BTC_RISK=2026-09-06,"
+            "STABLECOIN_NET_ISSUANCE=2026-09-07",
+            board,
+        )
+        self.assertNotIn("BTC_TREND=2026-09-07", board)
 
     def test_weekend_morning_discloses_closed_session_without_date_relabelling(self):
         packet = MODULE.build_packet(
@@ -2469,8 +3012,8 @@ class DailyOrchestratorTest(unittest.TestCase):
         # a component whose evidence only became available later that day.
         original = MODULE._classify_btc_trend
 
-        def _afternoon_evidence(snapshot):
-            row = copy.deepcopy(original(snapshot))
+        def _afternoon_evidence(snapshot, *, derivation_version=None):
+            row = copy.deepcopy(original(snapshot, derivation_version=derivation_version))
             row["available_at"] = "2026-08-21T15:00:00Z"
             return row
 
@@ -2541,7 +3084,10 @@ class DailyOrchestratorTest(unittest.TestCase):
         self.assertEqual(WF["permissions"], {"contents": "write"})
         self.assertEqual(WF["concurrency"]["cancel-in-progress"], False)
         steps = WF["jobs"]["briefing"]["steps"]
-        regression_steps = WF["jobs"]["offline-regression"]["steps"]
+        regression_job = WF["jobs"]["offline-regression"]
+        self.assertEqual(regression_job["needs"], "briefing")
+        self.assertEqual(regression_job["if"], "always()")
+        regression_steps = regression_job["steps"]
         regression = next(
             step for step in regression_steps
             if step.get("name") == "Offline daily orchestrator regression"
@@ -2924,6 +3470,415 @@ class DailyOrchestratorTest(unittest.TestCase):
         # either sibling collector workflow's schedule.
         self.assertIn("cron: '55 20 * * 0-4'", collect_yml)
         self.assertIn("cron: '5 7 * * 1-5'", krx_post_close_yml)
+
+
+class CryptoStaleReferencePresentationTests(unittest.TestCase):
+    """Briefing C: when the exact decision-date Crypto capture is absent, the
+    board must additionally disclose the latest PRIOR confirmed measurement
+    dates with an explicit stale reason -- while the decision itself stays
+    exactly as blocked as before.
+
+    Every measurement date asserted here comes from the real
+    btc_trend/btc_risk/stablecoin transforms run over the retained
+    2026-09-07 capture bytes (copied verbatim into a temporary archive so
+    the committed archives are never written to), not from a stubbed
+    success date: the retained BTC capture confirms 2026-09-06 and the
+    retained stablecoin capture observes 2026-09-07, which is exactly the
+    two-clock split this display exists to keep visible.
+    """
+
+    DECISION_DATE = "2026-09-08"
+    CAPTURE_DATE = "2026-09-07"
+    RETAINED_BTC = ROOT / "evidence" / "crypto" / "btc" / "raw" / "2026-09-07"
+    RETAINED_STABLECOIN = ROOT / "evidence" / "stablecoin" / "raw" / "2026-09-07"
+    CRYPTO_IDS = ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE")
+
+    def _build_fresh_crypto_packet(self, generated_at: str) -> dict:
+        # Keep unrelated P2/Rotation inputs fixed to the retained before-packet.
+        # Only the three Crypto sources are captured afresh by this test; their
+        # real transforms and whole-packet revalidation remain active.
+        retained = json.loads((
+            ROOT / "evidence/daily_briefing/morning/2026-09-08/rev-001/packet.json"
+        ).read_text(encoding="utf-8"))
+        sources = copy.deepcopy(retained["frozen_sources"])
+        for component_id in self.CRYPTO_IDS:
+            sources.pop(component_id)
+        return MODULE.build_packet(
+            "morning", self.DECISION_DATE, generated_at, frozen_sources=sources
+        )
+
+    def _temporary_root(self):
+        """A temporary directory INSIDE ROOT.
+
+        The module addresses evidence by a ROOT-relative resolved_dir (see
+        _fetch_dated_evidence_snapshot), so an archive outside ROOT is not
+        addressable at all. Placing the copy under ROOT keeps the real code
+        path exercised while leaving every committed archive untouched.
+        """
+        tmp = tempfile.TemporaryDirectory(dir=ROOT)
+        self.addCleanup(tmp.cleanup)
+        return Path(tmp.name)
+
+    def _temporary_crypto_archives(self):
+        """(btc_root, stablecoin_root) holding a verbatim copy of the
+        retained 2026-09-07 captures under their own real date name -- both
+        transforms derive their vintage from the directory name, so the copy
+        keeps the same name and stays a coherent capture."""
+        root = self._temporary_root()
+        btc_root = root / "crypto" / "btc" / "raw"
+        stablecoin_root = root / "stablecoin" / "raw"
+        shutil.copytree(self.RETAINED_BTC, btc_root / self.CAPTURE_DATE)
+        shutil.copytree(self.RETAINED_STABLECOIN, stablecoin_root / self.CAPTURE_DATE)
+        return btc_root, stablecoin_root
+
+    @staticmethod
+    def _capture_dir(root: Path, name: str, downloaded_at: str | None) -> Path:
+        """A minimally-shaped capture directory: only the availability
+        timestamp the eligibility scan itself reads."""
+        path = Path(root) / name
+        path.mkdir(parents=True)
+        if downloaded_at is not None:
+            (path / "_downloaded_at.txt").write_text(
+                f"{downloaded_at}\n", encoding="utf-8"
+            )
+        return path
+
+    @staticmethod
+    def _generated_at_dt(generated_at: str) -> dt.datetime:
+        return dt.datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+
+    def _reference(self, packet: dict, component_id: str) -> dict:
+        return packet["frozen_sources"][component_id][
+            MODULE.PRIOR_CONFIRMED_REFERENCE
+        ]
+
+    def test_absent_exact_date_capture_shows_frozen_prior_confirmed_dates(self):
+        btc_root, stablecoin_root = self._temporary_crypto_archives()
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        with mock.patch.object(MODULE, "BTC_RAW_ROOT", btc_root), mock.patch.object(
+            MODULE, "STABLECOIN_RAW_ROOT", stablecoin_root
+        ):
+            packet = self._build_fresh_crypto_packet(generated_at)
+            persisted = copy.deepcopy(packet)
+            self.assertEqual(MODULE.validate_packet(persisted), packet)
+        by_id = {row["component_id"]: row for row in packet["components"]}
+
+        # The decision itself is untouched: still no capture for this date.
+        for component_id in self.CRYPTO_IDS:
+            row = by_id[component_id]
+            self.assertEqual(row["status"], "DATA_BLOCKED", component_id)
+            self.assertEqual(row["reason"], "NO_CAPTURE_FOR_DECISION_DATE", component_id)
+            self.assertFalse(row["validated"], component_id)
+            self.assertFalse(row["decision_eligible"], component_id)
+            self.assertIsNone(row["packet"], component_id)
+            self.assertEqual(
+                packet["frozen_sources"][component_id]["kind"], "absent", component_id
+            )
+
+        # ...while the prior confirmed measurement is now visible, on its own
+        # clock: the 09-07 BTC capture confirms 09-06, the 09-07 stablecoin
+        # capture observes 09-07. Two different stale dates, neither of them
+        # the capture folder name relabelled as a measurement.
+        for component_id, measurement_date, basis in (
+            ("BTC_TREND", "2026-09-06", "latest_finalized_day"),
+            ("BTC_RISK", "2026-09-06", "latest_finalized_day"),
+            ("STABLECOIN_NET_ISSUANCE", "2026-09-07", "observation_date"),
+        ):
+            reference = self._reference(packet, component_id)
+            self.assertEqual(reference["measurement_date"], measurement_date, component_id)
+            self.assertEqual(reference["measurement_basis"], basis, component_id)
+            self.assertIsNone(reference["unknown_reason"], component_id)
+            self.assertEqual(
+                reference["selected_capture"]["capture_date"],
+                self.CAPTURE_DATE,
+                component_id,
+            )
+
+        # CRYPTO_BREADTH keeps its own taxonomy blocker and is never given a
+        # "confirmed reference date" that would read as a complete universe.
+        self.assertNotIn(
+            MODULE.PRIOR_CONFIRMED_REFERENCE,
+            packet["frozen_sources"]["CRYPTO_BREADTH"],
+        )
+
+        rendered = MODULE.render_markdown(packet)
+        self.assertIn(
+            "evidence_dates=BTC_TREND=UNKNOWN,BTC_RISK=UNKNOWN,"
+            "STABLECOIN_NET_ISSUANCE=UNKNOWN",
+            rendered,
+        )
+        self.assertIn("- continuous_observation_date: PENDING", rendered)
+        self.assertIn(
+            "- latest_prior_confirmed_reference_dates: "
+            "BTC_TREND=2026-09-06(capture=2026-09-07),"
+            "BTC_RISK=2026-09-06(capture=2026-09-07),"
+            "STABLECOIN_NET_ISSUANCE=2026-09-07(capture=2026-09-07)",
+            rendered,
+        )
+        self.assertIn(
+            "- prior_confirmed_reference_reason: NO_CAPTURE_FOR_DECISION_DATE; "
+            "the dates above are frozen prior confirmed measurements shown for "
+            "reference only, never relabelled as 2026-09-08 evidence and never "
+            "used for this decision.",
+            rendered,
+        )
+        # The prior evidence is never forward-filled into the current line,
+        # and the BTC capture folder name is never shown as its measurement.
+        self.assertNotIn("evidence_dates=BTC_TREND=2026-09-06", rendered)
+        self.assertNotIn("BTC_TREND=2026-09-07(", rendered)
+        self.assertNotIn("- prior_confirmed_reference_unknown:", rendered)
+
+    def test_missing_prior_capture_stays_unknown_and_is_never_guessed(self):
+        btc_root = self._temporary_root() / "crypto" / "btc" / "raw"
+        btc_root.mkdir(parents=True)
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        generated_at_dt = self._generated_at_dt(generated_at)
+        self.assertIsNone(
+            MODULE._eligible_prior_capture(
+                btc_root, self.DECISION_DATE, generated_at_dt
+            )
+        )
+        snapshot = MODULE._prior_confirmed_reference_snapshot(
+            {"kind": "absent"},
+            "BTC_TREND",
+            self.DECISION_DATE,
+            generated_at_dt,
+            archive_root=btc_root,
+        )
+        reference = snapshot[MODULE.PRIOR_CONFIRMED_REFERENCE]
+        self.assertIsNone(reference["selected_capture"])
+        self.assertIsNone(reference["measurement_date"])
+        self.assertEqual(reference["unknown_reason"], "NO_ELIGIBLE_PRIOR_CAPTURE")
+
+        board = "\n".join(
+            MODULE._market_session_freshness_lines(
+                {
+                    "decision_date": self.DECISION_DATE,
+                    "frozen_sources": {"BTC_TREND": snapshot},
+                },
+                {},
+            )
+        )
+        self.assertIn(
+            "- latest_prior_confirmed_reference_dates: BTC_TREND=UNKNOWN", board
+        )
+        self.assertIn(
+            "- prior_confirmed_reference_unknown: "
+            "BTC_TREND=NO_ELIGIBLE_PRIOR_CAPTURE",
+            board,
+        )
+        # Nothing is invented for the missing prior: no capture is named and
+        # the current evidence date stays UNKNOWN.
+        self.assertNotIn("capture=", board)
+        self.assertIn("evidence_dates=BTC_TREND=UNKNOWN", board)
+
+    def test_future_and_not_yet_available_prior_captures_are_excluded(self):
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        generated_at_dt = self._generated_at_dt(generated_at)
+        available = "2026-09-05T00:30:00Z"
+        # Every one of these is strictly ineligible on its own, so each is
+        # checked alone rather than being hidden behind a later candidate.
+        ineligible = (
+            ("2026-09-09", available, "capture dated after the decision date"),
+            ("2026-09-08", available, "capture dated on the decision date"),
+            ("2026-09-06", "2026-09-08T03:00:00Z", "available only after generated_at"),
+            ("2026-09-05", None, "no retained availability timestamp"),
+            ("2026-09-04", "not-a-timestamp", "unparseable availability timestamp"),
+            # Would each parse to a date earlier than the decision date if the
+            # name were taken loosely -- and would then order wrongly against
+            # the canonical decision_date string.
+            ("20260907", available, "non-canonical date directory name"),
+            ("2026-9-7", available, "non-canonical date directory name"),
+            ("latest", available, "not a dated directory at all"),
+        )
+        for name, downloaded_at, why in ineligible:
+            with self.subTest(directory=name, why=why):
+                root = self._temporary_root() / "raw"
+                self._capture_dir(root, name, downloaded_at)
+                self.assertIsNone(
+                    MODULE._eligible_prior_capture(
+                        root, self.DECISION_DATE, generated_at_dt
+                    )
+                )
+
+        # With one genuinely eligible capture present among all of them, that
+        # one -- and only that one -- is selected.
+        mixed = self._temporary_root() / "raw"
+        for name, downloaded_at, _ in ineligible:
+            self._capture_dir(mixed, name, downloaded_at)
+        shutil.copytree(self.RETAINED_BTC, mixed / self.CAPTURE_DATE)
+        selected = MODULE._eligible_prior_capture(
+            mixed, self.DECISION_DATE, generated_at_dt
+        )
+        self.assertEqual(selected["capture_date"], self.CAPTURE_DATE)
+        self.assertEqual(Path(selected["resolved_dir"]).name, self.CAPTURE_DATE)
+
+        # A frozen choice is re-verified against the same two clocks, so a
+        # resealed future or not-yet-available capture cannot be replayed
+        # into the display either.
+        for forged in (
+            {**selected, "capture_date": "2026-09-09"},
+            {**selected, "downloaded_at": "2026-09-08T23:59:00Z"},
+            {**selected, "downloaded_at": "not-a-timestamp"},
+        ):
+            with self.subTest(forged=forged):
+                reference = MODULE._prior_confirmed_reference(
+                    "BTC_TREND", forged, self.DECISION_DATE, generated_at_dt
+                )
+                self.assertIsNone(reference["selected_capture"])
+                self.assertIsNone(reference["measurement_date"])
+                self.assertEqual(
+                    reference["unknown_reason"],
+                    "PRIOR_CAPTURE_NOT_POINT_IN_TIME_SAFE",
+                )
+
+    def test_frozen_prior_choice_survives_later_archive_additions(self):
+        btc_root, stablecoin_root = self._temporary_crypto_archives()
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        generated_at_dt = self._generated_at_dt(generated_at)
+        with mock.patch.object(MODULE, "BTC_RAW_ROOT", btc_root), mock.patch.object(
+            MODULE, "STABLECOIN_RAW_ROOT", stablecoin_root
+        ):
+            packet = self._build_fresh_crypto_packet(generated_at)
+        rendered = MODULE.render_markdown(packet)
+
+        # The decision date's own capture lands afterwards, and a later prior
+        # capture is committed too. Neither may reach an already-issued
+        # revision: presence was frozen, and so was the reference choice.
+        self._capture_dir(btc_root, self.DECISION_DATE, "2026-09-08T00:30:00Z")
+        self.assertEqual(
+            MODULE.validate_packet(copy.deepcopy(packet)), packet
+        )
+        self.assertEqual(MODULE.render_markdown(packet), rendered)
+        self.assertEqual(
+            self._reference(packet, "BTC_TREND")["measurement_date"], "2026-09-06"
+        )
+
+        # A fresh build for a LATER decision date would now genuinely prefer
+        # the newly committed capture -- but replaying the frozen choice never
+        # consults the archive, so the issued packet keeps naming 2026-09-07.
+        next_day = "2026-09-09"
+        next_day_generated_at = _natural_morning_generated_at(next_day)
+        rescan = MODULE._eligible_prior_capture(
+            btc_root, next_day, self._generated_at_dt(next_day_generated_at)
+        )
+        self.assertEqual(rescan["capture_date"], self.DECISION_DATE)
+        replayed = MODULE._prior_confirmed_reference_snapshot(
+            copy.deepcopy(packet["frozen_sources"]["BTC_TREND"]),
+            "BTC_TREND",
+            self.DECISION_DATE,
+            generated_at_dt,
+            archive_root=None,
+        )
+        self.assertEqual(
+            replayed[MODULE.PRIOR_CONFIRMED_REFERENCE],
+            self._reference(packet, "BTC_TREND"),
+        )
+        self.assertEqual(
+            replayed[MODULE.PRIOR_CONFIRMED_REFERENCE]["selected_capture"][
+                "capture_date"
+            ],
+            self.CAPTURE_DATE,
+        )
+
+    def test_presentation_reference_never_promotes_status_or_authority(self):
+        btc_root, stablecoin_root = self._temporary_crypto_archives()
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        with mock.patch.object(MODULE, "BTC_RAW_ROOT", btc_root), mock.patch.object(
+            MODULE, "STABLECOIN_RAW_ROOT", stablecoin_root
+        ):
+            packet = self._build_fresh_crypto_packet(generated_at)
+
+        # The identical build with the legacy (field-less) frozen snapshots.
+        # Legacy bytes are replayed exactly as persisted -- the field is never
+        # back-filled onto a packet that never emitted it.
+        legacy_sources = copy.deepcopy(packet["frozen_sources"])
+        for component_id in self.CRYPTO_IDS:
+            legacy_sources[component_id].pop(MODULE.PRIOR_CONFIRMED_REFERENCE)
+        legacy = MODULE.build_packet(
+            "morning",
+            self.DECISION_DATE,
+            generated_at,
+            frozen_sources=legacy_sources,
+        )
+        for component_id in self.CRYPTO_IDS:
+            self.assertEqual(
+                legacy["frozen_sources"][component_id], {"kind": "absent"}, component_id
+            )
+        self.assertEqual(
+            MODULE.validate_packet(copy.deepcopy(legacy)), legacy
+        )
+        self.assertNotIn(
+            "- latest_prior_confirmed_reference_dates:",
+            MODULE.render_markdown(legacy),
+        )
+
+        # Presentation-only, proved by construction rather than asserted per
+        # field: outside frozen_sources (and the packet digest over it), the
+        # two packets are byte-identical, so no row, status count, authority
+        # flag or eligibility field can have seen the reference at all.
+        for candidate in (packet, legacy):
+            del candidate["frozen_sources"]
+            del candidate["packet_sha256"]
+        self.assertEqual(packet, legacy)
+        # The retained P2 Flow row already permits two display/comparison
+        # capabilities (also asserted in FlowReplayAxisTests). The full
+        # equality above proves these are unchanged; money/action flags stay false.
+        structural_true_allowed = {
+            "aggregation_only", "component_build_authorized",
+            "daily_decision_assembly_only", "briefing_read_model_only",
+            "evidence_only", "paper_reference_display_authorized",
+            "relative_strength_comparison_authorized",
+        }
+        for path, value in _walk_authorized_keys(packet):
+            if path.rsplit(".", 1)[-1] in structural_true_allowed:
+                continue
+            self.assertFalse(value, path)
+
+    def test_resealed_prior_reference_forgery_is_rejected(self):
+        btc_root, stablecoin_root = self._temporary_crypto_archives()
+        generated_at = _natural_morning_generated_at(self.DECISION_DATE)
+        with mock.patch.object(MODULE, "BTC_RAW_ROOT", btc_root), mock.patch.object(
+            MODULE, "STABLECOIN_RAW_ROOT", stablecoin_root
+        ):
+            packet = self._build_fresh_crypto_packet(generated_at)
+
+        forgeries = (
+            ("measurement_date", "2026-09-08"),
+            ("measurement_basis", "capture_date"),
+            ("unknown_reason", "NO_ELIGIBLE_PRIOR_CAPTURE"),
+        )
+        for field, value in forgeries:
+            with self.subTest(field=field):
+                tampered = copy.deepcopy(packet)
+                tampered["frozen_sources"]["BTC_TREND"][
+                    MODULE.PRIOR_CONFIRMED_REFERENCE
+                ][field] = value
+                unsigned = copy.deepcopy(tampered)
+                del unsigned["packet_sha256"]
+                tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+                with self.assertRaisesRegex(
+                    MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"
+                ):
+                    MODULE.validate_packet(tampered)
+
+        # Naming a different capture is re-derived from that capture's own
+        # bytes rather than accepted, so the resealed date cannot stand.
+        tampered = copy.deepcopy(packet)
+        selected = tampered["frozen_sources"]["BTC_TREND"][
+            MODULE.PRIOR_CONFIRMED_REFERENCE
+        ]["selected_capture"]
+        selected["capture_date"] = "2026-09-09"
+        selected["resolved_dir"] = str(
+            Path(selected["resolved_dir"]).with_name("2026-09-09")
+        )
+        unsigned = copy.deepcopy(tampered)
+        del unsigned["packet_sha256"]
+        tampered["packet_sha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaisesRegex(
+            MODULE.DailyOrchestratorError, "OUTPUT_MISMATCH"
+        ):
+            MODULE.validate_packet(tampered)
 
 
 class DynamicClockRenderCapTest(unittest.TestCase):

@@ -123,7 +123,10 @@ from clock.dynamic_clock import build_episode_history, close_stale_episodes
 #   top level -- the operational `run()`/`_market_result()` path must never
 #   read either, even transitively via an import. Only `_market_diagnostics()`
 #   (called exclusively from `run_with_diagnostics()`) lazily imports them.
-from clock.price_reflection_link import link_price_reflection, to_price_reflection_status
+from clock.price_reflection_link import (
+    link_price_reflection,
+    to_price_reflection_status,
+)
 from clock.review_candidate import (
     TIER_IMMEDIATE_REVIEW, TIER_OBSERVATION_ONLY, TIER_WATCH_REVIEW,
     build_expired_record, build_raw_trigger_record, build_subject_review_candidate,
@@ -501,17 +504,40 @@ def run_with_diagnostics(
     return operational_report, diagnostics_report
 
 
-def _briefing_candidate_summary(r: dict) -> dict:
+def _review_due_status(next_review_at: str, decision_date: str) -> str:
+    try:
+        review_day = dt.datetime.strptime(next_review_at, DATE_FMT).date()
+        decision_day = dt.datetime.strptime(decision_date, DATE_FMT).date()
+    except (TypeError, ValueError):
+        return "UNKNOWN"
+    if review_day < decision_day:
+        return "REVIEW_OVERDUE"
+    if review_day == decision_day:
+        return "REVIEW_DUE_TODAY"
+    return "REVIEW_UPCOMING"
+
+
+def _briefing_candidate_summary(r: dict, market: str, decision_date: str) -> dict:
     """The EXACT per-subject shape the integration spec's section 7
     requires -- subject, tier, trigger_types+confirmation_count,
     price_state, reflection_status (always "UNKNOWN" whenever present),
-    data_state, threshold_basis, a data-as-of timestamp, a templated
+    data_state, threshold_basis, distinct price observation/capture clocks,
+    a templated
     `reason`, and authority=REVIEW_ONLY/money_action=NONE. Deliberately
     excludes everything section 8 forbids: no forward return, no MFE/MAE,
     no post-hoc Miss/Defense result, no invented expected-return figure, no
     Buy/Entry/Order-style field or language."""
     pr = r["price_reflection_status"]
     linked = pr.get("status") == "LINKED"
+    price_clocks = {
+        "price_observation_date": pr.get("price_observation_date") or "UNKNOWN",
+        "price_captured_at": (
+            pr.get("price_captured_at") or pr.get("price_as_of") or "UNKNOWN"
+        ),
+    } if linked else {
+        "price_observation_date": "UNKNOWN",
+        "price_captured_at": "UNKNOWN",
+    }
     return {
         "subject": r["subject"],
         "tier": r["tier"],
@@ -521,8 +547,16 @@ def _briefing_candidate_summary(r: dict) -> dict:
         "reflection_status": pr.get("reflection_status") if linked else "UNKNOWN",
         "data_state": pr.get("data_state") if linked else "NOT_LINKED",
         "threshold_basis": pr.get("threshold_basis") if linked else "N/A",
+        # Retain the established P8-10 field for compatibility, but state
+        # its actual capture-time semantics in two unambiguous briefing
+        # fields. The UI/markdown must use these explicit clocks.
         "price_as_of": pr.get("price_as_of") if linked else "UNKNOWN",
+        "price_observation_date": price_clocks["price_observation_date"],
+        "price_captured_at": price_clocks["price_captured_at"],
         "next_review_at": r["next_review_at"],
+        "review_due_status": _review_due_status(
+            r["next_review_at"], decision_date
+        ),
         "reason": r["reason"],
         "authority": "REVIEW_ONLY",
         "money_action": "NONE",
@@ -558,11 +592,19 @@ def build_briefing_section(report: dict) -> dict:
             "tier_counts": m["tier_counts"],
             "newness_status": m["newness_status"],
             "new_triggers": [
-                _briefing_candidate_summary(candidates_by_subject[s])
+                _briefing_candidate_summary(
+                    candidates_by_subject[s], market, m["decision_date"]
+                )
                 for s in new_subjects if s in candidates_by_subject
             ],
-            "immediate_review": [_briefing_candidate_summary(r) for r in m["immediate_review"]],
-            "watch_review": [_briefing_candidate_summary(r) for r in m["watch_review"]],
+            "immediate_review": [
+                _briefing_candidate_summary(r, market, m["decision_date"])
+                for r in m["immediate_review"]
+            ],
+            "watch_review": [
+                _briefing_candidate_summary(r, market, m["decision_date"])
+                for r in m["watch_review"]
+            ],
             "observation_only_count": len(m["observation_only"]),
             "expired_triggers": [
                 {"subject": r["subject"], "trigger_type": r["trigger_type"], "expiry": r["expiry"]}
@@ -570,6 +612,18 @@ def build_briefing_section(report: dict) -> dict:
             ],
             "not_computable_trigger_types": [t["trigger_type"] for t in m["not_computable_trigger_types"]],
         }
+        due_counts = {
+            "REVIEW_OVERDUE": 0,
+            "REVIEW_DUE_TODAY": 0,
+            "REVIEW_UPCOMING": 0,
+            "UNKNOWN": 0,
+        }
+        for candidate in (
+            section["markets"][market]["immediate_review"]
+            + section["markets"][market]["watch_review"]
+        ):
+            due_counts[candidate["review_due_status"]] += 1
+        section["markets"][market]["review_due_counts"] = due_counts
         section["markets"][market]["calendar_confidence"] = dc.calendar_confidence_for(market)
     return section
 

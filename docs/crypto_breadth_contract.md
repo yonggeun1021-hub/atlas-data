@@ -285,3 +285,70 @@ python3 .github/scripts/crypto_breadth.py replay \
 ```
 
 No command writes a tracked breadth factor by default.
+
+
+### Official identity slice (2026-09-06)
+
+QUID, SN8, CHIP and NPC are `eligible_crypto` effective 2026-09-06 in the
+existing breadth source-coverage taxonomy. Each literal Kraken identity was
+matched to independently maintained official project documentation:
+
+- QUID is Squid's native Base token, contract
+  `0x1a44233fae8d50f1aeb3a5d58dd426ff4814cb53`:
+  [Kraken Launch](https://support.kraken.com/fi/articles/squid-quid-token-sale)
+  and [Squid](https://www.squidrouter.com/quid-token).
+- SN8 is Taoshi Vanta's native Bittensor subnet-8 token (project name Theta),
+  distinct from the unrelated Theta Network asset THETA:
+  [Kraken](https://blog.kraken.com/product/asset-listings/sn8-is-available-for-trading)
+  and [Taoshi](https://www.taoshi.io/theta), which links subnet 8.
+- CHIP is USD.AI's utility/governance token, with native Arbitrum contract
+  `0x0C1c1C109FE34733fca54b82d7B46B75CFb71F6e`. It is distinct from USDai,
+  sUSDai and sCHIP:
+  [Kraken](https://blog.kraken.com/product/asset-listings/chip-is-available-for-trading),
+  [governance](https://docs.usd.ai/governance/chip) and
+  [deployed contracts](https://docs.usd.ai/technical-overview/contract-addresses).
+- NPC is Non-Playable Coin's original Ethereum meme/NFT hybrid, token contract
+  `0x8ed97a637a790be1feff5e888d43629dc05408f6`:
+  [Kraken](https://www.kraken.com/prices/non-playable-coin),
+  [project](https://www.npc.com/) and
+  [contracts](https://docs.npc.com/important-links-and-info/contract-addresses).
+  Its native token and own NFT are interchangeable forms of the same asset.
+  This differs from the existing TBTC/WBTC `wrapped` records, which represent
+  a separate underlying crypto asset. The NFT form is disclosed explicitly;
+  the classification creates no general exemption for wrapped assets.
+
+The official documents were actually captured on 2026-09-06; document
+publication dates are not substituted for Atlas's observation time. The
+capture receipt preserves original response hashes, URLs and actual captured
+times, and the decision receipt separately records CIO consumption. A newly
+generated current-decision-time reference may consume the classification only
+after those events. The September 6 raw vintage measures September 5 for PIT
+breadth, where these September 6 records remain inapplicable; existing blocked
+historical receipts are unchanged. Top-100 selection, 90% observation coverage,
+all existing exclusions and all authority flags remain unchanged. This is
+source coverage, not investment eligibility, Regime activation or trading.
+
+
+### Official identity slice (2026-09-08)
+
+RAY and DRV are `eligible_crypto` effective 2026-09-08 in the existing
+breadth source-coverage taxonomy. Each literal Kraken identity was matched to
+an official project source and is not inferred from ticker text alone:
+
+- RAY is Raydium's native SPL token, as stated by the official
+  [Raydium brand documentation](https://docs.raydium.io/resources/brand-kit),
+  and independently identified as Raydium's token by
+  [Kraken](https://www.kraken.com/learn/what-is-raydium-ray).
+- DRV is Derive's token on Ethereum Mainnet and Derive L2, with ticker `DRV`,
+  as stated by the official [Derive token documentation](https://docs.derive.xyz/docs/token)
+  and independently identified as Derive on Ethereum (ERC-20) by
+  [Kraken](https://support.kraken.com/hc/articles/360000678446-cryptocurrencies-available-on-kraken).
+
+The official pages were captured on 2026-09-08 at 12:42:49Z. Retained content
+SHA256 values are `f84759e6c1251a8bff3a403af6a78f417fdafec50aa7926113674301f01e56ce`
+(Raydium) and `4170941f75c0d131e63dda7283fd906d82e409e29be675a15c984d0d8ce05cc3`
+(Derive). The effective date does not backfill historical PIT output.
+Top-100 selection, coverage requirements, existing exclusions, all authority
+flags and fail-closed behavior remain unchanged. This is source coverage only;
+it does not authorize investment eligibility, Regime activation, candidate
+promotion or trading.

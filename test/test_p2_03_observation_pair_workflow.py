@@ -99,6 +99,71 @@ class ObservationPairWorkflowTest(unittest.TestCase):
             step = next(item for item in job["steps"] if item.get("name") == name)
             self.assertEqual(step["if"], "steps.existing_leadership.outputs.exists != 'true'")
 
+    def test_failed_derived_capture_still_retains_its_artifact(self):
+        # Real failure-path defect: the upload step carried only the
+        # context_exists guard, so a failed derived capture skipped it by
+        # Actions' default success() and the metadata receipt that capture
+        # had just emitted died with the runner -- unrecoverable, while
+        # p1-kr05-korea-breadth-live.yml already retains the same artifact
+        # with always(). Both conditions must hold together: retain on
+        # failure, and still never upload on the verified-existing path.
+        proof = self.workflow["jobs"]["korea-breadth-live-proof"]
+        upload = next(step for step in proof["steps"] if step.get("id") == "upload_derived")
+        self.assertEqual(
+            upload["if"],
+            "always() && steps.existing_context.outputs.exists != 'true'",
+        )
+        # Retention only -- the artifact itself is unchanged (same name,
+        # same path, same action pin), no download/retry/raw-body policy.
+        self.assertEqual(
+            upload["with"]["name"],
+            "p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}",
+        )
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/p1-kr05-derived")
+        self.assertEqual(upload["with"]["if-no-files-found"], "warn")
+
+    def test_verified_existing_context_still_uploads_nothing(self):
+        # The existing-context reuse path produces no derived directory, so
+        # the guard that suppresses its upload must survive the always()
+        # change -- always() alone would upload an empty directory there.
+        proof = self.workflow["jobs"]["korea-breadth-live-proof"]
+        upload = next(step for step in proof["steps"] if step.get("id") == "upload_derived")
+        self.assertIn("steps.existing_context.outputs.exists != 'true'", upload["if"])
+        # The provider capture step keeps its own unconditional-on-success
+        # guard: retention must not make the failed capture look successful.
+        provider = next(
+            step for step in proof["steps"]
+            if step.get("name") == "P1-KR-05 historical and recent direct proof"
+        )
+        self.assertEqual(provider["if"], "steps.existing_context.outputs.exists != 'true'")
+
+    def test_retained_failure_artifact_does_not_release_downstream_jobs(self):
+        # Retaining evidence must stay strictly fail-closed: the live-proof
+        # job still fails, and neither the master/context commit job nor
+        # Leadership may opt out of that failure. No downstream job or step
+        # may carry always()/failure()/cancelled(), so `needs:` keeps them
+        # skipped and no same-date master/commit/Leadership is written.
+        jobs = self.workflow["jobs"]
+        for job_name in ("korea-breadth-context-commit", "korea-leadership-live-fetch"):
+            job = jobs[job_name]
+            self.assertNotIn("if", job, f"{job_name} must inherit its needs failure")
+            for step in job["steps"]:
+                for override in ("always()", "failure()", "cancelled()", "!cancelled()"):
+                    self.assertNotIn(
+                        override, str(step.get("if", "")),
+                        f"{job_name} step must not run past an upstream failure",
+                    )
+        # The same-date KRX Global Master population stays inside the
+        # commit job's guarded step, so it cannot run off a failed capture.
+        populate = next(
+            step for step in jobs["korea-breadth-context-commit"]["steps"]
+            if step.get("name") == "Populate committed Korea Breadth context lineage"
+        )
+        self.assertIn("korea_global_universe_populate.py", populate["run"])
+        self.assertEqual(
+            populate["if"], "needs.korea-breadth-live-proof.outputs.context_exists != 'true'"
+        )
+
     def test_permissions_are_least_privilege_per_job(self):
         jobs = self.workflow["jobs"]
         # Read-only live-proof job writes nothing.

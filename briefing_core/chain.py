@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime as dt
+import gzip
 import hashlib
 import json
 import os
@@ -25,6 +26,7 @@ import re
 import subprocess
 import tempfile
 from typing import Any
+import zlib
 
 from . import major_events
 
@@ -42,6 +44,14 @@ INDEX_SCHEMA = "briefing_chain_index/2"
 
 STEP0_STATUS_PATH = "data/briefing/step0_status.json"
 BRIEFING_STATUS_PATH = "data/briefing_status.json"
+
+CLAIM_SOURCE_BINDING_SCHEMA = "briefing_claim_source_binding/1"
+GRADE_PRIMARY_DIRECT = "PRIMARY_DIRECT"
+GRADE_OFFICIAL_STATEMENT_RELAY = "OFFICIAL_STATEMENT_RELAY"
+GRADE_INTERNAL_LOGIC_CHECK = "INTERNAL_LOGIC_CHECK"
+GRADE_UNKNOWN = "UNKNOWN"
+RETAINED_MANIFEST_NAME = "_manifest.json"
+RETAINED_DIGEST_NAME = "_sha256.txt"
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -485,6 +495,933 @@ def _major_event_registry(
     return registry, explicit_path, body
 
 
+def _delivery_claims(packet: dict, packet_ref: str) -> list[dict]:
+    """Project bounded delivery facts from the exact sealed packet.
+
+    The generic module claims below prove only that a component is present.
+    They do not identify the independently dated observations or the numeric
+    facts that the human-facing briefing renders.  Keep those facts in the
+    existing ``claim_ledger/1`` claim shape and bind every verified statement
+    to the exact packet bytes.  UNKNOWN statements intentionally carry no
+    source reference: they describe conclusions the packet does not prove.
+
+    ``_claim_source_bindings`` then attaches the exact committed primary
+    provider evidence and the separate measurement/capture clocks for the
+    externally sourced subset of these claims.
+    """
+
+    claims: list[dict] = []
+
+    def fact(claim_id: str, statement: str) -> None:
+        claims.append({
+            "claim_id": claim_id,
+            "kind": "FACT",
+            "statement": statement,
+            "status": "VERIFIED",
+            "source_ref_paths": [packet_ref],
+        })
+
+    def unknown(claim_id: str, statement: str) -> None:
+        claims.append({
+            "claim_id": claim_id,
+            "kind": "UNKNOWN",
+            "statement": statement,
+            "status": "UNKNOWN",
+            "source_ref_paths": [],
+        })
+
+    components = {
+        row.get("component_id"): row
+        for row in packet.get("components", [])
+        if isinstance(row, dict) and isinstance(row.get("component_id"), str)
+    }
+    counts = packet.get("component_status_counts")
+    if isinstance(counts, dict):
+        rendered = ", ".join(f"{key}={counts[key]}" for key in sorted(counts))
+        fact(
+            "numeric.components.status_counts",
+            f"The sealed packet reports component status counts: {rendered}.",
+        )
+
+    free_market = components.get("FREE_MARKET_DATA") or {}
+    free_packet = free_market.get("packet") or {}
+    us_reference = free_packet.get("us_market_reference") or {}
+    us_session_date = us_reference.get("as_of_session_date")
+    vix = free_packet.get("vixcls") or {}
+    vix_date = vix.get("date")
+    if isinstance(us_session_date, str):
+        fact(
+            "freshness.us.market_session_date",
+            f"The representative US market session evidence is dated {us_session_date}.",
+        )
+    if isinstance(vix_date, str):
+        fact(
+            "freshness.us.vix_observation_date",
+            f"The FRED VIXCLS observation is dated {vix_date}.",
+        )
+    if vix.get("value") is not None:
+        fact(
+            "numeric.us.vixcls",
+            f"The sealed packet reports VIXCLS={vix.get('value')} for {vix_date or 'UNKNOWN'}.",
+        )
+    if us_session_date and vix_date and us_session_date != vix_date:
+        unknown(
+            "boundary.us.independent_evidence_clocks",
+            "The US market-session date and FRED VIX observation date are independent clocks; "
+            "their mismatch does not establish a missing market session or a market-wide conclusion.",
+        )
+    if free_packet.get("scope_warning"):
+        unknown(
+            "boundary.us.market_wide_scope",
+            "The retained IEX evidence is partial and does not establish a market-wide or causal US conclusion.",
+        )
+
+    btc_trend = components.get("BTC_TREND") or {}
+    trend_packet = btc_trend.get("packet") or {}
+    trend_date = trend_packet.get("latest_finalized_day")
+    if isinstance(trend_date, str):
+        fact(
+            "freshness.crypto.btc_trend_finalized_date",
+            f"The BTC trend measurement uses finalized daily closes through {trend_date}.",
+        )
+    elif btc_trend:
+        unknown(
+            "freshness.crypto.btc_trend_finalized_date",
+            "The exact packet does not retain the BTC trend finalized measurement date; "
+            "its component as_of_date is a capture vintage and is not substituted.",
+        )
+    if trend_packet.get("direction") is not None or trend_packet.get("dma_200") is not None:
+        fact(
+            "numeric.crypto.btc_trend",
+            "The sealed packet reports BTC trend "
+            f"direction={trend_packet.get('direction')} and dma_200={trend_packet.get('dma_200')}.",
+        )
+
+    btc_risk = components.get("BTC_RISK") or {}
+    risk_packet = btc_risk.get("packet") or {}
+    risk_point = risk_packet.get("risk_point") or {}
+    risk_date = (
+        risk_packet.get("latest_finalized_day")
+        or risk_point.get("as_of_date")
+    )
+    if isinstance(risk_date, str):
+        fact(
+            "freshness.crypto.btc_risk_finalized_date",
+            f"The BTC risk measurement uses finalized daily closes through {risk_date}.",
+        )
+    elif btc_risk:
+        unknown(
+            "freshness.crypto.btc_risk_finalized_date",
+            "The exact packet does not retain the BTC risk finalized measurement date; "
+            "its component as_of_date is a capture vintage and is not substituted.",
+        )
+    drawdown = risk_point.get("drawdown") or {}
+    volatility = risk_point.get("realized_volatility") or {}
+    if any(
+        value is not None
+        for value in (
+            drawdown.get("current_fraction"),
+            drawdown.get("maximum_fraction"),
+            volatility.get("annualized_fraction"),
+        )
+    ):
+        fact(
+            "numeric.crypto.btc_risk",
+            "The sealed packet reports BTC risk values "
+            f"current_drawdown={drawdown.get('current_fraction')}, "
+            f"maximum_drawdown={drawdown.get('maximum_fraction')}, and "
+            f"annualized_realized_volatility={volatility.get('annualized_fraction')}.",
+        )
+
+    stablecoin = components.get("STABLECOIN_NET_ISSUANCE") or {}
+    stable_packet = stablecoin.get("packet") or {}
+    stable_date = stable_packet.get("observation_date") or stablecoin.get("as_of_date")
+    if isinstance(stable_date, str):
+        fact(
+            "freshness.crypto.stablecoin_observation_date",
+            f"The stablecoin net-issuance observation is dated {stable_date}.",
+        )
+    if (
+        stable_packet.get("daily_net_issuance_native_usd_peg") is not None
+        or stable_packet.get("weekly_net_issuance_native_usd_peg") is not None
+    ):
+        fact(
+            "numeric.crypto.stablecoin_net_issuance",
+            "The sealed packet reports stablecoin net issuance "
+            f"daily={stable_packet.get('daily_net_issuance_native_usd_peg')} and "
+            f"weekly={stable_packet.get('weekly_net_issuance_native_usd_peg')} "
+            f"for {stable_date or 'UNKNOWN'}.",
+        )
+
+    korea = components.get("KOREA_MARKET_SIGNALS") or {}
+    korea_packet = korea.get("packet") or {}
+    confirmed_date = korea_packet.get("as_of_date") or korea.get("as_of_date")
+    if isinstance(confirmed_date, str):
+        fact(
+            "freshness.krx.latest_confirmed_close_date",
+            f"The confirmed Korea five-axis market observation is dated {confirmed_date}.",
+        )
+
+    post_close = components.get("KRX_POST_CLOSE") or {}
+    post_packet = post_close.get("packet") or {}
+    post_symbols = [row for row in post_packet.get("symbols", []) if isinstance(row, dict)]
+    observed_dates = sorted({
+        row.get("latest_observed_day")
+        for row in post_symbols
+        if isinstance(row.get("latest_observed_day"), str)
+    })
+    confirmed_dates = sorted({
+        row.get("latest_trading_day")
+        for row in post_symbols
+        if isinstance(row.get("latest_trading_day"), str)
+    })
+    if observed_dates:
+        fact(
+            "freshness.krx.post_close_observed_dates",
+            "The KRX post-close bundle contains observed, unconfirmed rows dated "
+            + ", ".join(observed_dates) + ".",
+        )
+    if confirmed_dates:
+        fact(
+            "freshness.krx.post_close_confirmed_history_dates",
+            "The KRX post-close decision history remains confirmed only through "
+            + ", ".join(confirmed_dates) + ".",
+        )
+    post_summary = post_packet.get("summary") or {}
+    if any(
+        post_summary.get(key) is not None
+        for key in (
+            "observed_symbol_count",
+            "decision_eligible_symbol_count",
+            "confirmed_same_day_count",
+        )
+    ):
+        fact(
+            "numeric.krx.post_close_summary",
+            "The KRX post-close bundle reports "
+            f"observed_symbols={post_summary.get('observed_symbol_count')}, "
+            f"decision_eligible_symbols={post_summary.get('decision_eligible_symbol_count')}, and "
+            f"confirmed_same_day={post_summary.get('confirmed_same_day_count')}.",
+        )
+    if post_packet.get("observation_status") == "observed_unconfirmed":
+        unknown(
+            "boundary.krx.same_day_confirmation",
+            "The same-day KRX post-close rows are observed but unconfirmed and cannot establish "
+            "a confirmed close, rule input, or investment conclusion until the existing confirmation path does so.",
+        )
+
+    dynamic = components.get("DYNAMIC_CLOCK") or {}
+    dynamic_packet = dynamic.get("packet") or {}
+    dynamic_date = dynamic_packet.get("decision_date") or packet.get("decision_date")
+    markets = dynamic_packet.get("markets") or {}
+    aggregate = {"overdue": 0, "due_today": 0, "upcoming": 0, "unclassified": 0, "total": 0}
+    if isinstance(dynamic_date, str):
+        for market, market_packet in sorted(markets.items()):
+            if not isinstance(market_packet, dict):
+                continue
+            rows = [row for row in market_packet.get("watch_review", []) if isinstance(row, dict)]
+            due = {"overdue": 0, "due_today": 0, "upcoming": 0, "unclassified": 0}
+            for row in rows:
+                next_review = row.get("next_review_at")
+                if not isinstance(next_review, str) or DATE.fullmatch(next_review) is None:
+                    due["unclassified"] += 1
+                elif next_review < dynamic_date:
+                    due["overdue"] += 1
+                elif next_review == dynamic_date:
+                    due["due_today"] += 1
+                else:
+                    due["upcoming"] += 1
+            for key in due:
+                aggregate[key] += due[key]
+            aggregate["total"] += len(rows)
+            fact(
+                f"review_due.dynamic_clock.{str(market).lower()}",
+                f"At decision date {dynamic_date}, {market} WATCH_REVIEW has "
+                f"overdue={due['overdue']}, due_today={due['due_today']}, "
+                f"upcoming={due['upcoming']}, unclassified={due['unclassified']}, "
+                f"total={len(rows)}.",
+            )
+        if markets:
+            fact(
+                "review_due.dynamic_clock.all",
+                f"At decision date {dynamic_date}, all WATCH_REVIEW queues have "
+                f"overdue={aggregate['overdue']}, due_today={aggregate['due_today']}, "
+                f"upcoming={aggregate['upcoming']}, unclassified={aggregate['unclassified']}, "
+                f"total={aggregate['total']}.",
+            )
+            unknown(
+                "boundary.dynamic_clock.review_due_not_promotion",
+                "A due or overdue WATCH_REVIEW date is a review-routing state only; it does not "
+                "authorize candidate promotion, entry, action, order, production, or trading.",
+            )
+
+    rotation = components.get("ROTATION_DISCOVERY") or {}
+    rotation_packet = rotation.get("packet") or {}
+    discovery = rotation_packet.get("discovery") or {}
+    signal = rotation_packet.get("signal_observations") or {}
+    if discovery or signal:
+        fact(
+            "numeric.rotation.discovery_summary",
+            "The sealed packet reports rotation discovery "
+            f"cases={discovery.get('case_count')}, new_candidates={len(discovery.get('new_candidates', []))}, "
+            f"existing_candidate_changes={len(discovery.get('existing_candidate_changes', []))}, and "
+            f"signal_observations={signal.get('observation_count')}.",
+        )
+        unknown(
+            "boundary.rotation.observation_not_promotion",
+            "Rotation discovery and Dynamic Clock observations do not establish candidate promotion "
+            "or an investment action when the packet says promotion is not authorized.",
+        )
+
+    acceleration = components.get("BUSINESS_ACCELERATION") or {}
+    acceleration_packet = acceleration.get("packet") or {}
+    for index, series in enumerate(acceleration_packet.get("series", []), start=1):
+        if not isinstance(series, dict):
+            continue
+        fact(
+            f"numeric.business_acceleration.series_{index}",
+            "The sealed packet reports business-acceleration series "
+            f"metric={series.get('metric')}, pattern={series.get('pattern')}, "
+            f"values={series.get('values_pct')}, candidate_eligible={series.get('candidate_eligible')}.",
+        )
+
+    release = components.get("OFFICIAL_RELEASE_SUMMARY") or {}
+    release_packet = release.get("packet") or {}
+    release_counts = release_packet.get("counts") or {}
+    if release_counts:
+        fact(
+            "numeric.official_release.summary_counts",
+            "The sealed packet reports official-release "
+            f"observations={release_counts.get('observed_registered_releases')} and "
+            f"summary_items={release_counts.get('observed_summary_items')}.",
+        )
+    release_item_count = 0
+    for observation_index, observation in enumerate(release_packet.get("observations", []), start=1):
+        if not isinstance(observation, dict):
+            continue
+        published_at = observation.get("published_at")
+        if isinstance(published_at, str):
+            fact(
+                f"date.official_release.observation_{observation_index}",
+                f"The retained official release for {observation.get('subject')} was published on {published_at}.",
+            )
+        for item in observation.get("summary_items", []):
+            if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+                continue
+            release_item_count += 1
+            fact(
+                f"official_release.attributed_summary_{release_item_count}",
+                "The retained official release states: " + item["text"],
+            )
+    if release_item_count:
+        unknown(
+            "boundary.official_release.causality",
+            "Company-stated explanations in the retained official release are attributed source facts; "
+            "independent market causality, importance, ranking, and investment interpretation remain unverified.",
+        )
+
+    return claims
+
+
+def _iso_date(value: Any) -> str | None:
+    """Return a valid calendar date or the UTC date of a zoned instant."""
+    if isinstance(value, str) and DATE.fullmatch(value) is not None:
+        try:
+            return dt.date.fromisoformat(value).isoformat()
+        except ValueError:
+            return None
+    instant = _capture_instant(value)
+    return instant.date().isoformat() if instant is not None else None
+
+
+def _capture_instant(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str) or "T" not in value:
+        return None
+    try:
+        instant = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if instant.tzinfo is None or instant.utcoffset() is None:
+            return None
+        return instant.astimezone(dt.timezone.utc)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _capture_clock_reasons(declared: Any, source: Any, prefix: str) -> list[str]:
+    """Compare instants, accepting equivalent explicit timezone offsets."""
+    if declared is None or source is None:
+        return [f"{prefix}_CLOCK_MISSING"]
+    declared_instant, source_instant = _capture_instant(declared), _capture_instant(source)
+    if declared_instant is None or source_instant is None:
+        return [f"{prefix}_CLOCK_INVALID"]
+    if declared_instant != source_instant:
+        return [f"{prefix}_CLOCK_MISMATCH"]
+    return []
+
+
+def _declared_generation(value: dict | None) -> str | None:
+    """Read only a top-level generation authority, never a nested lineage."""
+    if value is None:
+        return None
+    direct = value.get("generation_id")
+    if isinstance(direct, str):
+        return direct
+    generation = value.get("generation")
+    if isinstance(generation, dict) and isinstance(generation.get("generation_id"), str):
+        return generation["generation_id"]
+    return None
+
+
+class _EvidenceBinder:
+    """Resolve committed provider evidence at the exact pinned source commit.
+
+    A path is never accepted because its name looks right.  Every reference is
+    read through ``git show <source_commit>:<path>`` and must match a digest the
+    sealed packet or its retained capture manifest already declared, keeping the
+    original compressed-file and uncompressed-response digest semantics apart.
+    A file that declares a different read-model generation is refused so that a
+    later ledger reader cannot mix lineages.
+    """
+
+    def __init__(self, repo_root: Path, source_commit: str, generation_id: str) -> None:
+        self._repo_root = repo_root
+        self._source_commit = source_commit
+        self._generation_id = generation_id
+        self._bodies: dict[str, bytes | None] = {}
+        self._parsed: dict[str, dict | None] = {}
+        self.refs: dict[str, str] = {}
+
+    def body(self, path: Any) -> bytes | None:
+        if not isinstance(path, str) or not path:
+            return None
+        if path not in self._bodies:
+            try:
+                _safe_path(path)
+            except ChainError:
+                self._bodies[path] = None
+            else:
+                self._bodies[path] = _git_optional_bytes(
+                    self._repo_root, self._source_commit, path
+                )
+        return self._bodies[path]
+
+    def json(self, path: Any) -> dict | None:
+        if not isinstance(path, str) or not path:
+            return None
+        if path not in self._parsed:
+            body = self.body(path)
+            value: Any = None
+            if body is not None:
+                try:
+                    value = json.loads(body.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    value = None
+            self._parsed[path] = value if isinstance(value, dict) else None
+        return self._parsed[path]
+
+    @staticmethod
+    def _content(path: str, body: bytes) -> bytes | None:
+        """Return the provider response bytes behind a retained artifact."""
+        if not path.endswith(".gz"):
+            return body
+        try:
+            return gzip.decompress(body)
+        except (OSError, EOFError, zlib.error):
+            return None
+
+    def bind(
+        self,
+        path: Any,
+        *,
+        file_sha256: Any = None,
+        content_sha256: Any = None,
+        structural: bool = False,
+    ) -> tuple[str | None, list[str]]:
+        """Bind one committed file and return ``(path, reason_codes)``.
+
+        ``structural`` is reserved for the fixed retained-manifest names inside
+        an evidence directory the sealed packet itself declares.  Such a file
+        carries no self-declared digest, so it only becomes usable evidence once
+        a response digest it names verifies below.
+        """
+        if not isinstance(path, str) or not path:
+            return None, ["SOURCE_PATH_MISSING"]
+        if file_sha256 is None and content_sha256 is None and not structural:
+            return None, ["SOURCE_DIGEST_NOT_DECLARED"]
+        body = self.body(path)
+        if body is None:
+            return None, ["SOURCE_PATH_UNAVAILABLE"]
+        if file_sha256 is not None:
+            if not isinstance(file_sha256, str) or SHA256.fullmatch(file_sha256) is None:
+                return None, ["SOURCE_FILE_DIGEST_INVALID"]
+            if digest_bytes(body) != file_sha256:
+                return None, ["SOURCE_FILE_DIGEST_MISMATCH"]
+        if content_sha256 is not None:
+            if not isinstance(content_sha256, str) or SHA256.fullmatch(content_sha256) is None:
+                return None, ["SOURCE_CONTENT_DIGEST_INVALID"]
+            content = self._content(path, body)
+            if content is None:
+                return None, ["SOURCE_COMPRESSED_UNREADABLE"]
+            if digest_bytes(content) != content_sha256:
+                return None, ["SOURCE_CONTENT_DIGEST_MISMATCH"]
+        declared = _declared_generation(self.json(path))
+        if declared is not None and declared != self._generation_id:
+            return None, ["MIXED_GENERATION"]
+        self.refs[path] = digest_bytes(body)
+        return path, []
+
+
+def _retained_manifest(
+    binder: _EvidenceBinder, directory: Any
+) -> tuple[dict | None, list[str], list[str]]:
+    """Read the capture manifest inside a packet-declared evidence directory."""
+    if not isinstance(directory, str) or not directory:
+        return None, [], ["EVIDENCE_DIRECTORY_NOT_DECLARED"]
+    path = f"{directory}/{RETAINED_MANIFEST_NAME}"
+    manifest = binder.json(path)
+    if manifest is None:
+        return None, [], ["RETAINED_MANIFEST_UNAVAILABLE"]
+    bound, reasons = binder.bind(path, structural=True)
+    if bound is None:
+        return None, [], [f"RETAINED_MANIFEST_{code}" for code in reasons]
+    return manifest, [bound], []
+
+
+def _retained_digest_index(
+    binder: _EvidenceBinder, directory: str
+) -> tuple[dict[str, str], list[str], list[str]]:
+    """Read the retained ``sha256sum`` listing of uncompressed responses."""
+    path = f"{directory}/{RETAINED_DIGEST_NAME}"
+    body = binder.body(path)
+    if body is None:
+        return {}, [], ["RETAINED_DIGEST_INDEX_MISSING"]
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return {}, [], ["RETAINED_DIGEST_INDEX_UNREADABLE"]
+    index: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split()
+        if (len(parts) != 2 or SHA256.fullmatch(parts[0]) is None
+                or PurePosixPath(parts[1]).name != parts[1]
+                or parts[1] in {".", ".."} or parts[1] in index):
+            return {}, [], ["RETAINED_DIGEST_INDEX_MALFORMED"]
+        index[parts[1]] = parts[0]
+    if not index:
+        return {}, [], ["RETAINED_DIGEST_INDEX_MALFORMED"]
+    bound, reasons = binder.bind(path, structural=True)
+    if bound is None:
+        return {}, [], [f"RETAINED_DIGEST_INDEX_{code}" for code in reasons]
+    return index, [bound], []
+
+
+def _retained_response(
+    binder: _EvidenceBinder,
+    directory: str,
+    file_name: Any,
+    response_sha256: Any,
+    digest_index: dict[str, str],
+) -> tuple[str | None, list[str]]:
+    """Bind one retained provider response against every retained digest."""
+    if not isinstance(file_name, str) or not file_name:
+        return None, ["RESPONSE_FILE_NOT_DECLARED"]
+    stem = file_name[:-3] if file_name.endswith(".gz") else file_name
+    retained = digest_index.get(stem)
+    if retained is None:
+        return None, ["RETAINED_DIGEST_ENTRY_MISSING"]
+    if retained != response_sha256:
+        return None, ["RETAINED_DIGEST_DISAGREEMENT"]
+    return binder.bind(f"{directory}/{file_name}", content_sha256=response_sha256)
+
+
+def _derivation_code(
+    binder: _EvidenceBinder, *holders: Any
+) -> tuple[str | None, list[str]]:
+    """Pin the exact committed derivation code declared for a computed value."""
+    for holder in holders:
+        if not isinstance(holder, dict):
+            continue
+        derivation = holder.get("derivation")
+        if not isinstance(derivation, dict):
+            continue
+        bound, reasons = binder.bind(
+            derivation.get("code_path"), file_sha256=derivation.get("code_sha256")
+        )
+        if bound is not None:
+            return bound, []
+        return None, [f"DERIVATION_{code}" for code in reasons]
+    return None, ["DERIVATION_CODE_NOT_PINNED"]
+
+
+def _claim_source_bindings(
+    repo_root: Path,
+    source_commit: str,
+    *,
+    packet: dict,
+    packet_ref: str,
+    claims: list[dict],
+    generation_id: str,
+    briefing_date: str,
+) -> tuple[list[dict], list[dict]]:
+    """Bind exact primary evidence and separate clocks to external claims.
+
+    The delivery claims above prove only that the sealed aggregate packet
+    reports a value.  An externally sourced fact must additionally name the
+    exact committed provider document, and a computed fact must additionally
+    name the pinned derivation code, before its grade may describe anything
+    stronger than an internal consistency read.  Measurement, capture and first
+    availability stay three separate clocks: a missing one is never replaced by
+    the generation or briefing date, and capture alone grants no point-in-time
+    permission.  Missing, hash-mismatched, unreadable, mixed-generation or
+    future evidence leaves that one claim ``UNKNOWN`` without touching the claim
+    id, statement, value, kind or any unrelated module semantics.
+    """
+    binder = _EvidenceBinder(repo_root, source_commit, generation_id)
+    by_claim = {claim["claim_id"]: claim for claim in claims}
+    bindings: list[dict] = []
+
+    def record(
+        claim_id: str,
+        *,
+        grade: str,
+        observation_date: Any = None,
+        observed_at: Any = None,
+        compared_dates: Any = (),
+        refs: Any = (),
+        reasons: Any = (),
+    ) -> None:
+        claim = by_claim.get(claim_id)
+        if claim is None:
+            return
+        reason_codes = set(reasons)
+        if observation_date is None:
+            reason_codes.add("OBSERVATION_DATE_MISSING")
+        elif not isinstance(observation_date, str) or DATE.fullmatch(observation_date) is None or _iso_date(observation_date) is None:
+            reason_codes.add("OBSERVATION_DATE_INVALID")
+            observation_date = None
+        if observed_at is None:
+            reason_codes.add("CAPTURE_CLOCK_MISSING")
+        elif _capture_instant(observed_at) is None:
+            reason_codes.add("CAPTURE_CLOCK_INVALID")
+            observed_at = None
+        for value in (observation_date, _iso_date(observed_at)):
+            if value is not None and value > briefing_date:
+                reason_codes.add("FUTURE_EVIDENCE")
+        ref_paths: list[str] = []
+        if claim["kind"] == "FACT":
+            for path in [packet_ref, *refs]:
+                if isinstance(path, str) and path and path not in ref_paths:
+                    ref_paths.append(path)
+            for path in ref_paths:
+                if path not in claim["source_ref_paths"]:
+                    claim["source_ref_paths"].append(path)
+        bindings.append({
+            "claim_id": claim_id,
+            "source_grade": GRADE_UNKNOWN if reason_codes else grade,
+            "observation_date": observation_date or "UNKNOWN",
+            "observed_at": observed_at or "UNKNOWN",
+            "source_available_at": None,
+            "point_in_time_admissible": False,
+            "compared_dates": sorted({
+                value for value in compared_dates if isinstance(value, str)
+            }),
+            "source_ref_paths": ref_paths,
+            "reason_codes": sorted(reason_codes),
+        })
+
+    components = {
+        row.get("component_id"): row
+        for row in packet.get("components", [])
+        if isinstance(row, dict) and isinstance(row.get("component_id"), str)
+    }
+
+    # FREE_MARKET_DATA: FRED VIXCLS and the representative US session reference.
+    free = components.get("FREE_MARKET_DATA") or {}
+    free_packet = free.get("packet") or {}
+    vix = free_packet.get("vixcls") or {}
+    us_reference = free_packet.get("us_market_reference") or {}
+    vix_date = vix.get("date")
+    us_session_date = us_reference.get("as_of_session_date")
+    us_clocks = [
+        value for value in (vix_date, us_session_date) if isinstance(value, str)
+    ]
+    capture_path, capture_reasons = binder.bind(
+        free.get("source_packet_path"), file_sha256=free.get("source_packet_sha256")
+    )
+    capture = binder.json(capture_path) if capture_path is not None else None
+    capture_observed_at = capture.get("observed_at_utc") if capture is not None else None
+    unbound_capture = [f"US_CAPTURE_{code}" for code in capture_reasons]
+
+    fred_evidence = free_packet.get("fred_evidence") or {}
+    vix_refs = [capture_path] if capture_path is not None else []
+    vix_reasons = list(unbound_capture)
+    for path, file_sha256, content_sha256 in (
+        (
+            fred_evidence.get("manifest_path"),
+            fred_evidence.get("manifest_file_sha256"),
+            None,
+        ),
+        (
+            fred_evidence.get("raw_path"),
+            fred_evidence.get("raw_file_sha256"),
+            fred_evidence.get("raw_response_sha256"),
+        ),
+    ):
+        bound, reasons = binder.bind(
+            path, file_sha256=file_sha256, content_sha256=content_sha256
+        )
+        if bound is None:
+            vix_reasons.extend(f"FRED_{code}" for code in reasons)
+        else:
+            vix_refs.append(bound)
+    capture_fred = capture.get("fred") if capture is not None else None
+    fred_manifest_path = fred_evidence.get("manifest_path")
+    fred_manifest = binder.json(fred_manifest_path) if fred_manifest_path in vix_refs else None
+    fred_observed_at = fred_manifest.get("captured_at_utc") if fred_manifest is not None else None
+    vix_reasons.extend(_capture_clock_reasons(capture_observed_at, fred_observed_at, "FRED_CAPTURE"))
+    fred_observation = fred_manifest.get("observation") if fred_manifest is not None else None
+    if not isinstance(fred_observation, dict) or fred_observation.get("observation_date") != vix_date:
+        vix_reasons.append("FRED_MANIFEST_OBSERVATION_DATE_MISMATCH")
+    if capture is not None:
+        if not isinstance(capture_fred, dict):
+            vix_reasons.append("US_CAPTURE_FRED_SECTION_MISSING")
+        else:
+            if capture_fred.get("observation_date") != vix_date:
+                vix_reasons.append("US_CAPTURE_VIX_DATE_MISMATCH")
+            if capture_fred.get("value") != vix.get("value"):
+                vix_reasons.append("US_CAPTURE_VIX_VALUE_MISMATCH")
+            if capture_fred.get("response_sha256") != fred_evidence.get(
+                "raw_response_sha256"
+            ):
+                vix_reasons.append("US_CAPTURE_FRED_RESPONSE_DIGEST_MISMATCH")
+    for claim_id in ("freshness.us.vix_observation_date", "numeric.us.vixcls"):
+        record(
+            claim_id,
+            grade=GRADE_PRIMARY_DIRECT,
+            observation_date=vix_date,
+            observed_at=fred_observed_at,
+            compared_dates=us_clocks,
+            refs=vix_refs,
+            reasons=vix_reasons,
+        )
+
+    alpaca_evidence = free_packet.get("alpaca_daily_evidence") or {}
+    session_refs = [capture_path] if capture_path is not None else []
+    session_reasons = list(unbound_capture)
+    if capture is not None:
+        capture_reference = capture.get("us_market_reference")
+        if not isinstance(capture_reference, dict):
+            session_reasons.append("US_CAPTURE_SESSION_REFERENCE_MISSING")
+        elif capture_reference.get("as_of_session_date") != us_session_date:
+            session_reasons.append("US_CAPTURE_SESSION_DATE_MISMATCH")
+    bound, reasons = binder.bind(
+        alpaca_evidence.get("raw_path"),
+        content_sha256=alpaca_evidence.get("raw_response_sha256"),
+    )
+    if bound is None:
+        session_reasons.extend(f"US_SESSION_{code}" for code in reasons)
+    else:
+        session_refs.append(bound)
+    record(
+        "freshness.us.market_session_date",
+        grade=GRADE_PRIMARY_DIRECT,
+        observation_date=us_session_date,
+        observed_at=capture_observed_at,
+        compared_dates=us_clocks,
+        refs=session_refs,
+        reasons=session_reasons,
+    )
+    record(
+        "boundary.us.independent_evidence_clocks",
+        grade=GRADE_UNKNOWN,
+        compared_dates=us_clocks,
+    )
+
+    # BTC_TREND / BTC_RISK: retained Kraken capture behind a finalized close.
+    for component_id, claim_key in (("BTC_TREND", "btc_trend"), ("BTC_RISK", "btc_risk")):
+        component = components.get(component_id) or {}
+        component_packet = component.get("packet") or {}
+        directory = component.get("source_packet_path")
+        risk_point = component_packet.get("risk_point") or {}
+        finalized_day = component_packet.get("latest_finalized_day")
+        if component_id == "BTC_RISK" and not isinstance(finalized_day, str):
+            finalized_day = risk_point.get("as_of_date")
+        capture_date = component_packet.get("capture_date") or component.get("as_of_date")
+        manifest, refs, reasons = _retained_manifest(binder, directory)
+        observed_at = None
+        if manifest is not None:
+            raw = manifest.get("raw")
+            raw = raw if isinstance(raw, dict) else {}
+            digest_index, digest_refs, digest_reasons = _retained_digest_index(binder, directory)
+            refs.extend(digest_refs)
+            reasons.extend(digest_reasons)
+            bound, raw_reasons = _retained_response(
+                binder, directory, raw.get("file"), raw.get("response_sha256"), digest_index
+            )
+            if bound is None:
+                reasons.extend(f"BTC_RESPONSE_{code}" for code in raw_reasons)
+            else:
+                refs.append(bound)
+            if raw.get("latest_finalized_day") != finalized_day:
+                reasons.append("RETAINED_FINALIZED_DAY_MISMATCH")
+            if component_id == "BTC_RISK" and risk_point.get("as_of_date") != finalized_day:
+                reasons.append("RISK_MEASUREMENT_DATE_MISMATCH")
+            if manifest.get("snapshot_date") != capture_date:
+                reasons.append("RETAINED_CAPTURE_DATE_MISMATCH")
+            fetched_at = manifest.get("fetched_at_utc")
+            observed_at = fetched_at if isinstance(fetched_at, str) else None
+        btc_clocks = [
+            value for value in (finalized_day, capture_date) if isinstance(value, str)
+        ]
+        record(
+            f"freshness.crypto.{claim_key}_finalized_date",
+            grade=GRADE_PRIMARY_DIRECT,
+            observation_date=finalized_day,
+            observed_at=observed_at,
+            compared_dates=btc_clocks,
+            refs=refs,
+            reasons=reasons,
+        )
+        code_path, code_reasons = _derivation_code(binder, component_packet, component, manifest)
+        record(
+            f"numeric.crypto.{claim_key}",
+            grade=GRADE_INTERNAL_LOGIC_CHECK,
+            observation_date=finalized_day,
+            observed_at=observed_at,
+            compared_dates=btc_clocks,
+            refs=refs + ([code_path] if code_path is not None else []),
+            reasons=reasons + code_reasons,
+        )
+
+    # STABLECOIN_NET_ISSUANCE: retained multi-endpoint capture.
+    stablecoin = components.get("STABLECOIN_NET_ISSUANCE") or {}
+    stable_packet = stablecoin.get("packet") or {}
+    stable_directory = stablecoin.get("source_packet_path")
+    stable_date = stable_packet.get("observation_date")
+    manifest, stable_refs, stable_reasons = _retained_manifest(binder, stable_directory)
+    stable_observed_at = None
+    if manifest is not None:
+        digest_index, digest_refs, digest_reasons = _retained_digest_index(binder, stable_directory)
+        stable_refs.extend(digest_refs)
+        stable_reasons.extend(digest_reasons)
+        endpoints = manifest.get("endpoints")
+        if not isinstance(endpoints, list) or not endpoints:
+            stable_reasons.append("RETAINED_ENDPOINTS_MISSING")
+        else:
+            fetched: list[str] = []
+            for endpoint in endpoints:
+                if not isinstance(endpoint, dict):
+                    stable_reasons.append("RETAINED_ENDPOINT_INVALID")
+                    continue
+                bound, raw_reasons = _retained_response(
+                    binder,
+                    stable_directory,
+                    endpoint.get("raw_file"),
+                    endpoint.get("response_sha256"),
+                    digest_index,
+                )
+                if bound is None:
+                    stable_reasons.extend(f"STABLECOIN_RESPONSE_{code}" for code in raw_reasons)
+                else:
+                    stable_refs.append(bound)
+                endpoint_clock = endpoint.get("fetched_at_utc")
+                if endpoint_clock is None:
+                    stable_reasons.append("ENDPOINT_CAPTURE_CLOCK_MISSING")
+                elif _capture_instant(endpoint_clock) is None:
+                    stable_reasons.append("ENDPOINT_CAPTURE_CLOCK_INVALID")
+                else:
+                    fetched.append(endpoint_clock)
+            if fetched:
+                stable_observed_at = max(fetched, key=_capture_instant)
+        if manifest.get("snapshot_date") != stable_date:
+            stable_reasons.append("RETAINED_OBSERVATION_DATE_MISMATCH")
+    record(
+        "freshness.crypto.stablecoin_observation_date",
+        grade=GRADE_PRIMARY_DIRECT,
+        observation_date=stable_date,
+        observed_at=stable_observed_at,
+        refs=stable_refs,
+        reasons=stable_reasons,
+    )
+    code_path, code_reasons = _derivation_code(binder, stable_packet, stablecoin, manifest)
+    record(
+        "numeric.crypto.stablecoin_net_issuance",
+        grade=GRADE_INTERNAL_LOGIC_CHECK,
+        observation_date=stable_date,
+        observed_at=stable_observed_at,
+        refs=stable_refs + ([code_path] if code_path is not None else []),
+        reasons=stable_reasons + code_reasons,
+    )
+
+    # OFFICIAL_RELEASE_SUMMARY: attributed primary release documents.
+    release_packet = (components.get("OFFICIAL_RELEASE_SUMMARY") or {}).get("packet") or {}
+    release_item_count = 0
+    for observation_index, observation in enumerate(
+        release_packet.get("observations", []), start=1
+    ):
+        if not isinstance(observation, dict):
+            continue
+        lineage = observation.get("lineage") or {}
+        release_refs: list[str] = []
+        release_reasons: list[str] = []
+        for path, file_sha256, content_sha256 in (
+            (lineage.get("manifest_ref"), lineage.get("manifest_sha256"), None),
+            (
+                lineage.get("release_document_ref"),
+                None,
+                lineage.get("release_content_sha256"),
+            ),
+        ):
+            bound, reasons = binder.bind(
+                path, file_sha256=file_sha256, content_sha256=content_sha256
+            )
+            if bound is None:
+                release_reasons.extend(f"RELEASE_{code}" for code in reasons)
+            else:
+                release_refs.append(bound)
+        published_at = observation.get("published_at")
+        retrieved_at = lineage.get("retrieved_at_utc")
+        manifest_ref = lineage.get("manifest_ref")
+        release_manifest = binder.json(manifest_ref) if manifest_ref in release_refs else None
+        manifest_retrieved_at = release_manifest.get("retrieved_at_utc") if release_manifest is not None else None
+        release_reasons.extend(_capture_clock_reasons(retrieved_at, manifest_retrieved_at, "RELEASE_CAPTURE"))
+        # The existing official-release observation producer binds published_at
+        # to this SEC filing_date before producing the attributed summary.
+        if release_manifest is None or release_manifest.get("filing_date") != published_at:
+            release_reasons.append("RELEASE_MANIFEST_PUBLICATION_DATE_MISMATCH")
+        release_clocks = [published_at, _iso_date(retrieved_at)]
+        record(
+            f"date.official_release.observation_{observation_index}",
+            grade=GRADE_OFFICIAL_STATEMENT_RELAY,
+            observation_date=published_at,
+            observed_at=retrieved_at,
+            compared_dates=release_clocks,
+            refs=release_refs,
+            reasons=release_reasons,
+        )
+        for item in observation.get("summary_items", []):
+            if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+                continue
+            release_item_count += 1
+            record(
+                f"official_release.attributed_summary_{release_item_count}",
+                grade=GRADE_OFFICIAL_STATEMENT_RELAY,
+                observation_date=published_at,
+                observed_at=retrieved_at,
+                compared_dates=release_clocks,
+                refs=release_refs,
+                reasons=release_reasons,
+            )
+
+    source_refs = [
+        {"path": path, "sha256": sha256, "generation_id": generation_id}
+        for path, sha256 in sorted(binder.refs.items())
+    ]
+    bindings.sort(key=lambda row: row["claim_id"])
+    return bindings, source_refs
+
+
 def build_input_envelope(
     repo_root: Path,
     *,
@@ -543,6 +1480,20 @@ def build_input_envelope(
             "sha256": digest_bytes(event_registry_bytes),
             "generation_id": generation_id,
         })
+    delivery_claims = _delivery_claims(packet, packet_path)
+    claim_source_bindings, primary_source_refs = _claim_source_bindings(
+        repo_root,
+        source_commit,
+        packet=packet,
+        packet_ref=packet_path,
+        claims=delivery_claims,
+        generation_id=generation_id,
+        briefing_date=decision_date,
+    )
+    already_bound = {ref["path"] for ref in source_refs}
+    source_refs.extend(
+        ref for ref in primary_source_refs if ref["path"] not in already_bound
+    )
     snapshot = {
         "source_commit": source_commit,
         "generation_id": generation_id,
@@ -560,6 +1511,9 @@ def build_input_envelope(
         "source_refs": source_refs,
         "packet_self_sha256": packet_sha,
         "modules": modules,
+        "delivery_claims": delivery_claims,
+        "claim_source_binding_schema": CLAIM_SOURCE_BINDING_SCHEMA,
+        "claim_source_bindings": claim_source_bindings,
         "major_event_registry_path": event_registry_path,
         "major_event_registry": event_registry,
         "core_failure_policy": {
@@ -614,6 +1568,7 @@ def _claims(envelope: dict) -> list[dict]:
                 "status": "UNKNOWN",
                 "source_ref_paths": [],
             })
+    claims.extend(copy.deepcopy(envelope.get("delivery_claims", [])))
     registry_path = envelope.get("major_event_registry_path")
     registry = envelope.get("major_event_registry", {})
     if registry.get("source_status") == "AVAILABLE" and registry_path:
@@ -656,22 +1611,45 @@ def _claim_ledger(envelope: dict, claims: list[dict]) -> dict:
 
 
 def _claude_compat_handoff(envelope: dict, claims: list[dict]) -> dict:
+    """Project the strict ledger into the legacy ``claude_briefing_handoff/1``.
+
+    A claim the input envelope bound to exact primary evidence carries that
+    binding's grade, measurement date, capture instant and compared clocks.  A
+    claim with no binding keeps the previous internal-consistency semantics: it
+    describes the sealed packet of this briefing, not an external observation.
+    """
     packet_ref = envelope["source_refs"][0]["path"]
+    bindings = {
+        row["claim_id"]: row for row in envelope.get("claim_source_bindings", [])
+    }
     compat_claims = []
     for claim in claims:
+        binding = bindings.get(claim["claim_id"])
+        if binding is None:
+            observation_date = envelope["briefing_date"]
+            observed_at = "UNKNOWN"
+            source_grade = (
+                GRADE_INTERNAL_LOGIC_CHECK if claim["kind"] == "FACT" else GRADE_UNKNOWN
+            )
+            source_refs = [packet_ref] if claim["kind"] == "FACT" else []
+            compared_dates: list[str] = []
+        else:
+            observation_date = binding["observation_date"]
+            observed_at = binding["observed_at"]
+            source_grade = binding["source_grade"]
+            source_refs = list(binding["source_ref_paths"])
+            compared_dates = list(binding["compared_dates"])
         compat_claims.append({
             "claim_id": claim["claim_id"],
             "statement": claim["statement"],
             "type": claim["kind"],
-            "observation_date": envelope["briefing_date"],
-            "observed_at": "UNKNOWN",
-            "source_grade": (
-                "INTERNAL_LOGIC_CHECK" if claim["kind"] == "FACT" else "UNKNOWN"
-            ),
-            "source_refs": [packet_ref] if claim["kind"] == "FACT" else [],
+            "observation_date": observation_date,
+            "observed_at": observed_at,
+            "source_grade": source_grade,
+            "source_refs": source_refs,
             "portal_visibility": True,
             "authority_impact": "NONE",
-            "compared_dates": [],
+            "compared_dates": compared_dates,
         })
     blocked = [
         f"{module['module_id']}:{module['status']}"

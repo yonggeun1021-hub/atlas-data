@@ -55,11 +55,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Production publication must not wait behind a multi-minute regression
-  # suite.  Keep the exact same checks on every invocation, but run them in a
-  # parallel job so the 07:05/18:30 retrieval-authority SLA is not consumed by
-  # tests that already ran in CI before merge.
+  # Production publication must run before the multi-minute regression suite.
+  # Both jobs intentionally retain the same self-hosted runner label, so an
+  # unconstrained "parallel" job can occupy the sole runner and consume the
+  # 07:05/18:30 retrieval-authority SLA before briefing starts. Keep the exact
+  # same regression checks on every invocation, but queue them after briefing.
   offline-regression:
+    needs: briefing
+    if: always()
     runs-on: [self-hosted, Linux, X64, atlas-data]
     # The provenance-heavy identity checks repeatedly walk full git history.
     # They complete well inside this bound on the isolated runner, but can

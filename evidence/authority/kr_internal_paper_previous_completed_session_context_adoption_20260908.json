@@ -1,0 +1,41 @@
+{
+  "schema_version": "kr_internal_paper_previous_completed_session_context_adoption/1",
+  "decision_id": "KR_INTERNAL_PAPER_PREVIOUS_COMPLETED_SESSION_CONTEXT_V1",
+  "recorded_after_decision_at_utc": "2026-09-07T16:43:02Z",
+  "authority": "CIO explicit delegated temporal consumption design decision in current task",
+  "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0_ENTRY_FILTER",
+  "status": "ADOPTED_UNVALIDATED_INTERNAL_PAPER_HYPOTHESIS",
+  "supersedes": {
+    "scope": "This experiment temporal consumption only",
+    "rule": "same observation D and execution D; next-day carry forbidden",
+    "original_conflict_evidence": "KR_ROTATION_BASELINE_ACTUAL_TIME_CONFLICT.json"
+  },
+  "rules": [
+    "D must be the independently verified immediately previous completed trading session before actual execution session E, derived from the existing verified trading calendar. Calendar uncertainty yields UNKNOWN; neither calendar-day subtraction nor D-2 fallback is allowed.",
+    "Retain original D leadership/rotation observation dates, actual publication/retrieval/admission and first-seen times. All must be actually available before the E decision. Bind exact D source snapshots and reviewed code/config hashes independently of the submitted payload.",
+    "The D context can authorize this bounded entry filter only within the immediately following verified session E. No new entry consumption after E closes, no E+1 carry or relabeling D as current real-time market evidence.",
+    "E candidate identity/tradability/master and membership must be actually valid at the E decision and forward execution instants. Never extend a historical D master interval [D,D+1) into E or backdate new membership. Apply the explicitly approved classification sources prospectively to independently verified current E identity.",
+    "All price/spread/impact/entry/exit observations remain current qualified E sources. Preserve original600-second slot window, decision expiry, causal ordering, costs/risk/score. D closing price cannot become an E execution fill.",
+    "Same-date validation remains within the D market context and within E execution inputs. Only an explicit verified D-to-E relation joins them. Receipts must label the context as previous completed session. This decision does not automatically satisfy a separate regime gate that requires actual E-day source/state; validate that combination independently.",
+    "No risk/cost/score thresholds or global/REAL authority change. Adopted temporal experiment design does not prove profitability."
+  ],
+  "validation_required": [
+    "Preserve original same-D impossible-window counterexample.",
+    "Actual existing consumer D/E positive path.",
+    "Reject future availability, non-immediate D, and expired E membership.",
+    "Qualified E forward observations and actual ledger consumption remain separately required."
+  ],
+  "implementation": {
+    "existing_profile_owner": true,
+    "existing_causal_successor": "kr-internal-paper-causal-execution-01",
+    "private_additional_allowed_path": "private_evidence/krx_natural_ingress_v1/rotation_entry_gate.py",
+    "new_task": false,
+    "overlapping_writes": false
+  },
+  "authority_changes": {
+    "real": false,
+    "production": false,
+    "global_taxonomy": false,
+    "profitability_claim": false
+  }
+}

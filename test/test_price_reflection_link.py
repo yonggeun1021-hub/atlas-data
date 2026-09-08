@@ -71,6 +71,11 @@ class BuilderProducesSafeOutputTests(unittest.TestCase):
         result = link_price_reflection("005930", "KOREA", "2026-08-21")
         self.assertEqual(result["status"], "LINKED")
         self.assertEqual(result["reflection_status"], "UNKNOWN")
+        if result["data_state"] != "PRICE_DATA_MISSING":
+            self.assertEqual(result["price_captured_at"], result["price_as_of"])
+            self.assertLessEqual(
+                result["price_observation_date"], result["decision_date"]
+            )
 
     def test_unsupported_subject_returns_honest_status_not_a_crash(self):
         result = link_price_reflection("AAVE/USD", "CRYPTO", "2026-08-22")
@@ -83,6 +88,7 @@ class BuilderProducesSafeOutputTests(unittest.TestCase):
         allowed = {
             "status", "subject", "decision_date", "price_state", "reflection_status",
             "data_state", "threshold_basis", "price_as_of", "reasons",
+            "price_observation_date", "price_captured_at",
             "contract_version", "packet_sha256",
         }
         self.assertTrue(set(status).issubset(allowed))

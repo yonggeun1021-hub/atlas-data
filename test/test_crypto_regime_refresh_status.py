@@ -96,6 +96,23 @@ class CryptoRegimeRefreshStatusTest(unittest.TestCase):
             selected = MODULE._select_official_decision(Path(raw))
         self.assertEqual(selected, (None, None, "OFFICIAL_DECISION_NOT_FOUND"))
 
+    def test_historical_component_registry_derivation_gap_is_explicit_wait(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = root / "evidence" / "crypto_paper_decision" / "2026-09-07" / "1235" / ("0" * 64) / "packet.json"
+            target.parent.mkdir(parents=True)
+            target.write_text("{}\n", encoding="utf-8")
+            mismatch = MODULE.DECISION.CryptoPaperDecisionSnapshotError(
+                "REGIME_COMPONENT_REGISTRY_INVALID:REGISTRY_DERIVATION_MISMATCH"
+            )
+            with mock.patch.object(
+                MODULE.DECISION, "validate_output", side_effect=mismatch
+            ):
+                selected = MODULE._select_official_decision(root)
+        self.assertEqual(
+            selected, (None, None, "OFFICIAL_DECISION_REFRESH_REQUIRED")
+        )
+
     def test_malformed_official_decision_is_not_hidden_as_wait(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

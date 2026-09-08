@@ -1,0 +1,1070 @@
+{
+  "authority": {
+    "broker_submission_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exit_action_authorized": false,
+    "holding_action_authorized": false,
+    "market_regime_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "korea_symbol_market_review/1",
+  "five_axis": {
+    "aggregate_regime": "UNKNOWN",
+    "final_policy": "PENDING_POLICY_RATIFICATION",
+    "market_facts": {
+      "advancing_count": 1750,
+      "declining_count": 745,
+      "kosdaq_one_session_return_pct": "2.947318",
+      "kospi_one_session_return_pct": "1.637363",
+      "mean_absolute_move_pct": "2.022250",
+      "strongest_observed_sectors": [
+        {
+          "market": "KOSDAQ",
+          "relative_return_vs_benchmark_pct": "2.262793",
+          "sector_name": "기계·장비",
+          "sector_return_pct": "5.210111"
+        },
+        {
+          "market": "KOSPI",
+          "relative_return_vs_benchmark_pct": "2.219529",
+          "sector_name": "의료·정밀기기",
+          "sector_return_pct": "3.856892"
+        },
+        {
+          "market": "KOSPI",
+          "relative_return_vs_benchmark_pct": "1.016882",
+          "sector_name": "IT 서비스",
+          "sector_return_pct": "2.654245"
+        }
+      ],
+      "trading_value_change_pct": "-9.871627"
+    },
+    "observed_axes": [
+      "TREND",
+      "BREADTH",
+      "RISK_VOL",
+      "LIQUIDITY",
+      "LEADERSHIP"
+    ],
+    "observed_count": 5,
+    "ratio": "5/5",
+    "required_count": 5
+  },
+  "generated_at": "2026-09-07T09:25:52Z",
+  "mode": "CURRENT_OBSERVATION_REVIEW_ONLY",
+  "operational_date_kst": "2026-09-04",
+  "packet_sha256": "4d29c57a3210a1000057d8c99289af0961ae603c5db6c87089b73fe5294cc3fc",
+  "schema_version": "korea_symbol_market_review_packet/1",
+  "source": {
+    "contract": {
+      "authority": {
+        "broker_submission_authorized": false,
+        "entry_eligibility_authorized": false,
+        "exit_action_authorized": false,
+        "holding_action_authorized": false,
+        "market_regime_authorized": false,
+        "order_authorized": false,
+        "production_authorized": false,
+        "real_capital_authorized": false,
+        "trading_authorized": false
+      },
+      "contract_version": "korea_symbol_market_review/1",
+      "entry_policy": {
+        "automatic_entry_generated": false,
+        "observed_price_state": "WAIT"
+      },
+      "exit_policy": {
+        "automatic_exit_generated": false,
+        "state_without_account_position": "NOT_APPLICABLE_NO_POSITION_CONTEXT"
+      },
+      "holding_policy": {
+        "automatic_holding_action_generated": false,
+        "state_without_account_position": "NOT_POSITION_AWARE"
+      },
+      "mode": "CURRENT_OBSERVATION_REVIEW_ONLY",
+      "output_schema_version": "korea_symbol_market_review_packet/1",
+      "required_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "LEADERSHIP"
+      ],
+      "schema_version": 1,
+      "supported_pipeline_subjects": [
+        "012450",
+        "298040",
+        "329180"
+      ]
+    },
+    "market_observation": {
+      "as_of_date": "2026-09-04",
+      "authority": {
+        "action_authorized": false,
+        "axis_evidence_binding_only": true,
+        "buy_authorized": false,
+        "confidence_authorized": false,
+        "direction_authorized": false,
+        "market_ranking_authorized": false,
+        "observation_only": true,
+        "order_authorized": false,
+        "production_authorized": false,
+        "regime_interpretation_authorized": false,
+        "stage_authorized": false,
+        "strategy_authorized": false,
+        "threshold_authorized": false,
+        "trading_authorized": false,
+        "weight_authorized": false
+      },
+      "available_at": "2026-09-07T09:25:52Z",
+      "axes": {
+        "BREADTH": {
+          "measurement": {
+            "combined": {
+              "advance_fraction": "0.633140",
+              "advancing_count": 1750,
+              "decline_fraction": "0.269537",
+              "declining_count": 745,
+              "paired_count": 2764,
+              "unchanged_count": 269
+            },
+            "markets": {
+              "KOSDAQ": {
+                "advance_fraction": "0.659528",
+                "advancing_count": 1201,
+                "decline_fraction": "0.239429",
+                "declining_count": 436,
+                "paired_count": 1821,
+                "unchanged_count": 184
+              },
+              "KOSPI": {
+                "advance_fraction": "0.582185",
+                "advancing_count": 549,
+                "decline_fraction": "0.327678",
+                "declining_count": 309,
+                "paired_count": 943,
+                "unchanged_count": 85
+              }
+            }
+          },
+          "status": "OBSERVED"
+        },
+        "LEADERSHIP": {
+          "measurement": {
+            "coverage": {
+              "KOSDAQ": {
+                "observed_sector_count": 22,
+                "ratified_identity_count": 23
+              },
+              "KOSPI": {
+                "observed_sector_count": 24,
+                "ratified_identity_count": 25
+              }
+            },
+            "investment_ranking_authorized": false,
+            "largest_relative_returns": [
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "2.262793",
+                "sector_name": "기계·장비",
+                "sector_return_pct": "5.210111"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "2.219529",
+                "sector_name": "의료·정밀기기",
+                "sector_return_pct": "3.856892"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "1.016882",
+                "sector_name": "IT 서비스",
+                "sector_return_pct": "2.654245"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "0.802162",
+                "sector_name": "전기전자",
+                "sector_return_pct": "2.439525"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "0.577360",
+                "sector_name": "IT 서비스",
+                "sector_return_pct": "3.524678"
+              }
+            ],
+            "observations": [
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "0.577360",
+                "sector_name": "IT 서비스",
+                "sector_return_pct": "3.524678"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-0.801337",
+                "sector_name": "건설",
+                "sector_return_pct": "2.145981"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-0.930489",
+                "sector_name": "금속",
+                "sector_return_pct": "2.016829"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-1.154024",
+                "sector_name": "금융",
+                "sector_return_pct": "1.793294"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "2.262793",
+                "sector_name": "기계·장비",
+                "sector_return_pct": "5.210111"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-2.300412",
+                "sector_name": "기타제조",
+                "sector_return_pct": "0.646906"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-0.590720",
+                "sector_name": "비금속",
+                "sector_return_pct": "2.356598"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-3.435804",
+                "sector_name": "섬유·의류",
+                "sector_return_pct": "-0.488486"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-0.513167",
+                "sector_name": "오락·문화",
+                "sector_return_pct": "2.434151"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-1.928262",
+                "sector_name": "운송·창고",
+                "sector_return_pct": "1.019056"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "0.064625",
+                "sector_name": "운송장비·부품",
+                "sector_return_pct": "3.011943"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-1.464306",
+                "sector_name": "유통",
+                "sector_return_pct": "1.483012"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-2.500227",
+                "sector_name": "음식료·담배",
+                "sector_return_pct": "0.447091"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-0.625945",
+                "sector_name": "의료·정밀기기",
+                "sector_return_pct": "2.321373"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-0.388809",
+                "sector_name": "일반서비스",
+                "sector_return_pct": "2.558509"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-0.403348",
+                "sector_name": "전기전자",
+                "sector_return_pct": "2.543970"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-0.903453",
+                "sector_name": "제약",
+                "sector_return_pct": "2.043865"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "0.213184",
+                "sector_name": "제조",
+                "sector_return_pct": "3.160502"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-2.671711",
+                "sector_name": "종이·목재",
+                "sector_return_pct": "0.275607"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "0.266167",
+                "sector_name": "출판·매체복제",
+                "sector_return_pct": "3.213485"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-2.603997",
+                "sector_name": "통신",
+                "sector_return_pct": "0.343321"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-0.184048",
+                "sector_name": "화학",
+                "sector_return_pct": "2.763270"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "1.016882",
+                "sector_name": "IT 서비스",
+                "sector_return_pct": "2.654245"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-0.899653",
+                "sector_name": "건설",
+                "sector_return_pct": "0.737710"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-2.347371",
+                "sector_name": "금속",
+                "sector_return_pct": "-0.710008"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-1.082479",
+                "sector_name": "금융",
+                "sector_return_pct": "0.554884"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "0.569964",
+                "sector_name": "기계·장비",
+                "sector_return_pct": "2.207327"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-5.099837",
+                "sector_name": "보험",
+                "sector_return_pct": "-3.462474"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-1.137941",
+                "sector_name": "부동산",
+                "sector_return_pct": "0.499422"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-1.869717",
+                "sector_name": "비금속",
+                "sector_return_pct": "-0.232354"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-1.130576",
+                "sector_name": "섬유·의류",
+                "sector_return_pct": "0.506787"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-0.306338",
+                "sector_name": "오락·문화",
+                "sector_return_pct": "1.331025"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-0.665216",
+                "sector_name": "운송·창고",
+                "sector_return_pct": "0.972147"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-1.553688",
+                "sector_name": "운송장비·부품",
+                "sector_return_pct": "0.083675"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-2.362524",
+                "sector_name": "유통",
+                "sector_return_pct": "-0.725161"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-2.567849",
+                "sector_name": "음식료·담배",
+                "sector_return_pct": "-0.930486"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "2.219529",
+                "sector_name": "의료·정밀기기",
+                "sector_return_pct": "3.856892"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-1.013775",
+                "sector_name": "일반서비스",
+                "sector_return_pct": "0.623588"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-3.115419",
+                "sector_name": "전기·가스",
+                "sector_return_pct": "-1.478056"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "0.802162",
+                "sector_name": "전기전자",
+                "sector_return_pct": "2.439525"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-2.259619",
+                "sector_name": "제약",
+                "sector_return_pct": "-0.622256"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "0.291136",
+                "sector_name": "제조",
+                "sector_return_pct": "1.928499"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-0.728967",
+                "sector_name": "종이·목재",
+                "sector_return_pct": "0.908396"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "0.237202",
+                "sector_name": "증권",
+                "sector_return_pct": "1.874565"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "0.538896",
+                "sector_name": "통신",
+                "sector_return_pct": "2.176259"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-0.929896",
+                "sector_name": "화학",
+                "sector_return_pct": "0.707467"
+              }
+            ],
+            "smallest_relative_returns": [
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-5.099837",
+                "sector_name": "보험",
+                "sector_return_pct": "-3.462474"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-3.435804",
+                "sector_name": "섬유·의류",
+                "sector_return_pct": "-0.488486"
+              },
+              {
+                "market": "KOSPI",
+                "relative_return_vs_benchmark_pct": "-3.115419",
+                "sector_name": "전기·가스",
+                "sector_return_pct": "-1.478056"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-2.671711",
+                "sector_name": "종이·목재",
+                "sector_return_pct": "0.275607"
+              },
+              {
+                "market": "KOSDAQ",
+                "relative_return_vs_benchmark_pct": "-2.603997",
+                "sector_name": "통신",
+                "sector_return_pct": "0.343321"
+              }
+            ]
+          },
+          "status": "OBSERVED"
+        },
+        "LIQUIDITY": {
+          "measurement": {
+            "combined": {
+              "current_trading_value_krw": "24419148787101",
+              "current_turnover_pct": "0.408726",
+              "previous_trading_value_krw": "27093741876441",
+              "previous_turnover_pct": "0.461736",
+              "trading_value_change_pct": "-9.871627"
+            },
+            "markets": {
+              "KOSDAQ": {
+                "current_trading_value_krw": "6695498942504",
+                "current_turnover_pct": "1.465965",
+                "previous_trading_value_krw": "4928732297315",
+                "previous_turnover_pct": "1.114701",
+                "trading_value_change_pct": "35.846269"
+              },
+              "KOSPI": {
+                "current_trading_value_krw": "17723649844597",
+                "current_turnover_pct": "0.321213",
+                "previous_trading_value_krw": "22165009579126",
+                "previous_turnover_pct": "0.408523",
+                "trading_value_change_pct": "-20.037707"
+              }
+            }
+          },
+          "status": "OBSERVED"
+        },
+        "RISK_VOL": {
+          "measurement": {
+            "combined_mean_absolute_stock_move_pct": "2.022250",
+            "markets": {
+              "KOSDAQ": {
+                "benchmark_absolute_move_pct": "2.947318",
+                "mean_absolute_stock_move_pct": "2.284627",
+                "stock_count": 1822
+              },
+              "KOSPI": {
+                "benchmark_absolute_move_pct": "1.637363",
+                "mean_absolute_stock_move_pct": "1.515302",
+                "stock_count": 943
+              }
+            }
+          },
+          "status": "OBSERVED"
+        },
+        "TREND": {
+          "measurement": {
+            "benchmarks": {
+              "KOSDAQ": {
+                "name": "코스닥",
+                "one_session_return_pct": "2.947318"
+              },
+              "KOSPI": {
+                "name": "코스피",
+                "one_session_return_pct": "1.637363"
+              }
+            }
+          },
+          "status": "OBSERVED"
+        }
+      },
+      "contract_version": "korea_market_signals/1",
+      "coverage": {
+        "observed_axes": [
+          "TREND",
+          "BREADTH",
+          "RISK_VOL",
+          "LIQUIDITY",
+          "LEADERSHIP"
+        ],
+        "observed_count": 5,
+        "ratio": "5/5",
+        "required_axes": [
+          "TREND",
+          "BREADTH",
+          "RISK_VOL",
+          "LIQUIDITY",
+          "LEADERSHIP"
+        ],
+        "required_count": 5
+      },
+      "generated_at": "2026-09-07T09:25:52Z",
+      "market": "KOREA",
+      "market_timezone": "Asia/Seoul",
+      "payload_sha256": "16a7b77ffdf8b6851e4f9134da17f1a236853a38d5bad07522f5942efa0e1b5e",
+      "previous_date": "2026-09-03",
+      "schema_version": "korea_market_signals_observation/1",
+      "source": {
+        "name": "KRX_OPEN_API_STOCK_AND_INDEX_DAILY",
+        "per_symbol_persistence": 0,
+        "raw_persistence": 0,
+        "requests": {
+          "index": {
+            "KOSDAQ": {
+              "current_fetched_at_utc": "2026-09-07T09:25:48Z",
+              "current_response_sha256": "fc501edb068c560dd6d1093e1b159e328135f55a7bb11cd6d7ba1e72bec5a765",
+              "endpoint": "https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd",
+              "previous_fetched_at_utc": "2026-09-07T09:25:52Z",
+              "previous_response_sha256": "dc3109296d8f243cf85579584366bd9c8190a7635992993175d170eb4b7d5636"
+            },
+            "KOSPI": {
+              "current_fetched_at_utc": "2026-09-07T09:25:48Z",
+              "current_response_sha256": "dddd56b4bf5710fe4e730ae195e9554149962259dd5944e64e621ea13dbbb8a3",
+              "endpoint": "https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd",
+              "previous_fetched_at_utc": "2026-09-07T09:25:52Z",
+              "previous_response_sha256": "2060d7607a1474067baf9ac39bc310161fa37de3e9681788c7ad0d6fc57edabe"
+            }
+          },
+          "stock": {
+            "KOSDAQ": {
+              "current_fetched_at_utc": "2026-09-07T09:25:48Z",
+              "current_response_sha256": "e2bfdb2515923ab625c18ad425b2c7692be65fcc89c5ea9e03f176f417266643",
+              "endpoint": "https://data-dbg.krx.co.kr/svc/apis/sto/ksq_bydd_trd",
+              "previous_fetched_at_utc": "2026-09-07T09:25:51Z",
+              "previous_response_sha256": "4e1a42aa04948452d7a7e90637bddbd2ab963506cda9f5c1f83671215b3fa48b"
+            },
+            "KOSPI": {
+              "current_fetched_at_utc": "2026-09-07T09:25:45Z",
+              "current_response_sha256": "85d9a3d7399b1a633d34170f86177c9a9004a712011c9afad77da5bdddfa1f6b",
+              "endpoint": "https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd",
+              "previous_fetched_at_utc": "2026-09-07T09:25:50Z",
+              "previous_response_sha256": "f1a9a30b2f96e333c3792021d72e86ffa14963f7cc460ac23b52cccf5b46cf0e"
+            }
+          }
+        },
+        "tier": "Official"
+      },
+      "status": "OBSERVED_UNCLASSIFIED"
+    },
+    "stage_history_sha256": "a607ee19263b087cbd230ecae69f606183b5894de8c8aed08ed3353978a37460",
+    "stage_snapshot": {
+      "as_of": "2026-09-07",
+      "subjects": {
+        "012450": {
+          "atlas_stage": "Discovery",
+          "confirmed_metrics": {
+            "history_basis": "confirmed_only",
+            "reason": null,
+            "sma20": 1115550.0,
+            "sma20_basis": 20,
+            "sma20_through": "2026-09-04",
+            "status": "ok"
+          },
+          "decision_readiness": {
+            "confirmed_through": "2026-09-04",
+            "same_day_confirmation": "next_day"
+          },
+          "generation": {
+            "generation_basis_at_utc": "2026-09-06T21:00:46+00:00",
+            "generation_contract_version": 1,
+            "generation_id": "f821eaf8983b4a34a6f87816d8bb70b88d819cfb51a68d8295ddeeb2a5434dd0"
+          },
+          "investor_data_completeness": {
+            "complete": true,
+            "investor_rows_missing": [],
+            "investor_rows_missing_by_source": {},
+            "missing_investors": [],
+            "reason": "no_missing_investor_data",
+            "status": "complete"
+          },
+          "latest_confirmed_day": "2026-09-04",
+          "latest_confirmed_row": {
+            "change_pct": 0.7640878701050621,
+            "close": 1055000,
+            "confirm_reason": "prior_session",
+            "confirmed": true,
+            "high": 1067000,
+            "investor_rows_absent": [],
+            "low": 1036000,
+            "net_value": {
+              "개인": 1163282500,
+              "기관합계": 10823314000,
+              "기타법인": 14122000,
+              "외국인합계": -12000718500
+            },
+            "net_value_detail": {
+              "개인": 1163282500,
+              "금융투자": 9376224500,
+              "기타금융": 26098000,
+              "기타법인": 14122000,
+              "기타외국인": 153732000,
+              "보험": 160991500,
+              "사모": 2669861500,
+              "연기금": -625900500,
+              "외국인": -12154450500,
+              "은행": 0,
+              "투신": -783961000
+            },
+            "net_volume": {
+              "개인": 1148,
+              "기관합계": 10268,
+              "기타법인": 14,
+              "외국인합계": -11430
+            },
+            "net_volume_detail": {
+              "개인": 1148,
+              "금융투자": 8922,
+              "기타금융": 25,
+              "기타법인": 14,
+              "기타외국인": 147,
+              "보험": 153,
+              "사모": 2531,
+              "연기금": -611,
+              "외국인": -11577,
+              "은행": 0,
+              "투신": -752
+            },
+            "observed_at_kst": "2026-09-07T06:00:22+09:00",
+            "open": 1057000,
+            "volume": 62321
+          },
+          "market": "KRX",
+          "name": "한화에어로스페이스",
+          "schema_version": 2,
+          "source": {
+            "collected_at_utc": "2026-09-06T21:00:05+00:00",
+            "collected_for_kst_date": "2026-09-07",
+            "source_file": "data/latest_krx.json",
+            "source_sha256": "dd4619978ce54d2d122e1bde6b228d512f09bfdd77cd1c9c692f797d4b527bec"
+          },
+          "status": "ok",
+          "symbol": "012450"
+        },
+        "298040": {
+          "atlas_stage": "Candidate",
+          "confirmed_metrics": {
+            "history_basis": "confirmed_only",
+            "reason": null,
+            "sma20": 2880350.0,
+            "sma20_basis": 20,
+            "sma20_through": "2026-09-04",
+            "status": "ok"
+          },
+          "decision_readiness": {
+            "confirmed_through": "2026-09-04",
+            "same_day_confirmation": "next_day"
+          },
+          "generation": {
+            "generation_basis_at_utc": "2026-09-06T21:00:46+00:00",
+            "generation_contract_version": 1,
+            "generation_id": "f821eaf8983b4a34a6f87816d8bb70b88d819cfb51a68d8295ddeeb2a5434dd0"
+          },
+          "investor_data_completeness": {
+            "complete": true,
+            "investor_rows_missing": [],
+            "investor_rows_missing_by_source": {},
+            "missing_investors": [],
+            "reason": "no_missing_investor_data",
+            "status": "complete"
+          },
+          "latest_confirmed_day": "2026-09-04",
+          "latest_confirmed_row": {
+            "change_pct": 0.25688073394495414,
+            "close": 2732000,
+            "confirm_reason": "prior_session",
+            "confirmed": true,
+            "high": 2788000,
+            "investor_rows_absent": [],
+            "low": 2687000,
+            "net_value": {
+              "개인": 13875946500,
+              "기관합계": 961966000,
+              "기타법인": -292448000,
+              "외국인합계": -14545464500
+            },
+            "net_value_detail": {
+              "개인": 13875946500,
+              "금융투자": 6477825500,
+              "기타금융": -414614000,
+              "기타법인": -292448000,
+              "기타외국인": -82340000,
+              "보험": 94218000,
+              "사모": -3091125500,
+              "연기금": -9332724500,
+              "외국인": -14463124500,
+              "은행": 0,
+              "투신": 7228386500
+            },
+            "net_volume": {
+              "개인": 5140,
+              "기관합계": 326,
+              "기타법인": -107,
+              "외국인합계": -5359
+            },
+            "net_volume_detail": {
+              "개인": 5140,
+              "금융투자": 2365,
+              "기타금융": -152,
+              "기타법인": -107,
+              "기타외국인": -30,
+              "보험": 34,
+              "사모": -1135,
+              "연기금": -3436,
+              "외국인": -5329,
+              "은행": 0,
+              "투신": 2650
+            },
+            "observed_at_kst": "2026-09-07T06:00:30+09:00",
+            "open": 2780000,
+            "volume": 37493
+          },
+          "market": "KRX",
+          "name": "효성중공업",
+          "schema_version": 2,
+          "source": {
+            "collected_at_utc": "2026-09-06T21:00:05+00:00",
+            "collected_for_kst_date": "2026-09-07",
+            "source_file": "data/latest_krx.json",
+            "source_sha256": "dd4619978ce54d2d122e1bde6b228d512f09bfdd77cd1c9c692f797d4b527bec"
+          },
+          "status": "ok",
+          "symbol": "298040"
+        },
+        "329180": {
+          "atlas_stage": "Discovery",
+          "confirmed_metrics": {
+            "history_basis": "confirmed_only",
+            "reason": null,
+            "sma20": 472125.0,
+            "sma20_basis": 20,
+            "sma20_through": "2026-09-04",
+            "status": "ok"
+          },
+          "decision_readiness": {
+            "confirmed_through": "2026-09-04",
+            "same_day_confirmation": "next_day"
+          },
+          "generation": {
+            "generation_basis_at_utc": "2026-09-06T21:00:46+00:00",
+            "generation_contract_version": 1,
+            "generation_id": "f821eaf8983b4a34a6f87816d8bb70b88d819cfb51a68d8295ddeeb2a5434dd0"
+          },
+          "investor_data_completeness": {
+            "complete": true,
+            "investor_rows_missing": [],
+            "investor_rows_missing_by_source": {},
+            "missing_investors": [],
+            "reason": "no_missing_investor_data",
+            "status": "complete"
+          },
+          "latest_confirmed_day": "2026-09-04",
+          "latest_confirmed_row": {
+            "change_pct": 0.3448275862068966,
+            "close": 436500,
+            "confirm_reason": "prior_session",
+            "confirmed": true,
+            "high": 443500,
+            "investor_rows_absent": [],
+            "low": 431000,
+            "net_value": {
+              "개인": 3076632000,
+              "기관합계": 8528878500,
+              "기타법인": 632035500,
+              "외국인합계": -12237546000
+            },
+            "net_value_detail": {
+              "개인": 3076632000,
+              "금융투자": 9605015750,
+              "기타금융": 3500,
+              "기타법인": 632035500,
+              "기타외국인": 23158500,
+              "보험": 1528500,
+              "사모": 3273256750,
+              "연기금": -3044880000,
+              "외국인": -12260704500,
+              "은행": 0,
+              "투신": -1306046000
+            },
+            "net_volume": {
+              "개인": 7155,
+              "기관합계": 19472,
+              "기타법인": 1441,
+              "외국인합계": -28068
+            },
+            "net_volume_detail": {
+              "개인": 7155,
+              "금융투자": 22006,
+              "기타금융": 0,
+              "기타법인": 1441,
+              "기타외국인": 53,
+              "보험": 4,
+              "사모": 7507,
+              "연기금": -7035,
+              "외국인": -28121,
+              "은행": 0,
+              "투신": -3010
+            },
+            "observed_at_kst": "2026-09-07T06:00:28+09:00",
+            "open": 435000,
+            "volume": 185290
+          },
+          "market": "KRX",
+          "name": "HD현대중공업",
+          "schema_version": 2,
+          "source": {
+            "collected_at_utc": "2026-09-06T21:00:05+00:00",
+            "collected_for_kst_date": "2026-09-07",
+            "source_file": "data/latest_krx.json",
+            "source_sha256": "dd4619978ce54d2d122e1bde6b228d512f09bfdd77cd1c9c692f797d4b527bec"
+          },
+          "status": "ok",
+          "symbol": "329180"
+        }
+      }
+    }
+  },
+  "source_market_packet_sha256": "16a7b77ffdf8b6851e4f9134da17f1a236853a38d5bad07522f5942efa0e1b5e",
+  "source_stage_history_sha256": "a607ee19263b087cbd230ecae69f606183b5894de8c8aed08ed3353978a37460",
+  "summary": {
+    "automatic_entry_count": 0,
+    "automatic_exit_count": 0,
+    "entry_wait_count": 3,
+    "flow_connected_count": 3,
+    "price_connected_count": 3,
+    "symbol_count": 3
+  },
+  "symbols": [
+    {
+      "entry_review": {
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "KOREA_FIVE_MARKET_AXES_CONNECTED",
+          "CONFIRMED_PRICE_SMA20_AND_INVESTOR_FLOW_CONNECTED",
+          "FINAL_KOREA_REGIME_POLICY_PENDING",
+          "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY"
+        ],
+        "state": "WAIT"
+      },
+      "exit_review": {
+        "automatic_exit_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_APPLICABLE_NO_POSITION_CONTEXT"
+      },
+      "flow_context": {
+        "foreign_net_value_krw": -12000718500,
+        "individual_net_value_krw": 1163282500,
+        "institution_net_value_krw": 10823314000
+      },
+      "holding_review": {
+        "automatic_holding_action_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_POSITION_AWARE"
+      },
+      "name": "한화에어로스페이스",
+      "observed_facts": [
+        "KOREA_FIVE_MARKET_AXES_CONNECTED",
+        "PRICE_BELOW_20_DAY_AVERAGE",
+        "INSTITUTION_NET_BUY_FOREIGN_NET_SELL"
+      ],
+      "pipeline_as_of": "2026-09-07",
+      "pipeline_stage": "Discovery",
+      "price_context": {
+        "as_of_session_date": "2026-09-04",
+        "close_krw": 1055000,
+        "distance_from_sma20_pct": "-5.4278",
+        "one_session_return_pct": "0.7641",
+        "sma20_krw": "1115550",
+        "status": "OBSERVED_CONFIRMED",
+        "volume": 62321
+      },
+      "symbol": "012450"
+    },
+    {
+      "entry_review": {
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "KOREA_FIVE_MARKET_AXES_CONNECTED",
+          "CONFIRMED_PRICE_SMA20_AND_INVESTOR_FLOW_CONNECTED",
+          "FINAL_KOREA_REGIME_POLICY_PENDING",
+          "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY"
+        ],
+        "state": "WAIT"
+      },
+      "exit_review": {
+        "automatic_exit_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_APPLICABLE_NO_POSITION_CONTEXT"
+      },
+      "flow_context": {
+        "foreign_net_value_krw": -14545464500,
+        "individual_net_value_krw": 13875946500,
+        "institution_net_value_krw": 961966000
+      },
+      "holding_review": {
+        "automatic_holding_action_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_POSITION_AWARE"
+      },
+      "name": "효성중공업",
+      "observed_facts": [
+        "KOREA_FIVE_MARKET_AXES_CONNECTED",
+        "PRICE_BELOW_20_DAY_AVERAGE",
+        "INSTITUTION_NET_BUY_FOREIGN_NET_SELL"
+      ],
+      "pipeline_as_of": "2026-09-07",
+      "pipeline_stage": "Candidate",
+      "price_context": {
+        "as_of_session_date": "2026-09-04",
+        "close_krw": 2732000,
+        "distance_from_sma20_pct": "-5.1504",
+        "one_session_return_pct": "0.2569",
+        "sma20_krw": "2880350",
+        "status": "OBSERVED_CONFIRMED",
+        "volume": 37493
+      },
+      "symbol": "298040"
+    },
+    {
+      "entry_review": {
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "KOREA_FIVE_MARKET_AXES_CONNECTED",
+          "CONFIRMED_PRICE_SMA20_AND_INVESTOR_FLOW_CONNECTED",
+          "FINAL_KOREA_REGIME_POLICY_PENDING",
+          "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY"
+        ],
+        "state": "WAIT"
+      },
+      "exit_review": {
+        "automatic_exit_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_APPLICABLE_NO_POSITION_CONTEXT"
+      },
+      "flow_context": {
+        "foreign_net_value_krw": -12237546000,
+        "individual_net_value_krw": 3076632000,
+        "institution_net_value_krw": 8528878500
+      },
+      "holding_review": {
+        "automatic_holding_action_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_POSITION_AWARE"
+      },
+      "name": "HD현대중공업",
+      "observed_facts": [
+        "KOREA_FIVE_MARKET_AXES_CONNECTED",
+        "PRICE_BELOW_20_DAY_AVERAGE",
+        "INSTITUTION_NET_BUY_FOREIGN_NET_SELL"
+      ],
+      "pipeline_as_of": "2026-09-07",
+      "pipeline_stage": "Discovery",
+      "price_context": {
+        "as_of_session_date": "2026-09-04",
+        "close_krw": 436500,
+        "distance_from_sma20_pct": "-7.5457",
+        "one_session_return_pct": "0.3448",
+        "sma20_krw": "472125",
+        "status": "OBSERVED_CONFIRMED",
+        "volume": 185290
+      },
+      "symbol": "329180"
+    }
+  ]
+}

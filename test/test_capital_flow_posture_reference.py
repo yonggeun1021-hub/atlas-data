@@ -343,11 +343,46 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
     # ---- consumption ------------------------------------------------------
 
     def test_recorded_transition_and_persistence_are_consumed_not_discarded(self):
-        packet = MODULE.build_reference(self.root)
+        """A consumed observation is proved by causing it, not by assuming it.
+
+        The canonical KR source moves, so the semantic state a fresh packet
+        describes is *not* guaranteed to be one the ratified chain has already
+        recorded -- and a fixture that assumed it was would fail the moment the
+        market genuinely changed.  This test therefore establishes the exact
+        state it asserts on: one real NATURAL observation of that state is
+        appended through P2-COM-03 itself, the fixture clock steps past it so
+        it becomes prior history rather than this packet's own self
+        observation, and every count is then grounded in the entries actually
+        retained plus the verified predecessor projection -- never read back
+        out of the producer's own output.
+        """
+        # cause: exactly one NATURAL observation of this packet's own state.
+        # `appended` was built from the chain as it stood *before* that append,
+        # so its persistence is the honest "before" measurement.
+        appended, ledger = self._append("NATURAL")
+        before = appended["flow_candidates"]["persistence"]
+        semantic_sha = appended["flow_candidates"]["transition"][
+            "current_semantic_state_sha256"
+        ]
+        entry = ledger["entries"][-1]
+        self.assertEqual(entry["observation_mode"], "NATURAL")
+        self.assertIs(entry["counts_toward_persistence"], True)
+        self.assertEqual(entry["current_semantic_state_sha256"], semantic_sha)
+        self.assertEqual(entry["observed_at"], appended["generated_at"])
+        self.assertIsInstance(before["observation_count"], int)
+
+        # effect: step past that entry so it is prior history, then read it back
+        packet = self._advance_past_ledger()
         recorded, head = self._assert_self_observation_excluded(packet)
-        self.assertTrue(recorded, "fixture must retain consumable prior history")
+        self.assertTrue(recorded, "the appended observation must be retained")
+        self.assertEqual(head["entry_sha256"], entry["entry_sha256"])
         transition = packet["flow_candidates"]["transition"]
         persistence = packet["flow_candidates"]["persistence"]
+        self.assertEqual(
+            transition["current_semantic_state_sha256"],
+            semantic_sha,
+            "fixture must hold the semantic state while the clock moves",
+        )
 
         self.assertEqual(transition["status"], "RECORDED_HISTORY_OBSERVED")
         self.assertEqual(transition["evidence_status"], "LEDGER_CONSUMED")
@@ -372,13 +407,158 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
             transition["pending_type"],
             LEDGER._transition_type(head["current_state"], state),
         )
-        # the canonical chain has already observed this exact UNKNOWN state, so
-        # the count that used to be null is now a real observed number
-        self.assertIsInstance(persistence["observation_count"], int)
+        # the observation we caused is of this same state, so the head is it
+        self.assertIs(transition["state_matches_recorded_head"], True)
+        self.assertEqual(transition["pending_type"], "UNCHANGED")
+
+        # the count is exactly the retained history for this state: the
+        # verified predecessor tally plus the entries that actually carry it,
+        # one of which is the observation this test caused
+        matching = [
+            item for item in recorded
+            if item["current_semantic_state_sha256"] == semantic_sha
+        ]
+        self.assertIn(
+            entry["entry_sha256"], [item["entry_sha256"] for item in matching]
+        )
+        prior = self.predecessor["state_tally"].get(semantic_sha)
+        prior_total = 0 if prior is None else prior["observation_count_total"]
+        prior_natural = 0 if prior is None else prior["natural_count_total"]
+        self.assertEqual(
+            persistence["observation_count"], prior_total + len(matching)
+        )
+        self.assertEqual(
+            persistence["natural_observation_count"],
+            prior_natural
+            + sum(item["observation_mode"] == "NATURAL" for item in matching),
+        )
+        # and it moved by exactly the one observation that was appended
+        self.assertEqual(
+            persistence["observation_count"], before["observation_count"] + 1
+        )
+        self.assertEqual(
+            persistence["natural_observation_count"],
+            before["natural_observation_count"] + 1,
+        )
         self.assertGreaterEqual(persistence["observation_count"], 1)
+
+        # first_seen is a real recorded instant, and never this packet's own
+        self.assertEqual(
+            persistence["first_seen"],
+            prior["first_seen"] if prior is not None else matching[0]["observed_at"],
+        )
         self.assertIsNotNone(persistence["first_seen"])
+        self.assertNotEqual(persistence["first_seen"], packet["generated_at"])
+        # the streak is the head's, continued rather than recomputed here
+        self.assertEqual(
+            persistence["current_streak_observation_count"],
+            head["persistence"]["current_streak_observation_count"],
+        )
+        self.assertEqual(
+            persistence["current_streak_natural_count"],
+            head["persistence"]["current_streak_natural_count"],
+        )
+        self.assertIs(persistence["counts_current_packet"], False)
         self.assertEqual(persistence["status"],
                          "RECORDED_OBSERVATION_COUNT_CONFIRMATION_UNRATIFIED")
+
+    def test_a_new_semantic_state_is_zero_observations_over_consumed_history(self):
+        """The counterexample: an unobserved state is honestly zero.
+
+        Same consumed prior history as the test above, but the packet now
+        describes a state no entry has ever recorded.  Zero observations and a
+        null ``first_seen`` are the correct answer, and the recorded head must
+        still be consumed and still bind the transition.  This is what stops
+        the positive test from being satisfiable by a producer that simply
+        never reports zero -- and what makes ``>= 1`` there a statement about
+        caused history rather than a floor the producer must always clear.
+        """
+        # SYNTHETIC branch from the exact verified predecessor: isolate this
+        # counterexample from later rolling-ledger states, while retaining the
+        # immutable predecessor and constructing its own real forward append.
+        self._write_pointer(LEDGER.empty_ledger(
+            self.contract, self.predecessor,
+            root=self.root, contract_path=self.contract_path,
+        ))
+        appended, ledger = self._append("NATURAL")
+        entry = ledger["entries"][-1]
+        self.assertEqual(entry["observed_at"], appended["generated_at"])
+        # step past the appended entry first: only then is it prior history
+        # rather than a self observation, and only then can the synthetic
+        # state change below sit on top of genuinely consumed evidence
+        held = self._advance_past_ledger()
+        observed_before = self._observed_semantic_states(held)
+        self.assertIn(entry["current_semantic_state_sha256"], observed_before)
+
+        packet = self._synthetic_new_semantic_state(observed_before)
+        recorded, head = self._assert_self_observation_excluded(packet)
+        self.assertTrue(recorded, "prior history must still be consumable")
+        transition = packet["flow_candidates"]["transition"]
+        persistence = packet["flow_candidates"]["persistence"]
+        semantic_sha = transition["current_semantic_state_sha256"]
+
+        # genuinely unobserved: neither the predecessor projection nor any
+        # retained entry carries this state
+        self.assertNotIn(semantic_sha, observed_before)
+        self.assertNotIn(semantic_sha, self.predecessor["state_tally"])
+        self.assertEqual(
+            [item for item in recorded
+             if item["current_semantic_state_sha256"] == semantic_sha],
+            [],
+        )
+        state = LEDGER._current_state({
+            "status": packet["status"],
+            "cross_market_flow": packet["cross_market_flow"],
+        })
+        self.assertNotEqual(
+            LEDGER._semantic_state(state),
+            LEDGER._semantic_state(head["current_state"]),
+            "the counterexample must be a real state change, not a re-hash",
+        )
+
+        # zero, stated as a real count with a truthful null first_seen
+        self.assertEqual(persistence["observation_count"], 0)
+        self.assertEqual(persistence["natural_observation_count"], 0)
+        self.assertIsNone(persistence["first_seen"])
+        self.assertIsNone(persistence["confirmed_at"])
+        self.assertEqual(persistence["current_streak_observation_count"], 0)
+        self.assertEqual(persistence["current_streak_natural_count"], 0)
+        self.assertIs(persistence["counts_current_packet"], False)
+        self.assertEqual(persistence["status"],
+                         "RECORDED_OBSERVATION_COUNT_CONFIRMATION_UNRATIFIED")
+        self.assertEqual(
+            persistence["confirmation_status"], "NOT_COMPUTABLE_POLICY_UNRATIFIED"
+        )
+
+        # ...while the recorded history is still consumed, not discarded
+        self.assertEqual(head["entry_sha256"], entry["entry_sha256"])
+        self.assertEqual(transition["status"], "RECORDED_HISTORY_OBSERVED")
+        self.assertEqual(transition["evidence_status"], "LEDGER_CONSUMED")
+        self.assertEqual(
+            transition["recorded_type"], recorded[-1]["transition"]["type"]
+        )
+        self.assertEqual(
+            transition["previous_semantic_state_sha256"],
+            head["current_semantic_state_sha256"],
+        )
+        self.assertEqual(
+            transition["previous_semantic_state"],
+            LEDGER._semantic_state(head["current_state"]),
+        )
+        self.assertIs(transition["state_matches_recorded_head"], False)
+        self.assertEqual(
+            transition["pending_type"],
+            LEDGER._transition_type(head["current_state"], state),
+        )
+        self.assertNotEqual(transition["pending_type"], "UNCHANGED")
+        source = {
+            row["source_type"]: row for row in packet["sources"]
+        }["P2_COM_03_TRANSITION_LEDGER"]
+        self.assertEqual(source["chain_status"], "LEDGER_CONSUMED")
+        self.assertEqual(source["consumed_head_entry_sha256"], entry["entry_sha256"])
+        self.assertEqual(
+            source["consumed_head_ledger_revision"], entry["ledger_revision"]
+        )
 
     def test_consumed_ledger_identity_is_hash_bound_into_generation_id(self):
         packet = MODULE.build_reference(self.root)
@@ -514,6 +694,85 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
         )
         paper = MODULE.PAPER_REGIME.build_reference(self.root)
         MODULE.PAPER_REGIME.write_packet(paper, self.root)
+
+    # ---- synthetic state change (temp fixture only) -----------------------
+    #
+    # SYNTHETIC. These helpers rewrite only the temporary copy of the KR
+    # signals under `self.root`, and only the exact measurement fields
+    # `build_kr` reads. The real P1 producer is then re-run over them, so the
+    # resulting axis directions, score, relative-strength position and semantic
+    # state are all genuinely derived by the shipped code. Nothing is pasted
+    # into an output packet, no validator is bypassed, and the repository's own
+    # `data/latest_korea_market_signals.json` is never written.
+
+    # (TREND return, BREADTH fraction, LIQUIDITY change, sector return, RISK move)
+    # Two opposite directions, because which one is *new* depends on where the
+    # real KR score currently sits against the other comparable market -- a
+    # fixture may not assume that either.
+    SYNTHETIC_KR_DIRECTIONS = (
+        ("-9.500000", "0.000000", "-99.000000", "-5.000000", "3.000000"),
+        ("9.500000", "1.000000", "500.000000", "5.000000", "0.500000"),
+    )
+
+    def _observed_semantic_states(self, packet: dict) -> set:
+        """Every semantic state the consumable chain has actually recorded."""
+        recorded, _head = self._consumable(packet)
+        return set(self.predecessor["state_tally"]) | {
+            item["current_semantic_state_sha256"] for item in recorded
+        }
+
+    def _push_synthetic_kr_axes(self, original: bytes, direction: tuple) -> dict:
+        """SYNTHETIC: push every KR axis one way and re-derive P1, then P2."""
+        trend, breadth, liquidity, sector, risk_move = direction
+        path = self.root / "data" / "latest_korea_market_signals.json"
+        value = json.loads(original.decode("utf-8"))
+        # SYNTHETIC comparison date alignment only in this temp fixture;
+        # real source dates and all production PIT rules remain untouched.
+        paper_before = MODULE.PAPER_REGIME.build_reference(self.root)
+        value["as_of_date"] = next(
+            row["as_of_date"] for row in paper_before["markets"]
+            if row["market"] == "US"
+        )
+        axes = value["axes"]
+        axes["RISK_VOL"]["measurement"][
+            "combined_mean_absolute_stock_move_pct"
+        ] = risk_move
+        for name in ("KOSPI", "KOSDAQ"):
+            axes["TREND"]["measurement"]["benchmarks"][name][
+                "one_session_return_pct"
+            ] = trend
+        axes["BREADTH"]["measurement"]["combined"]["advance_fraction"] = breadth
+        axes["LIQUIDITY"]["measurement"]["combined"][
+            "trading_value_change_pct"
+        ] = liquidity
+        for row in axes["LEADERSHIP"]["measurement"]["observations"]:
+            row["sector_return_pct"] = sector
+        path.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        # acquisition `generated_at` is untouched, so the
+        # fixture clock stays where it was and the prior entry stays prior
+        paper = MODULE.PAPER_REGIME.build_reference(self.root)
+        MODULE.PAPER_REGIME.write_packet(paper, self.root)
+        return MODULE.build_reference(self.root)
+
+    def _synthetic_new_semantic_state(self, observed: set) -> dict:
+        """SYNTHETIC: a packet whose state the chain has genuinely never seen."""
+        path = self.root / "data" / "latest_korea_market_signals.json"
+        original = path.read_bytes()
+        for direction in self.SYNTHETIC_KR_DIRECTIONS:
+            packet = self._push_synthetic_kr_axes(original, direction)
+            sha = packet["flow_candidates"]["transition"][
+                "current_semantic_state_sha256"
+            ]
+            if sha not in observed:
+                return packet
+        path.write_bytes(original)
+        self.fail(
+            "every reachable synthetic KR state is already on the chain, so no "
+            "unobserved-state counterexample can be built from this fixture"
+        )
 
     # ---- determinism ------------------------------------------------------
 

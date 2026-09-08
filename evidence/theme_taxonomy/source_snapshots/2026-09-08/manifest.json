@@ -1,0 +1,178 @@
+{
+  "schema_version": "kr_theme_public_source_capture/1",
+  "capture_scope": "KR_INTERNAL_PAPER_TWO_COMMON_STOCKS_ONLY",
+  "capture_date_kst": "2026-09-08",
+  "retrieval_batch_completed_recorded_at_utc": "2026-09-07T15:20:07Z",
+  "retrieval_batch_completed_recorded_at_kst": "2026-09-08T00:20:07+09:00",
+  "source_count": 3,
+  "sources": [
+    {
+      "source_id": "krx_kospi_industrial_classification",
+      "publisher": "Korea Exchange",
+      "source_url": "https://global.krx.co.kr/contents/GLB/05/0502/0502010100/KOSPI%20Industrial%20Classfication.pdf",
+      "path": "evidence/theme_taxonomy/source_snapshots/2026-09-08/krx_kospi_industrial_classification.pdf",
+      "media_type": "application/pdf",
+      "byte_count": 29882,
+      "source_sha256": "2d984d96533fc67a44791e4205802ee02ad0398531892021080031af2eb158c2",
+      "verification": {
+        "page_count": 1,
+        "rendered_page_inspected": true,
+        "exact_semantic_observed": "Electrical & Electronic Equipment maps to Korean Standard Industrial Classification middle division 26",
+        "classification_match": true
+      }
+    },
+    {
+      "source_id": "krx_kind_samsung_005930_listing_notice",
+      "publisher": "Korea Exchange KIND",
+      "source_url": "https://kind.krx.co.kr/external/2026/04/09/000375/20260409000536/68155.htm",
+      "path": "evidence/theme_taxonomy/source_snapshots/2026-09-08/kind_samsung_005930.html",
+      "media_type": "text/html; charset=UTF-8",
+      "byte_count": 993,
+      "source_sha256": "917880a2c7dd64d0ebf5ee642c8da111a9f2b9c20bc88f950520df40794bf05b",
+      "verification": {
+        "security_type": "COMMON_STOCK",
+        "short_code": "A005930",
+        "standard_code": "KR7005930003",
+        "industry_code": "03-26-04",
+        "exact_fields_present": true
+      }
+    },
+    {
+      "source_id": "krx_kind_sk_hynix_000660_listing_notice",
+      "publisher": "Korea Exchange KIND",
+      "source_url": "https://kind.krx.co.kr/external/2026/02/13/000951/20260213002414/68155.htm",
+      "path": "evidence/theme_taxonomy/source_snapshots/2026-09-08/kind_sk_hynix_000660.html",
+      "media_type": "text/html; charset=UTF-8",
+      "byte_count": 803,
+      "source_sha256": "8d5010e83a7cd8ad5822ed8cafc23395677c682386a2f449f9a710ae22faedcf",
+      "verification": {
+        "security_type": "COMMON_STOCK",
+        "short_code": "A000660",
+        "standard_code": "KR7000660001",
+        "industry_code": "03-26-01",
+        "exact_fields_present": true
+      }
+    }
+  ],
+  "identity_binding_verification": [
+    {
+      "asset_id": "KR:XKRX:005930",
+      "canonical_instrument_id": "KRX:005930:COMMON",
+      "canonical_issuer_id": "DART:00126380",
+      "listing_id": "XKRX:005930",
+      "kind_short_code": "A005930",
+      "industry_middle_division": "26",
+      "theme_id": "THEME.KR.KOSPI.ELECTRICAL_ELECTRONIC_EQUIPMENT",
+      "rotation_series_identity": "KOSPI::전기전자",
+      "identity_approval_sha256": "ed8815e2926fdf2667c2655167dc18970889aca0ee02854158d861c69bdb7a82",
+      "listing_approval_sha256": "da45f46a260982f9ea5c46c78789ae5472ad99cdba239f1a6b7355a84f3845e6",
+      "verification_status": "EXACT_COMMON_STOCK_IDENTITY_AND_CLASSIFICATION_INPUT_VERIFIED"
+    },
+    {
+      "asset_id": "KR:XKRX:000660",
+      "canonical_instrument_id": "KRX:000660:COMMON",
+      "canonical_issuer_id": "DART:00164779",
+      "listing_id": "XKRX:000660",
+      "kind_short_code": "A000660",
+      "industry_middle_division": "26",
+      "theme_id": "THEME.KR.KOSPI.ELECTRICAL_ELECTRONIC_EQUIPMENT",
+      "rotation_series_identity": "KOSPI::전기전자",
+      "identity_approval_sha256": "43e4f5e27120162999f6af7508c9b7988d0b145e7cf3b77e2aa683b099f0e718",
+      "listing_approval_sha256": "83c345aa4fc3c342a6556ae4c26ef286f13e1b8c05223644c8da6947b222f4c4",
+      "verification_status": "EXACT_COMMON_STOCK_IDENTITY_AND_CLASSIFICATION_INPUT_VERIFIED"
+    }
+  ],
+  "classification_semantics": {
+    "rule_id": "KR.KOSPI.INDUSTRY_MIDDLE_DIVISION_TO_THEME_V1",
+    "meaning": "A two-instrument internal industry proxy using exact KIND industry middle division 26 and the official KRX classification table.",
+    "official_krx_index_constituency_claimed": false,
+    "krx_issued_theme_id_claimed": false,
+    "company_name_or_price_inference_used": false,
+    "scope_expansion_authorized": false
+  },
+  "decision_context": {
+    "decision_artifact_sha256": "ecc1729160bbfef1bebd4a63a5ec1dc7e4917f2d1f4aac7ab37059d55d0dc2f7",
+    "decision_status": "RULE_ADOPTED_SOURCE_ADMISSION_NOT_GRANTED",
+    "ratified_at_utc": "2026-09-07T15:22:32Z",
+    "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0_ENTRY_FILTER",
+    "historical_effect": false,
+    "source_admission_granted": false
+  },
+  "temporal_assessment": {
+    "validated_at_utc": "2026-09-07T15:24:17Z",
+    "validated_at_kst": "2026-09-08T00:24:17+09:00",
+    "validator_paths": [
+      "rotation/korea_capital_rotation.py::_validate_upstream",
+      "universe/global_asset_master.py::validate_packet",
+      "rotation/theme_taxonomy.py::_active"
+    ],
+    "observation_date_meaning": "The Korean market session described by the packet.",
+    "evaluation_timestamp_meaning": "The instant at which all input availability and active effective intervals are checked; it does not change an observation date.",
+    "master_dates": [
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28"
+    ],
+    "leadership_dates": [
+      "2026-08-10",
+      "2026-08-11",
+      "2026-08-12",
+      "2026-08-13",
+      "2026-08-14",
+      "2026-08-18",
+      "2026-08-19",
+      "2026-08-20",
+      "2026-08-21",
+      "2026-09-03",
+      "2026-09-04"
+    ],
+    "common_observation_dates": [],
+    "latest_master_interval": {
+      "observation_date": "2026-08-28",
+      "valid_from": "2026-08-28",
+      "valid_to": "2026-08-29",
+      "active_at_2026_09_04": false,
+      "active_at_validation_date": false
+    },
+    "latest_leadership": {
+      "observation_date": "2026-09-04",
+      "available_at": "2026-09-07T18:23:40+09:00",
+      "available_by_validation_timestamp": true,
+      "payload_sha256": "dfe67241b10f1b072c40f499759e7e589fb57348239bd087d924d9992558be18"
+    },
+    "membership_interval": {
+      "actual_valid_from": null,
+      "actual_valid_to": null,
+      "earliest_permitted_valid_from_date_if_remaining_admission_is_granted": "2026-09-08",
+      "basis": "Later KST calendar date of actual source capture availability and CIO ratification; the contract stores membership intervals as [valid_from, valid_to) dates.",
+      "active_for_any_stored_leadership_observation": false
+    },
+    "intraday_exact_tuple_status": "UNKNOWN_NO_COMMON_OBSERVATION_DATE_NO_ACTIVE_MEMBERSHIP"
+  },
+  "existing_contract_blockers": {
+    "theme_taxonomy_contract_path": "config/theme_taxonomy_contract.json",
+    "theme_taxonomy_contract_sha256": "c15d051b963ba299e1c2e85c2b75e0960188a2082e916f6d0ca0b6834375f2c6",
+    "korea_allowed_source_ids": [
+      "dart_open_api"
+    ],
+    "krx_and_kind_source_ids_admitted": false,
+    "required_markets_for_ratified_graph": [
+      "KOREA",
+      "US"
+    ],
+    "kr_only_graph_accepted_by_current_contract": false,
+    "authority_registry_record_count": 0,
+    "membership_registration_status": "WITHHELD_FAIL_CLOSED"
+  },
+  "authority": {
+    "evidence_capture_only": true,
+    "theme_membership_activation_authorized": false,
+    "stage_promotion_authorized": false,
+    "entry_eligibility_authorized": false,
+    "production_authorized": false,
+    "real_authority": false,
+    "order_authorized": false,
+    "trading_authorized": false
+  },
+  "next_exact_input": "Admit the two KRX/KIND source identities and the KR-only internal-paper taxonomy shape through an explicit compatible authority path, then capture a same-observation-date P3-03 master and leadership packet before evaluation."
+}
