@@ -777,6 +777,9 @@ def build_order_draft(
     if fee_rate is not None and quantity is not None:
         fee_rate_decimal = _decimal(fee_rate, "FEE_RATE_INVALID", positive=True, maximum=Decimal("1"))
         fee_amount = _floor(quantity * entry_invalidation["entry_price"] * fee_rate_decimal, decimal_scale)
+    if quantity is not None and quantity <= 0:
+        quantity = None
+        fee_amount = None
 
     trigger_close = _parse_utc(entry_invalidation["trigger_close_time"], "TRIGGER_CLOSE_TIME_INVALID")
     unit_seconds = CANDLE_FINALIZATION.TIMEFRAMES[TRIGGER_TIMEFRAME]["unit_seconds"]

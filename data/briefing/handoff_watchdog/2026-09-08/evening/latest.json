@@ -1,0 +1,70 @@
+{
+  "alert": false,
+  "authority": {
+    "dispatch_invoked": false,
+    "envelope_created": false,
+    "fact_inference_unknown_decision": false,
+    "manual_recovery_invoked": false,
+    "natural_evidence_changed": false,
+    "notion_written": false,
+    "source_bridge_authored": false
+  },
+  "briefing_id": "2026-09-08-evening",
+  "checked_at_utc": "2026-09-08T09:56:56Z",
+  "checks": {
+    "final_drain": {
+      "exists": false,
+      "path": "data/briefing/finalization/2026-09-08/evening/delivery_receipt.json"
+    },
+    "natural_receipt": {
+      "exists": true,
+      "path": "evidence/daily_briefing/evening/2026-09-08/index.json"
+    },
+    "portal_final_receipt": {
+      "exists": false,
+      "path": null
+    },
+    "semantic_verdict": {
+      "exists": false
+    },
+    "source_bridge": {
+      "discoverable_by_chain_build": false,
+      "exists": false,
+      "path": "evidence/briefing_events/2026-09-08/evening/index.json"
+    },
+    "validated_envelope": {
+      "exists": false,
+      "path": "evidence/validated_briefing_portal/evening/2026-09-08/index.json"
+    }
+  },
+  "decision_date": "2026-09-08",
+  "display_status": "WAITING_VALIDATION",
+  "grace_deadline_kst": "2026-09-08T10:08:33+0000",
+  "grace_deadline_source": "draft.sealed_at_utc + config/atlas_semantic_validator.json:timeout_minutes",
+  "grace_timeout_minutes": 20,
+  "notes": [],
+  "past_grace": false,
+  "reason": "WAITING_VALIDATION",
+  "recovery": {
+    "action_authority": false,
+    "backfill_promotion_authorized": false,
+    "buy_authority": false,
+    "natural_evidence_mutation_authorized": false,
+    "natural_sample_treatment": "NO_NATURAL_SAMPLE_MUTATION",
+    "next_action": "READ_THE_EXACT_SEALED_DRAFT_AND_MACHINE_RESULT; PUBLISH_ONLY_AN_INDEPENDENT_PASS_PASS_WITH_CORRECTION_OR_HOLD_VERDICT",
+    "order_authority": false,
+    "owner": "CODEX_HEARTBEAT_KRX_PAPER",
+    "production_authority": false,
+    "recovery_key": "12116620baf7caec2a4a1ec4e719e6d8c43d8ce37988f9ae282b9ca17ccf3cb0",
+    "requires_semantic_judgment": true,
+    "route": "CANONICAL_EXTERNAL_SEMANTIC_VALIDATION",
+    "safe_to_automate": false,
+    "stage_authority": false,
+    "trading_authority": false
+  },
+  "schema_version": "briefing_handoff_watchdog/2",
+  "slot": "evening",
+  "slot_expected_today": true,
+  "stage": "SEMANTIC_VALIDATION",
+  "status": "WAITING_VALIDATION"
+}

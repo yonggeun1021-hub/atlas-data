@@ -7,19 +7,54 @@ import unittest
 from unittest import mock
 import contextlib
 import io
+import json
 import os
+import re
 import subprocess
+import sys
 import tempfile
+import textwrap
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = ROOT / "run_all.py"
 FI_PATH = ROOT / "test" / "test_fault_injection.py"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "actions-pass.yml"
+US_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "us-paper-market-data-contract.yml"
+US_BOUNDARY_MODULES = (
+    "validation/tests/test_us_investable_registry.py",
+    "validation/tests/test_us_session_bars.py",
+    "validation/tests/test_us_paper_market_data_boundary.py",
+)
 
 SPEC = importlib.util.spec_from_file_location("atlas_run_all", RUNNER_PATH)
 RUNNER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(RUNNER)
+
+
+def exercise_main(stage, argv=("run_all.py", "--authoritative", "--fail-fast"), shard=None):
+    """Drive main() with every gate stage stubbed, optionally failing one of them."""
+    runner = RUNNER.Runner(fail_fast=True, shard=shard)
+    calls = []
+
+    def action(name, value):
+        def invoke(*args):
+            calls.append(name)
+            if name == stage:
+                runner.fail(name, "injected failure")
+                return False
+            return value
+        return invoke
+
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(mock.patch.object(RUNNER.sys, "argv", list(argv)))
+        stack.enter_context(mock.patch.object(RUNNER, "Runner", return_value=runner))
+        stack.enter_context(mock.patch.object(RUNNER, "disposable_checkout_proof", return_value=[]))
+        output = stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        for name, value in [("test_set", True), ("snapshot", {"kept": "path"}), ("rebuild", True), ("compare", True), ("boundary", True), ("approved_tests", True), ("fault_injection", True)]:
+            stack.enter_context(mock.patch.object(runner, name, side_effect=action(name, value)))
+        result = RUNNER.main()
+    return calls, result, output.getvalue()
 
 
 class RunnerReportingTest(unittest.TestCase):
@@ -104,31 +139,13 @@ class RunnerFailFastTest(unittest.TestCase):
             self.assertIn(f"cause_{i}", summary)
         self.assertLess(len(summary), len(raw))
 
-    def exercise_main(self, stage):
-        runner = RUNNER.Runner(fail_fast=True)
-        calls = []
-        def action(name, value):
-            def invoke(*args):
-                calls.append(name)
-                if name == stage:
-                    runner.fail(name, "injected failure")
-                    return False
-                return value
-            return invoke
-        with contextlib.ExitStack() as stack:
-            stack.enter_context(mock.patch.object(RUNNER.sys, "argv", ["run_all.py", "--authoritative", "--fail-fast"]))
-            stack.enter_context(mock.patch.object(RUNNER, "Runner", return_value=runner))
-            stack.enter_context(mock.patch.object(RUNNER, "disposable_checkout_proof", return_value=[]))
-            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
-            for name, value in [("test_set", True), ("snapshot", {"kept": "path"}), ("rebuild", True), ("compare", True), ("boundary", True), ("approved_tests", True), ("fault_injection", True)]:
-                stack.enter_context(mock.patch.object(runner, name, side_effect=action(name, value)))
-            result = RUNNER.main()
-        return calls, result
+    def exercise_main(self, stage, argv=("run_all.py", "--authoritative", "--fail-fast"), shard=None):
+        return exercise_main(stage, argv=argv, shard=shard)
 
     def test_early_failure_never_runs_later_gate_stages(self):
         for stage in ("test_set", "snapshot", "rebuild", "compare", "boundary", "approved_tests", "fault_injection"):
             with self.subTest(stage=stage):
-                calls, result = self.exercise_main(stage)
+                calls, result, _ = self.exercise_main(stage)
                 self.assertEqual(result, 1)
                 # Final boundary check is retained after FI to catch mutations.
                 self.assertEqual(calls[-1], "boundary" if stage == "fault_injection" else stage)
@@ -136,9 +153,11 @@ class RunnerFailFastTest(unittest.TestCase):
                     self.assertNotIn("fault_injection", calls)
 
     def test_green_requires_rebuild_compare_full_regression_fi_and_boundary(self):
-        calls, result = self.exercise_main(None)
+        calls, result, output = self.exercise_main(None)
         self.assertEqual(result, 0)
         self.assertEqual(calls, ["test_set", "snapshot", "rebuild", "compare", "boundary", "approved_tests", "fault_injection", "boundary"])
+        # Default unsharded output is unchanged: it still makes the global claim.
+        self.assertIn("Actions PASS = YES", output)
 
     def test_credential_forms_redacted(self):
         text = "Authorization: Bearer abc123\nghp_sensitive123\n-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----"
@@ -158,6 +177,348 @@ class RunnerFailFastTest(unittest.TestCase):
             with self.assertRaises(SystemExit) as error:
                 RUNNER.main()
             self.assertEqual(error.exception.code, 2)
+
+
+PRIORITY = ["test/test_runner_reporting.py", "test/test_daily_orchestrator.py"]
+
+
+def workflow_jobs(text):
+    """Split a workflow into its top-level job blocks without a YAML dependency."""
+    jobs, current, inside = {}, None, False
+    for line in text.splitlines():
+        if line.rstrip() == "jobs:":
+            inside = True
+            continue
+        if not inside:
+            continue
+        match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if match:
+            current = match.group(1)
+            jobs[current] = []
+            continue
+        if current is not None:
+            jobs[current].append(line)
+    return {name: "\n".join(lines) for name, lines in jobs.items()}
+
+
+def aggregate_script(text):
+    """Extract the actual final-aggregate script that the workflow executes."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().endswith("<<'PY'"):
+            body = []
+            for follow in lines[index + 1:]:
+                if follow.strip() == "PY":
+                    return textwrap.dedent("\n".join(body)) + "\n"
+                body.append(follow)
+    raise AssertionError("final aggregate script is missing from the US workflow")
+
+
+class RegressionShardPopulationTest(unittest.TestCase):
+    def test_two_shards_are_complete_disjoint_and_duplicate_free(self):
+        first, second = RUNNER.regression_shards()
+        self.assertTrue(first and second)
+        self.assertEqual(set(first) & set(second), set())
+        self.assertCountEqual(first + second, RUNNER.APPROVED_TESTS)
+        self.assertEqual(len(first + second), len(set(first + second)))
+        self.assertEqual(len(first) + len(second), len(RUNNER.APPROVED_TESTS))
+
+    def test_each_shard_preserves_declared_relative_order(self):
+        declared = {t: i for i, t in enumerate(RUNNER.APPROVED_TESTS)}
+        for chunk in RUNNER.regression_shards():
+            positions = [declared[t] for t in chunk]
+            self.assertEqual(positions, sorted(positions))
+
+    def test_partition_is_deterministic_for_the_same_population(self):
+        self.assertEqual(RUNNER.regression_shards(), RUNNER.regression_shards())
+
+    def test_duplicate_or_empty_population_is_rejected(self):
+        duplicated = list(RUNNER.APPROVED_TESTS) + [RUNNER.APPROVED_TESTS[0]]
+        with self.assertRaises(ValueError) as error:
+            RUNNER.regression_shards(tests=duplicated)
+        self.assertIn(RUNNER.APPROVED_TESTS[0], str(error.exception))
+        with self.assertRaises(ValueError):
+            RUNNER.regression_shards(tests=[])
+        with self.assertRaises(ValueError):
+            RUNNER.regression_shards(tests=["test/test_only_one.py"])
+
+    def test_only_the_adopted_two_shard_count_is_supported(self):
+        self.assertEqual(RUNNER.REGRESSION_SHARD_COUNT, 2)
+        for count in (0, 1, 3, 4):
+            with self.subTest(count=count), self.assertRaises(ValueError):
+                RUNNER.regression_shards(count=count)
+
+    def test_estimated_seconds_are_weights_only_and_never_the_population(self):
+        # A missing, partial, or stale timing table only degrades balance — it can
+        # never shrink, extend, duplicate, or reorder the approved manifest.
+        stale = dict(RUNNER.REGRESSION_ESTIMATED_SECONDS,
+                     **{"test/test_module_that_no_longer_exists.py": 9999.0})
+        for table in ({}, stale):
+            with self.subTest(entries=len(table)):
+                with mock.patch.object(RUNNER, "REGRESSION_ESTIMATED_SECONDS", table):
+                    first, second = RUNNER.regression_shards()
+                self.assertTrue(first and second)
+                self.assertEqual(set(first) & set(second), set())
+                self.assertCountEqual(first + second, RUNNER.APPROVED_TESTS)
+
+
+class RegressionShardExecutionTest(unittest.TestCase):
+    def run_shard(self, shard):
+        runner = RUNNER.Runner(fail_fast=True, shard=shard)
+        calls = []
+
+        def child(script):
+            calls.append(script)
+            return subprocess.CompletedProcess([], 0, "", "")
+
+        with mock.patch.object(runner, "child", side_effect=child), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            result = runner.approved_tests()
+        return calls, result, output.getvalue()
+
+    def test_default_run_still_selects_the_whole_approved_manifest(self):
+        self.assertEqual(RUNNER.Runner().selected_regression(), list(RUNNER.APPROVED_TESTS))
+
+    def test_shard_runs_only_its_own_modules_with_priority_first(self):
+        for shard in (1, 2):
+            with self.subTest(shard=shard):
+                chunk = RUNNER.regression_shards()[shard - 1]
+                calls, result, output = self.run_shard(shard)
+                self.assertTrue(result)
+                self.assertCountEqual(calls, chunk)
+                self.assertEqual(len(calls), len(set(calls)))
+                owned = [p for p in PRIORITY if p in chunk]
+                self.assertEqual(calls[:len(owned)], owned)
+                self.assertEqual(calls[len(owned):], [t for t in chunk if t not in PRIORITY])
+                self.assertIn(f"shard {shard}/2", output)
+                self.assertIn(f"선택 {len(chunk)} / 승인 전체 {len(RUNNER.APPROVED_TESTS)}파일", output)
+                self.assertIn("PARTIAL", output)
+
+    def test_both_shards_together_run_every_approved_module_exactly_once(self):
+        executed = self.run_shard(1)[0] + self.run_shard(2)[0]
+        self.assertCountEqual(executed, RUNNER.APPROVED_TESTS)
+        self.assertEqual(len(executed), len(set(executed)))
+
+    def test_malformed_population_stops_the_shard_before_any_child(self):
+        runner = RUNNER.Runner(fail_fast=True, shard=1)
+        with mock.patch.object(RUNNER, "regression_shards", side_effect=ValueError("중복")), \
+                mock.patch.object(runner, "child") as child, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(runner.approved_tests())
+        child.assert_not_called()
+        self.assertIn("regression-shard", runner.failures[0])
+
+    def test_partial_shard_never_claims_the_global_actions_pass(self):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(RUNNER.finish(RUNNER.Runner(shard=1)), 0)
+        self.assertNotIn("Actions PASS = YES", output.getvalue())
+        self.assertIn("PARTIAL", output.getvalue())
+
+    def test_unsharded_success_output_is_unchanged(self):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(RUNNER.finish(RUNNER.Runner()), 0)
+        self.assertIn("Actions PASS = YES", output.getvalue())
+        self.assertNotIn("PARTIAL", output.getvalue())
+
+    def test_failing_shard_still_fails_the_run(self):
+        runner = RUNNER.Runner(fail_fast=True, shard=1)
+        runner.fail("regression", "injected")
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(RUNNER.finish(runner), 1)
+        self.assertIn("Actions PASS = NO", output.getvalue())
+
+
+class RegressionShardObligationTest(unittest.TestCase):
+    SHARD_ARGV = ("run_all.py", "--authoritative", "--fail-fast",
+                  "--regression-shard-count", "2", "--regression-shard-index", "1")
+
+    def test_shard_keeps_rebuild_byte_authority_regression_and_fi(self):
+        calls, result, output = exercise_main(None, argv=self.SHARD_ARGV, shard=1)
+        self.assertEqual(result, 0)
+        self.assertEqual(calls, ["test_set", "snapshot", "rebuild", "compare", "boundary",
+                                 "approved_tests", "fault_injection", "boundary"])
+        self.assertNotIn("Actions PASS = YES", output)
+
+    def test_shard_early_failure_still_stops_later_gate_stages(self):
+        for stage in ("snapshot", "rebuild", "compare", "approved_tests", "fault_injection"):
+            with self.subTest(stage=stage):
+                calls, result, _ = exercise_main(stage, argv=self.SHARD_ARGV, shard=1)
+                self.assertEqual(result, 1)
+                self.assertEqual(calls[-1], "boundary" if stage == "fault_injection" else stage)
+
+
+class RegressionShardCliTest(unittest.TestCase):
+    def reject(self, argv):
+        with mock.patch.object(RUNNER.sys, "argv", ["run_all.py"] + argv), \
+                mock.patch.object(RUNNER, "Runner") as runner_class, \
+                contextlib.redirect_stderr(io.StringIO()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                RUNNER.main()
+        self.assertEqual(error.exception.code, 2)
+        runner_class.assert_not_called()
+
+    def test_incomplete_out_of_range_or_unsupported_shard_requests_do_no_work(self):
+        for argv in (
+            ["--authoritative", "--regression-shard-index", "1"],
+            ["--authoritative", "--regression-shard-count", "2"],
+            ["--authoritative", "--regression-shard-count", "3", "--regression-shard-index", "1"],
+            ["--authoritative", "--regression-shard-count", "1", "--regression-shard-index", "1"],
+            ["--authoritative", "--regression-shard-count", "2", "--regression-shard-index", "0"],
+            ["--authoritative", "--regression-shard-count", "2", "--regression-shard-index", "3"],
+            ["--authoritative", "--regression-shard-count", "2", "--regression-shard-index", "two"],
+        ):
+            with self.subTest(argv=argv):
+                self.reject(argv)
+
+    def test_shard_may_not_skip_authoritative_validation_or_fault_injection(self):
+        self.reject(["--regression-shard-count", "2", "--regression-shard-index", "1"])
+        self.reject(["--authoritative", "--no-fi",
+                     "--regression-shard-count", "2", "--regression-shard-index", "1"])
+
+    def test_existing_no_fi_recursion_path_remains_usable_unsharded(self):
+        runner = RUNNER.Runner(fail_fast=True)
+        with mock.patch.object(RUNNER.sys, "argv", ["run_all.py", "--no-fi"]), \
+                mock.patch.object(RUNNER, "Runner", return_value=runner), \
+                mock.patch.object(runner, "approved_tests", return_value=True), \
+                mock.patch.object(runner, "test_set", return_value=True), \
+                mock.patch.object(runner, "boundary", return_value=True), \
+                mock.patch.object(runner, "fault_injection") as fi, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            RUNNER.main()
+        fi.assert_not_called()
+        self.assertIn("건너뜀 (--no-fi", output.getvalue())
+
+
+class UsWorkflowTwoShardTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.text = US_WORKFLOW_PATH.read_text(encoding="utf-8")
+        cls.jobs = workflow_jobs(cls.text)
+
+    def test_two_child_jobs_carry_different_explicit_shard_arguments(self):
+        for job, index in (("regression-shard-1", "1"), ("regression-shard-2", "2")):
+            self.assertIn(job, self.jobs)
+            body = self.jobs[job]
+            self.assertIn(f"run_all.py --authoritative --fail-fast "
+                          f"--regression-shard-count 2 --regression-shard-index {index}", body)
+            self.assertIn("ATLAS_DISPOSABLE_CHECKOUT=1", body)
+            self.assertIn("needs: focused", body)
+            self.assertIn("timeout-minutes: 60", body)
+        self.assertNotEqual(self.jobs["regression-shard-1"], self.jobs["regression-shard-2"])
+        self.assertEqual(self.text.count("--regression-shard-index 1"), 1)
+        self.assertEqual(self.text.count("--regression-shard-index 2"), 1)
+
+    def test_each_shard_repeats_us_modules_and_the_no_mutation_check(self):
+        for job in ("regression-shard-1", "regression-shard-2"):
+            body = self.jobs[job]
+            for module in US_BOUNDARY_MODULES:
+                self.assertIn(module, body)
+            self.assertIn("git diff --exit-code", body)
+            self.assertIn("python-version: '3.11'", body)
+            self.assertIn("actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97", body)
+
+    def test_no_shard_skips_fault_injection_or_authoritative_validation(self):
+        self.assertNotIn("--no-fi", self.text)
+        self.assertEqual(self.text.count("--authoritative"), 2)
+
+    def test_final_full_job_is_an_always_aggregate_of_focused_and_both_shards(self):
+        self.assertIn("full", self.jobs)
+        body = self.jobs["full"]
+        self.assertIn("needs: [focused, regression-shard-1, regression-shard-2]", body)
+        self.assertIn("if: always()", body)
+        self.assertIn("timeout-minutes: 60", body)
+        self.assertIn('REQUIRED = ["focused", "regression-shard-1", "regression-shard-2"]', body)
+
+    def test_focused_semantics_permissions_and_triggers_are_unchanged(self):
+        focused = self.jobs["focused"]
+        self.assertIn("timeout-minutes: 10", focused)
+        for module in US_BOUNDARY_MODULES:
+            self.assertIn(module, focused)
+        self.assertIn("git diff --exit-code", focused)
+        self.assertNotIn("needs:", focused)
+        self.assertIn("permissions:\n  contents: read", self.text)
+        self.assertIn("workflow_dispatch:", self.text)
+        self.assertIn("branches: [main]", self.text)
+        self.assertEqual(self.text.count('- "validation/tests/test_us_*"'), 2)
+
+
+class UsAggregateScriptTest(unittest.TestCase):
+    def aggregate(self, needs):
+        script = aggregate_script(US_WORKFLOW_PATH.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "aggregate.py"
+            path.write_text(script, encoding="utf-8")
+            return subprocess.run([sys.executable, str(path)], capture_output=True, text=True,
+                                  env=dict(os.environ, ATLAS_NEEDS_JSON=json.dumps(needs)))
+
+    @staticmethod
+    def outcomes(overrides=None):
+        needs = {name: {"result": "success"} for name in
+                 ("focused", "regression-shard-1", "regression-shard-2")}
+        needs.update(overrides or {})
+        return needs
+
+    def test_all_three_dependencies_successful_passes(self):
+        result = self.aggregate(self.outcomes())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("= YES", result.stdout)
+
+    def test_any_non_success_dependency_outcome_is_rejected(self):
+        for key in ("focused", "regression-shard-1", "regression-shard-2"):
+            for outcome in ("failure", "cancelled", "skipped", "neutral", ""):
+                with self.subTest(key=key, outcome=outcome):
+                    result = self.aggregate(self.outcomes({key: {"result": outcome}}))
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn("= NO", result.stdout)
+
+    def test_missing_or_unexpected_dependency_is_rejected(self):
+        for key in ("focused", "regression-shard-1", "regression-shard-2"):
+            with self.subTest(missing=key):
+                needs = self.outcomes()
+                needs.pop(key)
+                result = self.aggregate(needs)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("missing", result.stdout)
+        result = self.aggregate(self.outcomes({"regression-shard-3": {"result": "success"}}))
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("unexpected dependency keys", result.stdout)
+
+    def test_dependency_entry_without_a_result_is_rejected(self):
+        result = self.aggregate(self.outcomes({"regression-shard-2": {}}))
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("missing", result.stdout)
+
+
+class ShardPreflightRegressionTest(unittest.TestCase):
+    def test_malformed_population_without_fail_fast_stops_before_any_work(self):
+        original = list(RUNNER.APPROVED_TESTS)
+        cases = (
+            (original + [original[0]], [Path(p).name for p in original]),
+            ([], []),
+            ([original[0]], [Path(original[0]).name]),
+        )
+        for population, actual_names in cases:
+            with self.subTest(population_size=len(population)):
+                runner = RUNNER.Runner(shard=1)
+                with contextlib.ExitStack() as stack:
+                    stack.enter_context(mock.patch.object(RUNNER, "APPROVED_TESTS", population))
+                    stack.enter_context(mock.patch.object(RUNNER.os, "listdir", return_value=actual_names + ["test_fault_injection.py"]))
+                    stack.enter_context(mock.patch.object(RUNNER.sys, "argv", [
+                        "run_all.py", "--authoritative", "--regression-shard-count", "2", "--regression-shard-index", "1",
+                    ]))
+                    stack.enter_context(mock.patch.object(RUNNER, "Runner", return_value=runner))
+                    temporary = stack.enter_context(mock.patch.object(RUNNER.tempfile, "TemporaryDirectory"))
+                    guard = stack.enter_context(mock.patch.object(RUNNER, "disposable_checkout_proof"))
+                    children = [stack.enter_context(mock.patch.object(runner, name)) for name in
+                                ("snapshot", "rebuild", "compare", "approved_tests", "fault_injection", "boundary", "child")]
+                    stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                    result = RUNNER.main()
+                self.assertEqual(result, 1)
+                temporary.assert_not_called()
+                guard.assert_not_called()
+                for child in children:
+                    child.assert_not_called()
 
 
 if __name__ == "__main__":

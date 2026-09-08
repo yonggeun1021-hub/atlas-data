@@ -379,3 +379,103 @@ authority through this packet. Owning-source verification remains the caller's
 responsibility; the daily orchestrator uses its existing source builders and
 independent full-packet rebuild. This scope declaration does not add a new
 policy gate or a false permanent source blocker to the daily consumer.
+
+---
+
+## 8. KR paper-reference parameter binding (task `kr-regime-parameter-binding-build-01`)
+
+This is a PAPER-diagnostic wiring fix inside
+`regime/paper_regime_reference.py`. It creates **no** runtime authority and
+changes nothing in §1–§4: `UNKNOWN` stays `UNKNOWN`.
+
+### 8.1 The defect that existed
+
+`build_kr(packet, policy)` accepted `policy` and then ignored every KR
+threshold in it. All nine executed KR edges were built-in literals
+(`Decimal("0.55")`, `Decimal("0.45")`, `1.5 / 2.5 / 3.5`, `5 / -5`,
+`Decimal("0.60")`, `Decimal("0.40")`), and the declared `method` strings in
+`config/paper_regime_reference_policy_v1.json` → `markets.KR` were never read
+at all.
+
+The consequence was proved, not assumed: an in-memory change to the declared
+KR `BREADTH` band left **all five** retained daily outputs byte-identical.
+Meanwhile the policy bytes *are* already hashed into `policy.sha256` and
+`generation_id`, so a policy edit moved the packet's identity while moving
+none of its arithmetic. The declared KR policy was documentation, and the
+identity hash over it was misleading.
+
+### 8.2 What is now bound
+
+`kr_policy(policy)` validates the declared `markets.KR` block and returns the
+thresholds; `build_kr` applies only those. There is no default and no numeric
+fallback — an absent or unusable declaration fails closed with
+`KR_POLICY_INVALID:<axis>.<field>` instead of silently reverting to a literal.
+
+| axis | declared slots now executed |
+| --- | --- |
+| `TREND` | none (sign rule); `method` + `positive`/`negative`/`neutral` semantics validated verbatim against `sign_pair()` |
+| `BREADTH` | `positive_min`, `negative_max` |
+| `RISK_VOL` | `positive_max`, `neutral_max`, `negative_max` (+ `stress_above` as alias) |
+| `LIQUIDITY` | `positive_min`, `negative_max` |
+| `LEADERSHIP` | `positive_min`, `negative_max` |
+
+Nine causal edges. `RISK_VOL.stress_above` is **not** a tenth independent
+edge: it restates the `NEGATIVE` ceiling, and a policy where
+`stress_above != negative_max` is rejected rather than resolved by preferring
+one of the two.
+
+Fail-closed conditions, all rejections rather than repairs: absent or
+non-object `markets` / `markets.KR` / any axis block; any `method` other than
+the single rule this module implements for that axis (including a real method
+name borrowed from a different axis); any `TREND` sign semantic other than
+`both_positive` / `both_negative` / `mixed_or_zero`; a threshold that is
+missing, boolean, non-finite (`NaN`, `±Infinity`), or unparseable; a
+`negative_max >= positive_min` inversion or equal-edge overlap on `BREADTH`,
+`LIQUIDITY`, `LEADERSHIP`; a `BREADTH`/`LEADERSHIP` fraction outside `[0,1]`;
+a negative or non-increasing `RISK_VOL` ladder.
+
+The shipped policy values are exactly the previous literals, so every retained
+output is unchanged byte-for-byte; this is verified against the frozen
+five-day baseline hashes for `2026-08-28`, `2026-08-31`, `2026-09-01`,
+`2026-09-02`, `2026-09-03`. `build_us`, `classify`, `confidence`, `axis`,
+`market_packet`, common-v1, the authority block, all statuses, and the config
+bytes are untouched. Callers that already reuse this function unmodified see
+identical behaviour: `regime/kr_historical_replay_population.py` and
+`regime/normalization_replay_readiness.py` each read the same real
+`config/paper_regime_reference_policy_v1.json`, and
+`regime/combined_shadow_historical_replay.py` reaches `build_kr` only through
+the former.
+
+### 8.3 What this does *not* accept
+
+Making a declared parameter causal is a wiring property, not a ratification.
+Explicitly still open for KR, unchanged by this slice:
+
+1. **KR signed normalization is still unratified.** `markets.KRX.
+   signed_normalization_policy` is still `null` in
+   `config/regime_source_owner_registry_v2.json`, and
+   `load_signed_axis_policy()` still *raises*
+   `SIGNED_AXIS_POLICY_UNIMPLEMENTED` on a non-null value (§1.3). The
+   thresholds bound here belong to the PAPER reference policy
+   (`status = PM_BASELINE_CANDIDATE_NOT_CIO_RATIFIED_SENSOR_POLICY`) and are
+   **not** promoted into that registry slot.
+2. **KR freshness / TTL is `NOT_COMPUTABLE`.** `ttl_seconds: null` for `KRX`;
+   there is still no staleness → `UNKNOWN` rule, and `build_kr` still applies
+   no age gate of its own.
+3. **KR PIT replay acceptance is `NOT_ACCEPTED`.** Deterministic
+   re-derivation from a fixed policy is not PIT acceptance; no window,
+   evidence set, or counterexample criterion has been ratified.
+4. `KRX.acceptance_status` remains
+   `BLOCKED_SIGNED_NORMALIZATION_TTL_PIT_REPLAY`, and every
+   `forbidden_promotions` entry — including `THRESHOLD_OVERRIDE` and
+   `FIXTURE_OR_BASELINE_PROMOTION` — still binds.
+
+The common-v1 aggregation bands, per-axis direction vocabulary, and
+hysteresis already exist and are adopted as the ratified paper baseline replay
+(`common_v1_alignment`, `RATIFIED_PAPER_BASELINE_V1`); they are not what is
+missing for KR. Items 1–3 above remain separate acceptance requirements. Per §1.2,
+that replay mechanism being complete is still not runtime readiness.
+
+Authority after this slice is unchanged and all `false`: runtime regime, final
+regime, strategy, stage, buy, action, order, capital, production, trading. The
+KR market row still carries `runtime_regime = UNKNOWN`.

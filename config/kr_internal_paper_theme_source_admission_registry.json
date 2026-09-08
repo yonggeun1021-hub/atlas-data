@@ -1,0 +1,67 @@
+{
+  "schema_version": "kr_internal_paper_theme_source_admission_registry/1",
+  "records": [
+    {
+      "rule_id": "KR.KOSPI.INDUSTRY_MIDDLE_DIVISION_TO_THEME_V1",
+      "rule_version": "1",
+      "approval_status": "RATIFIED",
+      "ratified_at": "2026-09-07T16:05:50Z",
+      "effective_from": "2026-09-07T16:05:50Z",
+      "effective_to": null,
+      "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0_ENTRY_FILTER",
+      "allowed_asset_ids": [
+        "KR:XKRX:000660",
+        "KR:XKRX:005930"
+      ],
+      "allowed_canonical_instrument_ids": [
+        "KRX:000660:COMMON",
+        "KRX:005930:COMMON"
+      ],
+      "theme_id": "THEME.KR.KOSPI.ELECTRICAL_ELECTRONIC_EQUIPMENT",
+      "rotation_series_identity": "KOSPI::전기전자",
+      "source_admission_ids": [
+        "krx_kind_listing_notice",
+        "krx_kospi_industrial_classification_pdf"
+      ],
+      "source_manifest_path": "evidence/theme_taxonomy/source_snapshots/2026-09-08/manifest.json",
+      "source_manifest_sha256": "8f3ed580e33d5f76390107d3bdb8fd256cbd31522e0e6891b4271c625aae1ef0",
+      "source_snapshots": [
+        {
+          "source_id": "krx_kind_sk_hynix_000660_listing_notice",
+          "asset_id": "KR:XKRX:000660",
+          "url": "https://kind.krx.co.kr/external/2026/02/13/000951/20260213002414/68155.htm",
+          "path": "evidence/theme_taxonomy/source_snapshots/2026-09-08/kind_sk_hynix_000660.html",
+          "sha256": "8d5010e83a7cd8ad5822ed8cafc23395677c682386a2f449f9a710ae22faedcf"
+        },
+        {
+          "source_id": "krx_kind_samsung_005930_listing_notice",
+          "asset_id": "KR:XKRX:005930",
+          "url": "https://kind.krx.co.kr/external/2026/04/09/000375/20260409000536/68155.htm",
+          "path": "evidence/theme_taxonomy/source_snapshots/2026-09-08/kind_samsung_005930.html",
+          "sha256": "917880a2c7dd64d0ebf5ee642c8da111a9f2b9c20bc88f950520df40794bf05b"
+        },
+        {
+          "source_id": "krx_kospi_industrial_classification",
+          "asset_id": null,
+          "url": "https://global.krx.co.kr/contents/GLB/05/0502/0502010100/KOSPI%20Industrial%20Classfication.pdf",
+          "path": "evidence/theme_taxonomy/source_snapshots/2026-09-08/krx_kospi_industrial_classification.pdf",
+          "sha256": "2d984d96533fc67a44791e4205802ee02ad0398531892021080031af2eb158c2"
+        }
+      ],
+      "proposal_id": "KR_INTERNAL_PAPER_TWO_STOCK_THEME_APPLICATION_CONTRACT_V1",
+      "proposal_artifact_sha256": "ba83919845616f05678afae0f63e7927aa4688d0ad5a08d9f6f66389589bc7c0",
+      "temporal_correction_id": "KR_INTERNAL_PAPER_TWO_STOCK_THEME_ACTUAL_TIME_CORRECTION_V1",
+      "temporal_correction_recorded_at": "2026-09-07T16:05:50Z",
+      "rule_decision_artifact_sha256": "ecc1729160bbfef1bebd4a63a5ec1dc7e4917f2d1f4aac7ab37059d55d0dc2f7",
+      "historical_backfill_authorized": false,
+      "global_taxonomy_authority_changed": false,
+      "stage_promotion_authorized": false,
+      "production_authorized": false,
+      "real_authority": false,
+      "order_authorized": false,
+      "trading_authorized": false,
+      "approval_evidence_ref": "evidence/authority/kr_internal_paper_two_stock_theme_source_admission_20260908.json",
+      "approval_evidence_sha256": "89ec766019c57124a8dc9e39d2cabe6cff62c45930761a287544d6da9a3cef20"
+    }
+  ]
+}

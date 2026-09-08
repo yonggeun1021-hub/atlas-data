@@ -21,6 +21,51 @@ TOTBKCR follow the already-qualified no-raw boundary: response bytes are used
 in memory, response hashes and normalized current/previous observations are
 retained, and raw response bodies are discarded.
 
+## Same-day Alpaca revision retention
+
+Alpaca raw and derived evidence used to be published with `os.replace`, so a
+second capture on the same UTC day destroyed the earlier same-day response
+bytes and the earlier derived observation. Both are now retained, reusing the
+FRED provenance content-addressed, write-once publication pattern without
+changing that module.
+
+- **Raw revisions.** The exact original response bytes of each latest-bars and
+  daily-bars capture are stored deterministically gzipped at
+  `evidence/free_market_data/raw/alpaca/<kind>/<raw_response_sha256>/`, beside
+  a manifest that names only the content. The address is the response hash
+  alone, so it is deliberately not partitioned by day: byte-identical content
+  captured at two different observation times deduplicates to one revision.
+  The store lives under `raw/` because the unmodified capture workflow commits
+  `derived`, `raw` and `fred/raw` only.
+- **Derived observation revisions.** Each published packet is also retained at
+  `evidence/free_market_data/derived/<day>/<observation_revision_id>/manifest.json`,
+  where the revision id binds the actual observation time and the packet's own
+  `packet_sha256`. Two same-day captures are therefore two observations even
+  when their provider bytes are identical, and republishing the same packet is
+  a byte-identical no-op.
+- **Pinned pointers.** `free_market_data_capture/5` packets carry
+  `alpaca.raw_evidence` and `alpaca.daily_raw_evidence`, each pinning the
+  immutable revision that observation actually consumed. Both are `null` in a
+  blocked or failed Alpaca component, which keeps the partial-publish
+  semantics unchanged. The capture schema version is unchanged; the pointers
+  are additive.
+- **Compatibility paths.** `evidence/free_market_data/derived/<day>/manifest.json`,
+  `evidence/free_market_data/raw/<day>/alpaca_iex_*.json.gz` and
+  `data/latest_free_market_data.json` remain latest-wins pointers. Earlier
+  bytes still sitting at those paths are preserved into the immutable store
+  before they are replaced.
+
+Replay resolution never rebinds an old record to newer bytes. A packet with a
+pinned pointer always resolves its own immutable revision, including after a
+later same-day run. An older packet resolves the unchanged per-day
+compatibility path first, so already recorded `raw_path` bindings stay
+byte-identical; only when those bytes no longer match that packet's own
+`daily_raw_sha256` does resolution fall back to the preserved revision for
+exactly that hash. Publication fails closed on a packet that cannot prove its
+own `packet_sha256`, on conflicting bytes at an immutable address, and on a
+pointer that escapes the evidence store; a revision is verified before any
+reader is pointed at it.
+
 Provider outcomes are independent. Missing or failed Alpaca credentials produce
 an explicit component-level `BLOCKED_BY_*` or `ALPACA_CAPTURE_FAILED:*` state
 while a valid FRED derived observation is still published. This is a partial,

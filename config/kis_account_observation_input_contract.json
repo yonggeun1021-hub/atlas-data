@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "contract_version": "kis_account_observation_input/1",
+  "status": "ADOPTED_MECHANISM_ONLY_NOT_A_RUNTIME_GRANT",
+  "purpose": "Closed, mechanical description of the READ-ONLY KIS PAPER single-account observation input packet. This file is a contract, never an authority document and never a runtime grant: every value here is mirrored by a live constant in portfolio_risk/kis_account_observation_input.py and is compared for exact equality on every build and validate call, so editing this file alone can only make the mechanism fail closed -- it can never widen a permission, admit a consumer, or make an unratified capability usable.",
+  "consumer_id": "atlas-private-evidence.shadow_matrix.kis_account_observation.v1",
+  "permitted_use": "READ_ONLY_KIS_PAPER_ACCOUNT_OBSERVATION",
+  "real_consumer_allowlist": [],
+  "real_consumer_allowlist_note": "consumer_id above is the adopted TECHNICAL identifier of the one consumer this contract is shaped for. It is a routing scope, not authentication, and it is deliberately NOT an allowlist entry. The real allowlist -- config/portfolio_account_fact_consumption_authority.json permittedConsumers -- remains committed EMPTY and stays the only thing that can ever admit a real consumer. It is ratified separately and is not touched by this contract.",
+  "packet_fields": [
+    "contractVersion",
+    "consumerId",
+    "decisionAt",
+    "providerTuple",
+    "accountIdentityHash",
+    "accountFact",
+    "sourceBundleSha256",
+    "coverage",
+    "authority",
+    "packetSha256"
+  ],
+  "provider_tuple": {
+    "provider": "KIS_PAPER_ACCOUNT",
+    "accountScope": "KOREA",
+    "currency": "KRW",
+    "positionSourceName": "kis_paper_domestic_balance"
+  },
+  "upstream": {
+    "target_contract_version": "portfolio_account_fact/3",
+    "source_bundle_contract_version": "kis_portfolio_account_fact_v3_source_bundle/1",
+    "producer_module": "portfolio_risk.portfolio_account_fact_v3_producer",
+    "producer_validator": "validate_kis_portfolio_account_fact_v3",
+    "note": "The account fact is NOT re-implemented or re-interpreted here. It is carried verbatim, and both building and validating delegate full original-source rederivation to the existing producer validator above, which binds the fact to the caller-supplied ORIGINAL private source bundle and to one immutable trusted commit."
+  },
+  "coverage": {
+    "accountScope": "KOREA",
+    "currency": "KRW",
+    "coverageKind": "SINGLE_KIS_ACCOUNT_OBSERVATION",
+    "wholePortfolioComplete": false
+  },
+  "coverage_note": "One KIS PAPER account observed in its own KRW terms. wholePortfolioComplete is false and must stay false: this packet is not a portfolio. It exposes no whole-portfolio NAV, no FX conversion, no cross-provider equity, no account purchasing power and no risk_capacity_inputs.",
+  "authority": {
+    "accountFactAuthorized": true,
+    "valuationSemanticAuthorized": false,
+    "freshnessPolicyAuthorized": false,
+    "riskInputAuthorized": false,
+    "stageAuthorized": false,
+    "buyAuthorized": false,
+    "actionAuthorized": false,
+    "orderAuthorized": false,
+    "productionAuthorized": false,
+    "tradingAuthorized": false,
+    "realCapitalAuthorized": false
+  },
+  "authority_note": "Exactly the independently verified fact-only permission the validated account fact already carries. It is preserved, never minted: this contract introduces no additional authority document, no new grant, and no risk/sizing/stage/buy/action/order/production/trading/real-capital capability.",
+  "forbidden_exposure": [
+    "buyingPower",
+    "buying_power",
+    "candidateCount",
+    "cells",
+    "currencyConversion",
+    "equity",
+    "fxRate",
+    "nav",
+    "netAssetValue",
+    "positionSize",
+    "price",
+    "riskBudget",
+    "riskCapacity",
+    "riskCapacityInputs",
+    "risk_capacity_inputs",
+    "unitPrice",
+    "wholePortfolioNav"
+  ],
+  "forbidden_exposure_note": "Envelope vocabulary that must never appear around the carried fact. In particular netAssetKrw is never aliased as equity or NAV, noReceivableBuyAmountKrw is never aliased as account buying power, and no price is derived from a market value and a quantity.",
+  "downstream_risk_consumption": {
+    "risk_input_authorized": false,
+    "note": "This packet is not a portfolio risk packet and confers no eligibility. Existing risk_budget_readiness and decision_closure consumers must keep rejecting it; no risk consumption authority is introduced by this step."
+  },
+  "real_data_persistence": {
+    "status": "NO_PERSISTENCE_IN_THIS_CONTRACT",
+    "note": "This repository is PUBLIC. The builder and validator are in-memory only: they perform no network, broker, credential, provider, account or order call, and they write no file. No real account fact is ever produced, published or committed here."
+  },
+  "runtime_ratified": false,
+  "operationally_applied": false
+}

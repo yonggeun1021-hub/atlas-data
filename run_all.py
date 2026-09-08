@@ -156,6 +156,7 @@ APPROVED_TESTS = [
     #   ⛔ live network/tracked master 없음 — synthetic inputs + temp output only.
     "test/test_global_asset_master.py",
     "test/test_global_asset_master_theme_ingestion.py",
+    "test/test_global_asset_master_theme_application_cli.py",
     # ★ P3-01 committed three-market population readiness.
     #   latest US source-coverage packet is independently rebuilt from the
     #   immutable raw archive; Crypto's real coverage blocker and Korea's
@@ -724,6 +725,9 @@ APPROVED_TESTS = [
     #   Stage/Buy/Action/Order/Capital/Production/Trading은 모두 false다.
     #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
+    "test/test_kr_paper_runtime.py",
+    "test/test_kr_internal_paper_theme_application.py",
+    "test/test_us_paper_policy_binding.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — normalization replay-readiness
     #   evidence (SHADOW only). Reuses build_us/build_kr from
     #   paper_regime_reference.py unmodified against whatever historical
@@ -1500,6 +1504,7 @@ APPROVED_TESTS = [
     #   PASS/REJECTED/BLOCKED packet을 exact SHA chain으로 기록하되 proposal 관측은
     #   Shadow 편입·Stage 변경·capital/action/order로 승격되지 않는다.
     "test/test_investment_review_shadow_ledger.py",
+    "test/test_investment_review_shadow_store.py",
     # ★ P10-02 — Atlas vs existing judgment same-period evidence alignment.
     #   P7/P9 lineage를 포함한 Shadow v4 record·external legacy judgment·external
     #   outcome을 decision_id+market로 exact match하고 세 source를 packet에 보존한다.
@@ -1861,6 +1866,8 @@ APPROVED_TESTS = [
     # freshness prerequisites can resolve, but accountFact stays null until
     # a separate account-fact authority is ratified.
     "test/test_portfolio_account_fact_v3.py",
+    "test/test_portfolio_account_fact_v3_producer.py",
+    "test/test_kis_account_observation_input.py",
     # ★ Portfolio position provider-identity lineage transport.  Alpaca's
     #   exact /v2/positions asset_id is retained with its provider name;
     #   manual source pairs remain unverified/fail-closed.  This does not
@@ -1963,6 +1970,7 @@ APPROVED_TESTS = [
     # kis_paper_domestic_balance/071050 chain. Proposal artifacts stay
     # PROPOSED and every money/trading authority remains false.
     "test/test_kis_071050_identity_authority.py",
+    "test/test_kis_realtime_trade_observation.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.
@@ -2057,6 +2065,7 @@ APPROVED_TESTS = [
     #   priority remains verbatim. No numeric threshold, order draft,
     #   network/exchange call, Production/Trading/REAL authority is added.
     "test/test_crypto_axis_trade_bridge.py",
+    "test/test_crypto_axis_trade_bridge_explanation.py",
     # ★ P1-CR-08 Crypto live-component registry -- exact public natural
     #   BTC trend/risk, stablecoin and breadth rows, bound by point-in-time
     #   retained download cutoff plus full directory fingerprint. Evidence
@@ -2094,6 +2103,100 @@ APPROVED_TESTS = [
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
+
+# ══════════════════════════════════════════════════════════════════════
+# ★ opt-in 결정론적 회귀 shard (CIO 채택 2026-09-07).
+#   ⛔ 기본 동작은 바뀌지 않는다 — shard 를 요청하지 않으면 지금까지와 똑같은
+#      단일 full 회귀다. shard 는 **회귀 대상 선택**만 바꾼다.
+#   각 shard 는 자기 clean checkout 에서 사본 보존 · builder 직렬 재빌드 ·
+#   byte 비교 · authority 경계 · FI suite 전량을 똑같이 수행한다. 한쪽 shard 의
+#   성공은 부분 증거일 뿐이고, 최종 Actions 판정은 두 shard 를 모두 요구하는
+#   aggregate job 이 한다 (runner 는 부분 실행에서 전체 PASS 를 주장하지 않는다).
+REGRESSION_SHARD_COUNT = 2
+
+# ★ 이미 기록된 실행 시간(초)만 균형 **추정**에 쓴다 — 새 benchmark 를 돌리지 않는다.
+#   출처: PR614_PARITY_TIMING_COMPARISON.json 의 US run. US run 이 완주하지 못한
+#   구간(candidate_identity_authority_review_inventory 이후)은 같은 파일의 common
+#   run 값을 그대로 쓴다 — 보수적(과소) 추정이라 균형만 조금 나빠진다.
+#   ⛔ 이 표는 가중치일 뿐 권위가 아니다. 회귀 population 의 권위는 언제나
+#      APPROVED_TESTS 다. 표가 낡거나 모듈이 빠져도 완전성·중복없음·disjoint 는
+#      깨지지 않는다 (여기 없는 모듈은 DEFAULT_ESTIMATED_SECONDS 를 받는다).
+REGRESSION_ESTIMATED_SECONDS = {
+    "test/test_daily_orchestrator.py": 1294.7,
+    "test/test_dynamic_clock_end_to_end.py": 270.0,
+    "test/test_regime_policy_calibration_readiness.py": 260.7,
+    "test/test_us_forward_universe_populate.py": 204.0,
+    "test/test_dynamic_clock_orchestrator_defects.py": 131.3,
+    "test/test_candidate_lifecycle_observation.py": 119.2,
+    "test/test_briefing_validator.py": 114.8,
+    "test/test_candidate_identity_authority_proposal.py": 112.4,
+    "test/test_global_asset_master_population_readiness.py": 90.7,
+    "test/test_capital_reallocation_readiness.py": 63.4,
+    "test/test_shadow_entry_review.py": 62.5,
+    "test/test_profit_harvest_operational_readiness.py": 51.1,
+    "test/test_dynamic_clock_operational_evaluation_time.py": 48.2,
+    "test/test_daily_briefing_delivery.py": 46.7,
+    "test/test_crypto_breadth_leadership_axis_wiring_20260829.py": 41.7,
+    "test/test_portfolio_account_fact_v3_producer.py": 39.6,
+    "test/test_entry_proposal_boundary.py": 38.3,
+    "test/test_crypto_live_component_registry.py": 36.5,
+    "test/test_profit_harvest_population.py": 34.3,
+    "test/test_profit_harvest_end_to_end.py": 33.6,
+    "test/test_pit_replay_end_to_end.py": 33.4,
+    "test/test_candidate_identity_authority_review_inventory.py": 32.1,
+    "test/test_crypto_axis_trade_bridge_explanation.py": 31.2,
+    "test/test_crypto_axis_trade_bridge.py": 30.5,
+    "test/test_candidate_identity_observation.py": 26.6,
+    "test/test_entry_policy_readiness.py": 25.9,
+    "test/test_candidate_lifecycle_evidence_inventory.py": 24.5,
+    "test/test_candidate_validity_shadow_observation.py": 24.4,
+    "test/test_rotation_discovery_briefing.py": 24.4,
+    "test/test_dynamic_clock_identity_lineage.py": 23.2,
+}
+DEFAULT_ESTIMATED_SECONDS = 1.0
+
+
+def regression_shards(tests=None, count=REGRESSION_SHARD_COUNT):
+    """현재 승인 회귀 목록을 순서보존 · 중복없음 · disjoint shard 로 나눈다.
+
+    ★ 합집합은 **언제나** 전체 승인 목록과 정확히 같다. 개수나 부분집합을
+      고정하지 않는다 — population 은 호출 시점의 APPROVED_TESTS 다.
+    ★ 배정은 기록된 추정 시간 내림차순 greedy(동률은 선언 순서)라 같은 입력이면
+      항상 같은 결과가 나온다. 각 shard 안의 상대 순서는 선언 순서 그대로다.
+    ⛔ 비거나 중복된 population 은 여기서 예외로 막는다 — 자식 프로세스를
+       하나라도 실행하기 전이다.
+    """
+    population = list(APPROVED_TESTS if tests is None else tests)
+    if count != REGRESSION_SHARD_COUNT:
+        raise ValueError(f"지원하는 shard 수는 {REGRESSION_SHARD_COUNT} 뿐이다: {count!r}")
+    if not population:
+        raise ValueError("승인 회귀 목록이 비어 있다 — shard 를 만들 수 없다")
+    duplicates = sorted({t for t in population if population.count(t) > 1})
+    if duplicates:
+        raise ValueError(f"승인 회귀 목록에 중복이 있다: {duplicates}")
+    if len(population) < count:
+        raise ValueError(f"승인 회귀 {len(population)}건으로는 {count} shard 를 채울 수 없다")
+
+    declared = {t: i for i, t in enumerate(population)}
+    load = [0.0] * count
+    assigned = [[] for _ in range(count)]
+    for test in sorted(population,
+                       key=lambda t: (-REGRESSION_ESTIMATED_SECONDS.get(t, DEFAULT_ESTIMATED_SECONDS),
+                                      declared[t])):
+        target = min(range(count), key=lambda s: (load[s], s))
+        load[target] += REGRESSION_ESTIMATED_SECONDS.get(test, DEFAULT_ESTIMATED_SECONDS)
+        assigned[target].append(test)
+    shards = [sorted(chunk, key=lambda t: declared[t]) for chunk in assigned]
+
+    # 분할 자체를 다시 증명한다 — 누락 · 중복 · 빈 shard 는 전부 fail-closed.
+    flat = [t for chunk in shards for t in chunk]
+    if sorted(flat) != sorted(population) or len(flat) != len(set(flat)):
+        raise ValueError("shard 합집합이 승인 회귀 전량과 다르다")
+    for i, chunk in enumerate(shards, 1):
+        if not chunk:
+            raise ValueError(f"shard {i}/{count} 가 비어 있다")
+    return shards
+
 
 # ★ Production / evaluator 경계 — 이 실행으로 바뀌면 안 되는 값.
 FROZEN_BOUNDARY = {
@@ -2163,11 +2266,13 @@ def failure_summary(text):
 
 
 class Runner:
-    def __init__(self, fail_fast=False, log_dir=None):
+    def __init__(self, fail_fast=False, log_dir=None, shard=None):
         self.failures = []
         self.lines = []
         self.fail_fast = fail_fast
         self.log_dir = log_dir
+        # shard 는 1-based 이고, None 이면 지금까지와 같은 전량 실행이다.
+        self.shard = shard
 
     def child(self, script):
         result = subprocess.run([PY, script], cwd=ROOT, capture_output=True, text=True)
@@ -2250,12 +2355,21 @@ class Runner:
     def approved_tests(self):
         if not self.test_set():
             return False
+        # ★ 무엇을 돌릴지부터 정한다 — 잘못된 population 이면 자식 하나도 실행하지 않는다.
+        try:
+            selected = self.selected_regression()
+        except ValueError as error:
+            self.fail("regression-shard", str(error))
+            return False
+        if self.shard is not None:
+            self.say(f"  regression shard {self.shard}/{REGRESSION_SHARD_COUNT} — "
+                     f"선택 {len(selected)} / 승인 전체 {len(APPROVED_TESTS)}파일 (PARTIAL)")
         ok = True
         # Same process environment and post-rebuild inputs; no cache or second run.
         priority = (["test/test_runner_reporting.py", "test/test_daily_orchestrator.py"]
                     if self.fail_fast else [])
-        ordered = ([t for t in priority if t in APPROVED_TESTS]
-                   + [t for t in APPROVED_TESTS if t not in priority])
+        ordered = ([t for t in priority if t in selected]
+                   + [t for t in selected if t not in priority])
         for t in ordered:
             self.say(f"  RUN {t}")
             r = self.child(t)
@@ -2267,6 +2381,12 @@ class Runner:
             else:
                 self.say(f"  {t} ok")
         return ok
+
+    def selected_regression(self):
+        """이번 실행이 돌릴 회귀 목록 — 기본은 승인 전량, shard 요청 시 해당 shard."""
+        if self.shard is None:
+            return list(APPROVED_TESTS)
+        return regression_shards()[self.shard - 1]
 
     def test_set(self):
         actual = sorted("test/" + f for f in os.listdir(os.path.join(ROOT, "test"))
@@ -2321,18 +2441,47 @@ def main():
     parser.add_argument("--no-fi", action="store_true")
     parser.add_argument("--fail-fast", action="store_true")
     parser.add_argument("--log-dir", help="Complete redacted child logs, outside the checkout")
+    parser.add_argument("--regression-shard-index", type=int,
+                        help=f"1-based deterministic regression shard (1..{REGRESSION_SHARD_COUNT})")
+    parser.add_argument("--regression-shard-count", type=int,
+                        help=f"Total regression shards — only {REGRESSION_SHARD_COUNT} is supported")
     args = parser.parse_args()
     if args.log_dir:
         args.log_dir = os.path.realpath(args.log_dir)
         if os.path.commonpath([args.log_dir, os.path.realpath(ROOT)]) == os.path.realpath(ROOT):
             parser.error("--log-dir must be outside the checkout")
-    r = Runner(fail_fast=args.fail_fast, log_dir=args.log_dir)
+    # ★ shard 인자는 어떤 작업보다 먼저 검증한다 — 잘못된 조합은 아무것도 실행하지 않는다.
+    shard = None
+    if (args.regression_shard_index is None) != (args.regression_shard_count is None):
+        parser.error("--regression-shard-index and --regression-shard-count must be given together")
+    if args.regression_shard_count is not None:
+        if args.regression_shard_count != REGRESSION_SHARD_COUNT:
+            parser.error(f"--regression-shard-count must be exactly {REGRESSION_SHARD_COUNT}")
+        if not 1 <= args.regression_shard_index <= args.regression_shard_count:
+            parser.error(f"--regression-shard-index must be 1..{REGRESSION_SHARD_COUNT}")
+        # shard 는 권위 검증이나 FI 를 건너뛰는 통로가 아니다.
+        if not args.authoritative:
+            parser.error("--regression-shard-index requires --authoritative; "
+                         "a shard never skips authoritative rebuild/byte verification")
+        if args.no_fi:
+            parser.error("--regression-shard-index cannot be combined with --no-fi; "
+                         "every shard runs the complete Fault Injection suite")
+        shard = args.regression_shard_index
+    r = Runner(fail_fast=args.fail_fast, log_dir=args.log_dir, shard=shard)
     print("Atlas Actions runner — Python", sys.version.split()[0])
     print(f"⛔ Production HOLD · evaluator 미연결 · 이 실행은 상태를 바꾸지 않는다\n")
 
     authoritative = args.authoritative
     # Cheap exact population check before any expensive work or mutation.
-    if args.fail_fast and not r.test_set():
+    if shard is not None:
+        if not r.test_set():
+            return finish(r)
+        try:
+            r.selected_regression()
+        except ValueError as error:
+            r.fail("regression-shard", str(error))
+            return finish(r)
+    elif args.fail_fast and not r.test_set():
         return finish(r)
     with tempfile.TemporaryDirectory(prefix="atlas_committed_") as snap_dir:
         if not authoritative:
@@ -2401,6 +2550,12 @@ def finish(r):
             print("  •", f)
         print("\nActions PASS = NO")
         return 1
+    # ★ 부분 실행은 전체 판정을 주장하지 않는다 — 최종 aggregate job 이 판정한다.
+    if getattr(r, "shard", None) is not None:
+        print(f"✅ regression shard {r.shard}/{REGRESSION_SHARD_COUNT} 완료 — PARTIAL")
+        print("   ⛔ 이것은 승인 회귀의 일부다. 전체 판정은 두 shard 를 모두 요구하는")
+        print("      최종 aggregate job 이 한다 — 이 출력은 전체 통과를 뜻하지 않는다.")
+        return 0
     print("✅ Actions PASS = YES")
     print("   ⛔ 단, 이것은 CI 통과이지 Production 승인도 evaluator 승인도 아니다.")
     print("   ★ FI-3 frozen input tamper = KNOWN GAP / NOT GATED (미검증 영역)")

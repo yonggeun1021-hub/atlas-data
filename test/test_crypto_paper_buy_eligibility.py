@@ -440,6 +440,21 @@ class OrderDraftTests(unittest.TestCase):
         self.assertIsNotNone(draft["quantity"])
         self.assertIsNotNone(draft["duplicate_guard_key"])
 
+    def test_nonpositive_computed_quantity_is_incomplete(self):
+        packet = market_evidence_packet(breakout=True)
+        draft = P59.build_order_draft(
+            "KRW-ETH", packet, self.policy, self.universe_policy,
+            evaluation_as_of=EVAL_AS_OF,
+            paper_account_state=paper_account_state(total_nav_krw="0.000000000000000000000001"),
+            fee_rate="0.0005",
+        )
+        self.assertIsNone(draft["quantity"])
+        self.assertIsNone(draft["fee_amount_krw"])
+        self.assertEqual(draft["fee_rate"], "0.0005")
+        result = P59.evaluate_order_draft_complete(draft)
+        self.assertEqual(result["status"], "UNKNOWN")
+        self.assertEqual(result["missing_fields"], ["quantity", "fee_amount_krw"])
+
     def test_incomplete_draft_without_paper_account_state(self):
         packet = market_evidence_packet(breakout=True)
         draft = P59.build_order_draft(
@@ -626,6 +641,38 @@ class EndToEndReachabilityTests(unittest.TestCase):
         self.assertIsNotNone(result["order_draft"]["quantity"])
         self.assertIsNotNone(result["order_draft"]["duplicate_guard_key"])
         self.assertTrue(all(v is False for v in result["authority"].values()))
+
+    def test_zero_quantity_candidate_waits_with_null_draft(self):
+        packet = market_evidence_packet(breakout=True, four_hour_direction="UP", daily_direction="UP")
+        row = universe_row(caution_any=False)
+        with (
+            mock.patch.object(PROMO, "evaluate_regime", return_value={
+                "status": "PASS", "reason": "TEST_ONLY_QUANTITY_BOUNDARY_ISOLATION",
+            }),
+            mock.patch.object(PROMO, "evaluate_overextension", return_value={
+                "status": "PASS", "reason": "TEST_ONLY_QUANTITY_BOUNDARY_ISOLATION",
+            }),
+            mock.patch.object(PROMO, "evaluate_material_blocker", return_value={
+                "status": "PASS", "reason": "TEST_ONLY_QUANTITY_BOUNDARY_ISOLATION",
+            }),
+        ):
+            result = P59.evaluate_candidate(
+                self._candidate_row(),
+                regime_payload=unknown_regime_payload(),
+                market_evidence_packet=packet,
+                universe_row=row,
+                policy=P59.load_policy(),
+                universe_policy=UNI.load_policy(),
+                evaluation_as_of=EVAL_AS_OF,
+                paper_account_state=paper_account_state(total_nav_krw="0.000000000000000000000001"),
+                fee_rate="0.0005",
+                known_idempotency_keys=set(),
+            )
+        self.assertEqual(result["eligibility_state"], P59.STATE_WAIT)
+        completeness = result["criteria"]["ORDER_DRAFT_COMPLETE"]
+        self.assertEqual(completeness["status"], "UNKNOWN")
+        self.assertEqual(completeness["missing_fields"], ["quantity", "fee_amount_krw"])
+        self.assertTrue(all(value is None for value in result["order_draft"].values()))
 
     def test_without_mocks_real_evaluation_never_exceeds_watch(self):
         """The unmocked, real end-to-end path -- proving today's genuine

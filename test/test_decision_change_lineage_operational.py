@@ -263,10 +263,8 @@ class OperationalDecisionLineageTests(unittest.TestCase):
             )
 
     def test_exact_source_checkout_retains_git_provenance_and_is_clean(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            checkout = Path(temporary) / "repo"
-            MODULE._materialize_exact_commit(SOURCE_COMMIT, checkout)
-            self.assertTrue((checkout / ".git").is_dir())
+        with MODULE._exact_commit_checkout(SOURCE_COMMIT, ()) as checkout:
+            self.assertTrue((checkout / ".git").is_file())
             self.assertEqual(
                 subprocess.check_output(
                     ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
@@ -294,6 +292,139 @@ class OperationalDecisionLineageTests(unittest.TestCase):
                 ).strip(),
                 "",
             )
+            self.assertFalse((checkout / "data").exists())
+            self.assertFalse((checkout / "evidence").exists())
+
+    def test_exact_source_checkout_uses_local_sparse_worktree_without_network(self):
+        commands = []
+
+        def record(command, **kwargs):
+            commands.append(command)
+            if "rev-parse" in command:
+                return subprocess.CompletedProcess(command, 0, stdout=SOURCE_COMMIT + "\n")
+            return subprocess.CompletedProcess(command, 0, stdout="")
+
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            MODULE.subprocess, "run", side_effect=record
+        ):
+            checkout = Path(temporary) / "repo"
+            with mock.patch.object(Path, "exists", return_value=False):
+                MODULE._materialize_exact_commit(SOURCE_COMMIT, checkout)
+
+        worktree = next(command for command in commands if "worktree" in command)
+        sparse = next(command for command in commands if "sparse-checkout" in command)
+        self.assertIn("add", worktree)
+        self.assertIn("--no-checkout", worktree)
+        self.assertIn(str(checkout), worktree)
+        self.assertEqual(sparse[-3:], ["/*", "!/data/", "!/evidence/"])
+        self.assertTrue(all("https://" not in part for command in commands for part in command))
+
+    def test_exact_validator_payload_patterns_are_finite_and_safe(self):
+        unified = current_unified()
+        rotation = next(
+            row for row in unified["components"]
+            if row["component"] == "ROTATION_DISCOVERY"
+        )["source_packet"]
+        rotation["wildcard_observations"]["source_envelopes"] = [{
+            "submission_lineage": [{"path": "data/intake/wildcard/submission.json"}],
+            "packet": {"submissions": [{"evidence": [{
+                "audit_provenance": {
+                    "record_locator": "evidence/source/example.json"
+                }
+            }]}]},
+        }]
+        rotation["dart_observations"]["source_packet"] = {
+            "lineage": {
+                "source_path": "data/latest_dart.json",
+                "content_run_path": "data/latest_dart_content.json",
+            },
+            "observations": [{
+                "subject_id": "012450",
+                "rcept_no": "20260831800137",
+                "evidence": {
+                    "status": "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+                },
+            }],
+        }
+        self.assertEqual(
+            MODULE._exact_validator_payload_patterns(unified),
+            (
+                "/data/dart_content/012450/20260831800137/",
+                "/data/intake/wildcard/submission.json",
+                "/data/latest_dart.json",
+                "/data/latest_dart_content.json",
+                "/evidence/source/example.json",
+            ),
+        )
+        rotation["wildcard_observations"]["source_envelopes"][0][
+            "submission_lineage"
+        ][0]["path"] = "../../outside"
+        with self.assertRaisesRegex(
+            MODULE.OperationalDecisionLineageError,
+            "EXACT_VALIDATOR_SOURCE_PATH_INVALID",
+        ):
+            MODULE._exact_validator_payload_patterns(unified)
+
+    def test_exact_validator_payload_patterns_allow_unavailable_rotation(self):
+        unified = current_unified()
+        rotation = next(
+            row for row in unified["components"]
+            if row["component"] == "ROTATION_DISCOVERY"
+        )
+        rotation["source_packet"] = None
+        self.assertEqual(MODULE._exact_validator_payload_patterns(unified), ())
+
+    def test_sparse_checkout_treats_payload_metacharacters_as_literal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+            subprocess.run(
+                ["git", "config", "user.name", "Atlas Test"], cwd=source, check=True
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "atlas@example.invalid"],
+                cwd=source,
+                check=True,
+            )
+            (source / "validator.py").write_text("VALID = True\n", encoding="utf-8")
+            payload_root = source / "data" / "raw"
+            payload_root.mkdir(parents=True)
+            exact = payload_root / "[ab]*?.json"
+            neighbor = payload_root / "a-neighbor-x.json"
+            exact.write_text('{"exact":true}\n', encoding="utf-8")
+            neighbor.write_text('{"neighbor":true}\n', encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=source, check=True)
+            subprocess.run(
+                ["git", "commit", "--quiet", "-m", "fixture"],
+                cwd=source,
+                check=True,
+            )
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=source, text=True
+            ).strip()
+            path = MODULE._exact_validator_sparse_path(
+                "data/raw/[ab]*?.json"
+            )
+            with mock.patch.object(MODULE, "ROOT", source):
+                with MODULE._exact_commit_checkout(commit, (path,)) as checkout:
+                    self.assertTrue((checkout / "data/raw/[ab]*?.json").is_file())
+                    self.assertFalse((checkout / "data/raw/a-neighbor-x.json").exists())
+                with self.assertRaisesRegex(
+                    MODULE.OperationalDecisionLineageError,
+                    "EXACT_VALIDATOR_REQUIRED_PAYLOAD_MISSING",
+                ):
+                    with MODULE._exact_commit_checkout(
+                        commit, ("/data/raw/missing.json",)
+                    ):
+                        pass
+
+        for invalid in ("data/raw/line\nbreak.json", "data/raw/nul\x00byte.json"):
+            with self.assertRaisesRegex(
+                MODULE.OperationalDecisionLineageError,
+                "EXACT_VALIDATOR_SOURCE_PATH_INVALID",
+            ):
+                MODULE._exact_validator_sparse_path(invalid)
 
     def test_real_committed_briefing_builds_created_zero_authority_record(self):
         record = self.record()

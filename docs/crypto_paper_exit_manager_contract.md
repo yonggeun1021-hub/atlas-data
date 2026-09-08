@@ -41,6 +41,53 @@ Trailing evaluates drawdown against `prior_high_watermark`; only after the
 decision does the output advance `next_high_watermark` with the current price.
 This prevents current/future maxima from being used to choose a historical rule.
 
+### Order-draft trigger binding (P5-09 to P7-13)
+
+`build_exit_plan_from_order_draft` is the mechanical adapter between a P5-09
+order draft and this plan. It takes every `build_exit_plan` identity, account,
+and contract argument except `triggers`, plus an explicit `order_draft` and an
+explicit `trigger_bindings` list.
+
+Each binding supplies exactly `source_field`, `trigger_id`, `category`,
+`action`, `quantity_fraction`, `paper_order_id`, and
+`paper_order_idempotency_key`. The caller therefore chooses every category,
+action, fraction, and deterministic PAPER order identity; the adapter has no
+policy defaults and adds no stop, expiry, or review trigger of its own.
+
+The only thing the adapter derives is the condition and threshold of the
+requested draft field:
+
+| `source_field`       | condition           | threshold                     |
+| -------------------- | ------------------- | ----------------------------- |
+| `planned_stop_price` | `PRICE_AT_OR_BELOW` | exact canonical positive price |
+| `expires_at`         | `TIME_AT_OR_AFTER`  | exact validated UTC timestamp  |
+| `next_review_at`     | `TIME_AT_OR_AFTER`  | exact validated UTC timestamp  |
+
+Binding order is preserved verbatim; the adapter never sorts. Two bindings may
+read the same draft field, because each still carries its own explicit category,
+action, fraction, and distinct identities; duplicated identities are rejected.
+Fail-closed
+rejections include a missing, null, non-string, non-canonical, non-positive, or
+malformed requested draft value, an absent/unknown/duplicated binding key, an
+unsupported `source_field`, an invalid category/action/fraction, quantity
+metadata incompatible with the chosen action, a duplicate trigger or PAPER order
+identity, and a category-priority inversion. The plan itself is then built by
+the unchanged `build_exit_plan`/`validate_exit_plan` pair, so the source entry
+account, positive filled BUY requirement, entry market/time/quantity binding,
+and every plan authority flag are enforced exactly as for a direct call. A plan
+built through the adapter is byte-identical to the direct call with the same
+resulting triggers. Caller objects are never mutated, the returned plan is
+detached, and repeated calls are deterministic.
+
+The adapter is an offline parameterized mechanism only. It does not authenticate
+the draft, ratify any threshold as policy, or permit runtime activation.
+`source_entry_plan_ref` and `source_entry_plan_sha256` keep their existing
+entry-plan meaning and are not redefined as draft attestations. Supplying a
+trustworthy draft and a reviewed binding table is an explicit caller
+prerequisite: the provenance of the draft, ratification of the values inside it,
+and operational approval to act on the resulting plan all remain separate,
+outside this module.
+
 ### Authority and population
 
 The initial population is frozen/synthetic. Market Regime is an input fact only;
@@ -68,3 +115,53 @@ P10-11 may consume the deterministic PAPER order identity and target quantity
 only when an explicit lab harness supplies a separate PAPER sell intent. Portal
 may show the read-only action/status and audit lineage. Neither consumer gains
 exchange or live authority.
+
+#### Explicit exit decision to PAPER sell intent (P7-13 to P10-11)
+
+`build_sell_intent_from_exit_decision` is that separate sell intent expressed as
+one validated mapping instead of a hand-copied literal. It first re-runs the
+unchanged `validate_output`, so the embedded plan, current account, and
+observation are revalidated and the whole decision is re-derived before any
+field is read.
+
+Accepted only for a `TRIGGER_SELECTED_REVIEW_ONLY` decision whose action is a
+quantity action, whose SELL PAPER order identity is present, and whose canonical
+`target_quantity` is strictly positive. `NO_TRIGGER_HOLD`, every `WAIT_*`
+status, `TRIGGER_ALREADY_APPLIED`, a non-quantity action such as `TRAIL`, a
+quantity that floored to zero, a missing identity, and any altered or rehashed
+decision or embedded packet are rejected fail closed.
+
+| intent field                                   | source                                          |
+| ---------------------------------------------- | ----------------------------------------------- |
+| `order_id`, `idempotency_key`, `market`, `side` | validated `paper_order_identity_candidate`     |
+| `quantity`                                     | validated `target_quantity`                     |
+| `market_regime_status`                         | embedded `observation.signals.regime`, verbatim |
+| `source_plan_ref` / `source_plan_sha256`       | caller `source_exit_plan_ref` / embedded `exit_plan.packet_sha256` |
+| `source_evidence_ref` / `source_evidence_sha256` | caller `source_observation_ref` / embedded `observation.packet_sha256` |
+
+Every execution term - `order_type`, `limit_price` or an explicit null,
+`fee_rate`, `queue_fraction`, `submitted_at`, `expires_at` - and both source
+packet locators are required caller inputs. The helper contributes no policy
+value, no default, no implicit market-order choice, no TTL, no fabricated fill,
+and no authority promotion. The only submission rule it adds is that
+`submitted_at` may not precede the decision's `observed_at`; the canonical
+numeric, expiry, order-type, and source-ref checks stay in the unchanged
+`build_intent`/`validate_intent`, whose errors surface unchanged.
+
+`source_exit_plan_ref` and `source_observation_ref` are caller-supplied locators
+for exactly the two packets embedded in this decision, and the bound hashes pin
+only those embedded packet bytes. They do not authenticate external provenance,
+and the exit plan's `source_entry_plan_ref`/`source_entry_plan_sha256` keep their
+existing entry-plan meaning and are never reinterpreted as the exit locator.
+
+The result is exactly the existing `crypto_paper_order_intent/1` schema,
+byte-identical to a direct `build_intent` call with the mapped values, detached
+and deterministic, with no caller input mutated. Calling the helper is the
+caller's explicit offline PAPER simulation request; it is not human approval,
+policy ratification, or operational activation. `human_review_required` and every
+existing plan, observation, and decision authority flag stay unchanged. The
+helper never submits or matches an order, mutates a ledger, writes state, or
+touches the network: `submit_order`, `match_order`, and the rest of the
+simulator API remain separate explicit lab consumer calls, and an already
+present deterministic exit order still yields `TRIGGER_ALREADY_APPLIED` on
+re-evaluation so a filled harvest cannot be mapped twice.

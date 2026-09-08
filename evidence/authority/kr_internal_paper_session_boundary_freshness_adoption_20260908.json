@@ -1,0 +1,23 @@
+{
+  "schema_version": "kr_internal_paper_session_boundary_freshness_adoption/1",
+  "decision_id": "KR_INTERNAL_PAPER_SESSION_BOUNDARY_FRESHNESS_V1",
+  "recorded_after_decision_at_utc": "2026-09-07T16:52:20Z",
+  "authority": "CIO explicit runtime freshness and bounded leadership policy-use approval in current task",
+  "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0",
+  "status": "POLICY_ADOPTED_ACTUAL_SOURCE_QUALIFICATION_UNKNOWN",
+  "previous_session_decision_sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b",
+  "rule": "For the verified previous completed session D and immediately following verified session E, freshness is bounded by D session_close to E session_close.",
+  "scalar_compatibility": "If the existing API requires ttl_seconds, derive it deterministically as E.session_close - D.session_close from independently verified immutable calendar/session receipts. Bind D, E, calendar hash, Eclose and derived TTL into the experiment policy and qualification receipt. Never derive a rolling extension from current time.",
+  "constraints": [
+    "No new decision or fill after E session close.",
+    "Unverified or wrong D/E relation, assumed holidays, arbitrary14400seconds, and future sources must fail closed.",
+    "D leadership policy use as this experiment PAPER context is explicitly allowed. Global source policy/authority and REAL remain unchanged.",
+    "Actual LIVE_NATURAL source classification, original-byte retention, complete admitted source chain, common2 confirmation and independently supplied qualification receipt/hash remain evidence gates and must not be auto-populated.",
+    "Policy-use authorization and actual source qualification must remain separate fields; unsupported qualification remainsUNKNOWN.",
+    "Actual E identity/master and current qualified forward observations remain independently required."
+  ],
+  "implementation_authorized": true,
+  "new_task": false,
+  "real_authority": false,
+  "profitability_validated": false
+}

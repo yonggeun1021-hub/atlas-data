@@ -277,6 +277,41 @@ class ThreeMarketShadowOperationalReadinessTests(unittest.TestCase):
         self.assertEqual(packet["status"], "BLOCKED_MISSING_EXACT_P9_LIVE_INPUTS")
         current_validator.assert_not_called()
 
+    def test_exact_p9_validator_reads_git_blob_over_stdin(self):
+        daily = synthetic_daily([
+            {
+                "component_id": "ENTRY_EXIT_TRIGGER_ELIGIBILITY",
+                "validated": True,
+                "packet": {"synthetic": "entry"},
+            },
+            {
+                "component_id": "INTRADAY_RISK_ESCALATION",
+                "validated": True,
+                "packet": {"synthetic": "risk"},
+            },
+        ])
+        blob = json.dumps(daily).encode("utf-8")
+        checked = {
+            "unified": current_unified(),
+            "entry_exit": {"packet_sha256": "2" * 64},
+            "intraday_risk": {"packet_sha256": "3" * 64},
+        }
+        completed = subprocess.CompletedProcess(
+            [], 0, stdout=json.dumps(checked)
+        )
+        with mock.patch.object(
+            MODULE.DAILY_LINEAGE, "_git_blob", return_value=blob
+        ), mock.patch.object(
+            MODULE.DAILY_LINEAGE, "_materialize_exact_commit"
+        ), mock.patch.object(
+            MODULE.subprocess, "run", return_value=completed
+        ) as exact_validator:
+            result = MODULE._validate_shadow_inputs_at_commit(
+                SOURCE_COMMIT, PACKET.relative_to(ROOT).as_posix()
+            )
+        self.assertEqual(result[0], current_unified())
+        self.assertEqual(exact_validator.call_args.kwargs["input"], blob.decode("utf-8"))
+
     def test_semantic_tamper_with_valid_new_hash_is_rejected(self):
         packet = self.packet()
         packet["summary"]["shadow_record_count"] = 1

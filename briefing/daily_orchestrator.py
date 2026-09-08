@@ -1385,6 +1385,10 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
     component_reason = None if component_status == "READY" else alpaca_status
     return component_row(
         "FREE_MARKET_DATA", component_status, component_reason,
+        # Retain the established FRED clock here because the cross-asset
+        # flow contract consumes this field as VIX observation time. The US
+        # session clock is independently retained in us_market_reference
+        # below and is what the human-facing market board displays.
         as_of_date=fred.get("observation_date"),
         generated_at=payload.get("observed_at_utc"),
         available_at=payload.get("observed_at_utc"),
@@ -1426,6 +1430,15 @@ def build_free_market_data(
     )
 
 
+# The two exact-date crypto archives read by more than one component each
+# (BTC_TREND/BTC_RISK share one; STABLECOIN_NET_ISSUANCE has its own). Named
+# once so the per-component fetch and the prior-confirmed-reference scan
+# agree. Resolve them against the active ROOT at use time so an isolated
+# observation checkout never falls back to this module's import-time root.
+BTC_RAW_ROOT = Path("evidence/crypto/btc/raw")
+STABLECOIN_RAW_ROOT = Path("evidence/stablecoin/raw")
+
+
 def _classify_btc_trend(snapshot: dict) -> dict:
     if snapshot["kind"] == "absent":
         return _blocked("BTC_TREND", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
@@ -1441,6 +1454,9 @@ def _classify_btc_trend(snapshot: dict) -> dict:
         "BTC_TREND",
         "READY",
         None,
+        # Keep the component's historical capture-vintage clock for replay
+        # compatibility. The distinct finalized measurement day is retained
+        # in packet.latest_finalized_day and used by briefing presentation.
         as_of_date=resolved.name,
         generated_at=snapshot["downloaded_at"],
         source_packet_path=snapshot["resolved_dir"],
@@ -1449,15 +1465,18 @@ def _classify_btc_trend(snapshot: dict) -> dict:
         validated=True,
         authority={k: v for k, v in packet.items() if k.endswith("_authorized")},
         contract_version=packet.get("transform_version"),
-        packet={"direction": packet.get("direction"), "dma_200": packet.get("dma_200") if "dma_200" in packet else None},
+        packet={
+            "direction": packet.get("direction"),
+            "dma_200": packet.get("dma_200") if "dma_200" in packet else None,
+            "latest_finalized_day": packet.get("latest_finalized_day"),
+            "capture_date": resolved.name,
+        },
     )
 
 
 def build_btc_trend(decision_date: str, snapshot: dict | None = None) -> dict:
     if snapshot is None:
-        snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
-        )
+        snapshot = _fetch_dated_evidence_snapshot(ROOT / BTC_RAW_ROOT, decision_date)
     return _classify_btc_trend(snapshot)
 
 
@@ -1476,6 +1495,8 @@ def _classify_btc_risk(snapshot: dict) -> dict:
         "BTC_RISK",
         "READY",
         None,
+        # Same clock split as BTC_TREND: preserve the capture vintage here;
+        # render packet.latest_finalized_day as the measurement date.
         as_of_date=resolved.name,
         generated_at=snapshot["downloaded_at"],
         source_packet_path=snapshot["resolved_dir"],
@@ -1484,15 +1505,15 @@ def _classify_btc_risk(snapshot: dict) -> dict:
         packet={
             "status": packet.get("status"),
             "risk_point": packet.get("risk_point"),
+            "latest_finalized_day": packet.get("latest_finalized_day"),
+            "capture_date": resolved.name,
         },
     )
 
 
 def build_btc_risk(decision_date: str, snapshot: dict | None = None) -> dict:
     if snapshot is None:
-        snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
-        )
+        snapshot = _fetch_dated_evidence_snapshot(ROOT / BTC_RAW_ROOT, decision_date)
     return _classify_btc_risk(snapshot)
 
 
@@ -1534,10 +1555,306 @@ def _classify_stablecoin(snapshot: dict) -> dict:
 
 def build_stablecoin(decision_date: str, snapshot: dict | None = None) -> dict:
     if snapshot is None:
-        snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "stablecoin" / "raw", decision_date
-        )
+        snapshot = _fetch_dated_evidence_snapshot(ROOT / STABLECOIN_RAW_ROOT, decision_date)
     return _classify_stablecoin(snapshot)
+
+
+# ---------------------------------------------------------------------------
+# Prior confirmed Crypto reference dates -- presentation metadata only
+#
+# When the exact decision-date Crypto capture is absent, the component row
+# stays DATA_BLOCKED/NO_CAPTURE_FOR_DECISION_DATE, unvalidated and decision-
+# ineligible, and its rendered evidence date stays UNKNOWN. That is the honest
+# answer for the decision and nothing here changes it. What was missing is the
+# separate, equally true fact that an older CONFIRMED measurement exists and
+# is simply not current -- displayed next to the UNKNOWN, never in place of it.
+#
+# Deliberate boundaries:
+#   * Presentation only. Every _classify_* function returns on
+#     kind == "absent" before reading anything else, so this field can never
+#     reach a component row, an aggregator, a status, a score, an authority
+#     flag or an eligibility field.
+#   * Never forward-filled. The prior measurement is reported under its own
+#     older date, never relabelled as the decision date, and never used as
+#     this decision's evidence.
+#   * The CHOICE is frozen; the DISPLAYED DATE is re-derived. A replayed
+#     snapshot never rescans the archive, so a capture committed after
+#     publication cannot change an issued revision. A resealed forgery of the
+#     displayed date is still caught, because every rebuild recomputes that
+#     date from the frozen capture's own retained bytes and validate_packet()
+#     compares whole packets.
+#   * A snapshot carrying no such field is a legacy build and is left exactly
+#     as persisted, so already-published packets keep validating unchanged.
+# ---------------------------------------------------------------------------
+
+PRIOR_CONFIRMED_REFERENCE = "prior_confirmed_reference"
+
+# Which clock each component's prior reference reports, and the only
+# components that get one. BTC reports the transform's finalized measurement
+# day -- NOT the capture directory name, since a 09-07 capture confirms 09-06
+# -- and stablecoin reports its latest observation date. CRYPTO_BREADTH is
+# deliberately absent: it is POLICY_BLOCKED/TAXONOMY_COVERAGE_UNKNOWN even
+# when its capture exists, so publishing a "confirmed reference date" for it
+# would show an admittedly incomplete universe as a complete observation.
+PRIOR_CONFIRMED_REFERENCE_BASIS = {
+    "BTC_TREND": "latest_finalized_day",
+    "BTC_RISK": "latest_finalized_day",
+    "STABLECOIN_NET_ISSUANCE": "observation_date",
+}
+
+
+def _evidence_instant(value) -> dt.datetime | None:
+    """Parse a retained evidence timestamp exactly as
+    _enforce_temporal_boundary does (ISO-8601, trailing Z accepted, a naive
+    value read as UTC), or None when it is missing or unparseable.
+
+    None is never "fine" here: every caller below treats an unparseable or
+    absent timestamp as ineligible rather than guessing an instant for it.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
+
+
+def _canonical_iso_date(value) -> str | None:
+    """The value iff it is a canonical YYYY-MM-DD date string.
+
+    fromisoformat() alone accepts other ISO spellings (e.g. "20260907"),
+    which would then compare wrongly against the canonical decision_date
+    under plain string ordering -- so the round-trip is checked, and every
+    date comparison below is a genuine date comparison.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = dt.date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value if parsed.isoformat() == value else None
+
+
+def _eligible_prior_capture(
+    root: Path, decision_date: str, generated_at_dt: dt.datetime
+) -> dict | None:
+    """The latest capture in ``root`` genuinely usable as a PRIOR reference
+    for this packet, or None.
+
+    Eligibility is point-in-time on both clocks, and a directory name alone
+    proves neither:
+      * the capture date must be STRICTLY earlier than decision_date -- an
+        exact-date or later capture is not a prior reference at all, and
+      * its own retained _downloaded_at.txt must parse and be no later than
+        the packet's generated_at, because evidence that only became
+        available after this packet was generated was not available to it.
+    A missing, unparseable or future timestamp makes a capture ineligible;
+    it is never assumed or defaulted. Symlinks and non-canonical-date
+    directory names are ignored, matching _dated_dir_for_decision's refusal
+    to accept anything but a real dated directory.
+
+    Called at BUILD time only. The result is frozen into the packet, and
+    replay re-reads that frozen choice instead of scanning again.
+    """
+    root = Path(root)
+    if not root.is_dir():
+        return None
+    candidates = []
+    for path in root.iterdir():
+        if not path.is_dir() or path.is_symlink():
+            continue
+        capture_date = _canonical_iso_date(path.name)
+        if capture_date is None or not capture_date < decision_date:
+            continue
+        downloaded_at = _read_downloaded_at(path)
+        instant = _evidence_instant(downloaded_at)
+        if instant is None or instant > generated_at_dt:
+            continue
+        candidates.append({
+            "capture_date": capture_date,
+            "resolved_dir": str(path.relative_to(ROOT)),
+            "downloaded_at": downloaded_at,
+        })
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate["capture_date"])
+
+
+def _checked_prior_capture_selection(
+    selection, decision_date: str, generated_at_dt: dt.datetime
+) -> dict | None:
+    """Re-verify a FROZEN prior-capture choice against this packet's own
+    clocks and normalize it to exactly the three fields a choice consists
+    of, or None when it does not hold up.
+
+    Re-verified rather than trusted: the frozen choice is an input like
+    every other frozen source, so a resealed packet naming a future or
+    not-yet-available capture -- or smuggling extra fields alongside it --
+    must fail the same point-in-time rules a fresh build applies instead of
+    bypassing them by being persisted.
+    """
+    if not isinstance(selection, dict):
+        return None
+    capture_date = _canonical_iso_date(selection.get("capture_date"))
+    resolved_dir = selection.get("resolved_dir")
+    downloaded_at = selection.get("downloaded_at")
+    if capture_date is None or not isinstance(resolved_dir, str):
+        return None
+    if not capture_date < decision_date:
+        return None
+    if Path(resolved_dir).name != capture_date:
+        return None
+    instant = _evidence_instant(downloaded_at)
+    if instant is None or instant > generated_at_dt:
+        return None
+    return {
+        "capture_date": capture_date,
+        "resolved_dir": resolved_dir,
+        "downloaded_at": downloaded_at,
+    }
+
+
+def _prior_confirmed_measurement_date(
+    component_id: str, resolved: Path
+) -> tuple[str | None, str | None]:
+    """(measurement_date, unknown_reason) from the component's OWN existing
+    transform, run over the chosen capture's real retained bytes.
+
+    The same transforms the READY path uses -- not a second, parallel or
+    stubbed derivation -- and with no fallback to the capture directory
+    name: a BTC capture dated 09-07 confirms 09-06, and displaying its
+    folder name as the measurement date is exactly the relabelling this
+    exists to avoid. A transform that fails yields UNKNOWN rather than
+    breaking a build over presentation metadata.
+    """
+    try:
+        if component_id == "BTC_TREND":
+            measured = BTC_TREND.build_transform(resolved).get("latest_finalized_day")
+        elif component_id == "BTC_RISK":
+            packet = BTC_RISK.build_transform(resolved)
+            measured = (
+                packet.get("latest_finalized_day")
+                or (packet.get("risk_point") or {}).get("as_of_date")
+            )
+        elif component_id == "STABLECOIN_NET_ISSUANCE":
+            rows = STABLECOIN.build_transform(resolved).get("rows") or []
+            measured = (rows[-1] if rows else {}).get("observation_date")
+        else:
+            return None, "PRIOR_MEASUREMENT_DATE_UNKNOWN"
+    except Exception:  # noqa: BLE001 - presentation metadata never fails a build
+        return None, "PRIOR_SOURCE_TRANSFORM_FAILED"
+    if not isinstance(measured, str):
+        return None, "PRIOR_MEASUREMENT_DATE_UNKNOWN"
+    return measured, None
+
+
+def _prior_confirmed_reference(
+    component_id: str,
+    selection,
+    decision_date: str,
+    generated_at_dt: dt.datetime,
+) -> dict:
+    """The presentation-only prior confirmed reference for one component.
+
+    Both clocks are checked independently. The capture/availability clock
+    decides whether the chosen snapshot may be referred to at all; the
+    derived measurement clock is then checked on its own, because a capture
+    that was legitimately available can still report a measurement day that
+    is later than its own vintage or not earlier than the decision date --
+    which would be a forward leak wearing a prior capture's name.
+    """
+    basis = PRIOR_CONFIRMED_REFERENCE_BASIS[component_id]
+
+    def unknown(reason: str) -> dict:
+        return {
+            "selected_capture": None,
+            "measurement_date": None,
+            "measurement_basis": basis,
+            "unknown_reason": reason,
+        }
+
+    checked = _checked_prior_capture_selection(
+        selection, decision_date, generated_at_dt
+    )
+    if checked is None:
+        return unknown(
+            "NO_ELIGIBLE_PRIOR_CAPTURE"
+            if selection is None
+            else "PRIOR_CAPTURE_NOT_POINT_IN_TIME_SAFE"
+        )
+    resolved = ROOT / checked["resolved_dir"]
+    if _read_downloaded_at(resolved) != checked["downloaded_at"]:
+        # The frozen availability claim must still be the one the retained
+        # capture itself carries. A choice whose own archive disagrees with
+        # it is not a confirmed reference, whatever it was resealed to say.
+        return unknown("PRIOR_CAPTURE_AVAILABILITY_MISMATCH")
+    measured, reason = _prior_confirmed_measurement_date(component_id, resolved)
+    if measured is not None and not (
+        _canonical_iso_date(measured) is not None
+        and measured <= checked["capture_date"]
+        and measured < decision_date
+    ):
+        measured, reason = None, "PRIOR_MEASUREMENT_DATE_NOT_POINT_IN_TIME_SAFE"
+    return {
+        "selected_capture": checked,
+        "measurement_date": measured,
+        "measurement_basis": basis,
+        "unknown_reason": reason,
+    }
+
+
+def _prior_confirmed_reference_snapshot(
+    snapshot: dict,
+    component_id: str,
+    decision_date: str,
+    generated_at_dt: dt.datetime,
+    *,
+    archive_root: Path | None,
+) -> dict:
+    """The crypto evidence snapshot, plus its prior-confirmed-reference
+    presentation field when one applies.
+
+    ``archive_root`` is the live archive on a FRESH build ("choose once,
+    now") and None on replay -- where the caller supplied this snapshot, so
+    its own frozen choice is the only one that may be used and a fresh scan
+    is exactly what must not happen.
+
+    Three deliberately distinct cases:
+      * exact-date capture present -> no field, and any field found on such
+        a snapshot is dropped: there is nothing stale to report, and a stale
+        reference line beside current evidence would simply be false.
+      * replayed snapshot with no field -> returned exactly as persisted.
+        That is a legacy build, and emitting a field it never had would
+        rewrite its own already-published bytes instead of replaying them.
+      * otherwise -> the field, with the choice carried over (replay) or
+        made now (fresh build), and the displayed date always re-derived
+        from that choice's real retained bytes.
+    """
+    if not isinstance(snapshot, dict):
+        return snapshot
+    base = {
+        key: value
+        for key, value in snapshot.items()
+        if key != PRIOR_CONFIRMED_REFERENCE
+    }
+    if base.get("kind") != "absent":
+        return base
+    frozen = snapshot.get(PRIOR_CONFIRMED_REFERENCE)
+    if frozen is None:
+        if archive_root is None:
+            return base
+        selection = _eligible_prior_capture(
+            archive_root, decision_date, generated_at_dt
+        )
+    else:
+        selection = frozen.get("selected_capture") if isinstance(frozen, dict) else None
+    return base | {
+        PRIOR_CONFIRMED_REFERENCE: _prior_confirmed_reference(
+            component_id, selection, decision_date, generated_at_dt
+        )
+    }
 
 
 def _crypto_breadth_coverage_diagnostics(packet: dict) -> dict:
@@ -3660,25 +3977,33 @@ def build_packet(
         _classify_free_market_data(free_market_snapshot, decision_date)
     )
 
-    btc_snapshot = frozen_sources.get("BTC_TREND")
-    if btc_snapshot is None:
-        btc_snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
+    # Exactly the existing per-component freeze (supplied snapshot replayed,
+    # otherwise fetched once now), plus the presentation-only prior confirmed
+    # reference attached to the same entry -- chosen here on a fresh build and
+    # only ever replayed from the packet's own frozen choice afterwards. See
+    # _prior_confirmed_reference_snapshot for why the two paths differ.
+    def _crypto_snapshot(component_id: str, archive_root: Path) -> dict:
+        snapshot = frozen_sources.get(component_id)
+        fresh = snapshot is None
+        if fresh:
+            snapshot = _fetch_dated_evidence_snapshot(archive_root, decision_date)
+        return _prior_confirmed_reference_snapshot(
+            snapshot,
+            component_id,
+            decision_date,
+            generated_at_dt,
+            archive_root=archive_root if fresh else None,
         )
+
+    btc_snapshot = _crypto_snapshot("BTC_TREND", ROOT / BTC_RAW_ROOT)
     rows["BTC_TREND"] = _boundary(_classify_btc_trend(btc_snapshot))
 
-    btc_risk_snapshot = frozen_sources.get("BTC_RISK")
-    if btc_risk_snapshot is None:
-        btc_risk_snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
-        )
+    btc_risk_snapshot = _crypto_snapshot("BTC_RISK", ROOT / BTC_RAW_ROOT)
     rows["BTC_RISK"] = _boundary(_classify_btc_risk(btc_risk_snapshot))
 
-    stablecoin_snapshot = frozen_sources.get("STABLECOIN_NET_ISSUANCE")
-    if stablecoin_snapshot is None:
-        stablecoin_snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "stablecoin" / "raw", decision_date
-        )
+    stablecoin_snapshot = _crypto_snapshot(
+        "STABLECOIN_NET_ISSUANCE", ROOT / STABLECOIN_RAW_ROOT
+    )
     rows["STABLECOIN_NET_ISSUANCE"] = _boundary(_classify_stablecoin(stablecoin_snapshot))
 
     crypto_breadth_snapshot = frozen_sources.get("CRYPTO_BREADTH")
@@ -4248,18 +4573,26 @@ def _format_component_detail(
         elif cid == "FREE_MARKET_DATA":
             vix = packet.get("vixcls", {})
             bars = packet.get("alpaca_iex_bars", [])
-            if decision_date and row.get("as_of_date") != decision_date:
+            market_reference = packet.get("us_market_reference") or {}
+            us_session_date = (
+                market_reference.get("as_of_session_date")
+                or row.get("as_of_date")
+                or "UNKNOWN"
+            )
+            lines.append(
+                "    - clocks: "
+                f"market_session={us_session_date} "
+                f"VIXCLS_observation={vix.get('date') or 'UNKNOWN'}"
+            )
+            if decision_date and us_session_date != decision_date:
                 # US evidence is never a substitute for the KRX briefing
                 # date.  Keep its own date visible, but do not present an
                 # older close as if it described the current KST session.
                 lines.append(
                     "    - US close values withheld: independent session evidence "
-                    f"is dated {row.get('as_of_date') or 'UNKNOWN'}, not {decision_date}"
+                    f"is dated {us_session_date}, not {decision_date}"
                 )
             else:
-                lines.append(
-                    f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
-                )
                 lines.append(
                     "    - Alpaca IEX partial: "
                     + (
@@ -4267,6 +4600,9 @@ def _format_component_detail(
                         if bars else f"{packet.get('alpaca_status')}"
                     )
                 )
+            lines.append(
+                f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
+            )
             lines.append(f"    - scope: {packet.get('scope_warning')}")
         elif cid == "BTC_TREND":
             lines.append(
@@ -4370,6 +4706,13 @@ def _format_component_detail(
                 )
         elif cid == "ROTATION_DISCOVERY":
             summary = packet.get("summary", {})
+            authority = packet.get("authority") or {}
+            promotion_authorized = authority.get("stage_promotion_authorized") is True
+            promoted_count = (
+                "UNKNOWN"
+                if promotion_authorized
+                else 0
+            )
             lines.append(
                 f"    - rotation_changes={summary.get('rotation_change_count')} "
                 f"discovery_cases={summary.get('discovery_case_count')} "
@@ -4378,6 +4721,12 @@ def _format_component_detail(
                 f"signal_observations={summary.get('signal_observation_count')} "
                 f"dart_observations={summary.get('dart_observation_count')} "
                 f"ready={summary.get('ready_count')} entry={summary.get('entry_trigger_count')}"
+            )
+            lines.append(
+                "    - formal_candidate_changes: "
+                f"new={summary.get('new_candidate_count')} "
+                f"promoted={promoted_count} dropped=UNKNOWN maintained=UNKNOWN "
+                "blocker=CANONICAL_DROPPED_MAINTAINED_TRANSITION_EVIDENCE_NOT_AVAILABLE"
             )
             dart = packet.get("dart_observations", {})
             if (
@@ -4549,8 +4898,37 @@ def _format_component_detail(
         elif cid == "DYNAMIC_CLOCK":
             lines.append(f"    - policy_approval_status={packet.get('policy_approval_status')}")
             markets = packet.get("markets", {})
+            dynamic_decision_date = packet.get("decision_date") or decision_date
+
+            def rendered_due_status(candidate: dict) -> str:
+                retained = candidate.get("review_due_status")
+                if retained in {
+                    "REVIEW_OVERDUE", "REVIEW_DUE_TODAY",
+                    "REVIEW_UPCOMING", "UNKNOWN",
+                }:
+                    return retained
+                try:
+                    return _review_due_status(
+                        candidate.get("next_review_at"), dynamic_decision_date
+                    )
+                except (DailyOrchestratorError, TypeError, ValueError):
+                    return "UNKNOWN"
+
             for market, m in sorted(markets.items()):
                 tier_counts = m.get("tier_counts", {})
+                due_counts = m.get("review_due_counts")
+                if not isinstance(due_counts, dict):
+                    due_counts = {
+                        "REVIEW_OVERDUE": 0,
+                        "REVIEW_DUE_TODAY": 0,
+                        "REVIEW_UPCOMING": 0,
+                        "UNKNOWN": 0,
+                    }
+                    for candidate in (
+                        list(m.get("immediate_review", []))
+                        + list(m.get("watch_review", []))
+                    ):
+                        due_counts[rendered_due_status(candidate)] += 1
                 lines.append(
                     f"    - {market}: raw_triggers(audit only)={m.get('raw_trigger_count_audit_only')} "
                     f"immediate_review={tier_counts.get('IMMEDIATE_REVIEW')} "
@@ -4558,12 +4936,16 @@ def _format_component_detail(
                     f"observation_only={tier_counts.get('OBSERVATION_ONLY')} "
                     f"expired={len(m.get('expired_triggers', []))} "
                     f"calendar_confidence={m.get('calendar_confidence')} "
-                    f"not_computable={m.get('not_computable_trigger_types')}"
+                    f"not_computable={m.get('not_computable_trigger_types')} "
+                    f"review_overdue={due_counts.get('REVIEW_OVERDUE', 0)} "
+                    f"review_due_today={due_counts.get('REVIEW_DUE_TODAY', 0)} "
+                    f"review_upcoming={due_counts.get('REVIEW_UPCOMING', 0)}"
                 )
                 # NOTE: every field rendered per candidate below (subject,
                 # tier, trigger_types+confirmation_count, price_state,
                 # reflection_status, data_state, threshold_basis,
-                # price_as_of, reason, authority, money_action) is the
+                # price observation/capture clocks, review due state,
+                # reason, authority, money_action) is the
                 # EXACT allowlist the integration spec's section 7
                 # requires -- `reason` is always template-derived, never a
                 # forward-return/MFE/post-hoc-audit figure (section 8).
@@ -4587,6 +4969,14 @@ def _format_component_detail(
                 for tier_key, tier_label in (("immediate_review", "IMMEDIATE_REVIEW"), ("watch_review", "WATCH_REVIEW")):
                     candidates = m.get(tier_key, [])
                     for c in candidates[:_RENDER_CAP]:
+                        price_observation_date = (
+                            c.get("price_observation_date") or "UNKNOWN"
+                        )
+                        price_captured_at = (
+                            c.get("price_captured_at")
+                            or c.get("price_as_of")
+                            or "UNKNOWN"
+                        )
                         lines.append(
                             f"      - {tier_label} {c.get('subject')} "
                             f"trigger_types={c.get('trigger_types')} "
@@ -4594,7 +4984,9 @@ def _format_component_detail(
                             f"reflection_status={c.get('reflection_status')} "
                             f"data_state={c.get('data_state')} "
                             f"threshold_basis={c.get('threshold_basis')} "
-                            f"price_as_of={c.get('price_as_of')} "
+                            f"price_observation_date={price_observation_date} "
+                            f"price_captured_at={price_captured_at} "
+                            f"review_due={rendered_due_status(c)} "
                             f"next_review_at={c.get('next_review_at')} "
                             f"authority={c.get('authority')} money_action={c.get('money_action')} "
                             f"reason={c.get('reason')}"
@@ -4634,6 +5026,70 @@ def _format_component_detail(
     return lines
 
 
+def _crypto_prior_confirmed_reference_lines(
+    packet: dict, component_ids: tuple[str, ...], decision_date: str
+) -> list[str]:
+    """The distinct prior-confirmed-reference lines for the Crypto board, or
+    no lines at all.
+
+    Reads only the packet's OWN frozen presentation metadata (see
+    _prior_confirmed_reference_snapshot) -- never a live archive, and never a
+    component row -- so a rendered briefing says exactly what its packet was
+    built and validated with. Only components whose exact-date capture was
+    genuinely absent carry the field, so a component that has current
+    evidence is simply not listed rather than being labelled stale, and
+    CRYPTO_BREADTH never appears at all: it keeps its own
+    POLICY_BLOCKED/TAXONOMY_COVERAGE_UNKNOWN blocker, which a "confirmed
+    reference date" would misrepresent as a complete observation.
+
+    The reason line reuses the components' own existing
+    NO_CAPTURE_FOR_DECISION_DATE blocker rather than introducing a second
+    vocabulary for the same fact, and states plainly that these dates are
+    older measurements shown for reference only.
+    """
+    frozen_sources = packet.get("frozen_sources")
+    if not isinstance(frozen_sources, dict):
+        return []
+    references = {}
+    for component_id in component_ids:
+        snapshot = frozen_sources.get(component_id)
+        reference = (
+            snapshot.get(PRIOR_CONFIRMED_REFERENCE)
+            if isinstance(snapshot, dict)
+            else None
+        )
+        if isinstance(reference, dict):
+            references[component_id] = reference
+    if not references:
+        return []
+    dates = []
+    for component_id, reference in references.items():
+        measurement_date = reference.get("measurement_date") or "UNKNOWN"
+        capture = reference.get("selected_capture")
+        capture_date = capture.get("capture_date") if isinstance(capture, dict) else None
+        dates.append(
+            f"{component_id}={measurement_date}"
+            + (f"(capture={capture_date})" if capture_date else "")
+        )
+    lines = [
+        "- latest_prior_confirmed_reference_dates: " + ",".join(dates),
+        "- prior_confirmed_reference_reason: NO_CAPTURE_FOR_DECISION_DATE; the "
+        "dates above are frozen prior confirmed measurements shown for "
+        f"reference only, never relabelled as {decision_date} evidence and "
+        "never used for this decision.",
+    ]
+    unknown = [
+        f"{component_id}={reference['unknown_reason']}"
+        for component_id, reference in references.items()
+        if reference.get("unknown_reason")
+    ]
+    if unknown:
+        lines.append(
+            "- prior_confirmed_reference_unknown: " + ",".join(unknown)
+        )
+    return lines
+
+
 def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> list[str]:
     """Render a visible three-market board against independent evidence clocks.
 
@@ -4649,12 +5105,42 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         row = by_id.get(component_id) or {}
         return row.get("as_of_date") or "UNKNOWN"
 
+    def measurement_date(component_id: str) -> str:
+        row = by_id.get(component_id) or {}
+        component_packet = row.get("packet") or {}
+        if component_id == "FREE_MARKET_DATA":
+            return (
+                (component_packet.get("us_market_reference") or {}).get(
+                    "as_of_session_date"
+                )
+                or source_date(component_id)
+            )
+        if component_id == "BTC_TREND":
+            return component_packet.get("latest_finalized_day") or "UNKNOWN"
+        if component_id == "BTC_RISK":
+            return (
+                component_packet.get("latest_finalized_day")
+                or (component_packet.get("risk_point") or {}).get("as_of_date")
+                or "UNKNOWN"
+            )
+        return source_date(component_id)
+
     krx = by_id.get("KOREA_MARKET_SIGNALS") or {}
+    krx_post_close = by_id.get("KRX_POST_CLOSE") or {}
+    krx_post_close_packet = krx_post_close.get("packet") or {}
+    krx_post_close_summary = krx_post_close_packet.get("summary") or {}
+    observed_symbol_count = krx_post_close_summary.get("observed_symbol_count")
+    krx_observed_unconfirmed = (
+        krx_post_close.get("as_of_date")
+        if isinstance(observed_symbol_count, int) and observed_symbol_count > 0
+        else "UNKNOWN"
+    )
     krx_fresh = krx.get("status") == "READY" and krx.get("as_of_date") == decision_date
     us = by_id.get("FREE_MARKET_DATA") or {}
-    us_fresh = us.get("status") == "READY" and us.get("as_of_date") == decision_date
+    us_session_date = measurement_date("FREE_MARKET_DATA")
+    us_fresh = us.get("status") == "READY" and us_session_date == decision_date
     crypto_ids = ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE")
-    crypto_dates = [source_date(component_id) for component_id in crypto_ids]
+    crypto_dates = [measurement_date(component_id) for component_id in crypto_ids]
     crypto_fresh = all(date == decision_date for date in crypto_dates)
 
     lines = ["## 3-market session board"]
@@ -4663,7 +5149,12 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         "### KRX · 한국",
         ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
         + f"; evidence_date={source_date('KOREA_MARKET_SIGNALS')}",
-        "- latest_completed_close_date: " + source_date("KOREA_MARKET_SIGNALS"),
+        "- latest_confirmed_close_date: " + source_date("KOREA_MARKET_SIGNALS"),
+        "- latest_observed_unconfirmed_date: " + krx_observed_unconfirmed,
+        "- pending_reason: same-day post-close observations remain decision-ineligible "
+        "until canonical confirmation."
+        if krx_observed_unconfirmed != "UNKNOWN"
+        else "- pending_reason: no same-day post-close observation is available.",
     ])
     if krx_fresh:
         lines.extend(_format_component_detail(krx, decision_date))
@@ -4679,8 +5170,10 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
     lines.extend([
         "### US · 미국",
         ("- session: CURRENT_SESSION_EVIDENCE" if us_fresh else "- session: INDEPENDENT_SESSION_PENDING")
-        + f"; evidence_date={source_date('FREE_MARKET_DATA')}",
-        "- latest_verified_us_evidence_date: " + source_date("FREE_MARKET_DATA"),
+        + f"; evidence_date={us_session_date}",
+        "- latest_verified_us_session_date: " + us_session_date,
+        "- latest_verified_vix_observation_date: "
+        + str(((us.get("packet") or {}).get("vixcls") or {}).get("date") or "UNKNOWN"),
     ])
     if us_fresh:
         lines.extend(_format_component_detail(us, decision_date))
@@ -4695,9 +5188,22 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         (
             "- session: CONTINUOUS_CURRENT_EVIDENCE"
             if crypto_fresh else "- session: CONTINUOUS_EVIDENCE_PENDING"
-        ) + f"; evidence_dates={','.join(crypto_dates)}",
+        ) + "; evidence_dates=" + ",".join(
+            f"{component_id}={measurement_date(component_id)}"
+            for component_id in crypto_ids
+        ),
         "- continuous_observation_date: " + (decision_date if crypto_fresh else "PENDING"),
+        "- pending_reason: component measurement dates are not all current/equal."
+        if not crypto_fresh
+        else "- pending_reason: NONE",
     ])
+    # Additive and strictly separate from the evidence_dates line above: the
+    # current evidence dates stay exactly as derived (UNKNOWN when there is no
+    # capture for this decision date), and these lines report the older
+    # confirmed measurements alongside them.
+    lines.extend(
+        _crypto_prior_confirmed_reference_lines(packet, crypto_ids, decision_date)
+    )
     if crypto_fresh:
         for component_id in crypto_ids:
             component = by_id.get(component_id) or {}
