@@ -1971,6 +1971,10 @@ APPROVED_TESTS = [
     # PROPOSED and every money/trading authority remains false.
     "test/test_kis_071050_identity_authority.py",
     "test/test_kis_realtime_trade_observation.py",
+    # CIO-selected Option A calendar-source bridge. Exact retained KRX
+    # observations may prove only an OPEN_REGULAR date; missing rows never
+    # infer CLOSED and price/flow finality plus all money authority stay shut.
+    "test/test_krx_post_close_session_calendar.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.

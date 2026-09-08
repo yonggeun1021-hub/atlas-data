@@ -1,0 +1,50 @@
+{
+  "schema_version": "krx_session_calendar_sources/2",
+  "market": "KOREA",
+  "venue_scope": "KRX_ONLY",
+  "timezone": "Asia/Seoul",
+  "decision_evidence": {
+    "path": "evidence/authority/krx_direct_exact_date_calendar_source_adoption_20260908.json",
+    "sha256": "327f2095ac2b3d9eceac9fe9270b1ba4f0c76d8465680f13ea8d5c9af92214e8"
+  },
+  "base_validator": {
+    "path": "market_data/krx_session_bars.py",
+    "sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0"
+  },
+  "base_contract": {
+    "path": "config/krx_market_data_contract.json",
+    "sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649"
+  },
+  "allowed_open_source_identities": [
+    "KIS_OPEN_API_DOMESTIC_HOLIDAY_CTCA0903R",
+    "KRX_INFORMATION_DATA_SYSTEM_EXACT_DATE_OHLCV"
+  ],
+  "krx_observation_profile": {
+    "adapter_path": "market_data/krx_post_close_session_calendar.py",
+    "profile": "krx_post_close_open_session_evidence/1",
+    "source_label": "KRX 정보데이터시스템 (pykrx)",
+    "source_tier": "Official",
+    "required_symbols": [
+      "000660",
+      "005930"
+    ],
+    "exact_date_positive_ohlcv_required": true,
+    "price_or_flow_finality_promoted": false,
+    "closed_session_derivation_authorized": false
+  },
+  "market_rule_identity": "KRX_EQUITY_MARKET_OPERATION_RULES",
+  "regular_session": {
+    "open": "09:00:00",
+    "close": "15:30:00",
+    "pre_and_post_market_excluded": true,
+    "special_session_policy": "UNKNOWN_FAIL_CLOSED"
+  },
+  "authority": {
+    "market_calendar_observation_only": true,
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "order_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}

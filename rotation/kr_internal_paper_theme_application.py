@@ -229,12 +229,12 @@ def _expected_next_session_contract() -> dict:
         },
         "session_boundary": {
             "required_proof": "independently verified calendar proves D is the immediately previous OPEN_REGULAR session before E",
-            "calendar_validator": "market_data/krx_session_bars.py::validate_calendar",
-            "calendar_validator_sha256": "79e0058a6ed4540b953e9bbb975296a58fcbe6b0f245a299fae65bec5176dbd0",
-            "calendar_contract": "config/krx_market_data_contract.json",
-            "calendar_contract_sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649",
+            "calendar_validator": "market_data/krx_session_calendar_v2.py::validate_calendar",
+            "calendar_validator_sha256": "2f9438093d3eba63eca47de47e1a7c1b66733e3483a7f8070fcffeaf92abe329",
+            "calendar_contract": "config/krx_session_calendar_sources_v2.json",
+            "calendar_contract_sha256": "7914f65da8245cc5dd6ed8441b874837dbd63289aaffbffecbc7fd47f8e1e293",
             "calendar_source_schema_version": "krx_date_specific_session_source/1",
-            "calendar_coverage": "exact committed snapshot for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
+            "calendar_coverage": "exact committed approved-source snapshot for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
             "post_close_market_signals_relation_required": False,
             "calendar_day_subtraction_authorized": False,
             "d_minus_two_fallback_authorized": False,
@@ -605,7 +605,7 @@ def verify_immediate_session_calendar(
     """Prove that E is the first OPEN_REGULAR KRX session after D.
 
     Every calendar date from D through E must have an exact committed
-    date-specific CTCA0903R envelope.  The existing KRX calendar validator
+    date-specific approved-source envelope.  The KRX calendar validator
     checks provider identity, market-rule identity, regular-session bounds,
     and point-in-time availability.  Calendar-day enumeration is used only to
     demand complete evidence; it never infers whether a date is open.
@@ -633,7 +633,7 @@ def verify_immediate_session_calendar(
         raise ThemeApplicationError("SESSION_CALENDAR_CONTRACT_HASH_MISMATCH")
     validator = _load_module(
         "kr_internal_paper_krx_session_calendar",
-        "market_data/krx_session_bars.py",
+        calendar_binding["calendar_validator"].split("::", 1)[0],
     )
     try:
         validator_contract = validator.load_contract()
@@ -670,6 +670,37 @@ def verify_immediate_session_calendar(
             or checked["source_sha256"] != envelope.get("official_response_sha256")
         ):
             raise ThemeApplicationError("SESSION_CALENDAR_SOURCE_BINDING_MISMATCH")
+        if checked["provider_id"] == "KRX_INFORMATION_DATA_SYSTEM_EXACT_DATE_OHLCV":
+            source_path = repo / checked["source_ref"]
+            source_relative = TTA._relative(repo, source_path)
+            if source_relative is None:
+                raise ThemeApplicationError("SESSION_CALENDAR_KRX_SOURCE_REF_INVALID")
+            source_path = repo / source_relative
+            source_raw = source_path.read_bytes()
+            source_first_seen = _require_exact_committed_bytes(
+                repo, commit, source_path, source_raw,
+                "SESSION_CALENDAR_KRX_SOURCE_NOT_EXACT_COMMITTED_BYTES",
+            )
+            if sha256_bytes(source_raw) != checked["source_sha256"]:
+                raise ThemeApplicationError("SESSION_CALENDAR_KRX_SOURCE_HASH_MISMATCH")
+            adapter = _load_module(
+                "kr_internal_paper_krx_post_close_calendar_adapter",
+                "market_data/krx_post_close_session_calendar.py",
+            )
+            try:
+                derived, _ = adapter.build_calendar_packet(
+                    source_raw, checked["source_ref"], expected_day.isoformat()
+                )
+            except adapter.KrxPostCloseCalendarError as exc:
+                raise ThemeApplicationError(
+                    f"SESSION_CALENDAR_KRX_SOURCE_INVALID:{exc}"
+                ) from exc
+            if derived != envelope:
+                raise ThemeApplicationError("SESSION_CALENDAR_KRX_DERIVATION_MISMATCH")
+            if _timestamp(
+                source_first_seen, "SESSION_CALENDAR_KRX_SOURCE_FIRST_SEEN_INVALID"
+            ) > evaluation:
+                raise ThemeApplicationError("SESSION_CALENDAR_KRX_SOURCE_FUTURE_AT_EVALUATION")
         first_seen_at = _timestamp(
             first_seen, "SESSION_CALENDAR_FIRST_SEEN_INVALID"
         )
