@@ -1396,7 +1396,12 @@ def _classify_btc_trend(snapshot: dict) -> dict:
         validated=True,
         authority={k: v for k, v in packet.items() if k.endswith("_authorized")},
         contract_version=packet.get("transform_version"),
-        packet={"direction": packet.get("direction"), "dma_200": packet.get("dma_200") if "dma_200" in packet else None},
+        packet={
+            "direction": packet.get("direction"),
+            "dma_200": packet.get("dma_200") if "dma_200" in packet else None,
+            "latest_finalized_day": packet.get("latest_finalized_day"),
+            "capture_date": resolved.name,
+        },
     )
 
 
@@ -1431,6 +1436,8 @@ def _classify_btc_risk(snapshot: dict) -> dict:
         packet={
             "status": packet.get("status"),
             "risk_point": packet.get("risk_point"),
+            "latest_finalized_day": packet.get("latest_finalized_day"),
+            "capture_date": resolved.name,
         },
     )
 

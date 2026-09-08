@@ -31,6 +31,21 @@ def crypto_rows() -> dict:
     }
 
 
+def controlled_btc_rows(root: Path) -> dict:
+    """Real transforms over synthetic immutable raw bytes, with both clocks."""
+    spec = importlib.util.spec_from_file_location(
+        "live_axis_btc_raw_fixture", ROOT / "test" / "test_btc_trend.py"
+    )
+    fixture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture)
+    fixture.write_snapshot(root / "evidence/crypto/btc/raw", vintage="2026-08-26")
+    with mock.patch.object(MODULE, "ROOT", root):
+        return {
+            "BTC_TREND": MODULE.build_btc_trend("2026-08-26"),
+            "BTC_RISK": MODULE.build_btc_risk("2026-08-26"),
+        }
+
+
 UPBIT_FORBIDDEN_INTERPRETED_VALUES = (
     "POSITIVE", "NEGATIVE", "NEUTRAL", "RISK_ON", "RISK_OFF", "STRESS",
     "IMPROVING", "DETERIORATING", "STABLE",
@@ -935,6 +950,59 @@ class RegimeLiveAxisAdapterTest(unittest.TestCase):
         liquidity = factors["CRYPTO"]["LIQUIDITY"]
         self.assertEqual(liquidity["status"], "UNDEFINED")
         self.assertEqual(liquidity["warnings"], ["LIVE_AXIS_EVIDENCE_UNAVAILABLE"])
+
+    def test_btc_current_and_frozen_legacy_packets_bind_same_raw_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = controlled_btc_rows(root)
+            legacy = copy.deepcopy(rows)
+            for component in ("BTC_TREND", "BTC_RISK"):
+                self.assertEqual(rows[component]["packet"]["latest_finalized_day"], "2026-08-25")
+                self.assertEqual(rows[component]["packet"]["capture_date"], "2026-08-26")
+                legacy[component]["packet"].pop("latest_finalized_day")
+                legacy[component]["packet"].pop("capture_date")
+            with mock.patch.object(MODULE.LIVE_AXIS_ADAPTER, "ROOT", root):
+                current = MODULE.LIVE_AXIS_ADAPTER.build_axis_factors(rows, GENERATED_AT)
+                historical = MODULE.LIVE_AXIS_ADAPTER.build_axis_factors(legacy, GENERATED_AT)
+                outputs = MODULE.build_regime_outputs(GENERATED_AT, rows)
+            self.assertEqual(current, historical)
+            for axis in ("TREND", "RISK_VOL"):
+                self.assertEqual(current["CRYPTO"][axis]["status"], "DEFINED")
+                self.assertEqual(current["CRYPTO"][axis]["observation_date"], "2026-08-25")
+                self.assertEqual(current["CRYPTO"][axis]["available_at"], "2026-08-26T00:20:00Z")
+            self.assertEqual(outputs["CRYPTO"]["regime"], "UNKNOWN")
+            self.assertTrue(all_authorities_false(outputs))
+            assert_no_interpreted_axis_values(self, current["CRYPTO"])
+
+    def test_btc_temporal_metadata_partial_extra_future_and_raw_tamper_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = controlled_btc_rows(root)
+            with mock.patch.object(MODULE.LIVE_AXIS_ADAPTER, "ROOT", root):
+                for component, axis in (("BTC_TREND", "TREND"), ("BTC_RISK", "RISK_VOL")):
+                    for key in ("latest_finalized_day", "capture_date"):
+                        for mutation in ("wrong", "missing"):
+                            altered = copy.deepcopy(rows)
+                            if mutation == "wrong":
+                                altered[component]["packet"][key] = "2026-08-24"
+                            else:
+                                altered[component]["packet"].pop(key)
+                            with self.subTest(component=component, key=key, mutation=mutation):
+                                factors = MODULE.LIVE_AXIS_ADAPTER.build_axis_factors(altered, GENERATED_AT)
+                                self.assertEqual(factors["CRYPTO"][axis]["status"], "UNDEFINED")
+                                other = "RISK_VOL" if axis == "TREND" else "TREND"
+                                self.assertEqual(factors["CRYPTO"][other]["status"], "DEFINED")
+                    altered = copy.deepcopy(rows)
+                    altered[component]["packet"]["extra"] = "unrecognized"
+                    factors = MODULE.LIVE_AXIS_ADAPTER.build_axis_factors(altered, GENERATED_AT)
+                    self.assertEqual(factors["CRYPTO"][axis]["status"], "UNDEFINED")
+                future = MODULE.LIVE_AXIS_ADAPTER.build_axis_factors(rows, "2026-08-26T00:19:59Z")
+                for axis in ("TREND", "RISK_VOL"):
+                    self.assertEqual(future["CRYPTO"][axis]["status"], "UNDEFINED")
+                (root / "evidence/crypto/btc/raw/2026-08-26/kraken_ohlc_xbtusd.json.gz").write_bytes(b"corrupted")
+                tampered = MODULE.LIVE_AXIS_ADAPTER.build_axis_factors(rows, GENERATED_AT)
+                for axis in ("TREND", "RISK_VOL"):
+                    self.assertEqual(tampered["CRYPTO"][axis]["status"], "UNDEFINED")
 
 
 if __name__ == "__main__":
