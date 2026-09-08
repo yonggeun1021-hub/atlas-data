@@ -76,13 +76,36 @@ jobs:
         run: python3 validation/tests/test_briefing_core_v2.py
       - name: Actions PASS gate
         run: python3 run_all.py --authoritative --fail-fast --log-dir "$RUNNER_TEMP/atlas-gate-logs"
+      # ★ CIO 판정 2026-09-09 — 이 업로드는 비권위(non-authoritative) 진단 전송이다.
+      #   run 34246738933 (fb2bb2dc) 에서 ①~⑭ 필수 gate 는 전부 success 였는데
+      #   artifact 서비스의 `FinalizeArtifact: (403) Forbidden` 하나가 job 을
+      #   failure 로 만들고 뒤따르는 dirty artifact 검사까지 skipped 로 만들었다.
+      #   전송 실패는 test 결과가 아니다 — 그래서 이 step **하나에만**
+      #   continue-on-error 를 둔다.
+      #   ⛔ job/workflow 전체 continue-on-error 는 절대 두지 않는다. Actions PASS
+      #      gate 와 dirty artifact 검사는 그대로 권위적으로 실패해야 한다.
+      #   ⛔ best effort 인 것은 전송뿐이다. 증거·redaction·test 유효성은 불변이다.
+      #      업로드는 언제나(always) 시도하고, 실패하면 바로 다음 step 이 그
+      #      outcome 을 그대로 드러낸다 — 실패한 업로드를 보존된 artifact 라고
+      #      주장하지 않는다.
       - name: Preserve complete redacted gate diagnostics
+        id: gate_diagnostics
         if: ${{ always() }}
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: actions-pass-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/atlas-gate-logs/
           if-no-files-found: ignore
           retention-days: 7
+      # ★ 실패한 진단 업로드는 조용히 넘어가지 않는다. step outcome 을 그대로
+      #   인용해 경고 annotation 과 run summary 에 남긴다 — 보존되지 않은 진단을
+      #   보존되었다고 기록하지 않기 위한 것이다.
+      - name: 진단 artifact 업로드 실패를 명시한다
+        if: ${{ always() && steps.gate_diagnostics.outcome == 'failure' }}
+        run: |
+          MESSAGE="gate diagnostics artifact actions-pass-logs-${{ github.run_id }}-${{ github.run_attempt }} was NOT retained — upload step outcome=${{ steps.gate_diagnostics.outcome }} (transport only). The Actions PASS gate result stays authoritative and the dirty artifact check still runs."
+          echo "::warning title=gate diagnostics NOT retained::$MESSAGE"
+          echo "- $MESSAGE" >> "$GITHUB_STEP_SUMMARY"
       - name: 작업 후 dirty artifact 가 없는지
         run: git diff --exit-code

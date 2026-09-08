@@ -91,9 +91,16 @@ jobs:
             --recent-previous "$RECENT_PREVIOUS" \
             --recent-date "$RECENT_DATE" \
             --out-dir "$RUNNER_TEMP/p1-kr05-derived"
+      # always() is the same failure-path retention p1-kr05-korea-breadth-live.yml
+      # already uses: without it, a failed derived capture skips this upload and
+      # the metadata receipt that capture just emitted is lost with the runner.
+      # The existing context_exists guard is preserved, so a verified-existing
+      # same-date reuse still uploads nothing (it produced no derived dir).
+      # This only retains evidence -- the job still fails, so the dependent
+      # master/commit and Leadership jobs remain skipped exactly as today.
       - name: Upload P1-KR-05 derived output artifacts
         id: upload_derived
-        if: steps.existing_context.outputs.exists != 'true'
+        if: always() && steps.existing_context.outputs.exists != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}
