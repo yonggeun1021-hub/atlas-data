@@ -6,6 +6,7 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -23,7 +24,18 @@ def load(name: str, relative: str):
 
 M = load("korea_global_universe_populate", ".github/scripts/korea_global_universe_populate.py")
 FIXTURE = load("krx_global_universe_fixture", "test/test_krx_global_universe.py")
-WORKFLOW = ROOT / ".github/workflows/p1-kr05-korea-breadth-live.yml"
+# Every workflow that commits a Korea Breadth context must persist the exact
+# same already-built p3-03 artifact under the same observation date.  A
+# workflow that commits Breadth (and, for the pair, Leadership) while dropping
+# the master leaves that date's D consumer tuple unpairable.
+WORKFLOWS = (
+    ROOT / ".github/workflows/p1-kr05-korea-breadth-live.yml",
+    ROOT / ".github/workflows/p2-03-korea-observation-pair.yml",
+)
+POPULATE_INVOCATION = re.compile(
+    r"python3 \.github/scripts/korea_global_universe_populate\.py \\\n"
+    r"\s+--derived-dir \"\$RUNNER_TEMP/p1-kr05-derived\"\n"
+)
 
 
 def packet() -> dict:
@@ -143,16 +155,36 @@ class KoreaGlobalUniversePopulateTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, serialized)
 
-    def test_workflow_reuses_artifact_and_stages_both_outputs(self):
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("korea_global_universe_populate.py", text)
-        self.assertIn("--derived-dir \"$RUNNER_TEMP/p1-kr05-derived\"", text)
-        add_line = next(line.strip() for line in text.splitlines() if line.strip().startswith("git add data/observations/korea_breadth_context"))
-        self.assertIn("data/observations/krx_global_universe", add_line.split())
-        self.assertEqual(
-            text.count("python3 .github/scripts/korea_breadth_derived_outputs.py"),
-            1,
+    def test_workflows_reuse_artifact_and_stage_both_outputs(self):
+        for workflow in WORKFLOWS:
+            with self.subTest(workflow=workflow.name):
+                text = workflow.read_text(encoding="utf-8")
+                # The exact artifact the live-proof job already built, never a
+                # second provider request for the same date.
+                self.assertRegex(text, POPULATE_INVOCATION)
+                add_line = next(
+                    line.strip()
+                    for line in text.splitlines()
+                    if line.strip().startswith("git add data/observations/korea_breadth_context")
+                )
+                self.assertIn("data/observations/krx_global_universe", add_line.split())
+                self.assertEqual(
+                    text.count("python3 .github/scripts/korea_breadth_derived_outputs.py"),
+                    1,
+                )
+
+    def test_pair_workflow_stages_master_before_dependent_leadership(self):
+        text = (ROOT / ".github/workflows/p2-03-korea-observation-pair.yml").read_text(
+            encoding="utf-8"
         )
+        # Leadership commits the same observation date, so the master must be
+        # populated and staged by the job Leadership genuinely depends on --
+        # not after it, and not in a job Leadership can start without.
+        leadership_job = text.index("\n  korea-leadership-live-fetch:")
+        before_leadership = text[:leadership_job]
+        self.assertRegex(before_leadership, POPULATE_INVOCATION)
+        self.assertIn("data/observations/krx_global_universe", before_leadership)
+        self.assertIn("needs: korea-breadth-context-commit", text[leadership_job:])
 
 
 if __name__ == "__main__":
