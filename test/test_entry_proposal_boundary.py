@@ -248,6 +248,350 @@ class EntryProposalBoundaryTests(unittest.TestCase):
             )
 
 
+class EntryProposalBoundaryExactTypeTests(unittest.TestCase):
+    """Python treats False, 0 and 0.0 as equal.
+
+    Every fixed authority flag, capital field and zero count at this boundary
+    must be compared as an exact JSON value, so a scalar alias cannot enter the
+    contract, the upstream guards or the final packet comparison -- whether the
+    original hash is retained or the aliased result is re-signed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = json.loads(boundary.DEFAULT_REPORT.read_text())
+        cls.identity = json.loads(boundary.DEFAULT_IDENTITY.read_text())
+        cls.shadow_contract = json.loads(boundary.DEFAULT_SHADOW_CONTRACT.read_text())
+        cls.shadow_packet = json.loads(boundary.DEFAULT_SHADOW_PACKET.read_text())
+        cls.readiness_contract = json.loads(
+            boundary.DEFAULT_READINESS_CONTRACT.read_text()
+        )
+        cls.readiness_packet = readiness.build_packet(
+            cls.readiness_contract,
+            cls.shadow_packet,
+            cls.report,
+            cls.identity,
+            cls.shadow_contract,
+            trigger_kind=cls.shadow_packet["source"]["trigger_kind"],
+        )
+        cls.contract = boundary.load_contract()
+        cls.trigger_kind = cls.readiness_packet["source"]["trigger_kind"]
+        cls.packet = boundary.build_packet(
+            cls.contract,
+            cls.readiness_packet,
+            cls.readiness_contract,
+            cls.shadow_packet,
+            cls.report,
+            cls.identity,
+            cls.shadow_contract,
+            trigger_kind=cls.trigger_kind,
+        )
+
+    @staticmethod
+    def _resign(value: dict, field: str) -> dict:
+        result = copy.deepcopy(value)
+        result.pop(field, None)
+        result[field] = payload_sha256(result)
+        return result
+
+    def _reviewable_readiness(self) -> dict:
+        """A real readiness packet whose first row carries review material."""
+        packet = copy.deepcopy(self.readiness_packet)
+        if not packet["candidates"]:
+            self.skipTest("no upstream candidate rows available")
+        packet["candidates"][0]["diagnostic_reviewable"] = True
+        packet["candidates"][0] = self._resign(packet["candidates"][0], "row_sha256")
+        packet["summary"]["diagnostic_reviewable_count"] = sum(
+            1 for row in packet["candidates"] if row["diagnostic_reviewable"]
+        )
+        return self._resign(packet, "packet_sha256")
+
+    def _reviewable_row(self) -> dict:
+        return self._reviewable_readiness()["candidates"][0]
+
+    def _build(self, readiness_result: dict) -> dict:
+        with mock.patch.object(
+            readiness, "validate_packet", return_value=copy.deepcopy(readiness_result)
+        ):
+            return boundary.build_packet(
+                self.contract,
+                self.readiness_packet,
+                self.readiness_contract,
+                self.shadow_packet,
+                self.report,
+                self.identity,
+                self.shadow_contract,
+                trigger_kind=self.trigger_kind,
+            )
+
+    def _validate(self, packet: dict, readiness_result: dict | None = None) -> dict:
+        source = self.readiness_packet if readiness_result is None else readiness_result
+        with mock.patch.object(
+            readiness, "validate_packet", return_value=copy.deepcopy(source)
+        ):
+            return boundary.validate_packet(
+                packet,
+                self.contract,
+                self.readiness_packet,
+                self.readiness_contract,
+                self.shadow_packet,
+                self.report,
+                self.identity,
+                self.shadow_contract,
+                trigger_kind=self.trigger_kind,
+            )
+
+    # --- contract ---------------------------------------------------------
+    def test_contract_authority_flag_scalar_aliases_are_rejected(self):
+        for field, alias in (
+            ("order_authority", 0),
+            ("order_authority", 0.0),
+            ("trading_authority", 0),
+            ("review_only", 1),
+            ("review_only", 1.0),
+        ):
+            contract = copy.deepcopy(self.contract)
+            contract["authority"][field] = alias
+            self.assertEqual(
+                boundary.AUTHORITY_ALL_FALSE[field], contract["authority"][field]
+            )
+            with self.subTest(field=field, alias=repr(alias)), self.assertRaisesRegex(
+                boundary.EntryProposalBoundaryError,
+                "CONTRACT_AUTHORITY_ESCALATION",
+            ):
+                boundary.validate_contract(contract)
+
+    def test_contract_capital_bool_and_float_aliases_are_rejected(self):
+        for alias in (False, 0.0):
+            contract = copy.deepcopy(self.contract)
+            contract["proposal_boundary"]["capital"] = alias
+            self.assertEqual(0, contract["proposal_boundary"]["capital"])
+            with self.subTest(alias=repr(alias)), self.assertRaisesRegex(
+                boundary.EntryProposalBoundaryError,
+                "PROPOSAL_BOUNDARY_DRIFT",
+            ):
+                boundary.validate_contract(contract)
+
+    def test_valid_contract_keeps_exact_types_and_its_source_hash(self):
+        locked = boundary.validate_contract(self.contract)
+        self.assertEqual(self.contract, locked)
+        self.assertEqual(
+            payload_sha256(locked),
+            self.packet["source"]["entry_proposal_boundary_contract_sha256"],
+        )
+        self.assertIs(int, type(locked["proposal_boundary"]["capital"]))
+        for field, value in locked["authority"].items():
+            with self.subTest(field=field):
+                self.assertIs(bool, type(value))
+        self.assertEqual(
+            boundary.EXPECTED_REVIEW_MATERIAL, locked["human_review_material"]
+        )
+
+    # --- upstream fixed-value guards --------------------------------------
+    def test_upstream_packet_authority_scalar_aliases_are_rejected(self):
+        for field, alias in (("order_authority", 0), ("review_only", 1)):
+            upstream = copy.deepcopy(self.readiness_packet)
+            upstream["authority"][field] = alias
+            with self.subTest(field=field), self.assertRaisesRegex(
+                boundary.EntryProposalBoundaryError,
+                "UPSTREAM_PACKET_AUTHORITY_ESCALATION",
+            ):
+                self._build(self._resign(upstream, "packet_sha256"))
+
+    def test_upstream_zero_count_bool_and_float_aliases_are_rejected(self):
+        for field, alias in (
+            ("execution_eligible_count", False),
+            ("entry_proposal_count", 0.0),
+            ("order_intent_count", False),
+        ):
+            upstream = copy.deepcopy(self.readiness_packet)
+            upstream["summary"][field] = alias
+            self.assertEqual(0, upstream["summary"][field])
+            with self.subTest(field=field, alias=repr(alias)), self.assertRaisesRegex(
+                boundary.EntryProposalBoundaryError,
+                "UPSTREAM_EXECUTABLE_OUTPUT_PRESENT",
+            ):
+                self._build(self._resign(upstream, "packet_sha256"))
+
+    def test_upstream_reviewable_flag_integer_alias_is_rejected(self):
+        upstream = copy.deepcopy(self.readiness_packet)
+        upstream["candidates"][0]["diagnostic_reviewable"] = 1
+        upstream["candidates"][0] = self._resign(
+            upstream["candidates"][0], "row_sha256"
+        )
+        with self.assertRaisesRegex(
+            boundary.EntryProposalBoundaryError,
+            "UPSTREAM_FLAG_TYPE_INVALID:diagnostic_reviewable",
+        ):
+            self._build(self._resign(upstream, "packet_sha256"))
+        with self.assertRaisesRegex(
+            boundary.EntryProposalBoundaryError,
+            "UPSTREAM_FLAG_TYPE_INVALID:diagnostic_reviewable",
+        ):
+            boundary._review_material(upstream["candidates"][0])
+
+    def test_review_material_capital_bool_and_float_aliases_are_rejected(self):
+        for alias in (False, 0.0):
+            row = self._reviewable_row()
+            row["capital"] = alias
+            self.assertEqual(0, row["capital"])
+            with self.subTest(alias=repr(alias)), self.assertRaisesRegex(
+                boundary.EntryProposalBoundaryError,
+                "UPSTREAM_MONEY_BOUNDARY_OPEN",
+            ):
+                boundary._review_material(row)
+
+    def test_review_material_authority_scalar_aliases_are_rejected(self):
+        for field, alias in (("order_authority", 0), ("review_only", 1)):
+            row = self._reviewable_row()
+            row["authority"][field] = alias
+            with self.subTest(field=field), self.assertRaisesRegex(
+                boundary.EntryProposalBoundaryError,
+                "UPSTREAM_AUTHORITY_ESCALATION",
+            ):
+                boundary._review_material(row)
+
+    # --- final expected-packet comparison ---------------------------------
+    def test_output_authority_alias_with_retained_hash_is_rejected(self):
+        for field, alias in (("order_authority", 0), ("review_only", 1)):
+            tampered = copy.deepcopy(self.packet)
+            tampered["authority"][field] = alias
+            self.assertEqual(
+                self.packet["packet_sha256"], tampered["packet_sha256"]
+            )
+            with self.subTest(field=field), self.assertRaisesRegex(
+                boundary.EntryProposalBoundaryError,
+                "ENTRY_PROPOSAL_BOUNDARY_SEMANTIC_TAMPER_OR_DRIFT",
+            ):
+                self._validate(tampered)
+
+    def test_output_summary_count_alias_with_retained_hash_is_rejected(self):
+        for field, alias in (
+            ("actionable_proposal_count", False),
+            ("entry_proposal_count", 0.0),
+            ("order_intent_count", False),
+        ):
+            tampered = copy.deepcopy(self.packet)
+            tampered["summary"][field] = alias
+            with self.subTest(field=field, alias=repr(alias)), self.assertRaisesRegex(
+                boundary.EntryProposalBoundaryError,
+                "ENTRY_PROPOSAL_BOUNDARY_SEMANTIC_TAMPER_OR_DRIFT",
+            ):
+                self._validate(tampered)
+
+    def test_output_decision_capital_alias_with_recalculated_hash_is_rejected(self):
+        for alias in (False, 0.0):
+            tampered = copy.deepcopy(self.packet)
+            tampered["decision"]["capital"] = alias
+            tampered = self._resign(tampered, "packet_sha256")
+            self.assertNotEqual(
+                self.packet["packet_sha256"], tampered["packet_sha256"]
+            )
+            with self.subTest(alias=repr(alias)), self.assertRaisesRegex(
+                boundary.EntryProposalBoundaryError,
+                "ENTRY_PROPOSAL_BOUNDARY_SEMANTIC_TAMPER_OR_DRIFT",
+            ):
+                self._validate(tampered)
+
+    def test_material_row_aliases_are_rejected_with_retained_and_new_hashes(self):
+        upstream = self._reviewable_readiness()
+        packet = self._build(upstream)
+        expected_count = sum(
+            1 for row in upstream["candidates"] if row["diagnostic_reviewable"]
+        )
+        self.assertGreaterEqual(len(packet["human_review_material"]), 1)
+        self.assertEqual(
+            expected_count, packet["summary"]["human_review_material_count"]
+        )
+        self.assertEqual(packet, self._validate(packet, upstream))
+
+        retained = copy.deepcopy(packet)
+        retained["human_review_material"][0]["capital"] = False
+        self.assertEqual(packet["packet_sha256"], retained["packet_sha256"])
+        self.assertEqual(
+            packet["human_review_material"][0]["row_sha256"],
+            retained["human_review_material"][0]["row_sha256"],
+        )
+        with self.assertRaisesRegex(
+            boundary.EntryProposalBoundaryError,
+            "ENTRY_PROPOSAL_BOUNDARY_SEMANTIC_TAMPER_OR_DRIFT",
+        ):
+            self._validate(retained, upstream)
+
+        resigned = copy.deepcopy(packet)
+        resigned["human_review_material"][0]["authority"]["order_authority"] = 0
+        resigned["human_review_material"][0] = self._resign(
+            resigned["human_review_material"][0], "row_sha256"
+        )
+        resigned = self._resign(resigned, "packet_sha256")
+        with self.assertRaisesRegex(
+            boundary.EntryProposalBoundaryError,
+            "ENTRY_PROPOSAL_BOUNDARY_SEMANTIC_TAMPER_OR_DRIFT",
+        ):
+            self._validate(resigned, upstream)
+
+    # --- positive controls -------------------------------------------------
+    def test_genuine_packet_bytes_and_hashes_are_preserved(self):
+        rebuilt = self._build(self.readiness_packet)
+        self.assertEqual(self.packet, rebuilt)
+        self.assertEqual(
+            json.dumps(self.packet, ensure_ascii=False, sort_keys=True),
+            json.dumps(rebuilt, ensure_ascii=False, sort_keys=True),
+        )
+        self.assertEqual(
+            payload_sha256(
+                {
+                    key: value
+                    for key, value in self.packet.items()
+                    if key != "packet_sha256"
+                }
+            ),
+            self.packet["packet_sha256"],
+        )
+        self.assertEqual(self.packet, self._validate(self.packet))
+
+        with tempfile.TemporaryDirectory() as raw_temp:
+            root = Path(raw_temp)
+            output = root / "latest.json"
+            boundary.write_outputs(
+                self.packet, output=output, history_root=root / "history"
+            )
+            written = output.read_bytes()
+            reloaded = json.loads(output.read_text())
+            self.assertEqual(self.packet, reloaded)
+            self.assertEqual(self.packet, self._validate(reloaded))
+            boundary.write_outputs(
+                reloaded, output=output, history_root=root / "history"
+            )
+            self.assertEqual(written, output.read_bytes())
+
+    def test_genuine_material_keeps_exact_scalar_types(self):
+        material = boundary._review_material(self._reviewable_row())
+        self.assertIs(int, type(material["capital"]))
+        for field, value in material["authority"].items():
+            with self.subTest(field=field):
+                self.assertIs(bool, type(value))
+        self.assertEqual(
+            payload_sha256(
+                {
+                    key: value
+                    for key, value in material.items()
+                    if key != "row_sha256"
+                }
+            ),
+            material["row_sha256"],
+        )
+
+    def test_genuine_packet_scalar_types_are_exact(self):
+        for field, value in self.packet["authority"].items():
+            with self.subTest(field=field):
+                self.assertIs(bool, type(value))
+        self.assertIs(int, type(self.packet["decision"]["capital"]))
+        for field, value in self.packet["summary"].items():
+            with self.subTest(field=field):
+                self.assertIs(int, type(value))
+
+
 class KrxPaperProposalBridgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

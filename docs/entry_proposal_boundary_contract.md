@@ -22,6 +22,14 @@ The validator rebuilds the packet from the exact Dynamic Clock, identity,
 Shadow Entry Review, P5-06/P7-08 readiness and P8-13 contract inputs. Re-signing
 a modified packet cannot turn diagnostic material into a money action.
 
+Every one of those fixed values is compared as an exact JSON value, reusing the
+upstream readiness comparison. Python treats `False`, `0` and `0.0` as equal, so
+plain equality accepted an authority flag written as `0`, `review_only` written
+as `1`, or capital written as `False` or `0.0` — including a packet that kept its
+original hash. The contract, the upstream fixed-value guards and the final
+expected-packet comparison now reject those scalar aliases. Valid packets are
+unchanged: the same inputs still produce the same bytes and the same hashes.
+
 This is an implemented safety and review boundary. P8-13 remains in development
 until the required policies have separate authority records and can pass their
 own evidence, CIO review and user-ratification gates.
