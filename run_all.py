@@ -720,11 +720,17 @@ APPROVED_TESTS = [
     #   replay case, market rank, Regime, capital, or trading authority is
     #   invented; resigned output/source tamper fails closed. temp output only.
     "test/test_regime_policy_calibration_readiness.py",
-    # ★ P1-COM-05 PAPER 참고판정. 이미 보존된 무료 US/KR 5축 관찰값을
+    # ★ P1-COM-05 PAPER 참고판정. 이미 보존된 무료 US/KR/Crypto 5축 관찰값을
     #   사용자 화면용 진단으로만 정규화한다. runtime/final Regime은 UNKNOWN,
     #   Stage/Buy/Action/Order/Capital/Production/Trading은 모두 false다.
-    #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
+    #   Crypto 원자료는 재검증하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
+    # ★ Stage1 three-market handoff. Exact retained workflow/run/output facts
+    #   bind one consumer tuple. US/Crypto display immediately; an unadvanced
+    #   KR daily source stays explicit and prevents same-date completion.
+    #   Future natural slots are NOT_DUE and every capital/order/trading flag
+    #   remains false.
+    "test/test_stage1_market_tuple.py",
     # ★ P1-COM-05 PAPER runtime adoption eligibility.  Reuses the already
     #   classified three-market reference and evaluates only whether an exact
     #   externally retained source workflow completion/readback, published

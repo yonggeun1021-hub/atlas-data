@@ -727,14 +727,20 @@ def _total_exposure(markets: list[dict]) -> dict:
     }
 
 
-def build_reference(root: Path = ROOT) -> dict:
+def build_reference(
+    root: Path = ROOT, *, frozen_paper_reference_authenticated: bool = False
+) -> dict:
     policy_path = root / "config" / "capital_flow_posture_reference_policy_v1.json"
     source_path = root / "data" / "latest_paper_regime_reference.json"
     policy = validate_policy(read_json(policy_path, "POLICY_INVALID"))
     flow_contract_identity = _cross_asset_flow_contract_identity(policy, root)
     source = read_json(source_path, "SOURCE_INVALID")
     try:
-        PAPER_REGIME.validate_reference(source, root)
+        PAPER_REGIME.validate_reference(
+            source,
+            root,
+            frozen_packet_authenticated=frozen_paper_reference_authenticated,
+        )
     except Exception as exc:
         raise CapitalFlowPostureReferenceError(f"SOURCE_REVALIDATION_FAILED:{exc}") from exc
     if source.get("contract_version") != policy["source_contract_version"]:
@@ -1404,7 +1410,9 @@ def build_reference_from_verified_inputs(verified: dict) -> dict:
     )
     with materialized_flow_replay_root(verified) as materialized_root:
         _revalidate_production_pins(materialized_root, verified)
-        return build_reference(materialized_root)
+        return build_reference(
+            materialized_root, frozen_paper_reference_authenticated=True
+        )
 
 
 def build_reference_from_frozen_inputs(

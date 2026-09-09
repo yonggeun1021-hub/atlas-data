@@ -48,7 +48,7 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
             packet["cross_market_flow"]["comparison_status"],
             {"UNKNOWN", "PARTIAL_RELATIVE_STRENGTH_REFERENCE", "THREE_MARKET_RELATIVE_STRENGTH_REFERENCE"},
         )
-        self.assertEqual(packet["total_exposure_review"]["review"], "WAIT_CLASSIFICATION_POLICY")
+        self.assertEqual(packet["total_exposure_review"]["review"], "WAIT_INCOMPLETE_MARKET_SET")
         self.assertIsNone(packet["total_exposure_review"]["invested_target_pct"])
         self.assertIsNone(packet["total_exposure_review"]["cash_target_pct"])
 
@@ -56,7 +56,7 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
         packet = MODULE.build_reference(self.root)
         reviews = {row["market"]: row for row in packet["market_allocation_reviews"]}
         self.assertEqual(set(reviews), {"US", "KR", "CRYPTO"})
-        self.assertEqual(reviews["CRYPTO"]["review_priority"], "WAIT_FOR_CLASSIFICATION_POLICY")
+        self.assertEqual(reviews["CRYPTO"]["review_priority"], "WAIT_FOR_COMPLETE_REGIME")
         self.assertTrue(all(row["target_weight_pct"] is None for row in reviews.values()))
 
         leaders = [row["market"] for row in reviews.values() if row["review_priority"] == "RELATIVE_STRENGTH_LEADER_REFERENCE"]
@@ -1192,7 +1192,9 @@ class FlowFrozenReplayGitProvenanceTests(unittest.TestCase):
     def test_frozen_replay_reproduces_the_producer_exactly(self):
         root, _head = self.make_repo()
         envelope = self.capture(root)
-        direct = MODULE.build_reference(root)
+        direct = MODULE.build_reference(
+            root, frozen_paper_reference_authenticated=True
+        )
         replayed = self.replay(envelope, root)
         self.assertEqual(replayed, direct)
         # A real packet, not an empty shell, and the producer's own semantic
