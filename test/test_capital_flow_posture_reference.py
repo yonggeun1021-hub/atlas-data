@@ -48,7 +48,7 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
             packet["cross_market_flow"]["comparison_status"],
             {"UNKNOWN", "PARTIAL_RELATIVE_STRENGTH_REFERENCE", "THREE_MARKET_RELATIVE_STRENGTH_REFERENCE"},
         )
-        self.assertEqual(packet["total_exposure_review"]["review"], "WAIT_INCOMPLETE_MARKET_SET")
+        self.assertEqual(packet["total_exposure_review"]["review"], "WAIT_CLASSIFICATION_POLICY")
         self.assertIsNone(packet["total_exposure_review"]["invested_target_pct"])
         self.assertIsNone(packet["total_exposure_review"]["cash_target_pct"])
 
@@ -56,7 +56,7 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
         packet = MODULE.build_reference(self.root)
         reviews = {row["market"]: row for row in packet["market_allocation_reviews"]}
         self.assertEqual(set(reviews), {"US", "KR", "CRYPTO"})
-        self.assertEqual(reviews["CRYPTO"]["review_priority"], "WAIT_FOR_COMPLETE_REGIME")
+        self.assertEqual(reviews["CRYPTO"]["review_priority"], "WAIT_FOR_CLASSIFICATION_POLICY")
         self.assertTrue(all(row["target_weight_pct"] is None for row in reviews.values()))
 
         leaders = [row["market"] for row in reviews.values() if row["review_priority"] == "RELATIVE_STRENGTH_LEADER_REFERENCE"]
