@@ -2,12 +2,16 @@ import copy
 import datetime as dt
 import json
 from pathlib import Path
+import sys
 import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from regime import paper_regime_runtime_adoption as subject
 
 
-ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_RAW = (ROOT / "config" / "paper_regime_runtime_adoption_v1.json").read_bytes()
 SCHEMA = json.loads(SCHEMA_RAW)
 SCHEMA_SHA256 = "3d821dac459a40fce1eac6dce2803fb8671c52a99bf22d63aa61014704c4614a"
