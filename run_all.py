@@ -968,6 +968,10 @@ APPROVED_TESTS = [
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
     "test/test_crypto_regime_refresh_status.py",
+    # PAPER-only descriptive normalization for the already published current
+    # Crypto five-axis reference.  It preserves the provisional caveats and
+    # cannot grant runtime, capital, order, Production, or trading authority.
+    "test/test_crypto_paper_descriptive_normalization.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
