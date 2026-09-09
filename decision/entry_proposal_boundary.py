@@ -13,6 +13,13 @@ proposal are ratified.  This module makes that last boundary explicit:
 Validation is semantic.  The packet is rebuilt from the exact readiness and
 upstream inputs, so changing a result and recalculating its hash cannot make
 the result valid.
+
+Comparisons are exact JSON comparisons.  Python treats ``False``, ``0`` and
+``0.0`` as equal, so plain equality would admit an authority flag written as
+``0`` or a capital field written as ``False``.  The upstream readiness
+exact-type comparison is reused here so those scalar aliases are rejected at
+the contract, at the upstream fixed-value guards and at the final
+expected-packet comparison.
 """
 from __future__ import annotations
 
@@ -83,6 +90,18 @@ class EntryProposalBoundaryError(ValueError):
     pass
 
 
+# Reuse the readiness exact-JSON comparison unchanged: both sides of the P8-13
+# handoff must reject bool/int/float aliases with identical semantics.
+_exact_value_equal = readiness._exact_value_equal
+
+
+def _exact_flag(value: object, field: str) -> bool:
+    """Return an exact JSON boolean, rejecting 0/1 integer aliases."""
+    if type(value) is not bool:
+        raise EntryProposalBoundaryError(f"UPSTREAM_FLAG_TYPE_INVALID:{field}")
+    return value
+
+
 def _load_json(path: Path) -> dict:
     value = json.loads(path.read_text())
     if not isinstance(value, dict):
@@ -112,11 +131,15 @@ def validate_contract(contract: dict) -> dict:
         raise EntryProposalBoundaryError("CONTRACT_AUTHORITY_NOT_LOCKED")
     if contract["required_upstream_status"] != "LOCKED_POLICY_UNRATIFIED":
         raise EntryProposalBoundaryError("UPSTREAM_LOCK_REQUIREMENT_DRIFT")
-    if contract["human_review_material"] != EXPECTED_REVIEW_MATERIAL:
+    if not _exact_value_equal(
+        contract["human_review_material"], EXPECTED_REVIEW_MATERIAL
+    ):
         raise EntryProposalBoundaryError("REVIEW_MATERIAL_CONTRACT_DRIFT")
-    if contract["proposal_boundary"] != EXPECTED_PROPOSAL_BOUNDARY:
+    if not _exact_value_equal(
+        contract["proposal_boundary"], EXPECTED_PROPOSAL_BOUNDARY
+    ):
         raise EntryProposalBoundaryError("PROPOSAL_BOUNDARY_DRIFT")
-    if contract["authority"] != AUTHORITY_ALL_FALSE:
+    if not _exact_value_equal(contract["authority"], AUTHORITY_ALL_FALSE):
         raise EntryProposalBoundaryError("CONTRACT_AUTHORITY_ESCALATION")
     return copy.deepcopy(contract)
 
@@ -126,18 +149,18 @@ def load_contract(path: Path = DEFAULT_CONTRACT) -> dict:
 
 
 def _review_material(row: dict) -> dict:
-    if not row["diagnostic_reviewable"]:
+    if not _exact_flag(row["diagnostic_reviewable"], "diagnostic_reviewable"):
         raise EntryProposalBoundaryError("NON_REVIEWABLE_ROW_SELECTED")
     if row["execution_status"] != "LOCKED_POLICY_UNRATIFIED":
         raise EntryProposalBoundaryError("UPSTREAM_EXECUTION_STATUS_CHANGED")
     if (
         row["trade_proposal"] is not None
-        or row["capital"] != 0
+        or not _exact_value_equal(row["capital"], 0)
         or row["quantity"] is not None
         or row["action"] != "NONE"
     ):
         raise EntryProposalBoundaryError("UPSTREAM_MONEY_BOUNDARY_OPEN")
-    if row["authority"] != readiness.AUTHORITY_ALL_FALSE:
+    if not _exact_value_equal(row["authority"], readiness.AUTHORITY_ALL_FALSE):
         raise EntryProposalBoundaryError("UPSTREAM_AUTHORITY_ESCALATION")
 
     material = {
@@ -182,10 +205,12 @@ def build_packet(
     )
     if validated_readiness["decision"]["status"] != "LOCKED_POLICY_UNRATIFIED":
         raise EntryProposalBoundaryError("UPSTREAM_POLICY_LOCK_NOT_PRESENT")
-    if validated_readiness["authority"] != readiness.AUTHORITY_ALL_FALSE:
+    if not _exact_value_equal(
+        validated_readiness["authority"], readiness.AUTHORITY_ALL_FALSE
+    ):
         raise EntryProposalBoundaryError("UPSTREAM_PACKET_AUTHORITY_ESCALATION")
     if any(
-        validated_readiness["summary"].get(key) != 0
+        not _exact_value_equal(validated_readiness["summary"].get(key), 0)
         for key in ("execution_eligible_count", "entry_proposal_count", "order_intent_count")
     ):
         raise EntryProposalBoundaryError("UPSTREAM_EXECUTABLE_OUTPUT_PRESENT")
@@ -193,7 +218,7 @@ def build_packet(
     materials = [
         _review_material(row)
         for row in validated_readiness["candidates"]
-        if row["diagnostic_reviewable"]
+        if _exact_flag(row["diagnostic_reviewable"], "diagnostic_reviewable")
     ]
     packet = {
         "schema_version": PACKET_SCHEMA_VERSION,
@@ -255,7 +280,7 @@ def validate_packet(
         shadow_contract,
         trigger_kind=trigger_kind,
     )
-    if packet != expected:
+    if not _exact_value_equal(packet, expected):
         raise EntryProposalBoundaryError(
             "ENTRY_PROPOSAL_BOUNDARY_SEMANTIC_TAMPER_OR_DRIFT"
         )
