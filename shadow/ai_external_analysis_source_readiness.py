@@ -3,8 +3,8 @@
 
 The adapter reads immutable Git objects with the existing source-owner
 validators. It records hashes and identities, never source text. Missing event
-time, freshness policy, and consecutive history remain explicit UNKNOWNs and
-therefore cannot become an input to a model executor.
+time or unverified freshness/history remains explicit UNKNOWN and therefore
+cannot become an input to a model executor.
 """
 from __future__ import annotations
 
@@ -346,16 +346,9 @@ def _provider_event_at(metadata: dict, ticker: str, accession: str) -> str | Non
     if len(matches) != 1:
         raise SourceReadinessError(f"SEC_METADATA_IDENTITY_CARDINALITY:{ticker}:{accession}")
     row = matches[0]
-    present = [
-        row[key]
-        for key in ("acceptanceDateTime", "acceptance_datetime", "accepted_at_utc")
-        if key in row
-    ]
-    if not present:
+    if "acceptanceDateTime" not in row:
         return None
-    if len(present) != 1:
-        raise SourceReadinessError("SEC_PROVIDER_EVENT_TIME_AMBIGUOUS")
-    parsed = _utc(present[0], "SEC_PROVIDER_EVENT_TIME_INVALID")
+    parsed = _utc(row["acceptanceDateTime"], "SEC_PROVIDER_EVENT_TIME_INVALID")
     return parsed.isoformat().replace("+00:00", "Z")
 
 
@@ -780,17 +773,24 @@ def _freshness_coverage(
     records = ledger["records"]
     intervals = []
     for previous, current in zip(records, records[1:]):
+        if previous["status"] not in {"OK_NEW", "OK_EMPTY"} or current[
+            "status"
+        ] not in {"OK_NEW", "OK_EMPTY"}:
+            continue
         intervals.append({
             "fromRecordSha256": previous["recordSha256"],
             "toRecordSha256": current["recordSha256"],
             "fromObservedAtUtc": previous["observedAtUtc"],
             "toObservedAtUtc": current["observedAtUtc"],
+            "fromStatus": previous["status"],
+            "toStatus": current["status"],
             "status": "EXACT_BETWEEN_VERIFIED_POLL_RECEIPTS",
         })
+    fresh_through = intervals[-1]["toObservedAtUtc"] if intervals else None
     return {
         "verifiedPollIntervals": intervals,
         "futureCoverageStatus": "UNKNOWN_NO_VERIFIED_FUTURE_POLL",
-        "freshThroughUtc": None,
+        "freshThroughUtc": fresh_through,
         "nominalSchedule": {
             "cronExpressions": expressions,
             "nextNominalDueAtUtc": _next_nominal_due(evaluated, expressions),
@@ -830,14 +830,37 @@ def _admission_receipt(
     return receipt
 
 
-def _condition_rows(sec_sources: list[dict], observation_origin: str) -> list[dict]:
+def _condition_rows(
+    sec_sources: list[dict],
+    material_index: dict,
+    freshness: dict,
+    consecutive: dict,
+    evaluated: dt.datetime,
+    observation_origin: str,
+) -> list[dict]:
     natural = observation_origin == "NATURAL_SOURCE_OWNER_EMITTED"
+    current_runs_ok = all(
+        row.get("status") in {"OK_NEW", "OK_EMPTY", "OK_RETAINED_REUSED"}
+        for row in material_index.values()
+    )
+    latest_ready = natural and current_runs_ok and any(
+        row.get("lastMaterialSource") is not None for row in material_index.values()
+    )
+    event_ready, event_status = _event_fresh_condition(
+        material_index, freshness, evaluated
+    )
+    consecutive_ready = consecutive["status"] in {
+        "VERIFIED_CURRENT_SUCCESS_BOUNDARY",
+        "VERIFIED_FROM_PRIOR_NATURAL_SUCCESS",
+    }
     return [
         {
             "id": "latest_actual_source",
-            "ready": natural,
+            "ready": latest_ready,
             "status": (
                 "NATURAL_CURRENT_RUN_INDEX_READY"
+                if latest_ready
+                else "FAILED_OR_EMPTY_MATERIAL_INDEX"
                 if natural
                 else "INDEX_READY_BACKFILLED_NOT_NATURAL_ADMISSION"
             ),
@@ -849,8 +872,8 @@ def _condition_rows(sec_sources: list[dict], observation_origin: str) -> list[di
         },
         {
             "id": "event_available_fresh_through",
-            "ready": False,
-            "status": "MECHANISM_READY_CURRENT_EVENT_TIME_OR_FRESHNESS_UNKNOWN",
+            "ready": event_ready,
+            "status": event_status,
         },
         {
             "id": "source_owner_binding",
@@ -872,12 +895,8 @@ def _condition_rows(sec_sources: list[dict], observation_origin: str) -> list[di
         },
         {
             "id": "continuous_missing_delay_state",
-            "ready": False,
-            "status": (
-                "NATURAL_LEDGER_FIRST_READBACK_HISTORY_INCOMPLETE"
-                if natural
-                else "BACKFILLED_LEDGER_NOT_NATURAL_PRODUCER_READBACK"
-            ),
+            "ready": consecutive_ready,
+            "status": consecutive["status"],
         },
     ]
 
@@ -904,6 +923,195 @@ def validate_shadow_source_match(packet: dict) -> dict:
     if packet.get("stage3InputSources") != []:
         raise SourceReadinessError("SHADOW_SOURCE_ADMISSION_FORBIDDEN")
     return copy.deepcopy(expected)
+
+
+def _natural_history_readback(repo: Path, commit: str) -> dict:
+    root = "data/observations/ai_external_analysis_source_readiness"
+    index_path = f"{root}/index.json"
+    if not _git_blob_present(repo, commit, index_path):
+        return {
+            "status": "UNKNOWN_NO_PRIOR_NATURAL_RECEIPT",
+            "receiptRefs": [],
+            "lastSuccessfulRunAtUtc": None,
+            "trailingFailureCount": None,
+            "trailingDelayedOrSkippedCount": None,
+        }
+    index, _ = _git_json(repo, commit, index_path)
+    unsigned_index = copy.deepcopy(index)
+    claimed_index = unsigned_index.pop("indexSha256", None)
+    if claimed_index != payload_sha256(unsigned_index):
+        raise SourceReadinessError("NATURAL_HISTORY_INDEX_SHA_MISMATCH")
+    if index.get("schemaVersion") != "ai_external_analysis_source_readiness_index/1":
+        raise SourceReadinessError("NATURAL_HISTORY_INDEX_VERSION_INVALID")
+    records = index.get("records")
+    if not isinstance(records, list):
+        raise SourceReadinessError("NATURAL_HISTORY_INDEX_RECORDS_INVALID")
+    refs = []
+    statuses = []
+    for row in records[-32:]:
+        if not isinstance(row, dict):
+            raise SourceReadinessError("NATURAL_HISTORY_INDEX_ROW_INVALID")
+        relative = row.get("readinessPath")
+        if not isinstance(relative, str) or relative.startswith("/") or ".." in Path(relative).parts:
+            raise SourceReadinessError("NATURAL_HISTORY_PATH_INVALID")
+        packet_path = f"{root}/{relative}"
+        packet, _ = _git_json(repo, commit, packet_path)
+        unsigned_packet = copy.deepcopy(packet)
+        claimed_packet = unsigned_packet.pop("packetSha256", None)
+        if (
+            claimed_packet != payload_sha256(unsigned_packet)
+            or row.get("readinessSha256") != claimed_packet
+            or packet.get("observationOrigin") != "NATURAL_SOURCE_OWNER_EMITTED"
+            or row.get("sourceCommit") != packet.get("sourceCommit")
+            or row.get("evaluatedAtUtc") != packet.get("evaluatedAtUtc")
+        ):
+            raise SourceReadinessError("NATURAL_HISTORY_RECEIPT_BINDING_INVALID")
+        ledger = packet.get("runLedger")
+        if not isinstance(ledger, dict):
+            raise SourceReadinessError("NATURAL_HISTORY_LEDGER_INVALID")
+        unsigned_ledger = copy.deepcopy(ledger)
+        claimed_ledger = unsigned_ledger.pop("ledgerSha256", None)
+        if claimed_ledger != payload_sha256(unsigned_ledger) or row.get("ledgerSha256") != claimed_ledger:
+            raise SourceReadinessError("NATURAL_HISTORY_LEDGER_SHA_MISMATCH")
+        natural_records = [
+            item for item in ledger.get("records", [])
+            if isinstance(item, dict)
+            and item.get("recordOrigin") == "NATURAL_SOURCE_OWNER_EMITTED"
+            and item.get("sourceCommit") == packet["sourceCommit"]
+        ]
+        if not natural_records:
+            raise SourceReadinessError("NATURAL_HISTORY_CURRENT_RUN_MISSING")
+        current = natural_records[-1]
+        refs.append({
+            "path": packet_path,
+            "packetSha256": claimed_packet,
+            "sourceCommit": packet["sourceCommit"],
+            "evaluatedAtUtc": packet["evaluatedAtUtc"],
+            "currentRunStatus": current["status"],
+            "currentRunObservedAtUtc": current["observedAtUtc"],
+        })
+        statuses.append(current)
+    if not statuses:
+        return {
+            "status": "UNKNOWN_NO_PRIOR_NATURAL_RECEIPT",
+            "receiptRefs": [],
+            "lastSuccessfulRunAtUtc": None,
+            "trailingFailureCount": None,
+            "trailingDelayedOrSkippedCount": None,
+        }
+    last_success_index = max(
+        (index for index, row in enumerate(statuses) if row["status"] in {"OK_NEW", "OK_EMPTY"}),
+        default=None,
+    )
+    if last_success_index is None:
+        return {
+            "status": "UNKNOWN_NO_VERIFIED_SUCCESS_BOUNDARY",
+            "receiptRefs": refs,
+            "lastSuccessfulRunAtUtc": None,
+            "trailingFailureCount": None,
+            "trailingDelayedOrSkippedCount": None,
+        }
+    tail = statuses[last_success_index + 1 :]
+    result = {
+        "status": "VERIFIED_NATURAL_HISTORY_FROM_LAST_SUCCESS",
+        "receiptRefs": refs,
+        "lastSuccessfulRunAtUtc": statuses[last_success_index]["observedAtUtc"],
+        "trailingFailureCount": sum(row["status"] == "FAILED" for row in tail),
+        "trailingDelayedOrSkippedCount": sum(
+            row["status"] == "DELAYED_OR_SKIPPED" for row in tail
+        ),
+    }
+    return result
+
+
+def _current_natural_record(ledger: dict, commit: str) -> dict | None:
+    matches = [
+        row for row in ledger["records"]
+        if row["sourceCommit"] == commit
+        and row["recordOrigin"] == "NATURAL_SOURCE_OWNER_EMITTED"
+    ]
+    return matches[-1] if matches else None
+
+
+def _consecutive_state(
+    ledger: dict,
+    history: dict,
+    commit: str,
+    observation_origin: str,
+) -> dict:
+    current = _current_natural_record(ledger, commit)
+    if observation_origin != "NATURAL_SOURCE_OWNER_EMITTED" or current is None:
+        return {
+            "status": "UNKNOWN_NO_CURRENT_NATURAL_RUN",
+            "currentRunStatus": None,
+            "consecutiveFailureCount": None,
+            "consecutiveDelayedOrSkippedCount": None,
+            "lastSuccessfulRunAtUtc": history["lastSuccessfulRunAtUtc"],
+        }
+    if current["status"] in {"OK_NEW", "OK_EMPTY"}:
+        return {
+            "status": "VERIFIED_CURRENT_SUCCESS_BOUNDARY",
+            "currentRunStatus": current["status"],
+            "consecutiveFailureCount": 0,
+            "consecutiveDelayedOrSkippedCount": 0,
+            "lastSuccessfulRunAtUtc": current["observedAtUtc"],
+        }
+    if history["status"] != "VERIFIED_NATURAL_HISTORY_FROM_LAST_SUCCESS":
+        return {
+            "status": "UNKNOWN_PRIOR_SUCCESS_BOUNDARY",
+            "currentRunStatus": current["status"],
+            "consecutiveFailureCount": None,
+            "consecutiveDelayedOrSkippedCount": None,
+            "lastSuccessfulRunAtUtc": None,
+        }
+    return {
+        "status": "VERIFIED_FROM_PRIOR_NATURAL_SUCCESS",
+        "currentRunStatus": current["status"],
+        "consecutiveFailureCount": history["trailingFailureCount"] + int(current["status"] == "FAILED"),
+        "consecutiveDelayedOrSkippedCount": (
+            history["trailingDelayedOrSkippedCount"]
+            + int(current["status"] == "DELAYED_OR_SKIPPED")
+        ),
+        "lastSuccessfulRunAtUtc": history["lastSuccessfulRunAtUtc"],
+    }
+
+
+def _event_fresh_condition(
+    material_index: dict,
+    freshness: dict,
+    evaluated: dt.datetime,
+) -> tuple[bool, str]:
+    sources = [row.get("lastMaterialSource") for row in material_index.values()]
+    if not sources or any(source is None for source in sources):
+        return False, "UNKNOWN_MATERIAL_SOURCE"
+    for source in sources:
+        available = _utc(source.get("availableAtUtc"), "CONDITION_AVAILABLE_AT_INVALID")
+        if available > evaluated:
+            raise SourceReadinessError("CONDITION_SOURCE_FROM_FUTURE")
+        if source.get("eventTimePrecision") != "EXACT" or source.get("eventAtUtc") is None:
+            return False, "UNKNOWN_EVENT_TIME_PRECISION_DATE_ONLY"
+        event = _utc(source["eventAtUtc"], "CONDITION_EVENT_AT_INVALID")
+        if event > available:
+            raise SourceReadinessError("CONDITION_EVENT_AFTER_AVAILABLE")
+    fresh_value = freshness.get("freshThroughUtc")
+    if fresh_value is None:
+        return False, "UNKNOWN_FRESH_THROUGH_NOT_PROVEN"
+    fresh = _utc(fresh_value, "CONDITION_FRESH_THROUGH_INVALID")
+    if fresh < evaluated:
+        return False, "UNKNOWN_VERIFIED_POLL_COVERAGE_STALE"
+    intervals = freshness.get("verifiedPollIntervals")
+    if not isinstance(intervals, list) or not any(
+        isinstance(row, dict)
+        and row.get("status") == "EXACT_BETWEEN_VERIFIED_POLL_RECEIPTS"
+        and row.get("fromStatus") in {"OK_NEW", "OK_EMPTY"}
+        and row.get("toStatus") in {"OK_NEW", "OK_EMPTY"}
+        and _utc(row.get("fromObservedAtUtc"), "CONDITION_INTERVAL_START_INVALID")
+        <= evaluated
+        <= _utc(row.get("toObservedAtUtc"), "CONDITION_INTERVAL_END_INVALID")
+        for row in intervals
+    ):
+        return False, "UNKNOWN_NO_EXACT_POLL_INTERVAL_AT_EVALUATION"
+    return True, "READY_EXACT_EVENT_AVAILABLE_AND_VERIFIED_POLL_INTERVAL"
 
 
 def _derive_packet(
@@ -970,6 +1178,10 @@ def _derive_packet(
     )
     ledger = _run_ledger(repo, commit, contract, observation_origin)
     freshness = _freshness_coverage(repo, commit, evaluated, ledger)
+    natural_history = _natural_history_readback(repo, commit)
+    consecutive = _consecutive_state(
+        ledger, natural_history, commit, observation_origin
+    )
     admission = _admission_receipt(
         commit,
         latest_refs,
@@ -980,7 +1192,14 @@ def _derive_packet(
         contract,
         observation_origin,
     )
-    conditions = _condition_rows(sec_sources, observation_origin)
+    conditions = _condition_rows(
+        sec_sources,
+        material_index,
+        freshness,
+        consecutive,
+        evaluated,
+        observation_origin,
+    )
     if [row["id"] for row in conditions] != contract["condition_order"]:
         raise SourceReadinessError("CONDITION_ORDER_INTERNAL_ERROR")
     all_ready = all(row["ready"] for row in conditions)
@@ -1001,6 +1220,8 @@ def _derive_packet(
         "shadowSourceMatch": shadow_match,
         "freshnessCoverage": freshness,
         "runLedger": ledger,
+        "naturalHistoryReadback": natural_history,
+        "consecutiveState": consecutive,
         "runStates": run_states,
         "conditions": conditions,
         "allSixConditionsReady": all_ready,
@@ -1049,7 +1270,8 @@ def validate_packet(
         "latestSourceRefs", "retainedSourceRefs", "latestMaterialSourceIndex",
         "ownerRefs", "ownerReferencesBound", "sourceOwnerAdmissionReceipt",
         "shadowSourceMatch",
-        "freshnessCoverage", "runLedger", "runStates", "conditions",
+        "freshnessCoverage", "runLedger", "naturalHistoryReadback",
+        "consecutiveState", "runStates", "conditions",
         "allSixConditionsReady", "stage3InputSources", "modelSourceInferenceAuthorized",
         "mechanismReady", "authority", "packetSha256",
     }:

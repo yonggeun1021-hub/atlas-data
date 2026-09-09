@@ -1,9 +1,12 @@
 import copy
+import datetime as dt
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -58,8 +61,6 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         self.assertTrue(all(row["freshnessStatus"] == "UNKNOWN_NO_SOURCE_OWNER_POLICY" for row in sources))
         self.assertTrue(all(row["availableAtUtc"] == "2026-09-08T21:45:30Z" for row in sources))
         self.assertTrue(all(len(row["availableAtBasis"]) == 2 for row in sources))
-        sec_collector = MODULE._git_blob(ROOT, self.commit, "collectors/sec.py").decode()
-        self.assertNotIn("acceptanceDateTime", sec_collector)
         board = next(row for row in sources if row["identity"]["accession"] == "0001046179-26-000536")
         self.assertEqual(len(board["factRefs"]), 3)
         for fact in board["factRefs"]:
@@ -115,17 +116,28 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         ))
         MODULE.validate_shadow_source_match(self.packet)
 
-    def test_natural_mechanism_progress_does_not_complete_time_or_history_conditions(self):
+    def test_natural_mechanism_progress_still_does_not_complete_time_condition(self):
         conditions = {
             row["id"]: row
             for row in MODULE._condition_rows(
-                self.packet["retainedSourceRefs"], "NATURAL_SOURCE_OWNER_EMITTED"
+                self.packet["retainedSourceRefs"],
+                self.packet["latestMaterialSourceIndex"],
+                self.packet["freshnessCoverage"],
+                {
+                    "status": "VERIFIED_CURRENT_SUCCESS_BOUNDARY",
+                    "currentRunStatus": "OK_EMPTY",
+                    "consecutiveFailureCount": 0,
+                    "consecutiveDelayedOrSkippedCount": 0,
+                    "lastSuccessfulRunAtUtc": "2026-09-09T00:00:00Z",
+                },
+                MODULE._utc(self.evaluated_at, "TEST_TIME"),
+                "NATURAL_SOURCE_OWNER_EMITTED",
             )
         }
         self.assertTrue(conditions["latest_actual_source"]["ready"])
         self.assertTrue(conditions["source_owner_binding"]["ready"])
         self.assertFalse(conditions["event_available_fresh_through"]["ready"])
-        self.assertFalse(conditions["continuous_missing_delay_state"]["ready"])
+        self.assertTrue(conditions["continuous_missing_delay_state"]["ready"])
         self.assertFalse(all(row["ready"] for row in conditions.values()))
 
     def test_provider_acceptance_mechanism_does_not_invent_missing_event_time(self):
@@ -145,6 +157,167 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         self.assertIsNone(
             MODULE._provider_event_at(without, "TSM", "0001046179-26-000552")
         )
+        alias_only = copy.deepcopy(without)
+        alias_only["stocks"]["TSM"]["filings_recent"][0]["accepted_at_utc"] = (
+            "2026-09-01T20:59:00Z"
+        )
+        self.assertIsNone(
+            MODULE._provider_event_at(alias_only, "TSM", "0001046179-26-000552")
+        )
+        malformed = copy.deepcopy(metadata)
+        malformed["stocks"]["TSM"]["filings_recent"][0]["acceptanceDateTime"] = "not-a-time"
+        with self.assertRaisesRegex(MODULE.SourceReadinessError, "PROVIDER_EVENT_TIME_INVALID"):
+            MODULE._provider_event_at(malformed, "TSM", "0001046179-26-000552")
+
+        future, _ = MODULE._git_json(ROOT, self.commit, "data/latest_sec.json")
+        target = next(
+            row for row in future["stocks"]["TSM"]["filings_recent"]
+            if row["accession"] == "0001046179-26-000552"
+        )
+        target["acceptanceDateTime"] = "2026-09-10T00:00:00Z"
+        run, _ = MODULE._git_json(ROOT, self.commit, "data/latest_sec_content.json")
+        with self.assertRaisesRegex(MODULE.SourceReadinessError, "SEC_SOURCE_FROM_FUTURE"):
+            MODULE._sec_sources(
+                ROOT,
+                self.commit,
+                future,
+                run,
+                MODULE._utc(self.evaluated_at, "TEST_TIME"),
+            )
+
+    def test_sec_collector_preserves_optional_provider_acceptance_verbatim(self):
+        collectors = str(ROOT / "collectors")
+        sys.path.insert(0, collectors)
+        try:
+            with mock.patch.dict(os.environ, {"SEC_USER_AGENT": "test@example.com"}):
+                spec = importlib.util.spec_from_file_location("sec_collector_acceptance", ROOT / "collectors/sec.py")
+                sec = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(sec)
+            body = {
+                "name": "Issuer",
+                "sicDescription": "Industry",
+                "fiscalYearEnd": "1231",
+                "filings": {"recent": {
+                    "form": ["6-K"],
+                    "filingDate": ["2026-09-01"],
+                    "acceptanceDateTime": ["2026-09-01T20:59:00Z"],
+                    "accessionNumber": ["0001046179-26-000552"],
+                    "primaryDocument": ["primary.htm"],
+                    "items": [""],
+                }},
+            }
+            with mock.patch.object(sec, "get", return_value=body), mock.patch.object(
+                sec, "today_kst", return_value=dt.date(2026, 9, 9)
+            ):
+                row = sec.fetch_filings("0001046179")["filings_recent"][0]
+            self.assertEqual(row["acceptanceDateTime"], "2026-09-01T20:59:00Z")
+            del body["filings"]["recent"]["acceptanceDateTime"]
+            with mock.patch.object(sec, "get", return_value=body), mock.patch.object(
+                sec, "today_kst", return_value=dt.date(2026, 9, 9)
+            ):
+                row = sec.fetch_filings("0001046179")["filings_recent"][0]
+            self.assertNotIn("acceptanceDateTime", row)
+        finally:
+            sys.path.remove(collectors)
+
+    def test_event_fresh_condition_can_pass_only_with_exact_nonfuture_interval(self):
+        material = copy.deepcopy(self.packet["latestMaterialSourceIndex"])
+        for row in material.values():
+            source = row["lastMaterialSource"]
+            source["eventTimePrecision"] = "EXACT"
+            source["eventAtUtc"] = source["availableAtUtc"]
+        evaluated = MODULE._utc(self.evaluated_at, "TEST_TIME")
+        freshness = copy.deepcopy(self.packet["freshnessCoverage"])
+        freshness["freshThroughUtc"] = self.evaluated_at
+        freshness["verifiedPollIntervals"] = [{
+            "fromObservedAtUtc": "2026-09-09T14:00:00Z",
+            "toObservedAtUtc": self.evaluated_at,
+            "fromStatus": "OK_EMPTY",
+            "toStatus": "OK_NEW",
+            "status": "EXACT_BETWEEN_VERIFIED_POLL_RECEIPTS",
+        }]
+        self.assertEqual(
+            MODULE._event_fresh_condition(material, freshness, evaluated),
+            (True, "READY_EXACT_EVENT_AVAILABLE_AND_VERIFIED_POLL_INTERVAL"),
+        )
+        stale = copy.deepcopy(freshness)
+        stale["freshThroughUtc"] = "2026-09-09T14:59:59Z"
+        self.assertEqual(
+            MODULE._event_fresh_condition(material, stale, evaluated)[0], False
+        )
+        future = copy.deepcopy(material)
+        future["SEC"]["lastMaterialSource"]["availableAtUtc"] = "2026-09-09T15:00:01Z"
+        with self.assertRaisesRegex(MODULE.SourceReadinessError, "SOURCE_FROM_FUTURE"):
+            MODULE._event_fresh_condition(future, freshness, evaluated)
+
+        failed_interval = copy.deepcopy(freshness)
+        failed_interval["verifiedPollIntervals"][0]["toStatus"] = "FAILED"
+        self.assertEqual(
+            MODULE._event_fresh_condition(material, failed_interval, evaluated),
+            (False, "UNKNOWN_NO_EXACT_POLL_INTERVAL_AT_EVALUATION"),
+        )
+
+    def test_freshness_coverage_only_joins_adjacent_successful_polls(self):
+        records = []
+        for index, status in enumerate(("OK_EMPTY", "FAILED", "OK_NEW", "OK_EMPTY")):
+            records.append({
+                "recordSha256": f"{index + 1:064x}",
+                "observedAtUtc": f"2026-09-0{index + 1}T00:00:00Z",
+                "status": status,
+            })
+        ledger = {"records": records}
+        with mock.patch.object(
+            MODULE,
+            "_git_blob",
+            return_value=b"on:\n  schedule:\n    - cron: '55 20 * * 0-4'\n",
+        ):
+            coverage = MODULE._freshness_coverage(
+                ROOT,
+                self.commit,
+                MODULE._utc("2026-09-04T00:00:00Z", "TEST_TIME"),
+                ledger,
+            )
+        self.assertEqual(len(coverage["verifiedPollIntervals"]), 1)
+        interval = coverage["verifiedPollIntervals"][0]
+        self.assertEqual((interval["fromStatus"], interval["toStatus"]), ("OK_NEW", "OK_EMPTY"))
+        self.assertEqual(coverage["freshThroughUtc"], "2026-09-04T00:00:00Z")
+
+    def test_latest_and_consecutive_conditions_derive_from_current_evidence(self):
+        material = copy.deepcopy(self.packet["latestMaterialSourceIndex"])
+        material["SEC"]["status"] = "FAILED"
+        rows = MODULE._condition_rows(
+            self.packet["retainedSourceRefs"], material, self.packet["freshnessCoverage"],
+            {"status": "UNKNOWN_PRIOR_SUCCESS_BOUNDARY"},
+            MODULE._utc(self.evaluated_at, "TEST_TIME"),
+            "NATURAL_SOURCE_OWNER_EMITTED",
+        )
+        self.assertFalse({row["id"]: row for row in rows}["latest_actual_source"]["ready"])
+        success = MODULE._consecutive_state(
+            {"records": [{
+                "sourceCommit": self.commit,
+                "recordOrigin": "NATURAL_SOURCE_OWNER_EMITTED",
+                "status": "OK_EMPTY",
+                "observedAtUtc": self.evaluated_at,
+            }]},
+            {"status": "UNKNOWN_NO_PRIOR_NATURAL_RECEIPT", "lastSuccessfulRunAtUtc": None},
+            self.commit,
+            "NATURAL_SOURCE_OWNER_EMITTED",
+        )
+        self.assertEqual(success["status"], "VERIFIED_CURRENT_SUCCESS_BOUNDARY")
+        self.assertEqual(success["consecutiveFailureCount"], 0)
+        failed = MODULE._consecutive_state(
+            {"records": [{
+                "sourceCommit": self.commit,
+                "recordOrigin": "NATURAL_SOURCE_OWNER_EMITTED",
+                "status": "FAILED",
+                "observedAtUtc": self.evaluated_at,
+            }]},
+            {"status": "UNKNOWN_NO_PRIOR_NATURAL_RECEIPT", "lastSuccessfulRunAtUtc": None},
+            self.commit,
+            "NATURAL_SOURCE_OWNER_EMITTED",
+        )
+        self.assertEqual(failed["status"], "UNKNOWN_PRIOR_SUCCESS_BOUNDARY")
+        self.assertIsNone(failed["consecutiveFailureCount"])
 
     def test_nominal_schedule_handles_closed_days_without_claiming_future_coverage(self):
         after_final_thursday = MODULE._utc("2026-09-10T21:35:00Z", "TEST_TIME")

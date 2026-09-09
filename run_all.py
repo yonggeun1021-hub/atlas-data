@@ -1516,7 +1516,7 @@ APPROVED_TESTS = [
     #   Reuses immutable producer metadata/manifests/contracts and validates
     #   retained raw bytes in memory. Date-only event time, absent fresh-through
     #   policy, and unbound consecutive history remain UNKNOWN, so no source is
-    #   admitted to model inference. No collector/network/raw copy or authority.
+    #   admitted to model inference. No network/raw copy/model authority.
     "test/test_ai_external_analysis_source_readiness.py",
     # ★ P10-06 — P8-07 Investment Review append-only zero-capital ledger.
     #   PASS/REJECTED/BLOCKED packet을 exact SHA chain으로 기록하되 proposal 관측은
