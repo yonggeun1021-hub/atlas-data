@@ -129,6 +129,52 @@ def frozen_render_sources(root: Path) -> None:
         )
 
 
+def crypto_coverage(defined_axes: tuple[str, ...]) -> dict:
+    defined = list(defined_axes)
+    return {
+        "required_count": 5,
+        "defined_count": len(defined),
+        "ratio": f"{len(defined)}/5",
+        "defined_axes": defined,
+        "missing_axes": [axis for axis in MODULE.AXES if axis not in defined],
+    }
+
+
+def crypto_status_fixture(
+    *,
+    current_axes: tuple[str, ...] = tuple(MODULE.AXES),
+    official_axes: tuple[str, ...] = ("TREND", "BREADTH", "RISK_VOL", "LIQUIDITY"),
+) -> dict:
+    packet = {
+        "schema_version": "crypto_regime_refresh_status/1",
+        "generated_at": "2026-09-09T07:30:14Z",
+        "authority": {
+            "read_only_reference": True,
+            "runtime_regime_authorized": False,
+            "trading_authorized": False,
+        },
+        "current_reference": {
+            "as_of_date": "2026-09-09",
+            "price_as_of_date": "2026-09-08",
+            "coverage": crypto_coverage(current_axes),
+            "leadership_code": "MIXED_WINDOW_LEADERSHIP",
+            "mode": MODULE.CURRENT_REFERENCE_MODE,
+        },
+        "official_decision": {
+            "classification_status": "WAIT_PIT_LEADERSHIP_HISTORY",
+            "coverage": crypto_coverage(official_axes),
+        },
+    }
+    packet["payload_sha256"] = MODULE.payload_sha256(packet)
+    return packet
+
+
+def resign_crypto(packet: dict) -> dict:
+    packet.pop("payload_sha256", None)
+    packet["payload_sha256"] = MODULE.payload_sha256(packet)
+    return packet
+
+
 def kr_direction(axis_name: str, policy: dict, **measurement) -> str:
     rows = {row["axis"]: row for row in MODULE.build_kr(kr_packet_fixture(**measurement), policy)["axes"]}
     return rows[axis_name]["direction"]
@@ -171,6 +217,14 @@ class PaperRegimeReferenceTest(unittest.TestCase):
         self.assertEqual(markets["CRYPTO"]["classification_status"], expected_status)
         if expected_coverage["ratio"] == "5/5":
             self.assertEqual(markets["CRYPTO"]["leadership_code"], "MIXED_WINDOW_LEADERSHIP")
+            self.assertEqual(
+                markets["CRYPTO"]["mode"],
+                "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
+            )
+            self.assertEqual(
+                markets["CRYPTO"]["price_as_of_date"],
+                source["current_reference"]["price_as_of_date"],
+            )
         self.assertEqual(packet["schema_version"], "paper_regime_reference/v2")
         self.assertTrue(all(row["runtime_regime"] == "UNKNOWN" for row in markets.values()))
 
@@ -211,6 +265,99 @@ class PaperRegimeReferenceTest(unittest.TestCase):
         self.assertEqual(crypto["paper_reference"]["candidate_regime"], "UNKNOWN")
         self.assertEqual(crypto["coverage"]["ratio"], "5/5")
         self.assertEqual(crypto["official_validation"]["coverage"]["ratio"], "0/5")
+
+    def test_current_crypto_rejects_three_demonstrated_validation_gaps(self):
+        cases = []
+
+        missing_mode = crypto_status_fixture()
+        missing_mode["current_reference"].pop("mode")
+        cases.append(("current_mode_missing", resign_crypto(missing_mode), "CRYPTO_CURRENT_MODE_INVALID"))
+
+        stale_date = crypto_status_fixture()
+        stale_date["current_reference"]["as_of_date"] = "2020-01-01"
+        cases.append(("current_date_stale_vs_packet", resign_crypto(stale_date), "CRYPTO_CURRENT_DATE_CONTEXT_INVALID"))
+
+        inconsistent = crypto_status_fixture()
+        inconsistent["current_reference"]["coverage"] = {
+            "defined_axes": ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY"],
+            "defined_count": 5,
+            "missing_axes": ["LEADERSHIP"],
+            "ratio": "5/5",
+            "required_count": 5,
+        }
+        cases.append(("current_coverage5_with_missing_leadership", resign_crypto(inconsistent), "CRYPTO_CURRENT_COVERAGE_INVALID"))
+
+        for label, packet, code in cases:
+            with self.subTest(case=label):
+                with self.assertRaisesRegex(MODULE.PaperRegimeReferenceError, code):
+                    MODULE.build_crypto(packet)
+
+    def test_current_crypto_mode_dates_and_axis_partition_fail_closed(self):
+        mutations = (
+            ("wrong mode", lambda p: p["current_reference"].update(mode="PIT_REPLAY"), "CRYPTO_CURRENT_MODE_INVALID"),
+            ("malformed decision date", lambda p: p["current_reference"].update(as_of_date="2026-09-XX"), "CRYPTO_CURRENT_DATE_INVALID"),
+            ("malformed price date", lambda p: p["current_reference"].update(price_as_of_date="2026-09-XX"), "CRYPTO_CURRENT_PRICE_DATE_INVALID"),
+            ("future decision date", lambda p: p["current_reference"].update(as_of_date="2026-09-10"), "CRYPTO_CURRENT_DATE_CONTEXT_INVALID"),
+            ("same-day price", lambda p: p["current_reference"].update(price_as_of_date="2026-09-09"), "CRYPTO_CURRENT_PRICE_DATE_CONTEXT_INVALID"),
+            ("future price", lambda p: p["current_reference"].update(price_as_of_date="2026-09-10"), "CRYPTO_CURRENT_PRICE_DATE_CONTEXT_INVALID"),
+            ("malformed generation time", lambda p: p.update(generated_at="2026-09-09T99:30:14Z"), "CRYPTO_CURRENT_GENERATION_TIME_INVALID"),
+            ("boolean count", lambda p: p["current_reference"]["coverage"].update(defined_count=True), "CRYPTO_CURRENT_COVERAGE_INVALID"),
+            ("boolean required count", lambda p: p["current_reference"]["coverage"].update(required_count=True), "CRYPTO_CURRENT_COVERAGE_INVALID"),
+            ("duplicate axis", lambda p: p["current_reference"]["coverage"].update(defined_axes=["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LIQUIDITY"]), "CRYPTO_CURRENT_COVERAGE_INVALID"),
+            ("unordered axes", lambda p: p["current_reference"]["coverage"].update(defined_axes=["BREADTH", "TREND", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]), "CRYPTO_CURRENT_COVERAGE_INVALID"),
+            ("unknown axis", lambda p: p["current_reference"]["coverage"].update(defined_axes=["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "UNKNOWN"]), "CRYPTO_CURRENT_COVERAGE_INVALID"),
+        )
+        for label, mutate, code in mutations:
+            with self.subTest(case=label):
+                packet = crypto_status_fixture()
+                mutate(packet)
+                with self.assertRaisesRegex(MODULE.PaperRegimeReferenceError, code):
+                    MODULE.build_crypto(resign_crypto(packet))
+
+        malformed = crypto_status_fixture()
+        malformed["current_reference"] = []
+        with self.assertRaisesRegex(
+            MODULE.PaperRegimeReferenceError, "CRYPTO_CURRENT_REFERENCE_INVALID"
+        ):
+            MODULE.build_crypto(resign_crypto(malformed))
+
+        malformed_coverage = crypto_status_fixture()
+        malformed_coverage["current_reference"]["coverage"] = None
+        with self.assertRaisesRegex(
+            MODULE.PaperRegimeReferenceError, "CRYPTO_CURRENT_COVERAGE_INVALID"
+        ):
+            MODULE.build_crypto(resign_crypto(malformed_coverage))
+
+    def test_current_crypto_valid_partial_is_truthful_and_metadata_is_minimal(self):
+        complete = MODULE.build_crypto(crypto_status_fixture())
+        self.assertEqual(complete["mode"], MODULE.CURRENT_REFERENCE_MODE)
+        self.assertEqual(complete["price_as_of_date"], "2026-09-08")
+        self.assertEqual(complete["paper_reference"], {
+            "candidate_regime": "UNKNOWN",
+            "score": None,
+            "confidence": None,
+            "explanation_ko": "오늘 리더십을 포함한 필수 신호 5개는 모두 확인됐습니다. 코인 전용 방향·점수 규칙이 확정될 때까지 Risk On/Off 판정만 보류합니다.",
+        })
+        self.assertEqual(complete["runtime_regime"], "UNKNOWN")
+        self.assertEqual(complete["axes"], [])
+        self.assertEqual(complete["official_validation"]["coverage"]["ratio"], "4/5")
+
+        partial_packet = crypto_status_fixture(
+            current_axes=("TREND", "BREADTH", "RISK_VOL", "LIQUIDITY"),
+            official_axes=("TREND", "BREADTH", "RISK_VOL", "LIQUIDITY"),
+        )
+        partial = MODULE.build_crypto(partial_packet)
+        self.assertEqual(partial["coverage"]["ratio"], "4/5")
+        self.assertEqual(partial["classification_status"], "WAIT_OFFICIAL_INPUT_COVERAGE")
+        self.assertIn("4/5개 확인", partial["paper_reference"]["explanation_ko"])
+        self.assertNotIn("5개 모두 확인", partial["paper_reference"]["explanation_ko"])
+
+        legacy = crypto_status_fixture()
+        legacy["current_reference"] = {"as_of_date": "2026-09-09"}
+        legacy_result = MODULE.build_crypto(resign_crypto(legacy))
+        self.assertEqual(legacy_result["coverage"]["ratio"], "4/5")
+        self.assertNotIn("mode", legacy_result)
+        self.assertNotIn("price_as_of_date", legacy_result)
 
     def test_resigned_tamper_and_source_tamper_fail_closed(self):
         packet = MODULE.build_reference()
@@ -290,6 +437,47 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             self.assertEqual(MODULE.payload_sha256(leaf), "5089784fce9c91ed53d8a90796a54dd270c6f5942f68db98152cafaedd88c5e2")
             self.assertIn("방향이 엇갈렸습니다.", leaf["axes"][0]["summary_ko"])
 
+    def test_retained_current_crypto_v2_rederives_with_exact_identity(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw); frozen_render_sources(root)
+            kr_v1 = MODULE.build_reference(
+                root, render_version=MODULE.KR_TREND_RENDER_VERSION
+            )
+            self.assertEqual(kr_v1["generation_id"], "a07afeea2b92f425bc7b19ae1e9bd9cb8b28e6f411f84737f7ac7f0994e3ea66")
+            self.assertEqual(kr_v1["payload_sha256"], "a47059dcb9e126652039e04a42e8298b460e43d9458a77a2dea323e2239ef7e4")
+            self.assertEqual(MODULE.validate_reference(kr_v1, root), kr_v1)
+
+            retained = MODULE.build_reference(
+                root, render_version=MODULE.LEGACY_CURRENT_RENDER_VERSION
+            )
+            self.assertEqual(retained["render_version"], "paper_reference_current_crypto/v2")
+            self.assertEqual(retained["generation_id"], "4fec8868fb69f5c6ef218f118a97eda3de9b741578d084279fd97f52ac4f30ba")
+            self.assertEqual(retained["payload_sha256"], "fa3b5613e7a08f3595b22cf141711562c10238fcfebc4415dca61d0080777ee5")
+            crypto = next(row for row in retained["markets"] if row["market"] == "CRYPTO")
+            self.assertEqual(MODULE.payload_sha256(crypto), "53b80f99a8754aeee2d32252c89f30428c07525d07c740ce3b12052720102799")
+            self.assertEqual(MODULE.validate_reference(retained, root), retained)
+
+            crypto_path = root / "data/latest_crypto_regime_refresh_status.json"
+            crypto_path.write_text(
+                MODULE.canonical_json(crypto_status_fixture()), encoding="utf-8"
+            )
+            retained_current = MODULE.build_reference(
+                root, render_version=MODULE.LEGACY_CURRENT_RENDER_VERSION
+            )
+            self.assertEqual(retained_current["generation_id"], "4c0cf92a2c166b82b019682b21787f51436326ea52488f4d102be39fc9874036")
+            self.assertEqual(retained_current["payload_sha256"], "d50c704e26e41028d31bda3cefc250e892ae0c3f14054fe97c570501326b5fb5")
+            current_crypto = next(
+                row for row in retained_current["markets"] if row["market"] == "CRYPTO"
+            )
+            self.assertEqual(MODULE.payload_sha256(current_crypto), "45cada76ee53b2b20802bca547a9375fe7bf60037c37206e11b80cf394a5241c")
+            self.assertNotIn("mode", current_crypto)
+            self.assertNotIn("price_as_of_date", current_crypto)
+            self.assertEqual(current_crypto["coverage"]["ratio"], "5/5")
+            self.assertEqual(current_crypto["official_validation"]["coverage"]["ratio"], "4/5")
+            self.assertEqual(
+                MODULE.validate_reference(retained_current, root), retained_current
+            )
+
     def test_render_new_namespace_coexists_without_overwriting_retained_v2(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw); frozen_render_sources(root)
@@ -310,6 +498,16 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             before, after = copy.deepcopy(legacy["markets"]), copy.deepcopy(current["markets"])
             before[1]["axes"][0].pop("summary_ko")
             after[1]["axes"][0].pop("summary_ko")
+            # Only the new renderer corrects the legacy partial-coverage text.
+            # Pin both exact explanations before comparing every other field.
+            self.assertEqual(
+                before[2]["paper_reference"].pop("explanation_ko"),
+                "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다.",
+            )
+            self.assertEqual(
+                after[2]["paper_reference"].pop("explanation_ko"),
+                "오늘 참고 신호는 0/5개 확인됐습니다. 확인되지 않은 신호가 있어 코인 판정을 보류합니다.",
+            )
             self.assertEqual(before, after)
             self.assertIn("두 지수가 모두 상승했습니다.", current["markets"][1]["axes"][0]["summary_ko"])
 
