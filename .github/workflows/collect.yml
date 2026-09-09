@@ -36,6 +36,8 @@ jobs:
           echo "observed_started_at_utc=$STARTED_AT" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
 
       # ────────────────────────────────────────────────────────────────
       # Guard — 오늘자(KST) '정상' 수집분이 이미 있으면 이 회차는 건너뛴다.
@@ -375,6 +377,7 @@ jobs:
       # model calls. A nominal cron is never treated as a delivery guarantee;
       # incomplete event/freshness/admission evidence remains UNKNOWN.
       - name: Record AI Shadow source readiness (P10-07)
+        if: always()
         run: |
           SOURCE_COMMIT=$(git rev-parse HEAD)
           EVALUATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)

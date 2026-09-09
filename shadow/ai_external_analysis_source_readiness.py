@@ -597,6 +597,29 @@ def _telemetry_record(
     }
 
 
+def _telemetry_observed(value: dict) -> tuple[dt.datetime, str]:
+    runner = value.get("runner")
+    if not isinstance(runner, dict):
+        raise SourceReadinessError("LEDGER_TELEMETRY_RUNNER_INVALID")
+    observed = _utc(
+        runner.get("observed_started_at_utc"), "LEDGER_TELEMETRY_TIME_INVALID"
+    )
+    kst_value = runner.get("observed_started_at_kst")
+    if not isinstance(kst_value, str):
+        raise SourceReadinessError("LEDGER_TELEMETRY_KST_TIME_INVALID")
+    try:
+        observed_kst = dt.datetime.fromisoformat(kst_value)
+    except ValueError as exc:
+        raise SourceReadinessError("LEDGER_TELEMETRY_KST_TIME_INVALID") from exc
+    if (
+        observed_kst.tzinfo is None
+        or observed_kst.utcoffset() != dt.timedelta(hours=9)
+        or observed_kst.astimezone(dt.timezone.utc) != observed
+    ):
+        raise SourceReadinessError("LEDGER_TELEMETRY_TIME_DISAGREEMENT")
+    return observed, observed_kst.date().isoformat()
+
+
 def _run_ledger(
     repo: Path,
     source_commit: str,
@@ -612,8 +635,7 @@ def _run_ledger(
             "--format=%H",
             source_commit,
             "--",
-            "data/latest_sec_content.json",
-            "data/latest_dart_content.json",
+            "data/operations/collect_runs",
         ],
     )
     commits = [line for line in output.splitlines() if COMMIT_RE.fullmatch(line)]
@@ -640,19 +662,34 @@ def _run_ledger(
             # Promised but unavailable historical blobs are likewise not proof.
             continue
         telemetry = _telemetry_record(repo, commit, telemetry_paths[0])
+        telemetry_observed, telemetry_kst_date = _telemetry_observed(telemetry["value"])
+        changed_paths = set(changed.splitlines())
         run_refs = {}
         failed = 0
         captured = 0
-        observed = []
+        current_output_paths = []
+        current_source_dates = True
+        run_observed_values = []
         for source_name, paths in contract["latest_sources"].items():
             run, run_blob = _git_json(repo, commit, paths["content_run"])
-            metadata_blob = _git_blob(repo, commit, paths["metadata"])
+            metadata, metadata_blob = _git_json(repo, commit, paths["metadata"])
             if run.get("source_sha256") != hashlib.sha256(metadata_blob).hexdigest():
                 raise SourceReadinessError(f"LEDGER_{source_name}_SOURCE_HASH_MISMATCH")
             counts = _validated_counts(run, source_name)
             failed += counts["failed"]
             captured += counts["captured"]
-            observed.append(_utc(run.get("observed_at_utc"), "LEDGER_RUN_TIME_INVALID"))
+            run_observed = _utc(run.get("observed_at_utc"), "LEDGER_RUN_TIME_INVALID")
+            run_observed_values.append(run_observed)
+            current_source_dates = current_source_dates and (
+                run.get("collected_for_kst_date") == telemetry_kst_date
+                and metadata.get("collected_for_kst_date") == telemetry_kst_date
+                and run.get("source_file") == paths["metadata"]
+                and run_observed >= telemetry_observed
+            )
+            current_output_paths.extend(
+                path for path in (paths["content_run"], paths["metadata"])
+                if path in changed_paths
+            )
             run_refs[source_name] = {
                 "contentRunPath": paths["content_run"],
                 "contentRunSha256": hashlib.sha256(run_blob).hexdigest(),
@@ -663,16 +700,43 @@ def _run_ledger(
         guard = telemetry["value"].get("guard")
         if not isinstance(guard, dict) or type(guard.get("skip")) is not bool:
             raise SourceReadinessError("COLLECT_RUN_GUARD_INVALID")
-        if guard["skip"]:
-            status = "DELAYED_OR_SKIPPED"
-        elif failed:
+        expected_content_paths = {
+            paths["content_run"] for paths in contract["latest_sources"].values()
+        }
+        expected_metadata_paths = {
+            paths["metadata"] for paths in contract["latest_sources"].values()
+        }
+        repair_current = (
+            expected_content_paths.issubset(changed_paths) and current_source_dates
+        )
+        collection_current = (
+            repair_current and expected_metadata_paths.issubset(changed_paths)
+        )
+        if repair_current and failed:
             status = "FAILED"
+            output_binding_status = "EXACT_CURRENT_SOURCE_OUTPUTS_WITH_FAILURE"
+        elif guard["skip"] and repair_current:
+            status = "DELAYED_OR_SKIPPED"
+            output_binding_status = "EXACT_GUARD_SKIPPED_WITH_CURRENT_REPAIR_OUTPUTS"
+        elif guard["skip"]:
+            status = "FAILED"
+            output_binding_status = "EXACT_TELEMETRY_WITHOUT_PROVABLY_CURRENT_REPAIR_OUTPUTS"
+        elif not collection_current:
+            status = "FAILED"
+            output_binding_status = "EXACT_TELEMETRY_WITHOUT_PROVABLY_CURRENT_COLLECTION_OUTPUTS"
         elif captured:
             status = "OK_NEW"
+            output_binding_status = "EXACT_CURRENT_SOURCE_OUTPUTS"
         else:
             status = "OK_EMPTY"
+            output_binding_status = "EXACT_CURRENT_SOURCE_OUTPUTS"
         if status not in contract["run_ledger"]["statuses"]:
             raise SourceReadinessError("LEDGER_STATUS_INTERNAL_ERROR")
+        record_observed = (
+            max(run_observed_values)
+            if status in {"OK_NEW", "OK_EMPTY"}
+            else telemetry_observed
+        )
         base = {
             "schemaVersion": "ai_external_analysis_source_run_record/1",
             "recordOrigin": (
@@ -685,8 +749,12 @@ def _run_ledger(
             "telemetrySha256": telemetry["sha256"],
             "telemetryIndexPath": telemetry["indexPath"],
             "telemetryIndexSha256": telemetry["indexSha256"],
-            "observedAtUtc": max(observed).isoformat().replace("+00:00", "Z"),
+            "observedAtUtc": record_observed.isoformat().replace("+00:00", "Z"),
             "status": status,
+            "sourceOutputBindingStatus": output_binding_status,
+            "currentSourceOutputPaths": sorted(current_output_paths),
+            "pollCompletedAtUtc": None,
+            "pollCompletionStatus": "UNKNOWN_NO_EXACT_COMPLETION_RECEIPT",
             "guard": copy.deepcopy(guard),
             "slot": copy.deepcopy(telemetry["value"].get("slot")),
             "sourceRunRefs": run_refs,
@@ -695,6 +763,12 @@ def _run_ledger(
         base["recordSha256"] = payload_sha256(base)
         previous_sha = base["recordSha256"]
         records.append(base)
+    if observation_origin == "NATURAL_SOURCE_OWNER_EMITTED" and not any(
+        row["sourceCommit"] == source_commit
+        and row["recordOrigin"] == "NATURAL_SOURCE_OWNER_EMITTED"
+        for row in records
+    ):
+        raise SourceReadinessError("NATURAL_CURRENT_TELEMETRY_RECORD_REQUIRED")
     consecutive_failures = 0
     consecutive_delayed = 0
     for record in reversed(records):
@@ -773,20 +847,33 @@ def _freshness_coverage(
     records = ledger["records"]
     intervals = []
     for previous, current in zip(records, records[1:]):
-        if previous["status"] not in {"OK_NEW", "OK_EMPTY"} or current[
-            "status"
-        ] not in {"OK_NEW", "OK_EMPTY"}:
+        if (
+            previous["status"] not in {"OK_NEW", "OK_EMPTY"}
+            or current["status"] not in {"OK_NEW", "OK_EMPTY"}
+            or previous.get("pollCompletionStatus")
+            != "EXACT_PRODUCER_COMPLETION_RECEIPT"
+            or current.get("pollCompletionStatus")
+            != "EXACT_PRODUCER_COMPLETION_RECEIPT"
+        ):
             continue
+        previous_completed = _utc(
+            previous.get("pollCompletedAtUtc"), "POLL_COMPLETION_TIME_INVALID"
+        )
+        current_completed = _utc(
+            current.get("pollCompletedAtUtc"), "POLL_COMPLETION_TIME_INVALID"
+        )
+        if current_completed <= previous_completed:
+            raise SourceReadinessError("POLL_COMPLETION_ORDER_INVALID")
         intervals.append({
             "fromRecordSha256": previous["recordSha256"],
             "toRecordSha256": current["recordSha256"],
-            "fromObservedAtUtc": previous["observedAtUtc"],
-            "toObservedAtUtc": current["observedAtUtc"],
+            "fromCompletedAtUtc": previous_completed.isoformat().replace("+00:00", "Z"),
+            "toCompletedAtUtc": current_completed.isoformat().replace("+00:00", "Z"),
             "fromStatus": previous["status"],
             "toStatus": current["status"],
-            "status": "EXACT_BETWEEN_VERIFIED_POLL_RECEIPTS",
+            "status": "EXACT_BETWEEN_VERIFIED_SUCCESS_COMPLETIONS",
         })
-    fresh_through = intervals[-1]["toObservedAtUtc"] if intervals else None
+    fresh_through = intervals[-1]["toCompletedAtUtc"] if intervals else None
     return {
         "verifiedPollIntervals": intervals,
         "futureCoverageStatus": "UNKNOWN_NO_VERIFIED_FUTURE_POLL",
@@ -839,12 +926,46 @@ def _condition_rows(
     observation_origin: str,
 ) -> list[dict]:
     natural = observation_origin == "NATURAL_SOURCE_OWNER_EMITTED"
-    current_runs_ok = all(
+    current_runs_ok = set(material_index) == {"DART", "SEC"} and all(
         row.get("status") in {"OK_NEW", "OK_EMPTY", "OK_RETAINED_REUSED"}
         for row in material_index.values()
     )
-    latest_ready = natural and current_runs_ok and any(
-        row.get("lastMaterialSource") is not None for row in material_index.values()
+    empty_without_material = any(
+        row.get("status") == "OK_EMPTY"
+        and row.get("lastMaterialSource") is None
+        for row in material_index.values()
+    )
+    material_index_ready = set(material_index) == {"DART", "SEC"} and all(
+        (
+            row.get("status") == "OK_EMPTY"
+            and row.get("lastMaterialSource") is None
+            and row.get("sourceAgeSeconds") is None
+            and row.get("ageStatus")
+            == "UNKNOWN_NO_MATERIAL_SOURCE_IN_CURRENT_INDEX"
+        )
+        or (
+            row.get("lastMaterialSource") is not None
+            and type(row.get("sourceAgeSeconds")) is int
+            and row["sourceAgeSeconds"] >= 0
+            and row.get("ageStatus") == "OBSERVED_AGE_ONLY_NOT_FRESHNESS"
+        )
+        for row in material_index.values()
+    )
+    current_status = consecutive.get("currentRunStatus")
+    current_binding = consecutive.get("currentSourceOutputBindingStatus")
+    current_binding_ready = (
+        current_status in {"OK_NEW", "OK_EMPTY"}
+        and current_binding == "EXACT_CURRENT_SOURCE_OUTPUTS"
+    ) or (
+        current_status == "DELAYED_OR_SKIPPED"
+        and current_binding == "EXACT_GUARD_SKIPPED_WITH_CURRENT_REPAIR_OUTPUTS"
+    )
+    latest_ready = (
+        natural
+        and current_runs_ok
+        and material_index_ready
+        and current_binding_ready
+        and not (current_status == "DELAYED_OR_SKIPPED" and empty_without_material)
     )
     event_ready, event_status = _event_fresh_condition(
         material_index, freshness, evaluated
@@ -858,11 +979,19 @@ def _condition_rows(
             "id": "latest_actual_source",
             "ready": latest_ready,
             "status": (
-                "NATURAL_CURRENT_RUN_INDEX_READY"
+                "NATURAL_CURRENT_SUCCESSFUL_EMPTY_INDEX_READY"
+                if latest_ready and empty_without_material
+                else "NATURAL_CURRENT_REPAIR_REUSE_INDEX_READY"
+                if latest_ready and current_status == "DELAYED_OR_SKIPPED"
+                else "NATURAL_CURRENT_RUN_INDEX_READY"
                 if latest_ready
-                else "FAILED_OR_EMPTY_MATERIAL_INDEX"
-                if natural
                 else "INDEX_READY_BACKFILLED_NOT_NATURAL_ADMISSION"
+                if not natural
+                else "CURRENT_NATURAL_RUN_FAILED"
+                if current_status == "FAILED"
+                else "CURRENT_NATURAL_SOURCE_BINDING_UNPROVEN"
+                if not current_binding_ready
+                else "FAILED_OR_EMPTY_MATERIAL_INDEX"
             ),
         },
         {
@@ -949,21 +1078,47 @@ def _natural_history_readback(repo: Path, commit: str) -> dict:
     refs = []
     statuses = []
     for row in records[-32:]:
-        if not isinstance(row, dict):
+        if not isinstance(row, dict) or set(row) != {
+            "sourceCommit",
+            "evaluatedAtUtc",
+            "status",
+            "readinessPath",
+            "readinessSha256",
+            "readinessFileSha256",
+            "admissionPath",
+            "admissionSha256",
+            "admissionFileSha256",
+            "ledgerPath",
+            "ledgerSha256",
+            "ledgerFileSha256",
+        }:
             raise SourceReadinessError("NATURAL_HISTORY_INDEX_ROW_INVALID")
-        relative = row.get("readinessPath")
-        if not isinstance(relative, str) or relative.startswith("/") or ".." in Path(relative).parts:
+        relatives = {
+            key: row.get(key)
+            for key in ("readinessPath", "admissionPath", "ledgerPath")
+        }
+        if any(
+            not isinstance(relative, str)
+            or relative.startswith("/")
+            or ".." in Path(relative).parts
+            for relative in relatives.values()
+        ):
             raise SourceReadinessError("NATURAL_HISTORY_PATH_INVALID")
-        packet_path = f"{root}/{relative}"
-        packet, _ = _git_json(repo, commit, packet_path)
+        packet_path = f"{root}/{relatives['readinessPath']}"
+        admission_path = f"{root}/{relatives['admissionPath']}"
+        ledger_path = f"{root}/{relatives['ledgerPath']}"
+        packet, packet_blob = _git_json(repo, commit, packet_path)
         unsigned_packet = copy.deepcopy(packet)
         claimed_packet = unsigned_packet.pop("packetSha256", None)
         if (
             claimed_packet != payload_sha256(unsigned_packet)
             or row.get("readinessSha256") != claimed_packet
+            or row.get("readinessFileSha256")
+            != hashlib.sha256(packet_blob).hexdigest()
             or packet.get("observationOrigin") != "NATURAL_SOURCE_OWNER_EMITTED"
             or row.get("sourceCommit") != packet.get("sourceCommit")
             or row.get("evaluatedAtUtc") != packet.get("evaluatedAtUtc")
+            or row.get("status") != packet.get("status")
         ):
             raise SourceReadinessError("NATURAL_HISTORY_RECEIPT_BINDING_INVALID")
         ledger = packet.get("runLedger")
@@ -971,8 +1126,36 @@ def _natural_history_readback(repo: Path, commit: str) -> dict:
             raise SourceReadinessError("NATURAL_HISTORY_LEDGER_INVALID")
         unsigned_ledger = copy.deepcopy(ledger)
         claimed_ledger = unsigned_ledger.pop("ledgerSha256", None)
-        if claimed_ledger != payload_sha256(unsigned_ledger) or row.get("ledgerSha256") != claimed_ledger:
+        ledger_file, ledger_blob = _git_json(repo, commit, ledger_path)
+        if (
+            claimed_ledger != payload_sha256(unsigned_ledger)
+            or row.get("ledgerSha256") != claimed_ledger
+            or row.get("ledgerFileSha256")
+            != hashlib.sha256(ledger_blob).hexdigest()
+            or canonical_json(ledger_file) != canonical_json(ledger)
+        ):
             raise SourceReadinessError("NATURAL_HISTORY_LEDGER_SHA_MISMATCH")
+        unsigned_ledger_file = copy.deepcopy(ledger_file)
+        claimed_ledger_file = unsigned_ledger_file.pop("ledgerSha256", None)
+        if claimed_ledger_file != payload_sha256(unsigned_ledger_file):
+            raise SourceReadinessError("NATURAL_HISTORY_LEDGER_FILE_SHA_MISMATCH")
+        admission = packet.get("sourceOwnerAdmissionReceipt")
+        admission_file, admission_blob = _git_json(repo, commit, admission_path)
+        if not isinstance(admission, dict):
+            raise SourceReadinessError("NATURAL_HISTORY_ADMISSION_INVALID")
+        unsigned_admission = copy.deepcopy(admission)
+        claimed_admission = unsigned_admission.pop("receiptSha256", None)
+        unsigned_admission_file = copy.deepcopy(admission_file)
+        claimed_admission_file = unsigned_admission_file.pop("receiptSha256", None)
+        if (
+            claimed_admission != payload_sha256(unsigned_admission)
+            or row.get("admissionSha256") != claimed_admission
+            or row.get("admissionFileSha256")
+            != hashlib.sha256(admission_blob).hexdigest()
+            or claimed_admission_file != payload_sha256(unsigned_admission_file)
+            or canonical_json(admission_file) != canonical_json(admission)
+        ):
+            raise SourceReadinessError("NATURAL_HISTORY_ADMISSION_SHA_MISMATCH")
         natural_records = [
             item for item in ledger.get("records", [])
             if isinstance(item, dict)
@@ -1025,10 +1208,13 @@ def _natural_history_readback(repo: Path, commit: str) -> dict:
 
 
 def _current_natural_record(ledger: dict, commit: str) -> dict | None:
+    if not isinstance(ledger, dict) or not isinstance(ledger.get("records"), list):
+        return None
     matches = [
         row for row in ledger["records"]
-        if row["sourceCommit"] == commit
-        and row["recordOrigin"] == "NATURAL_SOURCE_OWNER_EMITTED"
+        if isinstance(row, dict)
+        and row.get("sourceCommit") == commit
+        and row.get("recordOrigin") == "NATURAL_SOURCE_OWNER_EMITTED"
     ]
     return matches[-1] if matches else None
 
@@ -1044,6 +1230,7 @@ def _consecutive_state(
         return {
             "status": "UNKNOWN_NO_CURRENT_NATURAL_RUN",
             "currentRunStatus": None,
+            "currentSourceOutputBindingStatus": None,
             "consecutiveFailureCount": None,
             "consecutiveDelayedOrSkippedCount": None,
             "lastSuccessfulRunAtUtc": history["lastSuccessfulRunAtUtc"],
@@ -1052,6 +1239,9 @@ def _consecutive_state(
         return {
             "status": "VERIFIED_CURRENT_SUCCESS_BOUNDARY",
             "currentRunStatus": current["status"],
+            "currentSourceOutputBindingStatus": current.get(
+                "sourceOutputBindingStatus"
+            ),
             "consecutiveFailureCount": 0,
             "consecutiveDelayedOrSkippedCount": 0,
             "lastSuccessfulRunAtUtc": current["observedAtUtc"],
@@ -1060,6 +1250,9 @@ def _consecutive_state(
         return {
             "status": "UNKNOWN_PRIOR_SUCCESS_BOUNDARY",
             "currentRunStatus": current["status"],
+            "currentSourceOutputBindingStatus": current.get(
+                "sourceOutputBindingStatus"
+            ),
             "consecutiveFailureCount": None,
             "consecutiveDelayedOrSkippedCount": None,
             "lastSuccessfulRunAtUtc": None,
@@ -1067,6 +1260,9 @@ def _consecutive_state(
     return {
         "status": "VERIFIED_FROM_PRIOR_NATURAL_SUCCESS",
         "currentRunStatus": current["status"],
+        "currentSourceOutputBindingStatus": current.get(
+            "sourceOutputBindingStatus"
+        ),
         "consecutiveFailureCount": history["trailingFailureCount"] + int(current["status"] == "FAILED"),
         "consecutiveDelayedOrSkippedCount": (
             history["trailingDelayedOrSkippedCount"]
@@ -1102,12 +1298,12 @@ def _event_fresh_condition(
     intervals = freshness.get("verifiedPollIntervals")
     if not isinstance(intervals, list) or not any(
         isinstance(row, dict)
-        and row.get("status") == "EXACT_BETWEEN_VERIFIED_POLL_RECEIPTS"
+        and row.get("status") == "EXACT_BETWEEN_VERIFIED_SUCCESS_COMPLETIONS"
         and row.get("fromStatus") in {"OK_NEW", "OK_EMPTY"}
         and row.get("toStatus") in {"OK_NEW", "OK_EMPTY"}
-        and _utc(row.get("fromObservedAtUtc"), "CONDITION_INTERVAL_START_INVALID")
+        and _utc(row.get("fromCompletedAtUtc"), "CONDITION_INTERVAL_START_INVALID")
         <= evaluated
-        <= _utc(row.get("toObservedAtUtc"), "CONDITION_INTERVAL_END_INVALID")
+        <= _utc(row.get("toCompletedAtUtc"), "CONDITION_INTERVAL_END_INVALID")
         for row in intervals
     ):
         return False, "UNKNOWN_NO_EXACT_POLL_INTERVAL_AT_EVALUATION"
@@ -1312,6 +1508,13 @@ def _write_immutable(path: Path, value: dict) -> None:
 
 
 def write_observation(packet: dict, out_root: Path) -> dict:
+    if (
+        packet.get("observationOrigin") == "NATURAL_SOURCE_OWNER_EMITTED"
+        and _current_natural_record(
+            packet.get("runLedger", {}), packet.get("sourceCommit")
+        ) is None
+    ):
+        raise SourceReadinessError("NATURAL_CURRENT_TELEMETRY_RECORD_REQUIRED")
     out_root = Path(out_root)
     day = packet["evaluatedAtUtc"][:10]
     directory = out_root / day
@@ -1345,10 +1548,13 @@ def write_observation(packet: dict, out_root: Path) -> dict:
         "status": packet["status"],
         "readinessPath": relative(packet_path),
         "readinessSha256": packet["packetSha256"],
+        "readinessFileSha256": hashlib.sha256(packet_path.read_bytes()).hexdigest(),
         "admissionPath": relative(admission_path),
         "admissionSha256": receipt["receiptSha256"],
+        "admissionFileSha256": hashlib.sha256(admission_path.read_bytes()).hexdigest(),
         "ledgerPath": relative(ledger_path),
         "ledgerSha256": ledger["ledgerSha256"],
+        "ledgerFileSha256": hashlib.sha256(ledger_path.read_bytes()).hexdigest(),
     }
     identities = {(item["sourceCommit"], item["evaluatedAtUtc"]) for item in index["records"]}
     identity = (row["sourceCommit"], row["evaluatedAtUtc"])

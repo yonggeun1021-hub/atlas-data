@@ -126,6 +126,7 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
                 {
                     "status": "VERIFIED_CURRENT_SUCCESS_BOUNDARY",
                     "currentRunStatus": "OK_EMPTY",
+                    "currentSourceOutputBindingStatus": "EXACT_CURRENT_SOURCE_OUTPUTS",
                     "consecutiveFailureCount": 0,
                     "consecutiveDelayedOrSkippedCount": 0,
                     "lastSuccessfulRunAtUtc": "2026-09-09T00:00:00Z",
@@ -230,11 +231,11 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         freshness = copy.deepcopy(self.packet["freshnessCoverage"])
         freshness["freshThroughUtc"] = self.evaluated_at
         freshness["verifiedPollIntervals"] = [{
-            "fromObservedAtUtc": "2026-09-09T14:00:00Z",
-            "toObservedAtUtc": self.evaluated_at,
+            "fromCompletedAtUtc": "2026-09-09T14:00:00Z",
+            "toCompletedAtUtc": self.evaluated_at,
             "fromStatus": "OK_EMPTY",
             "toStatus": "OK_NEW",
-            "status": "EXACT_BETWEEN_VERIFIED_POLL_RECEIPTS",
+            "status": "EXACT_BETWEEN_VERIFIED_SUCCESS_COMPLETIONS",
         }]
         self.assertEqual(
             MODULE._event_fresh_condition(material, freshness, evaluated),
@@ -264,6 +265,8 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
                 "recordSha256": f"{index + 1:064x}",
                 "observedAtUtc": f"2026-09-0{index + 1}T00:00:00Z",
                 "status": status,
+                "pollCompletedAtUtc": f"2026-09-0{index + 1}T00:01:00Z",
+                "pollCompletionStatus": "EXACT_PRODUCER_COMPLETION_RECEIPT",
             })
         ledger = {"records": records}
         with mock.patch.object(
@@ -280,7 +283,21 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         self.assertEqual(len(coverage["verifiedPollIntervals"]), 1)
         interval = coverage["verifiedPollIntervals"][0]
         self.assertEqual((interval["fromStatus"], interval["toStatus"]), ("OK_NEW", "OK_EMPTY"))
-        self.assertEqual(coverage["freshThroughUtc"], "2026-09-04T00:00:00Z")
+        self.assertEqual(coverage["freshThroughUtc"], "2026-09-04T00:01:00Z")
+        records[-1]["pollCompletionStatus"] = "UNKNOWN_NO_EXACT_COMPLETION_RECEIPT"
+        with mock.patch.object(
+            MODULE,
+            "_git_blob",
+            return_value=b"on:\n  schedule:\n    - cron: '55 20 * * 0-4'\n",
+        ):
+            unknown = MODULE._freshness_coverage(
+                ROOT,
+                self.commit,
+                MODULE._utc("2026-09-04T00:00:00Z", "TEST_TIME"),
+                ledger,
+            )
+        self.assertEqual(unknown["verifiedPollIntervals"], [])
+        self.assertIsNone(unknown["freshThroughUtc"])
 
     def test_latest_and_consecutive_conditions_derive_from_current_evidence(self):
         material = copy.deepcopy(self.packet["latestMaterialSourceIndex"])
@@ -318,6 +335,56 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         )
         self.assertEqual(failed["status"], "UNKNOWN_PRIOR_SUCCESS_BOUNDARY")
         self.assertIsNone(failed["consecutiveFailureCount"])
+
+    def test_exact_current_successful_empty_is_latest_without_material_availability(self):
+        material = copy.deepcopy(self.packet["latestMaterialSourceIndex"])
+        for row in material.values():
+            row.update({
+                "status": "OK_EMPTY",
+                "lastMaterialSource": None,
+                "sourceAgeSeconds": None,
+                "ageStatus": "UNKNOWN_NO_MATERIAL_SOURCE_IN_CURRENT_INDEX",
+            })
+        rows = MODULE._condition_rows(
+            [],
+            material,
+            self.packet["freshnessCoverage"],
+            {
+                "status": "VERIFIED_CURRENT_SUCCESS_BOUNDARY",
+                "currentRunStatus": "OK_EMPTY",
+                "currentSourceOutputBindingStatus": "EXACT_CURRENT_SOURCE_OUTPUTS",
+                "consecutiveFailureCount": 0,
+                "consecutiveDelayedOrSkippedCount": 0,
+                "lastSuccessfulRunAtUtc": self.evaluated_at,
+            },
+            MODULE._utc(self.evaluated_at, "TEST_TIME"),
+            "NATURAL_SOURCE_OWNER_EMITTED",
+        )
+        conditions = {row["id"]: row for row in rows}
+        self.assertTrue(conditions["latest_actual_source"]["ready"])
+        self.assertEqual(
+            conditions["latest_actual_source"]["status"],
+            "NATURAL_CURRENT_SUCCESSFUL_EMPTY_INDEX_READY",
+        )
+        self.assertFalse(conditions["market_symbol_identity"]["ready"])
+        self.assertFalse(conditions["original_or_approved_excerpt_hash"]["ready"])
+        self.assertFalse(conditions["event_available_fresh_through"]["ready"])
+
+        delayed_state = {
+            "status": "UNKNOWN_PRIOR_SUCCESS_BOUNDARY",
+            "currentRunStatus": "DELAYED_OR_SKIPPED",
+            "currentSourceOutputBindingStatus": (
+                "EXACT_GUARD_SKIPPED_WITH_CURRENT_REPAIR_OUTPUTS"
+            ),
+        }
+        delayed = MODULE._condition_rows(
+            [], material, self.packet["freshnessCoverage"], delayed_state,
+            MODULE._utc(self.evaluated_at, "TEST_TIME"),
+            "NATURAL_SOURCE_OWNER_EMITTED",
+        )
+        self.assertFalse(
+            {row["id"]: row for row in delayed}["latest_actual_source"]["ready"]
+        )
 
     def test_nominal_schedule_handles_closed_days_without_claiming_future_coverage(self):
         after_final_thursday = MODULE._utc("2026-09-10T21:35:00Z", "TEST_TIME")
@@ -479,6 +546,109 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.SourceReadinessError, "IMMUTABLE_OUTPUT_COLLISION"):
                 MODULE.write_observation(self.packet, root)
 
+        poison = copy.deepcopy(self.packet)
+        poison["observationOrigin"] = "NATURAL_SOURCE_OWNER_EMITTED"
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(
+                MODULE.SourceReadinessError,
+                "NATURAL_CURRENT_TELEMETRY_RECORD_REQUIRED",
+            ):
+                MODULE.write_observation(poison, Path(temporary))
+
+    def test_natural_history_binds_all_indexed_files_and_rejects_path_tampering(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "test"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+            source_commit = "a" * 40
+            receipt = {
+                "schemaVersion": "ai_external_analysis_source_owner_admission/1",
+                "sourceCommit": source_commit,
+                "status": "NATURAL_OWNER_RECEIPT_VALIDATED_NOT_ADMITTED",
+            }
+            receipt["receiptSha256"] = MODULE.payload_sha256(receipt)
+            ledger = {
+                "schemaVersion": "ai_external_analysis_source_run_ledger/1",
+                "ledgerOrigin": "NATURAL_SOURCE_OWNER_EMITTED",
+                "sourceCommit": source_commit,
+                "records": [{
+                    "recordOrigin": "NATURAL_SOURCE_OWNER_EMITTED",
+                    "sourceCommit": source_commit,
+                    "status": "OK_EMPTY",
+                    "observedAtUtc": "2026-09-09T00:00:10Z",
+                }],
+            }
+            ledger["ledgerSha256"] = MODULE.payload_sha256(ledger)
+            packet = {
+                "sourceCommit": source_commit,
+                "evaluatedAtUtc": "2026-09-09T00:01:00Z",
+                "status": "DATA_QUALIFICATION_WAIT",
+                "observationOrigin": "NATURAL_SOURCE_OWNER_EMITTED",
+                "sourceOwnerAdmissionReceipt": receipt,
+                "runLedger": ledger,
+            }
+            packet["packetSha256"] = MODULE.payload_sha256(packet)
+            out_root = repo / "data/observations/ai_external_analysis_source_readiness"
+            paths = MODULE.write_observation(packet, out_root)
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "valid receipt"], check=True)
+            valid_commit = subprocess.check_output(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+            ).strip()
+            result = MODULE._natural_history_readback(repo, valid_commit)
+            self.assertEqual(result["status"], "VERIFIED_NATURAL_HISTORY_FROM_LAST_SUCCESS")
+
+            admission_path = Path(paths["admissionPath"])
+            admission = json.loads(admission_path.read_text())
+            admission["status"] = "TAMPERED"
+            unsigned = copy.deepcopy(admission)
+            unsigned.pop("receiptSha256")
+            admission["receiptSha256"] = MODULE.payload_sha256(unsigned)
+            admission_path.write_text(json.dumps(admission, indent=2, sort_keys=True) + "\n")
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "tampered admission"], check=True)
+            tampered_commit = subprocess.check_output(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+            ).strip()
+            with self.assertRaisesRegex(MODULE.SourceReadinessError, "ADMISSION_SHA_MISMATCH"):
+                MODULE._natural_history_readback(repo, tampered_commit)
+
+            admission_relative = admission_path.relative_to(repo).as_posix()
+            index_path = out_root / "index.json"
+            index_relative = index_path.relative_to(repo).as_posix()
+            subprocess.run(
+                ["git", "-C", str(repo), "checkout", valid_commit, "--", admission_relative],
+                check=True,
+            )
+            index = json.loads(index_path.read_text())
+            index["records"][0]["admissionPath"] = index["records"][0]["ledgerPath"]
+            unsigned = copy.deepcopy(index)
+            unsigned.pop("indexSha256")
+            index["indexSha256"] = MODULE.payload_sha256(unsigned)
+            index_path.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "swapped path"], check=True)
+            swapped_commit = subprocess.check_output(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+            ).strip()
+            with self.assertRaisesRegex(MODULE.SourceReadinessError, "ADMISSION_SHA_MISMATCH"):
+                MODULE._natural_history_readback(repo, swapped_commit)
+
+            subprocess.run(
+                ["git", "-C", str(repo), "checkout", valid_commit, "--", index_relative],
+                check=True,
+            )
+            ledger_path = Path(paths["ledgerPath"])
+            ledger_path.unlink()
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "missing ledger"], check=True)
+            missing_commit = subprocess.check_output(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+            ).strip()
+            with self.assertRaisesRegex(MODULE.SourceReadinessError, "GIT_READ_FAILED"):
+                MODULE._natural_history_readback(repo, missing_commit)
+
     def test_workflow_commits_this_run_data_before_exact_commit_receipt(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/collect.yml").read_text())
         steps = workflow["jobs"]["collect"]["steps"]
@@ -486,6 +656,9 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         data_index = names.index("Commit data")
         receipt_index = names.index("Record AI Shadow source readiness (P10-07)")
         self.assertGreater(receipt_index, data_index)
+        self.assertEqual(steps[receipt_index].get("if"), "always()")
+        checkout = next(step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@"))
+        self.assertEqual(checkout.get("with", {}).get("fetch-depth"), 0)
         data_script = steps[data_index]["run"]
         receipt_script = steps[receipt_index]["run"]
         self.assertIn("git commit", data_script)
@@ -513,6 +686,246 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
             current = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
             self.assertEqual(MODULE._git_json(repo, prior, "latest.json")[0]["run"], "prior")
             self.assertEqual(MODULE._git_json(repo, current, "latest.json")[0]["run"], "this-run")
+
+    def test_telemetry_drives_ledger_and_natural_write_requires_current_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "test"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+
+            def write_json(relative, value):
+                path = repo / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+            def commit(message):
+                subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+                subprocess.run(["git", "-C", str(repo), "commit", "-qm", message], check=True)
+                return subprocess.check_output(
+                    ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+                ).strip()
+
+            def write_source_runs(
+                observed, *, failed=0, names=("dart", "sec"), write_metadata=True
+            ):
+                for name in names:
+                    metadata_path = repo / f"data/latest_{name}.json"
+                    if write_metadata:
+                        metadata = {
+                            "collected_for_kst_date": "2026-09-09",
+                            "collected_at_utc": observed,
+                            "source": name,
+                        }
+                        write_json(f"data/latest_{name}.json", metadata)
+                    source_sha = hashlib.sha256(metadata_path.read_bytes()).hexdigest()
+                    write_json(f"data/latest_{name}_content.json", {
+                        "collected_for_kst_date": "2026-09-09",
+                        "counts": {
+                            "captured": 0,
+                            "failed": failed,
+                            "not_applicable": 0,
+                            "skipped": 0,
+                        },
+                        "observed_at_utc": observed,
+                        "records": [{"operation": "failed"}] if failed else [],
+                        "run_status": "FAILED" if failed else "OK",
+                        "source_file": f"data/latest_{name}.json",
+                        "source_sha256": source_sha,
+                    })
+
+            telemetry_rows = []
+
+            def write_telemetry(run_id, utc, kst, *, skip):
+                relative = f"data/operations/collect_runs/2026-09-09/run-{run_id}-attempt-1.json"
+                value = {
+                    "guard": {"result": "fresh" if skip else "stale", "skip": skip},
+                    "runner": {
+                        "observed_started_at_kst": kst,
+                        "observed_started_at_utc": utc,
+                    },
+                    "slot": {"id": "test"},
+                }
+                write_json(relative, value)
+                telemetry_rows.append({
+                    "path": relative,
+                    "record_sha256": hashlib.sha256((repo / relative).read_bytes()).hexdigest(),
+                })
+                index = {
+                    "schema_version": 1,
+                    "records": copy.deepcopy(telemetry_rows),
+                }
+                index["index_sha256"] = MODULE.payload_sha256(index)
+                write_json("data/operations/collect_runs/2026-09-09/index.json", index)
+
+            contract = {
+                "latest_sources": {
+                    name.upper(): {
+                        "content_run": f"data/latest_{name}_content.json",
+                        "metadata": f"data/latest_{name}.json",
+                    }
+                    for name in ("dart", "sec")
+                },
+                "run_ledger": {
+                    "max_records": 32,
+                    "statuses": ["OK_NEW", "OK_EMPTY", "FAILED", "DELAYED_OR_SKIPPED"],
+                },
+            }
+
+            def latest_condition(ledger, current_commit):
+                consecutive = MODULE._consecutive_state(
+                    ledger,
+                    {
+                        "status": "UNKNOWN_NO_PRIOR_NATURAL_RECEIPT",
+                        "lastSuccessfulRunAtUtc": None,
+                    },
+                    current_commit,
+                    "NATURAL_SOURCE_OWNER_EMITTED",
+                )
+                rows = MODULE._condition_rows(
+                    self.packet["retainedSourceRefs"],
+                    self.packet["latestMaterialSourceIndex"],
+                    self.packet["freshnessCoverage"],
+                    consecutive,
+                    MODULE._utc(self.evaluated_at, "TEST_TIME"),
+                    "NATURAL_SOURCE_OWNER_EMITTED",
+                )
+                return {row["id"]: row for row in rows}["latest_actual_source"]
+
+            write_source_runs("2026-09-08T20:00:10Z")
+            commit("baseline")
+            write_source_runs("2026-09-08T21:00:10Z")
+            write_telemetry(
+                1,
+                "2026-09-08T21:00:00Z",
+                "2026-09-09T06:00:00+09:00",
+                skip=False,
+            )
+            success_commit = commit("successful poll")
+            success = MODULE._run_ledger(
+                repo, success_commit, contract, "NATURAL_SOURCE_OWNER_EMITTED"
+            )
+            self.assertEqual(success["records"][-1]["status"], "OK_EMPTY")
+            self.assertEqual(
+                success["records"][-1]["observedAtUtc"], "2026-09-08T21:00:10Z"
+            )
+            self.assertIsNone(success["records"][-1]["pollCompletedAtUtc"])
+            self.assertTrue(latest_condition(success, success_commit)["ready"])
+
+            write_source_runs(
+                "2026-09-08T21:05:10Z", write_metadata=False
+            )
+            write_telemetry(
+                2,
+                "2026-09-08T21:05:00Z",
+                "2026-09-09T06:05:00+09:00",
+                skip=True,
+            )
+            delayed_commit = commit("guard skip with current repair")
+            delayed = MODULE._run_ledger(
+                repo, delayed_commit, contract, "NATURAL_SOURCE_OWNER_EMITTED"
+            )
+            self.assertEqual(delayed["records"][-1]["status"], "DELAYED_OR_SKIPPED")
+            delayed_condition = latest_condition(delayed, delayed_commit)
+            self.assertTrue(delayed_condition["ready"])
+            self.assertEqual(
+                delayed_condition["status"],
+                "NATURAL_CURRENT_REPAIR_REUSE_INDEX_READY",
+            )
+
+            write_source_runs("2026-09-08T21:10:10Z", names=("dart",))
+            write_telemetry(
+                3,
+                "2026-09-08T21:10:00Z",
+                "2026-09-09T06:10:00+09:00",
+                skip=False,
+            )
+            partial_commit = commit("partial current source outputs")
+            partial = MODULE._run_ledger(
+                repo, partial_commit, contract, "NATURAL_SOURCE_OWNER_EMITTED"
+            )
+            self.assertEqual(partial["records"][-1]["status"], "FAILED")
+            self.assertFalse(latest_condition(partial, partial_commit)["ready"])
+
+            write_telemetry(
+                4,
+                "2026-09-08T21:15:00Z",
+                "2026-09-09T06:15:00+09:00",
+                skip=False,
+            )
+            telemetry_only_commit = commit("telemetry after content crash")
+            failed = MODULE._run_ledger(
+                repo, telemetry_only_commit, contract, "NATURAL_SOURCE_OWNER_EMITTED"
+            )
+            current = failed["records"][-1]
+            self.assertEqual(current["status"], "FAILED")
+            self.assertEqual(
+                current["sourceOutputBindingStatus"],
+                "EXACT_TELEMETRY_WITHOUT_PROVABLY_CURRENT_COLLECTION_OUTPUTS",
+            )
+            old_content_sha = current["sourceRunRefs"]["SEC"]["contentRunSha256"]
+            self.assertFalse(
+                latest_condition(failed, telemetry_only_commit)["ready"]
+            )
+
+            write_telemetry(
+                5,
+                "2026-09-08T21:25:00Z",
+                "2026-09-09T06:25:00+09:00",
+                skip=True,
+            )
+            skipped_repair_crash_commit = commit("guard skip with repair crash")
+            skipped_repair_crash = MODULE._run_ledger(
+                repo,
+                skipped_repair_crash_commit,
+                contract,
+                "NATURAL_SOURCE_OWNER_EMITTED",
+            )
+            self.assertEqual(skipped_repair_crash["records"][-1]["status"], "FAILED")
+            self.assertFalse(
+                latest_condition(
+                    skipped_repair_crash, skipped_repair_crash_commit
+                )["ready"]
+            )
+
+            write_source_runs("2026-09-08T21:35:10Z", failed=1)
+            write_telemetry(
+                6,
+                "2026-09-08T21:35:00Z",
+                "2026-09-09T06:35:00+09:00",
+                skip=True,
+            )
+            repair_failure_commit = commit("failed repair after guard skip")
+            repair_failure = MODULE._run_ledger(
+                repo, repair_failure_commit, contract, "NATURAL_SOURCE_OWNER_EMITTED"
+            )
+            self.assertEqual(repair_failure["records"][-1]["status"], "FAILED")
+            self.assertFalse(
+                latest_condition(repair_failure, repair_failure_commit)["ready"]
+            )
+
+            write_source_runs("2026-09-08T22:00:10Z")
+            output_only_commit = commit("future output without telemetry")
+            replay = MODULE._run_ledger(
+                repo,
+                telemetry_only_commit,
+                contract,
+                "NATURAL_SOURCE_OWNER_EMITTED",
+            )
+            self.assertEqual(
+                replay["records"][-1]["sourceRunRefs"]["SEC"]["contentRunSha256"],
+                old_content_sha,
+            )
+            with self.assertRaisesRegex(
+                MODULE.SourceReadinessError,
+                "NATURAL_CURRENT_TELEMETRY_RECORD_REQUIRED",
+            ):
+                MODULE._run_ledger(
+                    repo,
+                    output_only_commit,
+                    contract,
+                    "NATURAL_SOURCE_OWNER_EMITTED",
+                )
 
 
 if __name__ == "__main__":
