@@ -29,7 +29,9 @@ from __future__ import annotations
 import copy
 import importlib.util
 import inspect
+import json
 from pathlib import Path
+import tempfile
 import unittest
 
 
@@ -296,6 +298,225 @@ class P5GatedActionTests(unittest.TestCase):
             MODULE.AlphaShadowLedgerError, "OPPORTUNITY_STATE_UNMAPPED:WAIT_FOR_RULE_RATIFICATION"
         ):
             MODULE.action_for_opportunity_state("WAIT_FOR_RULE_RATIFICATION", "NOT_EVALUATED", CONTRACT)
+
+
+# --- exact JSON scalar type regressions -------------------------------------
+#
+# Python's `==` treats `True == 1`, `False == 0` and `0 == 0.0` as equal, so
+# a value-only identity check admits scalar aliases that serialise to
+# DIFFERENT canonical JSON bytes (`true` vs `1`, `false` vs `0`, `0` vs
+# `0.0`). Every hash in this ledger is taken over exactly those bytes, so
+# each alias below is a distinct canonical record that must be rejected --
+# whether or not its `entry_hash` was recomputed over the aliased payload
+# ("signed") or left as the original digest ("retained").
+
+# Written out literally rather than read back from the module, so a change
+# to the module's own constants can never silently move this expectation.
+EXPECTED_AUTHORITY = {
+    "append_only_alpha_observation": True,
+    "stage_change_authorized": False,
+    "shadow_eligibility_authorized": False,
+    "capital_authorized": False,
+    "action_authorized": False,
+    "order_authorized": False,
+    "production_authorized": False,
+    "trading_authorized": False,
+}
+TRUE_AUTHORITY_FLAG = "append_only_alpha_observation"
+FALSE_AUTHORITY_FLAGS = tuple(k for k, v in EXPECTED_AUTHORITY.items() if v is False)
+# Aliases that satisfy `== False` / `== True` / `== 0` but are not the exact
+# JSON type the contract fixes.
+FALSE_ALIASES = (0, 0.0)
+TRUE_ALIASES = (1, 1.0)
+CAPITAL_ALIASES = (False, 0.0, -0.0)
+
+
+def sign(record):
+    """Recompute `entry_hash` over the (possibly mutated) payload, i.e. a
+    forged record whose own hash chain is internally consistent."""
+    signed = copy.deepcopy(record)
+    signed["entry_hash"] = MODULE.payload_sha256(
+        {k: v for k, v in signed.items() if k != "entry_hash"}
+    )
+    return signed
+
+
+def load_contract_from_disk(contract):
+    """Round-trip a contract through real JSON on disk and the real public
+    `load_contract()` -- so `true`/`0`/`0.0` are parsed by `json`, exactly as
+    a tampered `config/alpha_shadow_ledger_contract.json` would be."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "alpha_shadow_ledger_contract.json"
+        path.write_text(json.dumps(contract), encoding="utf-8")
+        return MODULE.load_contract(path)
+
+
+class ExactContractTypeTests(unittest.TestCase):
+    def test_untampered_contract_still_loads_from_disk(self):
+        # Guards the harness itself: the round-trip below must accept the
+        # real, valid contract, so the rejections that follow are caused by
+        # the alias and nothing else.
+        self.assertEqual(load_contract_from_disk(copy.deepcopy(CONTRACT)), CONTRACT)
+        self.assertIsInstance(CONTRACT["schema_version"], int)
+        self.assertNotIsInstance(CONTRACT["schema_version"], bool)
+        self.assertEqual(CONTRACT["authority"], EXPECTED_AUTHORITY)
+        for key, value in CONTRACT["authority"].items():
+            with self.subTest(flag=key):
+                self.assertIs(type(value), bool)
+
+    def _assert_contract_rejected_everywhere(self, contract):
+        # The alias is equal to the valid contract under Python `==` ...
+        self.assertEqual(contract, CONTRACT)
+        # ... but is a different canonical document, hence a real defect.
+        self.assertNotEqual(MODULE.canonical_json(contract), MODULE.canonical_json(CONTRACT))
+        packet = review()
+        with self.assertRaisesRegex(MODULE.AlphaShadowLedgerError, "CONTRACT_IDENTITY_INVALID"):
+            load_contract_from_disk(contract)
+        with self.assertRaisesRegex(MODULE.AlphaShadowLedgerError, "CONTRACT_IDENTITY_INVALID"):
+            MODULE.build_record(packet, "2026-08-20T10:00:00Z", 1, contract=contract)
+        record = MODULE.build_record(packet, "2026-08-20T10:00:00Z", 1)
+        with self.assertRaisesRegex(MODULE.AlphaShadowLedgerError, "CONTRACT_IDENTITY_INVALID"):
+            MODULE.validate_record(record, contract)
+
+    def test_schema_version_must_be_the_integer_one(self):
+        for alias in (True, 1.0):
+            with self.subTest(schema_version=repr(alias)):
+                contract = copy.deepcopy(CONTRACT)
+                contract["schema_version"] = alias
+                self._assert_contract_rejected_everywhere(contract)
+
+    def test_false_authority_flags_must_be_real_booleans(self):
+        for flag in FALSE_AUTHORITY_FLAGS:
+            for alias in FALSE_ALIASES:
+                with self.subTest(flag=flag, alias=repr(alias)):
+                    contract = copy.deepcopy(CONTRACT)
+                    contract["authority"][flag] = alias
+                    self._assert_contract_rejected_everywhere(contract)
+
+    def test_true_authority_flag_must_be_a_real_boolean(self):
+        for alias in TRUE_ALIASES:
+            with self.subTest(flag=TRUE_AUTHORITY_FLAG, alias=repr(alias)):
+                contract = copy.deepcopy(CONTRACT)
+                contract["authority"][TRUE_AUTHORITY_FLAG] = alias
+                self._assert_contract_rejected_everywhere(contract)
+
+
+class ExactRecordTypeTests(unittest.TestCase):
+    def setUp(self):
+        self.record = MODULE.build_record(review(), "2026-08-20T10:00:00Z", 1)
+
+    def _assert_record_rejected(self, aliased, code):
+        # Equal under `==`, different canonical bytes -- rejected both when
+        # re-signed over the aliased payload and when the original digest is
+        # retained.
+        self.assertEqual(aliased, self.record)
+        self.assertNotEqual(MODULE.canonical_json(aliased), MODULE.canonical_json(self.record))
+        with self.assertRaisesRegex(MODULE.AlphaShadowLedgerError, code):
+            MODULE.validate_record(sign(aliased), CONTRACT)
+        with self.assertRaisesRegex(MODULE.AlphaShadowLedgerError, code):
+            MODULE.validate_record(aliased, CONTRACT)
+
+    def test_signed_record_false_authority_aliases_are_rejected(self):
+        for flag in FALSE_AUTHORITY_FLAGS:
+            for alias in FALSE_ALIASES:
+                with self.subTest(flag=flag, alias=repr(alias)):
+                    aliased = copy.deepcopy(self.record)
+                    aliased["authority"][flag] = alias
+                    self._assert_record_rejected(aliased, "RECORD_IDENTITY_INVALID")
+
+    def test_signed_record_true_authority_aliases_are_rejected(self):
+        for alias in TRUE_ALIASES:
+            with self.subTest(flag=TRUE_AUTHORITY_FLAG, alias=repr(alias)):
+                aliased = copy.deepcopy(self.record)
+                aliased["authority"][TRUE_AUTHORITY_FLAG] = alias
+                self._assert_record_rejected(aliased, "RECORD_IDENTITY_INVALID")
+
+    def test_signed_record_capital_aliases_are_rejected(self):
+        for alias in CAPITAL_ALIASES:
+            with self.subTest(capital=repr(alias)):
+                aliased = copy.deepcopy(self.record)
+                aliased["shadow_proposal"]["capital"] = alias
+                self._assert_record_rejected(aliased, "SHADOW_PROPOSAL_CAPITAL_MUST_BE_ZERO")
+
+    def test_retained_hash_value_tamper_is_still_an_entry_hash_mismatch(self):
+        # The pre-existing hash-chain check is unchanged: a well-typed but
+        # different value with the original digest retained is still caught
+        # by the recomputation, not by the new type checks.
+        tampered = copy.deepcopy(self.record)
+        tampered["recorded_at"] = "2026-08-20T11:00:00Z"
+        with self.assertRaisesRegex(MODULE.AlphaShadowLedgerError, "ENTRY_HASH_MISMATCH"):
+            MODULE.validate_record(tampered, CONTRACT)
+
+    def test_valid_record_round_trips_unchanged(self):
+        self.assertEqual(MODULE.validate_record(self.record, CONTRACT), self.record)
+        self.assertEqual(MODULE.validate_record(self.record), self.record)
+
+
+class BaselineCanonicalBytesTests(unittest.TestCase):
+    """The correction must reject malformed aliases WITHOUT changing a single
+    byte of any valid record. The expectation is rebuilt here from the Alpha
+    Review packet plus literal constants (integer `0` capital, real boolean
+    authority flags) rather than copied out of the produced record, so the
+    canonical bytes and `entry_hash` are checked against an independent
+    reconstruction of the original, unchanged output schema.
+    """
+
+    def _expected_payload(self, packet, recorded_at, sequence, previous_entry_hash):
+        state = packet["opportunity_state"]
+        # None of the reachable states are entry-eligible, so the base
+        # mapping is the final action (see P5GatedActionTests).
+        self.assertNotIn(state, ENTRY_ELIGIBLE_STATES)
+        return {
+            "schema_version": "alpha_shadow_ledger_record/1",
+            "contract_version": "alpha_shadow_ledger/2",
+            "sequence": sequence,
+            "recorded_at": recorded_at,
+            "signal_date": packet["decision_date"],
+            "subject": packet["subject"],
+            "alpha_review_packet_sha256": packet["packet_sha256"],
+            "shadow_proposal": {
+                "capital": 0,
+                "action": CONTRACT["opportunity_state_to_action"][state],
+                "hypothetical_entry_condition": "; ".join(packet["entry_conditions"]),
+                "hypothetical_invalidation": "; ".join(packet["invalidation_conditions"]),
+                "hypothetical_add_condition": "; ".join(packet["add_conditions"]),
+                "hypothetical_exit_condition": "; ".join(packet["reduce_conditions"]),
+                "expiry": packet["next_review_date"],
+                "human_approval_required": True,
+            },
+            "previous_entry_hash": previous_entry_hash,
+            "authority": copy.deepcopy(EXPECTED_AUTHORITY),
+        }
+
+    def test_canonical_bytes_and_entry_hash_are_unchanged_for_every_reachable_state(self):
+        for state in _REACHABLE_CASE_BUILDERS:
+            with self.subTest(state=state):
+                packet = review(state)
+                record = MODULE.build_record(packet, "2026-08-20T10:00:00Z", 1)
+                payload = self._expected_payload(packet, "2026-08-20T10:00:00Z", 1, None)
+                expected = dict(payload, entry_hash=MODULE.payload_sha256(payload))
+                self.assertEqual(MODULE.canonical_json(record), MODULE.canonical_json(expected))
+                self.assertEqual(record["entry_hash"], MODULE.payload_sha256(payload))
+
+    def test_chained_record_canonical_bytes_are_unchanged(self):
+        first = MODULE.build_record(review(), "2026-08-20T10:00:00Z", 1)
+        packet = review()
+        second = MODULE.build_record(packet, "2026-08-21T10:00:00Z", 2, first["entry_hash"])
+        payload = self._expected_payload(packet, "2026-08-21T10:00:00Z", 2, first["entry_hash"])
+        expected = dict(payload, entry_hash=MODULE.payload_sha256(payload))
+        self.assertEqual(MODULE.canonical_json(second), MODULE.canonical_json(expected))
+
+    def test_valid_record_scalar_types_are_exact(self):
+        record = MODULE.build_record(review(), "2026-08-20T10:00:00Z", 1)
+        self.assertIs(type(record["sequence"]), int)
+        self.assertIs(type(record["shadow_proposal"]["capital"]), int)
+        self.assertIs(type(record["shadow_proposal"]["human_approval_required"]), bool)
+        self.assertIsNone(record["previous_entry_hash"])
+        self.assertEqual(record["authority"], EXPECTED_AUTHORITY)
+        for key, value in record["authority"].items():
+            with self.subTest(flag=key):
+                self.assertIs(type(value), bool)
+                self.assertIs(value, EXPECTED_AUTHORITY[key])
 
 
 if __name__ == "__main__":

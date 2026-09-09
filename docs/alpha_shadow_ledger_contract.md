@@ -31,6 +31,22 @@ corresponding parameter anywhere in `build_record()`'s signature — see
 `test_alpha_shadow_ledger.py`'s regression, which inspects the live function
 signature in addition to asserting the values.
 
+## Exact JSON types
+
+Contract identity (`schema_version`, `authority`), record identity
+(`authority`) and `shadow_proposal.capital` are compared by **exact JSON
+value**: the same JSON type as well as the same value. Python's `==` treats
+`True == 1`, `False == 0` and `0 == 0.0` as equal, so a value-only check
+would admit a contract or record whose `schema_version` is `true`/`1.0`,
+whose authority flags are `0`/`1`/`0.0`, or whose `capital` is `false`/`0.0`
+— each of which serialises to different canonical JSON bytes (`true` vs `1`,
+`0` vs `false`, `0.0` vs `0`) and therefore a different `entry_hash`. Such a
+document is rejected (`CONTRACT_IDENTITY_INVALID`,
+`RECORD_IDENTITY_INVALID`, `SHADOW_PROPOSAL_CAPITAL_MUST_BE_ZERO`) whether
+its `entry_hash` was recomputed over the aliased payload or left as the
+original digest. Valid records are unaffected: their canonical bytes and
+`entry_hash` are unchanged.
+
 ## `opportunity_state` → `action` mapping (exhaustive, P5-gated)
 
 **CIO Gate Hardening (contract_version `alpha_shadow_ledger/2`).** The table

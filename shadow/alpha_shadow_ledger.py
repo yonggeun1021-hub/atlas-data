@@ -29,6 +29,14 @@ retrospective learning.
   `SHADOW_ENTRY_REVIEW`, since no ratified P5 packet exists for any of them
   yet -- `p5_rule_status` is `NOT_EVALUATED` for all four).
 
+★ Contract identity, record identity (`authority`) and `shadow_proposal.
+  capital` are compared by EXACT JSON value -- see `_exact_json_equal()`.
+  Python's `==` treats `True == 1`, `False == 0` and `0 == 0.0` as equal, so
+  a plain `==` admits scalar aliases (`true` for `1`, `0` for `false`, `0.0`
+  for `0`) that serialise to different canonical JSON bytes. Every hash in
+  this ledger is taken over exactly those bytes, so the identity checks
+  compare types as well as values.
+
 ⛔ Retrospective evaluation is explicitly OUT OF SCOPE for this stage. This
   module does NOT compute `catalyst_date`, `hypothetical_return`,
   `benchmark_relative_return`, `maximum_adverse_excursion`,
@@ -93,6 +101,29 @@ def _read(path: Path):
         raise AlphaShadowLedgerError(f"JSON_READ_FAILED:{path}:{exc}") from exc
 
 
+def _exact_json_equal(value, expected) -> bool:
+    """Exact JSON-value equality: same JSON type AND same value, recursively.
+
+    `==` alone is not sufficient for an identity check whose result is
+    hash-chained: `True == 1`, `False == 0` and `0 == 0.0` all hold in
+    Python, yet `canonical_json()` emits `true`/`1`, `false`/`0` and
+    `0`/`0.0` -- different bytes, therefore a different `entry_hash`.
+    `type(...) is not type(...)` (not `isinstance`) is what separates
+    `bool` from `int` and `int` from `float` here.
+    """
+    if type(value) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(value) == set(expected) and all(
+            _exact_json_equal(value[key], expected[key]) for key in expected
+        )
+    if isinstance(expected, list):
+        return len(value) == len(expected) and all(
+            _exact_json_equal(item, other) for item, other in zip(value, expected)
+        )
+    return value == expected
+
+
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
@@ -132,7 +163,10 @@ def _expected_contract() -> dict:
 
 
 def _validate_contract(value: dict) -> dict:
-    if not isinstance(value, dict) or value != _expected_contract():
+    # Exact JSON identity: `schema_version` must be the integer 1 (never
+    # `true`/`1.0`) and every authority flag must be a real boolean (never
+    # `0`/`0.0`/`1`) -- a `==` comparison would admit all of those.
+    if not isinstance(value, dict) or not _exact_json_equal(value, _expected_contract()):
         raise AlphaShadowLedgerError("CONTRACT_IDENTITY_INVALID")
     return copy.deepcopy(value)
 
@@ -257,10 +291,13 @@ def validate_record(value: dict, contract: dict | None = None) -> dict:
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise AlphaShadowLedgerError("RECORD_FIELDS_MISMATCH")
+    # Exact JSON identity again -- an `authority` block whose flags are
+    # `0`/`1` instead of `false`/`true` is a different canonical record even
+    # though it compares equal to the contract's block under `==`.
     if (
-        value.get("schema_version") != contract["output_schema_version"]
-        or value.get("contract_version") != contract["contract_version"]
-        or value.get("authority") != contract["authority"]
+        not _exact_json_equal(value.get("schema_version"), contract["output_schema_version"])
+        or not _exact_json_equal(value.get("contract_version"), contract["contract_version"])
+        or not _exact_json_equal(value.get("authority"), contract["authority"])
     ):
         raise AlphaShadowLedgerError("RECORD_IDENTITY_INVALID")
 
@@ -285,7 +322,10 @@ def validate_record(value: dict, contract: dict | None = None) -> dict:
     }
     if not isinstance(proposal, dict) or set(proposal) != proposal_fields:
         raise AlphaShadowLedgerError("SHADOW_PROPOSAL_FIELDS_MISMATCH")
-    if proposal.get("capital") != 0 or isinstance(proposal.get("capital"), bool):
+    # The integer zero exactly: `False`, `0.0` and `-0.0` all satisfy
+    # `== 0` but serialise to `false`/`0.0`/`-0.0`, not `0`.
+    capital = proposal.get("capital")
+    if type(capital) is not int or capital != 0:
         raise AlphaShadowLedgerError("SHADOW_PROPOSAL_CAPITAL_MUST_BE_ZERO")
     if proposal.get("human_approval_required") is not True:
         raise AlphaShadowLedgerError("SHADOW_PROPOSAL_HUMAN_APPROVAL_MUST_BE_TRUE")
