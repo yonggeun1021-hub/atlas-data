@@ -725,6 +725,14 @@ APPROVED_TESTS = [
     #   Stage/Buy/Action/Order/Capital/Production/Trading은 모두 false다.
     #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
+    # ★ P1-COM-05 PAPER runtime adoption eligibility.  Reuses the already
+    #   classified three-market reference and evaluates only whether an exact
+    #   externally retained source workflow completion/readback, published
+    #   source identity, official session calendar, and caller-supplied clock
+    #   prove the observation CURRENT.  Missing terminal evidence stays
+    #   UNCONFIRMED; this helper never self-certifies, classifies, calls a
+    #   provider, advances strategy state, allocates capital, or issues orders.
+    "test/test_paper_regime_runtime_adoption.py",
     "test/test_kr_paper_runtime.py",
     "test/test_kr_internal_paper_theme_application.py",
     "test/test_us_paper_policy_binding.py",
