@@ -7,6 +7,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -30,6 +31,10 @@ UNIFIED_FIXTURE_PATH = ROOT / "test" / "test_unified_decision_contract.py"
 spec = importlib.util.spec_from_file_location("p10_01_unified_fixture", UNIFIED_FIXTURE_PATH)
 UNIFIED_FIXTURE = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(UNIFIED_FIXTURE)
+LEDGER_FIXTURE_PATH = ROOT / "test" / "test_three_market_shadow_ledger.py"
+spec = importlib.util.spec_from_file_location("p10_01_ledger_fixture", LEDGER_FIXTURE_PATH)
+LEDGER_FIXTURE = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(LEDGER_FIXTURE)
 PACKETS = sorted((ROOT / "evidence" / "daily_briefing").rglob("packet.json"))
 
 
@@ -114,14 +119,16 @@ def synthetic_daily(extra_components=None):
 
 
 class ThreeMarketShadowOperationalReadinessTests(unittest.TestCase):
-    def packet(self, daily=None, recorded_at=RECORDED_AT):
+    def packet(self, daily=None, recorded_at=RECORDED_AT, previous_ledger=None):
         patcher = mock.patch.object(
             MODULE.DAILY_LINEAGE,
             "_validate_daily_at_commit",
             return_value=synthetic_daily() if daily is None else daily,
         )
         with patcher:
-            return MODULE.build_packet(PACKET, SOURCE_COMMIT, recorded_at)
+            return MODULE.build_packet(
+                PACKET, SOURCE_COMMIT, recorded_at, previous_ledger=previous_ledger
+            )
 
     def test_latest_validated_fixture_is_selected_by_generated_at(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -165,8 +172,20 @@ class ThreeMarketShadowOperationalReadinessTests(unittest.TestCase):
         self.assertIsNone(packet["order_intent"])
 
     def test_all_authorities_remain_false(self):
-        self.assertTrue(self.packet()["authority"])
-        self.assertTrue(all(value is False for value in self.packet()["authority"].values()))
+        authority = self.packet()["authority"]
+        self.assertTrue(authority["shadow_observation_recording_authorized"])
+        self.assertTrue(all(
+            value is False for key, value in authority.items()
+            if key != "shadow_observation_recording_authorized"
+        ))
+
+    def test_completed_append_uses_distinct_v2_contract_identity(self):
+        contract = MODULE.load_contract()
+        self.assertEqual(contract["schema_version"], 2)
+        self.assertEqual(contract["contract_version"], "three_market_shadow_operational_readiness/2")
+        packet = self.packet()
+        self.assertEqual(packet["contract_version"], contract["contract_version"])
+        self.assertEqual(packet["schema_version"], "three_market_shadow_operational_readiness_packet/2")
 
     def test_missing_or_unvalidated_unified_is_rejected(self):
         daily = {
@@ -207,17 +226,19 @@ class ThreeMarketShadowOperationalReadinessTests(unittest.TestCase):
             ):
                 self.packet(daily)
 
-    def test_exact_commit_validated_p9_only_opens_zero_capital_readiness(self):
+    def test_exact_commit_validated_p9_appends_zero_capital_ledger(self):
+        unified = current_unified()
+        entry_exit, intraday_risk = LEDGER_FIXTURE.intraday_evidence(unified)
         rows = [
             {
                 "component_id": "ENTRY_EXIT_TRIGGER_ELIGIBILITY",
                 "validated": True,
-                "packet": {"synthetic": "entry"},
+                "packet": entry_exit,
             },
             {
                 "component_id": "INTRADAY_RISK_ESCALATION",
                 "validated": True,
-                "packet": {"synthetic": "risk"},
+                "packet": intraday_risk,
             },
         ]
         daily = synthetic_daily(rows)
@@ -225,15 +246,9 @@ class ThreeMarketShadowOperationalReadinessTests(unittest.TestCase):
             MODULE,
             "_validate_shadow_inputs_at_commit",
             return_value=(
-                current_unified(),
-                {
-                    "generated_at": "2026-08-27T00:00:00Z",
-                    "packet_sha256": "2" * 64,
-                },
-                {
-                    "observed_at": "2026-08-27T00:00:00Z",
-                    "packet_sha256": "3" * 64,
-                },
+                unified,
+                entry_exit,
+                intraday_risk,
             ),
         ) as exact_validator:
             packet = self.packet(daily)
@@ -245,20 +260,30 @@ class ThreeMarketShadowOperationalReadinessTests(unittest.TestCase):
                 for call in exact_validator.call_args_list
             )
         )
-        self.assertEqual(packet["status"], "READY_FOR_ZERO_CAPITAL_SHADOW_APPEND")
+        self.assertEqual(packet["status"], "ZERO_CAPITAL_SHADOW_APPENDED")
         self.assertEqual(packet["summary"]["shadow_append_ready_count"], 1)
-        self.assertEqual(packet["summary"]["shadow_record_count"], 0)
+        self.assertEqual(packet["summary"]["shadow_record_count"], 1)
         self.assertEqual(packet["summary"]["real_capital_deployed"], "0")
         self.assertEqual(packet["summary"]["real_order_count"], 0)
         self.assertEqual(
             packet["source"]["entry_exit_trigger_eligibility_packet_sha256"],
-            "2" * 64,
+            entry_exit["packet_sha256"],
         )
         self.assertEqual(
             packet["source"]["intraday_risk_escalation_packet_sha256"],
-            "3" * 64,
+            intraday_risk["packet_sha256"],
         )
-        self.assertTrue(all(value is False for value in packet["authority"].values()))
+        self.assertEqual(packet["shadow_ledger"]["ledger_revision"], 1)
+        self.assertEqual(packet["shadow_ledger"]["records"][0]["unified_decision"], unified)
+        self.assertEqual(packet["shadow_ledger"]["summary"]["real_capital_deployed"], "0")
+        self.assertEqual(packet["shadow_ledger"]["summary"]["real_order_count"], 0)
+        with mock.patch.object(
+            MODULE,
+            "_validate_shadow_inputs_at_commit",
+            return_value=(unified, entry_exit, intraday_risk),
+        ):
+            retry = self.packet(daily, previous_ledger=packet["shadow_ledger"])
+        self.assertEqual(retry["shadow_ledger"], packet["shadow_ledger"])
 
     def test_future_unified_decision_is_rejected(self):
         with self.assertRaisesRegex(
@@ -341,6 +366,64 @@ class ThreeMarketShadowOperationalReadinessTests(unittest.TestCase):
             self.assertTrue(created)
             self.assertEqual(MODULE.write_packet(packet, root), (path, False))
             self.assertEqual(json.loads(path.read_text()), packet)
+
+    def test_existing_ledger_output_requires_exact_prior_ledger_cli_input(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "existing-ledger.json"
+            output.write_text("{}", encoding="utf-8")
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    str(SOURCE),
+                    str(PACKET),
+                    "--source-commit", SOURCE_COMMIT,
+                    "--recorded-at", RECORDED_AT,
+                    "--ledger-out", str(output),
+                    "--history-root", str(root / "readiness"),
+                ],
+            ), mock.patch.object(
+                MODULE,
+                "build_packet",
+                side_effect=AssertionError("must fail before source evaluation"),
+            ) as build:
+                self.assertEqual(MODULE.main(), 1)
+            build.assert_not_called()
+            self.assertEqual(output.read_text(encoding="utf-8"), "{}")
+
+    def test_stale_prior_ledger_cannot_replace_existing_ledger_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "existing-ledger.json"
+            prior = root / "stale-ledger.json"
+            existing = LEDGER_FIXTURE.append(
+                LEDGER_FIXTURE.decision(), "2026-08-21T02:15:00Z"
+            )
+            stale = LEDGER_FIXTURE.MODULE.empty_ledger(LEDGER_FIXTURE.CONTRACT)
+            output.write_text(json.dumps(existing, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            prior.write_text(json.dumps(stale, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            original = output.read_bytes()
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    str(SOURCE),
+                    str(PACKET),
+                    "--source-commit", SOURCE_COMMIT,
+                    "--recorded-at", RECORDED_AT,
+                    "--ledger", str(prior),
+                    "--ledger-out", str(output),
+                    "--history-root", str(root / "readiness"),
+                ],
+            ), mock.patch.object(
+                MODULE,
+                "build_packet",
+                side_effect=AssertionError("must fail before source evaluation"),
+            ) as build:
+                self.assertEqual(MODULE.main(), 1)
+            build.assert_not_called()
+            self.assertEqual(output.read_bytes(), original)
 
     def test_module_has_no_network_order_or_global_monkeypatch_surface(self):
         tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
