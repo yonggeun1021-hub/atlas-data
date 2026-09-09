@@ -213,6 +213,12 @@ def _validated_counts(run: dict, source_name: str) -> dict:
     counts = run.get("counts")
     if not isinstance(records, list) or not isinstance(counts, dict):
         raise SourceReadinessError(f"{source_name}_RUN_SHAPE_INVALID")
+    if not all(isinstance(row, dict) for row in records):
+        raise SourceReadinessError(f"{source_name}_RUN_RECORD_INVALID")
+    if set(counts) != {"captured", "failed", "not_applicable", "skipped"} or any(
+        type(value) is not int or value < 0 for value in counts.values()
+    ):
+        raise SourceReadinessError(f"{source_name}_RUN_COUNTS_SHAPE_INVALID")
     expected = {
         "captured": sum(row.get("operation") == "captured" for row in records),
         "failed": sum(row.get("operation") == "failed" for row in records),
@@ -490,6 +496,6 @@ def validate_packet(
     if payload_sha256(unsigned) != claimed:
         raise SourceReadinessError("PACKET_SHA256_MISMATCH")
     rebuilt = _derive_packet(repo, source_commit, evaluated_at_utc, checked_contract)
-    if packet != rebuilt:
+    if canonical_json(packet) != canonical_json(rebuilt):
         raise SourceReadinessError("PACKET_SEMANTIC_TAMPER_OR_DRIFT")
     return copy.deepcopy(packet)

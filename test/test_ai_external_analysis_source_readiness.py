@@ -98,6 +98,14 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.SourceReadinessError, "SEMANTIC_TAMPER"):
                 MODULE.validate_packet(changed, ROOT, self.commit, self.evaluated_at)
 
+        changed = copy.deepcopy(self.packet)
+        changed["ownerReferencesBound"] = 1
+        unsigned = copy.deepcopy(changed)
+        unsigned.pop("packetSha256")
+        changed["packetSha256"] = MODULE.payload_sha256(unsigned)
+        with self.assertRaisesRegex(MODULE.SourceReadinessError, "SEMANTIC_TAMPER"):
+            MODULE.validate_packet(changed, ROOT, self.commit, self.evaluated_at)
+
     def test_full_sha_and_pit_cutoff_are_required(self):
         with self.assertRaisesRegex(MODULE.SourceReadinessError, "FULL_SHA"):
             MODULE.build_packet(ROOT, "HEAD", self.evaluated_at)
@@ -134,6 +142,22 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         self.assertEqual(state["stalenessState"], "UNKNOWN_NO_SOURCE_OWNER_POLICY")
         self.assertEqual(state["consecutiveFailureState"], "UNKNOWN_HISTORY_NOT_BOUND")
         self.assertIsNone(state["consecutiveFailureCount"])
+
+    def test_run_counts_require_nonnegative_plain_integers_and_dict_records(self):
+        base = {
+            "run_status": "OK",
+            "records": [],
+            "counts": {"captured": 0, "failed": 0, "not_applicable": 0, "skipped": 0},
+        }
+        for field, value in (("captured", True), ("failed", -1)):
+            changed = copy.deepcopy(base)
+            changed["counts"][field] = value
+            with self.assertRaisesRegex(MODULE.SourceReadinessError, "COUNTS_SHAPE_INVALID"):
+                MODULE._validated_counts(changed, "SEC")
+        changed = copy.deepcopy(base)
+        changed["records"] = ["not-a-record"]
+        with self.assertRaisesRegex(MODULE.SourceReadinessError, "RUN_RECORD_INVALID"):
+            MODULE._validated_counts(changed, "SEC")
 
     def test_unvalidated_dart_content_is_not_called_no_new_filing(self):
         content_present = {
