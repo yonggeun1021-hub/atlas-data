@@ -119,7 +119,11 @@ def _expected_contract() -> dict:
 
 
 def validate_contract(value: object) -> dict:
-    if value != _expected_contract():
+    try:
+        exact = canonical_json(value) == canonical_json(_expected_contract())
+    except (TypeError, ValueError):
+        exact = False
+    if not exact:
         raise SourceReadinessError("CONTRACT_TAMPER_OR_DRIFT")
     return copy.deepcopy(value)
 
@@ -190,6 +194,20 @@ def _sha_ref(repo: Path, commit: str, relative: str) -> dict:
     }
 
 
+def _verify_executed_owner_pins(repo: Path, commit: str) -> None:
+    """Prove the validator and contract being executed are the pinned blobs."""
+    for relative in (
+        "collectors/sec_filing_content.py",
+        "config/sec_filing_content_contract.json",
+    ):
+        try:
+            runtime = (ROOT / relative).read_bytes()
+        except OSError as exc:
+            raise SourceReadinessError(f"EXECUTED_OWNER_FILE_READ_FAILED:{relative}") from exc
+        if runtime != _git_blob(repo, commit, relative):
+            raise SourceReadinessError(f"EXECUTED_OWNER_PIN_MISMATCH:{relative}")
+
+
 def _validated_counts(run: dict, source_name: str) -> dict:
     records = run.get("records")
     counts = run.get("counts")
@@ -210,10 +228,20 @@ def _validated_counts(run: dict, source_name: str) -> dict:
     return copy.deepcopy(counts)
 
 
-def _run_state(source_name: str, run: dict, retained_count: int) -> dict:
+def _run_state(
+    source_name: str,
+    run: dict,
+    retained_count: int,
+    *,
+    content_rows_validated: bool,
+) -> dict:
     counts = _validated_counts(run, source_name)
     failed = counts["failed"]
-    if failed:
+    content_present = counts["captured"] + counts["skipped"] > 0
+    if content_present and not content_rows_validated:
+        new_content = "UNKNOWN_UNVALIDATED_DART_CONTENT"
+        collection = "UNKNOWN_CONTENT_ROWS_NOT_VALIDATED"
+    elif failed:
         new_content = "PARTIAL_OR_FAILED_COLLECTION"
         collection = "FAILED_IN_CURRENT_RUN"
     elif counts["captured"]:
@@ -231,6 +259,8 @@ def _run_state(source_name: str, run: dict, retained_count: int) -> dict:
         "missingState": (
             "NOT_MISSING_RETAINED_REFERENCE_PRESENT"
             if retained_count
+            else "UNKNOWN_UNVALIDATED_DART_CONTENT"
+            if content_present and not content_rows_validated
             else "NOT_MISSING_SUCCESSFUL_EMPTY_RESULT"
             if not failed
             else "UNKNOWN_COLLECTION_FAILED"
@@ -241,15 +271,24 @@ def _run_state(source_name: str, run: dict, retained_count: int) -> dict:
     }
 
 
-def _fact_refs(manifest: dict) -> list[dict]:
+def _fact_refs(manifest: dict, source_id: str, manifest_sha256: str) -> list[dict]:
     result = []
     for index, fact in enumerate(manifest.get("extracted", [])):
         if not isinstance(fact, dict):
             raise SourceReadinessError("EXTRACTED_FACT_INVALID")
         fact_hash = payload_sha256(fact)
-        result.append({
-            "factId": f"SEC_EXTRACTED_FACT_SHA256_{fact_hash}",
+        identity = {
+            "sourceId": source_id,
+            "sourceManifestSha256": manifest_sha256,
+            "extractorVersion": manifest["extractor_version"],
+            "index": index,
             "factSha256": fact_hash,
+        }
+        result.append({
+            "factId": f"SEC_EXTRACTED_FACT_REF_SHA256_{payload_sha256(identity)}",
+            "factSha256": fact_hash,
+            "sourceId": source_id,
+            "sourceManifestSha256": manifest_sha256,
             "extractorVersion": manifest["extractor_version"],
             "index": index,
             "label": fact.get("label"),
@@ -258,14 +297,17 @@ def _fact_refs(manifest: dict) -> list[dict]:
 
 
 def _sec_sources(repo: Path, commit: str, run: dict, evaluated: dt.datetime) -> list[dict]:
+    _verify_executed_owner_pins(repo, commit)
+    owner_contract = SEC.load_contract()
     result = []
     for row in run["records"]:
         if not (
-            row.get("operation") == "skipped"
-            and row.get("skip_reason") == "already_captured"
+            row.get("operation") in {"captured", "skipped"}
             and row.get("content_status") == "OK"
         ):
             continue
+        if row.get("operation") == "skipped" and row.get("skip_reason") != "already_captured":
+            raise SourceReadinessError("SEC_SKIPPED_CONTENT_REASON_INVALID")
         ticker = row.get("ticker")
         identity = row.get("filing_identity")
         if (
@@ -278,7 +320,13 @@ def _sec_sources(repo: Path, commit: str, run: dict, evaluated: dt.datetime) -> 
             raise SourceReadinessError("SEC_RETAINED_IDENTITY_INVALID")
         relative = f"data/sec_content/{ticker}/{identity['accession']}/_manifest.json"
         manifest, manifest_blob = _git_json(repo, commit, relative)
-        if manifest != row:
+        run_semantics = copy.deepcopy(row)
+        manifest_semantics = copy.deepcopy(manifest)
+        for value in (run_semantics, manifest_semantics):
+            value.pop("operation", None)
+            value.pop("skip_reason", None)
+            value.pop("publication_status", None)
+        if canonical_json(manifest_semantics) != canonical_json(run_semantics):
             raise SourceReadinessError(f"SEC_LATEST_MANIFEST_MISMATCH:{ticker}:{identity['accession']}")
         raw_by_name = {}
         document_refs = []
@@ -298,17 +346,20 @@ def _sec_sources(repo: Path, commit: str, run: dict, evaluated: dt.datetime) -> 
                 "kind": document["kind"],
             })
         try:
-            SEC.validate_manifest(manifest, raw_by_name, SEC.load_contract())
+            SEC.validate_manifest(manifest, raw_by_name, owner_contract)
+            SEC.validate_manifest(row, raw_by_name, owner_contract)
         except SEC.SecContentError as exc:
             raise SourceReadinessError(f"SEC_OWNER_VALIDATION_FAILED:{exc}") from exc
         available = _utc(manifest.get("retrieved_at_utc"), "SEC_RETRIEVED_AT_INVALID")
         if available > evaluated:
             raise SourceReadinessError("SEC_SOURCE_FROM_FUTURE")
+        manifest_sha256 = hashlib.sha256(manifest_blob).hexdigest()
+        source_id = f"SEC_{identity['cik']}_{identity['accession']}"
         result.append({
-            "sourceId": f"SEC_{identity['cik']}_{identity['accession']}",
+            "sourceId": source_id,
             "sourceType": "US_SEC_EDGAR_FILING",
             "manifestPath": relative,
-            "manifestSha256": hashlib.sha256(manifest_blob).hexdigest(),
+            "manifestSha256": manifest_sha256,
             "identity": {
                 "market": "US",
                 "symbol": ticker,
@@ -322,7 +373,7 @@ def _sec_sources(repo: Path, commit: str, run: dict, evaluated: dt.datetime) -> 
             "freshThroughUtc": None,
             "freshnessStatus": "UNKNOWN_NO_SOURCE_OWNER_POLICY",
             "documentRefs": document_refs,
-            "factRefs": _fact_refs(manifest),
+            "factRefs": _fact_refs(manifest, source_id, manifest_sha256),
         })
     return result
 
@@ -354,7 +405,12 @@ def _derive_packet(
     for source_name in ("DART", "SEC"):
         run, run_blob, paths = latest[source_name]
         retained_count = len(sec_sources) if source_name == "SEC" else 0
-        run_states[source_name] = _run_state(source_name, run, retained_count)
+        run_states[source_name] = _run_state(
+            source_name,
+            run,
+            retained_count,
+            content_rows_validated=source_name == "SEC",
+        )
         latest_refs.append({
             "source": source_name,
             "contentRunPath": paths["content_run"],
@@ -371,7 +427,7 @@ def _derive_packet(
         {"id": "latest_actual_source", "ready": False, "status": "RETAINED_SOURCE_PRESENT_SHADOW_FRESHNESS_UNBOUND"},
         {"id": "market_symbol_identity", "ready": bool(sec_sources), "status": "READY_REFERENCE_IDENTITY" if sec_sources else "UNKNOWN_NO_RETAINED_SOURCE"},
         {"id": "event_available_fresh_through", "ready": False, "status": "UNKNOWN_EVENT_TIME_AND_FRESH_THROUGH_POLICY"},
-        {"id": "source_owner_binding", "ready": True, "status": "READY_REFERENCE_ONLY_OWNER_BINDING"},
+        {"id": "source_owner_binding", "ready": False, "status": "REFERENCE_PINS_ONLY_NOT_ADMISSION"},
         {"id": "original_or_approved_excerpt_hash", "ready": bool(sec_sources), "status": "READY_OWNER_VALIDATED_RETAINED_BYTES" if sec_sources else "UNKNOWN_NO_RETAINED_SOURCE"},
         {"id": "continuous_missing_delay_state", "ready": False, "status": "UNKNOWN_CONSECUTIVE_HISTORY_NOT_BOUND"},
     ]
@@ -387,6 +443,7 @@ def _derive_packet(
         "latestSourceRefs": latest_refs,
         "retainedSourceRefs": sec_sources,
         "ownerRefs": owner_refs,
+        "ownerReferencesBound": True,
         "runStates": run_states,
         "conditions": conditions,
         "allSixConditionsReady": all_ready,
@@ -419,7 +476,8 @@ def validate_packet(
     checked_contract = validate_contract(contract) if contract is not None else load_contract()
     if not isinstance(packet, dict) or set(packet) != {
         "schemaVersion", "contractVersion", "sourceCommit", "evaluatedAtUtc", "status",
-        "latestSourceRefs", "retainedSourceRefs", "ownerRefs", "runStates", "conditions",
+        "latestSourceRefs", "retainedSourceRefs", "ownerRefs", "ownerReferencesBound",
+        "runStates", "conditions",
         "allSixConditionsReady", "stage3InputSources", "modelSourceInferenceAuthorized",
         "authority", "packetSha256",
     }:
