@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import datetime as dt
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -27,10 +28,18 @@ LATEST_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
 SCHEMA_VERSION = "paper_regime_reference/v2"
 # Absent version is the retained v2 renderer and its original identity recipe.
 KR_TREND_RENDER_VERSION = "kr_trend_direction/v1"
-CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v2"
-SUPPORTED_RENDER_VERSIONS = {KR_TREND_RENDER_VERSION, CURRENT_RENDER_VERSION}
+LEGACY_CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v2"
+CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v3"
+SUPPORTED_RENDER_VERSIONS = {
+    KR_TREND_RENDER_VERSION,
+    LEGACY_CURRENT_RENDER_VERSION,
+    CURRENT_RENDER_VERSION,
+}
 AXES = ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+CURRENT_REFERENCE_MODE = "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY"
 ZERO = Decimal("0")
 ONE = Decimal("1")
 
@@ -458,26 +467,79 @@ def build_crypto(packet: dict, *, render_version: str | None = CURRENT_RENDER_VE
     official = packet.get("official_decision")
     official_coverage = official.get("coverage") if isinstance(official, dict) else None
     current = packet.get("current_reference")
+    if "current_reference" in packet and not isinstance(current, dict):
+        fail("CRYPTO_CURRENT_REFERENCE_INVALID")
+    current_coverage_supplied = isinstance(current, dict) and "coverage" in current
     current_coverage = current.get("coverage") if isinstance(current, dict) else None
 
     def validated_coverage(value: object, code: str) -> dict:
+        if not isinstance(value, dict):
+            fail(code)
+        required_count = value.get("required_count")
+        defined_count = value.get("defined_count")
+        defined_axes = value.get("defined_axes")
+        missing_axes = value.get("missing_axes")
         if (
-            not isinstance(value, dict)
-            or value.get("required_count") != 5
-            or value.get("defined_count") not in range(0, 6)
-            or value.get("ratio") != f"{value['defined_count']}/5"
-            or value.get("defined_axes") != [axis for axis in AXES if axis not in value.get("missing_axes", [])]
+            type(required_count) is not int
+            or required_count != len(AXES)
+            or type(defined_count) is not int
+            or defined_count not in range(0, len(AXES) + 1)
+            or not isinstance(defined_axes, list)
+            or not isinstance(missing_axes, list)
+            or defined_axes != [axis for axis in AXES if axis in defined_axes]
+            or missing_axes != [axis for axis in AXES if axis not in defined_axes]
+            or defined_count != len(defined_axes)
+            or len(missing_axes) != required_count - defined_count
+            or value.get("ratio") != f"{defined_count}/{required_count}"
         ):
             fail(code)
         return value
+
+    def strict_date(value: object, code: str) -> dt.date:
+        if not isinstance(value, str) or ISO_DATE.fullmatch(value) is None:
+            fail(code)
+        try:
+            parsed = dt.date.fromisoformat(value)
+        except ValueError:
+            fail(code)
+        if parsed.isoformat() != value:
+            fail(code)
+        return parsed
 
     official_coverage = validated_coverage(official_coverage, "CRYPTO_SOURCE_COVERAGE_INVALID")
     # Older retained status packets did not expose current-reference coverage.
     # Preserve their rendering while allowing today's descriptive 5/5 state to
     # be displayed independently from official PIT-history acceptance.
+    if current_coverage_supplied:
+        if current.get("mode") != CURRENT_REFERENCE_MODE:
+            fail("CRYPTO_CURRENT_MODE_INVALID")
+        generated_at = packet.get("generated_at")
+        if not isinstance(generated_at, str) or UTC.fullmatch(generated_at) is None:
+            fail("CRYPTO_CURRENT_GENERATION_TIME_INVALID")
+        try:
+            generated_time = dt.datetime.strptime(generated_at, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            fail("CRYPTO_CURRENT_GENERATION_TIME_INVALID")
+        decision_date = strict_date(current.get("as_of_date"), "CRYPTO_CURRENT_DATE_INVALID")
+        price_as_of_date = strict_date(
+            current.get("price_as_of_date"), "CRYPTO_CURRENT_PRICE_DATE_INVALID"
+        )
+        if decision_date != generated_time.date():
+            fail("CRYPTO_CURRENT_DATE_CONTEXT_INVALID")
+        # The retained producer excludes its current candle, so the finalized
+        # close used for prices must precede the decision date.
+        if price_as_of_date >= decision_date:
+            fail("CRYPTO_CURRENT_PRICE_DATE_CONTEXT_INVALID")
+        current_coverage = validated_coverage(
+            current_coverage, "CRYPTO_CURRENT_COVERAGE_INVALID"
+        )
+    current_render_versions = {
+        LEGACY_CURRENT_RENDER_VERSION,
+        CURRENT_RENDER_VERSION,
+    }
     coverage = (
-        validated_coverage(current_coverage, "CRYPTO_CURRENT_COVERAGE_INVALID")
-        if current_coverage is not None and render_version == CURRENT_RENDER_VERSION
+        current_coverage
+        if current_coverage is not None and render_version in current_render_versions
         else official_coverage
     )
     complete = coverage["defined_count"] == 5
@@ -490,7 +552,10 @@ def build_crypto(packet: dict, *, render_version: str | None = CURRENT_RENDER_VE
         explanation = "오늘 리더십을 포함한 필수 신호 5개는 모두 확인됐습니다. 코인 전용 방향·점수 규칙이 확정될 때까지 Risk On/Off 판정만 보류합니다."
     else:
         classification_status = "WAIT_OFFICIAL_INPUT_COVERAGE"
-        explanation = "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다."
+        if render_version == CURRENT_RENDER_VERSION:
+            explanation = f"오늘 참고 신호는 {coverage['defined_count']}/5개 확인됐습니다. 확인되지 않은 신호가 있어 코인 판정을 보류합니다."
+        else:
+            explanation = "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다."
     result = {
         "market": "CRYPTO",
         "as_of_date": packet.get("current_reference", {}).get("as_of_date"),
@@ -505,12 +570,15 @@ def build_crypto(packet: dict, *, render_version: str | None = CURRENT_RENDER_VE
         "runtime_regime": "UNKNOWN",
         "axes": [],
     }
-    if current_coverage is not None and render_version == CURRENT_RENDER_VERSION:
+    if current_coverage is not None and render_version in current_render_versions:
         result["official_validation"] = {
             "classification_status": official.get("classification_status"),
             "coverage": copy.deepcopy(official_coverage),
         }
         result["leadership_code"] = current.get("leadership_code")
+    if current_coverage is not None and render_version == CURRENT_RENDER_VERSION:
+        result["mode"] = current["mode"]
+        result["price_as_of_date"] = current["price_as_of_date"]
     return result
 
 
