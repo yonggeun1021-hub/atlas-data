@@ -1512,6 +1512,12 @@ APPROVED_TESTS = [
     #   Missing P9 wiring is a committed fail-closed observation, never a fabricated
     #   Shadow append. Capital/order/action/Production/trading remain false and zero.
     "test/test_three_market_shadow_operational_readiness.py",
+    # ★ P10-07 reference-only DART/SEC source-readiness adapter.
+    #   Reuses immutable producer metadata/manifests/contracts and validates
+    #   retained raw bytes in memory. Date-only event time, absent fresh-through
+    #   policy, and unbound consecutive history remain UNKNOWN, so no source is
+    #   admitted to model inference. No collector/network/raw copy or authority.
+    "test/test_ai_external_analysis_source_readiness.py",
     # ★ P10-06 — P8-07 Investment Review append-only zero-capital ledger.
     #   PASS/REJECTED/BLOCKED packet을 exact SHA chain으로 기록하되 proposal 관측은
     #   Shadow 편입·Stage 변경·capital/action/order로 승격되지 않는다.

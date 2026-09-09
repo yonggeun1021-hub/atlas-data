@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "contract_version": "ai_external_analysis_source_readiness/1",
+  "latest_sources": {
+    "DART": {
+      "content_run": "data/latest_dart_content.json",
+      "metadata": "data/latest_dart.json"
+    },
+    "SEC": {
+      "content_run": "data/latest_sec_content.json",
+      "metadata": "data/latest_sec.json"
+    }
+  },
+  "owner_paths": [
+    ".github/workflows/collect.yml",
+    "bridge/tsm_sec_monthly_rule_evidence.py",
+    "collectors/dart.py",
+    "collectors/dart_filing_content.py",
+    "collectors/sec.py",
+    "collectors/sec_filing_content.py",
+    "config/dart_filing_content_contract.json",
+    "config/sec_filing_content_contract.json",
+    "data/observations/rule_evidence_bindings/2026-08-20/tsm-sec-monthly-rule-evidence-e24e8e6b047312b5.json",
+    "discovery/dart_event_observation.py"
+  ],
+  "time_semantics": {
+    "available_at": "EXISTING_RETRIEVED_AT_UTC",
+    "event_at_when_only_filing_date_exists": null,
+    "event_time_precision_when_only_filing_date_exists": "DATE_ONLY",
+    "fresh_through": null,
+    "freshness_status": "UNKNOWN_NO_SOURCE_OWNER_POLICY"
+  },
+  "condition_order": [
+    "latest_actual_source",
+    "market_symbol_identity",
+    "event_available_fresh_through",
+    "source_owner_binding",
+    "original_or_approved_excerpt_hash",
+    "continuous_missing_delay_state"
+  ],
+  "authority": {
+    "reference_recording_authorized": true,
+    "source_interpretation_authorized": false,
+    "model_source_inference_authorized": false,
+    "score_change_authorized": false,
+    "selection_change_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
