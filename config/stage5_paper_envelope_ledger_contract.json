@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "contract_version": "stage5_paper_envelope_ledger/1",
+  "input_schema_version": "stage4_paper_decision_envelope/1",
+  "output_schema_version": "stage5_paper_envelope_result/1",
+  "mode": "PAPER_CONTRACT_FIXTURE_ONLY",
+  "decision_statuses": ["NOT_EVALUATED", "VALIDATED"],
+  "same_candle_execution_policy": "DECISION_CANDLE_MUST_CLOSE_AND_BE_AVAILABLE_BEFORE_PLAN_OR_MATCH",
+  "persistence_policy": "REUSE_EXTERNAL_CONTENT_ADDRESSED_SIMULATOR_SNAPSHOTS_ONLY",
+  "economic_defaults": "NONE_CALLER_SUPPLIED_FIXTURE_VALUES_ONLY",
+  "authority": {
+    "stage4_decision_authorized": false,
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "position_size_authorized": false,
+    "virtual_ledger_operational_authorized": false,
+    "broker_submission_authorized": false,
+    "exchange_order_authorized": false,
+    "capital_movement_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}

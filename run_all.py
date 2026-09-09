@@ -1673,6 +1673,11 @@ APPROVED_TESTS = [
     #   endpoint exists and every exchange/broker/withdrawal/Production/
     #   Trading/REAL authority remains false.
     "test/test_crypto_paper_simulator.py",
+    # ★ Stage5 PAPER fixture adapter. A closed-authority, hash-bound Stage4
+    # envelope is checked for closed-candle/PIT order then delegated to the
+    # existing P10-11 offline simulator. Fixture NOT_EVALUATED is preserved;
+    # no policy, broker, capital, production, or trading authority is opened.
+    "test/test_stage5_paper_envelope_ledger.py",
     # ★ P7-13 — deterministic Crypto PAPER exit/position-management review.
     #   Entry-time plan embeds the exact P10-11 account and caller-supplied
     #   ordered triggers; current account and observation are independently
