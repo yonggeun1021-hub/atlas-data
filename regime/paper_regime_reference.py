@@ -17,9 +17,12 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 POLICY_PATH = ROOT / "config" / "paper_regime_reference_policy_v1.json"
 US_PATH = ROOT / "data" / "latest_free_market_data.json"
 KR_PATH = ROOT / "data" / "latest_korea_market_signals.json"
@@ -29,10 +32,12 @@ SCHEMA_VERSION = "paper_regime_reference/v2"
 # Absent version is the retained v2 renderer and its original identity recipe.
 KR_TREND_RENDER_VERSION = "kr_trend_direction/v1"
 LEGACY_CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v2"
-CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v3"
+PREVIOUS_CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v3"
+CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v4"
 SUPPORTED_RENDER_VERSIONS = {
     KR_TREND_RENDER_VERSION,
     LEGACY_CURRENT_RENDER_VERSION,
+    PREVIOUS_CURRENT_RENDER_VERSION,
     CURRENT_RENDER_VERSION,
 }
 AXES = ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]
@@ -447,7 +452,96 @@ def market_packet(market: str, as_of_date: str, axes: list[dict], regime: str, s
     }
 
 
-def build_crypto(packet: dict, *, render_version: str | None = CURRENT_RENDER_VERSION) -> dict:
+def _load_crypto_descriptive_inputs(packet: dict, root: Path) -> dict:
+    """Rederive the current Crypto measurements from hash-bound retained bytes."""
+    from regime.crypto_paper_descriptive_normalization import (
+        CryptoPaperDescriptiveNormalizationError,
+        normalize_crypto_measurements,
+    )
+    from regime.live_axis_adapter import BTC_RISK
+
+    indexed = {
+        row.get("kind"): row
+        for row in packet.get("sources", [])
+        if isinstance(row, dict)
+    }
+    current_binding = indexed.get("CURRENT_REFERENCE")
+    official_binding = indexed.get("OFFICIAL_DECISION")
+    if not isinstance(current_binding, dict) or not isinstance(official_binding, dict):
+        fail("CRYPTO_DESCRIPTIVE_SOURCE_BINDING_MISSING")
+
+    def bound_json(binding: dict, code: str) -> dict:
+        relative = binding.get("path")
+        claimed = binding.get("sha256")
+        if (
+            not isinstance(relative, str)
+            or Path(relative).is_absolute()
+            or not isinstance(claimed, str)
+            or SHA256.fullmatch(claimed) is None
+        ):
+            fail(code)
+        path = root / relative
+        if file_sha256(path) != claimed:
+            fail(code, "sha256")
+        return read_json(path, code)
+
+    current_source = bound_json(current_binding, "CRYPTO_CURRENT_SOURCE_INVALID")
+    official_source = bound_json(official_binding, "CRYPTO_OFFICIAL_SOURCE_INVALID")
+    rows = official_source.get("source_components", {}).get("rows")
+    if not isinstance(rows, dict):
+        fail("CRYPTO_COMPONENT_ROWS_INVALID")
+    trend = rows.get("BTC_TREND", {}).get("packet", {}).get("direction")
+    liquidity = rows.get("STABLECOIN_NET_ISSUANCE", {}).get("packet")
+    if not isinstance(liquidity, dict):
+        fail("CRYPTO_LIQUIDITY_COMPONENT_INVALID")
+
+    decision_date = packet["current_reference"]["as_of_date"]
+    price_date = packet["current_reference"]["price_as_of_date"]
+    current_risk_dir = root / "evidence" / "crypto" / "btc" / "raw" / decision_date
+    prior_risk_dir = root / "evidence" / "crypto" / "btc" / "raw" / price_date
+    try:
+        current_risk = BTC_RISK.build_transform(current_risk_dir)
+        prior_risk = BTC_RISK.build_transform(prior_risk_dir)
+    except Exception as exc:
+        raise PaperRegimeReferenceError("CRYPTO_RISK_REDERIVATION_FAILED") from exc
+
+    try:
+        return normalize_crypto_measurements(
+            trend_category=trend,
+            breadth_advance_fraction=current_source.get("windows", {}).get("7d", {}).get(
+                "positive_asset_fraction"
+            ),
+            stablecoin_daily_net_issuance=liquidity.get(
+                "daily_net_issuance_native_usd_peg"
+            ),
+            stablecoin_weekly_net_issuance=liquidity.get(
+                "weekly_net_issuance_native_usd_peg"
+            ),
+            leadership_code=current_source.get("leadership_reference", {}).get(
+                "composite_code"
+            ),
+            current_risk_transform=current_risk,
+            current_risk_payload_sha256=payload_sha256(current_risk),
+            prior_risk_transform=prior_risk,
+            prior_risk_payload_sha256=payload_sha256(prior_risk),
+            decision_at=packet["generated_at"],
+            decision_date=decision_date,
+            price_as_of_date=price_date,
+            current_reference_mode=packet["current_reference"]["mode"],
+        )
+    except CryptoPaperDescriptiveNormalizationError as exc:
+        raise PaperRegimeReferenceError(
+            f"CRYPTO_DESCRIPTIVE_NORMALIZATION_FAILED:{exc}"
+        ) from exc
+
+
+def build_crypto(
+    packet: dict,
+    *,
+    render_version: str | None = CURRENT_RENDER_VERSION,
+    root: Path | None = None,
+    policy: dict | None = None,
+) -> dict:
     if packet.get("schema_version") != "crypto_regime_refresh_status/1":
         fail("CRYPTO_SOURCE_INVALID")
     unsigned = copy.deepcopy(packet)
@@ -535,6 +629,7 @@ def build_crypto(packet: dict, *, render_version: str | None = CURRENT_RENDER_VE
         )
     current_render_versions = {
         LEGACY_CURRENT_RENDER_VERSION,
+        PREVIOUS_CURRENT_RENDER_VERSION,
         CURRENT_RENDER_VERSION,
     }
     coverage = (
@@ -576,9 +671,55 @@ def build_crypto(packet: dict, *, render_version: str | None = CURRENT_RENDER_VE
             "coverage": copy.deepcopy(official_coverage),
         }
         result["leadership_code"] = current.get("leadership_code")
-    if current_coverage is not None and render_version == CURRENT_RENDER_VERSION:
+    if current_coverage is not None and render_version in {
+        PREVIOUS_CURRENT_RENDER_VERSION,
+        CURRENT_RENDER_VERSION,
+    }:
         result["mode"] = current["mode"]
         result["price_as_of_date"] = current["price_as_of_date"]
+    # Historical direct callers intentionally retain the pre-integration
+    # UNKNOWN rendering.  The producer supplies both root and policy, which is
+    # the boundary where immutable source bytes can be rederived and scored.
+    if (
+        complete
+        and current_coverage is not None
+        and render_version == CURRENT_RENDER_VERSION
+        and root is not None
+        and policy is not None
+    ):
+        try:
+            normalized = _load_crypto_descriptive_inputs(packet, root)
+        except PaperRegimeReferenceError as exc:
+            result["classification_status"] = "WAIT_MARKET_NORMALIZATION_INPUT"
+            result["paper_reference"]["explanation_ko"] = (
+                "필수 신호는 확인됐지만 원자료 재검증이 완료되지 않아 코인 판정을 보류합니다."
+            )
+            result["normalization_error"] = str(exc).split(":", 1)[0]
+            return result
+        rows = normalized["axes"]
+        regime, score, explanation = classify(rows, policy)
+        result = market_packet(
+            "CRYPTO", current["as_of_date"], rows, regime, score, explanation
+        )
+        result.update({
+            "mode": current["mode"],
+            "price_as_of_date": current["price_as_of_date"],
+            "leadership_code": current.get("leadership_code"),
+            "official_validation": {
+                "classification_status": official.get("classification_status"),
+                "coverage": copy.deepcopy(official_coverage),
+            },
+            "normalization_schema_version": normalized["schema_version"],
+            "risk_binding": normalized["risk_binding"],
+            "descriptive_caveats": normalized["caveats"],
+            "caveats": [
+                "PROVISIONAL_CRYPTO_PAPER_POLICY",
+                "RISK_DIRECTION_ONLY",
+                "ABSOLUTE_STRESS_NOT_ASSESSED",
+                "CONFIDENCE_MATCHING_AXIS_FRACTION_NOT_PROBABILITY",
+                "CURRENT_REFERENCE_NOT_PIT_REPLAY",
+            ],
+        })
     return result
 
 
@@ -610,19 +751,57 @@ def build_reference(
         {"market": "CRYPTO", "path": "data/latest_crypto_regime_refresh_status.json", "sha256": file_sha256(crypto_path)},
     ]
     generation_binding = {"policy_sha256": file_sha256(policy_path), "sources": sources}
+    crypto_normalization_sources = None
+    current = crypto_source.get("current_reference")
+    if (
+        render_version == CURRENT_RENDER_VERSION
+        and isinstance(current, dict)
+        and current.get("coverage", {}).get("ratio") == "5/5"
+    ):
+        extra_paths = [
+            root / "regime" / "crypto_paper_descriptive_normalization.py",
+            root / "evidence" / "crypto" / "btc" / "raw" / current.get("as_of_date", "") / "_manifest.json",
+            root / "evidence" / "crypto" / "btc" / "raw" / current.get("price_as_of_date", "") / "_manifest.json",
+        ]
+        for binding in crypto_source.get("sources", []):
+            if isinstance(binding, dict) and isinstance(binding.get("path"), str):
+                extra_paths.append(root / binding["path"])
+        if all(path.is_file() for path in extra_paths):
+            crypto_normalization_sources = [
+                {
+                    "path": str(path.relative_to(root)),
+                    "sha256": file_sha256(path),
+                }
+                for path in extra_paths
+            ]
+            generation_binding["crypto_descriptive_normalization_sources"] = (
+                crypto_normalization_sources
+            )
     if render_version is not None:
         generation_binding["render_version"] = render_version
     generation_id = payload_sha256(generation_binding)
     markets = [
         build_us(us_source, policy),
         build_kr(kr_source, policy, render_version=render_version),
-        build_crypto(crypto_source, render_version=render_version),
+        build_crypto(
+            crypto_source,
+            render_version=render_version,
+            root=root,
+            policy=policy,
+        ),
     ]
     packet = {
         "schema_version": SCHEMA_VERSION,
         "contract_version": policy["contract_version"],
         "mode": policy["mode"],
-        "status": "PARTIAL_REFERENCE_AVAILABLE",
+        "status": (
+            "REFERENCE_AVAILABLE"
+            if all(
+                row["paper_reference"]["candidate_regime"] != "UNKNOWN"
+                for row in markets
+            )
+            else "PARTIAL_REFERENCE_AVAILABLE"
+        ),
         "generated_at": max(
             us_source["observed_at_utc"],
             kr_source["generated_at"],
@@ -636,11 +815,92 @@ def build_reference(
     }
     if render_version is not None:
         packet["render_version"] = render_version
+    if crypto_normalization_sources is not None:
+        packet["crypto_descriptive_normalization_sources"] = (
+            crypto_normalization_sources
+        )
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
 
 
-def validate_reference(packet: dict, root: Path = ROOT) -> dict:
+def _validate_authenticated_frozen_v4(packet: dict, root: Path) -> None:
+    """Validate a Git-authenticated v4 packet when its raw closure is not materialized.
+
+    The caller has already authenticated the packet bytes to a trusted Git
+    commit.  Primary inputs and the policy remain materialized and are checked
+    byte-for-byte; the raw Crypto closure stays represented by the hashes that
+    are inside those authenticated packet bytes.
+    """
+    policy_path = root / "config" / "paper_regime_reference_policy_v1.json"
+    policy = read_json(policy_path, "POLICY_INVALID")
+    primary = {
+        "US": root / "data" / "latest_free_market_data.json",
+        "KR": root / "data" / "latest_korea_market_signals.json",
+        "CRYPTO": root / "data" / "latest_crypto_regime_refresh_status.json",
+    }
+    expected_sources = [
+        {"market": market, "path": str(path.relative_to(root)), "sha256": file_sha256(path)}
+        for market, path in primary.items()
+    ]
+    if packet.get("sources") != expected_sources:
+        fail("REFERENCE_FROZEN_PRIMARY_SOURCE_MISMATCH")
+    normalization_sources = packet.get("crypto_descriptive_normalization_sources")
+    if not isinstance(normalization_sources, list) or not normalization_sources:
+        fail("REFERENCE_FROZEN_NORMALIZATION_BINDING_MISSING")
+    for row in normalization_sources:
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("path"), str)
+            or not isinstance(row.get("sha256"), str)
+            or SHA256.fullmatch(row["sha256"]) is None
+        ):
+            fail("REFERENCE_FROZEN_NORMALIZATION_BINDING_INVALID")
+    generation_binding = {
+        "policy_sha256": file_sha256(policy_path),
+        "sources": expected_sources,
+        "crypto_descriptive_normalization_sources": normalization_sources,
+        "render_version": CURRENT_RENDER_VERSION,
+    }
+    if packet.get("generation_id") != payload_sha256(generation_binding):
+        fail("REFERENCE_FROZEN_GENERATION_MISMATCH")
+    by_market = {
+        row.get("market"): row for row in packet.get("markets", []) if isinstance(row, dict)
+    }
+    if set(by_market) != {"US", "KR", "CRYPTO"}:
+        fail("REFERENCE_FROZEN_MARKETS_INVALID")
+    us = build_us(read_json(primary["US"], "US_SOURCE_INVALID"), policy)
+    kr = build_kr(
+        read_json(primary["KR"], "KR_SOURCE_INVALID"),
+        policy,
+        render_version=CURRENT_RENDER_VERSION,
+    )
+    if by_market["US"] != us or by_market["KR"] != kr:
+        fail("REFERENCE_FROZEN_MARKET_REDERIVATION_MISMATCH")
+    crypto = by_market["CRYPTO"]
+    axes = crypto.get("axes")
+    if not isinstance(axes, list) or [row.get("axis") for row in axes] != AXES:
+        fail("REFERENCE_FROZEN_CRYPTO_AXES_INVALID")
+    regime, score, explanation = classify(axes, policy)
+    reference = crypto.get("paper_reference")
+    if reference != {
+        "candidate_regime": regime,
+        "score": score,
+        "confidence": str(confidence(regime, axes)),
+        "explanation_ko": explanation,
+    }:
+        fail("REFERENCE_FROZEN_CRYPTO_CLASSIFICATION_MISMATCH")
+    if crypto.get("runtime_regime") != "UNKNOWN":
+        fail("REFERENCE_FROZEN_CRYPTO_AUTHORITY_INVALID")
+    if packet.get("authority") != policy.get("authority"):
+        fail("REFERENCE_FROZEN_AUTHORITY_MISMATCH")
+
+
+def validate_reference(
+    packet: dict,
+    root: Path = ROOT,
+    *,
+    frozen_packet_authenticated: bool = False,
+) -> dict:
     if not isinstance(packet, dict) or packet.get("schema_version") != SCHEMA_VERSION:
         fail("REFERENCE_SCHEMA_INVALID")
     unsigned = copy.deepcopy(packet)
@@ -651,7 +911,10 @@ def validate_reference(packet: dict, root: Path = ROOT) -> dict:
         fail("REFERENCE_RENDER_VERSION_INVALID")
     expected = build_reference(root, render_version=packet.get("render_version"))
     if packet != expected:
-        fail("REFERENCE_REDERIVATION_MISMATCH")
+        if frozen_packet_authenticated and packet.get("render_version") == CURRENT_RENDER_VERSION:
+            _validate_authenticated_frozen_v4(packet, root)
+        else:
+            fail("REFERENCE_REDERIVATION_MISMATCH")
     return copy.deepcopy(packet)
 
 
