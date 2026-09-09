@@ -74,6 +74,8 @@ jobs:
           python3 test/test_briefing_readiness.py
       - name: Briefing core v2 natural-equivalent acceptance
         run: python3 validation/tests/test_briefing_core_v2.py
+      - name: AI external analysis Shadow boundary regression
+        run: python3 test/test_ai_external_analysis_shadow_evaluation.py
       - name: Actions PASS gate
         run: python3 run_all.py --authoritative --fail-fast --log-dir "$RUNNER_TEMP/atlas-gate-logs"
       # ★ CIO 판정 2026-09-09 — 이 업로드는 비권위(non-authoritative) 진단 전송이다.
