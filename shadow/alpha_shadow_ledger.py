@@ -33,9 +33,18 @@ retrospective learning.
   capital` are compared by EXACT JSON value -- see `_exact_json_equal()`.
   Python's `==` treats `True == 1`, `False == 0` and `0 == 0.0` as equal, so
   a plain `==` admits scalar aliases (`true` for `1`, `0` for `false`, `0.0`
-  for `0`) that serialise to different canonical JSON bytes. Every hash in
-  this ledger is taken over exactly those bytes, so the identity checks
-  compare types as well as values.
+  for `0`) that serialise to different canonical JSON bytes, hence the
+  identity checks compare types as well as values. The two sides differ in
+  what those bytes belong to. A contract has no `entry_hash` at all, and its
+  own `schema_version` is never copied into a record (a record's
+  `schema_version` comes from the contract's `output_schema_version`), so an
+  aliased contract scalar changes only the contract's canonical bytes and is
+  rejected as `CONTRACT_IDENTITY_INVALID`. An aliased record `authority` flag
+  or `shadow_proposal.capital`, by contrast, changes the unsigned record
+  payload's canonical bytes, so an `entry_hash` recomputed over them differs
+  from the original digest -- and the record is rejected either way, whether
+  it retains the original `entry_hash` or carries the recalculated one. Valid
+  records are untouched: their canonical bytes and `entry_hash` are unchanged.
 
 ⛔ Retrospective evaluation is explicitly OUT OF SCOPE for this stage. This
   module does NOT compute `catalyst_date`, `hypothetical_return`,

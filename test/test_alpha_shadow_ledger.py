@@ -305,10 +305,14 @@ class P5GatedActionTests(unittest.TestCase):
 # Python's `==` treats `True == 1`, `False == 0` and `0 == 0.0` as equal, so
 # a value-only identity check admits scalar aliases that serialise to
 # DIFFERENT canonical JSON bytes (`true` vs `1`, `false` vs `0`, `0` vs
-# `0.0`). Every hash in this ledger is taken over exactly those bytes, so
-# each alias below is a distinct canonical record that must be rejected --
-# whether or not its `entry_hash` was recomputed over the aliased payload
-# ("signed") or left as the original digest ("retained").
+# `0.0`). A contract has no `entry_hash`, and its `schema_version` is never
+# copied into a record, so an aliased contract scalar makes a distinct
+# canonical contract document, rejected as `CONTRACT_IDENTITY_INVALID`. The
+# record aliases below are different: each one changes the unsigned record
+# payload's canonical bytes, so an `entry_hash` recomputed over them differs
+# from the original digest. Each is therefore a distinct canonical record
+# that must be rejected whether its `entry_hash` was recomputed over the
+# aliased payload ("signed") or left as the original digest ("retained").
 
 # Written out literally rather than read back from the module, so a change
 # to the module's own constants can never silently move this expectation.
