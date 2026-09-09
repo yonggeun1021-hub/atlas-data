@@ -38,6 +38,108 @@ PORTAL_PRODUCER = _load(
 )
 
 
+class BtcPriorReferenceUnknownClaims(unittest.TestCase):
+    def claims(self, packet):
+        return {
+            row["claim_id"]: row
+            for row in chain._delivery_claims(packet, "packet.json")
+        }
+
+    def test_actual_20260909_packet_keeps_prior_dates_historical(self):
+        relative = "evidence/daily_briefing/morning/2026-09-09/rev-001/packet.json"
+        packet = json.loads((ROOT / relative).read_text(encoding="utf-8"))
+        claims = self.claims(packet)
+
+        for component in ("trend", "risk"):
+            claim = claims[f"freshness.crypto.btc_{component}_finalized_date"]
+            self.assertEqual(claim["kind"], "UNKNOWN")
+            self.assertEqual(claim["status"], "UNKNOWN")
+            self.assertEqual(claim["source_ref_paths"], [])
+            self.assertIn("current BTC", claim["statement"])
+            self.assertIn("UNKNOWN", claim["statement"])
+            self.assertIn("2026-09-07", claim["statement"])
+            self.assertIn("historical prior reference", claim["statement"])
+            self.assertIn("as_of_date is null", claim["statement"])
+
+    def test_missing_or_malformed_prior_reference_stays_current_unknown(self):
+        for prior in (
+            None,
+            {},
+            "",
+            "   ",
+            "not-a-date",
+            "2026-02-30",
+            "20260907",
+            "2026-09-07",
+            ["2026-09-07"],
+            {"measurement_date": ""},
+            {"measurement_date": "   "},
+            {"measurement_date": "not-a-date"},
+            {"measurement_date": "2026-02-30"},
+            {"measurement_date": "20260907"},
+            {"measurement_date": None},
+            {"measurement_date": 20260907},
+        ):
+            with self.subTest(prior=prior):
+                frozen = {"kind": "absent"}
+                if prior is not None:
+                    frozen["prior_confirmed_reference"] = prior
+                packet = {
+                    "components": [
+                        {"component_id": "BTC_TREND", "as_of_date": None, "packet": None},
+                        {"component_id": "BTC_RISK", "as_of_date": None, "packet": None},
+                    ],
+                    "frozen_sources": {"BTC_TREND": frozen, "BTC_RISK": frozen},
+                }
+                claims = self.claims(packet)
+                for component in ("trend", "risk"):
+                    claim = claims[f"freshness.crypto.btc_{component}_finalized_date"]
+                    self.assertEqual(claim["kind"], "UNKNOWN")
+                    self.assertEqual(claim["source_ref_paths"], [])
+                    self.assertIn("current BTC", claim["statement"])
+                    self.assertIn("UNKNOWN", claim["statement"])
+                    self.assertIn("as_of_date is null", claim["statement"])
+                    self.assertNotIn("historical prior reference", claim["statement"])
+                    self.assertNotIn("capture vintage", claim["statement"])
+
+    def test_finalized_date_fact_statements_are_unchanged(self):
+        packet = {
+            "components": [
+                {
+                    "component_id": "BTC_TREND",
+                    "as_of_date": "2026-09-09",
+                    "packet": {"latest_finalized_day": "2026-09-08"},
+                },
+                {
+                    "component_id": "BTC_RISK",
+                    "as_of_date": "2026-09-09",
+                    "packet": {"risk_point": {"as_of_date": "2026-09-08"}},
+                },
+            ],
+            "frozen_sources": {
+                "BTC_TREND": {"prior_confirmed_reference": {"measurement_date": "2026-09-07"}},
+                "BTC_RISK": {"prior_confirmed_reference": {"measurement_date": "2026-09-07"}},
+            },
+        }
+        claims = self.claims(packet)
+        trend = claims["freshness.crypto.btc_trend_finalized_date"]
+        risk = claims["freshness.crypto.btc_risk_finalized_date"]
+        self.assertEqual(trend["kind"], "FACT")
+        self.assertEqual(trend["status"], "VERIFIED")
+        self.assertEqual(trend["source_ref_paths"], ["packet.json"])
+        self.assertEqual(
+            trend["statement"],
+            "The BTC trend measurement uses finalized daily closes through 2026-09-08.",
+        )
+        self.assertEqual(risk["kind"], "FACT")
+        self.assertEqual(risk["status"], "VERIFIED")
+        self.assertEqual(risk["source_ref_paths"], ["packet.json"])
+        self.assertEqual(
+            risk["statement"],
+            "The BTC risk measurement uses finalized daily closes through 2026-09-08.",
+        )
+
+
 class BriefingCoreV2Acceptance(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

@@ -585,10 +585,34 @@ def _delivery_claims(packet: dict, packet_ref: str) -> list[dict]:
             f"The BTC trend measurement uses finalized daily closes through {trend_date}.",
         )
     elif btc_trend:
+        frozen_sources = packet.get("frozen_sources")
+        frozen_sources = frozen_sources if isinstance(frozen_sources, dict) else {}
+        frozen_trend = frozen_sources.get("BTC_TREND")
+        frozen_trend = frozen_trend if isinstance(frozen_trend, dict) else {}
+        prior_trend = frozen_trend.get("prior_confirmed_reference")
+        prior_trend = prior_trend if isinstance(prior_trend, dict) else {}
+        prior_trend_date = prior_trend.get("measurement_date")
+        trend_as_of = btc_trend.get("as_of_date")
+        if (
+            isinstance(prior_trend_date, str)
+            and DATE.fullmatch(prior_trend_date) is not None
+            and _iso_date(prior_trend_date) is not None
+        ):
+            trend_unknown = (
+                "The current BTC trend finalized measurement date is UNKNOWN; "
+                f"the exact packet records {prior_trend_date} only as a historical prior "
+                "reference. "
+            )
+        else:
+            trend_unknown = "The current BTC trend finalized measurement date is UNKNOWN. "
+        trend_unknown += (
+            "The current component as_of_date is null."
+            if trend_as_of is None
+            else "The current component as_of_date is present but is not substituted for it."
+        )
         unknown(
             "freshness.crypto.btc_trend_finalized_date",
-            "The exact packet does not retain the BTC trend finalized measurement date; "
-            "its component as_of_date is a capture vintage and is not substituted.",
+            trend_unknown,
         )
     if trend_packet.get("direction") is not None or trend_packet.get("dma_200") is not None:
         fact(
@@ -610,10 +634,34 @@ def _delivery_claims(packet: dict, packet_ref: str) -> list[dict]:
             f"The BTC risk measurement uses finalized daily closes through {risk_date}.",
         )
     elif btc_risk:
+        frozen_sources = packet.get("frozen_sources")
+        frozen_sources = frozen_sources if isinstance(frozen_sources, dict) else {}
+        frozen_risk = frozen_sources.get("BTC_RISK")
+        frozen_risk = frozen_risk if isinstance(frozen_risk, dict) else {}
+        prior_risk = frozen_risk.get("prior_confirmed_reference")
+        prior_risk = prior_risk if isinstance(prior_risk, dict) else {}
+        prior_risk_date = prior_risk.get("measurement_date")
+        risk_as_of = btc_risk.get("as_of_date")
+        if (
+            isinstance(prior_risk_date, str)
+            and DATE.fullmatch(prior_risk_date) is not None
+            and _iso_date(prior_risk_date) is not None
+        ):
+            risk_unknown = (
+                "The current BTC risk finalized measurement date is UNKNOWN; "
+                f"the exact packet records {prior_risk_date} only as a historical prior "
+                "reference. "
+            )
+        else:
+            risk_unknown = "The current BTC risk finalized measurement date is UNKNOWN. "
+        risk_unknown += (
+            "The current component as_of_date is null."
+            if risk_as_of is None
+            else "The current component as_of_date is present but is not substituted for it."
+        )
         unknown(
             "freshness.crypto.btc_risk_finalized_date",
-            "The exact packet does not retain the BTC risk finalized measurement date; "
-            "its component as_of_date is a capture vintage and is not substituted.",
+            risk_unknown,
         )
     drawdown = risk_point.get("drawdown") or {}
     volatility = risk_point.get("realized_volatility") or {}
