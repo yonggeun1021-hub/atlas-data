@@ -45,6 +45,18 @@ compute from real ratified evidence. A field the upstream evidence leaves
 UNKNOWN/absent stays UNKNOWN/absent here -- it is never defaulted, guessed,
 or backfilled. It grants no decision, action, order, Production, or trading
 authority; every ``*_authorized`` field below stays ``false``.
+
+Separately, and only when a caller explicitly asks for it,
+``build_enriched_trend_view`` (CLI ``--enriched-trend``) layers PR603's
+numeric trend calculations on top of an unchanged view of one immutable
+decision -- see ``docs/crypto_candidate_detail_trend_calculations_contract.md``.
+That path requires the decision packet, the evaluation date and a complete
+per-market calculation contract from the caller, reads P4-07 evidence only
+through that decision's own hash-verified source reference, and adds its
+numbers beside -- never inside -- the existing criteria, funnel, blocker,
+count, trigger and authority fields. Not requesting it changes nothing: the
+default ``build_view`` result and the default CLI output are byte-identical
+to what they were before it existed.
 """
 from __future__ import annotations
 
@@ -71,6 +83,36 @@ FUNNEL_STAGES = (
     "OBSERVATION_POOL", "TRADEABLE_UNIVERSE", "FOCUSED_REVIEW",
     "PAPER_BUY_ELIGIBLE",
 )
+
+# --- Explicitly requested, versioned trend-calculation enrichment ----------
+# Everything below this line is reachable only through
+# ``build_enriched_trend_view``/``--enriched-trend``. The default
+# ``build_view`` result and the default CLI output are unchanged by it.
+ENRICHED_SCHEMA_VERSION = 1
+ENRICHED_CONTRACT_VERSION = "crypto_candidate_detail_view_enriched_trend/v1"
+TREND_CALCULATION_SOURCE_ROLE = "upbit_market_evidence_packet"
+
+TREND_STATUS_CALCULATED = "CALCULATED"
+TREND_STATUS_UNAVAILABLE = "UNAVAILABLE"
+TREND_STATUS_NOT_REQUESTED = "NOT_REQUESTED"
+TREND_STATUSES = (TREND_STATUS_CALCULATED, TREND_STATUS_UNAVAILABLE, TREND_STATUS_NOT_REQUESTED)
+
+# A market the caller did not ask about is NOT_REQUESTED -- explicitly
+# distinct from UNAVAILABLE, which means the caller did ask and the
+# decision-bound P4-07 evidence cannot answer.
+REASON_NOT_REQUESTED = "TREND_CONTRACT_NOT_REQUESTED"
+REASON_NO_BOUND_SOURCE = "NO_DECISION_BOUND_P4_MARKET_EVIDENCE_SOURCE"
+REASON_NO_BOUND_PACKET = "NO_DECISION_BOUND_P4_MARKET_EVIDENCE_PACKET_FOR_MARKET"
+
+_ENRICHED_KEYS = {
+    "schema_version", "contract_version", "base_contract_version",
+    "evaluation_as_of", "decision_source", "trend_calculation_source",
+    "requested_markets", "trend_calculations", "view", "authority",
+    "payload_sha256",
+}
+_TREND_OBSERVATION_KEYS = {
+    "market", "status", "reasons", "calculation_contract_sha256", "metrics",
+}
 
 
 class CryptoCandidateDetailViewError(ValueError):
@@ -99,6 +141,25 @@ DECISION_SNAPSHOT = _load(
     "crypto_candidate_detail_view_decision_snapshot",
     "decision/crypto_paper_decision_snapshot.py",
 )
+
+_TREND_METRICS = None
+
+
+def _trend_metrics_module():
+    """PR603's calculator, loaded only when enrichment is actually requested.
+
+    Deliberately lazy: the default view must keep working -- and keep costing
+    the same -- in a checkout where the P4-07 ratified policy files that
+    calculator validates against are not present. Nothing in the default
+    ``build_view``/CLI path reaches this.
+    """
+    global _TREND_METRICS
+    if _TREND_METRICS is None:
+        _TREND_METRICS = _load(
+            "crypto_candidate_detail_view_trend_metrics",
+            "universe/crypto_candidate_trend_metrics.py",
+        )
+    return _TREND_METRICS
 
 
 def _relative_or_absolute(path: Path) -> str:
@@ -533,6 +594,277 @@ def build_view(
     return packet
 
 
+# ---------------------------------------------------------------------------
+# Explicitly requested trend-calculation enrichment
+#
+# This is an additive, separately versioned read model layered *on top of* an
+# unchanged ``build_view`` result. It answers one question the default view
+# cannot: for the exact decision that was already taken, what were the actual
+# numeric trend observations over that decision's own hash-bound P4-07
+# evidence?
+#
+# It never chooses inputs. The decision packet, the evaluation date and the
+# per-market calculation contracts are all required from the caller, and the
+# P4-07 evidence is taken only from that decision's own verified source
+# reference -- never from the latest committed packet, and never from a
+# default parameter set. It grants no authority: the numbers here are
+# arithmetic about candles, and the candidate criteria, funnel stages,
+# blocker reasons, counts, triggers and authority flags of the embedded view
+# are reproduced byte-for-byte from the default build.
+# ---------------------------------------------------------------------------
+
+def _enriched_authority_block() -> dict:
+    block = _authority_block()
+    block["calculation_only"] = True
+    block["trend_calculation_policy_ratified"] = False
+    block["trend_rule_authorized"] = False
+    return block
+
+
+def _require_enriched_evaluation_as_of(value, decision_date: str) -> str:
+    """The caller's own original evaluation date, never derived from a source.
+
+    Rejected when malformed, or when it post-dates the decision being
+    explained -- a decision cannot have been taken as of a later day.
+    """
+    if not isinstance(value, str) or not DATE_RE.fullmatch(value):
+        _fail("ENRICHED_EVALUATION_AS_OF_INVALID", repr(value))
+    try:
+        parsed = dt.datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        _fail("ENRICHED_EVALUATION_AS_OF_INVALID", value)
+    if parsed > dt.datetime.strptime(decision_date, "%Y-%m-%d").date():
+        _fail("ENRICHED_EVALUATION_AS_OF_FUTURE", f"{value}>{decision_date}")
+    return value
+
+
+def _require_trend_calculation_contracts(contracts, known_markets: set) -> dict:
+    """Complete, caller-supplied, per-market calculation contracts.
+
+    A contract naming a market this decision's own universe never carried is
+    rejected rather than ignored: silently dropping it would let a caller
+    believe a market was calculated when nothing was.
+    """
+    if not isinstance(contracts, dict):
+        _fail("ENRICHED_TREND_CONTRACTS_INVALID", type(contracts).__name__)
+    for market in contracts:
+        if not isinstance(market, str) or not market:
+            _fail("ENRICHED_TREND_CONTRACT_MARKET_INVALID", repr(market))
+    normalized = {}
+    trend = _trend_metrics_module()
+    for market in sorted(contracts):
+        if market not in known_markets:
+            _fail("ENRICHED_TREND_CONTRACT_MARKET_UNKNOWN", market)
+        # Validated up front, so a malformed contract is rejected even when
+        # this market has no P4 evidence to calculate over.
+        try:
+            trend.validate_calculation_contract(contracts[market])
+        except trend.CryptoCandidateTrendMetricsError as exc:
+            _fail("ENRICHED_TREND_CONTRACT_INVALID", f"{market}:{exc}")
+        normalized[market] = copy.deepcopy(contracts[market])
+    return normalized
+
+
+def _trend_observation(
+    market: str,
+    contract,
+    evidence_packet,
+    *,
+    evaluation_as_of: str,
+    has_bound_source: bool,
+) -> dict:
+    if contract is None:
+        return {
+            "market": market,
+            "status": TREND_STATUS_NOT_REQUESTED,
+            "reasons": [REASON_NOT_REQUESTED],
+            "calculation_contract_sha256": None,
+            "metrics": None,
+        }
+    trend = _trend_metrics_module()
+    contract_sha256 = trend.payload_sha256(trend.validate_calculation_contract(contract))
+    if not has_bound_source or evidence_packet is None:
+        # Asked for, but this decision's own bound P4-07 evidence does not
+        # cover it. Never backfilled from a newer or unrelated packet.
+        return {
+            "market": market,
+            "status": TREND_STATUS_UNAVAILABLE,
+            "reasons": [REASON_NO_BOUND_SOURCE if not has_bound_source else REASON_NO_BOUND_PACKET],
+            "calculation_contract_sha256": contract_sha256,
+            "metrics": None,
+        }
+    try:
+        # PR603's calculator, unchanged: it re-validates the contract, the
+        # packet schema/identity/hash/authority and the packet's own time
+        # basis against ``evaluation_as_of``, and reports healthy timeframes
+        # even when the other timeframe is UNAVAILABLE.
+        metrics = trend.build_trend_metrics(
+            evidence_packet,
+            market=market,
+            evaluation_as_of=evaluation_as_of,
+            calculation_contract=contract,
+        )
+    except trend.CryptoCandidateTrendMetricsError as exc:
+        # Malformed, future-dated or identity-mismatched source: a corrupt
+        # input, not a coverage gap, so it must not soften into UNAVAILABLE.
+        _fail("ENRICHED_TREND_CALCULATION_REJECTED", f"{market}:{exc}")
+    return {
+        "market": market,
+        "status": metrics["status"],
+        "reasons": list(metrics["unavailable_reasons"]),
+        "calculation_contract_sha256": metrics["calculation_contract_sha256"],
+        "metrics": metrics,
+    }
+
+
+def build_enriched_trend_view(
+    *,
+    decision_packet_path: Path,
+    evaluation_as_of: str,
+    trend_calculation_contracts,
+    universe_data_root: Path = UNIVERSE_DATA_ROOT,
+    market_evidence_data_root: Path = MARKET_EVIDENCE_DATA_ROOT,
+    generated_at: str | None = None,
+) -> dict:
+    """Default view plus numeric trend observations for one immutable decision.
+
+    Every input is explicit and required; there is no latest-source fallback
+    and no default calculation parameter anywhere on this path.
+    """
+    if decision_packet_path is None:
+        _fail("ENRICHED_DECISION_PACKET_REQUIRED", "decision_packet_path")
+    decision_entry = _verified_decision_entry(Path(decision_packet_path))
+    evaluation_as_of = _require_enriched_evaluation_as_of(evaluation_as_of, decision_entry["date"])
+
+    # The embedded view is produced by the unchanged default builder with the
+    # same explicit decision, so its candidate criteria, funnel stages,
+    # blocker reasons, counts, triggers and authority are exactly what the
+    # default path emits.
+    view = build_view(
+        universe_data_root=universe_data_root,
+        market_evidence_data_root=market_evidence_data_root,
+        decision_packet_path=Path(decision_packet_path),
+        generated_at=generated_at,
+    )
+    known_markets = {row["market"] for row in view["candidates"]}
+    contracts = _require_trend_calculation_contracts(trend_calculation_contracts, known_markets)
+
+    # Enrichment reads P4-07 evidence ONLY through this decision's own
+    # hash-verified source reference. Unlike ``build_view``, there is
+    # deliberately no ``find_latest_market_evidence_packet`` fallback here: an
+    # old decision must never be explained with newer numbers.
+    bound_evidence = _source_entry_from_decision(
+        decision_entry["record"], TREND_CALCULATION_SOURCE_ROLE,
+    )
+    trend_calculation_source = None
+    if bound_evidence is not None:
+        trend_calculation_source = {
+            "role": TREND_CALCULATION_SOURCE_ROLE,
+            "path": _relative_or_absolute(bound_evidence["path"]),
+            "sha256": hashlib.sha256(bound_evidence["path"].read_bytes()).hexdigest(),
+            "snapshot_date": bound_evidence["date"],
+        }
+
+    trend_calculations = {}
+    for market in sorted(known_markets):
+        trend_calculations[market] = _trend_observation(
+            market,
+            contracts.get(market),
+            _market_evidence_packet_for(market, bound_evidence),
+            evaluation_as_of=evaluation_as_of,
+            has_bound_source=bound_evidence is not None,
+        )
+
+    packet = {
+        "schema_version": ENRICHED_SCHEMA_VERSION,
+        "contract_version": ENRICHED_CONTRACT_VERSION,
+        "base_contract_version": CONTRACT_VERSION,
+        "evaluation_as_of": evaluation_as_of,
+        "decision_source": {
+            "path": _relative_or_absolute(decision_entry["path"]),
+            "date": decision_entry["date"],
+            "hhmm": decision_entry["hhmm"],
+            "generation_id": decision_entry["generation_id"],
+            "payload_sha256": decision_entry["record"]["payload_sha256"],
+        },
+        "trend_calculation_source": trend_calculation_source,
+        "requested_markets": sorted(contracts),
+        "trend_calculations": trend_calculations,
+        "view": view,
+        "authority": _enriched_authority_block(),
+    }
+    packet["payload_sha256"] = payload_sha256(packet)
+    return packet
+
+
+def validate_enriched_trend_view(
+    enriched,
+    *,
+    decision_packet_path: Path,
+    evaluation_as_of: str,
+    trend_calculation_contracts,
+    universe_data_root: Path = UNIVERSE_DATA_ROOT,
+    market_evidence_data_root: Path = MARKET_EVIDENCE_DATA_ROOT,
+    generated_at: str | None = None,
+) -> dict:
+    """Re-derive the enrichment from independently supplied originals.
+
+    The decision packet, evaluation date and calculation contracts are taken
+    from this call's own arguments and from nowhere else: nothing is read back
+    out of ``enriched`` to decide what ``enriched`` should have been. A caller
+    who edits a metric and recomputes ``payload_sha256`` therefore still fails,
+    because the whole packet is rebuilt from the original sources and compared
+    byte-for-byte.
+    """
+    if not isinstance(enriched, dict) or set(enriched) != _ENRICHED_KEYS:
+        _fail("ENRICHED_SCHEMA_MISMATCH", "keys")
+    if enriched["schema_version"] != ENRICHED_SCHEMA_VERSION:
+        _fail("ENRICHED_SCHEMA_VERSION_MISMATCH", str(enriched["schema_version"]))
+    if enriched["contract_version"] != ENRICHED_CONTRACT_VERSION:
+        _fail("ENRICHED_CONTRACT_VERSION_MISMATCH", str(enriched["contract_version"]))
+    authority = enriched["authority"]
+    if not isinstance(authority, dict) or set(authority) != set(_enriched_authority_block()):
+        _fail("ENRICHED_AUTHORITY_KEYS_INVALID", "authority")
+    for key, value in sorted(authority.items()):
+        if value is not (key == "calculation_only"):
+            _fail("ENRICHED_AUTHORITY_INVALID", key)
+
+    claimed = enriched["payload_sha256"]
+    if not isinstance(claimed, str) or not SHA256_RE.fullmatch(claimed):
+        _fail("ENRICHED_PAYLOAD_SHA256_INVALID", str(claimed))
+    unsigned = copy.deepcopy(enriched)
+    unsigned.pop("payload_sha256")
+    if payload_sha256(unsigned) != claimed:
+        _fail("ENRICHED_PAYLOAD_SHA256_MISMATCH", claimed)
+
+    rebuilt = build_enriched_trend_view(
+        decision_packet_path=decision_packet_path,
+        evaluation_as_of=evaluation_as_of,
+        trend_calculation_contracts=trend_calculation_contracts,
+        universe_data_root=universe_data_root,
+        market_evidence_data_root=market_evidence_data_root,
+        generated_at=generated_at,
+    )
+    if canonical_json(rebuilt) != canonical_json(enriched):
+        _fail("ENRICHED_DERIVATION_MISMATCH", enriched["evaluation_as_of"])
+
+    # One more independent pass: every embedded metric is re-derived by the
+    # calculator's own validator from its own embedded, hash-pinned source.
+    trend = _trend_metrics_module()
+    for market, observation in sorted(enriched["trend_calculations"].items()):
+        if not isinstance(observation, dict) or set(observation) != _TREND_OBSERVATION_KEYS:
+            _fail("ENRICHED_TREND_OBSERVATION_SCHEMA_MISMATCH", market)
+        if observation["status"] not in TREND_STATUSES:
+            _fail("ENRICHED_TREND_OBSERVATION_STATUS_INVALID", market)
+        if observation["metrics"] is None:
+            continue
+        try:
+            trend.validate_trend_metrics(observation["metrics"])
+        except trend.CryptoCandidateTrendMetricsError as exc:
+            _fail("ENRICHED_TREND_METRICS_INVALID", f"{market}:{exc}")
+    return copy.deepcopy(enriched)
+
+
 def main(argv=None) -> int:
     import argparse
 
@@ -541,9 +873,53 @@ def main(argv=None) -> int:
     parser.add_argument("--output-root", type=Path)
     parser.add_argument("--decision-packet", type=Path)
     parser.add_argument("--generated-at")
+    # Opt-in only. Absent these flags the invocation, and its output bytes,
+    # are exactly what they were before this capability existed.
+    parser.add_argument("--enriched-trend", action="store_true")
+    parser.add_argument("--evaluation-as-of")
+    parser.add_argument("--trend-contracts", type=Path)
     args = parser.parse_args(argv)
+
+    enriched_only = {
+        "--evaluation-as-of": args.evaluation_as_of is not None,
+        "--trend-contracts": args.trend_contracts is not None,
+    }
+    if args.enriched_trend:
+        # A partial explicit argument set is rejected rather than completed
+        # with a chosen default.
+        missing = sorted(name for name, present in enriched_only.items() if not present)
+        if args.decision_packet is None:
+            missing.append("--decision-packet")
+        if missing:
+            parser.error("--enriched-trend requires " + ", ".join(sorted(missing)))
+        if args.output_root is not None:
+            parser.error("--enriched-trend and --output-root are mutually exclusive")
+    elif any(enriched_only.values()):
+        supplied = sorted(name for name, present in enriched_only.items() if present)
+        parser.error(", ".join(supplied) + " requires --enriched-trend")
+
+    contracts = None
+    if args.enriched_trend:
+        # Read separately, so the default path's exception behaviour below is
+        # exactly what it was before this capability existed.
+        try:
+            contracts = json.loads(args.trend_contracts.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            import sys
+
+            print(f"TREND_CONTRACTS_UNREADABLE:{exc}", file=sys.stderr)
+            return 1
+
     try:
-        result = build_view(generated_at=args.generated_at, decision_packet_path=args.decision_packet)
+        if args.enriched_trend:
+            result = build_enriched_trend_view(
+                decision_packet_path=args.decision_packet,
+                evaluation_as_of=args.evaluation_as_of,
+                trend_calculation_contracts=contracts,
+                generated_at=args.generated_at,
+            )
+        else:
+            result = build_view(generated_at=args.generated_at, decision_packet_path=args.decision_packet)
     except CryptoCandidateDetailViewError as exc:
         import sys
 
