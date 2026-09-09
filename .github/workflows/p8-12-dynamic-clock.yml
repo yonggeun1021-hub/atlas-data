@@ -34,7 +34,10 @@ jobs:
     #   whether anything changed, regardless of what this trigger claims.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Retained-evidence regressions now exceed the original 15-minute job
+    # budget before computation starts. Keep the full suite and a bounded
+    # runtime for the complete regression -> refresh -> publication chain.
+    timeout-minutes: 60
     steps:
       # Candidate canonical-identity observation verifies exact-content git
       # first-seen for authority rows and approval evidence.  As with PR
