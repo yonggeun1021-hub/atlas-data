@@ -38,6 +38,22 @@
     "original_or_approved_excerpt_hash",
     "continuous_missing_delay_state"
   ],
+  "run_ledger": {
+    "max_records": 32,
+    "statuses": [
+      "OK_NEW",
+      "OK_EMPTY",
+      "FAILED",
+      "DELAYED_OR_SKIPPED"
+    ]
+  },
+  "admission_authority": {
+    "source_observation_only": true,
+    "interpretation_authorized": false,
+    "model_source_inference_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
   "authority": {
     "reference_recording_authorized": true,
     "source_interpretation_authorized": false,

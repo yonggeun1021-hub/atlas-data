@@ -4,8 +4,11 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest import mock
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +56,10 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         self.assertTrue(all(row["eventTimePrecision"] == "DATE_ONLY" for row in sources))
         self.assertTrue(all(row["freshThroughUtc"] is None for row in sources))
         self.assertTrue(all(row["freshnessStatus"] == "UNKNOWN_NO_SOURCE_OWNER_POLICY" for row in sources))
+        self.assertTrue(all(row["availableAtUtc"] == "2026-09-08T21:45:30Z" for row in sources))
+        self.assertTrue(all(len(row["availableAtBasis"]) == 2 for row in sources))
+        sec_collector = MODULE._git_blob(ROOT, self.commit, "collectors/sec.py").decode()
+        self.assertNotIn("acceptanceDateTime", sec_collector)
         board = next(row for row in sources if row["identity"]["accession"] == "0001046179-26-000536")
         self.assertEqual(len(board["factRefs"]), 3)
         for fact in board["factRefs"]:
@@ -83,6 +90,64 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         self.assertFalse(conditions["continuous_missing_delay_state"]["ready"])
         self.assertIsNone(self.packet["runStates"]["SEC"]["consecutiveFailureCount"])
 
+    def test_material_index_admission_and_backfilled_ledger_stay_separate_from_readiness(self):
+        index = self.packet["latestMaterialSourceIndex"]
+        self.assertEqual(index["SEC"]["status"], "OK_RETAINED_REUSED")
+        self.assertEqual(
+            index["SEC"]["lastMaterialSource"]["identity"]["accession"],
+            "0001046179-26-000552",
+        )
+        self.assertEqual(index["DART"]["status"], "OK_EMPTY")
+        self.assertEqual(
+            index["DART"]["lastMaterialSource"]["identity"]["receiptNumber"],
+            "20260831800137",
+        )
+        receipt = self.packet["sourceOwnerAdmissionReceipt"]
+        self.assertEqual(receipt["receiptOrigin"], "BACKFILLED_VERIFIED_OBSERVATION_ONLY")
+        self.assertFalse(receipt["admissionAuthorized"])
+        self.assertEqual(receipt["status"], "REFERENCE_VALIDATED_NOT_ADMITTED")
+        ledger = self.packet["runLedger"]
+        self.assertGreater(ledger["summary"]["recordCount"], 0)
+        self.assertTrue(ledger["summary"]["countsAreLowerBounds"])
+        self.assertTrue(all(
+            row["recordOrigin"] == "BACKFILLED_VERIFIED_OBSERVATION_ONLY"
+            for row in ledger["records"]
+        ))
+        MODULE.validate_shadow_source_match(self.packet)
+
+    def test_provider_acceptance_mechanism_does_not_invent_missing_event_time(self):
+        metadata = {"stocks": {"TSM": {"filings_recent": [{
+            "accession": "0001046179-26-000552",
+            "acceptanceDateTime": "2026-09-01T20:59:00Z",
+        }]}}}
+        event = MODULE._provider_event_at(metadata, "TSM", "0001046179-26-000552")
+        self.assertEqual(event, "2026-09-01T20:59:00Z")
+        available, basis = MODULE._available_bound(
+            event, "2026-09-01T21:00:49Z", "2026-09-08T21:45:30Z"
+        )
+        self.assertEqual(available, "2026-09-08T21:45:30Z")
+        self.assertEqual(len(basis), 3)
+        without = copy.deepcopy(metadata)
+        without["stocks"]["TSM"]["filings_recent"][0].pop("acceptanceDateTime")
+        self.assertIsNone(
+            MODULE._provider_event_at(without, "TSM", "0001046179-26-000552")
+        )
+
+    def test_nominal_schedule_handles_closed_days_without_claiming_future_coverage(self):
+        after_final_thursday = MODULE._utc("2026-09-10T21:35:00Z", "TEST_TIME")
+        next_due = MODULE._next_nominal_due(
+            after_final_thursday,
+            ["55 20 * * 0-4", "15 21 * * 0-4", "35 21 * * 0-4"],
+        )
+        self.assertEqual(next_due, "2026-09-13T20:55:00Z")
+        coverage = self.packet["freshnessCoverage"]
+        self.assertIsNone(coverage["freshThroughUtc"])
+        self.assertEqual(coverage["futureCoverageStatus"], "UNKNOWN_NO_VERIFIED_FUTURE_POLL")
+        self.assertEqual(
+            coverage["nominalSchedule"]["status"],
+            "BEST_EFFORT_NOMINAL_ONLY_NOT_DELIVERY_GUARANTEE",
+        )
+
     def test_resigned_authority_or_time_tampering_is_rejected(self):
         for mutate in (
             lambda value: value.update(modelSourceInferenceAuthorized=True),
@@ -95,7 +160,10 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
             unsigned = copy.deepcopy(changed)
             unsigned.pop("packetSha256")
             changed["packetSha256"] = MODULE.payload_sha256(unsigned)
-            with self.assertRaisesRegex(MODULE.SourceReadinessError, "SEMANTIC_TAMPER"):
+            with self.assertRaisesRegex(
+                MODULE.SourceReadinessError,
+                "SEMANTIC_TAMPER|SHADOW_SOURCE_EXACT_MATCH",
+            ):
                 MODULE.validate_packet(changed, ROOT, self.commit, self.evaluated_at)
 
         changed = copy.deepcopy(self.packet)
@@ -180,9 +248,11 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         )
         target["operation"] = "captured"
         target.pop("skip_reason")
+        metadata, _ = MODULE._git_json(ROOT, self.commit, "data/latest_sec.json")
         sources = MODULE._sec_sources(
             ROOT,
             self.commit,
+            metadata,
             changed,
             MODULE._utc(self.evaluated_at, "TEST_TIME_INVALID"),
         )
@@ -206,6 +276,37 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         with mock.patch.object(MODULE.subprocess, "check_output", return_value="ok") as call:
             self.assertEqual(MODULE._run_git(ROOT, ["status"]), "ok")
         self.assertEqual(call.call_args.kwargs["env"]["GIT_NO_LAZY_FETCH"], "1")
+
+    def test_content_addressed_observation_is_idempotent_and_collision_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = MODULE.write_observation(self.packet, root)
+            second = MODULE.write_observation(self.packet, root)
+            self.assertEqual(first, second)
+            index = json.loads((root / "index.json").read_text())
+            unsigned = copy.deepcopy(index)
+            claimed = unsigned.pop("indexSha256")
+            self.assertEqual(claimed, MODULE.payload_sha256(unsigned))
+            self.assertEqual(len(index["records"]), 1)
+            readiness = Path(first["readinessPath"])
+            readiness.write_text("tampered")
+            with self.assertRaisesRegex(MODULE.SourceReadinessError, "IMMUTABLE_OUTPUT_COLLISION"):
+                MODULE.write_observation(self.packet, root)
+
+    def test_workflow_commits_this_run_data_before_exact_commit_receipt(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/collect.yml").read_text())
+        steps = workflow["jobs"]["collect"]["steps"]
+        names = [step.get("name") for step in steps]
+        data_index = names.index("Commit data")
+        receipt_index = names.index("Record AI Shadow source readiness (P10-07)")
+        self.assertGreater(receipt_index, data_index)
+        data_script = steps[data_index]["run"]
+        receipt_script = steps[receipt_index]["run"]
+        self.assertIn("git commit", data_script)
+        self.assertIn("SOURCE_COMMIT=$(git rev-parse HEAD)", receipt_script)
+        self.assertLess(receipt_script.index("SOURCE_COMMIT=$(git rev-parse HEAD)"), receipt_script.index("python3 shadow/ai_external_analysis_source_readiness.py"))
+        self.assertLess(receipt_script.index("python3 shadow/ai_external_analysis_source_readiness.py"), receipt_script.index("git commit"))
+        self.assertLess(receipt_script.index("git commit"), receipt_script.index("git push"))
 
 
 if __name__ == "__main__":
