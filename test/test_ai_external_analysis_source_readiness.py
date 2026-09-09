@@ -115,6 +115,19 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         ))
         MODULE.validate_shadow_source_match(self.packet)
 
+    def test_natural_mechanism_progress_does_not_complete_time_or_history_conditions(self):
+        conditions = {
+            row["id"]: row
+            for row in MODULE._condition_rows(
+                self.packet["retainedSourceRefs"], "NATURAL_SOURCE_OWNER_EMITTED"
+            )
+        }
+        self.assertTrue(conditions["latest_actual_source"]["ready"])
+        self.assertTrue(conditions["source_owner_binding"]["ready"])
+        self.assertFalse(conditions["event_available_fresh_through"]["ready"])
+        self.assertFalse(conditions["continuous_missing_delay_state"]["ready"])
+        self.assertFalse(all(row["ready"] for row in conditions.values()))
+
     def test_provider_acceptance_mechanism_does_not_invent_missing_event_time(self):
         metadata = {"stocks": {"TSM": {"filings_recent": [{
             "accession": "0001046179-26-000552",
@@ -307,6 +320,26 @@ class AiExternalAnalysisSourceReadinessTest(unittest.TestCase):
         self.assertLess(receipt_script.index("SOURCE_COMMIT=$(git rev-parse HEAD)"), receipt_script.index("python3 shadow/ai_external_analysis_source_readiness.py"))
         self.assertLess(receipt_script.index("python3 shadow/ai_external_analysis_source_readiness.py"), receipt_script.index("git commit"))
         self.assertLess(receipt_script.index("git commit"), receipt_script.index("git push"))
+        module_source = MODULE_PATH.read_text()
+        self.assertIn('observation_origin="NATURAL_SOURCE_OWNER_EMITTED"', module_source)
+
+    def test_exact_commit_read_includes_this_run_mutation_only_after_commit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "test"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+            target = repo / "latest.json"
+            target.write_text('{"run":"prior"}\n')
+            subprocess.run(["git", "-C", str(repo), "add", "latest.json"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "prior"], check=True)
+            prior = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+            target.write_text('{"run":"this-run"}\n')
+            subprocess.run(["git", "-C", str(repo), "add", "latest.json"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "this run"], check=True)
+            current = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+            self.assertEqual(MODULE._git_json(repo, prior, "latest.json")[0]["run"], "prior")
+            self.assertEqual(MODULE._git_json(repo, current, "latest.json")[0]["run"], "this-run")
 
 
 if __name__ == "__main__":

@@ -604,7 +604,12 @@ def _telemetry_record(
     }
 
 
-def _run_ledger(repo: Path, source_commit: str, contract: dict) -> dict:
+def _run_ledger(
+    repo: Path,
+    source_commit: str,
+    contract: dict,
+    observation_origin: str,
+) -> dict:
     maximum = contract["run_ledger"]["max_records"]
     output = _run_git(
         repo,
@@ -677,7 +682,11 @@ def _run_ledger(repo: Path, source_commit: str, contract: dict) -> dict:
             raise SourceReadinessError("LEDGER_STATUS_INTERNAL_ERROR")
         base = {
             "schemaVersion": "ai_external_analysis_source_run_record/1",
-            "recordOrigin": "BACKFILLED_VERIFIED_OBSERVATION_ONLY",
+            "recordOrigin": (
+                observation_origin
+                if commit == source_commit
+                else "BACKFILLED_VERIFIED_OBSERVATION_ONLY"
+            ),
             "sourceCommit": commit,
             "telemetryPath": telemetry["path"],
             "telemetrySha256": telemetry["sha256"],
@@ -708,7 +717,7 @@ def _run_ledger(repo: Path, source_commit: str, contract: dict) -> dict:
     successes = [row for row in records if row["status"] in {"OK_NEW", "OK_EMPTY"}]
     ledger = {
         "schemaVersion": "ai_external_analysis_source_run_ledger/1",
-        "ledgerOrigin": "BACKFILLED_VERIFIED_OBSERVATION_ONLY",
+        "ledgerOrigin": observation_origin,
         "sourceCommit": source_commit,
         "historyStartStatus": (
             "UNKNOWN_TRUNCATED_BEFORE_FIRST_RETAINED_RECORD"
@@ -798,12 +807,17 @@ def _admission_receipt(
     freshness: dict,
     ledger: dict,
     contract: dict,
+    observation_origin: str,
 ) -> dict:
     receipt = {
         "schemaVersion": "ai_external_analysis_source_owner_admission/1",
-        "receiptOrigin": "BACKFILLED_VERIFIED_OBSERVATION_ONLY",
+        "receiptOrigin": observation_origin,
         "sourceCommit": commit,
-        "status": "REFERENCE_VALIDATED_NOT_ADMITTED",
+        "status": (
+            "NATURAL_OWNER_RECEIPT_VALIDATED_NOT_ADMITTED"
+            if observation_origin == "NATURAL_SOURCE_OWNER_EMITTED"
+            else "REFERENCE_VALIDATED_NOT_ADMITTED"
+        ),
         "latestSourceRefs": copy.deepcopy(latest_refs),
         "latestMaterialSourceIndex": copy.deepcopy(material_index),
         "ownerRefs": copy.deepcopy(owner_refs),
@@ -814,6 +828,58 @@ def _admission_receipt(
     }
     receipt["receiptSha256"] = payload_sha256(receipt)
     return receipt
+
+
+def _condition_rows(sec_sources: list[dict], observation_origin: str) -> list[dict]:
+    natural = observation_origin == "NATURAL_SOURCE_OWNER_EMITTED"
+    return [
+        {
+            "id": "latest_actual_source",
+            "ready": natural,
+            "status": (
+                "NATURAL_CURRENT_RUN_INDEX_READY"
+                if natural
+                else "INDEX_READY_BACKFILLED_NOT_NATURAL_ADMISSION"
+            ),
+        },
+        {
+            "id": "market_symbol_identity",
+            "ready": bool(sec_sources),
+            "status": "READY_REFERENCE_IDENTITY" if sec_sources else "UNKNOWN_NO_RETAINED_SOURCE",
+        },
+        {
+            "id": "event_available_fresh_through",
+            "ready": False,
+            "status": "MECHANISM_READY_CURRENT_EVENT_TIME_OR_FRESHNESS_UNKNOWN",
+        },
+        {
+            "id": "source_owner_binding",
+            "ready": natural,
+            "status": (
+                "NATURAL_SOURCE_OWNER_RECEIPT_EMITTED"
+                if natural
+                else "REFERENCE_PINS_ONLY_NOT_ADMISSION"
+            ),
+        },
+        {
+            "id": "original_or_approved_excerpt_hash",
+            "ready": bool(sec_sources),
+            "status": (
+                "READY_OWNER_VALIDATED_RETAINED_BYTES"
+                if sec_sources
+                else "UNKNOWN_NO_RETAINED_SOURCE"
+            ),
+        },
+        {
+            "id": "continuous_missing_delay_state",
+            "ready": False,
+            "status": (
+                "NATURAL_LEDGER_FIRST_READBACK_HISTORY_INCOMPLETE"
+                if natural
+                else "BACKFILLED_LEDGER_NOT_NATURAL_PRODUCER_READBACK"
+            ),
+        },
+    ]
 
 
 def _shadow_source_match(admission: dict, retained_sources: list[dict]) -> dict:
@@ -845,7 +911,13 @@ def _derive_packet(
     source_commit: str,
     evaluated_at_utc: str,
     contract: dict,
+    observation_origin: str,
 ) -> dict:
+    if observation_origin not in {
+        "BACKFILLED_VERIFIED_OBSERVATION_ONLY",
+        "NATURAL_SOURCE_OWNER_EMITTED",
+    }:
+        raise SourceReadinessError("OBSERVATION_ORIGIN_INVALID")
     repo = Path(repo).resolve()
     commit = _validate_commit(repo, source_commit)
     evaluated = _utc(evaluated_at_utc, "EVALUATED_AT_INVALID")
@@ -896,7 +968,7 @@ def _derive_packet(
     material_index = _latest_material_index(
         latest_refs, sec_sources, dart_latest, evaluated
     )
-    ledger = _run_ledger(repo, commit, contract)
+    ledger = _run_ledger(repo, commit, contract, observation_origin)
     freshness = _freshness_coverage(repo, commit, evaluated, ledger)
     admission = _admission_receipt(
         commit,
@@ -906,15 +978,9 @@ def _derive_packet(
         freshness,
         ledger,
         contract,
+        observation_origin,
     )
-    conditions = [
-        {"id": "latest_actual_source", "ready": False, "status": "INDEX_READY_BACKFILLED_NOT_NATURAL_ADMISSION"},
-        {"id": "market_symbol_identity", "ready": bool(sec_sources), "status": "READY_REFERENCE_IDENTITY" if sec_sources else "UNKNOWN_NO_RETAINED_SOURCE"},
-        {"id": "event_available_fresh_through", "ready": False, "status": "MECHANISM_READY_CURRENT_EVENT_TIME_OR_FRESHNESS_UNKNOWN"},
-        {"id": "source_owner_binding", "ready": False, "status": "REFERENCE_PINS_ONLY_NOT_ADMISSION"},
-        {"id": "original_or_approved_excerpt_hash", "ready": bool(sec_sources), "status": "READY_OWNER_VALIDATED_RETAINED_BYTES" if sec_sources else "UNKNOWN_NO_RETAINED_SOURCE"},
-        {"id": "continuous_missing_delay_state", "ready": False, "status": "BACKFILLED_LEDGER_NOT_NATURAL_PRODUCER_READBACK"},
-    ]
+    conditions = _condition_rows(sec_sources, observation_origin)
     if [row["id"] for row in conditions] != contract["condition_order"]:
         raise SourceReadinessError("CONDITION_ORDER_INTERNAL_ERROR")
     all_ready = all(row["ready"] for row in conditions)
@@ -924,6 +990,7 @@ def _derive_packet(
         "contractVersion": contract["contract_version"],
         "sourceCommit": commit,
         "evaluatedAtUtc": evaluated_at_utc,
+        "observationOrigin": observation_origin,
         "status": "READY" if all_ready else "DATA_QUALIFICATION_WAIT",
         "latestSourceRefs": latest_refs,
         "retainedSourceRefs": sec_sources,
@@ -951,10 +1018,20 @@ def build_packet(
     source_commit: str,
     evaluated_at_utc: str,
     contract: dict | None = None,
+    observation_origin: str = "BACKFILLED_VERIFIED_OBSERVATION_ONLY",
 ) -> dict:
     checked_contract = validate_contract(contract) if contract is not None else load_contract()
-    packet = _derive_packet(repo, source_commit, evaluated_at_utc, checked_contract)
-    return validate_packet(packet, repo, source_commit, evaluated_at_utc, checked_contract)
+    packet = _derive_packet(
+        repo, source_commit, evaluated_at_utc, checked_contract, observation_origin
+    )
+    return validate_packet(
+        packet,
+        repo,
+        source_commit,
+        evaluated_at_utc,
+        checked_contract,
+        observation_origin,
+    )
 
 
 def validate_packet(
@@ -963,10 +1040,12 @@ def validate_packet(
     source_commit: str,
     evaluated_at_utc: str,
     contract: dict | None = None,
+    observation_origin: str = "BACKFILLED_VERIFIED_OBSERVATION_ONLY",
 ) -> dict:
     checked_contract = validate_contract(contract) if contract is not None else load_contract()
     if not isinstance(packet, dict) or set(packet) != {
-        "schemaVersion", "contractVersion", "sourceCommit", "evaluatedAtUtc", "status",
+        "schemaVersion", "contractVersion", "sourceCommit", "evaluatedAtUtc",
+        "observationOrigin", "status",
         "latestSourceRefs", "retainedSourceRefs", "latestMaterialSourceIndex",
         "ownerRefs", "ownerReferencesBound", "sourceOwnerAdmissionReceipt",
         "shadowSourceMatch",
@@ -983,7 +1062,9 @@ def validate_packet(
     if payload_sha256(unsigned) != claimed:
         raise SourceReadinessError("PACKET_SHA256_MISMATCH")
     validate_shadow_source_match(packet)
-    rebuilt = _derive_packet(repo, source_commit, evaluated_at_utc, checked_contract)
+    rebuilt = _derive_packet(
+        repo, source_commit, evaluated_at_utc, checked_contract, observation_origin
+    )
     if canonical_json(packet) != canonical_json(rebuilt):
         raise SourceReadinessError("PACKET_SEMANTIC_TAMPER_OR_DRIFT")
     return copy.deepcopy(packet)
@@ -1083,7 +1164,12 @@ def main() -> int:
         default=ROOT / "data" / "observations" / "ai_external_analysis_source_readiness",
     )
     args = parser.parse_args()
-    packet = build_packet(args.repo, args.source_commit, args.evaluated_at_utc)
+    packet = build_packet(
+        args.repo,
+        args.source_commit,
+        args.evaluated_at_utc,
+        observation_origin="NATURAL_SOURCE_OWNER_EMITTED",
+    )
     paths = write_observation(packet, args.out_root)
     print(json.dumps({
         **paths,
