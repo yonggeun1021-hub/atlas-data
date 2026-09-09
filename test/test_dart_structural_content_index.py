@@ -129,20 +129,46 @@ class DartStructuralContentIndexTests(unittest.TestCase):
             self.assertTrue(all(document["semantic_items"] == [] for document in packet["documents"]))
 
     def test_metadata_only_filing_is_not_presented_as_content_indexed(self):
-        source_observations = MODULE.DART_OBSERVATION.build_packet(
-            decision_at=DECISION_AT
-        )["observations"]
-        metadata_only = {
-            (row["subject_id"], row["rcept_no"])
-            for row in source_observations
-            if row["evidence"]["status"] == "METADATA_ONLY_STAGE_NOT_ASSIGNED"
-        }
-        indexed = {
-            (row["subject_id"], row["rcept_no"])
-            for row in self.packet["indexed_filings"]
-        }
-        self.assertTrue(metadata_only)
-        self.assertTrue(metadata_only.isdisjoint(indexed))
+        # Latest may contain no filings; retain a nonempty, exact identity here.
+        with tempfile.TemporaryDirectory() as temporary:
+            source_path, content_path, data_root = retained_raw_fixture(Path(temporary))
+            source = json.loads(source_path.read_text(encoding="utf-8"))
+            content = json.loads(content_path.read_text(encoding="utf-8"))
+            record = content["records"][0]
+            subject_id = record["filing_identity"]["stock_code"]
+            rcept_no = record["filing_identity"]["rcept_no"]
+            source["stocks"][subject_id]["atlas_stage"] = None
+            record.update({
+                "atlas_stage": None,
+                "capture_policy": "index_only",
+                "content_status": "NOT_APPLICABLE",
+                "evidence_status": "NOT_APPLICABLE",
+                "documents": [],
+                "extracted": [],
+                "publication_status": "NOT_APPLICABLE",
+                "reasons": ["STAGE_NOT_ASSIGNED_FOR_AUTO_CONSUMPTION"],
+                "source_archive": None,
+            })
+            for key in ("operation", "retrieved_at_utc", "skip_reason"):
+                record.pop(key, None)
+            content["counts"] = {"captured": 0, "failed": 0, "not_applicable": 1, "skipped": 0}
+            source_path.write_text(json.dumps(source), encoding="utf-8")
+            content["source_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+            content_path.write_text(json.dumps(content), encoding="utf-8")
+            inputs = dict(decision_at=RETAINED_DECISION_AT, source_path=source_path,
+                          content_path=content_path, data_root=data_root)
+            observations = MODULE.DART_OBSERVATION.build_packet(**inputs)["observations"]
+            self.assertEqual(
+                {(row["subject_id"], row["rcept_no"], row["evidence"]["status"])
+                 for row in observations},
+                {(subject_id, rcept_no, "METADATA_ONLY_STAGE_NOT_ASSIGNED")},
+            )
+            packet = MODULE.build_packet(**inputs)
+            self.assertEqual(packet["summary"]["source_observation_count"], 1)
+            self.assertEqual(packet["summary"]["raw_bytes_verified_count"], 0)
+            self.assertEqual(packet["indexed_filings"], [])
+            self.assertEqual(packet["documents"], [])
+            self.assertEqual(packet["summary"]["semantic_item_count"], 0)
 
     def test_packet_retains_no_filing_text_attribute_values_or_company_name(self):
         rendered = MODULE.canonical_json(self.packet)
