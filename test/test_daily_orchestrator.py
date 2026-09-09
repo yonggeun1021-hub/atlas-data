@@ -4147,12 +4147,24 @@ class DartObservationBriefingIntegrationTests(unittest.TestCase):
         self.assertEqual(
             dart["content_failure_count"], expected_summary.get("content_failure_count", 0)
         )
-        self.assertEqual(
-            row["reason"],
-            "DART_OBSERVATIONS_PRESENT_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
-            if dart["source_failed_count"] or dart["content_failure_count"]
-            else "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED",
-        )
+        if dart["source_failed_count"] or dart["content_failure_count"]:
+            expected_reason = "DART_OBSERVATIONS_PRESENT_WITH_PARTIAL_FAILURES_ESCALATION_BLOCKED"
+        elif dart["observation_count"]:
+            expected_reason = "DART_OBSERVATIONS_PRESENT_ESCALATION_BLOCKED"
+        else:
+            # A valid latest capture can have zero relevant filings. In that
+            # case the other independently recorded evidence owns the reason;
+            # an empty successful capture must not claim DART presence.
+            expected_reason = "NO_CASE_OR_SIGNAL_OBSERVATION_AVAILABLE"
+            for section, count_key, reason in (
+                ("wildcard_observations", "observation_count", "WILDCARD_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"),
+                ("signal_observations", "observation_count", "SIGNAL_OBSERVATIONS_PRESENT_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"),
+                ("discovery", "case_count", "EVENT_CASES_RECORDED_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"),
+            ):
+                if row["packet"][section][count_key]:
+                    expected_reason = reason
+                    break
+        self.assertEqual(row["reason"], expected_reason)
         self.assertEqual(row["authority"]["stage_promotion_authorized"], False)
         self.assertEqual(row["authority"]["action_generation_authorized"], False)
         self.assertEqual(row["authority"]["trading_authorized"], False)
@@ -4179,6 +4191,47 @@ class DartObservationBriefingIntegrationTests(unittest.TestCase):
         for observation in dart["observations"][:10]:
             self.assertIn(observation["subject_name"], rendered)
             self.assertIn("action=null", rendered)
+
+    def test_successful_zero_dart_capture_preserves_other_evidence_reason(self):
+        # Controlled contract cases: empty DART is neither a filing nor a
+        # source failure, and it cannot obscure an independent event case.
+        packet = {
+            "discovery": {"case_count": 0},
+            "signal_observations": {"observation_count": 0},
+            "wildcard_observations": {"observation_count": 0},
+            "dart_observations": {
+                "observation_count": 0,
+                "source_failed_count": 0,
+                "content_failure_count": 0,
+            },
+            "rotation": {"latest_changes": []},
+            "authority": {
+                "stage_promotion_authorized": False,
+                "action_generation_authorized": False,
+                "trading_authorized": False,
+            },
+        }
+        population = {
+            "records": [], "evidence_bindings": {},
+            "source_as_of_date": "2026-09-09",
+        }
+        for count, expected in (
+            (0, "NO_CASE_OR_SIGNAL_OBSERVATION_AVAILABLE"),
+            (1, "EVENT_CASES_RECORDED_NO_IMPORTANCE_OR_PROMOTION_AUTHORITY"),
+        ):
+            with self.subTest(event_cases=count):
+                packet["discovery"]["case_count"] = count
+                with (
+                    mock.patch.object(MODULE.EVENT_POPULATION, "build_population_inputs", return_value=population),
+                    mock.patch.object(MODULE.ROTATION_DISCOVERY, "load_operational_wildcard_envelopes", return_value=[]),
+                    mock.patch.object(MODULE.ROTATION_DISCOVERY, "load_operational_dart_observation_packet", return_value=None),
+                    mock.patch.object(MODULE.ROTATION_DISCOVERY, "build_briefing", return_value=copy.deepcopy(packet)),
+                ):
+                    row = MODULE.build_rotation_discovery("evening", "2026-09-09T10:00:00Z")
+                self.assertEqual(row["status"], "PENDING")
+                self.assertEqual(row["reason"], expected)
+                for key in packet["authority"]:
+                    self.assertIs(row["authority"][key], False)
 
     def test_zero_observation_partial_failure_is_not_hidden(self):
         packet = {
