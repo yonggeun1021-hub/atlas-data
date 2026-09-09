@@ -21,8 +21,21 @@ values are evidence only. A duplicate decision ID with the same three packets is
 an idempotent retry; the same ID with different evidence is a hard conflict.
 Earlier dates or a repeated slot cannot be appended.
 
-The CLI writes only outside the repository. Live morning/evening scheduling and
-tracked operational history remain separate Exit Gate work.
+`shadow/three_market_shadow_operational_readiness.py` is the committed-Daily
+adapter under the separately versioned readiness `/2` contract. It appends only when that immutable Daily packet contains all three
+validated P10 inputs at its source commit; missing P9 inputs remain blocked.
+The adapter accepts an optional prior ledger and an external output target, preserving
+the ledger's idempotent forward-only chain. It does not schedule itself,
+backfill history, classify a non-UNKNOWN regime, select a benchmark, or create
+Paper/Real/order authority.
+
+An existing external output ledger requires byte- and semantic-exact current
+prior history as `--ledger`. Both v4 ledgers are validated before source
+evaluation; a stale or differently encoded prior fails closed rather than
+replacing history.
+
+The ledger CLI writes only outside the repository. Live morning/evening
+scheduling and tracked operational history remain separate Exit Gate work.
 
 ```bash
 python shadow/three_market_shadow_ledger.py /tmp/unified-decision.json \
