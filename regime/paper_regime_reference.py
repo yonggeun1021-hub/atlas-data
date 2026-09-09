@@ -27,6 +27,8 @@ LATEST_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
 SCHEMA_VERSION = "paper_regime_reference/v2"
 # Absent version is the retained v2 renderer and its original identity recipe.
 KR_TREND_RENDER_VERSION = "kr_trend_direction/v1"
+CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v2"
+SUPPORTED_RENDER_VERSIONS = {KR_TREND_RENDER_VERSION, CURRENT_RENDER_VERSION}
 AXES = ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 ZERO = Decimal("0")
@@ -362,10 +364,10 @@ def normalize_kr_measurements(
 
     This is arithmetic reuse, not sensor-policy or runtime ratification.
     Source qualification and point-in-time acceptance belong to the caller.
-    Versionless leaf calls retain historical v2 text. The current reference
-    producer explicitly requests KR_TREND_RENDER_VERSION for its new namespace.
+    Versionless leaf calls retain historical v2 text. Versioned producers use
+    one of the supported render namespaces for the corrected trend wording.
     """
-    if render_version is not None and render_version != KR_TREND_RENDER_VERSION:
+    if render_version is not None and render_version not in SUPPORTED_RENDER_VERSIONS:
         fail("REFERENCE_RENDER_VERSION_INVALID")
     thresholds = kr_policy(policy)
     if packet.get("status") != "OBSERVED_UNCLASSIFIED" or packet.get("coverage", {}).get("ratio") != "5/5":
@@ -403,7 +405,7 @@ def normalize_kr_measurements(
         "POSITIVE": "두 지수가 모두 상승했습니다.",
         "NEGATIVE": "두 지수가 모두 하락했습니다.",
         "NEUTRAL": "혼조 또는 보합을 보였습니다.",
-    }[trend_direction] if render_version == KR_TREND_RENDER_VERSION else "방향이 엇갈렸습니다."
+    }[trend_direction] if render_version in SUPPORTED_RENDER_VERSIONS else "방향이 엇갈렸습니다."
     rows = [
         axis("TREND", trend_direction, {"KOSPI": str(trend_values[0]), "KOSDAQ": str(trend_values[1])}, f"코스피 {trend_values[0]:+.2f}%, 코스닥 {trend_values[1]:+.2f}%로 {trend_summary}"),
         axis("BREADTH", breadth_direction, {"advance_fraction": str(breadth_value)}, f"전체 종목 중 상승 비중은 {breadth_value * 100:.1f}%입니다."),
@@ -436,7 +438,7 @@ def market_packet(market: str, as_of_date: str, axes: list[dict], regime: str, s
     }
 
 
-def build_crypto(packet: dict) -> dict:
+def build_crypto(packet: dict, *, render_version: str | None = CURRENT_RENDER_VERSION) -> dict:
     if packet.get("schema_version") != "crypto_regime_refresh_status/1":
         fail("CRYPTO_SOURCE_INVALID")
     unsigned = copy.deepcopy(packet)
@@ -454,27 +456,42 @@ def build_crypto(packet: dict) -> dict:
         if key != "read_only_reference" and value is not False:
             fail("CRYPTO_SOURCE_AUTHORITY_INVALID", key)
     official = packet.get("official_decision")
-    coverage = official.get("coverage") if isinstance(official, dict) else None
-    if (
-        not isinstance(coverage, dict)
-        or coverage.get("required_count") != 5
-        or coverage.get("defined_count") not in range(0, 6)
-        or coverage.get("ratio") != f"{coverage['defined_count']}/5"
-        or coverage.get("defined_axes") != [axis for axis in AXES if axis not in coverage.get("missing_axes", [])]
-    ):
-        fail("CRYPTO_SOURCE_COVERAGE_INVALID")
+    official_coverage = official.get("coverage") if isinstance(official, dict) else None
+    current = packet.get("current_reference")
+    current_coverage = current.get("coverage") if isinstance(current, dict) else None
+
+    def validated_coverage(value: object, code: str) -> dict:
+        if (
+            not isinstance(value, dict)
+            or value.get("required_count") != 5
+            or value.get("defined_count") not in range(0, 6)
+            or value.get("ratio") != f"{value['defined_count']}/5"
+            or value.get("defined_axes") != [axis for axis in AXES if axis not in value.get("missing_axes", [])]
+        ):
+            fail(code)
+        return value
+
+    official_coverage = validated_coverage(official_coverage, "CRYPTO_SOURCE_COVERAGE_INVALID")
+    # Older retained status packets did not expose current-reference coverage.
+    # Preserve their rendering while allowing today's descriptive 5/5 state to
+    # be displayed independently from official PIT-history acceptance.
+    coverage = (
+        validated_coverage(current_coverage, "CRYPTO_CURRENT_COVERAGE_INVALID")
+        if current_coverage is not None and render_version == CURRENT_RENDER_VERSION
+        else official_coverage
+    )
     complete = coverage["defined_count"] == 5
     refresh_pending = official.get("classification_status") == "WAIT_OFFICIAL_DECISION_REFRESH"
-    if refresh_pending:
+    if refresh_pending and not complete:
         classification_status = "WAIT_OFFICIAL_DECISION_REFRESH"
         explanation = "오늘 참고자료는 확인했지만 현재 코드와 정책으로 검증된 공식 코인 판정이 아직 없어 새 판정 생성을 기다립니다."
     elif complete:
         classification_status = "WAIT_MARKET_NORMALIZATION_POLICY"
-        explanation = "필수 신호 5개는 모두 확인됐지만 코인 전용 방향·점수 규칙의 검증이 끝날 때까지 Risk On/Off를 보류합니다."
+        explanation = "오늘 리더십을 포함한 필수 신호 5개는 모두 확인됐습니다. 코인 전용 방향·점수 규칙이 확정될 때까지 Risk On/Off 판정만 보류합니다."
     else:
         classification_status = "WAIT_OFFICIAL_INPUT_COVERAGE"
         explanation = "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다."
-    return {
+    result = {
         "market": "CRYPTO",
         "as_of_date": packet.get("current_reference", {}).get("as_of_date"),
         "coverage": copy.deepcopy(coverage),
@@ -488,12 +505,19 @@ def build_crypto(packet: dict) -> dict:
         "runtime_regime": "UNKNOWN",
         "axes": [],
     }
+    if current_coverage is not None and render_version == CURRENT_RENDER_VERSION:
+        result["official_validation"] = {
+            "classification_status": official.get("classification_status"),
+            "coverage": copy.deepcopy(official_coverage),
+        }
+        result["leadership_code"] = current.get("leadership_code")
+    return result
 
 
 def build_reference(
-    root: Path = ROOT, *, render_version: str | None = KR_TREND_RENDER_VERSION,
+    root: Path = ROOT, *, render_version: str | None = CURRENT_RENDER_VERSION,
 ) -> dict:
-    if render_version is not None and render_version != KR_TREND_RENDER_VERSION:
+    if render_version is not None and render_version not in SUPPORTED_RENDER_VERSIONS:
         fail("REFERENCE_RENDER_VERSION_INVALID")
     policy_path = root / "config" / "paper_regime_reference_policy_v1.json"
     us_path = root / "data" / "latest_free_market_data.json"
@@ -524,7 +548,7 @@ def build_reference(
     markets = [
         build_us(us_source, policy),
         build_kr(kr_source, policy, render_version=render_version),
-        build_crypto(crypto_source),
+        build_crypto(crypto_source, render_version=render_version),
     ]
     packet = {
         "schema_version": SCHEMA_VERSION,
@@ -555,7 +579,7 @@ def validate_reference(packet: dict, root: Path = ROOT) -> dict:
     claimed = unsigned.pop("payload_sha256", None)
     if not isinstance(claimed, str) or SHA256.fullmatch(claimed) is None or payload_sha256(unsigned) != claimed:
         fail("REFERENCE_SHA_INVALID")
-    if "render_version" in packet and packet["render_version"] != KR_TREND_RENDER_VERSION:
+    if "render_version" in packet and packet["render_version"] not in SUPPORTED_RENDER_VERSIONS:
         fail("REFERENCE_RENDER_VERSION_INVALID")
     expected = build_reference(root, render_version=packet.get("render_version"))
     if packet != expected:

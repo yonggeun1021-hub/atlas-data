@@ -153,15 +153,24 @@ class PaperRegimeReferenceTest(unittest.TestCase):
         )
         self.assertEqual(markets["CRYPTO"]["paper_reference"]["candidate_regime"], "UNKNOWN")
         source = json.loads((ROOT / "data/latest_crypto_regime_refresh_status.json").read_text())
-        self.assertEqual(markets["CRYPTO"]["coverage"], source["official_decision"]["coverage"])
-        expected_status = source["official_decision"].get("classification_status")
-        if expected_status != "WAIT_OFFICIAL_DECISION_REFRESH":
-            expected_status = (
-                "WAIT_MARKET_NORMALIZATION_POLICY"
-                if markets["CRYPTO"]["coverage"]["ratio"] == "5/5"
-                else "WAIT_OFFICIAL_INPUT_COVERAGE"
-            )
+        expected_coverage = source.get("current_reference", {}).get(
+            "coverage", source["official_decision"]["coverage"]
+        )
+        self.assertEqual(markets["CRYPTO"]["coverage"], expected_coverage)
+        self.assertEqual(
+            markets["CRYPTO"]["official_validation"]["coverage"],
+            source["official_decision"]["coverage"],
+        )
+        expected_status = (
+            "WAIT_MARKET_NORMALIZATION_POLICY"
+            if markets["CRYPTO"]["coverage"]["ratio"] == "5/5"
+            else source["official_decision"].get("classification_status")
+        )
+        if expected_status not in {"WAIT_MARKET_NORMALIZATION_POLICY", "WAIT_OFFICIAL_DECISION_REFRESH"}:
+            expected_status = "WAIT_OFFICIAL_INPUT_COVERAGE"
         self.assertEqual(markets["CRYPTO"]["classification_status"], expected_status)
+        if expected_coverage["ratio"] == "5/5":
+            self.assertEqual(markets["CRYPTO"]["leadership_code"], "MIXED_WINDOW_LEADERSHIP")
         self.assertEqual(packet["schema_version"], "paper_regime_reference/v2")
         self.assertTrue(all(row["runtime_regime"] == "UNKNOWN" for row in markets.values()))
 
@@ -198,9 +207,10 @@ class PaperRegimeReferenceTest(unittest.TestCase):
         source["payload_sha256"] = MODULE.payload_sha256(unsigned)
 
         crypto = MODULE.build_crypto(source)
-        self.assertEqual(crypto["classification_status"], "WAIT_OFFICIAL_DECISION_REFRESH")
+        self.assertEqual(crypto["classification_status"], "WAIT_MARKET_NORMALIZATION_POLICY")
         self.assertEqual(crypto["paper_reference"]["candidate_regime"], "UNKNOWN")
-        self.assertEqual(crypto["coverage"]["ratio"], "0/5")
+        self.assertEqual(crypto["coverage"]["ratio"], "5/5")
+        self.assertEqual(crypto["official_validation"]["coverage"]["ratio"], "0/5")
 
     def test_resigned_tamper_and_source_tamper_fail_closed(self):
         packet = MODULE.build_reference()
@@ -287,7 +297,7 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             old_path, _ = MODULE.write_packet(legacy, root)
             retained = old_path.read_bytes()
             current = MODULE.build_reference(root)
-            self.assertEqual(current["render_version"], MODULE.KR_TREND_RENDER_VERSION)
+            self.assertEqual(current["render_version"], MODULE.CURRENT_RENDER_VERSION)
             self.assertNotEqual(current["generation_id"], legacy["generation_id"])
             self.assertNotEqual(current["payload_sha256"], legacy["payload_sha256"])
             new_path, latest = MODULE.write_packet(current, root)
