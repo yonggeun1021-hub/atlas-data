@@ -364,13 +364,14 @@ class USPaperPolicyBindingTest(unittest.TestCase):
             self.assertEqual(us["paper_reference"]["score"], sum(row["score"] for row in us["axes"]))
 
             # Hash chain: policy bytes, sources and renderer -> generation id -> payload.
+            self.assertEqual(baseline["render_version"], MODULE.CURRENT_RENDER_VERSION)
             self.assertEqual(baseline["policy"]["sha256"], MODULE.file_sha256(policy_file))
             self.assertEqual(
                 baseline["generation_id"],
                 MODULE.payload_sha256({
                     "policy_sha256": MODULE.file_sha256(policy_file),
                     "sources": baseline["sources"],
-                    "render_version": MODULE.KR_TREND_RENDER_VERSION,
+                    "render_version": MODULE.CURRENT_RENDER_VERSION,
                 }),
             )
             self.assertEqual(MODULE.validate_reference(baseline, root), baseline)
