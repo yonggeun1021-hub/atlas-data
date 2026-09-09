@@ -65,8 +65,8 @@ def _read_json(path: Path) -> dict:
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "three_market_shadow_operational_readiness/1",
+        "schema_version": 2,
+        "contract_version": "three_market_shadow_operational_readiness/2",
         "approval_status": "IMPLEMENTED_FAIL_CLOSED_NO_NEW_POLICY",
         "required_daily_components": [
             "UNIFIED_DECISION",
@@ -78,11 +78,11 @@ def _expected_contract() -> dict:
             "NOT_AVAILABLE_DAILY_COMPONENT_NOT_WIRED",
         ],
         "readiness_status_vocabulary": [
-            "READY_FOR_ZERO_CAPITAL_SHADOW_APPEND",
+            "ZERO_CAPITAL_SHADOW_APPENDED",
             "BLOCKED_MISSING_EXACT_P9_LIVE_INPUTS",
         ],
         "authority": {
-            "shadow_observation_recording_authorized": False,
+            "shadow_observation_recording_authorized": True,
             "action_generation_authorized": False,
             "capital_authorized": False,
             "order_generation_authorized": False,
@@ -210,6 +210,7 @@ def _derive_packet(
     source_commit: str,
     recorded_at: str,
     contract: dict,
+    previous_ledger: dict | None,
 ) -> dict:
     DAILY_LINEAGE._utc(recorded_at, "RECORDED_AT_INVALID")
     relative = DAILY_LINEAGE._repo_relative(briefing_path)
@@ -276,14 +277,23 @@ def _derive_packet(
             raise ThreeMarketShadowOperationalReadinessError(
                 "P9_LIVE_INPUTS_FROM_FUTURE"
             )
-    # Actual appending remains structurally closed until both exact P9 packets
-    # are live components. This readiness boundary never fabricates either.
+    # Append only exact P9 packets validated from the committed Daily source.
+    # Missing components stay blocked; this boundary never fabricates either.
+    shadow_ledger = None
+    if shadow_inputs_ready:
+        shadow_ledger = SHADOW.append_decision(
+            exact_unified,
+            checked_entry_exit,
+            checked_intraday_risk,
+            recorded_at,
+            previous_ledger,
+        )
     packet = {
-        "schema_version": "three_market_shadow_operational_readiness_packet/1",
+        "schema_version": "three_market_shadow_operational_readiness_packet/2",
         "contract_version": contract["contract_version"],
         "recorded_at": recorded_at,
         "status": (
-            "READY_FOR_ZERO_CAPITAL_SHADOW_APPEND"
+            "ZERO_CAPITAL_SHADOW_APPENDED"
             if shadow_inputs_ready
             else "BLOCKED_MISSING_EXACT_P9_LIVE_INPUTS"
         ),
@@ -306,11 +316,11 @@ def _derive_packet(
                 statuses["INTRADAY_RISK_ESCALATION"] == "READY_VALIDATED"
             ),
             "shadow_append_ready_count": int(shadow_inputs_ready),
-            "shadow_record_count": 0,
+            "shadow_record_count": 0 if shadow_ledger is None else shadow_ledger["summary"]["record_count"],
             "real_capital_deployed": "0",
             "real_order_count": 0,
         },
-        "shadow_ledger": None,
+        "shadow_ledger": shadow_ledger,
         "action": None,
         "order_intent": None,
         "authority": copy.deepcopy(contract["authority"]),
@@ -324,10 +334,15 @@ def build_packet(
     source_commit: str,
     recorded_at: str,
     contract: dict | None = None,
+    previous_ledger: dict | None = None,
 ) -> dict:
     contract = validate_contract(contract) if contract is not None else load_contract()
-    packet = _derive_packet(briefing_path, source_commit, recorded_at, contract)
-    return validate_packet(packet, briefing_path, source_commit, recorded_at, contract)
+    packet = _derive_packet(
+        briefing_path, source_commit, recorded_at, contract, previous_ledger
+    )
+    return validate_packet(
+        packet, briefing_path, source_commit, recorded_at, contract, previous_ledger
+    )
 
 
 def validate_packet(
@@ -336,6 +351,7 @@ def validate_packet(
     source_commit: str,
     recorded_at: str,
     contract: dict | None = None,
+    previous_ledger: dict | None = None,
 ) -> dict:
     contract = validate_contract(contract) if contract is not None else load_contract()
     expected = copy.deepcopy(packet)
@@ -347,7 +363,9 @@ def validate_packet(
     if payload_sha256(expected) != packet["packet_sha256"]:
         raise ThreeMarketShadowOperationalReadinessError("PACKET_SHA256_MISMATCH")
     # Independent semantic re-derivation through the same pure implementation.
-    rebuilt = _derive_packet(briefing_path, source_commit, recorded_at, contract)
+    rebuilt = _derive_packet(
+        briefing_path, source_commit, recorded_at, contract, previous_ledger
+    )
     if packet != rebuilt:
         raise ThreeMarketShadowOperationalReadinessError(
             "SHADOW_OPERATIONAL_READINESS_SEMANTIC_TAMPER_OR_DRIFT"
@@ -388,9 +406,49 @@ def main() -> int:
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--recorded-at", required=True)
     parser.add_argument("--history-root", type=Path, default=DEFAULT_HISTORY_ROOT)
+    parser.add_argument("--ledger", type=Path)
+    parser.add_argument("--ledger-out", type=Path)
     args = parser.parse_args()
     try:
-        packet = build_packet(args.briefing_packet, args.source_commit, args.recorded_at)
+        if args.ledger is not None and args.ledger_out is None:
+            raise ThreeMarketShadowOperationalReadinessError(
+                "LEDGER_OUT_REQUIRED_WITH_LEDGER"
+            )
+        if (
+            args.ledger is None
+            and args.ledger_out is not None
+            and args.ledger_out.exists()
+        ):
+            raise ThreeMarketShadowOperationalReadinessError(
+                "EXISTING_LEDGER_OUT_REQUIRES_EXACT_PRIOR_LEDGER"
+            )
+        previous_ledger = None if args.ledger is None else _read_json(args.ledger)
+        if args.ledger_out is not None and args.ledger_out.exists():
+            existing_bytes = args.ledger_out.read_bytes()
+            existing_ledger = _read_json(args.ledger_out)
+            try:
+                SHADOW.validate_ledger(existing_ledger)
+                SHADOW.validate_ledger(previous_ledger)
+            except (SHADOW.ThreeMarketShadowLedgerError, TypeError, ValueError) as exc:
+                raise ThreeMarketShadowOperationalReadinessError(
+                    f"EXISTING_LEDGER_OUT_OR_PRIOR_INVALID:{exc}"
+                ) from exc
+            if args.ledger.read_bytes() != existing_bytes or previous_ledger != existing_ledger:
+                raise ThreeMarketShadowOperationalReadinessError(
+                    "EXISTING_LEDGER_OUT_PRIOR_NOT_EXACT_CURRENT"
+                )
+        packet = build_packet(
+            args.briefing_packet,
+            args.source_commit,
+            args.recorded_at,
+            previous_ledger=previous_ledger,
+        )
+        if args.ledger_out is not None:
+            if packet["shadow_ledger"] is None:
+                raise ThreeMarketShadowOperationalReadinessError(
+                    "SHADOW_APPEND_BLOCKED_MISSING_EXACT_P9_LIVE_INPUTS"
+                )
+            SHADOW.write_json_atomic(args.ledger_out, packet["shadow_ledger"])
         path, created = write_packet(packet, args.history_root)
         print(f"readiness_path={path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}")
         print(f"readiness_created={'true' if created else 'false'}")

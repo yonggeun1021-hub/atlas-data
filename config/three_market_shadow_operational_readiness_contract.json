@@ -5,22 +5,22 @@
     "capital_authorized": false,
     "order_generation_authorized": false,
     "production_authorized": false,
-    "shadow_observation_recording_authorized": false,
+    "shadow_observation_recording_authorized": true,
     "trading_authorized": false
   },
-  "contract_version": "three_market_shadow_operational_readiness/1",
+  "contract_version": "three_market_shadow_operational_readiness/2",
   "required_daily_components": [
     "UNIFIED_DECISION",
     "ENTRY_EXIT_TRIGGER_ELIGIBILITY",
     "INTRADAY_RISK_ESCALATION"
   ],
-  "schema_version": 1,
+  "schema_version": 2,
   "input_status_vocabulary": [
     "READY_VALIDATED",
     "NOT_AVAILABLE_DAILY_COMPONENT_NOT_WIRED"
   ],
   "readiness_status_vocabulary": [
-    "READY_FOR_ZERO_CAPITAL_SHADOW_APPEND",
+    "ZERO_CAPITAL_SHADOW_APPENDED",
     "BLOCKED_MISSING_EXACT_P9_LIVE_INPUTS"
   ]
 }
