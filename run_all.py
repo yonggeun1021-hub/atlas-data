@@ -1655,6 +1655,7 @@ APPROVED_TESTS = [
     #   OPPORTUNITY_STATE_UNMAPPED로 loud하게 fail-closed됨을 별도 회귀로 확인.
     #   ⛔ Shadow 편입·Stage 변경·capital/action/order/Production/trading 없음.
     "test/test_alpha_shadow_ledger.py",
+    "test/test_ai_external_analysis_shadow_evaluation.py",
     # ★ P10-11 — account-independent Crypto PAPER order simulator and
     #   append-only ledger foundation. Caller supplies every quantity, limit,
     #   fee rate, queue fraction, expiry, mark, and frozen public orderbook;
