@@ -14,8 +14,8 @@
     "trading_authorized": false
   },
   "contract_version": "paper_regime_reference_policy/v1",
-  "generated_at": "2026-09-09T07:55:54Z",
-  "generation_id": "811cb54dea28408479cd306ce6a2790b547734d5c3c8ed089ad2e2f634b2d967",
+  "generated_at": "2026-09-09T07:30:14Z",
+  "generation_id": "5e4cf20c92dde1b3e54b6c0464e0424036a78d8862b2b8d64672d5a86e3dd850",
   "markets": [
     {
       "as_of_date": "2026-09-08",
@@ -86,54 +86,54 @@
       "runtime_regime": "UNKNOWN"
     },
     {
-      "as_of_date": "2026-09-08",
+      "as_of_date": "2026-09-07",
       "axes": [
         {
           "axis": "TREND",
-          "direction": "NEGATIVE",
+          "direction": "POSITIVE",
           "observed_value": {
-            "KOSDAQ": "-1.253968",
-            "KOSPI": "-0.584242"
+            "KOSDAQ": "1.068224",
+            "KOSPI": "4.608499"
           },
-          "score": -1,
-          "summary_ko": "코스피 -0.58%, 코스닥 -1.25%로 두 지수가 모두 하락했습니다."
+          "score": 1,
+          "summary_ko": "코스피 +4.61%, 코스닥 +1.07%로 두 지수가 모두 상승했습니다."
         },
         {
           "axis": "BREADTH",
-          "direction": "NEGATIVE",
+          "direction": "NEUTRAL",
           "observed_value": {
-            "advance_fraction": "0.267269"
+            "advance_fraction": "0.475949"
           },
-          "score": -1,
-          "summary_ko": "전체 종목 중 상승 비중은 26.7%입니다."
+          "score": 0,
+          "summary_ko": "전체 종목 중 상승 비중은 47.6%입니다."
         },
         {
           "axis": "RISK_VOL",
           "direction": "NEUTRAL",
           "observed_value": {
-            "mean_absolute_move_pct": "1.923834"
+            "mean_absolute_move_pct": "1.893986"
           },
           "score": 0,
-          "summary_ko": "종목 평균 절대 등락폭은 1.92%로 보통 구간입니다."
+          "summary_ko": "종목 평균 절대 등락폭은 1.89%로 보통 구간입니다."
         },
         {
           "axis": "LIQUIDITY",
           "direction": "POSITIVE",
           "observed_value": {
-            "trading_value_change_pct": "22.260203"
+            "trading_value_change_pct": "15.023575"
           },
           "score": 1,
-          "summary_ko": "거래대금은 이전 거래일보다 +22.3% 변했습니다."
+          "summary_ko": "거래대금은 이전 거래일보다 +15.0% 변했습니다."
         },
         {
           "axis": "LEADERSHIP",
-          "direction": "NEGATIVE",
+          "direction": "POSITIVE",
           "observed_value": {
-            "positive_sectors": 9,
+            "positive_sectors": 37,
             "total": 46
           },
-          "score": -1,
-          "summary_ko": "업종 46개 중 9개가 상승했습니다."
+          "score": 1,
+          "summary_ko": "업종 46개 중 37개가 상승했습니다."
         }
       ],
       "classification_status": "PAPER_REFERENCE_CLASSIFIED",
@@ -145,10 +145,10 @@
       },
       "market": "KR",
       "paper_reference": {
-        "candidate_regime": "NEUTRAL",
-        "confidence": "0.2",
-        "explanation_ko": "좋은 신호와 약한 신호가 섞여 있습니다.",
-        "score": -2
+        "candidate_regime": "RISK_ON",
+        "confidence": "0.6",
+        "explanation_ko": "상승·확산·안정 신호가 우세합니다.",
+        "score": 3
       },
       "runtime_regime": "UNKNOWN"
     },
@@ -198,7 +198,7 @@
     }
   ],
   "mode": "PAPER_DIAGNOSTIC_NOT_RUNTIME",
-  "payload_sha256": "bc4f25c8831d6395fd33d7a7423319a9b08b963787f90ddf58d58fd6302d482e",
+  "payload_sha256": "6b0eaef34ad8126895e1d32c48f7b813117f4633e654e601fefe7f544b8bf6ee",
   "policy": {
     "path": "config/paper_regime_reference_policy_v1.json",
     "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
@@ -215,12 +215,12 @@
     {
       "market": "KR",
       "path": "data/latest_korea_market_signals.json",
-      "sha256": "f9b8f3fb2610811369e8d34f3b7a12085b0eda84bfe3d3bbed765171439e2649"
+      "sha256": "3cf742b9e5fa369fdde6e5fe19d0dc7fba0cf3fab2b3b5670f56e12b04403cc1"
     },
     {
       "market": "CRYPTO",
       "path": "data/latest_crypto_regime_refresh_status.json",
-      "sha256": "ef3498ce0af727b206537f0db2d27e01b0c982e4f7d0792becbc09d392b0b16f"
+      "sha256": "3bc95def0359259adb9d392fb2dbc32f8411a95f1797fa9a1cb77809d5e262a6"
     }
   ],
   "status": "PARTIAL_REFERENCE_AVAILABLE"

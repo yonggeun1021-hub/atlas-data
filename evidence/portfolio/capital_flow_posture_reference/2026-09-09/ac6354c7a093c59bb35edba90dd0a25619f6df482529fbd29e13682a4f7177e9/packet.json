@@ -18,10 +18,10 @@
   "cross_market_flow": {
     "actual_money_flow": "UNKNOWN",
     "actual_money_flow_reason": "COMPARABLE_DIRECT_DONOR_RECEIVER_EVIDENCE_NOT_AVAILABLE",
-    "comparable_market_count": 2,
-    "comparison_as_of_date": "2026-09-08",
-    "comparison_status": "PARTIAL_RELATIVE_STRENGTH_REFERENCE",
-    "explanation_ko": "같은 날짜의 일부 시장만 비교할 수 있어 상대 강도만 표시하고 시장 간 자금 이동은 확정하지 않습니다.",
+    "comparable_market_count": 0,
+    "comparison_as_of_date": null,
+    "comparison_status": "UNKNOWN",
+    "explanation_ko": "같은 날짜에 비교 가능한 시장이 둘보다 적어 상대 강도도 계산하지 않습니다.",
     "relative_strength_laggard": null,
     "relative_strength_leader": null,
     "required_market_count": 3
@@ -49,16 +49,16 @@
         "NATURAL"
       ],
       "counts_current_packet": false,
-      "current_streak_natural_count": 0,
-      "current_streak_observation_count": 0,
+      "current_streak_natural_count": 1,
+      "current_streak_observation_count": 1,
       "excluded_observation_modes": [
         "MANUAL",
         "RECOVERY",
         "REPLAY"
       ],
-      "first_seen": null,
-      "natural_observation_count": 0,
-      "observation_count": 0,
+      "first_seen": "2026-09-02T01:58:00Z",
+      "natural_observation_count": 6,
+      "observation_count": 6,
       "status": "RECORDED_OBSERVATION_COUNT_CONFIRMATION_UNRATIFIED"
     },
     "receiver_candidate": {
@@ -66,9 +66,9 @@
       "market": null
     },
     "transition": {
-      "current_semantic_state_sha256": "8efff90430147d3e34973429db0ec905f3fd7db81449cb51f696ceac849cd126",
+      "current_semantic_state_sha256": "d18ee65fe6f091863ba3740c60f53fd2ab59b2c754ee7682e7327ad4e0e1003e",
       "evidence_status": "LEDGER_CONSUMED",
-      "pending_type": "RECOVERY",
+      "pending_type": "UNCHANGED",
       "pending_type_status": "DERIVED_NOT_YET_RECORDED_BY_P2_COM_03",
       "previous_semantic_state": {
         "actual_money_flow": "UNKNOWN",
@@ -80,43 +80,43 @@
       "previous_semantic_state_sha256": "d18ee65fe6f091863ba3740c60f53fd2ab59b2c754ee7682e7327ad4e0e1003e",
       "recorded_type": "INVALIDATION",
       "source": "P2_COM_03_APPEND_ONLY_LEDGER",
-      "state_matches_recorded_head": false,
+      "state_matches_recorded_head": true,
       "status": "RECORDED_HISTORY_OBSERVED"
     }
   },
-  "generated_at": "2026-09-09T07:55:54Z",
-  "generation_id": "4ea5191bf74e180450f327ff9a82004993ef23e388da66898501aed07f7460c5",
+  "generated_at": "2026-09-09T06:58:48Z",
+  "generation_id": "ac6354c7a093c59bb35edba90dd0a25619f6df482529fbd29e13682a4f7177e9",
   "market_allocation_reviews": [
     {
       "as_of_date": "2026-09-08",
       "candidate_regime": "NEUTRAL",
-      "explanation_ko": "같은 날짜의 시장 점수가 같거나 우열이 뚜렷하지 않습니다.",
+      "explanation_ko": "공식 시장 신호 5개가 모두 확인될 때까지 비중 우선순위를 정하지 않습니다.",
       "market": "US",
       "regime_score": -2,
-      "review_priority": "MIXED_REFERENCE",
+      "review_priority": "WAIT_FOR_COMPLETE_REGIME",
       "target_weight_pct": null
     },
     {
-      "as_of_date": "2026-09-08",
-      "candidate_regime": "NEUTRAL",
-      "explanation_ko": "같은 날짜의 시장 점수가 같거나 우열이 뚜렷하지 않습니다.",
+      "as_of_date": "2026-09-07",
+      "candidate_regime": "RISK_ON",
+      "explanation_ko": "공식 시장 신호 5개가 모두 확인될 때까지 비중 우선순위를 정하지 않습니다.",
       "market": "KR",
-      "regime_score": -2,
-      "review_priority": "MIXED_REFERENCE",
+      "regime_score": 3,
+      "review_priority": "WAIT_FOR_COMPLETE_REGIME",
       "target_weight_pct": null
     },
     {
       "as_of_date": "2026-09-09",
       "candidate_regime": "UNKNOWN",
-      "explanation_ko": "신호 5개는 모두 확인됐지만 코인 전용 판정 규칙 검증이 끝날 때까지 비중 우선순위를 정하지 않습니다.",
+      "explanation_ko": "공식 시장 신호 5개가 모두 확인될 때까지 비중 우선순위를 정하지 않습니다.",
       "market": "CRYPTO",
       "regime_score": null,
-      "review_priority": "WAIT_FOR_CLASSIFICATION_POLICY",
+      "review_priority": "WAIT_FOR_COMPLETE_REGIME",
       "target_weight_pct": null
     }
   ],
   "mode": "PAPER_DIAGNOSTIC_NOT_ALLOCATION",
-  "payload_sha256": "9f991ed6909bf4e3e62817953ff5313d0953e3d0493e41b0c23997a19e3e25f9",
+  "payload_sha256": "1353c180ec2710b0f867b8c4ced8d7ab28ee2de51fcd875d66bb798aed669cdc",
   "policy": {
     "capital_model": {
       "cash_role": "RESIDUAL_AND_DEFENSIVE_ASSET",
@@ -133,11 +133,11 @@
   "sources": [
     {
       "contract_version": "paper_regime_reference_policy/v1",
-      "generation_id": "811cb54dea28408479cd306ce6a2790b547734d5c3c8ed089ad2e2f634b2d967",
+      "generation_id": "ccab25d7bca25033da25c29553889486ea2ba5239295acac6cd4b36e679f50cc",
       "path": "data/latest_paper_regime_reference.json",
-      "payload_sha256": "bc4f25c8831d6395fd33d7a7423319a9b08b963787f90ddf58d58fd6302d482e",
+      "payload_sha256": "5f6ca8a48b512fd43c1bec928385510b2cbdc69b4a499d6ed065ee779e394f8d",
       "schema_version": "paper_regime_reference/v2",
-      "sha256": "b9eae2802f0dedfff5e5cb5a8d96cbe732f6dae4fe3fa557e4a885fee27a9fbc",
+      "sha256": "b1a0fc79d5fcae3ee366e34a9f1399b721e19b4c64a7cde4bfedcee6dd903421",
       "source_type": "P1_PAPER_REGIME_REFERENCE_PACKET"
     },
     {
@@ -169,10 +169,10 @@
   "status": "PARTIAL_REFERENCE_AVAILABLE",
   "total_exposure_review": {
     "cash_target_pct": null,
-    "explanation_ko": "세 시장의 입력은 확인됐지만 코인 판정 규칙 검증이 남아 있어 전체 투자비중 숫자를 만들지 않습니다.",
+    "explanation_ko": "세 시장 중 판정이 끝나지 않은 곳이 있어 전체 투자비중 숫자를 만들지 않습니다.",
     "input_state": "INCOMPLETE",
     "invested_target_pct": null,
     "numeric_budget_status": "UNRATIFIED_REPLAY_REQUIRED",
-    "review": "WAIT_CLASSIFICATION_POLICY"
+    "review": "WAIT_INCOMPLETE_MARKET_SET"
   }
 }

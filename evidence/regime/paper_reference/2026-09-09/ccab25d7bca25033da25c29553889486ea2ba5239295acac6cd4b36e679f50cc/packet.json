@@ -14,8 +14,8 @@
     "trading_authorized": false
   },
   "contract_version": "paper_regime_reference_policy/v1",
-  "generated_at": "2026-09-09T07:55:54Z",
-  "generation_id": "811cb54dea28408479cd306ce6a2790b547734d5c3c8ed089ad2e2f634b2d967",
+  "generated_at": "2026-09-09T06:58:48Z",
+  "generation_id": "ccab25d7bca25033da25c29553889486ea2ba5239295acac6cd4b36e679f50cc",
   "markets": [
     {
       "as_of_date": "2026-09-08",
@@ -86,54 +86,54 @@
       "runtime_regime": "UNKNOWN"
     },
     {
-      "as_of_date": "2026-09-08",
+      "as_of_date": "2026-09-07",
       "axes": [
         {
           "axis": "TREND",
-          "direction": "NEGATIVE",
+          "direction": "POSITIVE",
           "observed_value": {
-            "KOSDAQ": "-1.253968",
-            "KOSPI": "-0.584242"
+            "KOSDAQ": "1.068224",
+            "KOSPI": "4.608499"
           },
-          "score": -1,
-          "summary_ko": "코스피 -0.58%, 코스닥 -1.25%로 두 지수가 모두 하락했습니다."
+          "score": 1,
+          "summary_ko": "코스피 +4.61%, 코스닥 +1.07%로 두 지수가 모두 상승했습니다."
         },
         {
           "axis": "BREADTH",
-          "direction": "NEGATIVE",
+          "direction": "NEUTRAL",
           "observed_value": {
-            "advance_fraction": "0.267269"
+            "advance_fraction": "0.475949"
           },
-          "score": -1,
-          "summary_ko": "전체 종목 중 상승 비중은 26.7%입니다."
+          "score": 0,
+          "summary_ko": "전체 종목 중 상승 비중은 47.6%입니다."
         },
         {
           "axis": "RISK_VOL",
           "direction": "NEUTRAL",
           "observed_value": {
-            "mean_absolute_move_pct": "1.923834"
+            "mean_absolute_move_pct": "1.893986"
           },
           "score": 0,
-          "summary_ko": "종목 평균 절대 등락폭은 1.92%로 보통 구간입니다."
+          "summary_ko": "종목 평균 절대 등락폭은 1.89%로 보통 구간입니다."
         },
         {
           "axis": "LIQUIDITY",
           "direction": "POSITIVE",
           "observed_value": {
-            "trading_value_change_pct": "22.260203"
+            "trading_value_change_pct": "15.023575"
           },
           "score": 1,
-          "summary_ko": "거래대금은 이전 거래일보다 +22.3% 변했습니다."
+          "summary_ko": "거래대금은 이전 거래일보다 +15.0% 변했습니다."
         },
         {
           "axis": "LEADERSHIP",
-          "direction": "NEGATIVE",
+          "direction": "POSITIVE",
           "observed_value": {
-            "positive_sectors": 9,
+            "positive_sectors": 37,
             "total": 46
           },
-          "score": -1,
-          "summary_ko": "업종 46개 중 9개가 상승했습니다."
+          "score": 1,
+          "summary_ko": "업종 46개 중 37개가 상승했습니다."
         }
       ],
       "classification_status": "PAPER_REFERENCE_CLASSIFIED",
@@ -145,66 +145,49 @@
       },
       "market": "KR",
       "paper_reference": {
-        "candidate_regime": "NEUTRAL",
-        "confidence": "0.2",
-        "explanation_ko": "좋은 신호와 약한 신호가 섞여 있습니다.",
-        "score": -2
+        "candidate_regime": "RISK_ON",
+        "confidence": "0.6",
+        "explanation_ko": "상승·확산·안정 신호가 우세합니다.",
+        "score": 3
       },
       "runtime_regime": "UNKNOWN"
     },
     {
       "as_of_date": "2026-09-09",
       "axes": [],
-      "classification_status": "WAIT_MARKET_NORMALIZATION_POLICY",
+      "classification_status": "WAIT_OFFICIAL_INPUT_COVERAGE",
       "coverage": {
         "defined_axes": [
           "TREND",
           "BREADTH",
           "RISK_VOL",
-          "LIQUIDITY",
+          "LIQUIDITY"
+        ],
+        "defined_count": 4,
+        "missing_axes": [
           "LEADERSHIP"
         ],
-        "defined_count": 5,
-        "missing_axes": [],
-        "ratio": "5/5",
+        "ratio": "4/5",
         "required_count": 5
       },
-      "leadership_code": "MIXED_WINDOW_LEADERSHIP",
       "market": "CRYPTO",
-      "official_validation": {
-        "classification_status": "WAIT_PIT_LEADERSHIP_HISTORY",
-        "coverage": {
-          "defined_axes": [
-            "TREND",
-            "BREADTH",
-            "RISK_VOL",
-            "LIQUIDITY"
-          ],
-          "defined_count": 4,
-          "missing_axes": [
-            "LEADERSHIP"
-          ],
-          "ratio": "4/5",
-          "required_count": 5
-        }
-      },
       "paper_reference": {
         "candidate_regime": "UNKNOWN",
         "confidence": null,
-        "explanation_ko": "오늘 리더십을 포함한 필수 신호 5개는 모두 확인됐습니다. 코인 전용 방향·점수 규칙이 확정될 때까지 Risk On/Off 판정만 보류합니다.",
+        "explanation_ko": "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다.",
         "score": null
       },
       "runtime_regime": "UNKNOWN"
     }
   ],
   "mode": "PAPER_DIAGNOSTIC_NOT_RUNTIME",
-  "payload_sha256": "bc4f25c8831d6395fd33d7a7423319a9b08b963787f90ddf58d58fd6302d482e",
+  "payload_sha256": "5f6ca8a48b512fd43c1bec928385510b2cbdc69b4a499d6ed065ee779e394f8d",
   "policy": {
     "path": "config/paper_regime_reference_policy_v1.json",
     "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
     "status": "PM_BASELINE_CANDIDATE_NOT_CIO_RATIFIED_SENSOR_POLICY"
   },
-  "render_version": "paper_reference_current_crypto/v2",
+  "render_version": "kr_trend_direction/v1",
   "schema_version": "paper_regime_reference/v2",
   "sources": [
     {
@@ -215,12 +198,12 @@
     {
       "market": "KR",
       "path": "data/latest_korea_market_signals.json",
-      "sha256": "f9b8f3fb2610811369e8d34f3b7a12085b0eda84bfe3d3bbed765171439e2649"
+      "sha256": "3cf742b9e5fa369fdde6e5fe19d0dc7fba0cf3fab2b3b5670f56e12b04403cc1"
     },
     {
       "market": "CRYPTO",
       "path": "data/latest_crypto_regime_refresh_status.json",
-      "sha256": "ef3498ce0af727b206537f0db2d27e01b0c982e4f7d0792becbc09d392b0b16f"
+      "sha256": "6dbe1c13106853ee809014ccec52db324fc4ffbdedbb9a272c7de4f75147996a"
     }
   ],
   "status": "PARTIAL_REFERENCE_AVAILABLE"
