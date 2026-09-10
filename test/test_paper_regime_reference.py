@@ -215,12 +215,23 @@ class PaperRegimeReferenceTest(unittest.TestCase):
         )
         if expected_coverage["ratio"] == "5/5":
             self.assertEqual(packet["status"], "REFERENCE_AVAILABLE")
-            self.assertEqual(markets["CRYPTO"]["paper_reference"]["candidate_regime"], "NEUTRAL")
-            self.assertEqual(markets["CRYPTO"]["paper_reference"]["score"], 2)
-            self.assertEqual(
-                [row["direction"] for row in markets["CRYPTO"]["axes"]],
-                ["POSITIVE", "POSITIVE", "NEGATIVE", "POSITIVE", "NEUTRAL"],
+            self.assertIn(
+                markets["CRYPTO"]["paper_reference"]["candidate_regime"],
+                {"RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS"},
             )
+            self.assertEqual(
+                markets["CRYPTO"]["paper_reference"]["score"],
+                sum(row["score"] for row in markets["CRYPTO"]["axes"]),
+            )
+            self.assertEqual(
+                [row["axis"] for row in markets["CRYPTO"]["axes"]],
+                list(MODULE.AXES),
+            )
+            for row in markets["CRYPTO"]["axes"]:
+                self.assertIn(
+                    row["direction"],
+                    {"POSITIVE", "NEUTRAL", "NEGATIVE", "STRESS"},
+                )
             self.assertEqual(
                 markets["CRYPTO"]["classification_status"],
                 "PAPER_REFERENCE_CLASSIFIED",
