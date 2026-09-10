@@ -1,0 +1,86 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "capital_authorized": false,
+    "final_regime_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "read_only_reference": true,
+    "trading_authorized": false
+  },
+  "automatic_refresh": {
+    "daily_capture_kst": "09:40",
+    "official_decision_recheck_minutes": 30,
+    "portal_live_poll_minutes": 5,
+    "status_rebuild_kst": [
+      "10:20",
+      "10:50"
+    ],
+    "watchdog_kst": "12:30"
+  },
+  "current_reference": {
+    "as_of_date": "2026-09-10",
+    "coverage": {
+      "defined_axes": [
+        "LEADERSHIP"
+      ],
+      "defined_count": 1,
+      "missing_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY"
+      ],
+      "ratio": "1/5",
+      "required_count": 5
+    },
+    "leadership_code": "MIXED_WINDOW_LEADERSHIP",
+    "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
+    "price_as_of_date": "2026-09-09"
+  },
+  "generated_at": "2026-09-10T01:06:33Z",
+  "generation_id": "627b0b562bc409ce86a9301e7c7fcb9ee8b1ddb0a807ad7fede882efb1087bd8",
+  "natural_history_progress": {
+    "earliest_pilot_capture_date_if_no_new_gap": "2026-09-15",
+    "earliest_primary_capture_date_if_no_new_gap": "2026-10-08",
+    "eligible_consecutive_days": 2,
+    "new_missing_or_unknown_day_delays_dates": true,
+    "pilot_remaining_days": 5,
+    "pilot_required_days": 7,
+    "primary_remaining_days": 28,
+    "primary_required_days": 30
+  },
+  "official_decision": {
+    "captured_at_utc": null,
+    "classification_status": "WAIT_OFFICIAL_DECISION_REFRESH",
+    "coverage": {
+      "defined_axes": [],
+      "defined_count": 0,
+      "missing_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "LEADERSHIP"
+      ],
+      "ratio": "0/5",
+      "required_count": 5
+    },
+    "runtime_regime": "UNKNOWN",
+    "unavailable_reason": "OFFICIAL_DECISION_REFRESH_REQUIRED"
+  },
+  "payload_sha256": "f1db1ef588e6287d62f8bbd67c51da302fc10a5335eaf8ab836581f69656f703",
+  "schema_version": "crypto_regime_refresh_status/1",
+  "sources": [
+    {
+      "kind": "CURRENT_REFERENCE",
+      "path": "data/observations/crypto_recent_reference/2026-09-10/packet.json",
+      "sha256": "02762440730fbc6be86a086f4e3338c5060b5f0f4e1db5ad744d8636c670a1f9"
+    }
+  ],
+  "status": "WAIT_OFFICIAL_DECISION_REFRESH",
+  "user_message": {
+    "detail_ko": "현재 코드와 정책으로 검증된 공식 판정이 아직 없어 WAIT로 유지합니다. 새 공식 판정이 생성되기 전에는 자본·행동·주문 권한을 열지 않습니다.",
+    "headline_ko": "오늘 참고자료 확인 · 공식 코인 판정 생성 대기"
+  }
+}
