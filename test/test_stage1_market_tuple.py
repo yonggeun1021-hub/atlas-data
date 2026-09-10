@@ -18,8 +18,13 @@ class Stage1MarketTupleTests(unittest.TestCase):
     def test_real_retained_cycle_is_stage2_ready_with_explicit_kr_staleness(self):
         packet = subject.build()
         rows = {row["market"]: row for row in packet["markets"]}
+        reference = subject.paper_regime_reference.build_reference(ROOT)
+        reference_rows = {row["market"]: row for row in reference["markets"]}
         self.assertEqual(packet["status"], "STAGE2_READY_PARTIAL_KR_SOURCE_NOT_ADVANCED")
-        self.assertEqual(rows["US"]["candidate_regime"], "NEUTRAL")
+        self.assertEqual(
+            rows["US"]["candidate_regime"],
+            reference_rows["US"]["paper_reference"]["candidate_regime"],
+        )
         self.assertEqual(rows["KR"]["market_eligibility"], "SOURCE_NOT_ADVANCED_EXPECTED_SESSION")
         self.assertEqual(rows["CRYPTO"]["candidate_regime"], "UNKNOWN")
         self.assertIsNone(rows["CRYPTO"]["score"])
