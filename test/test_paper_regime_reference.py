@@ -184,7 +184,6 @@ class PaperRegimeReferenceTest(unittest.TestCase):
     def test_current_free_inputs_make_plain_paper_reference(self):
         packet = MODULE.build_reference()
         markets = {row["market"]: row for row in packet["markets"]}
-        self.assertEqual(packet["status"], "REFERENCE_AVAILABLE")
         self.assertEqual(markets["US"]["coverage"]["ratio"], "5/5")
         self.assertIn(markets["US"]["paper_reference"]["candidate_regime"], {"RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS"})
         self.assertEqual(
@@ -197,28 +196,35 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             markets["KR"]["paper_reference"]["score"],
             sum(row["score"] for row in markets["KR"]["axes"]),
         )
-        self.assertEqual(markets["CRYPTO"]["paper_reference"]["candidate_regime"], "NEUTRAL")
-        self.assertEqual(markets["CRYPTO"]["paper_reference"]["score"], 2)
-        self.assertEqual(
-            [row["direction"] for row in markets["CRYPTO"]["axes"]],
-            ["POSITIVE", "POSITIVE", "NEGATIVE", "POSITIVE", "NEUTRAL"],
-        )
-        self.assertEqual(
-            markets["CRYPTO"]["classification_status"],
-            "PAPER_REFERENCE_CLASSIFIED",
-        )
         source = json.loads((ROOT / "data/latest_crypto_regime_refresh_status.json").read_text())
         expected_coverage = source.get("current_reference", {}).get(
             "coverage", source["official_decision"]["coverage"]
         )
         self.assertEqual(markets["CRYPTO"]["coverage"]["ratio"], expected_coverage["ratio"])
-        self.assertEqual(markets["CRYPTO"]["coverage"]["defined_count"], 5)
-        self.assertEqual(markets["CRYPTO"]["coverage"]["missing_axes"], [])
+        self.assertEqual(
+            markets["CRYPTO"]["coverage"]["defined_count"],
+            expected_coverage["defined_count"],
+        )
+        self.assertEqual(
+            markets["CRYPTO"]["coverage"]["missing_axes"],
+            expected_coverage["missing_axes"],
+        )
         self.assertEqual(
             markets["CRYPTO"]["official_validation"]["coverage"],
             source["official_decision"]["coverage"],
         )
         if expected_coverage["ratio"] == "5/5":
+            self.assertEqual(packet["status"], "REFERENCE_AVAILABLE")
+            self.assertEqual(markets["CRYPTO"]["paper_reference"]["candidate_regime"], "NEUTRAL")
+            self.assertEqual(markets["CRYPTO"]["paper_reference"]["score"], 2)
+            self.assertEqual(
+                [row["direction"] for row in markets["CRYPTO"]["axes"]],
+                ["POSITIVE", "POSITIVE", "NEGATIVE", "POSITIVE", "NEUTRAL"],
+            )
+            self.assertEqual(
+                markets["CRYPTO"]["classification_status"],
+                "PAPER_REFERENCE_CLASSIFIED",
+            )
             self.assertEqual(markets["CRYPTO"]["leadership_code"], "MIXED_WINDOW_LEADERSHIP")
             self.assertEqual(
                 markets["CRYPTO"]["mode"],
@@ -237,6 +243,24 @@ class PaperRegimeReferenceTest(unittest.TestCase):
                     "CONFIDENCE_MATCHING_AXIS_FRACTION_NOT_PROBABILITY",
                     "CURRENT_REFERENCE_NOT_PIT_REPLAY",
                 ],
+            )
+        else:
+            self.assertEqual(packet["status"], "PARTIAL_REFERENCE_AVAILABLE")
+            self.assertEqual(
+                markets["CRYPTO"]["paper_reference"]["candidate_regime"],
+                "UNKNOWN",
+            )
+            self.assertIsNone(markets["CRYPTO"]["paper_reference"]["score"])
+            self.assertEqual(markets["CRYPTO"]["axes"], [])
+            expected_status = (
+                "WAIT_OFFICIAL_DECISION_REFRESH"
+                if source["official_decision"]["classification_status"]
+                == "WAIT_OFFICIAL_DECISION_REFRESH"
+                else "WAIT_OFFICIAL_INPUT_COVERAGE"
+            )
+            self.assertEqual(
+                markets["CRYPTO"]["classification_status"],
+                expected_status,
             )
         self.assertEqual(packet["schema_version"], "paper_regime_reference/v2")
         self.assertTrue(all(row["runtime_regime"] == "UNKNOWN" for row in markets.values()))
@@ -258,7 +282,7 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             self.assertFalse(authority[key], key)
 
     def test_official_refresh_wait_is_preserved_in_combined_reference(self):
-        source = json.loads((ROOT / "data/latest_crypto_regime_refresh_status.json").read_text())
+        source = crypto_status_fixture()
         source["official_decision"]["classification_status"] = "WAIT_OFFICIAL_DECISION_REFRESH"
         source["official_decision"]["captured_at_utc"] = None
         source["official_decision"]["coverage"] = {
