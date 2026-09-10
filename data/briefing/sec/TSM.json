@@ -1,16 +1,16 @@
 {
   "generation": {
-    "generation_basis_at_utc": "2026-09-09T21:01:06+00:00",
+    "generation_basis_at_utc": "2026-09-10T21:00:59+00:00",
     "generation_contract_version": 1,
-    "generation_id": "89ed32771e1be0aa8b72d2fa355b93f82504554716743b2b271e107c590077ce"
+    "generation_id": "fe30dfbc3dc31267db3bcb0d0639b23cfe37134788fa77f854b1bc31c019b574"
   },
   "market": "SEC",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-09-09T21:01:06+00:00",
-    "collected_for_kst_date": "2026-09-10",
+    "collected_at_utc": "2026-09-10T21:00:59+00:00",
+    "collected_for_kst_date": "2026-09-11",
     "source_file": "data/latest_sec.json",
-    "source_sha256": "65c19e71549ff3e35cf343038d8891c0d3320510de5c82d93ca8396ee503741f"
+    "source_sha256": "8e9d6424ea6d40142112854bd52fe1b026a14ab23f916353563a5adde8d30cc1"
   },
   "stock": {
     "atlas_stage": "Ready",
@@ -20,6 +20,56 @@
     "entity_name": "TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD",
     "filer_profile": "foreign_private_issuer",
     "filings_recent": [
+      {
+        "accession": "0001046179-26-000658",
+        "body_capture_status": "OK",
+        "body_captured": true,
+        "content": {
+          "action": "NO_CHANGE",
+          "capture_policy": "required",
+          "content_status": "OK",
+          "discovery_status": "OK",
+          "documents": [
+            {
+              "content_bytes": 88690,
+              "content_sha256": "806a0c50fe923834ddc7dacf6f51d23d86e0f8bbf25a134a7aa72c5af84d4e7f",
+              "document_name": "tsm-revenue20260910.htm",
+              "kind": "primary",
+              "source_uri": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000658/tsm-revenue20260910.htm"
+            }
+          ],
+          "evidence_status": "PENDING",
+          "extracted": [],
+          "extractor_version": "sec_filing_content/1",
+          "interpretation_status": "UNDETERMINED",
+          "operation": "skipped",
+          "publication_status": "OK",
+          "raw_cache_policy": "permanent",
+          "reasons": [
+            "EXTRACTOR_NOT_REGISTERED"
+          ],
+          "retrieved_at_utc": "2026-09-10T21:01:13Z",
+          "rule_impact": "NONE",
+          "skip_reason": "already_captured",
+          "source": {
+            "collected_for_kst_date": "2026-09-11",
+            "observed_at_utc": "2026-09-10T21:45:54Z",
+            "run_status": "OK",
+            "source_file": "data/latest_sec_content.json",
+            "source_sha256": "e75e3db67de05b4678830fb243332e65aa05f6bab42b120628899d049247c110"
+          }
+        },
+        "date": "2026-09-10",
+        "form": "6-K",
+        "form_class": "fpi",
+        "form_family": "current_report",
+        "index_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000658/0001046179-26-000658-index.htm",
+        "item_codes": [],
+        "item_status": "not_itemized",
+        "items_detail": [],
+        "items_raw": "",
+        "url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000658/tsm-revenue20260910.htm"
+      },
       {
         "accession": "0001046179-26-000656",
         "body_capture_status": "Unimplemented — 본문·Exhibit 저장 여부는 저장비용·보존기간 결정이 선행되어야 한다",
@@ -154,26 +204,11 @@
         "items_detail": [],
         "items_raw": "",
         "url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000643/xslF345X06/wk-form4_1788948463.xml"
-      },
-      {
-        "accession": "0001046179-26-000642",
-        "body_capture_status": "Unimplemented — 본문·Exhibit 저장 여부는 저장비용·보존기간 결정이 선행되어야 한다",
-        "body_captured": false,
-        "date": "2026-09-09",
-        "form": "4",
-        "form_class": "other",
-        "form_family": "ownership",
-        "index_url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000642/0001046179-26-000642-index.htm",
-        "item_codes": [],
-        "item_status": "not_itemized",
-        "items_detail": [],
-        "items_raw": "",
-        "url": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000642/xslF345X06/wk-form4_1788948455.xml"
       }
     ],
     "fiscal_year_end": "1231",
     "form_family_counts": {
-      "current_report": 5,
+      "current_report": 4,
       "ownership": 53
     },
     "name": "TSMC",
