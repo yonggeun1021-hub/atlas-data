@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "contract_version": "rotation_state_policy_ratification/1",
+  "ledger_contract_version": "rotation_state_ledger/1",
+  "policy_schema_version": "rotation_state_policy/1",
+  "ratified_by": "CIO",
+  "ratified_at_utc": "2026-09-11T16:36:38Z",
+  "effective_from": "2026-09-11",
+  "state_vocabulary": [
+    "EMERGING",
+    "STRONG",
+    "WEAKENING"
+  ],
+  "state_by_bucket_transition": {
+    "BOTTOM_TO_BOTTOM": "WEAKENING",
+    "BOTTOM_TO_MIDDLE": "EMERGING",
+    "BOTTOM_TO_TOP": "STRONG",
+    "MIDDLE_TO_BOTTOM": "WEAKENING",
+    "MIDDLE_TO_MIDDLE": "EMERGING",
+    "MIDDLE_TO_TOP": "STRONG",
+    "TOP_TO_BOTTOM": "WEAKENING",
+    "TOP_TO_MIDDLE": "WEAKENING",
+    "TOP_TO_TOP": "STRONG"
+  },
+  "state_semantics": {
+    "STRONG": "CURRENT_BUCKET_TOP",
+    "WEAKENING": "CURRENT_BUCKET_BOTTOM_OR_TOP_TO_MIDDLE",
+    "EMERGING": "NON_WEAKENING_MIDDLE_STATE"
+  },
+  "policy_id_by_market": {
+    "US": "US.ROTATION_STATE.CIO_RATIFIED.V1",
+    "KOREA": "KOREA.ROTATION_STATE.CIO_RATIFIED.V1",
+    "CRYPTO": "CRYPTO.ROTATION_STATE.CIO_RATIFIED.V1"
+  },
+  "markets": {
+    "US": {
+      "input_rotation_contract_version": "us_capital_rotation/2",
+      "maximum_ledger_gap_days": 4,
+      "operational_assumption": null
+    },
+    "KOREA": {
+      "input_rotation_contract_version": "korea_capital_rotation/4",
+      "maximum_ledger_gap_days": 7,
+      "operational_assumption": "ONE_FULL_P2_03_PACKET_PER_KRX_TRADING_DAY_POST_CLOSE"
+    },
+    "CRYPTO": {
+      "input_rotation_contract_version": "crypto_rotation/2",
+      "maximum_ledger_gap_days": 2,
+      "operational_assumption": null
+    }
+  },
+  "korea_gap_derivation": {
+    "canonical_calendar_source": "evidence/market_calendar/krx_global_holiday/2026-09-09/capture-2026.json",
+    "canonical_calendar_year": 2026,
+    "natural_maximum_scheduled_gap_days": 6,
+    "missed_session_grace_days": 1,
+    "maximum_ledger_gap_days": 7,
+    "cron_status": "P2-03_COMBINED_WORKFLOW_WORKFLOW_DISPATCH_ONLY_NO_SCHEDULE"
+  },
+  "authority": {
+    "ratification_evidence_only": true,
+    "repository_default_state_policy": false,
+    "operational_readiness_authorized": false,
+    "cadence_readiness_authorized": false,
+    "p2_state_vocabulary_authorized": false,
+    "state_ledger_authorized": false,
+    "regime_input_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "briefing_wiring_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

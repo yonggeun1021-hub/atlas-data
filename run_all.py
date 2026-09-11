@@ -457,6 +457,20 @@ APPROVED_TESTS = [
     #   ⛔ repository default policy/live network/tracked ledger 없음 — temp only.
     "test/test_rotation_state_ledger.py",
     "test/test_rotation_state_ledger_operational_readiness.py",
+    # ★ P2-05 — CIO-ratified per-market rotation_state_policy/1 identity/
+    #   evidence (2026-09-11). Not a repository default state policy --
+    #   nothing here is auto-loaded by rotation_state_ledger.py, which stays
+    #   unchanged. build_policy() only binds the CIO-ratified 9-cell mapping/
+    #   semantics/gap to a caller-supplied, already-real upstream contract
+    #   version + rotation-policy SHA; it exposes no override parameter, so
+    #   it cannot reproduce the PR #348 self-ratification-bypass shape. Korea's
+    #   maximum_ledger_gap_days=7 is independently recomputed here from the
+    #   canonical KRX holiday capture, not just asserted. Building a policy
+    #   is not an append: state_ledger_authorized/p2_state_vocabulary_
+    #   authorized stay false until a real natural record exists, and
+    #   Regime/Candidate/Stage/briefing/Production/trading authority stay
+    #   false regardless. No schedule/cron touched.
+    "test/test_rotation_state_policy_ratification.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
     #   성장률 상승만 투명하게 기록한다. Persisted validator가 decimal 산술,
