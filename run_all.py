@@ -412,6 +412,29 @@ APPROVED_TESTS = [
     #   Breadth BLOCKED + 실 Leadership 모두 briefing에 노출, 재실행
     #   byte-identical, standalone 재검증 포함.
     "test/test_korea_capital_rotation_ledger_proof.py",
+    # ★ P2-03 — rotation-policy canonicalization-only candidate lane
+    #   (2026-09-12). Phase A of the Korea Natural Rotation Producer slice
+    #   found the only korea_capital_rotation_policy/1 anywhere is the
+    #   self-ratified REAL_ROTATION_POLICY above (ratified_by="Atlas CIO",
+    #   ratified_at_utc="2026-08-22T07:19:09Z", no external ratification
+    #   trail) with an honest all-zero taxonomy placeholder -- CIO verdict
+    #   P2_03_ROTATION_POLICY_CANONICALIZATION_REQUIRED. This module builds
+    #   five real, UNRATIFIED candidate documents instead: a real
+    #   theme_taxonomy_input/1 graph (46 real SECTOR nodes from the already-
+    #   RATIFIED config/korea_leadership_policy.json, no edges/memberships),
+    #   run through the real, unmodified rotation/theme_taxonomy.py::
+    #   build_packet() and rotation/theme_taxonomy_authority.py::
+    #   resolve_graph_authority() (honestly AUTHORITY_NOT_COMPUTABLE_
+    #   NO_AUTHORITY_RECORD -- the real registry stays 0 records, untouched,
+    #   still owned by #576), a taxonomy_binding candidate accepted by the
+    #   real korea_capital_rotation.py::_validate_binding(derived=False), and
+    #   a korea_capital_rotation_policy/1 candidate accepted by the real
+    #   _validate_policy() (effective=False, unconditionally, since
+    #   approval_status="UNRATIFIED"). No schedule/cron touched, no
+    #   production/trading/Regime/Candidate/Stage authority opened, no
+    #   full-packet automation -- this lane only canonicalizes evidence for a
+    #   future CIO ratification decision.
+    "test/test_korea_capital_rotation_policy_candidate.py",
     # ★ P2-03 — dependency-ordered Breadth->Leadership observation-pair
     #   workflow (2026-08-22, no new cron): structural YAML checks only --
     #   still workflow_dispatch-only, real `needs:` chain (Leadership job
