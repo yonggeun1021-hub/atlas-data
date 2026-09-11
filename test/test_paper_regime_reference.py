@@ -19,6 +19,17 @@ SPEC.loader.exec_module(MODULE)
 
 
 POLICY_PATH = ROOT / "config" / "paper_regime_reference_policy_v1.json"
+# The crypto leadership vocabulary the source validator admits
+# (regime/crypto_regime_refresh_status.py, CURRENT_REFERENCE_LEADERSHIP_INVALID).
+# The mutable-current smoke checks membership plus source/output equality, so a
+# legitimately different live leadership never re-pins this test.
+CRYPTO_LEADERSHIP_CODES = frozenset({
+    "BTC_LEADERSHIP",
+    "ETH_LEADERSHIP",
+    "BROAD_ALT_LEADERSHIP",
+    "NARROW_ALT_LEADERSHIP",
+    "MIXED_WINDOW_LEADERSHIP",
+})
 KR_THRESHOLD_SLOTS = (
     ("BREADTH", "positive_min"),
     ("BREADTH", "negative_max"),
@@ -236,7 +247,9 @@ class PaperRegimeReferenceTest(unittest.TestCase):
                 markets["CRYPTO"]["classification_status"],
                 "PAPER_REFERENCE_CLASSIFIED",
             )
-            self.assertEqual(markets["CRYPTO"]["leadership_code"], "MIXED_WINDOW_LEADERSHIP")
+            source_leadership = source["current_reference"]["leadership_code"]
+            self.assertIn(source_leadership, CRYPTO_LEADERSHIP_CODES)
+            self.assertEqual(markets["CRYPTO"]["leadership_code"], source_leadership)
             self.assertEqual(
                 markets["CRYPTO"]["mode"],
                 "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
@@ -275,6 +288,23 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             )
         self.assertEqual(packet["schema_version"], "paper_regime_reference/v2")
         self.assertTrue(all(row["runtime_regime"] == "UNKNOWN" for row in markets.values()))
+
+    def test_current_crypto_leadership_code_follows_the_source_for_every_allowed_code(self):
+        """The rendered leadership code is the source's, whichever allowed code it is.
+
+        Controlled counterpart of the mutable-current smoke above: the same
+        synthetic 5/5 status packet is re-signed with each admitted leadership
+        code in turn, so the assertion is proven cause-based rather than
+        pinned to whatever the repository's live pointer says today.
+        """
+        for code in sorted(CRYPTO_LEADERSHIP_CODES):
+            with self.subTest(leadership_code=code):
+                packet = crypto_status_fixture()
+                packet["current_reference"]["leadership_code"] = code
+                crypto = MODULE.build_crypto(resign_crypto(packet))
+                self.assertEqual(crypto["leadership_code"], code)
+                self.assertEqual(crypto["coverage"]["ratio"], "5/5")
+                self.assertEqual(crypto["runtime_regime"], "UNKNOWN")
 
     def test_axis_values_and_korean_explanations_are_visible(self):
         packet = MODULE.build_reference()
