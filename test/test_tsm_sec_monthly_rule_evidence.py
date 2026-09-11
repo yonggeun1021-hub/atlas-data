@@ -54,6 +54,9 @@ class TsmSecMonthlyRuleEvidenceTests(unittest.TestCase):
 
     def test_exact_latest_period_binds_both_measurements_to_both_rules(self):
         packet = self.packet()
+        source_packet, _ = MODULE._read_json(self.source_path)
+        latest_observation = MODULE._latest_observation(source_packet)
+        expected_period_end = MODULE._month_end(latest_observation["economic_period"])
         self.assertEqual(len(packet["frozen_evidence_envelopes"]), 2)
         self.assertEqual(
             {item["measurement_identity"] for item in packet["frozen_evidence_envelopes"]},
@@ -64,7 +67,7 @@ class TsmSecMonthlyRuleEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(
             {item["economic_period_end"] for item in packet["frozen_evidence_envelopes"]},
-            {"2026-07-31"},
+            {expected_period_end},
         )
         for rule_id in ("RULE-0007", "RULE-0008"):
             row = next(item for item in packet["rules"] if item["rule_id"] == rule_id)
