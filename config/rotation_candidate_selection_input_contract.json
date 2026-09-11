@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_version": "rotation_candidate_selection_input/1",
+  "output_schema_version": "rotation_candidate_selection_input_packet/1",
+  "source_contract": "rotation_discovery_briefing/4",
+  "source_output_schema_version": "rotation_discovery_briefing_packet/4",
+  "source_ledger_contract": "rotation_state_ledger/1",
+  "source_ledger_schema_version": "rotation_state_ledger_packet/1",
+  "source_section": "rotation.latest_changes",
+  "projected_source_fields": [
+    "market",
+    "scope_id",
+    "entity_id",
+    "as_of_date",
+    "structural_bucket_transition",
+    "prior_state",
+    "current_state",
+    "state_transition",
+    "record_sha256",
+    "source_packet_sha256"
+  ],
+  "closed_constants": {
+    "selection_rank": null,
+    "selected": false,
+    "candidate_eligible": false,
+    "ready_status": "NOT_EVALUATED",
+    "promotion_status": "PROMOTION_NOT_AUTHORIZED",
+    "action": null
+  },
+  "status": "ROTATION_CANDIDATE_SELECTION_INPUT_PROJECTED_NO_SELECTION_AUTHORITY",
+  "authority": {
+    "input_projection_only": true,
+    "candidate_selection_authorized": false,
+    "candidate_ranking_authorized": false,
+    "scoring_authorized": false,
+    "readiness_evaluation_authorized": false,
+    "stage_promotion_authorized": false,
+    "action_generation_authorized": false,
+    "persistence_default_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

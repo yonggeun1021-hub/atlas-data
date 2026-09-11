@@ -1415,6 +1415,18 @@ APPROVED_TESTS = [
     #   승격은 만들지 않아 new/existing candidate change는 빈 배열이다.
     #   ⛔ ranking/promotion/action/Production/trading 및 live network 없음.
     "test/test_rotation_discovery_briefing.py",
+    # ★ Rotation Stage 3 — candidate-selection **input** projection.
+    #   P8-05 briefing의 rotation.latest_changes를 순서 그대로 1:1 투영하되
+    #   selection_rank/selected/candidate_eligible/ready/promotion/action은
+    #   상수로 닫혀 있어 어떤 row도 후보 결과로 읽힐 수 없다. briefing은 스스로
+    #   재서명될 수 있으므로 source_ledger_sha256이 가리키는 exact
+    #   rotation_state_ledger packet을 함께 요구해 rotation section을 ledger에서
+    #   재파생한다 — row 추가/삭제/재배열/state·hash 변조는 counts와
+    #   packet_sha256을 다시 계산해도 거부된다. tracked output은 lexical/resolved
+    #   경로와 in-repository symlink·symlinked parent까지 replace 전에 막는다.
+    #   ⛔ ranking/selection/scoring/promotion/action/Production/trading 및
+    #      live network 없음 — synthetic packets + temp output only.
+    "test/test_rotation_candidate_selection_input.py",
     # ★ P8-06 — Action/Bear-Hedge/Portfolio briefing read model.
     #   exact P8-02/P6/P7 packet identity and SHA are presented while BUY/WATCH/
     #   REDUCE/HEDGE/EXIT/NOTHING all remain NOT_EVALUATED with action=null.
