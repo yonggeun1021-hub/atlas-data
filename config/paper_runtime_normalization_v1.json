@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "contract_version": "paper_runtime_normalization/v1",
+  "policy_status": "RATIFIED",
+  "mode": "RUNTIME_SIGNED_AXIS_NORMALIZATION_IDENTITY",
+  "decision": {
+    "identity": "CIO-P1-COM-05-NORMALIZATION-FRESHNESS-PIT-FINAL-V1-2026-09-12",
+    "status": "CIO_RATIFIED",
+    "effective_date": "2026-09-12",
+    "decision_record_path": "docs/p1_com_05_cio_final_verdict_20260912.md",
+    "decision_record_sha256": "afcc7d2a3f28f7149ff7c11fe0fb4da63b9390b987a6736b05a332e9c00a0e15"
+  },
+  "note": "This is a separate, additional ratification. It does not amend config/regime_source_owner_registry_v2.json's own CIO-GATE2-3MARKET-REGIME-SOURCE-FIRST-B-2026-09-01 decision; that registry's forbidden_promotions list (SIGNED_NORMALIZATION_RATIFICATION, TTL_OR_FRESHNESS_RATIFICATION) is unedited and still guards that narrower architecture-only decision from self-expansion. The values below are ratified verbatim, byte-identical, from the PM candidate already present in markets.US/markets.KR of config/paper_regime_reference_policy_v1.json (source_sha256 pinned below); no number here is newly invented.",
+  "source_candidate_binding": {
+    "path": "config/paper_regime_reference_policy_v1.json",
+    "contract_version": "paper_regime_reference_policy/v1",
+    "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
+    "prior_status": "PM_BASELINE_CANDIDATE_NOT_CIO_RATIFIED_SENSOR_POLICY"
+  },
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "axis_values": {
+    "POSITIVE": 1,
+    "NEUTRAL": 0,
+    "NEGATIVE": -1
+  },
+  "ratified_markets": [
+    "US",
+    "KR"
+  ],
+  "markets": {
+    "US": {
+      "source_path": "data/latest_free_market_data.json",
+      "TREND": {
+        "method": "majority_positive_20_session_returns",
+        "positive_min_fraction": "0.666667",
+        "negative_max_fraction": "0.333333"
+      },
+      "BREADTH": {
+        "method": "representative_etf_advance_fraction",
+        "positive_min": "0.55",
+        "negative_max": "0.45"
+      },
+      "RISK_VOL": {
+        "method": "fred_vix_level",
+        "positive_below": "15",
+        "neutral_below": "25",
+        "negative_below": "30",
+        "stress_min": "30"
+      },
+      "LIQUIDITY": {
+        "method": "fred_reserve_balances_and_bank_credit_change_sign",
+        "positive": "both_positive",
+        "negative": "both_negative",
+        "neutral": "mixed_or_zero"
+      },
+      "LEADERSHIP": {
+        "method": "positive_20_session_group_return_fraction",
+        "positive_min_fraction": "0.666667",
+        "negative_max_fraction": "0.333333"
+      }
+    },
+    "KR": {
+      "source_path": "data/latest_korea_market_signals.json",
+      "TREND": {
+        "method": "kospi_kosdaq_one_session_return_sign",
+        "positive": "both_positive",
+        "negative": "both_negative",
+        "neutral": "mixed_or_zero"
+      },
+      "BREADTH": {
+        "method": "combined_advance_fraction",
+        "positive_min": "0.55",
+        "negative_max": "0.45"
+      },
+      "RISK_VOL": {
+        "method": "combined_mean_absolute_stock_move_pct",
+        "positive_max": "1.5",
+        "neutral_max": "2.5",
+        "negative_max": "3.5",
+        "stress_above": "3.5"
+      },
+      "LIQUIDITY": {
+        "method": "combined_trading_value_change_pct",
+        "positive_min": "5",
+        "negative_max": "-5"
+      },
+      "LEADERSHIP": {
+        "method": "positive_sector_return_fraction",
+        "positive_min": "0.60",
+        "negative_max": "0.40"
+      }
+    }
+  },
+  "unratified_markets": {
+    "CRYPTO": {
+      "signed_normalization_policy_status": "UNRATIFIED_ABSENT",
+      "reason": "CIO_DECLINED_2026-09-12",
+      "regime": "UNKNOWN"
+    }
+  },
+  "missing_axis_or_invalid_axis_rule": "MISSING_INVALID_OR_STALE_REQUIRED_AXIS_IS_IMMEDIATE_UNKNOWN",
+  "authority": {
+    "normalization_identity_ratified": true,
+    "runtime_classification_authorized": false,
+    "runtime_binding_authorized": false,
+    "regime_result_ratification_authorized": false,
+    "pit_replay_acceptance_authorized": false,
+    "threshold_override_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

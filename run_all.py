@@ -992,6 +992,38 @@ APPROVED_TESTS = [
     #   natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_deterministic_replay_evidence.py",
+    # P1-COM-05 CIO final verdict 2026-09-12 (docs/p1_com_05_cio_final_verdict_
+    #   20260912.md): G4 ratified as source-frequency SEMANTIC freshness, not a
+    #   numeric TTL. Session-based axes (US TREND/BREADTH/LEADERSHIP; all five
+    #   KR axes) require an exact match to the latest officially completed
+    #   session, immediate UNKNOWN/SOURCE_NOT_ADVANCED_EXPECTED_SESSION
+    #   otherwise, no carry/substitution. Release-based axes (US RISK_VOL=
+    #   VIXCLS daily, LIQUIDITY=WRESBAL/TOTBKCR weekly) require the latest
+    #   successfully fetched, hash-retained publication; an unchanged weekly
+    #   value is a normal fresh outcome. The KR 18:00 KST usability gate is
+    #   reused, hash-bound to the live config/korea_leadership_policy.json,
+    #   never re-declared. No numeric_ttl_seconds value exists anywhere in
+    #   this policy. No runtime/action/order/capital/production/trading
+    #   authority is granted.
+    "test/test_regime_semantic_freshness.py",
+    # P1-COM-05 CIO final verdict 2026-09-12: ratifies PAPER_RUNTIME_
+    #   NORMALIZATION_V1 (US/KR signed-axis normalization identity, byte-
+    #   identical to the pre-existing PM candidate in
+    #   config/paper_regime_reference_policy_v1.json; Crypto stays
+    #   unratified/UNKNOWN) and a market-scoped G8 PIT acceptance contract
+    #   independent per market (US/KR/CRYPTO) that is separate from, and does
+    #   not weaken, the existing three-market regime_replay_harness/v1. All
+    #   classification/hysteresis is the exact, unmodified
+    #   regime.decision_authority.replay_common_v1 reuse. A caller-supplied
+    #   sequence earns zero credit unless it byte-matches the real
+    #   regime.us_historical_replay_population/
+    #   regime.kr_historical_replay_population output provenance; no episode
+    #   date is ever selected by this module. Initial, and current committed,
+    #   status for every market is NOT_ACCEPTED
+    #   (data/latest_market_scoped_pit_acceptance.json). runtime_decision_
+    #   available and every action/order/capital/production/trading authority
+    #   stay false.
+    "test/test_market_scoped_pit_acceptance.py",
     # Current-reference 5/5 and official PIT-history coverage remain separate.
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
