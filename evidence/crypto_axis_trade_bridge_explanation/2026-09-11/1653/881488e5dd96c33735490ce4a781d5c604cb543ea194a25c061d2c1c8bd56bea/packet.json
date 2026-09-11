@@ -1,0 +1,1168 @@
+{
+  "aggregate_policy": {
+    "authorized_regimes": [
+      "UNKNOWN"
+    ],
+    "regime": "UNKNOWN",
+    "status": "UNRATIFIED"
+  },
+  "authority": {
+    "action_authorized": false,
+    "broker_submission_authorized": false,
+    "buy_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exchange_order_authorized": false,
+    "exit_action_authorized": false,
+    "market_judgment_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "stage_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "crypto_axis_trade_bridge_explanation/1",
+  "exit_priority_ladder": [
+    {
+      "category": "HARD_EXIT",
+      "label": "하드 청산(최우선)",
+      "rank": 1
+    },
+    {
+      "category": "SECURITY_LIQUIDITY",
+      "label": "종목 안전성·유동성",
+      "rank": 2
+    },
+    {
+      "category": "RISK_REGIME",
+      "label": "위험·국면",
+      "rank": 3
+    },
+    {
+      "category": "TREND",
+      "label": "추세",
+      "rank": 4
+    },
+    {
+      "category": "PROFIT_TRAIL",
+      "label": "이익 보전",
+      "rank": 5
+    },
+    {
+      "category": "TIME_REVIEW",
+      "label": "기간 경과 검토",
+      "rank": 6
+    }
+  ],
+  "five_axis_explained": [
+    {
+      "available_at": null,
+      "axis": "TREND",
+      "axis_label": "추세",
+      "entry_consumers": [
+        "P5-08_TREND"
+      ],
+      "exit_consumers": [
+        "P7-13_TREND"
+      ],
+      "is_hold_cause": true,
+      "observation_date": null,
+      "status": "UNDEFINED",
+      "status_label": "미확보",
+      "text": "추세(TREND) 축이 미확보라 이 종목의 신규 진입이 보류된다.",
+      "warnings": [
+        "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+      ]
+    },
+    {
+      "available_at": null,
+      "axis": "RISK_VOL",
+      "axis_label": "위험·변동성",
+      "entry_consumers": [
+        "P5-09_REGIME_RISK_CONTEXT"
+      ],
+      "exit_consumers": [
+        "P7-13_RISK_REGIME"
+      ],
+      "is_hold_cause": true,
+      "observation_date": null,
+      "status": "UNDEFINED",
+      "status_label": "미확보",
+      "text": "위험·변동성(RISK_VOL) 축이 미확보라 이 종목의 신규 진입이 보류된다.",
+      "warnings": [
+        "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+      ]
+    },
+    {
+      "available_at": null,
+      "axis": "LIQUIDITY",
+      "axis_label": "유동성",
+      "entry_consumers": [
+        "P5-08_LIQUIDITY",
+        "P5-09_BLOCKER_FRESHNESS"
+      ],
+      "exit_consumers": [
+        "P7-13_SECURITY_LIQUIDITY"
+      ],
+      "is_hold_cause": true,
+      "observation_date": null,
+      "status": "UNDEFINED",
+      "status_label": "미확보",
+      "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다.",
+      "warnings": [
+        "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+      ]
+    },
+    {
+      "available_at": null,
+      "axis": "BREADTH",
+      "axis_label": "시장 폭",
+      "entry_consumers": [
+        "P1-CR-08_AGGREGATE_REGIME"
+      ],
+      "exit_consumers": [
+        "P7-13_RISK_REGIME"
+      ],
+      "is_hold_cause": true,
+      "observation_date": null,
+      "status": "UNDEFINED",
+      "status_label": "미확보",
+      "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다.",
+      "warnings": [
+        "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+      ]
+    },
+    {
+      "available_at": null,
+      "axis": "LEADERSHIP",
+      "axis_label": "주도력",
+      "entry_consumers": [
+        "P5-08_RELATIVE_STRENGTH",
+        "P1-CR-08_AGGREGATE_REGIME"
+      ],
+      "exit_consumers": [
+        "P7-13_RISK_REGIME"
+      ],
+      "is_hold_cause": true,
+      "observation_date": null,
+      "status": "UNDEFINED",
+      "status_label": "미확보",
+      "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다.",
+      "warnings": [
+        "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-11T16:53:30Z",
+  "mode": "PAPER_REVIEW_ONLY",
+  "operational_date_kst": "2026-09-12",
+  "payload_sha256": "9656682c6b924d145aeecabd2b396029258db4973e736c700398ffa79244954d",
+  "schema_version": "crypto_axis_trade_bridge_explanation_packet/1",
+  "source_bridge_contract_version": "crypto_axis_trade_bridge/1",
+  "source_bridge_sha256": "5a71628ee3242843262957293ede532c94d623aca631c6b57263043b018e3aa1",
+  "source_capture_date": "2026-09-11",
+  "source_capture_hhmm": "1653",
+  "source_decision_sha256": "1355c9f5ac36fef06861771be5a22d37aa9176f5ec711dd8f31721cc1dc6aee4",
+  "source_generation_id": "881488e5dd96c33735490ce4a781d5c604cb543ea194a25c061d2c1c8bd56bea",
+  "stages": [
+    {
+      "empty_reason": null,
+      "kind": "ENTRY",
+      "label": "매수대기",
+      "member_count": 7,
+      "members": [
+        "KRW-BTC",
+        "KRW-ETH",
+        "KRW-SHIB",
+        "KRW-SOL",
+        "KRW-SUI",
+        "KRW-WLD",
+        "KRW-XRP"
+      ],
+      "source_entry_state": "WAIT",
+      "stage_id": "ENTRY_WAIT"
+    },
+    {
+      "empty_reason": null,
+      "kind": "ENTRY",
+      "label": "진입 차단",
+      "member_count": 1,
+      "members": [
+        "KRW-LINK"
+      ],
+      "source_entry_state": "BLOCKED",
+      "stage_id": "ENTRY_BLOCKED"
+    },
+    {
+      "empty_reason": {
+        "code": "AGGREGATE_POLICY_UNRATIFIED",
+        "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+      },
+      "kind": "ENTRY",
+      "label": "진입검토",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": null,
+      "stage_id": "ENTRY_REVIEW"
+    },
+    {
+      "empty_reason": {
+        "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+      },
+      "kind": "POSITION",
+      "label": "보유",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": null,
+      "stage_id": "HOLDING"
+    },
+    {
+      "empty_reason": {
+        "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+      },
+      "kind": "POSITION",
+      "label": "축소",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": null,
+      "stage_id": "REDUCE"
+    },
+    {
+      "empty_reason": {
+        "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+      },
+      "kind": "POSITION",
+      "label": "청산검토",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": null,
+      "stage_id": "EXIT_REVIEW"
+    }
+  ],
+  "summary": {
+    "aggregate_policy_status": "UNRATIFIED",
+    "axis_defined_count": 0,
+    "axis_hold_cause_count": 5,
+    "axis_required_count": 5,
+    "entry_blocked_count": 1,
+    "entry_wait_count": 7,
+    "position_stage_member_count": 0,
+    "stage_member_counts": {
+      "ENTRY_BLOCKED": 1,
+      "ENTRY_REVIEW": 0,
+      "ENTRY_WAIT": 7,
+      "EXIT_REVIEW": 0,
+      "HOLDING": 0,
+      "REDUCE": 0
+    },
+    "symbol_count": 8
+  },
+  "symbols": [
+    {
+      "axis_holds": [
+        {
+          "axis": "TREND",
+          "axis_label": "추세",
+          "status": "UNDEFINED",
+          "text": "추세(TREND) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "axis_label": "위험·변동성",
+          "status": "UNDEFINED",
+          "text": "위험·변동성(RISK_VOL) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "axis_label": "유동성",
+          "status": "UNDEFINED",
+          "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "BREADTH",
+          "axis_label": "시장 폭",
+          "status": "UNDEFINED",
+          "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "axis_label": "주도력",
+          "status": "UNDEFINED",
+          "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        }
+      ],
+      "canonical_asset_id": "BTC",
+      "entry_label": "매수대기",
+      "entry_reason_codes": [
+        "UPSTREAM_STATE:WATCH",
+        "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+        "AGGREGATE_POLICY_UNRATIFIED"
+      ],
+      "entry_reason_text": [
+        {
+          "code": "UPSTREAM_STATE:WATCH",
+          "text": "상류 P5-08/P5-09 판정 상태는 WATCH이다."
+        },
+        {
+          "code": "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "text": "공식 5개 축 가운데 TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP이(가) 아직 미확보라 신규 진입이 보류된다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        }
+      ],
+      "entry_state": "WAIT",
+      "exit_label": "가상 체결 전이라 청산 단계가 아직 해당되지 않음",
+      "exit_ladder": [
+        {
+          "category": "HARD_EXIT",
+          "label": "하드 청산(최우선)",
+          "rank": 1
+        },
+        {
+          "category": "SECURITY_LIQUIDITY",
+          "label": "종목 안전성·유동성",
+          "rank": 2
+        },
+        {
+          "category": "RISK_REGIME",
+          "label": "위험·국면",
+          "rank": 3
+        },
+        {
+          "category": "TREND",
+          "label": "추세",
+          "rank": 4
+        },
+        {
+          "category": "PROFIT_TRAIL",
+          "label": "이익 보전",
+          "rank": 5
+        },
+        {
+          "category": "TIME_REVIEW",
+          "label": "기간 경과 검토",
+          "rank": 6
+        }
+      ],
+      "exit_reason_codes": [
+        "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "AGGREGATE_POLICY_UNRATIFIED",
+        "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+      ],
+      "exit_reason_text": [
+        {
+          "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        },
+        {
+          "code": "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED",
+          "text": "가상 체결 이후 청산은 기존 P7-13 관리자가 담당하며 하드 청산·안전성/유동성 우선순위가 그대로 유지된다."
+        }
+      ],
+      "exit_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+      "market": "KRW-BTC",
+      "stage_id": "ENTRY_WAIT",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "axis_holds": [
+        {
+          "axis": "TREND",
+          "axis_label": "추세",
+          "status": "UNDEFINED",
+          "text": "추세(TREND) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "axis_label": "위험·변동성",
+          "status": "UNDEFINED",
+          "text": "위험·변동성(RISK_VOL) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "axis_label": "유동성",
+          "status": "UNDEFINED",
+          "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "BREADTH",
+          "axis_label": "시장 폭",
+          "status": "UNDEFINED",
+          "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "axis_label": "주도력",
+          "status": "UNDEFINED",
+          "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        }
+      ],
+      "canonical_asset_id": "ETH",
+      "entry_label": "매수대기",
+      "entry_reason_codes": [
+        "UPSTREAM_STATE:WATCH",
+        "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+        "AGGREGATE_POLICY_UNRATIFIED"
+      ],
+      "entry_reason_text": [
+        {
+          "code": "UPSTREAM_STATE:WATCH",
+          "text": "상류 P5-08/P5-09 판정 상태는 WATCH이다."
+        },
+        {
+          "code": "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "text": "공식 5개 축 가운데 TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP이(가) 아직 미확보라 신규 진입이 보류된다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        }
+      ],
+      "entry_state": "WAIT",
+      "exit_label": "가상 체결 전이라 청산 단계가 아직 해당되지 않음",
+      "exit_ladder": [
+        {
+          "category": "HARD_EXIT",
+          "label": "하드 청산(최우선)",
+          "rank": 1
+        },
+        {
+          "category": "SECURITY_LIQUIDITY",
+          "label": "종목 안전성·유동성",
+          "rank": 2
+        },
+        {
+          "category": "RISK_REGIME",
+          "label": "위험·국면",
+          "rank": 3
+        },
+        {
+          "category": "TREND",
+          "label": "추세",
+          "rank": 4
+        },
+        {
+          "category": "PROFIT_TRAIL",
+          "label": "이익 보전",
+          "rank": 5
+        },
+        {
+          "category": "TIME_REVIEW",
+          "label": "기간 경과 검토",
+          "rank": 6
+        }
+      ],
+      "exit_reason_codes": [
+        "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "AGGREGATE_POLICY_UNRATIFIED",
+        "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+      ],
+      "exit_reason_text": [
+        {
+          "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        },
+        {
+          "code": "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED",
+          "text": "가상 체결 이후 청산은 기존 P7-13 관리자가 담당하며 하드 청산·안전성/유동성 우선순위가 그대로 유지된다."
+        }
+      ],
+      "exit_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+      "market": "KRW-ETH",
+      "stage_id": "ENTRY_WAIT",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "axis_holds": [
+        {
+          "axis": "TREND",
+          "axis_label": "추세",
+          "status": "UNDEFINED",
+          "text": "추세(TREND) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "axis_label": "위험·변동성",
+          "status": "UNDEFINED",
+          "text": "위험·변동성(RISK_VOL) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "axis_label": "유동성",
+          "status": "UNDEFINED",
+          "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "BREADTH",
+          "axis_label": "시장 폭",
+          "status": "UNDEFINED",
+          "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "axis_label": "주도력",
+          "status": "UNDEFINED",
+          "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        }
+      ],
+      "canonical_asset_id": "LINK",
+      "entry_label": "진입 차단",
+      "entry_reason_codes": [
+        "UPSTREAM_STATE:BLOCKED",
+        "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+        "AGGREGATE_POLICY_UNRATIFIED"
+      ],
+      "entry_reason_text": [
+        {
+          "code": "UPSTREAM_STATE:BLOCKED",
+          "text": "상류 P5-08/P5-09 판정 상태는 BLOCKED이다."
+        },
+        {
+          "code": "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "text": "공식 5개 축 가운데 TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP이(가) 아직 미확보라 신규 진입이 보류된다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        }
+      ],
+      "entry_state": "BLOCKED",
+      "exit_label": "가상 체결 전이라 청산 단계가 아직 해당되지 않음",
+      "exit_ladder": [
+        {
+          "category": "HARD_EXIT",
+          "label": "하드 청산(최우선)",
+          "rank": 1
+        },
+        {
+          "category": "SECURITY_LIQUIDITY",
+          "label": "종목 안전성·유동성",
+          "rank": 2
+        },
+        {
+          "category": "RISK_REGIME",
+          "label": "위험·국면",
+          "rank": 3
+        },
+        {
+          "category": "TREND",
+          "label": "추세",
+          "rank": 4
+        },
+        {
+          "category": "PROFIT_TRAIL",
+          "label": "이익 보전",
+          "rank": 5
+        },
+        {
+          "category": "TIME_REVIEW",
+          "label": "기간 경과 검토",
+          "rank": 6
+        }
+      ],
+      "exit_reason_codes": [
+        "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "AGGREGATE_POLICY_UNRATIFIED",
+        "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+      ],
+      "exit_reason_text": [
+        {
+          "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        },
+        {
+          "code": "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED",
+          "text": "가상 체결 이후 청산은 기존 P7-13 관리자가 담당하며 하드 청산·안전성/유동성 우선순위가 그대로 유지된다."
+        }
+      ],
+      "exit_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+      "market": "KRW-LINK",
+      "stage_id": "ENTRY_BLOCKED",
+      "upstream_reason": "CRITERIA_FAILED:MATERIAL_BLOCKER",
+      "upstream_state": "BLOCKED"
+    },
+    {
+      "axis_holds": [
+        {
+          "axis": "TREND",
+          "axis_label": "추세",
+          "status": "UNDEFINED",
+          "text": "추세(TREND) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "axis_label": "위험·변동성",
+          "status": "UNDEFINED",
+          "text": "위험·변동성(RISK_VOL) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "axis_label": "유동성",
+          "status": "UNDEFINED",
+          "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "BREADTH",
+          "axis_label": "시장 폭",
+          "status": "UNDEFINED",
+          "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "axis_label": "주도력",
+          "status": "UNDEFINED",
+          "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        }
+      ],
+      "canonical_asset_id": "SHIB",
+      "entry_label": "매수대기",
+      "entry_reason_codes": [
+        "UPSTREAM_STATE:WATCH",
+        "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+        "AGGREGATE_POLICY_UNRATIFIED"
+      ],
+      "entry_reason_text": [
+        {
+          "code": "UPSTREAM_STATE:WATCH",
+          "text": "상류 P5-08/P5-09 판정 상태는 WATCH이다."
+        },
+        {
+          "code": "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "text": "공식 5개 축 가운데 TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP이(가) 아직 미확보라 신규 진입이 보류된다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        }
+      ],
+      "entry_state": "WAIT",
+      "exit_label": "가상 체결 전이라 청산 단계가 아직 해당되지 않음",
+      "exit_ladder": [
+        {
+          "category": "HARD_EXIT",
+          "label": "하드 청산(최우선)",
+          "rank": 1
+        },
+        {
+          "category": "SECURITY_LIQUIDITY",
+          "label": "종목 안전성·유동성",
+          "rank": 2
+        },
+        {
+          "category": "RISK_REGIME",
+          "label": "위험·국면",
+          "rank": 3
+        },
+        {
+          "category": "TREND",
+          "label": "추세",
+          "rank": 4
+        },
+        {
+          "category": "PROFIT_TRAIL",
+          "label": "이익 보전",
+          "rank": 5
+        },
+        {
+          "category": "TIME_REVIEW",
+          "label": "기간 경과 검토",
+          "rank": 6
+        }
+      ],
+      "exit_reason_codes": [
+        "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "AGGREGATE_POLICY_UNRATIFIED",
+        "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+      ],
+      "exit_reason_text": [
+        {
+          "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        },
+        {
+          "code": "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED",
+          "text": "가상 체결 이후 청산은 기존 P7-13 관리자가 담당하며 하드 청산·안전성/유동성 우선순위가 그대로 유지된다."
+        }
+      ],
+      "exit_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+      "market": "KRW-SHIB",
+      "stage_id": "ENTRY_WAIT",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "axis_holds": [
+        {
+          "axis": "TREND",
+          "axis_label": "추세",
+          "status": "UNDEFINED",
+          "text": "추세(TREND) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "axis_label": "위험·변동성",
+          "status": "UNDEFINED",
+          "text": "위험·변동성(RISK_VOL) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "axis_label": "유동성",
+          "status": "UNDEFINED",
+          "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "BREADTH",
+          "axis_label": "시장 폭",
+          "status": "UNDEFINED",
+          "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "axis_label": "주도력",
+          "status": "UNDEFINED",
+          "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        }
+      ],
+      "canonical_asset_id": "SOL",
+      "entry_label": "매수대기",
+      "entry_reason_codes": [
+        "UPSTREAM_STATE:WATCH",
+        "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+        "AGGREGATE_POLICY_UNRATIFIED"
+      ],
+      "entry_reason_text": [
+        {
+          "code": "UPSTREAM_STATE:WATCH",
+          "text": "상류 P5-08/P5-09 판정 상태는 WATCH이다."
+        },
+        {
+          "code": "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "text": "공식 5개 축 가운데 TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP이(가) 아직 미확보라 신규 진입이 보류된다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        }
+      ],
+      "entry_state": "WAIT",
+      "exit_label": "가상 체결 전이라 청산 단계가 아직 해당되지 않음",
+      "exit_ladder": [
+        {
+          "category": "HARD_EXIT",
+          "label": "하드 청산(최우선)",
+          "rank": 1
+        },
+        {
+          "category": "SECURITY_LIQUIDITY",
+          "label": "종목 안전성·유동성",
+          "rank": 2
+        },
+        {
+          "category": "RISK_REGIME",
+          "label": "위험·국면",
+          "rank": 3
+        },
+        {
+          "category": "TREND",
+          "label": "추세",
+          "rank": 4
+        },
+        {
+          "category": "PROFIT_TRAIL",
+          "label": "이익 보전",
+          "rank": 5
+        },
+        {
+          "category": "TIME_REVIEW",
+          "label": "기간 경과 검토",
+          "rank": 6
+        }
+      ],
+      "exit_reason_codes": [
+        "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "AGGREGATE_POLICY_UNRATIFIED",
+        "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+      ],
+      "exit_reason_text": [
+        {
+          "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        },
+        {
+          "code": "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED",
+          "text": "가상 체결 이후 청산은 기존 P7-13 관리자가 담당하며 하드 청산·안전성/유동성 우선순위가 그대로 유지된다."
+        }
+      ],
+      "exit_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+      "market": "KRW-SOL",
+      "stage_id": "ENTRY_WAIT",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "axis_holds": [
+        {
+          "axis": "TREND",
+          "axis_label": "추세",
+          "status": "UNDEFINED",
+          "text": "추세(TREND) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "axis_label": "위험·변동성",
+          "status": "UNDEFINED",
+          "text": "위험·변동성(RISK_VOL) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "axis_label": "유동성",
+          "status": "UNDEFINED",
+          "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "BREADTH",
+          "axis_label": "시장 폭",
+          "status": "UNDEFINED",
+          "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "axis_label": "주도력",
+          "status": "UNDEFINED",
+          "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        }
+      ],
+      "canonical_asset_id": "SUI",
+      "entry_label": "매수대기",
+      "entry_reason_codes": [
+        "UPSTREAM_STATE:WATCH",
+        "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+        "AGGREGATE_POLICY_UNRATIFIED"
+      ],
+      "entry_reason_text": [
+        {
+          "code": "UPSTREAM_STATE:WATCH",
+          "text": "상류 P5-08/P5-09 판정 상태는 WATCH이다."
+        },
+        {
+          "code": "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "text": "공식 5개 축 가운데 TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP이(가) 아직 미확보라 신규 진입이 보류된다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        }
+      ],
+      "entry_state": "WAIT",
+      "exit_label": "가상 체결 전이라 청산 단계가 아직 해당되지 않음",
+      "exit_ladder": [
+        {
+          "category": "HARD_EXIT",
+          "label": "하드 청산(최우선)",
+          "rank": 1
+        },
+        {
+          "category": "SECURITY_LIQUIDITY",
+          "label": "종목 안전성·유동성",
+          "rank": 2
+        },
+        {
+          "category": "RISK_REGIME",
+          "label": "위험·국면",
+          "rank": 3
+        },
+        {
+          "category": "TREND",
+          "label": "추세",
+          "rank": 4
+        },
+        {
+          "category": "PROFIT_TRAIL",
+          "label": "이익 보전",
+          "rank": 5
+        },
+        {
+          "category": "TIME_REVIEW",
+          "label": "기간 경과 검토",
+          "rank": 6
+        }
+      ],
+      "exit_reason_codes": [
+        "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "AGGREGATE_POLICY_UNRATIFIED",
+        "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+      ],
+      "exit_reason_text": [
+        {
+          "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        },
+        {
+          "code": "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED",
+          "text": "가상 체결 이후 청산은 기존 P7-13 관리자가 담당하며 하드 청산·안전성/유동성 우선순위가 그대로 유지된다."
+        }
+      ],
+      "exit_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+      "market": "KRW-SUI",
+      "stage_id": "ENTRY_WAIT",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "axis_holds": [
+        {
+          "axis": "TREND",
+          "axis_label": "추세",
+          "status": "UNDEFINED",
+          "text": "추세(TREND) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "axis_label": "위험·변동성",
+          "status": "UNDEFINED",
+          "text": "위험·변동성(RISK_VOL) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "axis_label": "유동성",
+          "status": "UNDEFINED",
+          "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "BREADTH",
+          "axis_label": "시장 폭",
+          "status": "UNDEFINED",
+          "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "axis_label": "주도력",
+          "status": "UNDEFINED",
+          "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        }
+      ],
+      "canonical_asset_id": "WLD",
+      "entry_label": "매수대기",
+      "entry_reason_codes": [
+        "UPSTREAM_STATE:WATCH",
+        "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+        "AGGREGATE_POLICY_UNRATIFIED"
+      ],
+      "entry_reason_text": [
+        {
+          "code": "UPSTREAM_STATE:WATCH",
+          "text": "상류 P5-08/P5-09 판정 상태는 WATCH이다."
+        },
+        {
+          "code": "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "text": "공식 5개 축 가운데 TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP이(가) 아직 미확보라 신규 진입이 보류된다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        }
+      ],
+      "entry_state": "WAIT",
+      "exit_label": "가상 체결 전이라 청산 단계가 아직 해당되지 않음",
+      "exit_ladder": [
+        {
+          "category": "HARD_EXIT",
+          "label": "하드 청산(최우선)",
+          "rank": 1
+        },
+        {
+          "category": "SECURITY_LIQUIDITY",
+          "label": "종목 안전성·유동성",
+          "rank": 2
+        },
+        {
+          "category": "RISK_REGIME",
+          "label": "위험·국면",
+          "rank": 3
+        },
+        {
+          "category": "TREND",
+          "label": "추세",
+          "rank": 4
+        },
+        {
+          "category": "PROFIT_TRAIL",
+          "label": "이익 보전",
+          "rank": 5
+        },
+        {
+          "category": "TIME_REVIEW",
+          "label": "기간 경과 검토",
+          "rank": 6
+        }
+      ],
+      "exit_reason_codes": [
+        "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "AGGREGATE_POLICY_UNRATIFIED",
+        "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+      ],
+      "exit_reason_text": [
+        {
+          "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        },
+        {
+          "code": "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED",
+          "text": "가상 체결 이후 청산은 기존 P7-13 관리자가 담당하며 하드 청산·안전성/유동성 우선순위가 그대로 유지된다."
+        }
+      ],
+      "exit_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+      "market": "KRW-WLD",
+      "stage_id": "ENTRY_WAIT",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    },
+    {
+      "axis_holds": [
+        {
+          "axis": "TREND",
+          "axis_label": "추세",
+          "status": "UNDEFINED",
+          "text": "추세(TREND) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "axis_label": "위험·변동성",
+          "status": "UNDEFINED",
+          "text": "위험·변동성(RISK_VOL) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "axis_label": "유동성",
+          "status": "UNDEFINED",
+          "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "BREADTH",
+          "axis_label": "시장 폭",
+          "status": "UNDEFINED",
+          "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "axis_label": "주도력",
+          "status": "UNDEFINED",
+          "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다."
+        }
+      ],
+      "canonical_asset_id": "XRP",
+      "entry_label": "매수대기",
+      "entry_reason_codes": [
+        "UPSTREAM_STATE:WATCH",
+        "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+        "AGGREGATE_POLICY_UNRATIFIED"
+      ],
+      "entry_reason_text": [
+        {
+          "code": "UPSTREAM_STATE:WATCH",
+          "text": "상류 P5-08/P5-09 판정 상태는 WATCH이다."
+        },
+        {
+          "code": "OFFICIAL_AXES_INCOMPLETE:TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP",
+          "text": "공식 5개 축 가운데 TREND,RISK_VOL,LIQUIDITY,BREADTH,LEADERSHIP이(가) 아직 미확보라 신규 진입이 보류된다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        }
+      ],
+      "entry_state": "WAIT",
+      "exit_label": "가상 체결 전이라 청산 단계가 아직 해당되지 않음",
+      "exit_ladder": [
+        {
+          "category": "HARD_EXIT",
+          "label": "하드 청산(최우선)",
+          "rank": 1
+        },
+        {
+          "category": "SECURITY_LIQUIDITY",
+          "label": "종목 안전성·유동성",
+          "rank": 2
+        },
+        {
+          "category": "RISK_REGIME",
+          "label": "위험·국면",
+          "rank": 3
+        },
+        {
+          "category": "TREND",
+          "label": "추세",
+          "rank": 4
+        },
+        {
+          "category": "PROFIT_TRAIL",
+          "label": "이익 보전",
+          "rank": 5
+        },
+        {
+          "category": "TIME_REVIEW",
+          "label": "기간 경과 검토",
+          "rank": 6
+        }
+      ],
+      "exit_reason_codes": [
+        "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+        "AGGREGATE_POLICY_UNRATIFIED",
+        "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED"
+      ],
+      "exit_reason_text": [
+        {
+          "code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET",
+          "text": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다."
+        },
+        {
+          "code": "AGGREGATE_POLICY_UNRATIFIED",
+          "text": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다."
+        },
+        {
+          "code": "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED",
+          "text": "가상 체결 이후 청산은 기존 P7-13 관리자가 담당하며 하드 청산·안전성/유동성 우선순위가 그대로 유지된다."
+        }
+      ],
+      "exit_state": "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL",
+      "market": "KRW-XRP",
+      "stage_id": "ENTRY_WAIT",
+      "upstream_reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+      "upstream_state": "WATCH"
+    }
+  ]
+}
