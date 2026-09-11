@@ -1,0 +1,108 @@
+{
+  "authority": {
+    "action_generation_authorized": false,
+    "candidate_promotion_authorized": false,
+    "event_type_inference_authorized": false,
+    "importance_classification_authorized": false,
+    "interpretation_authorized": false,
+    "notification_authorized": false,
+    "observation_recording_only": true,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "decision_at": "2026-09-10T21:01:12Z",
+  "lineage": {
+    "content_contract_version": "dart_filing_content/1",
+    "content_run_path": "data/latest_dart_content.json",
+    "content_run_sha256": "daa94aaddda5bfdd71421badfeda9c09663e1971a2d06514c0547ec0fe324d4d",
+    "source_path": "data/latest_dart.json",
+    "source_sha256": "e79531594eec8b12421de6319ac79798807d399dd25e8426b06eb5aec9d97adc"
+  },
+  "observations": [
+    {
+      "blocked_reasons": [
+        "DART_EVENT_TYPE_INFERENCE_UNRATIFIED",
+        "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED",
+        "EVENT_TIMESTAMP_NOT_RETAINED_DATE_ONLY",
+        "IMPORTANCE_POLICY_UNRATIFIED"
+      ],
+      "direction": null,
+      "event_at": null,
+      "event_type": null,
+      "evidence": {
+        "available_at": "2026-09-10T21:01:11Z",
+        "reasons": [
+          "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED"
+        ],
+        "source_sha256": "b1990360d88ca2bc1dfc991e5521bb84ed77981b1810771565dcbec95d02d678",
+        "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260910800161",
+        "status": "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+      },
+      "filing_date": "20260910",
+      "filing_title": "신규시설투자등",
+      "filing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260910800161",
+      "importance": null,
+      "market": "KOREA",
+      "observation_id": "DART_20260910800161_329180",
+      "rcept_no": "20260910800161",
+      "schema_version": "dart_event_observation/2",
+      "source_kind": "DART_OPEN_API",
+      "status": "OBSERVED_ESCALATION_BLOCKED",
+      "subject_id": "329180",
+      "subject_name": "HD현대중공업",
+      "time_precision": "DATE_ONLY"
+    },
+    {
+      "blocked_reasons": [
+        "DART_EVENT_TYPE_INFERENCE_UNRATIFIED",
+        "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED",
+        "EVENT_TIMESTAMP_NOT_RETAINED_DATE_ONLY",
+        "IMPORTANCE_POLICY_UNRATIFIED"
+      ],
+      "direction": null,
+      "event_at": null,
+      "event_type": null,
+      "evidence": {
+        "available_at": "2026-09-10T21:01:11Z",
+        "reasons": [
+          "DART_ITEM_EXTRACTION_POLICY_UNRATIFIED"
+        ],
+        "source_sha256": "4524feb76fa8e515ac26619f3484d832cddb2a2ee1e638ef29cf386312cc1d3e",
+        "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260910800163",
+        "status": "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+      },
+      "filing_date": "20260910",
+      "filing_title": "신규시설투자등(자율공시)",
+      "filing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260910800163",
+      "importance": null,
+      "market": "KOREA",
+      "observation_id": "DART_20260910800163_329180",
+      "rcept_no": "20260910800163",
+      "schema_version": "dart_event_observation/2",
+      "source_kind": "DART_OPEN_API",
+      "status": "OBSERVED_ESCALATION_BLOCKED",
+      "subject_id": "329180",
+      "subject_name": "HD현대중공업",
+      "time_precision": "DATE_ONLY"
+    }
+  ],
+  "packet_sha256": "7086f0c9c5a7137383d771716d290155cb80b6cbdac9077e4b055c78ce64a183",
+  "schema_version": "dart_event_observation_packet/2",
+  "source_date": "2026-09-11",
+  "source_failures": [],
+  "status": "DART_OBSERVATIONS_RECORDED_ESCALATION_BLOCKED",
+  "summary": {
+    "action_count": 0,
+    "content_failure_count": 0,
+    "event_type_inferred_count": 0,
+    "importance_classified_count": 0,
+    "metadata_only_count": 0,
+    "notification_sent_count": 0,
+    "order_count": 0,
+    "raw_bytes_verified_count": 2,
+    "relevant_filing_count": 2,
+    "source_failed_count": 0,
+    "source_ok_count": 7
+  }
+}

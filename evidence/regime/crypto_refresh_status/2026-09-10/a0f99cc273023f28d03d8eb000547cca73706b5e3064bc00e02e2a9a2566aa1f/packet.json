@@ -1,0 +1,92 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "capital_authorized": false,
+    "final_regime_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "read_only_reference": true,
+    "trading_authorized": false
+  },
+  "automatic_refresh": {
+    "daily_capture_kst": "09:40",
+    "official_decision_recheck_minutes": 30,
+    "portal_live_poll_minutes": 5,
+    "status_rebuild_kst": [
+      "10:20",
+      "10:50"
+    ],
+    "watchdog_kst": "12:30"
+  },
+  "current_reference": {
+    "as_of_date": "2026-09-10",
+    "coverage": {
+      "defined_axes": [
+        "LEADERSHIP"
+      ],
+      "defined_count": 1,
+      "missing_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY"
+      ],
+      "ratio": "1/5",
+      "required_count": 5
+    },
+    "leadership_code": "MIXED_WINDOW_LEADERSHIP",
+    "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
+    "price_as_of_date": "2026-09-09"
+  },
+  "generated_at": "2026-09-10T22:25:44Z",
+  "generation_id": "a0f99cc273023f28d03d8eb000547cca73706b5e3064bc00e02e2a9a2566aa1f",
+  "natural_history_progress": {
+    "earliest_pilot_capture_date_if_no_new_gap": "2026-09-15",
+    "earliest_primary_capture_date_if_no_new_gap": "2026-10-08",
+    "eligible_consecutive_days": 2,
+    "new_missing_or_unknown_day_delays_dates": true,
+    "pilot_remaining_days": 5,
+    "pilot_required_days": 7,
+    "primary_remaining_days": 28,
+    "primary_required_days": 30
+  },
+  "official_decision": {
+    "captured_at_utc": "2026-09-10T22:25:44Z",
+    "classification_status": "WAIT_PIT_LEADERSHIP_HISTORY",
+    "coverage": {
+      "defined_axes": [],
+      "defined_count": 0,
+      "missing_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "LEADERSHIP"
+      ],
+      "ratio": "0/5",
+      "required_count": 5
+    },
+    "runtime_regime": "UNKNOWN",
+    "unavailable_reason": null
+  },
+  "payload_sha256": "ae9e3bc708d388a34e177791271f5df7c7d3becfa42131fae03fc193dd2421fb",
+  "schema_version": "crypto_regime_refresh_status/1",
+  "sources": [
+    {
+      "kind": "CURRENT_REFERENCE",
+      "path": "data/observations/crypto_recent_reference/2026-09-10/packet.json",
+      "sha256": "02762440730fbc6be86a086f4e3338c5060b5f0f4e1db5ad744d8636c670a1f9"
+    },
+    {
+      "generation_id": "30561f859c6dfa1f825f5deabe9ac11b31a5e41b09b0d14c492218c66e3617bd",
+      "kind": "OFFICIAL_DECISION",
+      "path": "evidence/crypto_paper_decision/2026-09-10/2225/30561f859c6dfa1f825f5deabe9ac11b31a5e41b09b0d14c492218c66e3617bd/packet.json",
+      "sha256": "b796d73d05e4b355ae76b85673c0082690cc8a6d2fde2068cfff02b49e9e93f8"
+    }
+  ],
+  "status": "CURRENT_REFERENCE_INCOMPLETE",
+  "user_message": {
+    "detail_ko": "필수 참고 신호가 모두 도착하지 않아 판정을 보류합니다.",
+    "headline_ko": "오늘 코인 시장자료 수집 대기"
+  }
+}
