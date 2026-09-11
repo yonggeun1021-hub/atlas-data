@@ -2,10 +2,12 @@
 """P4-02 -> P5-03 registered TSM link-only regression (offline)."""
 from __future__ import annotations
 
+import calendar
 import copy
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -16,6 +18,31 @@ SPEC = importlib.util.spec_from_file_location("tsm_sec_monthly_rule_evidence", S
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
+
+ECONOMIC_PERIOD_RE = re.compile(r"^(\d{4})-(\d{2})$")
+
+
+def expected_latest_period_end(observation_packet: Path) -> str:
+    """Month-end of the latest unique ``economic_period`` in the raw source packet.
+
+    Computed here, independently of the producer: the selected observation
+    packet is read straight from disk, its ``observations[*].economic_period``
+    (``YYYY-MM``) are collected, the single latest period is required to be
+    unique, and the calendar month-end is derived in the test. This keeps the
+    assertion input-relative (the repository's latest TSM filing advances every
+    month) without either pinning a historical period or reading the expected
+    value back out of the producer's own output.
+    """
+    packet = json.loads(observation_packet.read_text(encoding="utf-8"))
+    periods = [row["economic_period"] for row in packet["observations"]]
+    for period in periods:
+        if ECONOMIC_PERIOD_RE.fullmatch(period) is None:
+            raise AssertionError(f"economic_period not YYYY-MM: {period!r}")
+    latest = max(periods)
+    if periods.count(latest) != 1:
+        raise AssertionError(f"latest economic_period {latest} is not unique in {periods}")
+    year, month = (int(part) for part in ECONOMIC_PERIOD_RE.fullmatch(latest).groups())
+    return f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
 
 
 class TsmSecMonthlyRuleEvidenceTests(unittest.TestCase):
@@ -62,9 +89,11 @@ class TsmSecMonthlyRuleEvidenceTests(unittest.TestCase):
                 "TSMC consolidated net revenue cumulative YoY",
             },
         )
+        expected_period_end = expected_latest_period_end(self.source_path)
+        self.assertRegex(expected_period_end, r"^\d{4}-\d{2}-\d{2}$")
         self.assertEqual(
             {item["economic_period_end"] for item in packet["frozen_evidence_envelopes"]},
-            {"2026-07-31"},
+            {expected_period_end},
         )
         for rule_id in ("RULE-0007", "RULE-0008"):
             row = next(item for item in packet["rules"] if item["rule_id"] == rule_id)
