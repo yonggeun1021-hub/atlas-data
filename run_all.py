@@ -445,6 +445,36 @@ APPROVED_TESTS = [
     #   touched; no production/trading/Regime/Candidate/Stage authority
     #   opened; no full-packet automation.
     "test/test_korea_capital_rotation_policy_candidate.py",
+    # ★ P2-03 — RATIFICATION MATERIALIZATION (2026-09-12), separate bounded
+    #   slice from the canonicalization-only candidate lane above (PR #669,
+    #   merged; that lane's own module/test stay unmodified, historical
+    #   UNRATIFIED evidence). External ratification trail: PR #669 review
+    #   comment issuecomment-5643258809 ("CIO RATIFICATION DECISION --
+    #   P2-03 Korea Rotation Policy semantics: GO", 2026-09-12T03:47:23Z),
+    #   ratifying the same 46-identity KOSPI/KOSDAQ mapping,
+    #   RELATIVE_STRENGTH_VS_OWN_BENCHMARK / DESCENDING_WITHIN_BENCHMARK_
+    #   SCOPE / SERIES_IDENTITY_ASC, top_count=bottom_count=3,
+    #   maximum_calendar_gap_days=7. ratified_by="Atlas CIO",
+    #   ratified_at_utc="2026-09-12T03:47:23Z" (the real decision instant,
+    #   never the tainted 2026-08-22T07:19:09Z timestamp or either
+    #   candidate-authoring placeholder). effective_from="2026-09-14" is
+    #   mechanically resolved -- never guessed from weekday arithmetic --
+    #   from the real, committed official KRX holiday capture
+    #   (evidence/market_calendar/krx_global_holiday/2026-09-09/
+    #   capture-2026.json): 2026-09-12/13 are a real Sat/Sun, so 2026-09-14
+    #   is the first verified trading day after ratification. Because
+    #   effective_from postdates ratified_at_utc, korea_capital_rotation.py's
+    #   own anti-lookahead invariant makes it structurally impossible for
+    #   any pre-existing evidence to satisfy covers_both -- proven directly,
+    #   plus a regression that the artifact stays honestly inert for any
+    #   pre-effective_from pair (ratification alone is not a natural proof)
+    #   and only activates for a structurally in-interval pair (a mechanism
+    #   proof, not a claim that a real natural sample exists yet). Real P2-01
+    #   authority registry stays untouched (0 records); no schedule/cron
+    #   file touched; no Regime/Candidate/Stage/briefing/Production/
+    #   trading/order/capital authority opened; Phase B stays closed until a
+    #   real post-ratification natural observation pair is verified.
+    "test/test_korea_capital_rotation_policy_ratified.py",
     # ★ P2-03 — dependency-ordered Breadth->Leadership observation-pair
     #   workflow (2026-08-22, no new cron): structural YAML checks only --
     #   still workflow_dispatch-only, real `needs:` chain (Leadership job
