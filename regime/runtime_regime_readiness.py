@@ -20,6 +20,8 @@ It chains only pre-existing validators:
                                    -- the fail-closed runtime decision gate
 4. ``regime/decision_authority.py::normalize_signed_axes``
                                    -- the market-specific signed-axis boundary
+5. ``regime/market_scoped_pit_acceptance.py``
+                                   -- the later ratified US/KR policy overlay
 
 It authors no policy, no threshold, no weight, no TTL, and no PIT acceptance.
 It never assigns a signed axis direction, a score, a classification, or a
@@ -57,6 +59,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from regime import decision_authority as AUTHORITY  # noqa: E402
+from regime import market_scoped_pit_acceptance as MARKET_PIT  # noqa: E402
 from regime import minimum_coverage as COVERAGE  # noqa: E402
 from regime import output_contract as OUTPUT  # noqa: E402
 
@@ -80,6 +83,9 @@ COVERAGE_REASON_PREFIX = "MINIMUM_COVERAGE_NOT_MET:"
 AXIS_REASON_PREFIX = "AXIS_UNDEFINED:"
 ACCEPTANCE_REASON_PREFIX = "MARKET_ACCEPTANCE_BLOCKED:"
 PIT_REPLAY_REASON_PREFIX = "PIT_REPLAY_NOT_ACCEPTED:"
+POLICY_READINESS_REASON_PREFIX = "MARKET_POLICY_READINESS:"
+
+PIT_STATUS_PATH = ROOT / "data" / "latest_market_scoped_pit_acceptance.json"
 
 
 class RuntimeRegimeReadinessError(ValueError):
@@ -114,6 +120,31 @@ def _reason(value: str) -> str:
     return value
 
 
+def _market_policy_readiness() -> tuple[dict[str, dict], dict[str, dict]]:
+    """Load the committed no-bundle PIT status and derive its policy overlay.
+
+    The retained pointer currently proves that no market evidence bundle was
+    supplied.  We accept only the exact packet re-derived by the ratified PIT
+    module.  A future packet containing accepted evidence therefore fails
+    closed here until its underlying real bundle is explicitly connected and
+    independently re-derived by this consumer.
+    """
+    retained = _read_json(PIT_STATUS_PATH)
+    expected = MARKET_PIT.build_status()
+    if canonical_json(retained) != canonical_json(expected):
+        fail("MARKET_PIT_STATUS_UNVERIFIED", str(PIT_STATUS_PATH))
+    overlay = MARKET_PIT.build_readiness_overlay(retained)
+    if overlay.get("runtime_decision_available") is not False:
+        fail("MARKET_PIT_OVERLAY_AUTHORITY_OPEN", "runtime decision")
+    status_rows = {row["market"]: row for row in retained["markets"]}
+    overlay_rows = {row["market"]: row for row in overlay["markets"]}
+    if set(status_rows) != set(MARKET_PIT.MARKETS) or set(overlay_rows) != set(
+        MARKET_PIT.MARKETS
+    ):
+        fail("MARKET_PIT_MARKETS_MISMATCH", str(sorted(status_rows)))
+    return status_rows, overlay_rows
+
+
 def authority_boundary() -> dict:
     """Every runtime-meaningful authority stays false, by construction."""
     return {
@@ -146,6 +177,8 @@ def _market_row(
     coverage_contract: dict,
     authority_contract: dict,
     signed_policy: dict,
+    pit_status: dict,
+    policy_readiness: dict,
 ) -> tuple[dict, list[str]]:
     """Re-run the three existing gates for one market and report the truth."""
     try:
@@ -192,15 +225,30 @@ def _market_row(
     coverage = signed["coverage"]
     missing_axes = list(coverage["missing_axes"])
 
+    policy_status = policy_readiness["policy_readiness_status"]
+    if policy_status not in {
+        MARKET_PIT.READINESS_POLICY_READY_PIT_PENDING,
+        MARKET_PIT.READINESS_NORMALIZATION_UNRATIFIED,
+        MARKET_PIT.READINESS_PIT_ACCEPTED_RUNTIME_STILL_CLOSED,
+    }:
+        fail("MARKET_POLICY_READINESS_INVALID", f"{market}:{policy_status}")
+    normalization_ratified = policy_status != (
+        MARKET_PIT.READINESS_NORMALIZATION_UNRATIFIED
+    )
+    pit_acceptance_status = pit_status["status"]
+
     blockers = [
-        _reason(f"{SIGNED_NORMALIZATION_REASON_PREFIX}{market}"),
         _reason(
             f"{DECISION_BLOCKED_REASON_PREFIX}{market}:"
             f"{decision['decision_status']}"
         ),
-        _reason(f"{ACCEPTANCE_REASON_PREFIX}{market}:{binding['acceptance_status']}"),
-        _reason(f"{PIT_REPLAY_REASON_PREFIX}{market}"),
+        _reason(f"{ACCEPTANCE_REASON_PREFIX}{market}:{pit_acceptance_status}"),
+        _reason(f"{POLICY_READINESS_REASON_PREFIX}{market}:{policy_status}"),
     ]
+    if not normalization_ratified:
+        blockers.append(_reason(f"{SIGNED_NORMALIZATION_REASON_PREFIX}{market}"))
+    if pit_acceptance_status != MARKET_PIT.STATUS_PIT_ACCEPTED:
+        blockers.append(_reason(f"{PIT_REPLAY_REASON_PREFIX}{market}"))
     if not coverage["minimum_coverage_met"]:
         blockers.append(_reason(f"{COVERAGE_REASON_PREFIX}{market}"))
         blockers.extend(
@@ -239,6 +287,13 @@ def _market_row(
             ],
             "acceptance_status": binding["acceptance_status"],
             "pit_replay_acceptance": binding["pit_replay_acceptance"],
+            "market_scoped_normalization_policy_status": (
+                "RATIFIED"
+                if normalization_ratified
+                else binding["signed_normalization_policy_status"]
+            ),
+            "market_scoped_pit_acceptance_status": pit_acceptance_status,
+            "market_scoped_policy_readiness_status": policy_status,
             "forbidden_promotion": binding["forbidden_promotion"],
             "replay_step_emitted": signed["replay_step_emitted"],
             "signed_directions": {
@@ -256,6 +311,10 @@ def _market_row(
                 "minimum_coverage_sha256"
             ],
             "signed_axis_packet_sha256": payload_sha256(signed),
+            "market_scoped_pit_status_sha256": payload_sha256(pit_status),
+            "market_scoped_policy_overlay_sha256": payload_sha256(
+                policy_readiness
+            ),
         },
         "blockers": sorted(set(blockers)),
     }
@@ -271,10 +330,12 @@ def _assemble(regime_outputs, generated_at: str) -> dict:
         coverage_contract = COVERAGE.load_contract()
         authority_contract = AUTHORITY.load_contract()
         signed_policy = AUTHORITY.load_signed_axis_policy()
+        pit_status_rows, policy_readiness_rows = _market_policy_readiness()
     except (
         OUTPUT.OutputContractError,
         COVERAGE.MinimumCoverageError,
         AUTHORITY.DecisionAuthorityError,
+        MARKET_PIT.MarketScopedPitAcceptanceError,
     ) as exc:
         # Re-raised as this module's own ValueError so downstream consumers
         # need exactly one exception class to fail closed on.
@@ -311,11 +372,19 @@ def _assemble(regime_outputs, generated_at: str) -> dict:
             coverage_contract,
             authority_contract,
             signed_policy,
+            pit_status_rows[market],
+            policy_readiness_rows[market],
         )
         rows.append(row)
         blockers.extend(market_blockers)
 
     covered = [row["market"] for row in rows if row["coverage"]["minimum_coverage_met"]]
+    normalization_ratified = [
+        row["market"]
+        for row in rows
+        if row["signed_axis_gate"]["market_scoped_normalization_policy_status"]
+        == "RATIFIED"
+    ]
     return {
         "schema_version": 1,
         "contract_version": CONTRACT_VERSION,
@@ -358,7 +427,10 @@ def _assemble(regime_outputs, generated_at: str) -> dict:
             "coverage_met_markets": covered,
             "coverage_met_market_count": len(covered),
             "runtime_ready_market_count": 0,
-            "signed_normalization_ratified_market_count": 0,
+            "signed_normalization_ratified_markets": normalization_ratified,
+            "signed_normalization_ratified_market_count": len(
+                normalization_ratified
+            ),
         },
         "p1_regime_decision_unavailable_reasons": sorted(set(blockers)),
         "regime_outputs": copy.deepcopy(regime_outputs),
@@ -440,6 +512,7 @@ if __name__ == "__main__":
         OUTPUT.OutputContractError,
         COVERAGE.MinimumCoverageError,
         AUTHORITY.DecisionAuthorityError,
+        MARKET_PIT.MarketScopedPitAcceptanceError,
     ) as exc:
         print(f"FATAL: {exc}")
         raise SystemExit(1)
