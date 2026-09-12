@@ -71,10 +71,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       context_exists: ${{ steps.existing_context.outputs.exists }}
+      source_head_sha: ${{ steps.source_revision.outputs.sha }}
       artifact_id: ${{ steps.upload_derived.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload_derived.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Bind provider checks to current main
+        id: source_revision
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+          test -z "$(git status --porcelain)"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Reuse an exact committed Breadth context instead of re-fetching the same date
         id: existing_context
         env:
@@ -154,7 +162,8 @@ jobs:
         if: needs.korea-breadth-live-proof.outputs.context_exists != 'true'
         run: |
           # Use the live main tip before creating append-only evidence. The
-          # producer still remains bound to github.sha in the manifest.
+          # producer remains bound to the exact source revision resolved by
+          # the provider job, rather than the older workflow event SHA.
           git fetch origin main
           git reset --hard origin/main
           python3 .github/scripts/korea_breadth_context_populate.py \
@@ -179,7 +188,7 @@ jobs:
             --derived-dir "$RUNNER_TEMP/p1-kr05-derived" \
             --workflow-run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}" \
-            --source-head-sha "${{ github.sha }}" \
+            --source-head-sha "${{ needs.korea-breadth-live-proof.outputs.source_head_sha }}" \
             --workflow-path ".github/workflows/p2-03-korea-observation-pair.yml" \
             --artifact-id "${{ needs.korea-breadth-live-proof.outputs.artifact_id }}" \
             --artifact-name "p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}" \
@@ -216,6 +225,11 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Re-sync Leadership checks after the Breadth commit
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+          test -z "$(git status --porcelain)"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.11'

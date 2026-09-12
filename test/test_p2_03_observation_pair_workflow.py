@@ -91,6 +91,10 @@ class ObservationPairWorkflowTest(unittest.TestCase):
             proof["outputs"]["context_exists"],
             "${{ steps.existing_context.outputs.exists }}",
         )
+        self.assertEqual(
+            proof["outputs"]["source_head_sha"],
+            "${{ steps.source_revision.outputs.sha }}",
+        )
         check = next(step for step in proof["steps"] if step.get("id") == "existing_context")
         self.assertIn("--verify-existing-date", check["run"])
         self.assertIn("data/observations/korea_breadth_context", check["run"])
@@ -234,6 +238,36 @@ class ObservationPairWorkflowTest(unittest.TestCase):
                 reset_index, add_index,
                 f"{job_name} must reset onto the live tip before staging evidence",
             )
+
+    def test_provider_existing_checks_start_from_current_main(self):
+        jobs = self.workflow["jobs"]
+        breadth = jobs["korea-breadth-live-proof"]["steps"]
+        breadth_sync = next(step for step in breadth if step.get("id") == "source_revision")
+        breadth_existing = next(step for step in breadth if step.get("id") == "existing_context")
+        self.assertLess(breadth.index(breadth_sync), breadth.index(breadth_existing))
+        self.assertIn("git reset --hard origin/main", breadth_sync["run"])
+        self.assertIn("git rev-parse HEAD", breadth_sync["run"])
+
+        leadership = jobs["korea-leadership-live-fetch"]["steps"]
+        leadership_sync = next(
+            step for step in leadership
+            if step.get("name") == "Re-sync Leadership checks after the Breadth commit"
+        )
+        leadership_existing = next(
+            step for step in leadership if step.get("id") == "existing_leadership"
+        )
+        self.assertLess(leadership.index(leadership_sync), leadership.index(leadership_existing))
+        self.assertIn("git reset --hard origin/main", leadership_sync["run"])
+
+        aggregate = next(
+            step for step in jobs["korea-breadth-context-commit"]["steps"]
+            if step.get("name") == "Populate committed Korea Breadth context lineage"
+        )
+        self.assertIn(
+            "needs.korea-breadth-live-proof.outputs.source_head_sha",
+            aggregate["run"],
+        )
+        self.assertNotIn('--source-head-sha "${{ github.sha }}"', aggregate["run"])
 
 
 if __name__ == "__main__":

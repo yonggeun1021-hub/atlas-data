@@ -63,6 +63,18 @@ artifact before treating the pair as complete. Existing Leadership without an
 eligible earlier Breadth observation waits for the next pair rather than
 backdating a Breadth capture.
 
+**Update (2026-09-13, effective-date and revision binding correction):** when
+the first completed pair straddles the rotation policy's `effective_from`, the
+controller uses that same existing evening run to capture only the current
+Leadership observation. It does not claim a completed rotation pair. This
+seeds the policy's first eligible date so the next real session can produce
+the first full effective pair. The recovery slot verifies and reuses the same
+Leadership bytes. The reusable pair workflow also re-syncs each provider
+existence check to current `main`, and carries the exact resolved source commit
+into Breadth lineage. Final handoff verification accepts the declared public
+commit only when it is the exact revision from which the current packet was
+reconstructed; naming an older ancestor is insufficient.
+
 **Update (2026-09-12, current-ratified producer connection):** after the
 combined workflow has committed Breadth and then Leadership, a final
 dependency job re-syncs to the exact resulting `main`, runs the existing
