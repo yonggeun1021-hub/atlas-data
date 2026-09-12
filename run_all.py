@@ -701,6 +701,13 @@ APPROVED_TESTS = [
     #   final market policy and every entry/exit/order authority remain closed.
     #   ⛔ committed public inputs only; no live provider, account or broker call.
     "test/test_korea_symbol_market_review.py",
+    # ★ Existing KIS master categorical screening → public-safe KR coverage.
+    #   Exact 2026-08-28 KRX packet lineage is joined to the already-produced
+    #   private registry and only aggregate screening/exclusion/blocker counts
+    #   are retained. KRX source coverage and KIS master screening keep separate
+    #   denominators; neither becomes an investable universe or candidate count.
+    #   ⛔ no live fetch, per-symbol disclosure, threshold, strategy, or order.
+    "test/test_krx_registry_evaluation_coverage.py",
     # ★ P1-KR-05 shared-fetch derived outputs — 같은 manual live fetch에서
     #   non-reconstructive Korea Breadth observation packet(시장×scope별,
     #   available_at=null/decision_eligible=false)과 P3-03 KOSPI/KOSDAQ
@@ -2323,6 +2330,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_crypto_axis_trade_bridge.py": 30.5,
     "test/test_candidate_identity_observation.py": 26.6,
     "test/test_entry_policy_readiness.py": 25.9,
+    "test/test_krx_registry_evaluation_coverage.py": 2.0,
     "test/test_candidate_lifecycle_evidence_inventory.py": 24.5,
     "test/test_candidate_validity_shadow_observation.py": 24.4,
     "test/test_rotation_discovery_briefing.py": 24.4,
