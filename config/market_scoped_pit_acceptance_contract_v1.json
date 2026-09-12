@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "contract_version": "market_scoped_pit_acceptance_contract/v1",
+  "policy_status": "RATIFIED",
+  "mode": "MARKET_SCOPED_PIT_ACCEPTANCE_RULE_EVIDENCE_NOT_ACCEPTED",
+  "decision": {
+    "identity": "CIO-P1-COM-05-NORMALIZATION-FRESHNESS-PIT-FINAL-V1-2026-09-12",
+    "status": "CIO_RATIFIED",
+    "effective_date": "2026-09-12",
+    "decision_record_path": "docs/p1_com_05_cio_final_verdict_20260912.md",
+    "decision_record_sha256": "afcc7d2a3f28f7149ff7c11fe0fb4da63b9390b987a6736b05a332e9c00a0e15"
+  },
+  "note": "This ratifies the ACCEPTANCE RULE only. It is a separate, additional, market-scoped contract; it is not the existing 3-market regime_replay_harness/v1 (config/regime_replay_harness_contract.json), which is unmodified and unweakened by this contract (its own required_markets=[US,KR,CRYPTO] stays exactly as-is; this contract does not replace, extend, or bypass it).",
+  "regime_replay_harness_v1_unaffected": {
+    "path": "config/regime_replay_harness_contract.json",
+    "contract_version": "regime_replay_harness/v1",
+    "sha256": "d6703e9f58a54aa1e9f08ae001722ce1c8195091da3a576b6d35aa53cf98fe4a",
+    "status": "UNCHANGED_UNWEAKENED"
+  },
+  "markets": [
+    "US",
+    "KR",
+    "CRYPTO"
+  ],
+  "market_independence_rule": "Each market's PIT acceptance status is evaluated and reported independently. An incomplete or NOT_ACCEPTED status on one market (including CRYPTO, whose normalization stays unratified) never blocks, delays, or changes another market's status.",
+  "required_normalization_binding": {
+    "US": "config/paper_runtime_normalization_v1.json",
+    "KR": "config/paper_runtime_normalization_v1.json",
+    "CRYPTO": null
+  },
+  "required_freshness_binding": {
+    "US": "config/regime_semantic_freshness_policy_v1.json",
+    "KR": "config/regime_semantic_freshness_policy_v1.json",
+    "CRYPTO": null
+  },
+  "common_v1_reuse": {
+    "status": "EXACT_REUSE_NO_NEW_VALUE",
+    "path": "config/regime_source_owner_registry_v2.json",
+    "field": "common_v1_alignment",
+    "consumed_via": "regime.decision_authority.replay_common_v1 (unmodified)"
+  },
+  "pit_accepted_conditions": [
+    {
+      "id": 1,
+      "name": "REAL_HISTORICAL_EVIDENCE_ONLY",
+      "rule": "The evaluated sequence must be built exclusively from a population bundle whose schema_version, mode, and per-record evidence_class byte-match the real regime.us_historical_replay_population / regime.kr_historical_replay_population output contract. A caller-supplied or hand-constructed sequence that does not carry this exact provenance receives zero credit toward acceptance, regardless of its content.",
+      "synthetic_or_fixture_credit": 0
+    },
+    {
+      "id": 2,
+      "name": "REQUIRED_5_OF_5_AXES",
+      "rule": "Every evaluated date must have all five required axes (TREND, BREADTH, RISK_VOL, LIQUIDITY, LEADERSHIP) DEFINED. A date with any UNDEFINED axis is excluded from the accepted sequence, not substituted or carried forward."
+    },
+    {
+      "id": 3,
+      "name": "NO_LOOKAHEAD_PIT_VALIDATION_PASS",
+      "rule": "Every evaluated date's own no_lookahead_attestation from the population bundle must be present and independently re-checked (every consulted source date <= that date's requested date), matching the same lookahead-violation re-derivation pattern already implemented in regime.us_historical_replay_population, regime.kr_historical_replay_population, and regime.combined_shadow_historical_replay."
+    },
+    {
+      "id": 4,
+      "name": "DETERMINISTIC_RERUN_BYTE_IDENTICAL",
+      "rule": "Re-running regime.decision_authority.replay_common_v1 on the identical validated sequence must produce a canonically byte-identical report on every rerun."
+    },
+    {
+      "id": 5,
+      "name": "RATIFIED_CLASSIFICATION_AND_HYSTERESIS_EXACT_REPLAY",
+      "rule": "Classification and hysteresis must come exclusively from an unmodified call to regime.decision_authority.replay_common_v1, which implements the existing RATIFIED_PAPER_BASELINE_V1 common_v1_alignment values verbatim. No new threshold, weight, or hysteresis rule is introduced by this contract or its validator."
+    },
+    {
+      "id": 6,
+      "name": "ALL_FOUR_REGIMES_OBSERVED_AT_LEAST_ONCE",
+      "rule": "Across the full accepted real sequence (never a caller-selected sub-range), RISK_ON, NEUTRAL, RISK_OFF, and STRESS must each appear at least once among the confirmed_regime values replay_common_v1 actually produced. No episode date may be pre-selected, declared in policy, or chosen after seeing the classifier's output; the validator consumes the population bundle's full requested_dates range exactly as supplied and reports which regime(s), if any, never occurred."
+    }
+  ],
+  "not_accepted_reason_prefix": "PIT_ACCEPTANCE_CONDITION_FAILED:",
+  "no_evidence_bundle_reason": "NO_EVIDENCE_BUNDLE_SUPPLIED",
+  "crypto_reason": "CRYPTO_NORMALIZATION_UNRATIFIED",
+  "initial_status": {
+    "US": "NOT_ACCEPTED",
+    "KR": "NOT_ACCEPTED",
+    "CRYPTO": "NOT_ACCEPTED"
+  },
+  "episode_selection_forbidden": true,
+  "cherry_pick_forbidden": true,
+  "authority": {
+    "acceptance_contract_ratified": true,
+    "evidence_accepted": false,
+    "runtime_classification_authorized": false,
+    "runtime_binding_authorized": false,
+    "regime_result_ratification_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "capital_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}
