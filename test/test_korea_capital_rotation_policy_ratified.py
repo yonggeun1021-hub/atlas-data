@@ -202,6 +202,31 @@ class RealAuthorityRegistryUntouchedTests(unittest.TestCase):
             block.append(line)
         self.assertFalse(any("schedule:" in line for line in block))
 
+    def test_combined_pair_workflow_builds_external_current_ratified_handoff(self):
+        text = P2_03_WORKFLOW.read_text(encoding="utf-8")
+        job = text.split("  korea-current-ratified-rotation-proof:\n", 1)[1]
+        self.assertIn("    needs: korea-leadership-live-fetch\n", job)
+        self.assertIn("git fetch origin main", job)
+        self.assertIn("git reset --hard origin/main", job)
+        self.assertIn(
+            "python3 .github/scripts/korea_capital_rotation_ledger_proof.py",
+            job,
+        )
+        self.assertIn("--current-ratified-policy", job)
+        self.assertIn(
+            '--packet-out "$RUNNER_TEMP/p2-03-current-ratified/packet.json"',
+            job,
+        )
+        self.assertIn('= "ROTATION_BUCKETS_OBSERVED"', job)
+        self.assertIn('= "true"', job)
+        self.assertIn("public-main-commit.txt", job)
+        self.assertIn(
+            "p2-03-current-ratified-rotation-${{ github.run_id }}-${{ github.run_attempt }}",
+            job,
+        )
+        self.assertIn("if-no-files-found: error", job)
+        self.assertNotIn("--commit-pointer", job)
+
 
 class RealProducerAcceptanceTests(unittest.TestCase):
     """Proven against the real, unmodified korea_capital_rotation.py --

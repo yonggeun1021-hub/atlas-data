@@ -10,14 +10,12 @@ name: P2-03 Korea Observation Pair (Breadth -> Leadership, dependency-ordered)
 #
 # Still workflow_dispatch only -- no new schedule/cron. Reuses the exact
 # same job steps already approved in p1-kr05-korea-breadth-live.yml and
-# korea-leadership-live-proof.yml verbatim (same scripts, same KRX_API_KEY
-# secret, same commit targets) -- this workflow does not duplicate any
-# KRX request logic, it only sequences the two already-approved paths
-# with a real `needs:` dependency GitHub Actions itself enforces. Neither
-# existing workflow is scheduled today, so there is no existing cron to
-# attach a `needs:` step to; see docs/korea_capital_rotation_contract.md
-# for the honest schedule-gap this leaves open (no automatic daily
-# trigger exists for either Leadership or Breadth yet).
+# korea-leadership-live-proof.yml (same scripts, same KRX_API_KEY secret,
+# same commit targets), then invokes the existing current-ratified P2-03
+# producer after both commits land. This workflow does not duplicate any
+# KRX request or rotation logic. The standalone Leadership workflow has an
+# existing weekday schedule, but Breadth and this dependency-ordered combined
+# path remain manual; see docs/korea_capital_rotation_contract.md.
 # A same-date redispatch first validates each already-committed packet and
 # reuses its exact bytes.  It never re-requests the provider merely to prove
 # idempotency; a missing Leadership packet still fetches Leadership after a
@@ -247,3 +245,55 @@ jobs:
             git commit -m "korea leadership live-fetch attempt $(date -u +%Y-%m-%d) [P2-03 pair run ${{ github.run_id }}]"
             git push
           fi
+
+  # Build the already-ratified P2-03 packet from the exact Breadth ->
+  # Leadership evidence this run committed. This is deliberately an artifact
+  # handoff only: no rolling pointer, state ledger, Stage3 consumer, schedule,
+  # promotion, order, capital or trading authority is added here.
+  korea-current-ratified-rotation-proof:
+    needs: korea-leadership-live-fetch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Bind the exact committed observation pair
+        run: |
+          # This checkout starts at the dispatch SHA. Both producer jobs may
+          # have appended evidence since then, so consume the real main tip
+          # only after the dependency-ordered commits completed.
+          git fetch origin main
+          git reset --hard origin/main
+          test -z "$(git status --porcelain)"
+      - name: Current-ratified producer focused regression
+        run: |
+          python3 test/test_korea_capital_rotation_current_ratified_proof.py
+          python3 test/test_korea_capital_rotation_policy_ratified.py
+          python3 test/test_korea_capital_rotation_ledger_proof.py
+      - name: Build current-ratified Korea rotation packet
+        env:
+          PRIOR_DATE: ${{ inputs.leadership_prior_date }}
+          CURRENT_DATE: ${{ inputs.leadership_current_date }}
+        run: |
+          PRIOR_ISO="${PRIOR_DATE:0:4}-${PRIOR_DATE:4:2}-${PRIOR_DATE:6:2}"
+          CURRENT_ISO="${CURRENT_DATE:0:4}-${CURRENT_DATE:4:2}-${CURRENT_DATE:6:2}"
+          python3 .github/scripts/korea_capital_rotation_ledger_proof.py \
+            --prior-date "$PRIOR_ISO" \
+            --current-date "$CURRENT_ISO" \
+            --current-ratified-policy \
+            --packet-out "$RUNNER_TEMP/p2-03-current-ratified/packet.json"
+          PACKET="$RUNNER_TEMP/p2-03-current-ratified/packet.json"
+          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$PACKET")" = "ROTATION_BUCKETS_OBSERVED"
+          test "$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["rotation_policy_effective"]).lower())' "$PACKET")" = "true"
+          git rev-parse HEAD > "$RUNNER_TEMP/p2-03-current-ratified/public-main-commit.txt"
+      - name: Upload current-ratified Korea rotation Stage3 handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: p2-03-current-ratified-rotation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/p2-03-current-ratified
+          if-no-files-found: error
