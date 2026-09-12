@@ -1551,6 +1551,14 @@ APPROVED_TESTS = [
     #   ⛔ ranking/selection/scoring/promotion/action/Production/trading 및
     #      live network 없음 — synthetic packets + temp output only.
     "test/test_rotation_candidate_selection_input.py",
+    # ★ Rotation Stage 3 retained-daily handoff.
+    #   daily_orchestrator/6 bundle 안에 이미 보관된 exact ROTATION_DISCOVERY
+    #   child를 producer validator로 재검증하고, frozen US source가 없으면
+    #   canonical empty ledger를 재유도해 Stage 3 v2 입력으로 연결한다.
+    #   latest discovery/새 수집/상태정책 발명 없이 실제 0-row packet을 만든다.
+    #   ⛔ selection/NATURAL/ranking/promotion/action/order/capital/Production/
+    #      trading 권한 없음.
+    "test/test_rotation_candidate_selection_daily_handoff.py",
     # ★ P8-06 — Action/Bear-Hedge/Portfolio briefing read model.
     #   exact P8-02/P6/P7 packet identity and SHA are presented while BUY/WATCH/
     #   REDUCE/HEDGE/EXIT/NOTHING all remain NOT_EVALUATED with action=null.
