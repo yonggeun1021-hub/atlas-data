@@ -30,14 +30,28 @@ That registry mechanism reuses the same generic git first-seen / tamper /
 PIT-safety primitives as ``theme_taxonomy_authority.py`` (imported, not
 copied) applied to a new record shape scoped to one edge at a time.
 
+The packet additionally reports a purely descriptive per-market-pair
+linkage roll-up (``market_pair_linkage``) so the cross-market question this
+layer exists to answer -- is a US and a Korea security actually joined by a
+ratified value-chain edge yet -- is machine-readable instead of having to be
+re-derived by every consumer. It is a count of the edge statuses already
+decided above; it grants nothing and can never turn an ``UNKNOWN_*`` edge
+into a linkage.
+
 No scoring, ranking, weighting, Stage, Production, capital, order, or
 trading authority is added anywhere in this module. Partial graphs are
 expected: any node or edge that cannot be resolved reports an explicit
 ``UNKNOWN_*`` status rather than being silently accepted or erroring the
 whole packet.
+
+The CLI validates one external ``value_chain_edge_input/1`` document and
+writes the resulting packet through ``theme_taxonomy.write_json_atomic``,
+which refuses any destination inside the repository -- there is still no
+tracked output path and no repository-default edge catalog.
 """
 from __future__ import annotations
 
+import argparse
 import copy
 import datetime as dt
 import json
@@ -543,6 +557,50 @@ def resolve_edge_authority(
 
 
 # ---------------------------------------------------------------------------
+# Descriptive linkage roll-up -- counts already-decided edge statuses only.
+# ---------------------------------------------------------------------------
+
+def _market_pair_linkage(edges_out: list, node_refs: dict) -> list:
+    """Group already-resolved edges by their unordered endpoint market pair.
+
+    Derived strictly from ``edge_status``/``edge_activation_authorized``
+    decided above; it never re-checks membership, evidence, or the registry,
+    and a pair is reported as linked only when at least one of its edges is
+    already an activated ``RATIFIED_CROSS_MARKET_VALUE_CHAIN_EDGE``. Same
+    market pairs (``cross_market: false``) are reported too rather than
+    dropped, so a graph that only looks cross-market is visibly not.
+    """
+    pairs: dict[tuple[str, str], dict] = {}
+    for entry in edges_out:
+        left = node_refs[entry["from_node_ref_id"]]["market"]
+        right = node_refs[entry["to_node_ref_id"]]["market"]
+        key = (left, right) if left <= right else (right, left)
+        row = pairs.setdefault(key, {
+            "market_pair": list(key),
+            "cross_market": key[0] != key[1],
+            "edge_count": 0,
+            "activated_edge_count": 0,
+            "edge_status_counts": {},
+        })
+        row["edge_count"] += 1
+        if entry["edge_activation_authorized"]:
+            row["activated_edge_count"] += 1
+        status = entry["edge_status"]
+        row["edge_status_counts"][status] = row["edge_status_counts"].get(status, 0) + 1
+
+    linkage = []
+    for key in sorted(pairs):
+        row = pairs[key]
+        row["edge_status_counts"] = dict(sorted(row["edge_status_counts"].items()))
+        row["linkage_status"] = (
+            "RATIFIED_MARKET_PAIR_LINKAGE" if row["activated_edge_count"]
+            else "UNKNOWN_MARKET_PAIR_LINKAGE_NOT_RATIFIED"
+        )
+        linkage.append(row)
+    return linkage
+
+
+# ---------------------------------------------------------------------------
 # Top-level packet builder.
 # ---------------------------------------------------------------------------
 
@@ -634,6 +692,8 @@ def build_packet(
         for node_ref_id in sorted(node_refs)
     ]
     activated_edge_count = sum(1 for item in edges_out if item["edge_activation_authorized"])
+    market_pair_linkage = _market_pair_linkage(edges_out, node_refs)
+    cross_market = [row for row in market_pair_linkage if row["cross_market"]]
     output_authority = copy.deepcopy(contract["authority"])
     output_authority["edge_activation_authorized"] = activated_edge_count > 0
     packet = {
@@ -642,6 +702,9 @@ def build_packet(
         "graph_id": graph_id, "as_of_date": as_of_date,
         "node_ref_count": len(node_refs_out), "edge_count": len(edges_out),
         "activated_edge_count": activated_edge_count,
+        "cross_market_edge_count": sum(row["edge_count"] for row in cross_market),
+        "activated_cross_market_edge_count": sum(row["activated_edge_count"] for row in cross_market),
+        "market_pair_linkage": market_pair_linkage,
         "node_refs": node_refs_out, "edges": edges_out,
         "policy_status": copy.deepcopy(contract["policy_status"]),
         "authority": output_authority,
@@ -655,3 +718,38 @@ def build_packet(
     }
     packet["payload_sha256"] = TT.payload_sha256(packet)
     return packet
+
+
+def run(
+    input_path: Path,
+    output_path: Path,
+    registry_path: Path = REGISTRY_PATH,
+    trusted_commit: str | None = None,
+) -> int:
+    try:
+        packet = build_packet(
+            _read_json(input_path), registry_path=registry_path, trusted_commit=trusted_commit,
+        )
+        # Reused from theme_taxonomy.py: refuses any destination inside the
+        # repository, so no tracked output path is introduced here either.
+        TT.write_json_atomic(output_path, packet)
+        return 0
+    except (ValueChainEdgeAuthorityError, TT.ThemeTaxonomyError, OSError, TypeError, ValueError) as exc:
+        print(f"value chain edge authority failed: {exc}")
+        return 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Validate an external cross-market value-chain edge document",
+    )
+    parser.add_argument("input", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--registry", type=Path, default=REGISTRY_PATH)
+    parser.add_argument("--trusted-commit")
+    args = parser.parse_args()
+    return run(args.input, args.out, args.registry, args.trusted_commit)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

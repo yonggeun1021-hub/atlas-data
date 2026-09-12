@@ -112,15 +112,44 @@ for edges); the packet still builds with a mix of both. Only malformed input
 unknown relation type) raises `ValueChainEdgeAuthorityError` and aborts the
 whole build — that is an input-quality failure, not an authority outcome.
 
+## Cross-market linkage roll-up (descriptive only)
+
+The packet reports `market_pair_linkage`, one row per unordered endpoint
+market pair (`market_pair`, `cross_market`, `edge_count`,
+`activated_edge_count`, `edge_status_counts`, `linkage_status`), plus the
+top-level `cross_market_edge_count` and
+`activated_cross_market_edge_count`. This exists so P2-01's own question —
+is a US and a Korea security actually joined by a ratified value-chain edge
+yet — is answered by the packet instead of being re-derived by every reader.
+
+It is a count of the edge statuses already decided by the rules above and
+grants nothing: a pair is `RATIFIED_MARKET_PAIR_LINKAGE` only when at least
+one of its edges is already an activated
+`RATIFIED_CROSS_MARKET_VALUE_CHAIN_EDGE`, and otherwise stays
+`UNKNOWN_MARKET_PAIR_LINKAGE_NOT_RATIFIED`. With the repository-default
+empty registry every pair is therefore `UNKNOWN_*` and
+`activated_cross_market_edge_count` is `0`. Same-market pairs are reported
+with `cross_market: false` rather than dropped, so a graph that only looks
+cross-market is visibly not. These fields are additive and descriptive;
+`value_chain_edge_packet/1` is not bumped because nothing in this repository
+consumes or pins the packet yet.
+
 ## Authority and operation
 
 No Theme, membership, weight, source rank, rotation score, candidate rank,
 Stage, capital, order, or trading authority is opened anywhere in this
 module. `edge_activation_authorized` is the only authority flag that can ever
 be `true`, and only for the specific edges with a matching `RATIFIED`
-registry row; every other authority field is hardcoded `false`. The module is
-offline and writes nothing — `build_packet` returns an in-memory dict; no CLI
-or tracked output path is added in this slice.
+registry row; every other authority field is hardcoded `false`.
+
+The module is offline. `build_packet` returns an in-memory dict; the
+`python3 -m rotation.value_chain_edge_authority <input> --out <path>` CLI
+validates one external `value_chain_edge_input/1` document and writes the
+resulting packet through `theme_taxonomy.write_json_atomic`, which refuses
+any destination inside the repository (`TRACKED_OUTPUT_FORBIDDEN`). No
+tracked output path and no repository-default edge catalog is added; a
+malformed document or a forbidden destination exits non-zero and writes
+nothing.
 
 Global Asset Master ingestion, Rotation engine consumption, and briefing
 integration remain later, out-of-scope gates, same as `theme_taxonomy/2`
