@@ -126,12 +126,24 @@ def build(previous_date: str, current_date: str, fetched_at: str) -> dict:
     current = session(current_date, fetched_at)
     places = contract["output_decimal_places"]
     trend = SIGNALS._trend(previous, current, contract, places)
+    leadership = SIGNALS._leadership(previous, current, contract, places)
+    incomplete = {
+        market: value
+        for market, value in leadership["coverage"].items()
+        if value["observed_sector_count"] != value["ratified_identity_count"] - 1
+    }
+    if incomplete:
+        detail = ",".join(
+            f"{market}={value['observed_sector_count']}/{value['ratified_identity_count'] - 1}"
+            for market, value in sorted(incomplete.items())
+        )
+        raise CandidateError(f"LEADERSHIP_COVERAGE_INCOMPLETE:{detail}")
     axes = {
         "TREND": {"status": "OBSERVED", "measurement": trend},
         "BREADTH": {"status": "OBSERVED", "measurement": SIGNALS._breadth(previous, current, places)},
         "RISK_VOL": {"status": "OBSERVED", "measurement": SIGNALS._risk_vol(current, trend, places)},
         "LIQUIDITY": {"status": "OBSERVED", "measurement": SIGNALS._liquidity(previous, current, places)},
-        "LEADERSHIP": {"status": "OBSERVED", "measurement": SIGNALS._leadership(previous, current, contract, places)},
+        "LEADERSHIP": {"status": "OBSERVED", "measurement": leadership},
     }
     source = {
         "name": "KRX_INFORMATION_DATA_SYSTEM_PYKRX",
