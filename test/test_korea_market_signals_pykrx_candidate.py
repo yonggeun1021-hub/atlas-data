@@ -55,6 +55,16 @@ class PykrxCandidateIdentityTest(unittest.TestCase):
             }
         )
 
+    def test_normalization_collision_fails_closed(self):
+        records = [
+            {"series_identity": "KOSPI::A·B"},
+            {"series_identity": "KOSPI::AB"},
+        ]
+        with self.assertRaisesRegex(
+            MODULE.CandidateError, "INDEX_NAME_NORMALIZATION_COLLISION"
+        ):
+            MODULE.canonical_index_name_map_from_records(records, "kospi")
+
 
 if __name__ == "__main__":
     unittest.main()

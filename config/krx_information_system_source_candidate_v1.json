@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "contract_version": "krx_information_system_source_candidate/1",
+  "status": "DRAFT_NOT_RUNTIME_RATIFIED",
+  "source": {
+    "name": "KRX_INFORMATION_DATA_SYSTEM_PYKRX",
+    "endpoint": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
+    "allowed_builders": {
+      "index": "dbms/MDC/STAT/standard/MDCSTAT00101",
+      "stock": "dbms/MDC/STAT/standard/MDCSTAT01501"
+    }
+  },
+  "dependency_lock": {
+    "python": "3.11",
+    "platform": "manylinux_x86_64",
+    "packages": {
+      "numpy": {
+        "filename": "numpy-2.4.6-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "sha256": "89cd468399cfd2504718f0ba50e410dca55a170b61a02ad92bb18c8a65186e93",
+        "version": "2.4.6"
+      },
+      "pandas": {
+        "filename": "pandas-2.3.3-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+        "sha256": "b98560e98cb334799c0b07ca7967ac361a47326e9b4e5a7dfb5ab2b1c9d35a1b",
+        "version": "2.3.3"
+      },
+      "pykrx": {
+        "filename": "pykrx-1.2.8-py3-none-any.whl",
+        "sha256": "e6d6e206d81575fedfa6a6bcea2d3843ea880f24bc79c1059121829975a9bd70",
+        "version": "1.2.8"
+      },
+      "requests": {
+        "filename": "requests-2.34.2-py3-none-any.whl",
+        "sha256": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0",
+        "version": "2.34.2"
+      }
+    }
+  },
+  "field_semantics": {
+    "stock": {
+      "TDD_CLSPRC": {"normalized": "종가", "unit": "KRW_PER_SHARE", "client_adjustment": "NONE"},
+      "FLUC_RT": {"normalized": "등락률", "unit": "PERCENT", "client_adjustment": "NONE"},
+      "ACC_TRDVAL": {"normalized": "거래대금", "unit": "KRW", "client_adjustment": "NONE"},
+      "MKTCAP": {"normalized": "시가총액", "unit": "KRW", "client_adjustment": "NONE"}
+    },
+    "index": {
+      "IDX_NM": {"normalized": "지수명", "unit": "KRX_INDEX_IDENTITY", "client_adjustment": "PYKRX_1_2_8_REGEX_REMOVE_NON_WORD_EXCEPT_HYPHEN_DOT"},
+      "CLSPRC_IDX": {"normalized": "종가", "unit": "INDEX_POINTS", "client_adjustment": "NONE"}
+    }
+  },
+  "retention": {
+    "original_response_bytes_required": true,
+    "request_headers_retained": false,
+    "cookies_retained": false,
+    "credentials_retained": false,
+    "public_request_fields": ["bld", "trdDd", "mktId", "idxIndMidclssCd"],
+    "normalized_frame_hash_required": true,
+    "received_at_utc_required": true,
+    "provider_published_at": null,
+    "provider_published_at_is_received_at": false
+  },
+  "failure_policy": {
+    "missing": "UNKNOWN_NO_OVERWRITE",
+    "duplicate": "UNKNOWN_NO_OVERWRITE",
+    "mapping_collision": "UNKNOWN_NO_OVERWRITE",
+    "stale": "UNKNOWN_NO_OVERWRITE",
+    "tamper": "UNKNOWN_NO_OVERWRITE"
+  },
+  "authority": {
+    "paper_reference_display_authorized": false,
+    "runtime_regime_authorized": false,
+    "strategy_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_authorized": false
+  }
+}

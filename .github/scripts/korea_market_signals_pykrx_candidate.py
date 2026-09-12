@@ -35,6 +35,10 @@ def load_module(name: str, path: Path):
 
 SIGNALS = load_module("kr_signals_candidate_source", ROOT / ".github/scripts/korea_market_signals.py")
 REFERENCE = load_module("kr_signals_candidate_reference", ROOT / "regime/paper_regime_reference.py")
+CAPTURE = load_module(
+    "kr_signals_candidate_capture",
+    ROOT / "regime/krx_information_system_capture.py",
+)
 MARKETS = ("kospi", "kosdaq")
 PYKRX_INDEX_NAME_FILTER = re.compile(r"[^-\w\.]")
 
@@ -64,9 +68,13 @@ def pykrx_rendered_index_name(value: str) -> str:
 
 def canonical_index_name_map(market: str) -> dict[str, str]:
     policy = json.loads(SIGNALS.LEADERSHIP_POLICY_PATH.read_text(encoding="utf-8"))
+    return canonical_index_name_map_from_records(policy["records"], market)
+
+
+def canonical_index_name_map_from_records(records: list[dict], market: str) -> dict[str, str]:
     prefix = f"{market.upper()}::"
     result: dict[str, str] = {}
-    for record in policy["records"]:
+    for record in records:
         identity = record["series_identity"]
         if not identity.startswith(prefix):
             continue
@@ -260,18 +268,65 @@ def build(previous_date: str, current_date: str, fetched_at: str) -> dict:
     }
 
 
+def bind_source_capture(result: dict, manifest: dict) -> dict:
+    """Bind retained source bytes after all eight calls have completed."""
+    packet = result["source_packet"]
+    packet["source"]["source_capture"] = {
+        "manifest_path": "source-capture/manifest.json",
+        "manifest_payload_sha256": manifest["payload_sha256"],
+        "record_count": len(manifest["records"]),
+        "original_response_bytes_retained": True,
+        "request_headers_retained": False,
+        "cookies_retained": False,
+        "credentials_retained": False,
+        "provider_published_at_is_received_at": False,
+    }
+    packet["source"]["dependency_lock"] = {
+        "contract": "config/krx_information_system_source_candidate_v1.json",
+        "requirements": "requirements-korea-paper-source.lock",
+        "pykrx": "1.2.8",
+        "pandas": "2.3.3",
+        "numpy": "2.4.6",
+        "requests": "2.34.2",
+    }
+    packet["source"]["normalization_contract"] = {
+        "stock_fields": ["TDD_CLSPRC", "FLUC_RT", "ACC_TRDVAL", "MKTCAP"],
+        "index_fields": ["IDX_NM", "CLSPRC_IDX"],
+        "index_name_regex": r"[^-\w\.]",
+        "client_price_adjustment": "NONE",
+    }
+    unsigned = dict(packet)
+    unsigned.pop("payload_sha256", None)
+    packet["payload_sha256"] = SIGNALS.payload_sha256(unsigned)
+    policy = json.loads(REFERENCE.POLICY_PATH.read_text(encoding="utf-8"))
+    result["paper_reference"] = REFERENCE.build_kr(
+        packet, policy, render_version=REFERENCE.CURRENT_RENDER_VERSION
+    )
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--previous-date", required=True)
     parser.add_argument("--current-date", required=True)
+    parser.add_argument("--expected-current-date", required=True)
     parser.add_argument("--fetched-at", required=True)
+    parser.add_argument("--capture-dir", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    result = build(args.previous_date, args.current_date, args.fetched_at)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    CAPTURE.require_current_session(args.current_date, args.expected_current_date)
+    if args.out.exists():
+        raise CandidateError("NO_OVERWRITE")
+    source_capture = CAPTURE.SourceCapture(
+        args.capture_dir, (args.previous_date, args.current_date)
+    )
+    with CAPTURE.capture_requests(source_capture):
+        result = build(args.previous_date, args.current_date, args.fetched_at)
+    manifest = source_capture.finalize()
+    result = bind_source_capture(result, manifest)
+    CAPTURE.write_new(
+        args.out,
+        (json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
     )
     print(
         "PASS_KR_PAPER_INFORMATION_SYSTEM_REFERENCE_CANDIDATE:"
