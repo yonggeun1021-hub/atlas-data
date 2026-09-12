@@ -28,16 +28,8 @@ DAILY_PATH = (
     ROOT
     / "evidence/daily_briefing/morning/2026-09-12/rev-002/packet.json"
 )
-STAGE1_PATH = ROOT / (
-    "evidence/regime/paper_reference/2026-09-12/"
-    "10bab3b9d69ce85bed1ab2da9759e216deb24cd79e35b809962ffdc2678e4908/"
-    "packet.json"
-)
-STAGE2_PATH = ROOT / (
-    "evidence/portfolio/capital_flow_posture_reference/2026-09-12/"
-    "45beac6b52e9eb6831b01ac6b761f584df053287c69fc2ce873f67047e1483f8/"
-    "packet.json"
-)
+STAGE1_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
+STAGE2_PATH = ROOT / "data" / "latest_capital_flow_posture_reference.json"
 
 
 def read(path: Path) -> dict:
@@ -91,7 +83,7 @@ class RotationCandidateSelectionDailyHandoffTests(unittest.TestCase):
         self.assertEqual(self.packet["inputs"], [])
         self.assertEqual(
             self.packet["payload_sha256"],
-            "e0de848c8c7ad9f4eac60f2d0962bc431fca496a76273472171649a8409e06b8",
+            "e94d70f5f68bba5a3661853272f94180c21a81d7ffab0bcc747fba1b79e5f2b0",
         )
         self.assertEqual(
             [row["market"] for row in self.packet["stage1_lineage"]["markets"]],
