@@ -94,7 +94,9 @@ class CaptureContractTest(unittest.TestCase):
             ("20260910", "20260911"),
             clock=lambda: self.NOW,
         )
-        value = response("KOSPI", "stock")
+        payload = json.loads(raw_body("KOSPI", "stock"))
+        payload["CURRENT_DATETIME"] = "2026-09-12 22:30:35"
+        value = FakeResponse(json.dumps(payload).encode())
         value.headers["Content-Type"] = "text/html;charset=UTF-8"
         key, stored = capture.capture(
             request("20260910", "KOSPI", "stock"), value
