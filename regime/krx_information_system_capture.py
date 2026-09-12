@@ -282,21 +282,7 @@ def require_completed_session_pair(previous_date: str, current_date: str, contra
         closed.add(day)
     decision = decision_utc.astimezone(SEOUL)
 
-    def is_completed(day: dt.date) -> bool:
-        if day.weekday() >= 5 or day in closed:
-            return False
-        return decision >= dt.datetime.combine(day, dt.time(15, 30), SEOUL)
-
-    completed = []
-    cursor = decision.date()
-    for _ in range(370):
-        if is_completed(cursor):
-            completed.append(cursor)
-            if len(completed) == 2:
-                break
-        cursor -= dt.timedelta(days=1)
-    if len(completed) != 2:
-        raise CaptureError("CALENDAR_COMPLETED_PAIR_NOT_FOUND")
+    completed = completed_session_pair(decision, year, closed)
     expected = tuple(day.strftime("%Y%m%d") for day in reversed(completed))
     if (previous_date, current_date) != expected:
         raise CaptureError(f"STALE_SESSION:expected={expected[0]},{expected[1]}:observed={previous_date},{current_date}")
@@ -305,6 +291,23 @@ def require_completed_session_pair(previous_date: str, current_date: str, contra
         "evidence_sha256": calendar["sha256"], "previous_completed_session": previous_date,
         "latest_completed_session": current_date, "decision_at_utc": format_utc(decision),
     }
+
+
+def completed_session_pair(
+    decision: dt.datetime, evidence_year: int, closed: set[dt.date]
+) -> list[dt.date]:
+    """Find two sessions without inferring any date outside evidence_year."""
+    completed = []
+    cursor = decision.date()
+    while cursor.year == evidence_year:
+        if cursor.weekday() < 5 and cursor not in closed:
+            close = dt.datetime.combine(cursor, dt.time(15, 30), SEOUL)
+            if decision >= close:
+                completed.append(cursor)
+                if len(completed) == 2:
+                    return completed
+        cursor -= dt.timedelta(days=1)
+    raise CaptureError("CALENDAR_EVIDENCE_RANGE_INSUFFICIENT")
 
 
 class SourceCapture:
