@@ -1625,6 +1625,7 @@ APPROVED_TESTS = [
     #   polling·notification은 여전히 미배선이다.
     #   ⛔ notification/action/order/Production/trading 및 신규 network 없음.
     "test/test_important_event_detector.py",
+    "test/test_intraday_risk_observation_preparation.py",
     # ★ P9-05 — external RATIFIED intraday risk escalation thresholds.
     #   drawdown/down-gap/spread/relative-volume을 exact observation에서 계산하지만
     #   ALERT는 evidence일 뿐 reduce/STOP/action/order 후보를 만들지 않는다.
