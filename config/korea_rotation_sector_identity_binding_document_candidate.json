@@ -1,9 +1,7 @@
 {
-  "approval_status": "UNRATIFIED",
   "benchmark_scopes": [
     {
       "benchmark_identity": "KOSDAQ::코스닥",
-      "bottom_count": 3,
       "members": [
         {
           "series_identity": "KOSDAQ::IT 서비스",
@@ -93,12 +91,10 @@
           "series_identity": "KOSDAQ::화학",
           "theme_id": "KOSDAQ.SECTOR.22"
         }
-      ],
-      "top_count": 3
+      ]
     },
     {
       "benchmark_identity": "KOSPI::코스피",
-      "bottom_count": 3,
       "members": [
         {
           "series_identity": "KOSPI::IT 서비스",
@@ -196,21 +192,16 @@
           "series_identity": "KOSPI::화학",
           "theme_id": "KOSPI.SECTOR.24"
         }
-      ],
-      "top_count": 3
+      ]
     }
   ],
-  "effective_from": "2026-09-12",
-  "effective_to": null,
-  "maximum_calendar_gap_days": 7,
-  "policy_id": "POLICY.P2_03.KOREA_OWN_BENCHMARK_EXTREMES.CANDIDATE.V2",
-  "ranking_metric": "RELATIVE_STRENGTH_VS_OWN_BENCHMARK",
-  "ranking_order": "DESCENDING_WITHIN_BENCHMARK_SCOPE",
-  "ratified_at_utc": null,
-  "ratified_by": null,
-  "schema_version": "korea_capital_rotation_policy/1",
-  "taxonomy_decision_sha256": "e320bd24c7d4b3ebbb0f4c2271d1664cc2733be7b67718bc391e857aa1f0cb34",
-  "taxonomy_packet_sha256": "66368014415d08000d3ad1ccfdc0bff3f2f3349bdccac10eb53a730c9ae248ea",
-  "tie_break": "SERIES_IDENTITY_ASC",
-  "upstream_leadership_policy_sha256": "3b532ad57ba3a6750c83346eb7d832a184fe4f218b91843611eaad37c7510585"
+  "binding_status": "UNRATIFIED_CANDIDATE",
+  "candidate_taxonomy_id": "TAXONOMY.P2_03.KOREA_SECTOR_IDENTITY.CANDIDATE.V2",
+  "contract_version": "korea_sector_identity_binding/1",
+  "payload_sha256": "66368014415d08000d3ad1ccfdc0bff3f2f3349bdccac10eb53a730c9ae248ea",
+  "schema_version": 1,
+  "scope_note": "Fixed, date-independent positional per-benchmark SECTOR series_identity -> theme_id binding candidate, scoped ONLY to korea_capital_rotation.py's own taxonomy_binding/rotation_policy fields via the dedicated korea_sector_identity_binding/1 contract. This is NOT the P2-01 cross-market Theme / Value-Chain taxonomy (config/theme_taxonomy_authority_registry.json, owned separately under PR #576, currently 0 ratified records) and does not modify, populate, or duplicate it, and does not use the P2-01 theme_taxonomy/2 graph producer at all (that graph is evaluated per-as_of_date and cannot be reused unchanged across sessions; this binding intentionally carries no as_of_date). UNRATIFIED: no production, trading, candidate, Stage, briefing, or Regime authority is opened by any document in this lane. Does not reuse the 2026-08-22T07:19:09Z self-declared ratification timestamp, the all-zero taxonomy SHA placeholders previously embedded in .github/scripts/korea_capital_rotation_ledger_proof.py, or the 2026-09-11 date this lane's first, superseded candidate was authored on.",
+  "source_policy_effective_from": "2026-08-01",
+  "source_policy_path": "config/korea_leadership_policy.json",
+  "source_policy_sha256": "3b532ad57ba3a6750c83346eb7d832a184fe4f218b91843611eaad37c7510585"
 }

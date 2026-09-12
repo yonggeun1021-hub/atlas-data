@@ -25,6 +25,9 @@ except ModuleNotFoundError:  # direct ``python rotation/korea_capital_rotation.p
     from rotation import theme_taxonomy as TT
 
 CONTRACT_PATH = ROOT / "config" / "korea_capital_rotation_contract.json"
+SECTOR_IDENTITY_BINDING_CONTRACT_PATH = (
+    ROOT / "config" / "korea_sector_identity_binding_contract.json"
+)
 INPUT_SCHEMA_VERSION = "korea_capital_rotation_input/1"
 POLICY_SCHEMA_VERSION = "korea_capital_rotation_policy/1"
 OUTPUT_SCHEMA_VERSION = "korea_capital_rotation_packet/4"
@@ -217,22 +220,59 @@ def taxonomy_producer_contract_version() -> str:
         ) from exc
 
 
+def sector_identity_binding_contract_version(
+    path: Path = SECTOR_IDENTITY_BINDING_CONTRACT_PATH,
+) -> str:
+    """The exact ``contract_version`` of the dedicated, P2-03-owned,
+    date-independent sector identity binding (``config/korea_sector_
+    identity_binding_contract.json``).
+
+    This is a narrower, separate contract from the P2-01 cross-market
+    ``theme_taxonomy/2`` producer: it binds only a fixed
+    ``series_identity -> theme_id`` map pinned to a specific ratified
+    upstream Leadership policy, carries no per-decision-date graph, requires
+    no edges/memberships/authority-registry record, and creates no asset-to-
+    theme membership or cross-market taxonomy authority. Read from its own
+    committed contract instead of being duplicated as a literal here, for the
+    same drift-safety reason as ``taxonomy_producer_contract_version()``.
+    """
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise KoreaCapitalRotationError(
+            f"SECTOR_IDENTITY_BINDING_CONTRACT_UNAVAILABLE:{exc}"
+        ) from exc
+    version = value.get("contract_version") if isinstance(value, dict) else None
+    if not isinstance(version, str) or not version:
+        raise KoreaCapitalRotationError("SECTOR_IDENTITY_BINDING_CONTRACT_UNAVAILABLE")
+    return version
+
+
 def _validate_binding(value: dict, contract: dict, *, derived: bool) -> dict:
-    """Validate the taxonomy binding for either supported binding version.
+    """Validate the taxonomy binding for any supported binding version.
 
     ``contract["taxonomy_contract_version"]`` (``theme_taxonomy/1``) is the
     unchanged legacy binding: four opaque caller-supplied identity strings
-    that this module can only carry, never resolve.  The producer's own
+    that this module can only carry, never resolve. The P2-01 producer's own
     current version (``theme_taxonomy/2``) additionally requires the exact
     graph source bytes at build time, and the persisted packet then carries
-    the source and derived fields build_packet() derived from the real producer.
+    the source and derived fields build_packet() derived from the real
+    producer -- but that graph is evaluated for one specific ``as_of_date``,
+    so a v2 binding cannot be reused unchanged across multiple decision
+    dates. ``korea_sector_identity_binding/1`` (this module's own, narrower
+    contract) is the date-independent alternative: a fixed positional
+    ``series_identity -> theme_id`` map pinned to one ratified upstream
+    Leadership policy, with no per-date graph, no edges/memberships, and no
+    P2-01 cross-market taxonomy authority -- reusable byte-identical across
+    Day N, Day N+1, and every later natural session.
     """
     if not isinstance(value, dict):
         raise KoreaCapitalRotationError("TAXONOMY_BINDING_FIELDS_MISMATCH")
     version = value.get("taxonomy_contract_version")
     legacy_version = contract["taxonomy_contract_version"]
     producer_version = taxonomy_producer_contract_version()
-    if version not in (legacy_version, producer_version):
+    sector_identity_version = sector_identity_binding_contract_version()
+    if version not in (legacy_version, producer_version, sector_identity_version):
         raise KoreaCapitalRotationError("TAXONOMY_CONTRACT_VERSION_MISMATCH")
     fields = set(TAXONOMY_BINDING_FIELDS)
     if derived and version == producer_version:
