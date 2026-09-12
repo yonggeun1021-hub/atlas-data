@@ -118,6 +118,12 @@ class CaptureContractTest(unittest.TestCase):
         with self.assertRaisesRegex(CAPTURE.CaptureError, "ROW_SCHEMA_INVALID"):
             capture2.capture(request("20260910", "KOSPI", "stock"), FakeResponse(json.dumps(raw).encode()))
         self.assertFalse((self.root / "unknown/responses").exists())
+        capture3 = CAPTURE.SourceCapture(self.root / "nested", ("20260910", "20260911"), clock=lambda: self.NOW)
+        nested = json.loads(raw_body("KOSPI", "stock"))
+        nested["OutBlock_1"][0]["ISU_ABBRV"] = {"token": "synthetic"}
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "SECRET_FIELD_REJECTED"):
+            capture3.capture(request("20260910", "KOSPI", "stock"), FakeResponse(json.dumps(nested).encode()))
+        self.assertFalse((self.root / "nested/responses").exists())
 
     def test_dispatch_is_allowlisted_and_reserved_before_network(self):
         import requests
@@ -161,6 +167,10 @@ class CaptureContractTest(unittest.TestCase):
         self.assertEqual(result["latest_completed_session"], "20260911")
         with self.assertRaisesRegex(CAPTURE.CaptureError, "STALE_SESSION"):
             CAPTURE.require_completed_session_pair("20260909", "20260910", contract, "2026-09-13T00:00:00Z")
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "TIME_ORDER_INVALID"):
+            CAPTURE.require_completed_session_pair("20260904", "20260907", contract, "2026-09-08T15:32:01Z")
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "YEAR_INVALID"):
+            CAPTURE.require_completed_session_pair("20261230", "20270101", contract, "2027-01-01T08:00:00Z")
 
     def test_no_overwrite_request_secret_and_unknown_status(self):
         path = self.root / "existing.json"
@@ -171,6 +181,10 @@ class CaptureContractTest(unittest.TestCase):
         bad.body += "&password=secret"
         with self.assertRaisesRegex(CAPTURE.CaptureError, "SECRET_OR_UNKNOWN"):
             CAPTURE.classify_public_request(bad.method, bad.url, bad.body)
+        query = request("20260910", "KOSPI", "stock")
+        query.url += "?unexpected_scope=synthetic"
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "REQUEST_ENDPOINT_INVALID"):
+            CAPTURE.classify_public_request(query.method, query.url, query.body)
         self.assertTrue(all(value is False for value in CAPTURE.unknown_status("STOP")["authority"].values()))
 
     def test_dependency_hash_version_and_tamper(self):

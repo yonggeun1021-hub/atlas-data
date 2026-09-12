@@ -32,7 +32,7 @@ INDEX_REQUIRED = {"IDX_NM", "CLSPRC_IDX"}
 UTC_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SECRET_KEY_PATTERN = re.compile(
-    r"(?:access[_-]?token|refresh[_-]?token|password|passwd|secret|authorization|cookie|session|api[_-]?key)", re.I
+    r"(?:access[_-]?token|refresh[_-]?token|(?:^|[_-])token(?:$|[_-])|password|passwd|secret|authorization|cookie|session|api[_-]?key)", re.I
 )
 PYKRX_FILTER = re.compile(r"[^-\w\.]")
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -57,6 +57,18 @@ def parse_utc(value: object, code: str = "UTC_TIME_INVALID") -> dt.datetime:
         return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
     except ValueError as exc:
         raise CaptureError(code) from exc
+
+
+def parse_evidence_utc(value: object, code: str) -> dt.datetime:
+    if not isinstance(value, str):
+        raise CaptureError(code)
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise CaptureError(code) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != dt.timedelta(0):
+        raise CaptureError(code)
+    return parsed.astimezone(dt.timezone.utc)
 
 
 def format_utc(value: dt.datetime) -> str:
@@ -112,7 +124,7 @@ def _body_params(body: object) -> dict[str, str]:
 
 
 def classify_public_request(method: str, url: str, body: object) -> tuple[str, dict]:
-    if method != "POST" or url.split("?", 1)[0] != ENDPOINT:
+    if method != "POST" or url != ENDPOINT:
         raise CaptureError("REQUEST_ENDPOINT_INVALID")
     params = _body_params(body)
     builder = params.get("bld")
@@ -161,6 +173,8 @@ def _validate_provider_payload(raw: bytes, family: str) -> tuple[dict, list[dict
     for row in payload[block]:
         if not isinstance(row, dict) or not required <= set(row) <= allowed:
             raise CaptureError(f"RESPONSE_ROW_SCHEMA_INVALID:{family}")
+        if any(not isinstance(value, str) for value in row.values()):
+            raise CaptureError(f"RESPONSE_ROW_VALUE_INVALID:{family}")
     return payload, payload[block]
 
 
@@ -243,6 +257,18 @@ def require_completed_session_pair(previous_date: str, current_date: str, contra
         raise CaptureError("CALENDAR_EVIDENCE_RESPONSE_INVALID") from exc
     if sha256_bytes(provider_raw) != response.get("raw_sha256"):
         raise CaptureError("CALENDAR_PROVIDER_HASH_INVALID")
+    decision_utc = parse_utc(decision_at, "CALENDAR_DECISION_TIME_INVALID")
+    started = parse_evidence_utc(
+        captured.get("capture_started_at"), "CALENDAR_EVIDENCE_TIME_INVALID"
+    )
+    received = parse_evidence_utc(
+        captured.get("response_received_at"), "CALENDAR_EVIDENCE_TIME_INVALID"
+    )
+    if started > received or received > decision_utc:
+        raise CaptureError("CALENDAR_EVIDENCE_TIME_ORDER_INVALID")
+    year = captured.get("year")
+    if type(year) is not int or year != decision_utc.astimezone(SEOUL).year:
+        raise CaptureError("CALENDAR_EVIDENCE_YEAR_INVALID")
     provider = _json_object(provider_raw, "CALENDAR_PROVIDER_JSON_INVALID")
     if set(provider) != {"block1"} or not isinstance(provider["block1"], list):
         raise CaptureError("CALENDAR_PROVIDER_SCHEMA_INVALID")
@@ -250,8 +276,11 @@ def require_completed_session_pair(previous_date: str, current_date: str, contra
     for row in provider["block1"]:
         if not isinstance(row, dict) or not isinstance(row.get("calnd_dd"), str):
             raise CaptureError("CALENDAR_PROVIDER_ROW_INVALID")
-        closed.add(dt.date.fromisoformat(row["calnd_dd"]))
-    decision = parse_utc(decision_at, "CALENDAR_DECISION_TIME_INVALID").astimezone(SEOUL)
+        day = dt.date.fromisoformat(row["calnd_dd"])
+        if day.year != year:
+            raise CaptureError("CALENDAR_PROVIDER_YEAR_INVALID")
+        closed.add(day)
+    decision = decision_utc.astimezone(SEOUL)
 
     def is_completed(day: dt.date) -> bool:
         if day.weekday() >= 5 or day in closed:

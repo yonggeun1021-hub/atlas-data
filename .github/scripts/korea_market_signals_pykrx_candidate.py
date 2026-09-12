@@ -291,6 +291,24 @@ def build(previous_date: str, current_date: str, fetched_at: str, source_capture
     }
 
 
+def bind_receipt_times(packet: dict, manifest: dict) -> None:
+    """Replace provisional start times with each response's actual receipt."""
+    receipt_by_key = {
+        record["key"]: record["response"]["received_at_utc"]
+        for record in manifest["records"]
+    }
+    previous_date, current_date = manifest["dates"]
+    for family, markets in packet["source"]["requests"].items():
+        for market, lineage in markets.items():
+            lineage["previous_fetched_at_utc"] = receipt_by_key[
+                f"{previous_date}:{market}:{family}"
+            ]
+            lineage["current_fetched_at_utc"] = receipt_by_key[
+                f"{current_date}:{market}:{family}"
+            ]
+            lineage["time_semantics"] = "ACTUAL_RESPONSE_RECEIVED_AT_UTC"
+
+
 def bind_source_capture(result: dict, manifest: dict, calendar: dict) -> dict:
     """Bind retained source bytes after all eight calls have completed."""
     packet = result["source_packet"]
@@ -306,6 +324,7 @@ def bind_source_capture(result: dict, manifest: dict, calendar: dict) -> dict:
         "raw_to_normalized_frame_equivalence": "VERIFIED_FOR_ALL_REQUIRED_PROJECTIONS",
     }
     packet["source"]["session_calendar"] = calendar
+    bind_receipt_times(packet, manifest)
     packet["source"]["dependency_lock"] = {
         "contract": "config/krx_information_system_source_candidate_v1.json",
         "requirements": "requirements-korea-paper-source.lock",
