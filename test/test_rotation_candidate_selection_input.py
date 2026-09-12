@@ -3,6 +3,7 @@
 
 import ast
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -37,16 +38,8 @@ DISCOVERY_FIXTURE = load_module(
 CONTRACT = MODULE.load_contract()
 BRIEFING_CONTRACT = BRIEFING.load_contract()
 GENERATED_AT = "2026-08-21T02:00:00Z"
-STAGE1_PATH = ROOT / (
-    "evidence/regime/paper_reference/2026-09-12/"
-    "10bab3b9d69ce85bed1ab2da9759e216deb24cd79e35b809962ffdc2678e4908/"
-    "packet.json"
-)
-STAGE2_PATH = ROOT / (
-    "evidence/portfolio/capital_flow_posture_reference/2026-09-12/"
-    "45beac6b52e9eb6831b01ac6b761f584df053287c69fc2ce873f67047e1483f8/"
-    "packet.json"
-)
+STAGE1_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
+STAGE2_PATH = ROOT / "data" / "latest_capital_flow_posture_reference.json"
 STAGE1_REFERENCE = json.loads(STAGE1_PATH.read_text(encoding="utf-8"))
 STAGE2_REFERENCE = json.loads(STAGE2_PATH.read_text(encoding="utf-8"))
 
@@ -164,51 +157,40 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
         lineage = self.packet["stage1_lineage"]
         self.assertEqual(
             lineage["generation_id"],
-            "10bab3b9d69ce85bed1ab2da9759e216deb24cd79e35b809962ffdc2678e4908",
+            STAGE1_REFERENCE["generation_id"],
         )
         self.assertEqual(
             lineage["payload_sha256"],
-            "8d1810001282bc6b096913ed494119c2bd66f97c84841fbc12dd9d3d8c0d51ee",
+            STAGE1_REFERENCE["payload_sha256"],
         )
         self.assertEqual(
             lineage["file_sha256"],
-            "8081e401935831a0b6ae89bc1b50ae02806c6f1d339c850a0c15a59931f34a41",
+            hashlib.sha256(STAGE1_PATH.read_bytes()).hexdigest(),
         )
         self.assertEqual(
             lineage["markets"],
             [
                 {
-                    "market": "US",
-                    "as_of_date": "2026-09-11",
-                    "candidate_regime": "NEUTRAL",
-                    "runtime_regime": "UNKNOWN",
-                },
-                {
-                    "market": "KR",
-                    "as_of_date": "2026-09-10",
-                    "candidate_regime": "NEUTRAL",
-                    "runtime_regime": "UNKNOWN",
-                },
-                {
-                    "market": "CRYPTO",
-                    "as_of_date": "2026-09-12",
-                    "candidate_regime": "UNKNOWN",
-                    "runtime_regime": "UNKNOWN",
-                },
+                    "market": row["market"],
+                    "as_of_date": row["as_of_date"],
+                    "candidate_regime": row["paper_reference"]["candidate_regime"],
+                    "runtime_regime": row["runtime_regime"],
+                }
+                for row in STAGE1_REFERENCE["markets"]
             ],
         )
         stage2 = lineage["stage2_binding"]
         self.assertEqual(
             stage2["generation_id"],
-            "45beac6b52e9eb6831b01ac6b761f584df053287c69fc2ce873f67047e1483f8",
+            STAGE2_REFERENCE["generation_id"],
         )
         self.assertEqual(
             stage2["payload_sha256"],
-            "5ff6600541d6cb07a0de3a09fadfbf132c486d3939bbac2f1a3c5d73f2955779",
+            STAGE2_REFERENCE["payload_sha256"],
         )
         self.assertEqual(
             stage2["file_sha256"],
-            "12540118c4e98bcdc70cc2e3895fae40abedee5e1b50e1e7818fb0cc2dbfe45d",
+            hashlib.sha256(STAGE2_PATH.read_bytes()).hexdigest(),
         )
         self.assertEqual(
             stage2["status"], "EXACT_STAGE2_TO_STAGE1_BINDING_REVALIDATED"
