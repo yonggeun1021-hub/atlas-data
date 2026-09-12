@@ -48,6 +48,9 @@ KOREA_REVIEW = _load_module(
 US_REVIEW = _load_module(
     "coverage_us_symbol_market_review", "decision/us_symbol_market_review.py"
 )
+US_INVESTABLE_REGISTRY = _load_module(
+    "coverage_us_investable_registry", "universe/us_investable_registry.py"
+)
 CRYPTO_DECISION = _load_module(
     "coverage_crypto_paper_decision", "decision/crypto_paper_decision_snapshot.py"
 )
@@ -278,46 +281,97 @@ def _validated_review(path: Path, market: str, observed_at: dt.datetime) -> dict
 
 
 def _validated_crypto_decision(path: Path, observed_at: dt.datetime) -> dict:
-    checked = _read_json(path, "CRYPTO_DECISION_READ_FAILED")
-    if checked.get("schema_version") != "crypto_paper_decision_snapshot_packet/1":
-        raise ThreeMarketEvaluationCoverageError("CRYPTO_DECISION_SCHEMA_INVALID")
-    _validate_self_hash(
-        checked, "payload_sha256", "CRYPTO_DECISION_HASH_MISMATCH"
-    )
     try:
-        CRYPTO_DECISION._require_all_false(checked.get("authority"))
+        checked = CRYPTO_DECISION.validate_output(
+            _read_json(path, "CRYPTO_DECISION_READ_FAILED")
+        )
     except CRYPTO_DECISION.CryptoPaperDecisionSnapshotError as exc:
         raise ThreeMarketEvaluationCoverageError(
-            f"CRYPTO_DECISION_AUTHORITY_INVALID:{exc}"
+            f"CRYPTO_DECISION_INVALID:{exc}"
         ) from exc
-    refs = checked.get("source_refs")
-    if not isinstance(refs, list) or not refs:
-        raise ThreeMarketEvaluationCoverageError("CRYPTO_DECISION_SOURCE_REFS_INVALID")
-    for ref in refs:
-        if (
-            not isinstance(ref, dict)
-            or set(ref) != {"role", "path", "sha256"}
-            or not isinstance(ref.get("path"), str)
-            or not isinstance(ref.get("sha256"), str)
-        ):
-            raise ThreeMarketEvaluationCoverageError(
-                "CRYPTO_DECISION_SOURCE_REF_INVALID"
-            )
-        source_path = (ROOT / ref["path"]).resolve()
-        try:
-            source_path.relative_to(ROOT.resolve())
-        except ValueError as exc:
-            raise ThreeMarketEvaluationCoverageError(
-                "CRYPTO_DECISION_SOURCE_PATH_INVALID"
-            ) from exc
-        if _file_sha256(source_path) != ref["sha256"]:
-            raise ThreeMarketEvaluationCoverageError(
-                "CRYPTO_DECISION_SOURCE_HASH_MISMATCH"
-            )
     _require_not_future(
         checked.get("generated_at"), observed_at, "CRYPTO_DECISION_FROM_FUTURE"
     )
     return checked
+
+
+def _crypto_held_reason_analysis(candidates: list[dict]) -> dict:
+    """Classify the owning evaluator's exact UNKNOWN reasons, never scores."""
+    policy_reasons = {
+        "REGIME_AGGREGATE_UNAUTHORIZED_PENDING_P1_COM_05",
+        "NO_RATIFIED_CANDIDATE_TREND_RULE",
+        "VOLUME_LIQUIDITY_THRESHOLDS_UNRATIFIED",
+        "NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+        "BTC_SELF_REFERENCE_RULE_UNRATIFIED",
+        "PEER_RELATIVE_STRENGTH_UNRATIFIED",
+    }
+    data_reasons = {
+        "SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING",
+        "INSUFFICIENT_FINALIZED_CANDLES",
+        "EVIDENCE_FAMILY_INCOMPLETE",
+        "LEADERSHIP_ASSET_WINDOW_INCOMPLETE",
+        "LEADERSHIP_ASSET_NOT_COVERED",
+    }
+    connection_reasons = {
+        "MARKET_EVIDENCE_PACKET_MISSING",
+        "LEADERSHIP_OUTPUT_MISSING",
+    }
+    categories = (
+        "UNRATIFIED_POLICY_OR_AUTHORITY",
+        "SOURCE_DATA_OR_COVERAGE_INSUFFICIENT",
+        "CONSUMER_INPUT_NOT_CONNECTED",
+        "OTHER_UNKNOWN_REASON",
+    )
+    occurrence_counts = Counter()
+    reason_counts = Counter()
+    markets_by_category = {category: set() for category in categories}
+    held_rows = [row for row in candidates if row.get("state") in {"WATCH", "WAIT"}]
+    for row in held_rows:
+        criteria = (row.get("p5_08") or {}).get("criteria")
+        if not isinstance(criteria, dict):
+            raise ThreeMarketEvaluationCoverageError(
+                "CRYPTO_HELD_CRITERIA_INVALID"
+            )
+        for criterion, result in criteria.items():
+            if not isinstance(result, dict) or result.get("status") not in {
+                "PASS", "FAIL", "UNKNOWN",
+            }:
+                raise ThreeMarketEvaluationCoverageError(
+                    "CRYPTO_HELD_CRITERIA_INVALID"
+                )
+            if result["status"] != "UNKNOWN":
+                continue
+            reason = result.get("reason")
+            if not isinstance(reason, str) or not reason:
+                raise ThreeMarketEvaluationCoverageError(
+                    "CRYPTO_HELD_REASON_INVALID"
+                )
+            if reason in policy_reasons:
+                category = "UNRATIFIED_POLICY_OR_AUTHORITY"
+            elif reason in data_reasons or reason.startswith(
+                "LEADERSHIP_WINDOW_UNKNOWN:"
+            ):
+                category = "SOURCE_DATA_OR_COVERAGE_INSUFFICIENT"
+            elif reason in connection_reasons:
+                category = "CONSUMER_INPUT_NOT_CONNECTED"
+            else:
+                category = "OTHER_UNKNOWN_REASON"
+            occurrence_counts[category] += 1
+            reason_counts[f"{criterion}:{reason}"] += 1
+            markets_by_category[category].add(row["market"])
+    return {
+        "count_semantics": "UNKNOWN_CRITERION_OCCURRENCES_NOT_DISTINCT_MARKETS",
+        "held_market_count": len(held_rows),
+        "criterion_occurrence_counts": {
+            category: occurrence_counts.get(category, 0)
+            for category in categories
+        },
+        "affected_market_counts": {
+            category: len(markets_by_category[category])
+            for category in categories
+        },
+        "reason_counts": dict(sorted(reason_counts.items())),
+    }
 
 
 def _base_market_row(
@@ -410,6 +464,65 @@ def build_report(
         us_review["summary"]["symbol_count"],
         _source_ref(us_review_path, us_review["packet_sha256"]),
     )
+    us_symbols = us_review.get("symbols")
+    if (
+        not isinstance(us_symbols, list)
+        or len(us_symbols) != us_review["summary"]["symbol_count"]
+    ):
+        raise ThreeMarketEvaluationCoverageError("US_BOUNDED_REVIEW_SYMBOLS_INVALID")
+    us_entry_state_counts = Counter()
+    us_entry_reason_counts = Counter()
+    for row in us_symbols:
+        entry_review = row.get("entry_review") if isinstance(row, dict) else None
+        if (
+            not isinstance(entry_review, dict)
+            or not isinstance(entry_review.get("state"), str)
+            or not isinstance(entry_review.get("reasons"), list)
+            or any(
+                not isinstance(reason, str) or not reason
+                for reason in entry_review["reasons"]
+            )
+        ):
+            raise ThreeMarketEvaluationCoverageError(
+                "US_BOUNDED_REVIEW_DISPOSITION_INVALID"
+            )
+        us_entry_state_counts[entry_review["state"]] += 1
+        us_entry_reason_counts.update(entry_review["reasons"])
+    us_registry_contract = US_INVESTABLE_REGISTRY.load_contract()
+    if (
+        us_registry_contract.get("source_coverage_is_investability") is not False
+        or (us_registry_contract.get("liquidity") or {}).get(
+            "repository_default_policy"
+        )
+        != "ABSENT"
+    ):
+        raise ThreeMarketEvaluationCoverageError(
+            "US_INVESTABLE_REGISTRY_BOUNDARY_INVALID"
+        )
+    us_row.update({
+        "bounded_output_scope": (
+            "SUPPORTED_PIPELINE_SUBJECTS_ONLY_NOT_POPULATION_EVALUATION"
+        ),
+        "bounded_output_state_counts": dict(
+            sorted(us_entry_state_counts.items())
+        ),
+        "bounded_output_reason_counts": dict(
+            sorted(us_entry_reason_counts.items())
+        ),
+        "population_evaluation_connection": {
+            "status": "NOT_CONNECTED",
+            "required_input_schema": "us_investable_snapshot/1",
+            "existing_evaluator_output_schema": "us_investable_registry_result/1",
+            "connected_source_universe_is_investability": False,
+            "required_fail_closed_facts": copy.deepcopy(
+                us_registry_contract["required_fail_closed_facts"]
+            ),
+            "liquidity_policy_status": "ABSENT_EXTERNAL_RATIFIED_POLICY_REQUIRED",
+            "reason": (
+                "NATURAL_POPULATION_INPUT_AND_LIQUIDITY_POLICY_NOT_CONNECTED"
+            ),
+        },
+    })
 
     funnel = crypto_decision.get("funnel_counts")
     candidates = crypto_decision.get("candidates")
@@ -455,6 +568,51 @@ def build_report(
         state: sum(row["state"] == state for row in excluded_rows)
         for state in ("OBSERVATION_POOL", "BLOCKED")
     }
+    identity_registry = CRYPTO_DECISION.UNIVERSE.load_identity_registry()
+    identity_scope = identity_registry.get("scope")
+    if identity_scope != "UPBIT_KRW_SPOT_CRYPTO_PAPER_EIGHT_ONLY":
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_IDENTITY_APPROVAL_SCOPE_INVALID"
+        )
+    effective_identity_mapping = (
+        CRYPTO_DECISION.UNIVERSE.effective_identity_mapping(
+            identity_registry, crypto_universe["packet"]["evaluation_as_of"]
+        )
+    )
+    if set(admitted_markets) != set(effective_identity_mapping):
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_ADMITTED_IDENTITY_SCOPE_MISMATCH"
+        )
+    pre_evaluation_reason_classification = {
+        "IDENTITY_UNRATIFIED": {
+            "market_count": excluded_reason_counts.get("IDENTITY_UNRATIFIED", 0),
+            "classification": "OUTSIDE_RATIFIED_IDENTITY_SCOPE",
+            "approval_scope": identity_scope,
+            "interpretation": (
+                "NOT_AN_INVESTMENT_CONDITION_FAILURE"
+            ),
+        },
+        "INVESTMENT_WARNING_ACTIVE": {
+            "market_count": excluded_reason_counts.get(
+                "INVESTMENT_WARNING_ACTIVE", 0
+            ),
+            "classification": "SAFETY_EXCLUSION",
+            "interpretation": (
+                "UPBIT_CAUTION_HARD_EXCLUSION_NOT_A_CANDIDATE_SCORE"
+            ),
+        },
+    }
+    if sum(
+        row["market_count"] for row in pre_evaluation_reason_classification.values()
+    ) != len(excluded_rows):
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_PRE_EVALUATION_REASON_UNCLASSIFIED"
+        )
+    held_reason_analysis = _crypto_held_reason_analysis(candidates)
+    if held_reason_analysis["held_market_count"] != held_count:
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_HELD_REASON_COUNT_INVALID"
+        )
     crypto_row = {
         "market": "CRYPTO",
         "universe_count": crypto_count,
@@ -471,6 +629,10 @@ def build_report(
         ),
         "excluded_state_counts": excluded_state_counts,
         "excluded_reason_counts": excluded_reason_counts,
+        "pre_evaluation_reason_classification": (
+            pre_evaluation_reason_classification
+        ),
+        "held_reason_analysis": held_reason_analysis,
         "paper_ready_count": paper_ready_count,
         "coverage_status": "SOURCE_POPULATION_EVALUATION_DISPOSITION_ACCOUNTED",
         "missing_reasons": [],

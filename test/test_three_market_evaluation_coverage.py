@@ -52,6 +52,33 @@ class NaturalCoverageTests(unittest.TestCase):
         self.assertEqual(self.by_market["KR"]["bounded_current_output_count"], 3)
         self.assertEqual(self.by_market["US"]["universe_count"], 13214)
         self.assertEqual(self.by_market["US"]["bounded_current_output_count"], 2)
+        self.assertEqual(
+            self.by_market["US"]["bounded_output_scope"],
+            "SUPPORTED_PIPELINE_SUBJECTS_ONLY_NOT_POPULATION_EVALUATION",
+        )
+        self.assertEqual(
+            self.by_market["US"]["bounded_output_state_counts"],
+            {"BLOCKED": 1, "WAIT": 1},
+        )
+        self.assertEqual(
+            self.by_market["US"]["population_evaluation_connection"],
+            {
+                "status": "NOT_CONNECTED",
+                "required_input_schema": "us_investable_snapshot/1",
+                "existing_evaluator_output_schema": "us_investable_registry_result/1",
+                "connected_source_universe_is_investability": False,
+                "required_fail_closed_facts": [
+                    "security_type", "listing", "trading_halt",
+                    "scheduled_delisting", "corporate_action_state", "liquidity",
+                ],
+                "liquidity_policy_status": (
+                    "ABSENT_EXTERNAL_RATIFIED_POLICY_REQUIRED"
+                ),
+                "reason": (
+                    "NATURAL_POPULATION_INPUT_AND_LIQUIDITY_POLICY_NOT_CONNECTED"
+                ),
+            },
+        )
         self.assertEqual(self.by_market["CRYPTO"]["universe_count"], 282)
         self.assertEqual(self.by_market["CRYPTO"]["observation_pool_count"], 274)
         self.assertEqual(self.by_market["CRYPTO"]["evaluated_count"], 8)
@@ -73,6 +100,43 @@ class NaturalCoverageTests(unittest.TestCase):
         self.assertEqual(
             self.by_market["CRYPTO"]["excluded_reason_counts"],
             {"IDENTITY_UNRATIFIED": 267, "INVESTMENT_WARNING_ACTIVE": 7},
+        )
+        self.assertEqual(
+            self.by_market["CRYPTO"]["pre_evaluation_reason_classification"],
+            {
+                "IDENTITY_UNRATIFIED": {
+                    "market_count": 267,
+                    "classification": "OUTSIDE_RATIFIED_IDENTITY_SCOPE",
+                    "approval_scope": "UPBIT_KRW_SPOT_CRYPTO_PAPER_EIGHT_ONLY",
+                    "interpretation": "NOT_AN_INVESTMENT_CONDITION_FAILURE",
+                },
+                "INVESTMENT_WARNING_ACTIVE": {
+                    "market_count": 7,
+                    "classification": "SAFETY_EXCLUSION",
+                    "interpretation": (
+                        "UPBIT_CAUTION_HARD_EXCLUSION_NOT_A_CANDIDATE_SCORE"
+                    ),
+                },
+            },
+        )
+        held = self.by_market["CRYPTO"]["held_reason_analysis"]
+        self.assertEqual(
+            held["criterion_occurrence_counts"],
+            {
+                "UNRATIFIED_POLICY_OR_AUTHORITY": 33,
+                "SOURCE_DATA_OR_COVERAGE_INSUFFICIENT": 15,
+                "CONSUMER_INPUT_NOT_CONNECTED": 0,
+                "OTHER_UNKNOWN_REASON": 0,
+            },
+        )
+        self.assertEqual(
+            held["affected_market_counts"],
+            {
+                "UNRATIFIED_POLICY_OR_AUTHORITY": 8,
+                "SOURCE_DATA_OR_COVERAGE_INSUFFICIENT": 8,
+                "CONSUMER_INPUT_NOT_CONNECTED": 0,
+                "OTHER_UNKNOWN_REASON": 0,
+            },
         )
         self.assertEqual(self.by_market["CRYPTO"]["paper_ready_count"], 0)
         self.assertEqual(
@@ -152,7 +216,7 @@ class TamperTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             MODULE.ThreeMarketEvaluationCoverageError,
-            "CRYPTO_DECISION_STATE_COUNTS_INVALID",
+            "CRYPTO_DECISION_INVALID:OUTPUT_DERIVATION_MISMATCH",
         ):
             build(crypto_decision_path=self._write(value))
 
@@ -173,7 +237,7 @@ class TamperTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             MODULE.ThreeMarketEvaluationCoverageError,
-            "CRYPTO_DECISION_COUNTS_INVALID",
+            "CRYPTO_DECISION_INVALID:OUTPUT_DERIVATION_MISMATCH",
         ):
             build(crypto_decision_path=self._write(value))
 
