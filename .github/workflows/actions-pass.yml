@@ -9,6 +9,21 @@
 #
 # ⛔ 이 workflow 는 Production 승인도 evaluator 승인도 아니다.
 #    쓰기 권한을 갖지 않으며 어떤 산출물도 저장소에 되돌려 쓰지 않는다.
+#
+# ★ CIO CI-sharding 지시 2026-09-12 — 단일 러너 ~1시간 failure domain 제거.
+#   이전에는 preflight · 구조 재현 · 회귀 전량 · FI 가 러너 하나에서 전부
+#   직렬 실행됐다 — 러너 하나가 죽거나(취소/timeout) 회귀 한 건이 느려지면
+#   전체를 처음부터 다시 돌려야 했다. 지금은 다섯 job 으로 나눈다:
+#     preflight → { structural, regression(4-way matrix), fault-injection }
+#               → actions-pass-full (aggregate, 새 검증 없음)
+#   각 job 은 독립적으로 authoritative 하다 — 서로의 부분 성공을 대신 주장하지
+#   않는다 (`run_all.py --phase ...` 는 항상 PARTIAL 로 찍는다). 최종 판정은
+#   `actions-pass-full` 하나가, 넷 모두 성공했을 때만 한다.
+#   ⛔ 이 지시로 바뀌지 않는 것 — pull_request/workflow_dispatch 트리거,
+#      `permissions: contents: read`, Python 3.11, 승인 public-key anchor,
+#      Production HOLD, fail-closed/authority 경계. 재시도 계약은 아래
+#      "Retry contract" 참고 — 실패한 job/shard 만 다시 돌린다, 성공한 shard
+#      를 전부 다시 돌리는 전체 workflow 재시도는 하지 않는다.
 name: actions-pass
 
 # ★ CIO 판정 2026-08-15 — 일반 push 트리거는 두지 않는다.
@@ -24,25 +39,15 @@ permissions:
   contents: read
 
 jobs:
-  actions-pass:
+  # ══════════════════════════════════════════════════════════════════
+  # 1) preflight — 값싸고 빠른 offline 계약 회귀만. run_all.py 는 아직 부르지
+  #    않는다. 여기서 죽으면 structural/regression/fault-injection 러너
+  #    시간을 쓰기 전에 멈춘다.
+  # ══════════════════════════════════════════════════════════════════
+  preflight:
     runs-on: ubuntu-latest
-    env:
-      # ★ runner 의 checkout 은 일회용이다. authoritative rebuild 는 이 선언이
-      #   있을 때만 열린다 — 로컬 작업 트리에서는 guard 가 mutation 전에 막는다.
-      ATLAS_DISPOSABLE_CHECKOUT: "1"
     steps:
-      # full-length commit SHA pin — tag 는 움직일 수 있다.
-      # ★ P10-02/P10-03 PIT Replay CIO review round 4 후속 — fetch-depth: 0
-      #   (전체 히스토리). replay/asset_identity.py 의 backdating-방지 검증
-      #   (test_replay_asset_identity.py::EffectiveFromNeverBackdatedVsRealGitHistoryTests)
-      #   이 config/crypto_breadth_exclusion_taxonomy.json 의 실제 git 커밋
-      #   히스토리를 직접 읽어 effective_from 이 소급 기재되지 않았음을 증명한다 —
-      #   PIT 감사의 핵심 보증이므로 shallow clone(기본 fetch-depth: 1)에서
-      #   이 검증 자체를 건너뛰지 않는다. 이 fetch-depth: 0 은 이 gate에만
-      #   적용되며 다른 workflow(collect.yml 등)의 checkout 은 변경하지 않는다.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.11'
@@ -76,38 +81,149 @@ jobs:
         run: python3 validation/tests/test_briefing_core_v2.py
       - name: AI external analysis Shadow boundary regression
         run: python3 test/test_ai_external_analysis_shadow_evaluation.py
-      - name: Actions PASS gate
-        run: python3 run_all.py --authoritative --fail-fast --log-dir "$RUNNER_TEMP/atlas-gate-logs"
-      # ★ CIO 판정 2026-09-09 — 이 업로드는 비권위(non-authoritative) 진단 전송이다.
-      #   run 34246738933 (fb2bb2dc) 에서 ①~⑭ 필수 gate 는 전부 success 였는데
-      #   artifact 서비스의 `FinalizeArtifact: (403) Forbidden` 하나가 job 을
-      #   failure 로 만들고 뒤따르는 dirty artifact 검사까지 skipped 로 만들었다.
-      #   전송 실패는 test 결과가 아니다 — 그래서 이 step **하나에만**
-      #   continue-on-error 를 둔다.
-      #   ⛔ job/workflow 전체 continue-on-error 는 절대 두지 않는다. Actions PASS
-      #      gate 와 dirty artifact 검사는 그대로 권위적으로 실패해야 한다.
-      #   ⛔ best effort 인 것은 전송뿐이다. 증거·redaction·test 유효성은 불변이다.
-      #      업로드는 언제나(always) 시도하고, 실패하면 바로 다음 step 이 그
-      #      outcome 을 그대로 드러낸다 — 실패한 업로드를 보존된 artifact 라고
-      #      주장하지 않는다.
-      - name: Preserve complete redacted gate diagnostics
+      - name: 작업 후 dirty artifact 가 없는지
+        run: git diff --exit-code
+
+  # ══════════════════════════════════════════════════════════════════
+  # 2) structural — 조건 ②(committed ↔ builder ①→⑭ 재빌드 byte-identical)
+  #    와 조건 ③(경계 불변) 만 담당한다. 회귀 전량 · FI 는 여기서 돌지 않는다.
+  # ══════════════════════════════════════════════════════════════════
+  structural:
+    needs: preflight
+    runs-on: ubuntu-latest
+    env:
+      # ★ runner 의 checkout 은 일회용이다. authoritative rebuild 는 이 선언이
+      #   있을 때만 열린다 — 로컬 작업 트리에서는 guard 가 mutation 전에 막는다.
+      ATLAS_DISPOSABLE_CHECKOUT: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: CI 전용 의존성 설치
+        run: python3 -m pip install --disable-pip-version-check -r requirements-ci.txt
+      - name: Structural integrity gate — builder ①→⑭ 재빌드 · byte 비교 · 경계
+        run: python3 run_all.py --phase structural --authoritative --fail-fast --log-dir "$RUNNER_TEMP/atlas-gate-logs"
+      - name: Preserve complete redacted structural diagnostics
         id: gate_diagnostics
         if: ${{ always() }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: actions-pass-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          name: actions-pass-structural-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/atlas-gate-logs/
           if-no-files-found: ignore
           retention-days: 7
-      # ★ 실패한 진단 업로드는 조용히 넘어가지 않는다. step outcome 을 그대로
-      #   인용해 경고 annotation 과 run summary 에 남긴다 — 보존되지 않은 진단을
-      #   보존되었다고 기록하지 않기 위한 것이다.
       - name: 진단 artifact 업로드 실패를 명시한다
         if: ${{ always() && steps.gate_diagnostics.outcome == 'failure' }}
         run: |
-          MESSAGE="gate diagnostics artifact actions-pass-logs-${{ github.run_id }}-${{ github.run_attempt }} was NOT retained — upload step outcome=${{ steps.gate_diagnostics.outcome }} (transport only). The Actions PASS gate result stays authoritative and the dirty artifact check still runs."
+          MESSAGE="gate diagnostics artifact actions-pass-structural-logs-${{ github.run_id }}-${{ github.run_attempt }} was NOT retained — upload step outcome=${{ steps.gate_diagnostics.outcome }} (transport only). The structural gate result stays authoritative and the dirty artifact check still runs."
           echo "::warning title=gate diagnostics NOT retained::$MESSAGE"
           echo "- $MESSAGE" >> "$GITHUB_STEP_SUMMARY"
       - name: 작업 후 dirty artifact 가 없는지
         run: git diff --exit-code
+
+  # ══════════════════════════════════════════════════════════════════
+  # 3) regression — 조건 ①(승인 회귀 전량 0 FAIL) 을 4-way matrix 로 나눠 돈다.
+  #    fetch-depth: 0 은 이 matrix 에만 준다 — test_replay_asset_identity.py
+  #    (PIT backdating 방지 검증) 가 실제 git 커밋 히스토리를 직접 읽는다.
+  # ══════════════════════════════════════════════════════════════════
+  regression:
+    needs: preflight
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      ATLAS_DISPOSABLE_CHECKOUT: "1"
+    steps:
+      # full-length commit SHA pin — tag 는 움직일 수 있다.
+      # ★ P10-02/P10-03 PIT Replay CIO review round 4 후속 — fetch-depth: 0
+      #   (전체 히스토리). replay/asset_identity.py 의 backdating-방지 검증
+      #   (test_replay_asset_identity.py::EffectiveFromNeverBackdatedVsRealGitHistoryTests)
+      #   이 config/crypto_breadth_exclusion_taxonomy.json 의 실제 git 커밋
+      #   히스토리를 직접 읽어 effective_from 이 소급 기재되지 않았음을 증명한다 —
+      #   PIT 감사의 핵심 보증이므로 shallow clone(기본 fetch-depth: 1)에서
+      #   이 검증 자체를 건너뛰지 않는다. 어느 shard 로 배정되는지 shard 배정
+      #   알고리즘에 의존하지 않도록 4-way matrix 전량에 이 depth 를 준다.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: CI 전용 의존성 설치
+        run: python3 -m pip install --disable-pip-version-check -r requirements-ci.txt
+      - name: Regression shard ${{ matrix.shard }}/4
+        run: python3 run_all.py --phase regression --shard-count 4 --shard-index ${{ matrix.shard }} --fail-fast --log-dir "$RUNNER_TEMP/atlas-gate-logs"
+      - name: Preserve complete redacted regression shard diagnostics
+        id: gate_diagnostics
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: actions-pass-regression-logs-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/atlas-gate-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: 진단 artifact 업로드 실패를 명시한다
+        if: ${{ always() && steps.gate_diagnostics.outcome == 'failure' }}
+        run: |
+          MESSAGE="gate diagnostics artifact actions-pass-regression-logs-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.shard }} was NOT retained — upload step outcome=${{ steps.gate_diagnostics.outcome }} (transport only). The regression shard result stays authoritative and the dirty artifact check still runs."
+          echo "::warning title=gate diagnostics NOT retained::$MESSAGE"
+          echo "- $MESSAGE" >> "$GITHUB_STEP_SUMMARY"
+      - name: 작업 후 dirty artifact 가 없는지
+        run: git diff --exit-code
+
+  # ══════════════════════════════════════════════════════════════════
+  # 4) fault-injection — 조건 ④(FI suite PASS). 패키지 사본 위에서만 주입하므로
+  #    구조 재현이나 회귀 shard 를 기다릴 필요가 없다 (preflight 만 기다린다).
+  # ══════════════════════════════════════════════════════════════════
+  fault-injection:
+    needs: preflight
+    runs-on: ubuntu-latest
+    env:
+      ATLAS_DISPOSABLE_CHECKOUT: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: CI 전용 의존성 설치
+        run: python3 -m pip install --disable-pip-version-check -r requirements-ci.txt
+      - name: Fault Injection suite (FI-1/2/4/5/6 — FI-3 KNOWN GAP / NOT GATED)
+        run: python3 run_all.py --phase fi --fail-fast --log-dir "$RUNNER_TEMP/atlas-gate-logs"
+      - name: Preserve complete redacted fault-injection diagnostics
+        id: gate_diagnostics
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: actions-pass-fi-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/atlas-gate-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: 진단 artifact 업로드 실패를 명시한다
+        if: ${{ always() && steps.gate_diagnostics.outcome == 'failure' }}
+        run: |
+          MESSAGE="gate diagnostics artifact actions-pass-fi-logs-${{ github.run_id }}-${{ github.run_attempt }} was NOT retained — upload step outcome=${{ steps.gate_diagnostics.outcome }} (transport only). The fault-injection gate result stays authoritative and the dirty artifact check still runs."
+          echo "::warning title=gate diagnostics NOT retained::$MESSAGE"
+          echo "- $MESSAGE" >> "$GITHUB_STEP_SUMMARY"
+      - name: 작업 후 dirty artifact 가 없는지
+        run: git diff --exit-code
+
+  # ══════════════════════════════════════════════════════════════════
+  # 5) actions-pass-full — 가벼운 최종 aggregate. 새 검증을 하지 않는다.
+  #    ⛔ 넷 중 하나라도 실패/취소/skip 이면 이 job 도 실패한다 — GitHub Actions
+  #      의 기본 `needs` 의미론(모든 선행 job 이 success 여야 진행) 그대로다.
+  #      matrix job(`regression`) 은 4-way 전량이 success 여야 이 needs 를
+  #      만족한다 — fail-fast:false 는 나머지 shard 를 계속 돌게 할 뿐,
+  #      shard 하나의 실패가 job 전체 결론을 성공으로 만들지 않는다.
+  # ══════════════════════════════════════════════════════════════════
+  actions-pass-full:
+    needs: [preflight, structural, regression, fault-injection]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Actions PASS = YES
+        run: echo "✅ Actions PASS = YES — preflight · structural · regression(4/4) · fault-injection 전부 성공"

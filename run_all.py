@@ -1292,6 +1292,11 @@ APPROVED_TESTS = [
     #   Guard=fresh 는 collector만 skip하고 briefing read model은 검증/repair를 계속한다.
     #   ⛔ live network 없음 — workflow YAML 구조만 실제 파싱해 검증한다.
     "test/test_p003_workflow_contract.py",
+    # ★ CIO CI-sharding 지시 2026-09-12 — actions-pass.yml 5-job 분할
+    #   (preflight → structural/regression(4-way)/fault-injection →
+    #   actions-pass-full) 과 `run_all.py --phase` 의 partition 완전성 ·
+    #   fail-closed shard 인자 · authority 경계 불변을 증명한다.
+    "test/test_ci_phase_sharding.py",
     # ★ CIO 승인 2026-08-15 — TSMC Monthly Revenue collector pilot 회귀 추가.
     #   승인 목록은 늘어날 수 있다(테스트 삭제·누락만 FI-4 가 잡는다).
     "test/test_tsmc_monthly.py",
@@ -2290,24 +2295,24 @@ REGRESSION_ESTIMATED_SECONDS = {
 DEFAULT_ESTIMATED_SECONDS = 1.0
 
 
-def regression_shards(tests=None, count=REGRESSION_SHARD_COUNT):
-    """현재 승인 회귀 목록을 순서보존 · 중복없음 · disjoint shard 로 나눈다.
+def _partition_by_estimated_load(population, count):
+    """canonical 결정론적 partition — 순서보존 · 중복없음 · disjoint · 합집합 == population.
 
-    ★ 합집합은 **언제나** 전체 승인 목록과 정확히 같다. 개수나 부분집합을
-      고정하지 않는다 — population 은 호출 시점의 APPROVED_TESTS 다.
+    ★ `regression_shards()`(CIO 채택 2026-09-07, 2-shard 고정) 와
+      `ci_phase_regression_shards()`(CIO CI-sharding 지시 2026-09-12, N-shard) 가
+      **같은 알고리즘 하나**를 공유한다 — 두 번째 partition 구현을 새로 만들지 않는다.
     ★ 배정은 기록된 추정 시간 내림차순 greedy(동률은 선언 순서)라 같은 입력이면
       항상 같은 결과가 나온다. 각 shard 안의 상대 순서는 선언 순서 그대로다.
-    ⛔ 비거나 중복된 population 은 여기서 예외로 막는다 — 자식 프로세스를
-       하나라도 실행하기 전이다.
+    ⛔ 비거나 중복된 population, 혹은 count < 1 은 여기서 예외로 막는다 —
+       자식 프로세스를 하나라도 실행하기 전이다.
     """
-    population = list(APPROVED_TESTS if tests is None else tests)
-    if count != REGRESSION_SHARD_COUNT:
-        raise ValueError(f"지원하는 shard 수는 {REGRESSION_SHARD_COUNT} 뿐이다: {count!r}")
     if not population:
         raise ValueError("승인 회귀 목록이 비어 있다 — shard 를 만들 수 없다")
     duplicates = sorted({t for t in population if population.count(t) > 1})
     if duplicates:
         raise ValueError(f"승인 회귀 목록에 중복이 있다: {duplicates}")
+    if count < 1:
+        raise ValueError(f"shard 수는 1 이상이어야 한다: {count!r}")
     if len(population) < count:
         raise ValueError(f"승인 회귀 {len(population)}건으로는 {count} shard 를 채울 수 없다")
 
@@ -2330,6 +2335,32 @@ def regression_shards(tests=None, count=REGRESSION_SHARD_COUNT):
         if not chunk:
             raise ValueError(f"shard {i}/{count} 가 비어 있다")
     return shards
+
+
+def regression_shards(tests=None, count=REGRESSION_SHARD_COUNT):
+    """현재 승인 회귀 목록을 순서보존 · 중복없음 · disjoint shard 로 나눈다.
+
+    ★ 합집합은 **언제나** 전체 승인 목록과 정확히 같다. 개수나 부분집합을
+      고정하지 않는다 — population 은 호출 시점의 APPROVED_TESTS 다.
+    ⛔ CIO 채택 2026-09-07 로 지원 shard 수는 {REGRESSION_SHARD_COUNT} 로 고정이다 —
+       `us-paper-market-data-contract.yml` 이 이 고정 계약에 의존한다. 임의 count 가
+       필요하면 `ci_phase_regression_shards()` 를 쓴다 (actions-pass.yml 4-way matrix).
+    """
+    population = list(APPROVED_TESTS if tests is None else tests)
+    if count != REGRESSION_SHARD_COUNT:
+        raise ValueError(f"지원하는 shard 수는 {REGRESSION_SHARD_COUNT} 뿐이다: {count!r}")
+    return _partition_by_estimated_load(population, count)
+
+
+def ci_phase_regression_shards(count, tests=None):
+    """`--phase regression --shard-count N` 전용 N-way 분할 (CIO CI-sharding 지시
+    2026-09-12). `regression_shards()` 와 같은 canonical greedy 알고리즘을 공유하되
+    2-shard 고정 제약이 없다 — count>=1 이면 무엇이든 받는다. 나머지 불변식
+    (순서보존 · 중복없음 · disjoint · 합집합 == APPROVED_TESTS) 은
+    `_partition_by_estimated_load` 가 전부 증명한다.
+    """
+    population = list(APPROVED_TESTS if tests is None else tests)
+    return _partition_by_estimated_load(population, count)
 
 
 # ★ Production / evaluator 경계 — 이 실행으로 바뀌면 안 되는 값.
@@ -2569,6 +2600,107 @@ def approved_test_label():
     return f"[4/5] 승인 회귀 {len(APPROVED_TESTS)}파일"
 
 
+def finish_phase(r, label):
+    """`--phase {structural,regression,fi}` 전용 종료 배너.
+
+    ⛔ `finish()` 를 재사용하지 않는다 — `finish()` 의 무-shard 분기는
+       "✅ Actions PASS = YES" 를 찍는데, bounded phase 하나의 성공은 전체
+       Actions PASS 가 아니다. 그 문구를 여기서 절대 찍지 않는다 — 최종
+       판정은 `actions-pass-full` aggregate job 만 한다.
+    """
+    print()
+    if r.failures:
+        print(f"⛔ FAIL — {len(r.failures)}건")
+        for f in r.failures:
+            print("  •", f)
+        print(f"\n{label} = NO")
+        return 1
+    print(f"✅ {label} 완료 — PARTIAL")
+    print("   ⛔ 이것은 승인된 phase 하나의 결과다. 전체 Actions PASS 판정은")
+    print("      preflight · structural · regression 전체 shard · fault-injection")
+    print("      을 모두 요구하는 최종 aggregate job(actions-pass-full)이 한다.")
+    return 0
+
+
+def run_bounded_phase(args):
+    """`--phase {structural,regression,fi}` — CIO CI-sharding 지시 2026-09-12.
+
+    ★ 각 phase 는 독립적으로 authoritative 하다 (구조 재현/회귀/FI 를 서로
+      기다리지 않는다). 어느 phase 도 전체 Actions PASS 를 주장하지 않는다 —
+      `finish_phase()` 가 항상 PARTIAL 로 찍는다.
+    ⛔ authority 의미를 새로 만들지 않는다 — structural 은 기존 스냅샷/재빌드/
+       byte 비교/경계 로직을 그대로 재사용하고, regression 은 기존 test_set()
+       완전성 검사를 그대로 재사용하며, fi 는 기존 FI suite 를 그대로 부른다.
+    """
+    r = Runner(fail_fast=args.fail_fast, log_dir=args.log_dir)
+    print("Atlas Actions runner — Python", sys.version.split()[0], f"[phase={args.phase}]")
+    print("⛔ Production HOLD · evaluator 미연결 · 이 실행은 상태를 바꾸지 않는다\n")
+
+    if args.phase == "structural":
+        label = "structural phase"
+        if not args.authoritative:
+            r.fail("mode", "--phase structural requires --authoritative — the rebuild "
+                           f"it verifies is destructive and needs {DISPOSABLE_ENV}=1 declared")
+            return finish_phase(r, label)
+        blockers = disposable_checkout_proof()
+        if blockers:
+            for b in blockers:
+                r.fail("guard", b)
+            print("⛔ authoritative rebuild 차단 — 어떤 파일도 건드리지 않았다")
+            return finish_phase(r, label)
+        with tempfile.TemporaryDirectory(prefix="atlas_committed_") as snap_dir:
+            print("[1/3] committed 산출물 사본 보존")
+            kept = r.snapshot(snap_dir)
+            if args.fail_fast and r.failures:
+                return finish_phase(r, label)
+            if kept:
+                print("[2/3] builder ①→⑭ 직렬 재빌드")
+                r.rebuild()
+                if args.fail_fast and r.failures:
+                    return finish_phase(r, label)
+                print("[3/3] committed ↔ rebuilt byte 비교")
+                r.compare(kept)
+                if args.fail_fast and r.failures:
+                    return finish_phase(r, label)
+            r.boundary()
+        return finish_phase(r, label)
+
+    if args.phase == "regression":
+        shard_count, shard_index = args.shard_count, args.shard_index
+        label = f"regression shard {shard_index}/{shard_count}"
+        if not r.test_set():
+            return finish_phase(r, label)
+        try:
+            selected = ci_phase_regression_shards(shard_count)[shard_index]
+        except ValueError as error:
+            r.fail("regression-shard", str(error))
+            return finish_phase(r, label)
+        print(f"[regression] shard {shard_index}/{shard_count} — 선택 {len(selected)} / "
+              f"승인 전체 {len(APPROVED_TESTS)}파일 (PARTIAL)")
+        priority = (["test/test_runner_reporting.py", "test/test_daily_orchestrator.py"]
+                    if args.fail_fast else [])
+        ordered = ([t for t in priority if t in selected]
+                   + [t for t in selected if t not in priority])
+        for t in ordered:
+            r.say(f"  RUN {t}")
+            res = r.child(t)
+            if res.returncode != 0:
+                r.child_failure("regression", t, res)
+                if args.fail_fast:
+                    return finish_phase(r, label)          # fail-fast 는 이 shard 안에서만 유효하다
+            else:
+                r.say(f"  {t} ok")
+        return finish_phase(r, label)
+
+    if args.phase == "fi":
+        label = "fault-injection phase"
+        print("[fi] Fault Injection suite")
+        r.fault_injection()
+        return finish_phase(r, label)
+
+    raise AssertionError(f"unreachable --phase value: {args.phase!r}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--authoritative", action="store_true")
@@ -2579,11 +2711,44 @@ def main():
                         help=f"1-based deterministic regression shard (1..{REGRESSION_SHARD_COUNT})")
     parser.add_argument("--regression-shard-count", type=int,
                         help=f"Total regression shards — only {REGRESSION_SHARD_COUNT} is supported")
+    # ★ CIO CI-sharding 지시 2026-09-12 — actions-pass.yml 의 bounded phase 실행.
+    #   ⛔ 인자를 주지 않으면 `--phase all` 이 기본값이라 아래 옛 경로가 그대로
+    #      실행된다 — 기존 기본 동작(authoritative 전체 실행)은 한 글자도 바뀌지
+    #      않는다. 이 네 값 이외에는 argparse choices 가 fail-closed 로 막는다.
+    parser.add_argument("--phase", choices=["all", "structural", "regression", "fi"],
+                        default="all",
+                        help="Bounded execution phase for the sharded CI lane "
+                             "(default: all — full authoritative gate, unchanged)")
+    parser.add_argument("--shard-count", type=int,
+                        help="--phase regression only: total shards (>=1)")
+    parser.add_argument("--shard-index", type=int,
+                        help="--phase regression only: 0-based shard index "
+                             "(0 <= index < --shard-count)")
     args = parser.parse_args()
     if args.log_dir:
         args.log_dir = os.path.realpath(args.log_dir)
         if os.path.commonpath([args.log_dir, os.path.realpath(ROOT)]) == os.path.realpath(ROOT):
             parser.error("--log-dir must be outside the checkout")
+    if args.phase != "regression" and (args.shard_count is not None or args.shard_index is not None):
+        parser.error("--shard-count/--shard-index only apply to --phase regression")
+    if args.phase == "regression":
+        if (args.shard_count is None) != (args.shard_index is None):
+            parser.error("--shard-count and --shard-index must be given together")
+        shard_count = args.shard_count if args.shard_count is not None else 1
+        shard_index = args.shard_index if args.shard_index is not None else 0
+        if shard_count < 1:
+            parser.error("--shard-count must be >= 1")
+        if not 0 <= shard_index < shard_count:
+            parser.error(f"--shard-index must satisfy 0 <= index < {shard_count}")
+        args.shard_count, args.shard_index = shard_count, shard_index
+    if args.phase == "fi" and args.no_fi:
+        parser.error("--phase fi cannot be combined with --no-fi")
+    if args.phase != "all" and (args.regression_shard_index is not None
+                                 or args.regression_shard_count is not None):
+        parser.error("--regression-shard-index/--regression-shard-count are the --phase all "
+                     "(legacy 2-shard) surface; use --shard-count/--shard-index with --phase regression")
+    if args.phase != "all":
+        return run_bounded_phase(args)
     # ★ shard 인자는 어떤 작업보다 먼저 검증한다 — 잘못된 조합은 아무것도 실행하지 않는다.
     shard = None
     if (args.regression_shard_index is None) != (args.regression_shard_count is None):
