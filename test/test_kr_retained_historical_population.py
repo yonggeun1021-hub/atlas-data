@@ -170,7 +170,12 @@ class RetainedHistoricalPopulationTests(unittest.TestCase):
             STAGE3.RotationCandidateSelectionInputError,
             "SOURCE_BRIEFING_SCHEMA_INVALID",
         ):
-            STAGE3.build_candidate_selection_input(packet, {})
+            STAGE3.build_candidate_selection_input(
+                packet,
+                {},
+                stage2_reference={},
+                stage1_reference={},
+            )
         self.assertFalse(packet["authority"]["runtime_regime_wiring_authorized"])
         self.assertFalse(packet["authority"]["stage_authorized"])
 
