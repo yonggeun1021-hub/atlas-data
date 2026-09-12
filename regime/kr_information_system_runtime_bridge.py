@@ -26,6 +26,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_CONTRACT_PATH = ROOT / "config/krx_information_system_source_candidate_v1.json"
 LEADERSHIP_POLICY_PATH = ROOT / "config/korea_leadership_policy.json"
 REFERENCE_POLICY_PATH = ROOT / "config/paper_regime_reference_policy_v1.json"
+IMPLEMENTATION_PATHS = (
+    "regime/kr_information_system_runtime_bridge.py",
+    "regime/kr_paper_runtime.py",
+    "regime/krx_information_system_capture.py",
+    "regime/paper_regime_reference.py",
+    "regime/decision_authority.py",
+    "rotation/kr_internal_paper_theme_application.py",
+    "market_data/krx_official_holiday_calendar.py",
+)
 MARKETS = ("KOSPI", "KOSDAQ")
 Q6 = Decimal("0.000001")
 Q2 = Decimal("0.01")
@@ -497,6 +506,9 @@ def evaluate_runtime(*, reference_raw: bytes, manifest_raw: bytes,
         ),
         "context_session_date": session_boundary.get("context_session_date"),
         "execution_session_date": session_boundary.get("execution_session_date"),
+        "implementation_sha256": {
+            path: sha256((ROOT / path).read_bytes()) for path in IMPLEMENTATION_PATHS
+        },
     }
     require(bindings == expected_bindings, "QUALIFICATION_BINDING_MISMATCH")
     natural = validate_natural_evidence(reference_raw=reference_raw, manifest_raw=manifest_raw,

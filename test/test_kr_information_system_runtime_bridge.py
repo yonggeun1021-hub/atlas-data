@@ -104,6 +104,9 @@ def inputs():
         "common_policy_binding_sha256": B.COMMON.payload_sha256(B.COMMON.load_common_v1_policy()["binding"]),
         "context_session_date": result["session_boundary"]["context_session_date"],
         "execution_session_date": result["session_boundary"]["execution_session_date"],
+        "implementation_sha256": {
+            path: digest((ROOT / path).read_bytes()) for path in B.IMPLEMENTATION_PATHS
+        },
     }
     q = qualification(bindings)
     result["qualification_raw"] = q
@@ -123,6 +126,9 @@ def requalify(args):
     bindings["historical_acceptance_sha256"] = args["expected_historical_acceptance_sha256"]
     bindings["context_session_date"] = args["session_boundary"]["context_session_date"]
     bindings["execution_session_date"] = args["session_boundary"]["execution_session_date"]
+    bindings["implementation_sha256"] = {
+        path: digest((ROOT / path).read_bytes()) for path in B.IMPLEMENTATION_PATHS
+    }
     raw = qualification(bindings)
     args["qualification_raw"] = raw
     args["expected_qualification_sha256"] = digest(raw)
@@ -314,6 +320,16 @@ class InformationSystemRuntimeBridgeTest(unittest.TestCase):
             "confidence", "0.99"
         ))
         with self.assertRaisesRegex(B.InformationSystemRuntimeError, "PAPER_REFERENCE_CLASSIFICATION_MISMATCH"):
+            B.evaluate_runtime(**args)
+
+    def test_qualification_is_bound_to_exact_implementation_bytes(self):
+        args = inputs()
+        current = json.loads(args["qualification_raw"])
+        current["bindings"]["implementation_sha256"][B.IMPLEMENTATION_PATHS[0]] = "0" * 64
+        raw = B.pretty_bytes(current)
+        args["qualification_raw"] = raw
+        args["expected_qualification_sha256"] = digest(raw)
+        with self.assertRaisesRegex(B.InformationSystemRuntimeError, "QUALIFICATION_BINDING_MISMATCH"):
             B.evaluate_runtime(**args)
 
 
