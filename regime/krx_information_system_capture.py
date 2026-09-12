@@ -166,13 +166,31 @@ def _validate_provider_payload(raw: bytes, family: str) -> tuple[dict, list[dict
     if _contains_secret_key(payload):
         raise CaptureError("RESPONSE_SECRET_FIELD_REJECTED")
     block = "OutBlock_1" if family == "stock" else "output"
-    if set(payload) != {block} or not isinstance(payload[block], list) or not payload[block]:
-        raise CaptureError(f"RESPONSE_SCHEMA_INVALID:{family}")
+    allowed_top = {block, "CURRENT_DATETIME"}
+    if (
+        block not in payload
+        or not set(payload) <= allowed_top
+        or not isinstance(payload[block], list)
+        or not payload[block]
+        or (
+            "CURRENT_DATETIME" in payload
+            and not isinstance(payload["CURRENT_DATETIME"], str)
+        )
+    ):
+        fields = ",".join(sorted(str(key) for key in payload))
+        raise CaptureError(f"RESPONSE_SCHEMA_INVALID:{family}:FIELDS={fields}")
     allowed = STOCK_FIELDS if family == "stock" else INDEX_FIELDS
     required = STOCK_REQUIRED if family == "stock" else INDEX_REQUIRED
     for row in payload[block]:
         if not isinstance(row, dict) or not required <= set(row) <= allowed:
-            raise CaptureError(f"RESPONSE_ROW_SCHEMA_INVALID:{family}")
+            fields = (
+                ",".join(sorted(str(key) for key in row))
+                if isinstance(row, dict)
+                else type(row).__name__
+            )
+            raise CaptureError(
+                f"RESPONSE_ROW_SCHEMA_INVALID:{family}:FIELDS={fields}"
+            )
         if any(not isinstance(value, str) for value in row.values()):
             raise CaptureError(f"RESPONSE_ROW_VALUE_INVALID:{family}")
     return payload, payload[block]
