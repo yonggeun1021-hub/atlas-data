@@ -347,7 +347,10 @@ class SourceCapture:
         if getattr(response, "status_code", 200) != 200:
             raise CaptureError(f"RESPONSE_HTTP_INVALID:{key}")
         content_type = str(response.headers.get("Content-Type", ""))
-        if content_type.split(";", 1)[0].strip().lower() != "application/json":
+        if content_type.split(";", 1)[0].strip().lower() not in {
+            "application/json",
+            "text/html",
+        }:
             raise CaptureError(f"RESPONSE_CONTENT_TYPE_INVALID:{key}")
         raw = bytes(response.content)
         if not raw:

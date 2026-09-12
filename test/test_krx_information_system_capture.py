@@ -88,6 +88,20 @@ class CaptureContractTest(unittest.TestCase):
             self.assertEqual(CAPTURE.sha256_bytes(raw), row["response"]["sha256"])
             self.assertTrue(row["normalized_frame"]["raw_to_frame_equivalent"])
 
+    def test_krx_json_body_with_text_html_content_type_is_accepted(self):
+        capture = CAPTURE.SourceCapture(
+            self.root / "html-json",
+            ("20260910", "20260911"),
+            clock=lambda: self.NOW,
+        )
+        value = response("KOSPI", "stock")
+        value.headers["Content-Type"] = "text/html;charset=UTF-8"
+        key, stored = capture.capture(
+            request("20260910", "KOSPI", "stock"), value
+        )
+        self.assertEqual(key, "20260910:KOSPI:stock")
+        self.assertEqual(json.loads(stored)["OutBlock_1"][0]["ISU_SRT_CD"], "000001")
+
     def test_stored_response_tamper_is_rechecked_at_finalize(self):
         capture = self.complete()
         path = self.root / "capture/responses/20260910-KOSPI-stock.json"
