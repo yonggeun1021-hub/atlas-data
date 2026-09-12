@@ -14,7 +14,8 @@ P1-KR-07 SECTOR identity, never a cross-market Theme grouping), verified
 `source_available_at` official publication timing (still null -- Korea
 Breadth's own eligibility today rests entirely on first-seen evidence),
 confirmed investor-flow release timing, and live scheduled-cron briefing
-integration (this remains a manual proof, not a cron). READY at the P2-03
+integration. The P2-03 ordered producer now reuses the existing Leadership
+schedule, but briefing integration remains a separate boundary. READY at the P2-03
 level still never grants Buy/Stage/Action/Order/Production/trading authority
 -- those stay closed unconditionally, independent of this contract.
 
@@ -40,16 +41,27 @@ dates via `korea_market_signals.py`'s existing `discover_session_pair()`
 (unchanged) -- no invented trading-day calendar. Manual
 `workflow_dispatch` with explicit dates is unchanged.
 
-Honest, still-open half of the gap: Korea Breadth
-(`p1-kr05-korea-breadth-live.yml`) and this combined observation-pair
-workflow remain `workflow_dispatch`-only -- there is still no automatic
-daily trigger for Breadth, so a same-date Breadth+Leadership pair (what
-`korea_capital_rotation.py`'s own no-lookahead check actually needs) is
-not yet fully automatic end to end. A scheduled Leadership-only sample
-can therefore still see `BREADTH_MARKET_SOURCE_AVAILABLE_AT` unavailable
-for its own date until Breadth is separately dispatched (or scheduled)
-for that same date. Closing that remaining half is a separate, not yet
-approved, bounded slice.
+**Update (2026-09-12, automatic ordered-pair controller):** the existing
+Leadership 18:10/18:25 KST schedule is now the single controller for scheduled
+P2-03 production. It discovers the same completed KRX session pair, waits
+without claiming completion when two sessions or policy effectivity are not
+ready, and synchronously calls the existing combined workflow through
+`workflow_call`. The combined workflow still owns the only Breadth -> commit
+-> Leadership -> current-ratified packet implementation and still has no
+schedule of its own. Manual Leadership `workflow_dispatch` keeps its prior
+standalone behavior.
+
+The 18:25 recovery slot is serialized by the existing controller concurrency
+group. It skips a pair only after downloading a prior successful run's exact
+final rotation artifact and independently revalidating that artifact against
+the same requested dates, the current ratified policy, and the current
+committed source identities. A green run with missing/NOT_EVALUATED output, an
+invalid artifact, or refreshed policy/source bytes remains retryable. An
+already-running manual combined request with the same exact dates suppresses
+only the concurrent duplicate; a later slot still requires a validated final
+artifact before treating the pair as complete. Existing Leadership without an
+eligible earlier Breadth observation waits for the next pair rather than
+backdating a Breadth capture.
 
 **Update (2026-09-12, current-ratified producer connection):** after the
 combined workflow has committed Breadth and then Leadership, a final
@@ -57,7 +69,8 @@ dependency job re-syncs to the exact resulting `main`, runs the existing
 current-ratified producer, and uploads the full
 `korea_capital_rotation_packet/4` plus the exact public commit as a workflow
 artifact. The producer remains fail-closed for pre-effective or otherwise
-invalid pairs. The workflow still has no schedule and does not update the
+invalid pairs. The workflow itself still has no schedule (it is called by the
+existing Leadership controller) and does not update the
 legacy rolling pointer or create a state ledger. The artifact is the bounded
 Stage3 handoff input only; Stage, entry, production, order, capital and trading
 authority remain unchanged.

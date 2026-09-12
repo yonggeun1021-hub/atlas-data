@@ -1,4 +1,5 @@
 name: P2-03 Korea Observation Pair (Breadth -> Leadership, dependency-ordered)
+run-name: P2-03 Korea Observation Pair ${{ inputs.leadership_prior_date }}-${{ inputs.leadership_current_date }}
 
 # 2026-08-22: real job dependency wiring for P2-03's own decision_time
 # no-lookahead requirement (rotation/korea_capital_rotation.py's PIT
@@ -8,14 +9,16 @@ name: P2-03 Korea Observation Pair (Breadth -> Leadership, dependency-ordered)
 # is structurally guaranteed to predate Leadership's real available_at
 # (decision_time), never manually sequenced by hand each time.
 #
-# Still workflow_dispatch only -- no new schedule/cron. Reuses the exact
-# same job steps already approved in p1-kr05-korea-breadth-live.yml and
+# Keeps the existing manual workflow_dispatch entrypoint and adds workflow_call
+# for the already-scheduled Leadership controller; this file still defines no
+# schedule/cron of its own. Reuses the exact same job steps already approved in
+# p1-kr05-korea-breadth-live.yml and
 # korea-leadership-live-proof.yml (same scripts, same KRX_API_KEY secret,
 # same commit targets), then invokes the existing current-ratified P2-03
 # producer after both commits land. This workflow does not duplicate any
 # KRX request or rotation logic. The standalone Leadership workflow has an
-# existing weekday schedule, but Breadth and this dependency-ordered combined
-# path remain manual; see docs/korea_capital_rotation_contract.md.
+# existing weekday schedule, and its scheduled path now invokes this combined
+# workflow synchronously; see docs/korea_capital_rotation_contract.md.
 # A same-date redispatch first validates each already-committed packet and
 # reuses its exact bytes.  It never re-requests the provider merely to prove
 # idempotency; a missing Leadership packet still fetches Leadership after a
@@ -34,6 +37,30 @@ on:
         required: true
       leadership_current_date:
         description: "Leadership: current completed KRX trading date (YYYYMMDD) -- the P2-03 observation date"
+        required: true
+  # The existing Leadership schedule calls this exact workflow synchronously.
+  # Reusable inputs are intentionally identical to manual workflow_dispatch;
+  # there is one producer implementation and no second scheduler or fetch path.
+  workflow_call:
+    inputs:
+      breadth_recent_previous:
+        description: "Breadth: previous completed KRX trading date (YYYYMMDD)"
+        required: true
+        type: string
+      breadth_recent_date:
+        description: "Breadth: current completed KRX trading date (YYYYMMDD)"
+        required: true
+        type: string
+      leadership_prior_date:
+        description: "Leadership: prior completed KRX trading date (YYYYMMDD)"
+        required: true
+        type: string
+      leadership_current_date:
+        description: "Leadership: current completed KRX trading date (YYYYMMDD) -- the P2-03 observation date"
+        required: true
+        type: string
+    secrets:
+      KRX_API_KEY:
         required: true
 
 permissions:
