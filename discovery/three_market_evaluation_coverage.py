@@ -11,9 +11,13 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import copy
+import csv
 import datetime as dt
+from decimal import Decimal
+import gzip
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import re
@@ -53,6 +57,14 @@ US_INVESTABLE_REGISTRY = _load_module(
 )
 CRYPTO_DECISION = _load_module(
     "coverage_crypto_paper_decision", "decision/crypto_paper_decision_snapshot.py"
+)
+UPBIT_IDENTITY_REVIEW = _load_module(
+    "coverage_upbit_identity_review",
+    ".github/scripts/upbit_identity_review_bundle.py",
+)
+UPBIT_BOUNDED_IDENTITY = _load_module(
+    "coverage_upbit_bounded_identity",
+    "identity/upbit_bounded_identity_registry.py",
 )
 
 
@@ -295,6 +307,110 @@ def _validated_crypto_decision(path: Path, observed_at: dt.datetime) -> dict:
     return checked
 
 
+def _validated_crypto_identity_review(path: Path, snapshot_dir: Path) -> dict:
+    packet = _read_json(path, "CRYPTO_IDENTITY_REVIEW_READ_FAILED")
+    snapshot_date = packet.get("snapshot_date")
+    if (
+        packet.get("schema_version") != UPBIT_IDENTITY_REVIEW.SCHEMA_VERSION
+        or not isinstance(snapshot_date, str)
+        or Path(snapshot_dir).name != snapshot_date
+    ):
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_IDENTITY_REVIEW_IDENTITY_INVALID"
+        )
+    try:
+        rebuilt = UPBIT_IDENTITY_REVIEW.build_bundle(
+            snapshot_date, raw_root=Path(snapshot_dir).parent
+        )
+    except (
+        UPBIT_IDENTITY_REVIEW.IdentityReviewBundleError,
+        UPBIT_IDENTITY_REVIEW.UNI.UpbitUniverseError,
+    ) as exc:
+        raise ThreeMarketEvaluationCoverageError(
+            f"CRYPTO_IDENTITY_REVIEW_SOURCE_INVALID:{exc}"
+        ) from exc
+    if packet != rebuilt:
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_IDENTITY_REVIEW_DERIVATION_MISMATCH"
+        )
+    return packet
+
+
+def _validated_free_market_data(path: Path, observed_at: dt.datetime) -> dict:
+    packet = _read_json(path, "US_FREE_MARKET_DATA_READ_FAILED")
+    _validate_self_hash(packet, "packet_sha256", "US_FREE_MARKET_DATA_HASH_MISMATCH")
+    _require_not_future(
+        packet.get("observed_at_utc"), observed_at,
+        "US_FREE_MARKET_DATA_FROM_FUTURE",
+    )
+    authority = packet.get("authority")
+    if (
+        packet.get("schema_version") != "free_market_data_capture/5"
+        or packet.get("contract_version") != "free_market_data/3"
+        or not isinstance(authority, dict)
+        or authority.get("evidence_capture_only") is not True
+        or any(
+            value is not False
+            for key, value in authority.items()
+            if key != "evidence_capture_only"
+        )
+    ):
+        raise ThreeMarketEvaluationCoverageError(
+            "US_FREE_MARKET_DATA_BOUNDARY_INVALID"
+        )
+    alpaca = packet.get("alpaca")
+    daily = alpaca.get("daily_bars") if isinstance(alpaca, dict) else None
+    latest = alpaca.get("bars") if isinstance(alpaca, dict) else None
+    if (
+        alpaca.get("status") != "READY"
+        or alpaca.get("source_scope") != "IEX_ONLY_PARTIAL_US_MARKET"
+        or not isinstance(daily, list)
+        or not isinstance(latest, list)
+        or any(
+            not isinstance(row, dict)
+            or set(row) != {
+                "symbol", "opened_at", "open", "high", "low", "close",
+                "volume",
+            }
+            for row in daily
+        )
+        or any(
+            not isinstance(row, dict)
+            or set(row) != {
+                "symbol", "provider_timestamp", "close", "volume",
+            }
+            for row in latest
+        )
+    ):
+        raise ThreeMarketEvaluationCoverageError(
+            "US_FREE_MARKET_DATA_ALPACA_INVALID"
+        )
+    return packet
+
+
+def _read_symbol_directory(path: Path, expected_headers: list[str]) -> tuple[bytes, list[dict]]:
+    try:
+        raw = gzip.open(path, "rb").read()
+        text = raw.decode("utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        raise ThreeMarketEvaluationCoverageError(
+            "US_SYMBOL_DIRECTORY_READ_FAILED"
+        ) from exc
+    reader = csv.DictReader(io.StringIO(text), delimiter="|")
+    if reader.fieldnames != expected_headers:
+        raise ThreeMarketEvaluationCoverageError(
+            "US_SYMBOL_DIRECTORY_HEADERS_INVALID"
+        )
+    symbol_field = expected_headers[0]
+    rows = [
+        row for row in reader
+        if row.get(symbol_field) and not row[symbol_field].startswith(
+            "File Creation Time"
+        )
+    ]
+    return raw, rows
+
+
 def _crypto_held_reason_analysis(candidates: list[dict]) -> dict:
     """Classify the owning evaluator's exact UNKNOWN reasons, never scores."""
     policy_reasons = {
@@ -374,6 +490,401 @@ def _crypto_held_reason_analysis(candidates: list[dict]) -> dict:
     }
 
 
+def _crypto_evaluation_scope_readiness(
+    *, universe_record: dict, identity_review: dict, snapshot_dir: Path,
+    prior_identity_evidence_path: Path,
+) -> dict:
+    universe_module = CRYPTO_DECISION.UNIVERSE
+    try:
+        core = universe_module.load_snapshot_core(Path(snapshot_dir))
+        policy = universe_module.load_policy()
+    except universe_module.UpbitUniverseError as exc:
+        raise ThreeMarketEvaluationCoverageError(
+            f"CRYPTO_EVALUATION_SOURCE_INVALID:{exc}"
+        ) from exc
+    universe_rows = universe_record["packet"]["markets"]
+    proposals = identity_review.get("proposals")
+    proposal_markets = [
+        (row.get("claim") or {}).get("upbitMarket")
+        for row in proposals
+    ] if isinstance(proposals, list) else []
+    universe_markets = [row["market"] for row in universe_rows]
+    if (
+        len(proposal_markets) != identity_review["summary"]["proposal_count"]
+        or sorted(proposal_markets) != sorted(universe_markets)
+        or len(proposal_markets) != len(set(proposal_markets))
+    ):
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_EVALUATION_IDENTITY_SCOPE_MISMATCH"
+        )
+
+    evaluation_markets = sorted(
+        row["market"] for row in universe_rows
+        if row["reason"] == "IDENTITY_UNRATIFIED"
+    )
+    safety_exclusions = sorted(
+        row["market"] for row in universe_rows
+        if row["reason"] == "INVESTMENT_WARNING_ACTIVE"
+    )
+    current_paper_markets = sorted(
+        row["market"] for row in universe_rows
+        if row["state"] == "PAPER_ELIGIBLE"
+    )
+    unclassified_exclusions = [
+        row for row in universe_rows
+        if row["state"] in {"OBSERVATION_POOL", "BLOCKED"}
+        and row["reason"] not in {
+            "IDENTITY_UNRATIFIED", "INVESTMENT_WARNING_ACTIVE",
+        }
+    ]
+    if (
+        len(evaluation_markets) != 267
+        or len(safety_exclusions) != 7
+        or len(current_paper_markets) != 8
+        or unclassified_exclusions
+    ):
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_EVALUATION_SCOPE_DISPOSITION_INVALID"
+        )
+
+    try:
+        prior_assets = UPBIT_BOUNDED_IDENTITY.load_identity_evidence(
+            Path(prior_identity_evidence_path)
+        )
+    except UPBIT_BOUNDED_IDENTITY.BoundedIdentityRegistryError as exc:
+        raise ThreeMarketEvaluationCoverageError(
+            f"CRYPTO_PRIOR_IDENTITY_EVIDENCE_INVALID:{exc}"
+        ) from exc
+    evaluation_symbols = {market.removeprefix("KRW-") for market in evaluation_markets}
+    prior_overlap = sorted(evaluation_symbols & set(prior_assets))
+    prior_verdict_counts = Counter(
+        UPBIT_BOUNDED_IDENTITY.compute_verdict(
+            symbol, prior_assets.get(symbol), evaluation_as_of=core["snapshot_date"]
+        )[0]
+        for symbol in sorted(evaluation_symbols)
+    )
+
+    min_listing_days = int(policy["min_listing_history_finalized_days"])
+    turnover_days = int(policy["turnover_lookback_finalized_days"])
+    min_turnover = Decimal(str(policy["min_30d_avg_krw_turnover"]))
+    max_spread = Decimal(str(policy["max_spread_bps"]))
+    max_slippage = Decimal(str(policy["max_estimated_paper_slippage_bps"]))
+    notional = Decimal(str(policy["paper_slippage_estimate_notional_krw"]))
+    availability = Counter()
+    data_gates = Counter()
+    all_data_gate_markets = []
+    for market in evaluation_markets:
+        entry = core["markets"].get(market)
+        if not isinstance(entry, dict):
+            raise ThreeMarketEvaluationCoverageError(
+                "CRYPTO_EVALUATION_MARKET_SOURCE_MISSING"
+            )
+        available = {
+            "market_metadata": entry.get("market_all_available") is True,
+            "warning_state": entry.get("market_event_warning") is not None,
+            "orderbook": entry.get("orderbook_available") is True,
+            "daily_candles": entry.get("candles_available") is True,
+        }
+        availability.update(key for key, passed in available.items() if passed)
+        listing = (
+            available["daily_candles"]
+            and entry.get("observed_daily_candle_count", 0) >= min_listing_days
+        )
+        turnover_history = (
+            available["daily_candles"]
+            and entry.get("trailing_turnover_finalized_day_count", 0)
+            >= turnover_days
+        )
+        turnover = (
+            turnover_history
+            and entry["trailing_30d_krw_turnover"]
+            / Decimal(entry["trailing_turnover_finalized_day_count"])
+            >= min_turnover
+        )
+        spread = None
+        slippage = None
+        if available["orderbook"]:
+            spread = universe_module._spread_bps(
+                Decimal(str(entry["best_bid"])),
+                Decimal(str(entry["best_ask"])),
+            )
+            slippage = universe_module._estimate_slippage_bps(
+                entry["ask_levels"], Decimal(str(entry["best_ask"])), notional
+            )
+        gates = {
+            "listing_history": listing,
+            "complete_turnover_history": turnover_history,
+            "turnover": turnover,
+            "spread": spread is not None and spread <= max_spread,
+            "slippage": slippage is not None and slippage <= max_slippage,
+        }
+        data_gates.update(key for key, passed in gates.items() if passed)
+        if all(available.values()) and all(gates.values()) and entry["market_event_warning"] is False:
+            all_data_gate_markets.append(market)
+
+    manifest = _read_json(
+        Path(snapshot_dir) / "_manifest.json",
+        "CRYPTO_RAW_MANIFEST_READ_FAILED",
+    )
+    manifest_markets = manifest.get("markets")
+    if not isinstance(manifest_markets, list) or manifest.get("market_count") != len(manifest_markets):
+        raise ThreeMarketEvaluationCoverageError("CRYPTO_RAW_MANIFEST_INVALID")
+    regex_excluded = sorted(set(manifest_markets) - set(core["markets"]))
+    batch_size = universe_module.UPBIT_CAPTURE.MAX_MARKETS_PER_BATCH_CALL
+    batch_calls = (len(manifest_markets) + batch_size - 1) // batch_size
+    successful_calls = 1 + batch_calls + batch_calls + len(manifest_markets)
+    minimum_pacing_seconds = Decimal(max(len(manifest_markets) - 1, 0)) * Decimal("1.05")
+    return {
+        "status": "PROPOSAL_ONLY_NOT_ADOPTED",
+        "selection": {
+            "source_reason": "IDENTITY_UNRATIFIED",
+            "market_count": len(evaluation_markets),
+            "market_set_sha256": payload_sha256(evaluation_markets),
+            "source_identity_review_payload_sha256": identity_review["payload_sha256"],
+            "interpretation": "OBSERVATION_AND_EVALUATION_ONLY_NOT_ELIGIBILITY",
+        },
+        "current_paper_identity_scope": "UPBIT_KRW_SPOT_CRYPTO_PAPER_EIGHT_ONLY",
+        "current_paper_market_count": len(current_paper_markets),
+        "safety_exclusions": {
+            "reason": "INVESTMENT_WARNING_ACTIVE",
+            "market_count": len(safety_exclusions),
+            "markets": safety_exclusions,
+        },
+        "identity_verification": {
+            "proposal_count": identity_review["summary"]["proposal_count"],
+            "proposal_status": identity_review["review_status"],
+            "collision_finding_count": identity_review["summary"]["finding_count"],
+            "cross_reference_check_status": identity_review["review_boundary"]["cross_reference_check_status"],
+            "prior_bounded_research_row_count": len(prior_assets),
+            "prior_bounded_research_overlap_count": len(prior_overlap),
+            "prior_verdict_counts": dict(sorted(prior_verdict_counts.items())),
+            "external_cross_reference_still_required_count": prior_verdict_counts.get(
+                UPBIT_BOUNDED_IDENTITY.VERDICT_HOLD_MISSING_SECOND_SOURCE, 0
+            ),
+            "zero_findings_meaning": identity_review["review_boundary"]["meaning_of_zero_findings"],
+        },
+        "retained_source_availability_counts": {
+            key: availability.get(key, 0)
+            for key in (
+                "market_metadata", "warning_state", "orderbook", "daily_candles",
+            )
+        },
+        "existing_policy_market_data_gate_pass_counts": {
+            key: data_gates.get(key, 0)
+            for key in (
+                "listing_history", "complete_turnover_history", "turnover",
+                "spread", "slippage",
+            )
+        },
+        "all_existing_market_data_gates_pass_count": len(all_data_gate_markets),
+        "all_existing_market_data_gates_pass_semantics": (
+            "DATA_ONLY_PRECHECK_NOT_IDENTITY_TAXONOMY_CANDIDATE_OR_PAPER_PASS"
+        ),
+        "raw_scope_gap": {
+            "raw_krw_market_count": len(manifest_markets),
+            "classifier_market_count": len(core["markets"]),
+            "regex_excluded_krw_market_count": len(regex_excluded),
+            "regex_excluded_krw_markets": regex_excluded,
+            "decision_required": "SEPARATE_IDENTITY_CONTRACT_DECISION",
+        },
+        "source_call_cost": {
+            "retained_snapshot_additional_call_count": 0,
+            "fresh_full_capture_successful_http_call_count": successful_calls,
+            "fresh_full_capture_minimum_candle_pacing_seconds": str(
+                minimum_pacing_seconds
+            ),
+            "authentication_required": manifest.get("auth_required"),
+            "order_or_withdrawal_endpoints_called": manifest.get(
+                "order_or_withdrawal_endpoints_called"
+            ),
+        },
+        "minimum_change_design": {
+            "separate_evaluation_identity_authority_required": True,
+            "must_not_modify": [
+                "config/upbit_asset_identity_registry.json",
+                "config/upbit_exclusion_taxonomy.json",
+            ],
+            "must_not_feed": [
+                "TRADEABLE_UNIVERSE",
+                "PAPER_ELIGIBLE",
+                "CANDIDATE_PROMOTION",
+                "ORDER_DRAFT",
+            ],
+            "market_data_adapter_required": False,
+            "reason": "RETAINED_SOURCE_FIELDS_AVAILABLE_FOR_ALL_267",
+        },
+        "cio_decision_targets": [
+            "ADOPT_OR_REJECT_EXACT_267_EVALUATION_ONLY_SCOPE",
+            "REUSE_OR_REREVIEW_45_EXISTING_VERIFIED_CANDIDATE_IDENTITIES",
+            "KEEP_24_TICKER_COLLISIONS_ON_IDENTITY_HOLD",
+            "SECOND_SOURCE_PLAN_FOR_198_UNRESOLVED_IDENTITIES",
+            "KEEP_OR_REVIEW_6_ONE_CHARACTER_MARKETS_OUTSIDE_CLASSIFIER",
+            "SET_EVALUATION_IDENTITY_REFRESH_AND_EXPIRY_WITHOUT_PAPER_FLOW",
+        ],
+        "authority": {
+            "identity_ratification_authorized": False,
+            "taxonomy_ratification_authorized": False,
+            "candidate_authorized": False,
+            "paper_scope_change_authorized": False,
+            "stage_promotion_authorized": False,
+            "order_authorized": False,
+            "production_authorized": False,
+            "trading_authorized": False,
+        },
+    }
+
+
+def _us_investable_input_readiness(
+    *, us_packet: dict, raw_snapshot_dir: Path, market_data: dict,
+    contract: dict,
+) -> dict:
+    nasdaq_headers = [
+        "Symbol", "Security Name", "Market Category", "Test Issue",
+        "Financial Status", "Round Lot Size", "ETF", "NextShares",
+    ]
+    other_headers = [
+        "ACT Symbol", "Security Name", "Exchange", "CQS Symbol", "ETF",
+        "Round Lot Size", "Test Issue", "NASDAQ Symbol",
+    ]
+    nasdaq_raw, nasdaq_rows = _read_symbol_directory(
+        Path(raw_snapshot_dir) / "nasdaqlisted.txt.gz", nasdaq_headers
+    )
+    other_raw, other_rows = _read_symbol_directory(
+        Path(raw_snapshot_dir) / "otherlisted.txt.gz", other_headers
+    )
+    sources = {row["source_name"]: row for row in us_packet["source_snapshots"]}
+    expected = {
+        "nasdaq_listed": (nasdaq_raw, nasdaq_rows),
+        "other_listed": (other_raw, other_rows),
+    }
+    for name, (raw, rows) in expected.items():
+        source = sources.get(name)
+        if (
+            not isinstance(source, dict)
+            or source.get("record_count") != len(rows)
+            or source.get("source_sha256") != hashlib.sha256(raw).hexdigest()
+        ):
+            raise ThreeMarketEvaluationCoverageError(
+                "US_SYMBOL_DIRECTORY_SOURCE_MISMATCH"
+            )
+    all_rows = nasdaq_rows + other_rows
+    alpaca = market_data["alpaca"]
+    daily_symbols = sorted({row["symbol"] for row in alpaca["daily_bars"]})
+    latest_symbols = sorted({row["symbol"] for row in alpaca["bars"]})
+    if daily_symbols != latest_symbols:
+        raise ThreeMarketEvaluationCoverageError(
+            "US_ALPACA_SYMBOL_SCOPE_MISMATCH"
+        )
+    rows_by_symbol = {}
+    for row in nasdaq_rows:
+        rows_by_symbol.setdefault(row["Symbol"], []).append(row)
+    for row in other_rows:
+        rows_by_symbol.setdefault(row["ACT Symbol"], []).append(row)
+    if any(symbol not in rows_by_symbol for symbol in daily_symbols):
+        raise ThreeMarketEvaluationCoverageError(
+            "US_ALPACA_SYMBOL_NOT_IN_SOURCE_UNIVERSE"
+        )
+    bounded_etfs = sorted(
+        symbol for symbol in daily_symbols
+        if any(row.get("ETF") == "Y" for row in rows_by_symbol[symbol])
+    )
+    population_count = len(all_rows)
+    return {
+        "status": "NATURAL_INVESTABLE_SNAPSHOT_NOT_CONNECTED",
+        "required_input_schema": "us_investable_snapshot/1",
+        "current_fully_closable_natural_symbol_count": 0,
+        "field_source_matrix": [
+            {
+                "fact": "asset_id_symbol_listing_venue",
+                "source": "us_global_universe_packet/1",
+                "available_count": population_count,
+                "status": "AVAILABLE_SOURCE_COVERAGE_ONLY",
+            },
+            {
+                "fact": "etf_indicator",
+                "source": "NASDAQ_SYMBOL_DIRECTORY",
+                "available_count": population_count,
+                "etf_confirmed_count": sum(row.get("ETF") == "Y" for row in all_rows),
+                "status": "AVAILABLE_ETF_ONLY_COMMON_STOCK_NOT_PROVEN",
+            },
+            {
+                "fact": "test_issue",
+                "source": "NASDAQ_SYMBOL_DIRECTORY",
+                "available_count": population_count,
+                "status": "AVAILABLE_RAW_NOT_EMITTED_AS_SNAPSHOT_FACT",
+            },
+            {
+                "fact": "financial_status",
+                "source": "NASDAQ_LISTED_ONLY",
+                "available_count": len(nasdaq_rows),
+                "status": "PARTIAL_RAW_NOT_EMITTED_AS_SNAPSHOT_FACT",
+            },
+            {
+                "fact": "listing",
+                "source": "CURRENT_SYMBOL_DIRECTORY_MEMBERSHIP",
+                "available_count": population_count,
+                "status": "CURRENT_OBSERVATION_NOT_EXACT_LISTING_FACT",
+            },
+            {
+                "fact": "trading_halt",
+                "source": None,
+                "available_count": 0,
+                "status": "MISSING",
+            },
+            {
+                "fact": "scheduled_delisting",
+                "source": None,
+                "available_count": 0,
+                "status": "MISSING",
+            },
+            {
+                "fact": "corporate_action_state",
+                "source": None,
+                "available_count": 0,
+                "status": "MISSING",
+            },
+            {
+                "fact": "liquidity",
+                "source": "ALPACA_IEX_ONLY_PARTIAL_US_MARKET",
+                "available_count": len(daily_symbols),
+                "daily_bar_row_count": len(alpaca["daily_bars"]),
+                "status": "PARTIAL_OHLCV_ONLY_TRADE_COUNT_AND_SPREAD_MISSING",
+            },
+        ],
+        "liquidity_policy_status": (
+            "ABSENT_EXTERNAL_RATIFIED_POLICY_REQUIRED"
+            if contract["liquidity"]["repository_default_policy"] == "ABSENT"
+            else "UNEXPECTED_OPEN_POLICY"
+        ),
+        "first_bounded_source_aligned_target": {
+            "status": "NOT_CLOSABLE_SOURCE_ALIGNMENT_ONLY",
+            "market_data_symbol_count": len(daily_symbols),
+            "directory_etf_type_proven_symbol_count": len(bounded_etfs),
+            "directory_etf_type_proven_symbols": bounded_etfs,
+            "remaining_blockers": [
+                "EXACT_LISTING_FACT_NOT_CONNECTED",
+                "TRADING_HALT_FACT_MISSING",
+                "SCHEDULED_DELISTING_FACT_MISSING",
+                "CORPORATE_ACTION_STATE_FACT_MISSING",
+                "LIQUIDITY_TRADE_COUNT_AND_SPREAD_MISSING",
+                "RATIFIED_LIQUIDITY_POLICY_ABSENT",
+            ],
+        },
+        "adapter_decision": "DO_NOT_CREATE_ADAPTER_UNTIL_FACT_SOURCES_AND_POLICY_EXIST",
+        "next_source_requirements": [
+            "OFFICIAL_SECURITY_MASTER_FOR_NON_ETF_INSTRUMENT_TYPE",
+            "EXACT_ACTIVE_LISTING_FACT",
+            "TRADING_HALT_FACT",
+            "SCHEDULED_DELISTING_FACT",
+            "CORPORATE_ACTION_STATE_FACT",
+            "MEDIAN_DAILY_TRADE_COUNT",
+            "MEDIAN_SPREAD_BPS",
+            "EXTERNAL_RATIFIED_LIQUIDITY_POLICY",
+        ],
+        "authority": copy.deepcopy(contract["authority"]),
+    }
+
+
 def _base_market_row(
     market: str, universe_count: int, universe_ref: dict, review_count: int,
     review_ref: dict,
@@ -407,7 +918,9 @@ def _base_market_row(
 def build_report(
     *, generated_at: str, kr_universe_path: Path, kr_review_path: Path,
     us_universe_path: Path, us_review_path: Path, crypto_universe_path: Path,
-    crypto_decision_path: Path,
+    crypto_decision_path: Path, crypto_identity_review_path: Path,
+    crypto_snapshot_dir: Path, prior_identity_evidence_path: Path,
+    us_raw_snapshot_dir: Path, us_market_data_path: Path,
 ) -> dict:
     if not isinstance(generated_at, str) or UTC_RE.fullmatch(generated_at) is None:
         raise ThreeMarketEvaluationCoverageError("GENERATED_AT_INVALID")
@@ -431,6 +944,12 @@ def build_report(
     us_review = _validated_review(Path(us_review_path), "US", observed_at)
     crypto_decision = _validated_crypto_decision(
         Path(crypto_decision_path), observed_at
+    )
+    crypto_identity_review = _validated_crypto_identity_review(
+        Path(crypto_identity_review_path), Path(crypto_snapshot_dir)
+    )
+    us_market_data = _validated_free_market_data(
+        Path(us_market_data_path), observed_at
     )
     crypto_universe_ref = next(
         (
@@ -522,6 +1041,12 @@ def build_report(
                 "NATURAL_POPULATION_INPUT_AND_LIQUIDITY_POLICY_NOT_CONNECTED"
             ),
         },
+        "investable_input_readiness": _us_investable_input_readiness(
+            us_packet=us_universe,
+            raw_snapshot_dir=Path(us_raw_snapshot_dir),
+            market_data=us_market_data,
+            contract=us_registry_contract,
+        ),
     })
 
     funnel = crypto_decision.get("funnel_counts")
@@ -633,6 +1158,12 @@ def build_report(
             pre_evaluation_reason_classification
         ),
         "held_reason_analysis": held_reason_analysis,
+        "evaluation_only_scope_readiness": _crypto_evaluation_scope_readiness(
+            universe_record=crypto_universe,
+            identity_review=crypto_identity_review,
+            snapshot_dir=Path(crypto_snapshot_dir),
+            prior_identity_evidence_path=Path(prior_identity_evidence_path),
+        ),
         "paper_ready_count": paper_ready_count,
         "coverage_status": "SOURCE_POPULATION_EVALUATION_DISPOSITION_ACCOUNTED",
         "missing_reasons": [],
@@ -649,6 +1180,10 @@ def build_report(
             "current_output": _source_ref(
                 crypto_decision_path, crypto_decision["payload_sha256"]
             ),
+            "identity_review": _source_ref(
+                crypto_identity_review_path,
+                crypto_identity_review["payload_sha256"],
+            ),
         },
     }
     report = {
@@ -661,13 +1196,19 @@ def build_report(
             "full_population_evaluation_count_available": 0,
             "bounded_subset_evaluation_count_available": 1,
             "full_population_evaluation_disposition_available": 1,
+            "crypto_evaluation_only_scope_proposal_available": 1,
+            "us_fully_closable_natural_investable_input_count": 0,
         },
         "authority": {
             "candidate_creation_authorized": False,
             "candidate_ranking_authorized": False,
+            "evaluation_scope_adoption_authorized": False,
+            "paper_identity_scope_change_authorized": False,
             "stage_promotion_authorized": False,
+            "action_authorized": False,
             "trading_authorized": False,
             "order_authorized": False,
+            "production_authorized": False,
         },
     }
     report["payload_sha256"] = payload_sha256(report)
@@ -681,8 +1222,13 @@ def main(argv=None) -> int:
     parser.add_argument("--kr-review", type=Path, required=True)
     parser.add_argument("--us-universe", type=Path, required=True)
     parser.add_argument("--us-review", type=Path, required=True)
+    parser.add_argument("--us-raw-snapshot", type=Path, required=True)
+    parser.add_argument("--us-market-data", type=Path, required=True)
     parser.add_argument("--crypto-universe", type=Path, required=True)
     parser.add_argument("--crypto-decision", type=Path, required=True)
+    parser.add_argument("--crypto-identity-review", type=Path, required=True)
+    parser.add_argument("--crypto-snapshot", type=Path, required=True)
+    parser.add_argument("--prior-identity-evidence", type=Path, required=True)
     args = parser.parse_args(argv)
     report = build_report(
         generated_at=args.generated_at,
@@ -690,8 +1236,13 @@ def main(argv=None) -> int:
         kr_review_path=args.kr_review,
         us_universe_path=args.us_universe,
         us_review_path=args.us_review,
+        us_raw_snapshot_dir=args.us_raw_snapshot,
+        us_market_data_path=args.us_market_data,
         crypto_universe_path=args.crypto_universe,
         crypto_decision_path=args.crypto_decision,
+        crypto_identity_review_path=args.crypto_identity_review,
+        crypto_snapshot_dir=args.crypto_snapshot,
+        prior_identity_evidence_path=args.prior_identity_evidence,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

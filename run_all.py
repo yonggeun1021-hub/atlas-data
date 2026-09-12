@@ -2334,7 +2334,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_candidate_validity_shadow_observation.py": 24.4,
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
-    "test/test_three_market_evaluation_coverage.py": 40.0,
+    "test/test_three_market_evaluation_coverage.py": 60.0,
 }
 DEFAULT_ESTIMATED_SECONDS = 1.0
 
