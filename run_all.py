@@ -737,6 +737,13 @@ APPROVED_TESTS = [
     #   Regime, entry, exit, order, broker, Production or Trading authority.
     #   ⛔ current committed inputs only; no live network or order endpoint.
     "test/test_us_symbol_market_review.py",
+    # ★ Three-market evaluation-coverage receipt. Exact KR/US source-coverage
+    #   universes and bounded symbol reviews are kept separate, while the
+    #   existing Crypto PAPER funnel contributes only its source-native counts.
+    #   Missing population evaluation/candidate/exclusion totals stay 미집계;
+    #   bounded samples never become market-wide denominators or zeroes.
+    #   ⛔ read-only; no scanner/ranking/policy/promotion/order authority.
+    "test/test_three_market_evaluation_coverage.py",
     # ★ FRED VIX append-only provenance — content-and-capture addressed raw
     #   revisions are independently decompressed/re-derived and cannot be
     #   overwritten, backdated, path-substituted, or re-signed after tamper.
@@ -2327,6 +2334,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_candidate_validity_shadow_observation.py": 24.4,
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
+    "test/test_three_market_evaluation_coverage.py": 19.5,
 }
 DEFAULT_ESTIMATED_SECONDS = 1.0
 
