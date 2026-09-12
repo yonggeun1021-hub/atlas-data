@@ -7,11 +7,9 @@ name: Korea Leadership Live Proof
 # Leadership had no cron and only ever ran on manual workflow_dispatch.
 # That gap was left open on purpose at the time ("no new cron" precedent
 # for that PR's own bounded scope), not because scheduling was judged
-# unsafe. This slice closes it for Leadership only -- Korea Breadth
-# (p1-kr05-korea-breadth-live.yml) and the combined observation-pair
-# workflow (p2-03-korea-observation-pair.yml) are UNCHANGED and remain
-# workflow_dispatch-only; that remaining half of the gap is still open,
-# see docs/korea_capital_rotation_contract.md.
+# unsafe. The same schedule is now the controller for the existing combined
+# observation-pair workflow. No cron, provider, or producer implementation is
+# duplicated; manual workflow_dispatch keeps the standalone Leadership path.
 #
 # Schedule time reuses the exact existing evening cadence
 # korea-market-signals.yml already established for the same "after KRX's
@@ -28,8 +26,9 @@ name: Korea Leadership Live Proof
 # one script from another) -- the same live-KRX-probe resolver
 # korea-market-signals.yml's own scheduled path already relies on to find
 # real completed sessions across weekends/holidays without any invented
-# trading-day calendar. Manual workflow_dispatch with explicit
-# prior_date/current_date inputs is completely unchanged.
+# trading-day calendar. The scheduled path then calls the reusable P2-03
+# workflow synchronously and verifies its final artifact. Manual
+# workflow_dispatch with explicit prior_date/current_date inputs is unchanged.
 #
 # Reuses the same already-approved R2 KRX Open API index endpoint
 # (idx/{kospi,kosdaq}_dd_trd) this repo's own "R2 KRX Open API Live
@@ -56,15 +55,279 @@ on:
     - cron: "25 9 * * 1-5"  # 18:25 KST weekdays -- idempotent recovery slot
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
 
 concurrency:
   group: korea-leadership-live-proof
   cancel-in-progress: false
 
 jobs:
-  korea-leadership-live-fetch:
+  prepare-scheduled-observation-pair:
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      should_call: ${{ steps.decision.outputs.should_call }}
+      prior_date: ${{ steps.dates.outputs.prior_date }}
+      current_date: ${{ steps.dates.outputs.current_date }}
+      reason: ${{ steps.decision.outputs.reason }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Re-sync controller contracts to current main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+          test -z "$(git status --porcelain)"
+      - name: Scheduled controller focused regression
+        run: python3 test/test_korea_observation_pair_controller.py
+      - name: Discover completed KRX trading-date pair
+        id: dates
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          python3 - <<'PY'
+          import datetime as dt
+          import importlib.util
+          import os
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          root = Path.cwd()
+          spec = importlib.util.spec_from_file_location(
+              "korea_market_signals_for_pair_controller",
+              root / ".github" / "scripts" / "korea_market_signals.py",
+          )
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          anchor = dt.datetime.now(ZoneInfo("Asia/Seoul")).date()
+          try:
+              previous, current = module.discover_session_pair(
+                  os.environ["KRX_API_KEY"], anchor=anchor
+              )
+          except module.KoreaMarketSignalsError as exc:
+              reason = str(exc).replace("\r", " ").replace("\n", " ")[:500]
+              with output.open("a", encoding="utf-8") as handle:
+                  handle.write("ready=false\n")
+                  handle.write(f"reason=TWO_COMPLETED_KRX_SESSIONS_NOT_DISCOVERED:{reason}\n")
+              print(f"WAIT: TWO_COMPLETED_KRX_SESSIONS_NOT_DISCOVERED:{reason}")
+          else:
+              with output.open("a", encoding="utf-8") as handle:
+                  handle.write("ready=true\n")
+                  handle.write(f"prior_date={previous['date']}\n")
+                  handle.write(f"current_date={current['date']}\n")
+              print(f"resolved prior={previous['date']} current={current['date']}")
+          PY
+      - name: Check policy effectivity and existing-pair chronology
+        id: readiness
+        if: steps.dates.outputs.ready == 'true'
+        env:
+          PRIOR_DATE: ${{ steps.dates.outputs.prior_date }}
+          CURRENT_DATE: ${{ steps.dates.outputs.current_date }}
+        run: |
+          python3 .github/scripts/korea_observation_pair_controller.py request-readiness \
+            --prior-date "$PRIOR_DATE" \
+            --current-date "$CURRENT_DATE" \
+            --out "$RUNNER_TEMP/request-readiness.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          value = json.loads(Path(os.environ["RUNNER_TEMP"] + "/request-readiness.json").read_text())
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"call_ready={str(value['call_ready']).lower()}\n")
+              handle.write(f"reason={value['status']}\n")
+          print(json.dumps(value, ensure_ascii=False, sort_keys=True))
+          PY
+      - name: Load prior controller and manual-pair runs
+        id: runs
+        if: steps.readiness.outputs.call_ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_TITLE: P2-03 Korea Observation Pair ${{ steps.dates.outputs.prior_date }}-${{ steps.dates.outputs.current_date }}
+        run: |
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/korea-leadership-live-proof.yml/runs?per_page=50" \
+            > "$RUNNER_TEMP/controller-runs.json"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/p2-03-korea-observation-pair.yml/runs?per_page=50" \
+            > "$RUNNER_TEMP/pair-runs.json"
+          python3 .github/scripts/korea_observation_pair_controller.py classify-runs \
+            --runs-json "$RUNNER_TEMP/controller-runs.json" \
+            --runs-json "$RUNNER_TEMP/pair-runs.json" \
+            --expected-title "$EXPECTED_TITLE" \
+            --current-run-id "${{ github.run_id }}" \
+            --out "$RUNNER_TEMP/run-classification.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          value = json.loads((root / "run-classification.json").read_text())
+          active = value["active_same_request_runs"]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"active_duplicate={str(bool(active)).lower()}\n")
+          with (root / "active-runs.tsv").open("w", encoding="utf-8") as handle:
+              for row in active:
+                  handle.write(f"{row['run_id']}\t{row['run_attempt']}\n")
+          with (root / "successful-candidates.tsv").open("w", encoding="utf-8") as handle:
+              for row in value["successful_artifact_candidates"]:
+                  handle.write(f"{row['run_id']}\t{row['run_attempt']}\n")
+          print(json.dumps(value, sort_keys=True))
+          PY
+      - name: Wait for an already-active exact request
+        if: steps.readiness.outputs.call_ready == 'true' && steps.runs.outputs.active_duplicate == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          while IFS=$'\t' read -r RUN_ID RUN_ATTEMPT; do
+            test -n "$RUN_ID" || continue
+            if gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status; then
+              echo "$RUN_ID"$'\t'"$RUN_ATTEMPT" >> "$RUNNER_TEMP/successful-candidates.tsv"
+            else
+              RUN_STATE=$(gh api \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" \
+                --jq '[.status, .conclusion] | @tsv')
+              if [[ "$RUN_STATE" == completed$'\t'* ]]; then
+                echo "active exact request $RUN_ID completed without success; controller recovery remains eligible"
+              else
+                echo "STOP: exact request $RUN_ID did not reach a terminal state" >&2
+                exit 2
+              fi
+            fi
+          done < "$RUNNER_TEMP/active-runs.tsv"
+      - name: Accept dedupe only from an exact validated final artifact
+        id: artifact
+        if: steps.readiness.outputs.call_ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIOR_DATE: ${{ steps.dates.outputs.prior_date }}
+          CURRENT_DATE: ${{ steps.dates.outputs.current_date }}
+        run: |
+          VALIDATED=false
+          while IFS=$'\t' read -r RUN_ID RUN_ATTEMPT; do
+            test -n "$RUN_ID" || continue
+            CANDIDATE_DIR="$RUNNER_TEMP/prior-handoff-$RUN_ID-$RUN_ATTEMPT"
+            ARTIFACT_NAME="p2-03-current-ratified-rotation-$RUN_ID-$RUN_ATTEMPT"
+            if gh run download "$RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --name "$ARTIFACT_NAME" \
+              --dir "$CANDIDATE_DIR"
+            then
+              if python3 .github/scripts/korea_observation_pair_controller.py verify-handoff \
+                --artifact-dir "$CANDIDATE_DIR" \
+                --prior-date "$PRIOR_DATE" \
+                --current-date "$CURRENT_DATE"
+              then
+                VALIDATED=true
+                echo "validated prior artifact from run $RUN_ID attempt $RUN_ATTEMPT"
+                break
+              fi
+            fi
+          done < "$RUNNER_TEMP/successful-candidates.tsv"
+          echo "validated=$VALIDATED" >> "$GITHUB_OUTPUT"
+      - name: Decide whether to call the combined workflow
+        id: decision
+        env:
+          DATES_READY: ${{ steps.dates.outputs.ready }}
+          DATE_REASON: ${{ steps.dates.outputs.reason }}
+          REQUEST_READY: ${{ steps.readiness.outputs.call_ready }}
+          REQUEST_REASON: ${{ steps.readiness.outputs.reason }}
+          VALIDATED_ARTIFACT: ${{ steps.artifact.outputs.validated }}
+        run: |
+          if [ "$DATES_READY" != "true" ]; then
+            SHOULD_CALL=false
+            REASON="${DATE_REASON:-INPUT_NOT_READY}"
+          elif [ "$REQUEST_READY" != "true" ]; then
+            SHOULD_CALL=false
+            REASON="${REQUEST_REASON:-REQUEST_NOT_READY}"
+          elif [ "$VALIDATED_ARTIFACT" = "true" ]; then
+            SHOULD_CALL=false
+            REASON="EXACT_FINAL_ROTATION_HANDOFF_ALREADY_VALIDATED"
+          else
+            SHOULD_CALL=true
+            REASON="CALL_COMBINED_WORKFLOW"
+          fi
+          echo "should_call=$SHOULD_CALL" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          echo "scheduled pair controller: should_call=$SHOULD_CALL reason=$REASON"
+
+  scheduled-observation-pair:
+    needs: prepare-scheduled-observation-pair
+    if: needs.prepare-scheduled-observation-pair.outputs.should_call == 'true'
+    uses: ./.github/workflows/p2-03-korea-observation-pair.yml
+    permissions:
+      contents: write
+      actions: read
+    with:
+      breadth_recent_previous: ${{ needs.prepare-scheduled-observation-pair.outputs.prior_date }}
+      breadth_recent_date: ${{ needs.prepare-scheduled-observation-pair.outputs.current_date }}
+      leadership_prior_date: ${{ needs.prepare-scheduled-observation-pair.outputs.prior_date }}
+      leadership_current_date: ${{ needs.prepare-scheduled-observation-pair.outputs.current_date }}
+    secrets: inherit
+
+  verify-scheduled-observation-pair-handoff:
+    needs:
+      - prepare-scheduled-observation-pair
+      - scheduled-observation-pair
+    if: needs.prepare-scheduled-observation-pair.outputs.should_call == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Re-sync verifier to current committed source lineage
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+          test -z "$(git status --porcelain)"
+      - name: Download this run's final rotation handoff
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: p2-03-current-ratified-rotation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/p2-03-final-handoff
+      - name: Verify exact pair, current policy/source identity, and final artifact
+        env:
+          PRIOR_DATE: ${{ needs.prepare-scheduled-observation-pair.outputs.prior_date }}
+          CURRENT_DATE: ${{ needs.prepare-scheduled-observation-pair.outputs.current_date }}
+        run: |
+          python3 .github/scripts/korea_observation_pair_controller.py verify-handoff \
+            --artifact-dir "$RUNNER_TEMP/p2-03-final-handoff" \
+            --prior-date "$PRIOR_DATE" \
+            --current-date "$CURRENT_DATE"
+          git diff --exit-code
+
+  korea-leadership-live-fetch:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -82,46 +345,6 @@ jobs:
         run: |
           echo "PRIOR_DATE=$PRIOR_DATE_INPUT" >> "$GITHUB_ENV"
           echo "CURRENT_DATE=$CURRENT_DATE_INPUT" >> "$GITHUB_ENV"
-      # Discovers the two most recently completed KRX trading sessions by
-      # calling korea_market_signals.py's own discover_session_pair()
-      # UNCHANGED -- no new trading-calendar policy, no assumption that
-      # "today" is itself a completed session. A genuinely closed market
-      # (weekend/holiday, or an extended KRX outage) fails this step
-      # closed rather than fabricating a date.
-      - name: Discover completed KRX trading-date pair for a scheduled run
-        if: github.event_name == 'schedule'
-        env:
-          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
-        run: |
-          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
-          python3 - <<'PY'
-          import datetime as dt
-          import importlib.util
-          import os
-          from pathlib import Path
-          from zoneinfo import ZoneInfo
-
-          ROOT = Path.cwd()
-          spec = importlib.util.spec_from_file_location(
-              "korea_market_signals_for_leadership_schedule",
-              ROOT / ".github" / "scripts" / "korea_market_signals.py",
-          )
-          module = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(module)
-
-          anchor = dt.datetime.now(ZoneInfo("Asia/Seoul")).date()
-          try:
-              previous, current = module.discover_session_pair(
-                  os.environ["KRX_API_KEY"], anchor=anchor
-              )
-          except module.KoreaMarketSignalsError as exc:
-              raise SystemExit(f"STOP: TWO_COMPLETED_KRX_SESSIONS_NOT_DISCOVERED:{exc}")
-
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
-              handle.write(f"PRIOR_DATE={previous['date']}\n")
-              handle.write(f"CURRENT_DATE={current['date']}\n")
-          print(f"resolved prior={previous['date']} current={current['date']}")
-          PY
       # Reuses atlas_krx_r2_openapi_probe.py's own request/fetch/decode
       # primitives unchanged, then attempts korea_leadership.py's own
       # build_transform() unchanged -- see the top-of-file comment for

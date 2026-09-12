@@ -3,7 +3,7 @@
 structural regression (2026-08-22).
 
 Offline YAML structure checks only -- no KRX call, no tracked-file
-mutation. Confirms: still workflow_dispatch-only (no new schedule/cron),
+mutation. Confirms: manual and reusable entrypoints with no local schedule/cron,
 the real job dependency chain (Leadership needs the Breadth context
 commit, which needs the Breadth live-proof job, and the current-ratified
 producer needs Leadership) that structurally guarantees Breadth completes
@@ -29,20 +29,30 @@ class ObservationPairWorkflowTest(unittest.TestCase):
         with WORKFLOW.open(encoding="utf-8") as stream:
             self.workflow = yaml.safe_load(stream)
 
-    def test_workflow_dispatch_only_no_new_schedule(self):
+    def test_manual_and_reusable_entrypoints_share_inputs_with_no_new_schedule(self):
         triggers = self.workflow.get("on", self.workflow.get(True))
         self.assertIn("workflow_dispatch", triggers)
+        self.assertIn("workflow_call", triggers)
         self.assertNotIn("schedule", triggers)
-        inputs = triggers["workflow_dispatch"]["inputs"]
+        expected = {
+            "breadth_recent_previous", "breadth_recent_date",
+            "leadership_prior_date", "leadership_current_date",
+        }
+        for trigger in ("workflow_dispatch", "workflow_call"):
+            inputs = triggers[trigger]["inputs"]
+            self.assertEqual(set(inputs), expected)
+            for spec in inputs.values():
+                self.assertTrue(spec["required"])
+        for spec in triggers["workflow_call"]["inputs"].values():
+            self.assertEqual(spec["type"], "string")
         self.assertEqual(
-            set(inputs),
-            {
-                "breadth_recent_previous", "breadth_recent_date",
-                "leadership_prior_date", "leadership_current_date",
-            },
+            triggers["workflow_call"]["secrets"],
+            {"KRX_API_KEY": {"required": True}},
         )
-        for spec in inputs.values():
-            self.assertTrue(spec["required"])
+        self.assertIn(
+            "${{ inputs.leadership_prior_date }}-${{ inputs.leadership_current_date }}",
+            self.workflow["run-name"],
+        )
 
     def test_real_job_dependency_chain_breadth_before_leadership(self):
         jobs = self.workflow["jobs"]

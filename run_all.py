@@ -470,8 +470,8 @@ APPROVED_TESTS = [
     #   pre-effective_from pair (ratification alone is not a natural proof)
     #   and only activates for a structurally in-interval pair (a mechanism
     #   proof, not a claim that a real natural sample exists yet). Real P2-01
-    #   authority registry stays untouched (0 records); no schedule/cron
-    #   file touched; no Regime/Candidate/Stage/briefing/Production/
+    #   authority registry stays untouched (0 records); no new schedule/cron
+    #   is introduced; no Regime/Candidate/Stage/briefing/Production/
     #   trading/order/capital authority opened; Phase B stays closed until a
     #   real post-ratification natural observation pair is verified.
     "test/test_korea_capital_rotation_policy_ratified.py",
@@ -482,7 +482,7 @@ APPROVED_TESTS = [
     "test/test_korea_capital_rotation_current_ratified_proof.py",
     # ★ P2-03 — dependency-ordered Breadth->Leadership observation-pair
     #   workflow (2026-08-22, no new cron): structural YAML checks only --
-    #   still workflow_dispatch-only, real `needs:` chain (Leadership job
+    #   manual and reusable entrypoints share exact inputs, real `needs:` chain (Leadership job
     #   needs the Breadth context-commit job) that structurally guarantees
     #   Breadth's real first_seen_at predates Leadership's real
     #   available_at (decision_time), no new fetch logic/endpoint, least-
@@ -674,6 +674,11 @@ APPROVED_TESTS = [
     #   --verify-existing-only 경로를 재사용하는지를 오프라인 YAML 구조
     #   검증만으로 확인한다. ⛔ live KRX 호출 없음 — YAML 파싱/문자열 검증뿐.
     "test/test_korea_leadership_live_proof_workflow.py",
+    # ★ P2-03 automatic pair controller — policy effectivity, missing-input
+    #   waiting, Breadth-before-Leadership chronology, exact-request active
+    #   dedupe, and final artifact/source/policy revalidation. A green run
+    #   without the exact final artifact never suppresses a recovery call.
+    "test/test_korea_observation_pair_controller.py",
     # ★ P1-KR-06 — Korea Risk / Vol transient derived-feature contract.
     #   비준된 KRX index available_at envelope에서 RV/drawdown만 재현하며
     #   기본 source timing policy와 stress/Regime/Production 권한은 닫아 둔다.
