@@ -116,6 +116,19 @@ jobs:
           )
           print(json.dumps(result, ensure_ascii=False, sort_keys=True))
           PY
+      - name: Build KRX information-system PAPER reference candidate
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+          PREVIOUS_DATE: ${{ inputs.previous_date }}
+          CURRENT_DATE: ${{ inputs.current_date }}
+        run: |
+          FETCHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 .github/scripts/korea_market_signals_pykrx_candidate.py \
+            --previous-date "$PREVIOUS_DATE" \
+            --current-date "$CURRENT_DATE" \
+            --fetched-at "$FETCHED_AT" \
+            --out artifact/KR_PAPER_REFERENCE_CANDIDATE.json
       - name: Verify exact output and closed authority boundary
         if: steps.market_signals.outcome == 'success'
         env:
