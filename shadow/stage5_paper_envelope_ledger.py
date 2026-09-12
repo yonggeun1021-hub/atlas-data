@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Stage5 fixture-only adapter from a validated Stage4 envelope to P10-11.
+"""Stage5 fixture-only adapter from a trust-pinned Stage4 envelope to P10-11.
 
 This deliberately does not decide whether an instrument should be bought,
 what it should cost, or when a real event may run.  It accepts only a
-hash-bound, closed-authority Stage4-shaped envelope and hands caller-supplied
+externally hash-pinned, closed-authority Stage4-shaped envelope and hands caller-supplied
 fixture plan/snapshot values to the existing offline P10-11 simulator.  The
 adapter adds the missing cross-boundary guarantees: decision-source binding,
 closed-candle/PIT ordering, and a semantic result reconciliation.
@@ -65,6 +65,12 @@ def _sha(value: object, code: str) -> str:
     return value
 
 
+def _required_sha(value: object, required_code: str, invalid_code: str) -> str:
+    if value is None:
+        raise Stage5PaperEnvelopeError(required_code)
+    return _sha(value, invalid_code)
+
+
 def _utc(value: object, code: str):
     try:
         return SIMULATOR._utc(value, code)
@@ -85,11 +91,13 @@ def _read_json(path: Path) -> dict:
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "stage5_paper_envelope_ledger/1",
+        "contract_version": "stage5_paper_envelope_ledger/2",
         "input_schema_version": "stage4_paper_decision_envelope/1",
-        "output_schema_version": "stage5_paper_envelope_result/1",
+        "output_schema_version": "stage5_paper_envelope_result/2",
         "mode": "PAPER_CONTRACT_FIXTURE_ONLY",
         "decision_statuses": ["NOT_EVALUATED", "VALIDATED"],
+        "input_authentication_policy": "CALLER_SUPPLIES_TRUSTED_ENVELOPE_DECISION_AND_SOURCE_SHA256",
+        "replay_policy": "UNCHANGED_INPUT_REUSES_EXACT_PINS_CHANGED_INPUT_FAILS_CLOSED",
         "same_candle_execution_policy": "DECISION_CANDLE_MUST_CLOSE_AND_BE_AVAILABLE_BEFORE_PLAN_OR_MATCH",
         "persistence_policy": "REUSE_EXTERNAL_CONTENT_ADDRESSED_SIMULATOR_SNAPSHOTS_ONLY",
         "economic_defaults": "NONE_CALLER_SUPPLIED_FIXTURE_VALUES_ONLY",
@@ -126,8 +134,24 @@ def _decision_unsigned(value: dict) -> dict:
     return unsigned
 
 
-def validate_decision(value: object, contract: dict | None = None) -> dict:
+def validate_decision(
+    value: object,
+    contract: dict | None = None,
+    *,
+    expected_decision_packet_sha256: object = None,
+    expected_decision_source_sha256: object = None,
+) -> dict:
     contract = load_contract() if contract is None else validate_contract(contract)
+    expected_packet = _required_sha(
+        expected_decision_packet_sha256,
+        "TRUSTED_DECISION_PACKET_SHA_REQUIRED",
+        "TRUSTED_DECISION_PACKET_SHA_INVALID",
+    )
+    expected_source = _required_sha(
+        expected_decision_source_sha256,
+        "TRUSTED_DECISION_SOURCE_SHA_REQUIRED",
+        "TRUSTED_DECISION_SOURCE_SHA_INVALID",
+    )
     fields = {
         "schema_version", "decision_id", "status", "candle_open_at", "candle_closed_at",
         "available_at", "decided_at", "source_ref", "source_sha256", "authority", "packet_sha256",
@@ -152,11 +176,27 @@ def validate_decision(value: object, contract: dict | None = None) -> dict:
     digest = _sha(value.get("packet_sha256"), "DECISION_PACKET_SHA_INVALID")
     if payload_sha256(_decision_unsigned(value)) != digest:
         raise Stage5PaperEnvelopeError("DECISION_PACKET_SHA_MISMATCH")
+    if value["source_sha256"] != expected_source:
+        raise Stage5PaperEnvelopeError("TRUSTED_DECISION_SOURCE_SHA_MISMATCH")
+    if digest != expected_packet:
+        raise Stage5PaperEnvelopeError("TRUSTED_DECISION_PACKET_SHA_MISMATCH")
     return copy.deepcopy(value)
 
 
-def validate_envelope(value: object, contract: dict | None = None) -> dict:
+def validate_envelope(
+    value: object,
+    contract: dict | None = None,
+    *,
+    expected_envelope_sha256: object = None,
+    expected_decision_packet_sha256: object = None,
+    expected_decision_source_sha256: object = None,
+) -> dict:
     contract = load_contract() if contract is None else validate_contract(contract)
+    expected_envelope = _required_sha(
+        expected_envelope_sha256,
+        "TRUSTED_ENVELOPE_SHA_REQUIRED",
+        "TRUSTED_ENVELOPE_SHA_INVALID",
+    )
     fields = {"schema_version", "contract_version", "mode", "envelope_id", "decision", "plan", "snapshot", "authority", "packet_sha256"}
     if not isinstance(value, dict) or set(value) != fields:
         raise Stage5PaperEnvelopeError("ENVELOPE_FIELDS_INVALID")
@@ -165,7 +205,12 @@ def validate_envelope(value: object, contract: dict | None = None) -> dict:
     if not _exact(value.get("authority"), contract["authority"]):
         raise Stage5PaperEnvelopeError("ENVELOPE_AUTHORITY_ESCALATION")
     _text(value.get("envelope_id"), "ENVELOPE_ID_INVALID")
-    decision = validate_decision(value.get("decision"), contract)
+    decision = validate_decision(
+        value.get("decision"),
+        contract,
+        expected_decision_packet_sha256=expected_decision_packet_sha256,
+        expected_decision_source_sha256=expected_decision_source_sha256,
+    )
     plan = value.get("plan")
     plan_fields = {
         "plan_id", "ledger_id", "initial_cash", "opened_at", "opening_idempotency_key",
@@ -219,11 +264,26 @@ def validate_envelope(value: object, contract: dict | None = None) -> dict:
     unsigned.pop("packet_sha256")
     if payload_sha256(unsigned) != digest:
         raise Stage5PaperEnvelopeError("ENVELOPE_PACKET_SHA_MISMATCH")
+    if digest != expected_envelope:
+        raise Stage5PaperEnvelopeError("TRUSTED_ENVELOPE_SHA_MISMATCH")
     return copy.deepcopy(value)
 
 
-def _derive(envelope: dict, contract: dict) -> dict:
-    checked = validate_envelope(envelope, contract)
+def _derive(
+    envelope: dict,
+    contract: dict,
+    *,
+    expected_envelope_sha256: object,
+    expected_decision_packet_sha256: object,
+    expected_decision_source_sha256: object,
+) -> dict:
+    checked = validate_envelope(
+        envelope,
+        contract,
+        expected_envelope_sha256=expected_envelope_sha256,
+        expected_decision_packet_sha256=expected_decision_packet_sha256,
+        expected_decision_source_sha256=expected_decision_source_sha256,
+    )
     decision, plan, snapshot = checked["decision"], checked["plan"], checked["snapshot"]
     intent = SIMULATOR.build_intent(
         order_id=plan["order_id"], idempotency_key=plan["submit_idempotency_key"],
@@ -260,14 +320,49 @@ def _derive(envelope: dict, contract: dict) -> dict:
     return result
 
 
-def build_result(envelope: dict, contract: dict | None = None) -> dict:
+def build_result(
+    envelope: dict,
+    contract: dict | None = None,
+    *,
+    expected_envelope_sha256: object = None,
+    expected_decision_packet_sha256: object = None,
+    expected_decision_source_sha256: object = None,
+) -> dict:
     contract = load_contract() if contract is None else validate_contract(contract)
-    return validate_result(_derive(envelope, contract), envelope, contract)
+    expected = _derive(
+        envelope,
+        contract,
+        expected_envelope_sha256=expected_envelope_sha256,
+        expected_decision_packet_sha256=expected_decision_packet_sha256,
+        expected_decision_source_sha256=expected_decision_source_sha256,
+    )
+    return validate_result(
+        expected,
+        envelope,
+        contract,
+        expected_envelope_sha256=expected_envelope_sha256,
+        expected_decision_packet_sha256=expected_decision_packet_sha256,
+        expected_decision_source_sha256=expected_decision_source_sha256,
+    )
 
 
-def validate_result(value: object, envelope: dict, contract: dict | None = None) -> dict:
+def validate_result(
+    value: object,
+    envelope: dict,
+    contract: dict | None = None,
+    *,
+    expected_envelope_sha256: object = None,
+    expected_decision_packet_sha256: object = None,
+    expected_decision_source_sha256: object = None,
+) -> dict:
     contract = load_contract() if contract is None else validate_contract(contract)
-    expected = _derive(envelope, contract)
+    expected = _derive(
+        envelope,
+        contract,
+        expected_envelope_sha256=expected_envelope_sha256,
+        expected_decision_packet_sha256=expected_decision_packet_sha256,
+        expected_decision_source_sha256=expected_decision_source_sha256,
+    )
     if not _exact(value, expected):
         raise Stage5PaperEnvelopeError("RESULT_SEMANTIC_TAMPER_OR_REPLAY_DRIFT")
     return copy.deepcopy(expected)
