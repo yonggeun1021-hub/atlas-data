@@ -58,6 +58,16 @@ class KrContiguousHistoricalRangeTests(unittest.TestCase):
         self.assertEqual(dates[-1], "2026-09-10")
         self.assertEqual(len(dates), 8)
 
+    def test_dedicated_workflow_is_read_only_and_artifact_only(self):
+        workflow = (
+            ROOT / ".github/workflows/kr-contiguous-historical-range.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertIn("python3 -m regime.kr_contiguous_historical_range", workflow)
+        self.assertIn("actions/upload-artifact@", workflow)
+        for prohibited in ("git push", "contents: write", "data/observations/"):
+            self.assertNotIn(prohibited, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
