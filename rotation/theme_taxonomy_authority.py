@@ -214,7 +214,14 @@ def _git_blob(repo: Path, commit: str, rel: str) -> bytes | None:
 
 
 def _commits(repo: Path, commit: str, rel: str) -> list[str]:
-    out = _run_git(repo, "log", "--format=%H", "--reverse", commit, "--", rel)
+    # Keep commits from every merged parent when proving first-seen bytes.
+    # Git's default path-history simplification can hide the branch where an
+    # unchanged file was first committed and report a later reintroduction as
+    # the first occurrence.
+    out = _run_git(
+        repo, "log", "--full-history", "--format=%H", "--reverse", commit,
+        "--", rel,
+    )
     return [] if not out else out.splitlines()
 
 
