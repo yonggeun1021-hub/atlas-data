@@ -33,12 +33,16 @@ DECISION_PATH = ROOT / "decision" / "crypto_paper_decision_snapshot.py"
 SIMULATOR_PATH = ROOT / "shadow" / "crypto_paper_simulator.py"
 REALTIME_GATE_PATH = ROOT / "realtime" / "upbit_realtime_gate.py"
 LIVE_AXIS_PATH = ROOT / "regime" / "live_axis_adapter.py"
+STAGE5_PATH = ROOT / "shadow" / "stage5_paper_envelope_ledger.py"
 
 REQUEST_SCHEMA_VERSION = "crypto_paper_runtime_request/2"
 RUNTIME_CONFIG_SCHEMA_VERSION = "crypto_paper_runtime_config/1"
 RUNTIME_CONFIG_APPROVAL = "USER_RATIFIED_PAPER_RUNTIME"
 LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION = "upbit_realtime_latest_public_messages/1"
 PRIVATE_RUNTIME_MODE = "PRIVATE_RUNTIME_ONLY_DO_NOT_PUBLISH"
+STAGE5_CONNECTION_SCHEMA_VERSION = "crypto_stage5_fixture_connection_receipt/1"
+STAGE5_CONNECTION_MODE = "MOCK_PATH_VERIFIED_NOT_PAPER_EXECUTION"
+STAGE5_FIXTURE_LEDGER_PREFIX = "STAGE5.FIXTURE."
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -76,6 +80,7 @@ def _load(name: str, path: Path):
 DECISION = _load("crypto_paper_runtime_decision", DECISION_PATH)
 SIMULATOR = _load("crypto_paper_runtime_simulator", SIMULATOR_PATH)
 REALTIME = _load("crypto_paper_runtime_realtime", REALTIME_GATE_PATH)
+STAGE5 = _load("crypto_paper_runtime_stage5", STAGE5_PATH)
 PROMOTION = DECISION.PROMOTION
 ELIGIBILITY = DECISION.ELIGIBILITY
 
@@ -334,6 +339,165 @@ def load_and_validate_decision_snapshot(
         _read_json(checked_path), expected_source_commit=expected_source_commit,
         observation_root=root,
     )
+
+
+def _derive_stage5_fixture_connection(
+    envelope: dict,
+    *,
+    expected_envelope_sha256: str,
+    expected_decision_packet_sha256: str,
+    expected_decision_source_sha256: str,
+    observation_root: Path | None = None,
+) -> dict:
+    """Call the merged Stage5 adapter without entering an operational ledger.
+
+    The Stage4 source is consumed indirectly through the envelope's immutable
+    repo-relative reference.  The exact source JSON is retained in the receipt
+    so upstream identity, evaluation time, validity, and rejection reasons are
+    not reduced to a bare status on the way into Stage5.
+    """
+    root = _safe_observation_root(observation_root)
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("decision"), dict):
+        raise CryptoPaperRuntimeBridgeError("STAGE5_FIXTURE_ENVELOPE_INVALID")
+    plan = envelope.get("plan")
+    if (
+        not isinstance(plan, dict)
+        or not isinstance(plan.get("ledger_id"), str)
+        or not plan["ledger_id"].startswith(STAGE5_FIXTURE_LEDGER_PREFIX)
+    ):
+        raise CryptoPaperRuntimeBridgeError("STAGE5_FIXTURE_LEDGER_NAMESPACE_INVALID")
+
+    decision = envelope["decision"]
+    source_ref = decision.get("source_ref")
+    source_path = _safe_repo_path(source_ref, observation_root=root)
+    expected_source = _require_sha256(
+        expected_decision_source_sha256,
+        "STAGE5_EXPECTED_DECISION_SOURCE_SHA_INVALID",
+    )
+    actual_source = _file_sha256(source_path)
+    if actual_source != expected_source:
+        raise CryptoPaperRuntimeBridgeError("STAGE5_DECISION_SOURCE_SHA_MISMATCH")
+    if decision.get("source_sha256") != expected_source:
+        raise CryptoPaperRuntimeBridgeError("STAGE5_DECISION_SOURCE_PIN_MISMATCH")
+
+    try:
+        result = STAGE5.build_result(
+            envelope,
+            expected_envelope_sha256=expected_envelope_sha256,
+            expected_decision_packet_sha256=expected_decision_packet_sha256,
+            expected_decision_source_sha256=expected_source,
+        )
+    except STAGE5.Stage5PaperEnvelopeError as exc:
+        raise CryptoPaperRuntimeBridgeError(f"STAGE5_FIXTURE_ADAPTER_REJECTED:{exc}") from exc
+    if (
+        result.get("mode") != "PAPER_CONTRACT_FIXTURE_ONLY"
+        or result.get("authority") != STAGE5.load_contract()["authority"]
+        or any(value is not False for value in result["authority"].values())
+    ):
+        raise CryptoPaperRuntimeBridgeError("STAGE5_FIXTURE_AUTHORITY_INVALID")
+
+    receipt = {
+        "schema_version": STAGE5_CONNECTION_SCHEMA_VERSION,
+        "mode": STAGE5_CONNECTION_MODE,
+        "execution_state": "NOT_EXECUTED_FIXTURE_RESULT_ONLY",
+        "stage4_lineage": {
+            "decision_id": decision["decision_id"],
+            "decision_status": decision["status"],
+            "evaluated_at": decision["decided_at"],
+            "source_ref": source_ref,
+            "source_sha256": expected_source,
+            "source_record": _read_json(source_path),
+        },
+        "stage5_result": result,
+        "authority": copy.deepcopy(result["authority"]),
+        "source_inputs": {
+            "envelope": copy.deepcopy(envelope),
+            "expected_envelope_sha256": expected_envelope_sha256,
+            "expected_decision_packet_sha256": expected_decision_packet_sha256,
+            "expected_decision_source_sha256": expected_source,
+            "observation_root": str(root),
+        },
+    }
+    receipt["packet_sha256"] = payload_sha256(receipt)
+    return receipt
+
+
+def build_stage5_fixture_connection(
+    envelope: dict,
+    *,
+    expected_envelope_sha256: str,
+    expected_decision_packet_sha256: str,
+    expected_decision_source_sha256: str,
+    observation_root: Path | None = None,
+) -> dict:
+    receipt = _derive_stage5_fixture_connection(
+        envelope,
+        expected_envelope_sha256=expected_envelope_sha256,
+        expected_decision_packet_sha256=expected_decision_packet_sha256,
+        expected_decision_source_sha256=expected_decision_source_sha256,
+        observation_root=observation_root,
+    )
+    return validate_stage5_fixture_connection(
+        receipt, expected_observation_root=observation_root,
+    )
+
+
+def validate_stage5_fixture_connection(
+    value: object, *, expected_observation_root: Path | None = None,
+) -> dict:
+    fields = {
+        "schema_version", "mode", "execution_state", "stage4_lineage",
+        "stage5_result", "authority", "source_inputs", "packet_sha256",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise CryptoPaperRuntimeBridgeError("STAGE5_CONNECTION_FIELDS_INVALID")
+    if (
+        value.get("schema_version") != STAGE5_CONNECTION_SCHEMA_VERSION
+        or value.get("mode") != STAGE5_CONNECTION_MODE
+        or value.get("execution_state") != "NOT_EXECUTED_FIXTURE_RESULT_ONLY"
+    ):
+        raise CryptoPaperRuntimeBridgeError("STAGE5_CONNECTION_IDENTITY_INVALID")
+    if not isinstance(value.get("authority"), dict) or any(
+        item is not False for item in value["authority"].values()
+    ):
+        raise CryptoPaperRuntimeBridgeError("STAGE5_CONNECTION_AUTHORITY_INVALID")
+    claimed = _require_sha256(
+        value.get("packet_sha256"), "STAGE5_CONNECTION_SHA_INVALID",
+    )
+    unsigned = copy.deepcopy(value)
+    unsigned.pop("packet_sha256")
+    if payload_sha256(unsigned) != claimed:
+        raise CryptoPaperRuntimeBridgeError("STAGE5_CONNECTION_SHA_MISMATCH")
+    source_inputs = value.get("source_inputs")
+    if not isinstance(source_inputs, dict) or set(source_inputs) != {
+        "envelope", "expected_envelope_sha256",
+        "expected_decision_packet_sha256", "expected_decision_source_sha256",
+        "observation_root",
+    }:
+        raise CryptoPaperRuntimeBridgeError("STAGE5_CONNECTION_SOURCE_INPUTS_INVALID")
+    observation_root_value = source_inputs["observation_root"]
+    if not isinstance(observation_root_value, str):
+        raise CryptoPaperRuntimeBridgeError("STAGE5_CONNECTION_OBSERVATION_ROOT_INVALID")
+    root = _safe_observation_root(Path(observation_root_value))
+    if (
+        expected_observation_root is not None
+        and root != _safe_observation_root(expected_observation_root)
+    ):
+        raise CryptoPaperRuntimeBridgeError("STAGE5_CONNECTION_OBSERVATION_ROOT_MISMATCH")
+    rebuilt = _derive_stage5_fixture_connection(
+        source_inputs["envelope"],
+        expected_envelope_sha256=source_inputs["expected_envelope_sha256"],
+        expected_decision_packet_sha256=source_inputs[
+            "expected_decision_packet_sha256"
+        ],
+        expected_decision_source_sha256=source_inputs[
+            "expected_decision_source_sha256"
+        ],
+        observation_root=root,
+    )
+    if canonical_json(rebuilt) != canonical_json(value):
+        raise CryptoPaperRuntimeBridgeError("STAGE5_CONNECTION_DERIVATION_MISMATCH")
+    return copy.deepcopy(value)
 
 
 def validate_runtime_config(value: object) -> dict:

@@ -257,6 +257,74 @@ class RuntimeFixture(unittest.TestCase):
             "source_packets": {"regime": {"regime": "UNKNOWN"}},
         }
 
+    def stage5_fixture_envelope(self, *, source_path=None):
+        source_path = source_path or (
+            ROOT / "test" / "fixtures" / "stage5_paper_stage4_lineage_fixture.json"
+        )
+        source_ref = str(source_path.relative_to(ROOT))
+        source_sha = BRIDGE._file_sha256(source_path)
+        contract = BRIDGE.STAGE5.load_contract()
+        decision = {
+            "schema_version": contract["input_schema_version"],
+            "decision_id": "STAGE4.FIXTURE.CRYPTO.20260912",
+            "status": "NOT_EVALUATED",
+            "candle_open_at": "2026-09-12T12:54:00Z",
+            "candle_closed_at": "2026-09-12T12:55:00Z",
+            "available_at": "2026-09-12T13:26:25Z",
+            "decided_at": "2026-09-12T13:26:25Z",
+            "source_ref": source_ref,
+            "source_sha256": source_sha,
+            "authority": copy.deepcopy(contract["authority"]),
+        }
+        decision["packet_sha256"] = BRIDGE.STAGE5.payload_sha256(decision)
+        snapshot = BRIDGE.STAGE5.SIMULATOR.build_snapshot(
+            snapshot_id="STAGE5.FIXTURE.SNAPSHOT.CRYPTO.1",
+            market="KRW-BTC",
+            captured_at="2026-09-12T13:27:00Z",
+            freshness_status="FRESH",
+            ask_levels=[{"price": "100", "quantity": "2"}],
+            bid_levels=[{"price": "99", "quantity": "2"}],
+            source_ref="fixture://stage5/orderbook/crypto/1",
+            source_sha256="b" * 64,
+        )
+        envelope = {
+            "schema_version": contract["input_schema_version"],
+            "contract_version": contract["contract_version"],
+            "mode": contract["mode"],
+            "envelope_id": "STAGE5.FIXTURE.ENVELOPE.CRYPTO.1",
+            "decision": decision,
+            "plan": {
+                "plan_id": "STAGE5.FIXTURE.PLAN.CRYPTO.1",
+                "ledger_id": "STAGE5.FIXTURE.LEDGER.CRYPTO.1",
+                "initial_cash": "1000",
+                "opened_at": "2026-09-12T13:26:25Z",
+                "opening_idempotency_key": "STAGE5.FIXTURE.OPEN.CRYPTO.1",
+                "order_id": "STAGE5.FIXTURE.ORDER.CRYPTO.1",
+                "submit_idempotency_key": "STAGE5.FIXTURE.SUBMIT.CRYPTO.1",
+                "match_idempotency_key": "STAGE5.FIXTURE.MATCH.CRYPTO.1",
+                "side": "BUY",
+                "order_type": "MARKET",
+                "quantity": "1",
+                "limit_price": None,
+                "fee_rate": "0",
+                "queue_fraction": "1",
+                "submitted_at": "2026-09-12T13:26:26Z",
+                "expires_at": "2026-09-12T13:31:00Z",
+                "match_at": "2026-09-12T13:27:01Z",
+                "mark_price": "101",
+                "account_observed_at": "2026-09-12T13:27:02Z",
+            },
+            "snapshot": snapshot,
+            "authority": copy.deepcopy(contract["authority"]),
+        }
+        envelope["packet_sha256"] = BRIDGE.STAGE5.payload_sha256(envelope)
+        pins = {
+            "expected_envelope_sha256": envelope["packet_sha256"],
+            "expected_decision_packet_sha256": decision["packet_sha256"],
+            "expected_decision_source_sha256": source_sha,
+        }
+        return envelope, pins
+
 
 class LatestPublicMessageTests(unittest.TestCase):
     def test_only_an_accepted_message_replaces_the_latest_exact_public_payload(self):
@@ -596,6 +664,94 @@ class BridgeContractTests(RuntimeFixture):
         self.assertEqual(request["requests"], [])
         self.assertEqual(request["match_snapshots"], [])
         self.assertFalse(request["authority"]["exchange_order_authorized"])
+
+    def test_stage4_fixture_calls_stage5_and_preserves_exact_upstream_lineage(self):
+        envelope, pins = self.stage5_fixture_envelope()
+        with mock.patch.object(
+            BRIDGE.DECISION,
+            "build_regime_snapshot",
+            side_effect=AssertionError("Stage5 fixture path must not read raw regime"),
+        ):
+            receipt = BRIDGE.build_stage5_fixture_connection(envelope, **pins)
+
+        self.assertEqual(
+            receipt["mode"], "MOCK_PATH_VERIFIED_NOT_PAPER_EXECUTION"
+        )
+        self.assertEqual(
+            receipt["execution_state"], "NOT_EXECUTED_FIXTURE_RESULT_ONLY"
+        )
+        lineage = receipt["stage4_lineage"]
+        source = lineage["source_record"]
+        self.assertEqual(lineage["decision_status"], "NOT_EVALUATED")
+        self.assertEqual(lineage["evaluated_at"], "2026-09-12T13:26:25Z")
+        self.assertEqual(source["market_regime"]["candidate_regime"], "NEUTRAL")
+        self.assertEqual(source["market_regime"]["runtime_regime"], "UNKNOWN")
+        self.assertEqual(
+            source["market_regime"]["source_identity"]["generation_id"],
+            "70176ad3877836620cf7403ddc30af7f2275a657df111c950a2338c1c87961af",
+        )
+        self.assertEqual(
+            source["market_regime"]["source_identity"]["payload_sha256"],
+            "735fab39899e0963fed4d91bb56e1fa2adcc796e78034499e54371d20b7b0bed",
+        )
+        self.assertEqual(
+            source["candidate"]["rejection_reasons"],
+            [
+                "STAGE3_PACKET_MISSING_STAGE1_REGIME_LINEAGE",
+                "P7_15_THREE_MARKET_REGIME_NOT_PROVEN_TO_STAGE1_LINEAGE",
+                "NUMERIC_POLICY_UNRATIFIED",
+                "POSITION_AND_EXIT_POLICY_NOT_SUPPLIED",
+            ],
+        )
+        result = receipt["stage5_result"]
+        self.assertEqual(result["virtual_plan"]["market_regime_status"], "NOT_EVALUATED")
+        self.assertEqual(result["ledger"]["ledger_id"], "STAGE5.FIXTURE.LEDGER.CRYPTO.1")
+        self.assertEqual(result["source"]["decision_source_sha256"], lineage["source_sha256"])
+        self.assertTrue(all(value is False for value in receipt["authority"].values()))
+
+    def test_stage5_fixture_source_reason_or_receipt_rehash_cannot_change_lineage(self):
+        original = ROOT / "test" / "fixtures" / "stage5_paper_stage4_lineage_fixture.json"
+        copied = self.tmp / "stage4" / "decision.json"
+        copied.parent.mkdir(parents=True)
+        shutil.copy2(original, copied)
+        envelope, pins = self.stage5_fixture_envelope(source_path=copied)
+        receipt = BRIDGE.build_stage5_fixture_connection(envelope, **pins)
+
+        changed = json.loads(copied.read_text(encoding="utf-8"))
+        changed["candidate"]["rejection_reasons"] = []
+        copied.write_text(json.dumps(changed), encoding="utf-8")
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "STAGE5_DECISION_SOURCE_SHA_MISMATCH",
+        ):
+            BRIDGE.build_stage5_fixture_connection(envelope, **pins)
+
+        shutil.copy2(original, copied)
+        forged = copy.deepcopy(receipt)
+        forged["stage4_lineage"]["source_record"]["candidate"][
+            "rejection_reasons"
+        ] = []
+        forged["packet_sha256"] = BRIDGE.payload_sha256(
+            {key: value for key, value in forged.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "STAGE5_CONNECTION_DERIVATION_MISMATCH",
+        ):
+            BRIDGE.validate_stage5_fixture_connection(forged)
+
+    def test_stage5_fixture_cannot_use_existing_runtime_account_namespace(self):
+        envelope, pins = self.stage5_fixture_envelope()
+        envelope["plan"]["ledger_id"] = "PAPER.LEDGER.RUNTIME.TEST"
+        envelope["packet_sha256"] = BRIDGE.STAGE5.payload_sha256(
+            {key: value for key, value in envelope.items() if key != "packet_sha256"}
+        )
+        pins["expected_envelope_sha256"] = envelope["packet_sha256"]
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "STAGE5_FIXTURE_LEDGER_NAMESPACE_INVALID",
+        ):
+            BRIDGE.build_stage5_fixture_connection(envelope, **pins)
 
     def test_prior_open_order_gets_current_snapshot_while_new_same_run_order_never_can(self):
         request = BRIDGE.build_runtime_request(
