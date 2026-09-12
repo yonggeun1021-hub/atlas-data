@@ -475,6 +475,11 @@ APPROVED_TESTS = [
     #   trading/order/capital authority opened; Phase B stays closed until a
     #   real post-ratification natural observation pair is verified.
     "test/test_korea_capital_rotation_policy_ratified.py",
+    # ★ P2-03 — opt-in current-ratified natural-proof adapter. Re-derives the
+    #   four committed ratification artifacts, emits only to an explicit
+    #   external path, preserves the historical default proof path, and does
+    #   not write a rolling pointer or invoke the P2-05 state ledger.
+    "test/test_korea_capital_rotation_current_ratified_proof.py",
     # ★ P2-03 — dependency-ordered Breadth->Leadership observation-pair
     #   workflow (2026-08-22, no new cron): structural YAML checks only --
     #   still workflow_dispatch-only, real `needs:` chain (Leadership job

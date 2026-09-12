@@ -93,6 +93,10 @@ WIRE = _load_module(
     "rotation/korea_capital_rotation_ledger_wire.py",
 )
 KCR = _load_module("korea_capital_rotation_for_proof", "rotation/korea_capital_rotation.py")
+RATIFIED = _load_module(
+    "korea_capital_rotation_policy_ratified_for_proof",
+    "rotation/korea_capital_rotation_policy_ratified.py",
+)
 
 
 def load_real_leadership_packet(observation_date: str) -> dict:
@@ -232,6 +236,122 @@ def build_real_price_side(prior_date: str, current_date: str):
     return input_value, rotation_policy
 
 
+def load_current_ratified_artifacts() -> tuple[dict, dict]:
+    """Load and independently re-derive the externally ratified P2-03 inputs.
+
+    The legacy August proof above remains byte-for-byte meaningful and is the
+    default path.  This opt-in path is deliberately separate: it accepts only
+    the four committed artifacts materialized by the external CIO decision,
+    and rejects any drift between those bytes and the ratification builder's
+    deterministic reconstruction.
+    """
+    rebuilt_decision, rebuilt_document, rebuilt_binding, rebuilt_policy = (
+        RATIFIED.build_all()
+    )
+    decision = RATIFIED.load_committed_decision()
+    document = RATIFIED.load_committed_document()
+    binding = RATIFIED.load_committed_binding()
+    policy = RATIFIED.load_committed_policy()
+    if (decision, document, binding, policy) != (
+        rebuilt_decision,
+        rebuilt_document,
+        rebuilt_binding,
+        rebuilt_policy,
+    ):
+        raise RuntimeError("RATIFIED_ARTIFACT_REDERIVATION_MISMATCH")
+    if (
+        binding["taxonomy_decision_sha256"] != decision["payload_sha256"]
+        or binding["taxonomy_packet_sha256"] != document["payload_sha256"]
+        or policy["taxonomy_decision_sha256"] != decision["payload_sha256"]
+        or policy["taxonomy_packet_sha256"] != document["payload_sha256"]
+        or policy["upstream_leadership_policy_sha256"]
+        != binding["upstream_leadership_policy_sha256"]
+    ):
+        raise RuntimeError("RATIFIED_ARTIFACT_LINEAGE_MISMATCH")
+    return binding, policy
+
+
+def build_current_ratified_price_side(
+    prior_date: str, current_date: str
+) -> tuple[dict, dict]:
+    """Build the real source pair with the current external ratified policy.
+
+    No date, policy field, threshold, identity, or source observation is
+    supplied by this adapter.  The caller chooses only the two existing,
+    committed Leadership observation dates; the exact binding and policy are
+    loaded and re-derived from the ratified artifacts.
+    """
+    prior = load_real_leadership_packet(prior_date)
+    current = load_real_leadership_packet(current_date)
+    binding, policy = load_current_ratified_artifacts()
+    expected_upstream_sha = binding["upstream_leadership_policy_sha256"]
+    if (
+        prior["policy"]["policy_sha256"] != expected_upstream_sha
+        or current["policy"]["policy_sha256"] != expected_upstream_sha
+    ):
+        raise RuntimeError("RATIFIED_UPSTREAM_LEADERSHIP_POLICY_MISMATCH")
+    value = {
+        "schema_version": "korea_capital_rotation_input/1",
+        "as_of_date": current_date,
+        "taxonomy_binding": dict(binding),
+        "coverage_context": {
+            "breadth": None,
+            "investor_flow": {
+                "status": "KRX_ONLY_PARTIAL_MARKET_COVERAGE",
+                "market_venue_scope": "KRX_ONLY",
+                "nxt_included": False,
+                "whole_korea_market_claim_authorized": False,
+                "source_release_time_status": "unverified",
+                "available_at": None,
+                "decision_eligible": False,
+                "ranking_input_authorized": False,
+            },
+        },
+        "prior_observation": prior,
+        "current_observation": current,
+    }
+    return value, policy
+
+
+def build_current_ratified_packet(prior_date: str, current_date: str) -> dict:
+    """Build and fully validate one packet without writing any repository file."""
+    value, rotation_policy = build_current_ratified_price_side(
+        prior_date, current_date
+    )
+    source = WIRE.load_breadth_context_source(current_date)
+    decision_time = value["current_observation"]["available_at"]
+    breadth, _ = WIRE.build_coverage_context_breadth(
+        current_date, 3, source, decision_time
+    )
+    value["coverage_context"]["breadth"] = breadth
+    return KCR.build_packet(value, rotation_policy)
+
+
+def write_external_ratified_packet(path: Path, packet: dict) -> Path:
+    """Persist a full packet only to an explicit path outside the repository."""
+    path = Path(path)
+    if not path.is_absolute():
+        raise RuntimeError("RATIFIED_PACKET_OUTPUT_MUST_BE_ABSOLUTE")
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(ROOT.resolve())
+    except ValueError:
+        pass
+    else:
+        raise RuntimeError("RATIFIED_PACKET_TRACKED_OUTPUT_FORBIDDEN")
+    WIRE.write_json_atomic(resolved, packet)
+    return resolved
+
+
+def run_current_ratified(
+    prior_date: str, current_date: str, packet_out: Path
+) -> dict:
+    """Opt-in read-only proof plus one explicit external packet artifact."""
+    packet = build_current_ratified_packet(prior_date, current_date)
+    output_path = write_external_ratified_packet(packet_out, packet)
+    return {"rotation_packet": packet, "packet_out": output_path}
+
+
 def run(prior_date: str, current_date: str, pointer_out: Path | None) -> dict:
     as_of_date = current_date
     value, rotation_policy = build_real_price_side(prior_date, current_date)
@@ -271,7 +391,48 @@ def main() -> int:
         "--commit-pointer", action="store_true",
         help="Also write data/latest_korea_rotation.json (tracked, committed).",
     )
+    parser.add_argument(
+        "--current-ratified-policy",
+        action="store_true",
+        help=(
+            "Use the externally ratified current P2-03 artifacts instead of "
+            "the preserved legacy August proof policy."
+        ),
+    )
+    parser.add_argument(
+        "--packet-out",
+        type=Path,
+        help=(
+            "Absolute external path for the full korea_capital_rotation_packet/4 "
+            "(required with --current-ratified-policy)."
+        ),
+    )
     args = parser.parse_args()
+    if args.current_ratified_policy:
+        if args.commit_pointer:
+            parser.error(
+                "--commit-pointer is forbidden with --current-ratified-policy"
+            )
+        if args.packet_out is None:
+            parser.error(
+                "--packet-out is required with --current-ratified-policy"
+            )
+        result = run_current_ratified(
+            args.prior_date, args.current_date, args.packet_out
+        )
+        packet = result["rotation_packet"]
+        print(
+            "korea capital rotation current-ratified proof: "
+            f"rotation_status={packet['status']} "
+            f"rotation_policy_effective={packet['rotation_policy_effective']} "
+            f"rotation_policy_id={packet['rotation_policy']['policy_id']} "
+            f"rotation_policy_sha256={packet['lineage']['rotation_policy_sha256']} "
+            f"breadth_status={packet['coverage_context']['breadth']['status']} "
+            f"packet_out={result['packet_out']}"
+        )
+        return 0
+    if args.packet_out is not None:
+        parser.error("--packet-out requires --current-ratified-policy")
     pointer_out = WIRE.BRIEFING_POINTER_PATH if args.commit_pointer else None
     result = run(args.prior_date, args.current_date, pointer_out)
     print(
