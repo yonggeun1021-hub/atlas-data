@@ -171,6 +171,11 @@ class CaptureContractTest(unittest.TestCase):
             CAPTURE.require_completed_session_pair("20260904", "20260907", contract, "2026-09-08T15:32:01Z")
         with self.assertRaisesRegex(CAPTURE.CaptureError, "YEAR_INVALID"):
             CAPTURE.require_completed_session_pair("20261230", "20270101", contract, "2027-01-01T08:00:00Z")
+        early = CAPTURE.dt.datetime(2026, 1, 2, 10, 0, tzinfo=CAPTURE.SEOUL)
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "RANGE_INSUFFICIENT"):
+            CAPTURE.completed_session_pair(
+                early, 2026, {CAPTURE.dt.date(2026, 1, 1)}
+            )
 
     def test_no_overwrite_request_secret_and_unknown_status(self):
         path = self.root / "existing.json"
