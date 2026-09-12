@@ -26,8 +26,12 @@ jobs:
         with:
           python-version: "3.11"
       - name: Offline five-signal regression
-        run: python3 test/test_korea_market_signals.py
+        run: |
+          python3 test/test_korea_market_signals.py
+          python3 test/test_korea_leadership_live_fetch.py
       - name: Collect explicit official KRX session pair
+        id: market_signals
+        continue-on-error: true
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           PREVIOUS_DATE: ${{ inputs.previous_date }}
@@ -37,7 +41,19 @@ jobs:
           python3 .github/scripts/korea_market_signals.py \
             --previous-date "$PREVIOUS_DATE" \
             --current-date "$CURRENT_DATE"
+      - name: Collect exact official KRX Leadership observation
+        id: leadership
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          PREVIOUS_DATE: ${{ inputs.previous_date }}
+          CURRENT_DATE: ${{ inputs.current_date }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          python3 .github/scripts/korea_leadership_live_fetch.py \
+            --prior-date "$PREVIOUS_DATE" \
+            --current-date "$CURRENT_DATE"
       - name: Verify exact output and closed authority boundary
+        if: steps.market_signals.outcome == 'success'
         env:
           CURRENT_DATE: ${{ inputs.current_date }}
         run: |
@@ -65,10 +81,15 @@ jobs:
           CURRENT_DATE: ${{ inputs.current_date }}
         run: |
           CURRENT_ISO="${CURRENT_DATE:0:4}-${CURRENT_DATE:4:2}-${CURRENT_DATE:6:2}"
-          mkdir -p artifact/data/observations/korea_market_signals/"$CURRENT_ISO"
-          cp data/latest_korea_market_signals.json artifact/data/latest_korea_market_signals.json
-          cp data/observations/korea_market_signals/"$CURRENT_ISO"/packet.json \
-            artifact/data/observations/korea_market_signals/"$CURRENT_ISO"/packet.json
+          mkdir -p artifact/data/observations/korea_leadership_context/"$CURRENT_ISO"
+          cp data/observations/korea_leadership_context/"$CURRENT_ISO"/packet.json \
+            artifact/data/observations/korea_leadership_context/"$CURRENT_ISO"/packet.json
+          if test "${{ steps.market_signals.outcome }}" = success; then
+            mkdir -p artifact/data/observations/korea_market_signals/"$CURRENT_ISO"
+            cp data/latest_korea_market_signals.json artifact/data/latest_korea_market_signals.json
+            cp data/observations/korea_market_signals/"$CURRENT_ISO"/packet.json \
+              artifact/data/observations/korea_market_signals/"$CURRENT_ISO"/packet.json
+          fi
           git status --short
       - name: Upload exact observation artifact
         uses: actions/upload-artifact@v4
