@@ -5,9 +5,11 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -142,17 +144,18 @@ class CaptureContractTest(unittest.TestCase):
         self.assertFalse((self.root / "nested/responses").exists())
 
     def test_dispatch_is_allowlisted_and_reserved_before_network(self):
-        import requests
         outbound = []
-        prior = requests.Session.send
 
         def fake_send(_session, req, **_kwargs):
             outbound.append(req)
             family = "stock" if "MDCSTAT01501" in req.body else "index"
             return response("KOSPI", family)
 
-        requests.Session.send = fake_send
-        try:
+        class FakeSession:
+            send = fake_send
+
+        requests = SimpleNamespace(Session=FakeSession)
+        with mock.patch.dict(sys.modules, {"requests": requests}):
             capture = CAPTURE.SourceCapture(self.root / "dispatch", ("20260910", "20260911"), clock=lambda: self.NOW)
             with CAPTURE.capture_requests(capture):
                 returned = requests.Session().send(request("20260910", "KOSPI", "stock"))
@@ -162,8 +165,6 @@ class CaptureContractTest(unittest.TestCase):
             self.assertEqual(len(outbound), 1)
             row = capture.records["20260910:KOSPI:stock"]["response"]
             self.assertEqual(row["parser_input_sha256"], row["sha256"])
-        finally:
-            requests.Session.send = prior
 
     def test_time_format_future_backward_and_claim_order_fail_closed(self):
         with self.assertRaisesRegex(CAPTURE.CaptureError, "CAPTURE_START_INVALID"):
