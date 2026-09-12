@@ -136,6 +136,19 @@ def _source_ref(path: Path, packet_sha256: str) -> dict:
     }
 
 
+def _file_ref(path: Path) -> dict:
+    try:
+        relative = Path(path).resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError as exc:
+        raise ThreeMarketEvaluationCoverageError(
+            "SOURCE_PATH_OUTSIDE_REPOSITORY"
+        ) from exc
+    return {
+        "path": relative,
+        "file_sha256": _file_sha256(path),
+    }
+
+
 def _validated_global_universe(
     path: Path, market: str, observed_at: dt.datetime,
 ) -> tuple[dict, int]:
@@ -492,7 +505,8 @@ def _crypto_held_reason_analysis(candidates: list[dict]) -> dict:
 
 def _crypto_evaluation_scope_readiness(
     *, universe_record: dict, identity_review: dict, snapshot_dir: Path,
-    prior_identity_evidence_path: Path,
+    prior_identity_evidence_path: Path, universe_path: Path,
+    identity_review_path: Path,
 ) -> dict:
     universe_module = CRYPTO_DECISION.UNIVERSE
     try:
@@ -557,12 +571,16 @@ def _crypto_evaluation_scope_readiness(
         ) from exc
     evaluation_symbols = {market.removeprefix("KRW-") for market in evaluation_markets}
     prior_overlap = sorted(evaluation_symbols & set(prior_assets))
-    prior_verdict_counts = Counter(
-        UPBIT_BOUNDED_IDENTITY.compute_verdict(
+    prior_verdict_markets = {}
+    for symbol in sorted(evaluation_symbols):
+        verdict = UPBIT_BOUNDED_IDENTITY.compute_verdict(
             symbol, prior_assets.get(symbol), evaluation_as_of=core["snapshot_date"]
         )[0]
-        for symbol in sorted(evaluation_symbols)
-    )
+        prior_verdict_markets.setdefault(verdict, []).append(f"KRW-{symbol}")
+    prior_verdict_counts = Counter({
+        verdict: len(markets)
+        for verdict, markets in prior_verdict_markets.items()
+    })
 
     min_listing_days = int(policy["min_listing_history_finalized_days"])
     turnover_days = int(policy["turnover_lookback_finalized_days"])
@@ -634,6 +652,27 @@ def _crypto_evaluation_scope_readiness(
     batch_calls = (len(manifest_markets) + batch_size - 1) // batch_size
     successful_calls = 1 + batch_calls + batch_calls + len(manifest_markets)
     minimum_pacing_seconds = Decimal(max(len(manifest_markets) - 1, 0)) * Decimal("1.05")
+    verified_markets = prior_verdict_markets.get(
+        UPBIT_BOUNDED_IDENTITY.VERDICT_VERIFIED, []
+    )
+    collision_markets = prior_verdict_markets.get(
+        UPBIT_BOUNDED_IDENTITY.VERDICT_HOLD_TICKER_COLLISION, []
+    )
+    unresolved_markets = prior_verdict_markets.get(
+        UPBIT_BOUNDED_IDENTITY.VERDICT_HOLD_MISSING_SECOND_SOURCE, []
+    )
+    if (
+        len(verified_markets) != 45
+        or len(collision_markets) != 24
+        or len(unresolved_markets) != 198
+        or sorted(verified_markets + collision_markets + unresolved_markets)
+        != evaluation_markets
+    ):
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_EVALUATION_IDENTITY_PARTITION_INVALID"
+        )
+    manifest_path = Path(snapshot_dir) / "_manifest.json"
+    policy_path = Path(universe_module.POLICY_PATH)
     return {
         "status": "PROPOSAL_ONLY_NOT_ADOPTED",
         "selection": {
@@ -662,6 +701,47 @@ def _crypto_evaluation_scope_readiness(
                 UPBIT_BOUNDED_IDENTITY.VERDICT_HOLD_MISSING_SECOND_SOURCE, 0
             ),
             "zero_findings_meaning": identity_review["review_boundary"]["meaning_of_zero_findings"],
+        },
+        "identity_evaluation_partition": {
+            "semantics": (
+                "IDENTITY_RESEARCH_VERDICT_ONLY_NOT_RATIFICATION_"
+                "INVESTABILITY_CANDIDACY_OR_PAPER_ELIGIBILITY"
+            ),
+            "verified_candidate": {
+                "count": len(verified_markets),
+                "markets": verified_markets,
+                "market_set_sha256": payload_sha256(verified_markets),
+                "use_status": (
+                    "EXISTING_INPUT_COMPLETE_FOR_EVALUATION_IDENTITY_REVIEW_"
+                    "ONLY_IF_SEPARATE_SCOPE_IS_ADOPTED"
+                ),
+            },
+            "ticker_collision_hold": {
+                "count": len(collision_markets),
+                "markets": collision_markets,
+                "market_set_sha256": payload_sha256(collision_markets),
+                "use_status": "IDENTITY_HOLD_NO_EVALUATION_IDENTITY_CREDIT",
+            },
+            "missing_second_source_hold": {
+                "count": len(unresolved_markets),
+                "markets": unresolved_markets,
+                "market_set_sha256": payload_sha256(unresolved_markets),
+                "use_status": "IDENTITY_HOLD_NO_EVALUATION_IDENTITY_CREDIT",
+            },
+        },
+        "input_connections": {
+            "evaluation_scope_disposition": _source_ref(
+                universe_path, universe_record["payload_sha256"]
+            ),
+            "identity_proposal_review": _source_ref(
+                identity_review_path, identity_review["payload_sha256"]
+            ),
+            "bounded_identity_evidence": _file_ref(
+                prior_identity_evidence_path
+            ),
+            "retained_market_data_manifest": _file_ref(manifest_path),
+            "existing_market_data_gate_policy": _file_ref(policy_path),
+            "connection_status": "EXACT_RETAINED_INPUTS_BOUND",
         },
         "retained_source_availability_counts": {
             key: availability.get(key, 0)
@@ -697,6 +777,38 @@ def _crypto_evaluation_scope_readiness(
             "order_or_withdrawal_endpoints_called": manifest.get(
                 "order_or_withdrawal_endpoints_called"
             ),
+            "verified_candidate_additional_identity_research_call_count": 0,
+            "unresolved_identity_research_call_count": (
+                "NOT_DETERMINED_UNTIL_SECOND_SOURCE_PLAN_IS_SELECTED"
+            ),
+            "unresolved_identity_research_monetary_cost": (
+                "NOT_DETERMINED_UNTIL_SECOND_SOURCE_PLAN_IS_SELECTED"
+            ),
+        },
+        "completion_conditions": {
+            "verified_candidate_45": [
+                "EXACT_45_MARKET_SET_REMAINS_BOUND_TO_RETAINED_EVIDENCE",
+                "EVIDENCE_RECOMPUTES_VERIFIED_CANDIDATE_AT_EVALUATION_AS_OF",
+                "SEPARATE_EVALUATION_IDENTITY_SCOPE_IS_EXPLICITLY_ADOPTED",
+            ],
+            "ticker_collision_hold_24": [
+                "COLLISION_IS_RESOLVED_BY_INDEPENDENT_PROJECT_OR_CONTRACT_EVIDENCE",
+                "EXACT_MARKET_IDENTITY_IS_REVIEWED_WITHOUT_TICKER_ONLY_INFERENCE",
+            ],
+            "missing_second_source_hold_198": [
+                "OFFICIAL_INDEPENDENT_SOURCE_URL_RECORDED_PER_MARKET",
+                "HIGH_CONFIDENCE_NAME_MATCH_RECORDED_PER_MARKET",
+                "TOKEN_CHAIN_OR_PLATFORM_RECORDED_WHEN_APPLICABLE",
+                "CONTRACT_ADDRESS_OR_NATIVE_ASSET_STATUS_RECORDED_WHEN_APPLICABLE",
+                "REBRAND_OR_TOKEN_SWAP_HISTORY_RESOLVED_WHEN_APPLICABLE",
+                "EVIDENCE_RECOMPUTES_VERIFIED_CANDIDATE_AT_EVALUATION_AS_OF",
+            ],
+            "completion_does_not_grant": [
+                "INVESTABILITY",
+                "CANDIDATE_PROMOTION",
+                "PAPER_ELIGIBILITY",
+                "ORDER_OR_TRADING_AUTHORITY",
+            ],
         },
         "minimum_change_design": {
             "separate_evaluation_identity_authority_required": True,
@@ -736,7 +848,7 @@ def _crypto_evaluation_scope_readiness(
 
 def _us_investable_input_readiness(
     *, us_packet: dict, raw_snapshot_dir: Path, market_data: dict,
-    contract: dict,
+    contract: dict, us_packet_path: Path, market_data_path: Path,
 ) -> dict:
     nasdaq_headers = [
         "Symbol", "Security Name", "Market Category", "Test Issue",
@@ -789,16 +901,24 @@ def _us_investable_input_readiness(
         if any(row.get("ETF") == "Y" for row in rows_by_symbol[symbol])
     )
     population_count = len(all_rows)
+    nasdaq_path = Path(raw_snapshot_dir) / "nasdaqlisted.txt.gz"
+    other_path = Path(raw_snapshot_dir) / "otherlisted.txt.gz"
     return {
         "status": "NATURAL_INVESTABLE_SNAPSHOT_NOT_CONNECTED",
         "required_input_schema": "us_investable_snapshot/1",
         "current_fully_closable_natural_symbol_count": 0,
         "field_source_matrix": [
             {
-                "fact": "asset_id_symbol_listing_venue",
+                "fact": "asset_id_symbol_source_exchange_identity",
                 "source": "us_global_universe_packet/1",
                 "available_count": population_count,
                 "status": "AVAILABLE_SOURCE_COVERAGE_ONLY",
+            },
+            {
+                "fact": "normalized_listing_venue",
+                "source": None,
+                "available_count": 0,
+                "status": "MISSING_RATIFIED_PROVIDER_VENUE_MAPPING",
             },
             {
                 "fact": "etf_indicator",
@@ -844,13 +964,54 @@ def _us_investable_input_readiness(
                 "status": "MISSING",
             },
             {
-                "fact": "liquidity",
+                "fact": "liquidity_ohlcv_inputs",
                 "source": "ALPACA_IEX_ONLY_PARTIAL_US_MARKET",
                 "available_count": len(daily_symbols),
                 "daily_bar_row_count": len(alpaca["daily_bars"]),
-                "status": "PARTIAL_OHLCV_ONLY_TRADE_COUNT_AND_SPREAD_MISSING",
+                "status": "AVAILABLE_PARTIAL_SOURCE_INPUT_NOT_LIQUIDITY_FACT",
+            },
+            {
+                "fact": "liquidity",
+                "source": None,
+                "available_count": 0,
+                "status": "MISSING_TRADE_COUNT_SPREAD_DERIVATION_AND_POLICY",
             },
         ],
+        "input_connections": {
+            "source_population_packet": _source_ref(
+                us_packet_path, us_packet["payload_sha256"]
+            ),
+            "nasdaq_listed_raw": _file_ref(nasdaq_path),
+            "other_listed_raw": _file_ref(other_path),
+            "partial_iex_market_data": _source_ref(
+                market_data_path, market_data["packet_sha256"]
+            ),
+            "existing_evaluator_contract": _file_ref(
+                US_INVESTABLE_REGISTRY.CONTRACT_PATH
+            ),
+            "existing_evaluator": _file_ref(
+                ROOT / "universe/us_investable_registry.py"
+            ),
+            "connection_status": "EXACT_RETAINED_INPUTS_BOUND",
+        },
+        "existing_source_constructible_scope": {
+            "population_count": population_count,
+            "fully_available_fields": [
+                "asset_id",
+                "symbol",
+                "source_exchange_identity",
+                "etf_indicator",
+                "test_issue",
+                "current_directory_membership_observation",
+            ],
+            "partially_available_fields": {
+                "financial_status": len(nasdaq_rows),
+                "liquidity_ohlcv_inputs": len(daily_symbols),
+            },
+            "resulting_artifact_boundary": (
+                "SOURCE_FACT_INPUTS_ONLY_NOT_US_INVESTABLE_SNAPSHOT"
+            ),
+        },
         "liquidity_policy_status": (
             "ABSENT_EXTERNAL_RATIFIED_POLICY_REQUIRED"
             if contract["liquidity"]["repository_default_policy"] == "ABSENT"
@@ -871,7 +1032,30 @@ def _us_investable_input_readiness(
             ],
         },
         "adapter_decision": "DO_NOT_CREATE_ADAPTER_UNTIL_FACT_SOURCES_AND_POLICY_EXIST",
+        "delivery_cost": {
+            "retained_input_additional_external_call_count": 0,
+            "new_adapter_file_count": 0,
+            "new_policy_or_threshold_count": 0,
+            "missing_source_call_count": (
+                "NOT_DETERMINED_UNTIL_CIO_SELECTS_SOURCES"
+            ),
+            "missing_source_monetary_cost": (
+                "NOT_DETERMINED_UNTIL_CIO_SELECTS_SOURCES"
+            ),
+        },
+        "completion_conditions": [
+            "RATIFIED_PROVIDER_TO_LISTING_VENUE_MAPPING_CONNECTED",
+            "OFFICIAL_SECURITY_TYPE_FACT_CONNECTED_FOR_NON_ETF_RECORDS",
+            "EXACT_ACTIVE_LISTING_FACT_CONNECTED_POINT_IN_TIME",
+            "TRADING_HALT_FACT_CONNECTED_POINT_IN_TIME",
+            "SCHEDULED_DELISTING_FACT_CONNECTED_POINT_IN_TIME",
+            "CORPORATE_ACTION_STATE_FACT_CONNECTED_POINT_IN_TIME",
+            "ALL_FOUR_LIQUIDITY_METRICS_CONNECTED_WITH_SOURCE_LINEAGE",
+            "EXTERNAL_LIQUIDITY_POLICY_RATIFIED_AND_EFFECTIVE",
+            "EXISTING_US_INVESTABLE_REGISTRY_VALIDATES_THE_NATURAL_SNAPSHOT",
+        ],
         "next_source_requirements": [
+            "RATIFIED_PROVIDER_TO_LISTING_VENUE_MAPPING",
             "OFFICIAL_SECURITY_MASTER_FOR_NON_ETF_INSTRUMENT_TYPE",
             "EXACT_ACTIVE_LISTING_FACT",
             "TRADING_HALT_FACT",
@@ -1046,6 +1230,8 @@ def build_report(
             raw_snapshot_dir=Path(us_raw_snapshot_dir),
             market_data=us_market_data,
             contract=us_registry_contract,
+            us_packet_path=Path(us_universe_path),
+            market_data_path=Path(us_market_data_path),
         ),
     })
 
@@ -1163,6 +1349,8 @@ def build_report(
             identity_review=crypto_identity_review,
             snapshot_dir=Path(crypto_snapshot_dir),
             prior_identity_evidence_path=Path(prior_identity_evidence_path),
+            universe_path=Path(crypto_universe_path),
+            identity_review_path=Path(crypto_identity_review_path),
         ),
         "paper_ready_count": paper_ready_count,
         "coverage_status": "SOURCE_POPULATION_EVALUATION_DISPOSITION_ACCOUNTED",

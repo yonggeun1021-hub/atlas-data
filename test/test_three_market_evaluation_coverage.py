@@ -97,7 +97,8 @@ class NaturalCoverageTests(unittest.TestCase):
                 for row in us_readiness["field_source_matrix"]
             },
             {
-                "asset_id_symbol_listing_venue": 13214,
+                "asset_id_symbol_source_exchange_identity": 13214,
+                "normalized_listing_venue": 0,
                 "etf_indicator": 13214,
                 "test_issue": 13214,
                 "financial_status": 5605,
@@ -105,7 +106,8 @@ class NaturalCoverageTests(unittest.TestCase):
                 "trading_halt": 0,
                 "scheduled_delisting": 0,
                 "corporate_action_state": 0,
-                "liquidity": 18,
+                "liquidity_ohlcv_inputs": 18,
+                "liquidity": 0,
             },
         )
         self.assertEqual(
@@ -117,6 +119,68 @@ class NaturalCoverageTests(unittest.TestCase):
         self.assertEqual(
             us_readiness["adapter_decision"],
             "DO_NOT_CREATE_ADAPTER_UNTIL_FACT_SOURCES_AND_POLICY_EXIST",
+        )
+        self.assertEqual(
+            us_readiness["existing_source_constructible_scope"],
+            {
+                "population_count": 13214,
+                "fully_available_fields": [
+                    "asset_id",
+                    "symbol",
+                    "source_exchange_identity",
+                    "etf_indicator",
+                    "test_issue",
+                    "current_directory_membership_observation",
+                ],
+                "partially_available_fields": {
+                    "financial_status": 5605,
+                    "liquidity_ohlcv_inputs": 18,
+                },
+                "resulting_artifact_boundary": (
+                    "SOURCE_FACT_INPUTS_ONLY_NOT_US_INVESTABLE_SNAPSHOT"
+                ),
+            },
+        )
+        self.assertEqual(
+            {
+                key: value["path"]
+                for key, value in us_readiness["input_connections"].items()
+                if isinstance(value, dict)
+            },
+            {
+                "source_population_packet": (
+                    "data/observations/us_global_universe/2026-09-11/packet.json"
+                ),
+                "nasdaq_listed_raw": (
+                    "evidence/us_breadth/raw/2026-09-11/nasdaqlisted.txt.gz"
+                ),
+                "other_listed_raw": (
+                    "evidence/us_breadth/raw/2026-09-11/otherlisted.txt.gz"
+                ),
+                "partial_iex_market_data": "data/latest_free_market_data.json",
+                "existing_evaluator_contract": (
+                    "config/us_investable_registry_contract.json"
+                ),
+                "existing_evaluator": "universe/us_investable_registry.py",
+            },
+        )
+        self.assertEqual(
+            us_readiness["delivery_cost"],
+            {
+                "retained_input_additional_external_call_count": 0,
+                "new_adapter_file_count": 0,
+                "new_policy_or_threshold_count": 0,
+                "missing_source_call_count": (
+                    "NOT_DETERMINED_UNTIL_CIO_SELECTS_SOURCES"
+                ),
+                "missing_source_monetary_cost": (
+                    "NOT_DETERMINED_UNTIL_CIO_SELECTS_SOURCES"
+                ),
+            },
+        )
+        self.assertIn(
+            "EXISTING_US_INVESTABLE_REGISTRY_VALIDATES_THE_NATURAL_SNAPSHOT",
+            us_readiness["completion_conditions"],
         )
         self.assertIn(
             "EXTERNAL_RATIFIED_LIQUIDITY_POLICY",
@@ -215,6 +279,82 @@ class NaturalCoverageTests(unittest.TestCase):
                 ),
             },
         )
+        partition = crypto_readiness["identity_evaluation_partition"]
+        self.assertEqual(
+            {
+                key: value["count"]
+                for key, value in partition.items()
+                if isinstance(value, dict)
+            },
+            {
+                "verified_candidate": 45,
+                "ticker_collision_hold": 24,
+                "missing_second_source_hold": 198,
+            },
+        )
+        partition_markets = [
+            market
+            for key in (
+                "verified_candidate",
+                "ticker_collision_hold",
+                "missing_second_source_hold",
+            )
+            for market in partition[key]["markets"]
+        ]
+        self.assertEqual(len(partition_markets), len(set(partition_markets)))
+        self.assertEqual(len(partition_markets), 267)
+        source_universe = json.loads(CRYPTO_UNIVERSE.read_text(encoding="utf-8"))
+        self.assertEqual(
+            sorted(partition_markets),
+            sorted(
+                row["market"]
+                for row in source_universe["packet"]["markets"]
+                if row["reason"] == "IDENTITY_UNRATIFIED"
+            ),
+        )
+        self.assertEqual(
+            {
+                key: value["path"]
+                for key, value in crypto_readiness["input_connections"].items()
+                if isinstance(value, dict)
+            },
+            {
+                "evaluation_scope_disposition": (
+                    "data/observations/upbit_tradeable_universe/2026-09-12/packet.json"
+                ),
+                "identity_proposal_review": (
+                    "data/observations/upbit_identity_review/2026-09-12/packet.json"
+                ),
+                "bounded_identity_evidence": (
+                    "config/upbit_bounded_identity_evidence.json"
+                ),
+                "retained_market_data_manifest": (
+                    "evidence/crypto/upbit/raw/2026-09-12/_manifest.json"
+                ),
+                "existing_market_data_gate_policy": (
+                    "config/upbit_tradeable_universe_policy.json"
+                ),
+            },
+        )
+        self.assertEqual(
+            crypto_readiness["source_call_cost"][
+                "verified_candidate_additional_identity_research_call_count"
+            ],
+            0,
+        )
+        self.assertIn(
+            "SEPARATE_EVALUATION_IDENTITY_SCOPE_IS_EXPLICITLY_ADOPTED",
+            crypto_readiness["completion_conditions"]["verified_candidate_45"],
+        )
+        self.assertEqual(
+            crypto_readiness["completion_conditions"]["completion_does_not_grant"],
+            [
+                "INVESTABILITY",
+                "CANDIDATE_PROMOTION",
+                "PAPER_ELIGIBILITY",
+                "ORDER_OR_TRADING_AUTHORITY",
+            ],
+        )
         self.assertEqual(
             crypto_readiness["retained_source_availability_counts"],
             {
@@ -257,6 +397,13 @@ class NaturalCoverageTests(unittest.TestCase):
                 "fresh_full_capture_minimum_candle_pacing_seconds": "301.35",
                 "authentication_required": False,
                 "order_or_withdrawal_endpoints_called": False,
+                "verified_candidate_additional_identity_research_call_count": 0,
+                "unresolved_identity_research_call_count": (
+                    "NOT_DETERMINED_UNTIL_SECOND_SOURCE_PLAN_IS_SELECTED"
+                ),
+                "unresolved_identity_research_monetary_cost": (
+                    "NOT_DETERMINED_UNTIL_SECOND_SOURCE_PLAN_IS_SELECTED"
+                ),
             },
         )
         self.assertTrue(
