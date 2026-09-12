@@ -25,6 +25,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
+      - name: Install KRX cross-check dependency
+        run: python3 -m pip install -r requirements.txt
       - name: Offline five-signal regression
         run: |
           python3 test/test_korea_market_signals.py
@@ -43,6 +45,7 @@ jobs:
             --current-date "$CURRENT_DATE"
       - name: Collect exact official KRX Leadership observation
         id: leadership
+        continue-on-error: true
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           PREVIOUS_DATE: ${{ inputs.previous_date }}
@@ -52,6 +55,67 @@ jobs:
           python3 .github/scripts/korea_leadership_live_fetch.py \
             --prior-date "$PREVIOUS_DATE" \
             --current-date "$CURRENT_DATE"
+      - name: Cross-check KRX Information Data System availability
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+          PREVIOUS_DATE: ${{ inputs.previous_date }}
+          CURRENT_DATE: ${{ inputs.current_date }}
+        run: |
+          mkdir -p artifact
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from pykrx import stock
+
+          dates = (os.environ["PREVIOUS_DATE"], os.environ["CURRENT_DATE"])
+          markets = ("KOSPI", "KOSDAQ")
+          result = {
+              "schema": "krx_information_data_system_availability_probe/1",
+              "dates": list(dates),
+              "authority": {
+                  "regime_authorized": False,
+                  "trading_authorized": False,
+                  "order_authorized": False,
+                  "real_authorized": False,
+              },
+              "observations": {},
+          }
+
+          def probe(label, call):
+              try:
+                  frame = call()
+              except Exception as exc:
+                  return {"status": "ERROR", "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+              return {
+                  "status": "AVAILABLE" if not frame.empty else "EMPTY",
+                  "row_count": int(len(frame.index)),
+                  "columns": [str(value) for value in frame.columns],
+              }
+
+          for date in dates:
+              result["observations"][date] = {}
+              for market in markets:
+                  result["observations"][date][market] = {
+                      "stock_ohlcv": probe(
+                          "stock_ohlcv",
+                          lambda d=date, m=market: stock.get_market_ohlcv_by_ticker(d, m, alternative=False),
+                      ),
+                      "market_cap": probe(
+                          "market_cap",
+                          lambda d=date, m=market: stock.get_market_cap_by_ticker(d, m, alternative=False),
+                      ),
+                      "index_ohlcv": probe(
+                          "index_ohlcv",
+                          lambda d=date, m=market: stock.get_index_ohlcv_by_ticker(d, m),
+                      ),
+                  }
+          Path("artifact/PYKRX_PROBE.json").write_text(
+              json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+          )
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          PY
       - name: Verify exact output and closed authority boundary
         if: steps.market_signals.outcome == 'success'
         env:
@@ -81,9 +145,11 @@ jobs:
           CURRENT_DATE: ${{ inputs.current_date }}
         run: |
           CURRENT_ISO="${CURRENT_DATE:0:4}-${CURRENT_DATE:4:2}-${CURRENT_DATE:6:2}"
-          mkdir -p artifact/data/observations/korea_leadership_context/"$CURRENT_ISO"
-          cp data/observations/korea_leadership_context/"$CURRENT_ISO"/packet.json \
-            artifact/data/observations/korea_leadership_context/"$CURRENT_ISO"/packet.json
+          if test "${{ steps.leadership.outcome }}" = success; then
+            mkdir -p artifact/data/observations/korea_leadership_context/"$CURRENT_ISO"
+            cp data/observations/korea_leadership_context/"$CURRENT_ISO"/packet.json \
+              artifact/data/observations/korea_leadership_context/"$CURRENT_ISO"/packet.json
+          fi
           if test "${{ steps.market_signals.outcome }}" = success; then
             mkdir -p artifact/data/observations/korea_market_signals/"$CURRENT_ISO"
             cp data/latest_korea_market_signals.json artifact/data/latest_korea_market_signals.json
