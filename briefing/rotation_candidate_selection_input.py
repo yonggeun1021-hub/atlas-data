@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Rotation Stage 3 candidate-selection input projection.
 
-This module turns an already validated ``rotation_discovery_briefing_packet/4``
-object into the non-interpretive input a later candidate-selection stage would
-read.  It projects ``rotation.latest_changes`` one-to-one, in the order the
-Rotation Discovery validator already fixed, and hard-binds every
-selection-adjacent field to a closed constant.
+This module turns four caller-supplied packets into the non-interpretive input
+a later candidate-selection stage would read: a validated
+``rotation_discovery_briefing_packet/4``, its exact rotation ledger, the Stage 2
+capital-flow posture packet, and the exact historical Stage 1 paper-regime
+packet Stage 2 binds.  It projects ``rotation.latest_changes`` one-to-one, in
+the order the Rotation Discovery validator already fixed, forwards Stage 1
+lineage separately, and hard-binds every selection-adjacent field to a closed
+constant.
 
 The briefing alone is not an admissible source.  A briefing digest only proves
 the briefing is internally self-consistent, so a caller who edits
@@ -15,9 +18,9 @@ by ``rotation.source_ledger_sha256`` is therefore a required second input, and
 the projected rows are re-derived from that ledger.
 
 It does not rank, select, score, evaluate readiness, promote, generate an
-action, choose a persistence default, call a provider, discover a file, or
-touch the network.  A projected row is an *input to* selection, never a
-selection outcome.
+action, choose a persistence default, call a provider, discover or latest-fetch
+a Stage 1 file, or touch the network.  A projected row is an *input to*
+selection, never a selection outcome.
 """
 from __future__ import annotations
 
@@ -52,6 +55,14 @@ def _load_module(name: str, path: Path):
 BRIEFING = _load_module(
     "atlas_rotation_discovery_briefing", ROOT / "briefing" / "rotation_discovery.py"
 )
+PAPER_REGIME = _load_module(
+    "atlas_paper_regime_reference",
+    ROOT / "regime" / "paper_regime_reference.py",
+)
+CAPITAL_FLOW = _load_module(
+    "atlas_capital_flow_posture_reference",
+    ROOT / "portfolio" / "capital_flow_posture_reference.py",
+)
 
 
 class RotationCandidateSelectionInputError(ValueError):
@@ -78,12 +89,23 @@ def _read_json(path: Path):
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "rotation_candidate_selection_input/1",
-        "output_schema_version": "rotation_candidate_selection_input_packet/1",
+        "contract_version": "rotation_candidate_selection_input/2",
+        "output_schema_version": "rotation_candidate_selection_input_packet/2",
         "source_contract": "rotation_discovery_briefing/4",
         "source_output_schema_version": "rotation_discovery_briefing_packet/4",
         "source_ledger_contract": "rotation_state_ledger/1",
         "source_ledger_schema_version": "rotation_state_ledger_packet/1",
+        "stage2_source_contract": "capital_flow_posture_reference_policy/v1",
+        "stage2_source_schema_version": "capital_flow_posture_reference/v1",
+        "stage2_stage1_source_index": 0,
+        "stage2_stage1_source_type": "P1_PAPER_REGIME_REFERENCE_PACKET",
+        "stage2_stage1_source_path": "data/latest_paper_regime_reference.json",
+        "stage1_source_contract": "paper_regime_reference_policy/v1",
+        "stage1_source_schema_version": "paper_regime_reference/v2",
+        "stage1_market_order": ["US", "KR", "CRYPTO"],
+        "stage1_projected_market_fields": [
+            "market", "as_of_date", "candidate_regime", "runtime_regime",
+        ],
         "source_section": "rotation.latest_changes",
         "projected_source_fields": [
             "market",
@@ -117,6 +139,9 @@ def _expected_contract() -> dict:
             "stage_promotion_authorized": False,
             "action_generation_authorized": False,
             "persistence_default_authorized": False,
+            "runtime_regime_authorized": False,
+            "capital_authorized": False,
+            "order_authorized": False,
             "production_authorized": False,
             "trading_authorized": False,
         },
@@ -227,7 +252,142 @@ def _checked_rotation(
     return derived
 
 
-def _project(checked: dict, rotation: dict, contract: dict) -> dict:
+def _producer_file_sha256(packet: dict) -> str:
+    data = (
+        json.dumps(packet, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
+def _checked_stage1(stage1_reference, contract: dict) -> tuple[dict, str]:
+    if not isinstance(stage1_reference, dict):
+        raise RotationCandidateSelectionInputError("STAGE1_SOURCE_INVALID")
+    if stage1_reference.get("schema_version") != contract["stage1_source_schema_version"]:
+        raise RotationCandidateSelectionInputError("STAGE1_SOURCE_SCHEMA_INVALID")
+    if stage1_reference.get("contract_version") != contract["stage1_source_contract"]:
+        raise RotationCandidateSelectionInputError("STAGE1_SOURCE_CONTRACT_INVALID")
+    try:
+        checked = PAPER_REGIME.validate_reference(
+            copy.deepcopy(stage1_reference), ROOT
+        )
+    except PAPER_REGIME.PaperRegimeReferenceError as exc:
+        raise RotationCandidateSelectionInputError(
+            f"STAGE1_SOURCE_REVALIDATION_FAILED:{exc}"
+        ) from exc
+    markets = checked.get("markets")
+    if (
+        not isinstance(markets, list)
+        or [row.get("market") for row in markets]
+        != contract["stage1_market_order"]
+    ):
+        raise RotationCandidateSelectionInputError("STAGE1_MARKET_VOCABULARY_INVALID")
+    for row in markets:
+        if (
+            not isinstance(row.get("as_of_date"), str)
+            or not isinstance((row.get("paper_reference") or {}).get("candidate_regime"), str)
+            or row.get("runtime_regime") != "UNKNOWN"
+        ):
+            raise RotationCandidateSelectionInputError("STAGE1_MARKET_FIELDS_INVALID")
+    for key in (
+        "action_authorized", "buy_authorized", "capital_authorized",
+        "final_regime_authorized", "order_authorized", "production_authorized",
+        "runtime_regime_authorized", "stage_authorized", "strategy_authorized",
+        "trading_authorized",
+    ):
+        if checked.get("authority", {}).get(key) is not False:
+            raise RotationCandidateSelectionInputError(
+                f"STAGE1_AUTHORITY_OPENED:{key}"
+            )
+    return checked, _producer_file_sha256(checked)
+
+
+def _checked_stage2(
+    stage2_reference, checked_stage1: dict, stage1_file_sha256: str,
+    contract: dict,
+) -> tuple[dict, str]:
+    if not isinstance(stage2_reference, dict):
+        raise RotationCandidateSelectionInputError("STAGE2_SOURCE_INVALID")
+    if stage2_reference.get("schema_version") != contract["stage2_source_schema_version"]:
+        raise RotationCandidateSelectionInputError("STAGE2_SOURCE_SCHEMA_INVALID")
+    if stage2_reference.get("contract_version") != contract["stage2_source_contract"]:
+        raise RotationCandidateSelectionInputError("STAGE2_SOURCE_CONTRACT_INVALID")
+    try:
+        checked = CAPITAL_FLOW.validate_reference(
+            copy.deepcopy(stage2_reference), ROOT
+        )
+    except CAPITAL_FLOW.CapitalFlowPostureReferenceError as exc:
+        raise RotationCandidateSelectionInputError(
+            f"STAGE2_SOURCE_REVALIDATION_FAILED:{exc}"
+        ) from exc
+    sources = checked.get("sources")
+    index = contract["stage2_stage1_source_index"]
+    if not isinstance(sources, list) or len(sources) <= index:
+        raise RotationCandidateSelectionInputError("STAGE2_STAGE1_BINDING_MISSING")
+    expected = {
+        "source_type": contract["stage2_stage1_source_type"],
+        "path": contract["stage2_stage1_source_path"],
+        "sha256": stage1_file_sha256,
+        "schema_version": checked_stage1["schema_version"],
+        "contract_version": checked_stage1["contract_version"],
+        "payload_sha256": checked_stage1["payload_sha256"],
+        "generation_id": checked_stage1["generation_id"],
+    }
+    if sources[index] != expected:
+        raise RotationCandidateSelectionInputError("STAGE2_STAGE1_BINDING_MISMATCH")
+    for key in (
+        "action_authorized", "actual_flow_claim_authorized", "buy_authorized",
+        "cash_target_authorized", "cross_market_allocation_authorized",
+        "gross_exposure_authorized", "order_authorized",
+        "position_size_authorized", "production_authorized", "stage_authorized",
+        "trading_authorized",
+    ):
+        if checked.get("authority", {}).get(key) is not False:
+            raise RotationCandidateSelectionInputError(
+                f"STAGE2_AUTHORITY_OPENED:{key}"
+            )
+    return checked, _producer_file_sha256(checked)
+
+
+def _stage1_lineage(
+    stage1: dict, stage1_file_sha256: str,
+    stage2: dict, stage2_file_sha256: str,
+    contract: dict,
+) -> dict:
+    markets = []
+    for source in stage1["markets"]:
+        projected = {
+            "market": source["market"],
+            "as_of_date": source["as_of_date"],
+            "candidate_regime": source["paper_reference"]["candidate_regime"],
+            "runtime_regime": source["runtime_regime"],
+        }
+        if list(projected) != contract["stage1_projected_market_fields"]:
+            raise RotationCandidateSelectionInputError(
+                "STAGE1_PROJECTED_MARKET_FIELDS_INVALID"
+            )
+        markets.append(projected)
+    return {
+        "schema_version": stage1["schema_version"],
+        "contract_version": stage1["contract_version"],
+        "generation_id": stage1["generation_id"],
+        "payload_sha256": stage1["payload_sha256"],
+        "file_sha256": stage1_file_sha256,
+        "markets": markets,
+        "stage2_binding": {
+            "schema_version": stage2["schema_version"],
+            "contract_version": stage2["contract_version"],
+            "generation_id": stage2["generation_id"],
+            "payload_sha256": stage2["payload_sha256"],
+            "file_sha256": stage2_file_sha256,
+            "stage1_source_index": contract["stage2_stage1_source_index"],
+            "status": "EXACT_STAGE2_TO_STAGE1_BINDING_REVALIDATED",
+        },
+    }
+
+
+def _project(
+    checked: dict, rotation: dict, stage1_lineage: dict, contract: dict,
+) -> dict:
     """Derive the whole projection from the ledger-derived rotation section."""
     rows = []
     for change in rotation["latest_changes"]:
@@ -253,6 +413,7 @@ def _project(checked: dict, rotation: dict, contract: dict) -> dict:
         },
         "input_count": len(rows),
         "inputs": rows,
+        "stage1_lineage": copy.deepcopy(stage1_lineage),
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": copy.deepcopy(checked["unresolved_boundaries"]),
     }
@@ -262,6 +423,9 @@ def build_candidate_selection_input(
     briefing: dict,
     rotation_ledger: dict,
     contract: dict | None = None,
+    *,
+    stage2_reference: dict,
+    stage1_reference: dict,
     source_contract: dict | None = None,
     wildcard_root: Path = ROOT,
     dart_root: Path = ROOT,
@@ -273,13 +437,22 @@ def build_candidate_selection_input(
         briefing, contract, source_contract, Path(wildcard_root), Path(dart_root)
     )
     rotation = _checked_rotation(checked, rotation_ledger, contract, source_contract)
-    packet = _project(checked, rotation, contract)
+    stage1, stage1_file_sha256 = _checked_stage1(stage1_reference, contract)
+    stage2, stage2_file_sha256 = _checked_stage2(
+        stage2_reference, stage1, stage1_file_sha256, contract
+    )
+    lineage = _stage1_lineage(
+        stage1, stage1_file_sha256, stage2, stage2_file_sha256, contract
+    )
+    packet = _project(checked, rotation, lineage, contract)
     packet["payload_sha256"] = payload_sha256(packet)
     return validate_candidate_selection_input(
         packet,
         briefing,
         rotation_ledger,
         contract,
+        stage2_reference=stage2_reference,
+        stage1_reference=stage1_reference,
         source_contract=source_contract,
         wildcard_root=wildcard_root,
         dart_root=dart_root,
@@ -291,6 +464,9 @@ def validate_candidate_selection_input(
     briefing: dict,
     rotation_ledger: dict,
     contract: dict | None = None,
+    *,
+    stage2_reference: dict,
+    stage1_reference: dict,
     source_contract: dict | None = None,
     wildcard_root: Path = ROOT,
     dart_root: Path = ROOT,
@@ -306,7 +482,8 @@ def validate_candidate_selection_input(
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "contract_version", "status", "source", "input_count",
-        "inputs", "authority", "unresolved_boundaries", "payload_sha256",
+        "inputs", "stage1_lineage", "authority", "unresolved_boundaries",
+        "payload_sha256",
     }
     if not isinstance(packet, dict) or set(packet) != fields:
         raise RotationCandidateSelectionInputError("INPUT_FIELDS_MISMATCH")
@@ -345,7 +522,14 @@ def validate_candidate_selection_input(
         briefing, contract, source_contract, Path(wildcard_root), Path(dart_root)
     )
     rotation = _checked_rotation(checked, rotation_ledger, contract, source_contract)
-    expected = _project(checked, rotation, contract)
+    stage1, stage1_file_sha256 = _checked_stage1(stage1_reference, contract)
+    stage2, stage2_file_sha256 = _checked_stage2(
+        stage2_reference, stage1, stage1_file_sha256, contract
+    )
+    lineage = _stage1_lineage(
+        stage1, stage1_file_sha256, stage2, stage2_file_sha256, contract
+    )
+    expected = _project(checked, rotation, lineage, contract)
     unsigned = copy.deepcopy(packet)
     unsigned.pop("payload_sha256")
     if unsigned != expected:
@@ -416,10 +600,16 @@ def write_json_atomic(path: Path, value: dict, root: Path = ROOT) -> None:
         raise
 
 
-def run(briefing_path: Path, ledger_path: Path, output_path: Path) -> int:
+def run(
+    briefing_path: Path, ledger_path: Path, stage2_path: Path,
+    stage1_path: Path, output_path: Path,
+) -> int:
     try:
         packet = build_candidate_selection_input(
-            _read_json(briefing_path), _read_json(ledger_path)
+            _read_json(briefing_path),
+            _read_json(ledger_path),
+            stage2_reference=_read_json(stage2_path),
+            stage1_reference=_read_json(stage1_path),
         )
         write_json_atomic(output_path, packet)
         return 0
@@ -440,9 +630,17 @@ def main() -> int:
     )
     parser.add_argument("briefing", type=Path)
     parser.add_argument("--rotation-ledger", type=Path, required=True)
+    parser.add_argument("--stage2-posture-reference", type=Path, required=True)
+    parser.add_argument("--stage1-paper-reference", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    return run(args.briefing, args.rotation_ledger, args.out)
+    return run(
+        args.briefing,
+        args.rotation_ledger,
+        args.stage2_posture_reference,
+        args.stage1_paper_reference,
+        args.out,
+    )
 
 
 if __name__ == "__main__":

@@ -1,11 +1,25 @@
 {
   "schema_version": 1,
-  "contract_version": "rotation_candidate_selection_input/1",
-  "output_schema_version": "rotation_candidate_selection_input_packet/1",
+  "contract_version": "rotation_candidate_selection_input/2",
+  "output_schema_version": "rotation_candidate_selection_input_packet/2",
   "source_contract": "rotation_discovery_briefing/4",
   "source_output_schema_version": "rotation_discovery_briefing_packet/4",
   "source_ledger_contract": "rotation_state_ledger/1",
   "source_ledger_schema_version": "rotation_state_ledger_packet/1",
+  "stage2_source_contract": "capital_flow_posture_reference_policy/v1",
+  "stage2_source_schema_version": "capital_flow_posture_reference/v1",
+  "stage2_stage1_source_index": 0,
+  "stage2_stage1_source_type": "P1_PAPER_REGIME_REFERENCE_PACKET",
+  "stage2_stage1_source_path": "data/latest_paper_regime_reference.json",
+  "stage1_source_contract": "paper_regime_reference_policy/v1",
+  "stage1_source_schema_version": "paper_regime_reference/v2",
+  "stage1_market_order": ["US", "KR", "CRYPTO"],
+  "stage1_projected_market_fields": [
+    "market",
+    "as_of_date",
+    "candidate_regime",
+    "runtime_regime"
+  ],
   "source_section": "rotation.latest_changes",
   "projected_source_fields": [
     "market",
@@ -37,6 +51,9 @@
     "stage_promotion_authorized": false,
     "action_generation_authorized": false,
     "persistence_default_authorized": false,
+    "runtime_regime_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
     "production_authorized": false,
     "trading_authorized": false
   }
