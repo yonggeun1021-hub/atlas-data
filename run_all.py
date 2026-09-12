@@ -891,6 +891,7 @@ APPROVED_TESTS = [
     #   Regime policy is introduced; natural_promotion and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_kr_historical_replay_population.py",
+    "test/test_kr_retained_historical_population.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — US free-source historical replay
     #   population (SHADOW backfill only, never NATURAL). Scope is exactly the
     #   three axes that free/existing sources can rebuild point-in-time:
