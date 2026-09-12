@@ -701,6 +701,8 @@ APPROVED_TESTS = [
     #   retaining no raw response or per-symbol row and opening no Regime,
     #   Stage, Buy, Action, Order, Production, or trading authority.
     "test/test_korea_market_signals.py",
+    "test/test_korea_market_signals_pykrx_candidate.py",
+    "test/test_krx_information_system_capture.py",
     # ★ Korea 5/5 observation → staged-symbol review bridge. Confirmed KRX
     #   price/SMA20/investor flow is joined to 012450/298040/329180 while the
     #   final market policy and every entry/exit/order authority remain closed.
