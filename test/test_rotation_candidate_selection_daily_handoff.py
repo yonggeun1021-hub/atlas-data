@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -81,9 +82,20 @@ class RotationCandidateSelectionDailyHandoffTests(unittest.TestCase):
         )
         self.assertEqual(self.packet["input_count"], 0)
         self.assertEqual(self.packet["inputs"], [])
+        unsigned = copy.deepcopy(self.packet)
+        claimed = unsigned.pop("payload_sha256")
+        self.assertEqual(claimed, MODULE.STAGE3.payload_sha256(unsigned))
+        lineage = self.packet["stage1_lineage"]
+        self.assertEqual(lineage["generation_id"], self.stage1["generation_id"])
+        self.assertEqual(lineage["payload_sha256"], self.stage1["payload_sha256"])
         self.assertEqual(
-            self.packet["payload_sha256"],
-            "e94d70f5f68bba5a3661853272f94180c21a81d7ffab0bcc747fba1b79e5f2b0",
+            lineage["file_sha256"], hashlib.sha256(STAGE1_PATH.read_bytes()).hexdigest()
+        )
+        stage2 = lineage["stage2_binding"]
+        self.assertEqual(stage2["generation_id"], self.stage2["generation_id"])
+        self.assertEqual(stage2["payload_sha256"], self.stage2["payload_sha256"])
+        self.assertEqual(
+            stage2["file_sha256"], hashlib.sha256(STAGE2_PATH.read_bytes()).hexdigest()
         )
         self.assertEqual(
             [row["market"] for row in self.packet["stage1_lineage"]["markets"]],
