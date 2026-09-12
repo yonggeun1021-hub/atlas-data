@@ -9,6 +9,7 @@ symbols are never projected as full-population evaluation counts.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import copy
 import datetime as dt
 import hashlib
@@ -215,6 +216,44 @@ def _validated_crypto_universe(path: Path, generated_at: dt.datetime) -> tuple[d
         ) != len(markets)
     ):
         raise ThreeMarketEvaluationCoverageError("CRYPTO_UNIVERSE_COUNT_INVALID")
+    market_codes = []
+    state_counts = Counter()
+    for row in markets:
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("market"), str)
+            or row.get("state") not in {
+                "OBSERVATION_POOL", "TRADEABLE_UNIVERSE",
+                "PAPER_ELIGIBLE", "BLOCKED",
+            }
+            or not isinstance(row.get("reason"), str)
+            or not row["reason"]
+        ):
+            raise ThreeMarketEvaluationCoverageError(
+                "CRYPTO_UNIVERSE_MARKET_STATE_INVALID"
+            )
+        try:
+            CRYPTO_DECISION._require_all_false(row.get("authority"))
+        except CRYPTO_DECISION.CryptoPaperDecisionSnapshotError as exc:
+            raise ThreeMarketEvaluationCoverageError(
+                f"CRYPTO_UNIVERSE_MARKET_AUTHORITY_INVALID:{exc}"
+            ) from exc
+        market_codes.append(row["market"])
+        state_counts[row["state"]] += 1
+    if len(market_codes) != len(set(market_codes)):
+        raise ThreeMarketEvaluationCoverageError("CRYPTO_UNIVERSE_MARKET_DUPLICATE")
+    expected_state_counts = {
+        "OBSERVATION_POOL": summary["observation_pool_count"],
+        "TRADEABLE_UNIVERSE": summary["tradeable_universe_count"],
+        "PAPER_ELIGIBLE": summary["paper_eligible_count"],
+        "BLOCKED": summary["blocked_count"],
+    }
+    if {
+        state: state_counts.get(state, 0) for state in expected_state_counts
+    } != expected_state_counts:
+        raise ThreeMarketEvaluationCoverageError(
+            "CRYPTO_UNIVERSE_STATE_COUNTS_INVALID"
+        )
     return record, summary["market_count"]
 
 
@@ -380,18 +419,42 @@ def build_report(
     candidate_count = funnel.get("focused_review_count")
     paper_ready_count = funnel.get("paper_ready_count")
     observation_pool_count = funnel.get("observation_pool_count")
+    universe_markets = crypto_universe["packet"]["markets"]
+    admitted_rows = [
+        row for row in universe_markets
+        if row["state"] in {"TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE"}
+    ]
+    excluded_rows = [
+        row for row in universe_markets
+        if row["state"] in {"OBSERVATION_POOL", "BLOCKED"}
+    ]
+    candidate_markets = [row.get("market") for row in candidates]
+    admitted_markets = [row["market"] for row in admitted_rows]
     if (
         any(type(value) is not int or value < 0 for value in (
             evaluation_input_count, candidate_count, paper_ready_count,
             observation_pool_count,
         ))
         or evaluation_input_count != len(candidates)
-        or observation_pool_count + evaluation_input_count != crypto_count
+        or evaluation_input_count != len(admitted_rows)
+        or observation_pool_count != sum(
+            row["state"] == "OBSERVATION_POOL" for row in universe_markets
+        )
+        or len(excluded_rows) + evaluation_input_count != crypto_count
+        or len(candidate_markets) != len(set(candidate_markets))
+        or sorted(candidate_markets) != sorted(admitted_markets)
     ):
         raise ThreeMarketEvaluationCoverageError("CRYPTO_DECISION_COUNTS_INVALID")
     held_count = sum(row.get("state") in {"WATCH", "WAIT"} for row in candidates)
     if candidate_count + paper_ready_count + held_count != evaluation_input_count:
         raise ThreeMarketEvaluationCoverageError("CRYPTO_DECISION_STATE_COUNTS_INVALID")
+    excluded_reason_counts = dict(sorted(Counter(
+        row["reason"] for row in excluded_rows
+    ).items()))
+    excluded_state_counts = {
+        state: sum(row["state"] == state for row in excluded_rows)
+        for state in ("OBSERVATION_POOL", "BLOCKED")
+    }
     crypto_row = {
         "market": "CRYPTO",
         "universe_count": crypto_count,
@@ -402,10 +465,15 @@ def build_report(
         "candidate_count": candidate_count,
         "candidate_count_semantics": "SOURCE_FOCUSED_REVIEW_COUNT",
         "held_count": held_count,
-        "excluded_count": NOT_COUNTED,
+        "excluded_count": len(excluded_rows),
+        "excluded_count_semantics": (
+            "SOURCE_MEMBERS_NOT_ADMITTED_TO_CURRENT_EVALUATION_INPUT"
+        ),
+        "excluded_state_counts": excluded_state_counts,
+        "excluded_reason_counts": excluded_reason_counts,
         "paper_ready_count": paper_ready_count,
-        "coverage_status": "EVALUATED_SUBSET_COUNTS_AVAILABLE_EXCLUSIONS_NOT_EMITTED",
-        "missing_reasons": ["FULL_POPULATION_EXCLUSION_COUNT_NOT_EMITTED"],
+        "coverage_status": "SOURCE_POPULATION_EVALUATION_DISPOSITION_ACCOUNTED",
+        "missing_reasons": [],
         "observation_pool_count": observation_pool_count,
         "state_lifetime": {
             "snapshot_only": True,
@@ -430,6 +498,7 @@ def build_report(
             "full_population_universe_count_available": 3,
             "full_population_evaluation_count_available": 0,
             "bounded_subset_evaluation_count_available": 1,
+            "full_population_evaluation_disposition_available": 1,
         },
         "authority": {
             "candidate_creation_authorized": False,

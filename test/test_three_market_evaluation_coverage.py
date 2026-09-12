@@ -61,7 +61,25 @@ class NaturalCoverageTests(unittest.TestCase):
             "SOURCE_FOCUSED_REVIEW_COUNT",
         )
         self.assertEqual(self.by_market["CRYPTO"]["held_count"], 8)
+        self.assertEqual(self.by_market["CRYPTO"]["excluded_count"], 274)
+        self.assertEqual(
+            self.by_market["CRYPTO"]["excluded_count_semantics"],
+            "SOURCE_MEMBERS_NOT_ADMITTED_TO_CURRENT_EVALUATION_INPUT",
+        )
+        self.assertEqual(
+            self.by_market["CRYPTO"]["excluded_state_counts"],
+            {"OBSERVATION_POOL": 274, "BLOCKED": 0},
+        )
+        self.assertEqual(
+            self.by_market["CRYPTO"]["excluded_reason_counts"],
+            {"IDENTITY_UNRATIFIED": 267, "INVESTMENT_WARNING_ACTIVE": 7},
+        )
         self.assertEqual(self.by_market["CRYPTO"]["paper_ready_count"], 0)
+        self.assertEqual(
+            self.by_market["CRYPTO"]["coverage_status"],
+            "SOURCE_POPULATION_EVALUATION_DISPOSITION_ACCOUNTED",
+        )
+        self.assertEqual(self.by_market["CRYPTO"]["missing_reasons"], [])
 
     def test_bounded_reviews_never_become_population_evaluation_counts(self):
         for market in ("KR", "US"):
@@ -69,8 +87,10 @@ class NaturalCoverageTests(unittest.TestCase):
             self.assertEqual(row["evaluated_count"], MODULE.NOT_COUNTED)
             self.assertEqual(row["candidate_count"], MODULE.NOT_COUNTED)
             self.assertEqual(row["excluded_count"], MODULE.NOT_COUNTED)
+        self.assertEqual(self.by_market["CRYPTO"]["excluded_count"], 274)
         self.assertEqual(
-            self.by_market["CRYPTO"]["excluded_count"], MODULE.NOT_COUNTED
+            self.report["summary"]["full_population_evaluation_disposition_available"],
+            1,
         )
         for row in self.by_market.values():
             self.assertEqual(row["state_lifetime"], {
@@ -144,6 +164,18 @@ class TamperTests(unittest.TestCase):
             MODULE.ThreeMarketEvaluationCoverageError, "US_REVIEW_FROM_FUTURE"
         ):
             MODULE._validated_review(US_REVIEW, "US", before_source)
+
+    def test_rehashed_candidate_substitution_cannot_escape_exact_admitted_input(self):
+        value = json.loads(CRYPTO_DECISION.read_text(encoding="utf-8"))
+        value["candidates"][0]["market"] = "KRW-NOT-ADMITTED"
+        value["payload_sha256"] = MODULE.payload_sha256(
+            {key: item for key, item in value.items() if key != "payload_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.ThreeMarketEvaluationCoverageError,
+            "CRYPTO_DECISION_COUNTS_INVALID",
+        ):
+            build(crypto_decision_path=self._write(value))
 
 
 if __name__ == "__main__":
