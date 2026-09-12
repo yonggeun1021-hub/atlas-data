@@ -15,6 +15,8 @@ import sys
 import tempfile
 import textwrap
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = ROOT / "run_all.py"
@@ -520,98 +522,204 @@ class UsAggregateScriptTest(unittest.TestCase):
 
 
 class ActionsPassDiagnosticIsolationTest(unittest.TestCase):
-    """A 403 from the artifact service may not overturn the required gate.
+    """A 403 from the artifact service may not overturn a required gate.
 
-    Run 34246738933 (fb2bb2dc) finished every regression and the Actions PASS
-    gate with `success`, then `FinalizeArtifact: (403) Forbidden` on the
-    non-authoritative diagnostic upload failed the job and left the mandatory
-    dirty-artifact check `skipped`. Only that one transport is best effort.
+    Run 34246738933 (fb2bb2dc) finished every regression and the (then
+    monolithic) Actions PASS gate with `success`, then `FinalizeArtifact:
+    (403) Forbidden` on the non-authoritative diagnostic upload failed the
+    job and left the mandatory dirty-artifact check `skipped`. Only that one
+    transport is best effort.
+
+    ★ CIO CI-sharding 지시 2026-09-12 — 이제 gate 하나가 아니라 세 job
+      (structural / regression / fault-injection) 각각이 자기 diagnostic
+      업로드 · dirty 검사를 갖는다. 이 클래스는 세 job 전체에 같은 격리
+      계약이 반복되는지 확인한다 — 하나로 합치지 않는다(각 job 이 서로
+      기다리지 않고 독립적으로 authoritative 하다는 계약의 일부).
     """
 
-    UPLOAD = "Preserve complete redacted gate diagnostics"
-    GATE = "Actions PASS gate"
+    # job → (gate step name, upload step name, uploaded artifact name prefix)
+    GATE_JOBS = {
+        "structural": ("Structural integrity gate — builder ①→⑭ 재빌드 · byte 비교 · 경계",
+                       "Preserve complete redacted structural diagnostics",
+                       "actions-pass-structural-logs-${{ github.run_id }}-${{ github.run_attempt }}"),
+        "regression": ("Regression shard ${{ matrix.shard }}/4",
+                       "Preserve complete redacted regression shard diagnostics",
+                       "actions-pass-regression-logs-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.shard }}"),
+        "fault-injection": ("Fault Injection suite (FI-1/2/4/5/6 — FI-3 KNOWN GAP / NOT GATED)",
+                            "Preserve complete redacted fault-injection diagnostics",
+                            "actions-pass-fi-logs-${{ github.run_id }}-${{ github.run_attempt }}"),
+    }
     DIRTY = "작업 후 dirty artifact 가 없는지"
 
     @classmethod
     def setUpClass(cls):
         cls.text = WORKFLOW_PATH.read_text(encoding="utf-8")
-        cls.steps = workflow_steps(cls.text)
-        cls.by_name = {step["name"]: step for step in cls.steps if "name" in step}
+        cls.jobs_text = workflow_jobs(cls.text)
+        cls.job_steps = {name: workflow_steps(body) for name, body in cls.jobs_text.items()}
 
-    def step(self, name):
-        self.assertIn(name, self.by_name)
-        return self.by_name[name]
+    def by_name(self, job):
+        return {s["name"]: s for s in self.job_steps[job] if "name" in s}
 
-    def index(self, name):
-        return [step.get("name") for step in self.steps].index(name)
+    def step(self, job, name):
+        by_name = self.by_name(job)
+        self.assertIn(name, by_name, f"{name!r} missing from job {job!r}")
+        return by_name[name]
 
-    def test_only_the_diagnostic_upload_step_tolerates_failure(self):
-        tolerant = [s.get("name") for s in self.steps if s.get("continue-on-error") == "true"]
-        self.assertEqual(tolerant, [self.UPLOAD])
-        # Step scope only — never a job-wide or workflow-wide escape hatch, so
-        # the single declaration must sit at step-key indentation.
+    def index(self, job, name):
+        return [s.get("name") for s in self.job_steps[job]].index(name)
+
+    def test_every_gate_job_has_exactly_one_tolerant_upload_step(self):
+        for job, (_, upload, _) in self.GATE_JOBS.items():
+            with self.subTest(job=job):
+                tolerant = [s.get("name") for s in self.job_steps[job]
+                           if s.get("continue-on-error") == "true"]
+                self.assertEqual(tolerant, [upload])
+        # preflight and actions-pass-full run no destructive/authoritative
+        # gate of their own — neither carries a diagnostic upload or a
+        # continue-on-error escape hatch.
+        for job in ("preflight", "actions-pass-full"):
+            with self.subTest(job=job):
+                self.assertEqual([s for s in self.job_steps[job]
+                                  if s.get("continue-on-error") == "true"], [])
+        # Step scope only — never a job-wide or workflow-wide escape hatch —
+        # so every declaration in the whole file sits at step-key indentation,
+        # one per gate job, none anywhere else.
         declarations = [line for line in self.text.splitlines()
                         if "continue-on-error" in line and not line.lstrip().startswith("#")]
-        self.assertEqual(declarations, ["        continue-on-error: true"])
+        self.assertEqual(declarations, ["        continue-on-error: true"] * len(self.GATE_JOBS))
 
-    def test_required_gate_and_dirty_check_still_fail_authoritatively(self):
-        for name in (self.GATE, self.DIRTY):
-            with self.subTest(step=name):
-                step = self.step(name)
+    def test_every_gate_step_and_dirty_check_still_fails_authoritatively(self):
+        for job, (gate, _, _) in self.GATE_JOBS.items():
+            with self.subTest(job=job, step=gate):
+                step = self.step(job, gate)
                 self.assertNotIn("continue-on-error", step)
-                # No `if:` — each stays default success()-gated and mandatory.
-                self.assertNotIn("if", step)
-        self.assertIn("--authoritative", self.step(self.GATE)["run"])
-        self.assertIn("--fail-fast", self.step(self.GATE)["run"])
-        self.assertEqual(self.step(self.DIRTY)["run"], "git diff --exit-code")
+                self.assertNotIn("if", step)  # default success()-gated and mandatory
+            with self.subTest(job=job, step=self.DIRTY):
+                dirty = self.step(job, self.DIRTY)
+                self.assertNotIn("continue-on-error", dirty)
+                self.assertNotIn("if", dirty)
+                self.assertEqual(dirty["run"], "git diff --exit-code")
+        self.assertIn("--phase structural", self.step("structural", self.GATE_JOBS["structural"][0])["run"])
+        self.assertIn("--phase regression", self.step("regression", self.GATE_JOBS["regression"][0])["run"])
+        self.assertIn("--phase fi", self.step("fault-injection", self.GATE_JOBS["fault-injection"][0])["run"])
+        for job, (gate, _, _) in self.GATE_JOBS.items():
+            self.assertIn("--fail-fast", self.step(job, gate)["run"])
+        # preflight also ends on its own mandatory, unconditional dirty check.
+        preflight_dirty = self.by_name("preflight")[self.DIRTY]
+        self.assertNotIn("continue-on-error", preflight_dirty)
+        self.assertEqual(preflight_dirty["run"], "git diff --exit-code")
 
     def test_dirty_check_stays_reachable_after_a_failed_diagnostic_upload(self):
-        # continue-on-error keeps the step conclusion `success`, so the default
-        # success() condition on the dirty check is still satisfied when only
-        # the upload failed — the step may never be dropped or made conditional.
-        self.assertLess(self.index(self.GATE), self.index(self.UPLOAD))
-        self.assertLess(self.index(self.UPLOAD), self.index(self.DIRTY))
-        self.assertEqual(self.steps[-1].get("name"), self.DIRTY)
+        for job, (gate, upload, _) in self.GATE_JOBS.items():
+            with self.subTest(job=job):
+                # continue-on-error keeps the upload step conclusion `success`,
+                # so the default success() condition on the dirty check is
+                # still satisfied when only the upload failed — it may never
+                # be dropped or made conditional, and it is always the job's
+                # last step.
+                self.assertLess(self.index(job, gate), self.index(job, upload))
+                self.assertLess(self.index(job, upload), self.index(job, self.DIRTY))
+                self.assertEqual(self.job_steps[job][-1].get("name"), self.DIRTY)
+        self.assertEqual(self.job_steps["preflight"][-1].get("name"), self.DIRTY)
 
-    def test_upload_identity_pin_redaction_and_retention_are_unchanged(self):
-        step = self.step(self.UPLOAD)
-        self.assertEqual(step["if"], "${{ always() }}")
-        self.assertEqual(
-            step["uses"],
-            "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1",
-        )
-        for entry in (
-            "name: actions-pass-logs-${{ github.run_id }}-${{ github.run_attempt }}",
-            "path: ${{ runner.temp }}/atlas-gate-logs/",
-            "if-no-files-found: ignore",
-            "retention-days: 7",
-        ):
-            self.assertIn(f"          {entry}", step["body"])
-        # The redacted diagnostics themselves are produced by the gate step.
-        self.assertIn('--log-dir "$RUNNER_TEMP/atlas-gate-logs"', self.step(self.GATE)["run"])
+    def test_upload_identity_pin_redaction_and_retention_are_unchanged_per_job(self):
+        for job, (gate, upload_name, artifact_name) in self.GATE_JOBS.items():
+            with self.subTest(job=job):
+                step = self.step(job, upload_name)
+                self.assertEqual(step["if"], "${{ always() }}")
+                self.assertEqual(
+                    step["uses"],
+                    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1",
+                )
+                for entry in (
+                    f"name: {artifact_name}",
+                    "path: ${{ runner.temp }}/atlas-gate-logs/",
+                    "if-no-files-found: ignore",
+                    "retention-days: 7",
+                ):
+                    self.assertIn(f"          {entry}", step["body"])
+                # The redacted diagnostics themselves are produced by the gate step.
+                self.assertIn('--log-dir "$RUNNER_TEMP/atlas-gate-logs"', self.step(job, gate)["run"])
+
+    def test_uploaded_artifact_names_are_unique_across_jobs_and_include_run_attempt_and_shard(self):
+        names = [artifact for _, _, artifact in self.GATE_JOBS.values()]
+        self.assertEqual(len(names), len(set(names)))
+        for artifact in names:
+            self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}", artifact)
+        self.assertIn("${{ matrix.shard }}", self.GATE_JOBS["regression"][2])
 
     def test_failed_upload_is_reported_and_never_claimed_as_retained(self):
-        upload = self.step(self.UPLOAD)
-        self.assertEqual(upload["id"], "gate_diagnostics")
-        report = [s for s in self.steps if "steps.gate_diagnostics.outcome" in s["body"]
-                  and s is not upload]
-        self.assertEqual(len(report), 1)
-        body = report[0]["body"]
-        self.assertIn("always() && steps.gate_diagnostics.outcome == 'failure'", body)
-        self.assertIn("::warning", body)
-        self.assertIn("NOT retained", body)
-        self.assertIn("outcome=${{ steps.gate_diagnostics.outcome }}", body)
-        self.assertNotIn("continue-on-error", report[0])
-        self.assertLess(self.index(report[0]["name"]), self.index(self.DIRTY))
+        for job, (_, upload_name, _) in self.GATE_JOBS.items():
+            with self.subTest(job=job):
+                upload = self.step(job, upload_name)
+                self.assertEqual(upload["id"], "gate_diagnostics")
+                report = [s for s in self.job_steps[job]
+                         if "steps.gate_diagnostics.outcome" in s["body"] and s is not upload]
+                self.assertEqual(len(report), 1)
+                body = report[0]["body"]
+                self.assertIn("always() && steps.gate_diagnostics.outcome == 'failure'", body)
+                self.assertIn("::warning", body)
+                self.assertIn("NOT retained", body)
+                self.assertIn("outcome=${{ steps.gate_diagnostics.outcome }}", body)
+                self.assertNotIn("continue-on-error", report[0])
+                self.assertLess(self.index(job, report[0]["name"]), self.index(job, self.DIRTY))
 
     def test_permissions_triggers_and_secrets_surface_are_unchanged(self):
         self.assertIn("permissions:\n  contents: read", self.text)
         self.assertNotIn("GITHUB_TOKEN", self.text)
         self.assertNotIn("schedule:", self.text)
+        self.assertIn("on:\n  pull_request:\n  workflow_dispatch:\n", self.text)
         self.assertIn("ATLAS_DISPOSABLE_CHECKOUT", self.text)
+        # The approval public-key anchor is checked exactly once, in preflight.
         self.assertEqual(self.text.count("secrets."), 1)
+        self.assertIn("secrets.ATLAS_APPROVAL_PUBKEY_FINGERPRINT",
+                      self.jobs_text["preflight"])
+        for job in ("structural", "regression", "fault-injection", "actions-pass-full"):
+            self.assertNotIn("secrets.", self.jobs_text[job])
         # No retry/backoff was introduced around the diagnostic transport.
         self.assertNotIn("retry", self.text)
+
+    def test_python_version_and_checkout_pin_repeated_identically_per_job(self):
+        for job in ("preflight", "structural", "regression", "fault-injection"):
+            with self.subTest(job=job):
+                self.assertIn("python-version: '3.11'", self.jobs_text[job])
+                self.assertIn(
+                    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1",
+                    self.jobs_text[job],
+                )
+        # Only the regression matrix needs full git history (PIT backdating
+        # proof over real commit history) — fetch-depth: 0 stays scoped to it.
+        # ★ Parsed YAML, not a raw substring search — the surrounding banner
+        #   comments mention "fetch-depth" in prose and would false-positive
+        #   a plain text `in` check on a job whose body a naive line-splitter
+        #   attributes trailing inter-job comments to.
+        jobs = yaml.safe_load(self.text)["jobs"]
+
+        def checkout_with(job):
+            for step in jobs[job]["steps"]:
+                if step.get("uses", "").startswith("actions/checkout@"):
+                    return step.get("with", {})
+            self.fail(f"job {job!r} has no actions/checkout step")
+
+        self.assertEqual(checkout_with("regression").get("fetch-depth"), 0)
+        for job in ("preflight", "structural", "fault-injection"):
+            self.assertNotIn("fetch-depth", checkout_with(job))
+
+    def test_aggregate_job_needs_every_authoritative_job_and_runs_no_new_check(self):
+        aggregate = yaml.safe_load(self.text)["jobs"]["actions-pass-full"]
+        self.assertEqual(sorted(aggregate["needs"]),
+                         sorted(["preflight", "structural", "regression", "fault-injection"]))
+        steps = aggregate["steps"]
+        self.assertEqual(len(steps), 1)
+        self.assertNotIn("run_all.py", steps[0]["run"])
+
+    def test_regression_matrix_is_exactly_four_shards_zero_based(self):
+        doc = yaml.safe_load(self.text)
+        matrix = doc["jobs"]["regression"]["strategy"]["matrix"]
+        self.assertEqual(matrix["shard"], [0, 1, 2, 3])
+        self.assertEqual(doc["jobs"]["regression"]["strategy"]["fail-fast"], False)
+        self.assertIn("--shard-count 4", self.jobs_text["regression"])
+        self.assertIn("--shard-index ${{ matrix.shard }}", self.jobs_text["regression"])
 
 
 class ShardPreflightRegressionTest(unittest.TestCase):

@@ -1292,6 +1292,11 @@ APPROVED_TESTS = [
     #   Guard=fresh 는 collector만 skip하고 briefing read model은 검증/repair를 계속한다.
     #   ⛔ live network 없음 — workflow YAML 구조만 실제 파싱해 검증한다.
     "test/test_p003_workflow_contract.py",
+    # ★ CIO CI-sharding 지시 2026-09-12 — actions-pass.yml 5-job 분할
+    #   (preflight → structural/regression(4-way)/fault-injection →
+    #   actions-pass-full) 과 `run_all.py --phase` 의 partition 완전성 ·
+    #   fail-closed shard 인자 · authority 경계 불변을 증명한다.
+    "test/test_ci_phase_sharding.py",
     # ★ CIO 승인 2026-08-15 — TSMC Monthly Revenue collector pilot 회귀 추가.
     #   승인 목록은 늘어날 수 있다(테스트 삭제·누락만 FI-4 가 잡는다).
     "test/test_tsmc_monthly.py",
