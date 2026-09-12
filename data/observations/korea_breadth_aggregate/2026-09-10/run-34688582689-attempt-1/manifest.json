@@ -1,0 +1,58 @@
+{
+  "as_of_date": "2026-09-10",
+  "authority": {
+    "action_authorized": false,
+    "breadth_classification_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "regime_score_authorized": false,
+    "strategy_authorized": false,
+    "threshold_authorized": false,
+    "trading_authorized": false
+  },
+  "capture_mode": "forward_live",
+  "payload_sha256": "f290d770830deb3ecf377e338bffeaeba190ddce01332298d8f580564b3b60fa",
+  "retention_boundary": {
+    "axis_evidence_eligible": false,
+    "exact_aggregate_packet_bytes_retained": true,
+    "independent_source_replay_available": false,
+    "per_symbol_identity_and_price_retained": false,
+    "raw_response_bodies_retained": false
+  },
+  "schema_version": "korea_breadth_aggregate_retention/1",
+  "source": {
+    "artifact_created_at": null,
+    "artifact_digest": "sha256:74130088534b8f82bc898f9ab1e6d2a3bdeab4308ffb4c3740fab89d209e9701",
+    "artifact_expires_at": null,
+    "artifact_id": "10296516161",
+    "artifact_name": "p1-kr05-derived-outputs-34688582689-1",
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "source_head_sha": "02ff387531092c5ee9a7ee457ff5568a3ce6597a",
+    "workflow_path": ".github/workflows/p1-kr05-korea-breadth-live.yml",
+    "workflow_run_id": "34688582689"
+  },
+  "source_files": {
+    "korea-breadth-historical-kosdaq.json": {
+      "packet_payload_sha256": "4a2334a8618710dddd93873a981637e0003c7e56d1e83b47a2ce5e883b03aa4e",
+      "sha256": "2096f796b33d5f0a34ce627ed1fdfa661f99757bfbebf2183d20116df7ce9360",
+      "size_bytes": 1728
+    },
+    "korea-breadth-historical-kospi.json": {
+      "packet_payload_sha256": "d8cbc9139f9f24835f1dcf424b76dffacd0b2f996a91ba6918de45791f1e6cbb",
+      "sha256": "a4232c659e20f8e2e0804fea874b2b2120183ce144676bc21e560707b1a2a578",
+      "size_bytes": 1723
+    },
+    "korea-breadth-recent-kosdaq.json": {
+      "packet_payload_sha256": "9350422df97c3f891efbb488a6140360b021824ed4fd287290b56c3a62f27a1d",
+      "sha256": "4742a12cac1013435595fc2ec7fc533b670481b2e558b9a61e6364e63b06475a",
+      "size_bytes": 1724
+    },
+    "korea-breadth-recent-kospi.json": {
+      "packet_payload_sha256": "4139cf566e5fb8c78356d8a71d0b12560ed7f4f6804ebdd272aebe0550b3e768",
+      "sha256": "cd18773c125a6f7120b40827a1e644dc1a9639f2d44bdabf599d9768235e375e",
+      "size_bytes": 1718
+    }
+  }
+}
