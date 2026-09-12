@@ -1186,10 +1186,17 @@ class DailyOrchestratorTest(unittest.TestCase):
             "COMMON_V1_REPLAY_MODE:SHADOW_PIT_REPLAY_ONLY_RUNTIME_NOT_WIRED",
             reasons,
         )
-        for market in ("US", "KR", "CRYPTO"):
-            self.assertIn(
+        for market in ("US", "KR"):
+            self.assertNotIn(
                 f"SIGNED_NORMALIZATION_POLICY_UNRATIFIED:{market}", reasons
             )
+            self.assertIn(
+                f"MARKET_POLICY_READINESS:{market}:"
+                "POLICY_READY_PIT_EVIDENCE_PENDING",
+                reasons,
+            )
+        self.assertIn("SIGNED_NORMALIZATION_POLICY_UNRATIFIED:CRYPTO", reasons)
+        for market in ("US", "KR", "CRYPTO"):
             self.assertIn(f"PIT_REPLAY_NOT_ACCEPTED:{market}", reasons)
         authority_contract = MODULE.RUNTIME_REGIME_READINESS.AUTHORITY.load_contract()
         for component in authority_contract["required_policy_components"]:
@@ -4859,10 +4866,17 @@ class RuntimeRegimeReadinessDerivationVersionTests(unittest.TestCase):
             "P1_REGIME_DECISION_PRODUCTION_CONTRACT_UNAVAILABLE", reasons
         )
         self.assertIn("P1_REGIME_DECISION_NOT_RUNTIME_WIRED", reasons)
-        for market in ("US", "KR", "CRYPTO"):
-            self.assertIn(
+        for market in ("US", "KR"):
+            self.assertNotIn(
                 f"SIGNED_NORMALIZATION_POLICY_UNRATIFIED:{market}", reasons
             )
+            self.assertIn(
+                f"MARKET_POLICY_READINESS:{market}:"
+                "POLICY_READY_PIT_EVIDENCE_PENDING",
+                reasons,
+            )
+        self.assertIn("SIGNED_NORMALIZATION_POLICY_UNRATIFIED:CRYPTO", reasons)
+        for market in ("US", "KR", "CRYPTO"):
             self.assertIn(f"PIT_REPLAY_NOT_ACCEPTED:{market}", reasons)
         self.assertEqual(reasons, sorted(set(reasons)))
         # Both consumers re-derive the list from this run's own envelopes, so

@@ -439,11 +439,9 @@ def readiness_overlay_status(market: str, pit_status: str) -> dict:
 def build_readiness_overlay(status: Optional[dict] = None) -> dict:
     """Compose PIT acceptance status into a readiness-shaped overlay.
 
-    This is genuinely additive: it consumes ``build_status()`` (this module)
-    and, separately, whatever ``regime.runtime_regime_readiness.build_readiness``
-    already reports, without importing, modifying, or re-deriving that
-    module's own closed-schema packet or its
-    ``p1_regime_decision_unavailable_reasons``/P6-06 contract in any way.
+    This is an additive evidence view over ``build_status()``.  The runtime
+    readiness consumer may read these labels to report the later ratification
+    accurately, but this module still cannot emit a runtime decision.
     """
     status = build_status() if status is None else status
     rows = [
@@ -455,10 +453,9 @@ def build_readiness_overlay(status: Optional[dict] = None) -> dict:
         "contract_version": status["contract_version"],
         "source": "regime.market_scoped_pit_acceptance",
         "note": (
-            "Additive overlay only. Composes with, and does not modify, "
-            "regime.runtime_regime_readiness's existing build_readiness()/"
-            "validate_readiness() contract, schema, or "
-            "p1_regime_decision_unavailable_reasons."
+            "Additive policy-and-evidence overlay. Runtime readiness may "
+            "consume these labels, but runtime_decision_available remains "
+            "false and no Regime is emitted."
         ),
         "markets": rows,
         "runtime_decision_available": False,
