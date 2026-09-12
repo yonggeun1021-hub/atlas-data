@@ -14,11 +14,10 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import re
 from decimal import Decimal
 from pathlib import Path
 import sys
-
-from pykrx import stock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,10 +36,65 @@ def load_module(name: str, path: Path):
 SIGNALS = load_module("kr_signals_candidate_source", ROOT / ".github/scripts/korea_market_signals.py")
 REFERENCE = load_module("kr_signals_candidate_reference", ROOT / "regime/paper_regime_reference.py")
 MARKETS = ("kospi", "kosdaq")
+PYKRX_INDEX_NAME_FILTER = re.compile(r"[^-\w\.]")
 
 
 class CandidateError(ValueError):
     pass
+
+
+def pykrx_stock():
+    """Import the network adapter only when a collection function is called."""
+    from pykrx import stock
+
+    return stock
+
+
+def pykrx_rendered_index_name(value: str) -> str:
+    r"""Reproduce pykrx 1.2.8's index-frame name transformation.
+
+    ``get_index_ohlcv_by_ticker`` applies ``r"[^-\w\.]"`` replacement to
+    every cell before setting the index.  That removes spaces and the KRX
+    middle dot from index names.  The ratified names are transformed by the
+    same rule here so identity resolution is deterministic rather than an
+    inferred alias table.
+    """
+    return PYKRX_INDEX_NAME_FILTER.sub("", str(value))
+
+
+def canonical_index_name_map(market: str) -> dict[str, str]:
+    policy = json.loads(SIGNALS.LEADERSHIP_POLICY_PATH.read_text(encoding="utf-8"))
+    prefix = f"{market.upper()}::"
+    result: dict[str, str] = {}
+    for record in policy["records"]:
+        identity = record["series_identity"]
+        if not identity.startswith(prefix):
+            continue
+        canonical = identity.split("::", 1)[1]
+        rendered = pykrx_rendered_index_name(canonical)
+        if not rendered:
+            raise CandidateError(f"INDEX_NAME_NORMALIZATION_EMPTY:{identity}")
+        prior = result.get(rendered)
+        if prior is not None and prior != canonical:
+            raise CandidateError(
+                f"INDEX_NAME_NORMALIZATION_COLLISION:{market}:{rendered}:{prior}:{canonical}"
+            )
+        result[rendered] = canonical
+    return result
+
+
+def require_complete_leadership(leadership: dict) -> None:
+    incomplete = {
+        market: value
+        for market, value in leadership["coverage"].items()
+        if value["observed_sector_count"] != value["ratified_identity_count"] - 1
+    }
+    if incomplete:
+        detail = ",".join(
+            f"{market}={value['observed_sector_count']}/{value['ratified_identity_count'] - 1}"
+            for market, value in sorted(incomplete.items())
+        )
+        raise CandidateError(f"LEADERSHIP_COVERAGE_INCOMPLETE:{detail}")
 
 
 def frame_sha256(frame) -> str:
@@ -57,6 +111,7 @@ def require_columns(frame, required: set[str], label: str) -> None:
 
 
 def stock_snapshot(date: str, market: str, fetched_at: str) -> dict:
+    stock = pykrx_stock()
     frame = stock.get_market_ohlcv_by_ticker(date, market.upper(), alternative=False)
     required = {"종가", "등락률", "거래대금", "시가총액"}
     require_columns(frame, required, f"stock:{market}:{date}")
@@ -87,6 +142,7 @@ def index_name(identity: object) -> str:
         raise CandidateError("SOURCE_IDENTITY_INVALID:index")
     if not value.isdigit():
         return value
+    stock = pykrx_stock()
     name = stock.get_index_ticker_name(value)
     if not isinstance(name, str) or not name.strip():
         raise CandidateError(f"INDEX_NAME_MISSING:{value}")
@@ -94,11 +150,17 @@ def index_name(identity: object) -> str:
 
 
 def index_snapshot(date: str, market: str, fetched_at: str) -> dict:
+    stock = pykrx_stock()
     frame = stock.get_index_ohlcv_by_ticker(date, market.upper())
     require_columns(frame, {"종가"}, f"index:{market}:{date}")
     indices = {}
+    canonical_names = canonical_index_name_map(market)
+    resolved_count = 0
     for identity, row in frame.iterrows():
-        name = index_name(identity)
+        source_name = index_name(identity)
+        name = canonical_names.get(source_name, source_name)
+        if name != source_name:
+            resolved_count += 1
         if name in indices:
             raise CandidateError(f"SOURCE_IDENTITY_INVALID:index:{market}:{date}:{name}")
         indices[name] = Decimal(str(row["종가"]))
@@ -109,6 +171,13 @@ def index_snapshot(date: str, market: str, fetched_at: str) -> dict:
         "endpoint": "KRX_INFORMATION_DATA_SYSTEM_PYKRX_INDEX_FRAME",
         "response_sha256": frame_sha256(frame),
         "fetched_at_utc": fetched_at,
+        "identity_normalization": {
+            "source_version": "pykrx/1.2.8",
+            "source_function": "get_index_ohlcv_by_ticker",
+            "source_regex": r"[^-\w\.]",
+            "canonical_policy": "config/korea_leadership_policy.json",
+            "resolved_name_count": resolved_count,
+        },
     }
 
 
@@ -127,17 +196,7 @@ def build(previous_date: str, current_date: str, fetched_at: str) -> dict:
     places = contract["output_decimal_places"]
     trend = SIGNALS._trend(previous, current, contract, places)
     leadership = SIGNALS._leadership(previous, current, contract, places)
-    incomplete = {
-        market: value
-        for market, value in leadership["coverage"].items()
-        if value["observed_sector_count"] != value["ratified_identity_count"] - 1
-    }
-    if incomplete:
-        detail = ",".join(
-            f"{market}={value['observed_sector_count']}/{value['ratified_identity_count'] - 1}"
-            for market, value in sorted(incomplete.items())
-        )
-        raise CandidateError(f"LEADERSHIP_COVERAGE_INCOMPLETE:{detail}")
+    require_complete_leadership(leadership)
     axes = {
         "TREND": {"status": "OBSERVED", "measurement": trend},
         "BREADTH": {"status": "OBSERVED", "measurement": SIGNALS._breadth(previous, current, places)},
