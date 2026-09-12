@@ -84,8 +84,8 @@
       "status": "RECORDED_HISTORY_OBSERVED"
     }
   },
-  "generated_at": "2026-09-12T07:51:01Z",
-  "generation_id": "03a1107df50e6e9e2a173d0c3664ceffb3e212888663664fb51a88ac8ebfa889",
+  "generated_at": "2026-09-12T06:31:44Z",
+  "generation_id": "78cf39dfb250a87d3639b950dfe3b9070180696d292aed5624bedbad8900e0f7",
   "market_allocation_reviews": [
     {
       "as_of_date": "2026-09-11",
@@ -107,16 +107,16 @@
     },
     {
       "as_of_date": "2026-09-12",
-      "candidate_regime": "NEUTRAL",
+      "candidate_regime": "UNKNOWN",
       "explanation_ko": "공식 시장 신호 5개가 모두 확인될 때까지 비중 우선순위를 정하지 않습니다.",
       "market": "CRYPTO",
-      "regime_score": 0,
+      "regime_score": null,
       "review_priority": "WAIT_FOR_COMPLETE_REGIME",
       "target_weight_pct": null
     }
   ],
   "mode": "PAPER_DIAGNOSTIC_NOT_ALLOCATION",
-  "payload_sha256": "4ea5fa1ee506dcac7c85e042e22fc0db307cab86282c6c651a33e9fe47899044",
+  "payload_sha256": "ef3687ef76c0e806767822c4b444f5e858f2d4a556e781323c03a9fc857931fd",
   "policy": {
     "capital_model": {
       "cash_role": "RESIDUAL_AND_DEFENSIVE_ASSET",
@@ -133,11 +133,11 @@
   "sources": [
     {
       "contract_version": "paper_regime_reference_policy/v1",
-      "generation_id": "64c04b312421524665eaa390509cc59bebe1599aa69ea752e3ddf06b4b54424d",
+      "generation_id": "e3edffa0fb62d677a7c1417d08214267706b9a783d705b169a3014dbe2b4f4f6",
       "path": "data/latest_paper_regime_reference.json",
-      "payload_sha256": "fe800faf3813d61ed36810671aaff92484cd092c4ad8f88f5c219f1a56a6bc3b",
+      "payload_sha256": "1e9ee486cdb32a7892c704fb436d5c3c983bfc09afdc9db1719ba079e0adb5d6",
       "schema_version": "paper_regime_reference/v2",
-      "sha256": "bd53278944c96d7a5924cdf96e80621f80457ad93aaae8065f11dc831b5de412",
+      "sha256": "6bd13778e61ee053c9d24cb376b01ecec4e57517232228e04853845a05a01a49",
       "source_type": "P1_PAPER_REGIME_REFERENCE_PACKET"
     },
     {
@@ -169,10 +169,10 @@
   "status": "PARTIAL_REFERENCE_AVAILABLE",
   "total_exposure_review": {
     "cash_target_pct": null,
-    "explanation_ko": "시장 분위기가 엇갈려 현재 전체 투자비중을 유지하는 검토가 우선입니다.",
-    "input_state": "COMPLETE",
+    "explanation_ko": "세 시장 중 판정이 끝나지 않은 곳이 있어 전체 투자비중 숫자를 만들지 않습니다.",
+    "input_state": "INCOMPLETE",
     "invested_target_pct": null,
     "numeric_budget_status": "UNRATIFIED_REPLAY_REQUIRED",
-    "review": "HOLD_REVIEW"
+    "review": "WAIT_INCOMPLETE_MARKET_SET"
   }
 }

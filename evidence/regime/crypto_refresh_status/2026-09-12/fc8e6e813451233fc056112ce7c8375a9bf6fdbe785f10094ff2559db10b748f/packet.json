@@ -25,20 +25,21 @@
         "TREND",
         "BREADTH",
         "RISK_VOL",
-        "LIQUIDITY",
         "LEADERSHIP"
       ],
-      "defined_count": 5,
-      "missing_axes": [],
-      "ratio": "5/5",
+      "defined_count": 4,
+      "missing_axes": [
+        "LIQUIDITY"
+      ],
+      "ratio": "4/5",
       "required_count": 5
     },
     "leadership_code": "MIXED_WINDOW_LEADERSHIP",
     "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
     "price_as_of_date": "2026-09-11"
   },
-  "generated_at": "2026-09-12T07:51:01Z",
-  "generation_id": "9f8bef2ddef1eb64eb8308f0a4d04d33b45b8c5658d9ba5542ad1cbef4adb530",
+  "generated_at": "2026-09-12T06:31:44Z",
+  "generation_id": "fc8e6e813451233fc056112ce7c8375a9bf6fdbe785f10094ff2559db10b748f",
   "natural_history_progress": {
     "earliest_pilot_capture_date_if_no_new_gap": "2026-09-15",
     "earliest_primary_capture_date_if_no_new_gap": "2026-10-08",
@@ -50,26 +51,26 @@
     "primary_required_days": 30
   },
   "official_decision": {
-    "captured_at_utc": "2026-09-12T07:51:01Z",
+    "captured_at_utc": "2026-09-12T06:31:44Z",
     "classification_status": "WAIT_PIT_LEADERSHIP_HISTORY",
     "coverage": {
       "defined_axes": [
         "TREND",
         "BREADTH",
-        "RISK_VOL",
-        "LIQUIDITY"
+        "RISK_VOL"
       ],
-      "defined_count": 4,
+      "defined_count": 3,
       "missing_axes": [
+        "LIQUIDITY",
         "LEADERSHIP"
       ],
-      "ratio": "4/5",
+      "ratio": "3/5",
       "required_count": 5
     },
     "runtime_regime": "UNKNOWN",
     "unavailable_reason": null
   },
-  "payload_sha256": "53dc23b586da06447851a454b6d3aeb89026400cebd71cd05bc3616f4935966c",
+  "payload_sha256": "fc99015d99ed5bff87057111a7506e17663736201de430a1f84303592e70c910",
   "schema_version": "crypto_regime_refresh_status/1",
   "sources": [
     {
@@ -78,15 +79,15 @@
       "sha256": "0d0b4d6787357b32dcdf3a75fa7b7de673627df995e13146e92e933d7b2f1468"
     },
     {
-      "generation_id": "4139a59ec04c839b1410b1e8b60c4bc68162e1aa3f01955aca0070a9fa4091ca",
+      "generation_id": "088e009c94e0f97fc32535b9878484ea0c4b5f74bf8afb11523650efc0765291",
       "kind": "OFFICIAL_DECISION",
-      "path": "evidence/crypto_paper_decision/2026-09-12/0751/4139a59ec04c839b1410b1e8b60c4bc68162e1aa3f01955aca0070a9fa4091ca/packet.json",
-      "sha256": "f02e39e4db76ffd714be087ac821b22c4197c661dc5bec98511ec343a93c53e2"
+      "path": "evidence/crypto_paper_decision/2026-09-12/0631/088e009c94e0f97fc32535b9878484ea0c4b5f74bf8afb11523650efc0765291/packet.json",
+      "sha256": "4c29a8028a7de46914bbdd32b0011673f7218163459459922130e1004ee47c6c"
     }
   ],
-  "status": "CURRENT_REFERENCE_COMPLETE_OFFICIAL_HISTORY_PENDING",
+  "status": "CURRENT_REFERENCE_INCOMPLETE",
   "user_message": {
-    "detail_ko": "오늘 흐름을 보는 5개 참고 신호는 확인됐습니다. 자동매매용 Leadership은 과거시점 보존 이력이 더 필요합니다.",
-    "headline_ko": "오늘 참고 신호 5개 확인 · 공식 판정 이력 검증 중"
+    "detail_ko": "필수 참고 신호가 모두 도착하지 않아 판정을 보류합니다.",
+    "headline_ko": "오늘 코인 시장자료 수집 대기"
   }
 }

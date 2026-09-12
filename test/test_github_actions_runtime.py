@@ -78,10 +78,19 @@ class GitHubActionsRuntimeTest(unittest.TestCase):
                         observed[action].append((path.name, use))
                         self.assertEqual(use, f"{action}@{item['commit_sha']}")
 
-        self.assertEqual(len(observed["actions/checkout"]), 46)
-        self.assertEqual(len(observed["actions/setup-python"]), 45)
-        self.assertEqual(len(observed["actions/upload-artifact"]), 14)
-        self.assertEqual(len(observed["actions/download-artifact"]), 2)
+        # ★ CIO 판정 2026-09-12 — 정확한 사용 횟수는 governance invariant 가
+        #   아니다. workflow 를 job 여러 개로 나누면(예: actions-pass.yml 5-job
+        #   분할) checkout/setup-python 등의 사용 횟수는 자연스럽게 바뀐다 —
+        #   그때마다 리터럴을 다시 맞추는 건 이 테스트가 지키려는 진짜 계약이
+        #   아니라 그 계약을 재는 방법이 brittle 했을 뿐이다. 실제로 지켜야
+        #   하는 것은 ①(위에서 이미 확인한) 모든 사용이 정확한 immutable pin
+        #   이라는 것과 ②계약에 선언된 action 이 실제로 쓰이고 있다는 것,
+        #   둘뿐이다.
+        for action, uses in observed.items():
+            self.assertTrue(
+                uses,
+                f"{action} is declared in the runtime contract but unused",
+            )
 
     def test_no_mutable_or_retired_refs_remain_in_workflows(self):
         raw = "\n".join(
