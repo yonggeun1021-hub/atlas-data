@@ -33,6 +33,10 @@ class LeadershipLiveProofWorkflowTest(unittest.TestCase):
         self.steps_by_name = {
             step["name"]: step for step in self.job["steps"] if "name" in step
         }
+        self.seed = self.workflow["jobs"]["seed-effective-date-leadership"]
+        self.seed_steps = {
+            step["name"]: step for step in self.seed["steps"] if "name" in step
+        }
 
     def test_manual_dispatch_inputs_unchanged(self):
         triggers = self.workflow.get("on", self.workflow.get(True))
@@ -148,6 +152,39 @@ class LeadershipLiveProofWorkflowTest(unittest.TestCase):
         self.assertIn("REQUEST_NOT_READY", decision)
         self.assertIn("SHOULD_CALL=false", decision)
 
+    def test_effective_date_seed_uses_resolved_pair_without_new_schedule(self):
+        self.assertEqual(self.seed["needs"], "prepare-scheduled-observation-pair")
+        self.assertEqual(
+            self.seed["if"],
+            "needs.prepare-scheduled-observation-pair.outputs.seed_current_leadership == 'true'",
+        )
+        self.assertEqual(
+            self.seed["env"]["PRIOR_DATE"],
+            "${{ needs.prepare-scheduled-observation-pair.outputs.prior_date }}",
+        )
+        self.assertEqual(
+            self.seed["env"]["CURRENT_DATE"],
+            "${{ needs.prepare-scheduled-observation-pair.outputs.current_date }}",
+        )
+        readiness = self.prepare_steps[
+            "Check policy effectivity and existing-pair chronology"
+        ]["run"]
+        self.assertIn("seed_current_leadership", readiness)
+
+    def test_effective_date_seed_verifies_before_fetch_and_commits_only_leadership(self):
+        existing = self.seed_steps[
+            "Reuse an exact committed effective-date Leadership observation"
+        ]
+        self.assertIn("--verify-existing-only", existing["run"])
+        fetch = self.seed_steps[
+            "Korea Leadership effective-date real KRX index fetch attempt"
+        ]
+        commit = self.seed_steps["Commit effective-date Korea Leadership evidence"]
+        self.assertEqual(fetch["if"], "steps.existing_leadership.outputs.exists != 'true'")
+        self.assertEqual(commit["if"], "steps.existing_leadership.outputs.exists != 'true'")
+        self.assertIn("git add data/observations/korea_leadership_context", commit["run"])
+        self.assertNotIn("korea_breadth_context", commit["run"])
+
     def test_called_failure_propagates_and_success_handoff_is_reverified(self):
         verify = self.workflow["jobs"]["verify-scheduled-observation-pair-handoff"]
         self.assertEqual(
@@ -181,6 +218,7 @@ class LeadershipLiveProofWorkflowTest(unittest.TestCase):
         self.assertEqual(
             self.job["permissions"], {"contents": "write"}
         )
+        self.assertEqual(self.seed["permissions"], {"contents": "write"})
         self.assertEqual(self.workflow["concurrency"]["group"], "korea-leadership-live-proof")
         pair_text = (
             ROOT / ".github" / "workflows" / "p2-03-korea-observation-pair.yml"

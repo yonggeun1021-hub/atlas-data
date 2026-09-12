@@ -72,6 +72,7 @@ jobs:
       actions: read
     outputs:
       should_call: ${{ steps.decision.outputs.should_call }}
+      seed_current_leadership: ${{ steps.readiness.outputs.seed_current_leadership }}
       prior_date: ${{ steps.dates.outputs.prior_date }}
       current_date: ${{ steps.dates.outputs.current_date }}
       reason: ${{ steps.decision.outputs.reason }}
@@ -149,6 +150,7 @@ jobs:
           value = json.loads(Path(os.environ["RUNNER_TEMP"] + "/request-readiness.json").read_text())
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
               handle.write(f"call_ready={str(value['call_ready']).lower()}\n")
+              handle.write(f"seed_current_leadership={str(value['seed_current_leadership']).lower()}\n")
               handle.write(f"reason={value['status']}\n")
           print(json.dumps(value, ensure_ascii=False, sort_keys=True))
           PY
@@ -270,6 +272,68 @@ jobs:
           echo "should_call=$SHOULD_CALL" >> "$GITHUB_OUTPUT"
           echo "reason=$REASON" >> "$GITHUB_OUTPUT"
           echo "scheduled pair controller: should_call=$SHOULD_CALL reason=$REASON"
+
+  seed-effective-date-leadership:
+    needs: prepare-scheduled-observation-pair
+    if: needs.prepare-scheduled-observation-pair.outputs.seed_current_leadership == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      PRIOR_DATE: ${{ needs.prepare-scheduled-observation-pair.outputs.prior_date }}
+      CURRENT_DATE: ${{ needs.prepare-scheduled-observation-pair.outputs.current_date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Effective-date Leadership seed focused regression
+        run: |
+          python3 test/test_korea_observation_pair_controller.py
+          python3 test/test_korea_leadership_live_fetch.py
+      - name: Reuse an exact committed effective-date Leadership observation
+        id: existing_leadership
+        run: |
+          ISO_DATE="${CURRENT_DATE:0:4}-${CURRENT_DATE:4:2}-${CURRENT_DATE:6:2}"
+          CONTEXT_PATH="data/observations/korea_leadership_context/$ISO_DATE/packet.json"
+          if test -f "$CONTEXT_PATH"; then
+            python3 .github/scripts/korea_leadership_live_fetch.py \
+              --prior-date "$PRIOR_DATE" \
+              --current-date "$CURRENT_DATE" \
+              --verify-existing-only
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Korea Leadership effective-date real KRX index fetch attempt
+        if: steps.existing_leadership.outputs.exists != 'true'
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          python3 .github/scripts/korea_leadership_live_fetch.py \
+            --prior-date "$PRIOR_DATE" \
+            --current-date "$CURRENT_DATE"
+      - name: Commit effective-date Korea Leadership evidence
+        if: steps.existing_leadership.outputs.exists != 'true'
+        run: |
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git fetch origin main
+          git reset --hard origin/main
+          git add data/observations/korea_leadership_context
+          if git diff --cached --quiet; then
+            echo "no change (verified_existing) -- nothing to commit"
+          else
+            git commit -m "korea leadership effective-date seed $(date -u +%Y-%m-%d) [run ${{ github.run_id }}] [trigger=${{ github.event_name }}]"
+            git push
+          fi
 
   scheduled-observation-pair:
     needs: prepare-scheduled-observation-pair

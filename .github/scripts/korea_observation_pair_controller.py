@@ -70,9 +70,30 @@ def request_readiness(prior_date: str, current_date: str, root: Path = ROOT) -> 
         if policy["effective_to"] is None
         else dt.date.fromisoformat(policy["effective_to"])
     )
-    if prior < effective_from or (effective_to is not None and current >= effective_to):
+    if prior < effective_from:
+        seed_current = current >= effective_from and (
+            effective_to is None or current < effective_to
+        )
         return {
             "call_ready": False,
+            "seed_current_leadership": seed_current,
+            "status": (
+                "SEED_EFFECTIVE_DATE_LEADERSHIP_CONTEXT"
+                if seed_current
+                else "WAIT_POLICY_NOT_EFFECTIVE_FOR_PAIR"
+            ),
+            "prior_date": prior_iso,
+            "current_date": current_iso,
+            "policy_id": policy["policy_id"],
+            "rotation_policy_sha256": KCR.payload_sha256(policy),
+            "upstream_leadership_policy_sha256": binding[
+                "upstream_leadership_policy_sha256"
+            ],
+        }
+    if effective_to is not None and current >= effective_to:
+        return {
+            "call_ready": False,
+            "seed_current_leadership": False,
             "status": "WAIT_POLICY_NOT_EFFECTIVE_FOR_PAIR",
             "prior_date": prior_iso,
             "current_date": current_iso,
@@ -94,6 +115,7 @@ def request_readiness(prior_date: str, current_date: str, root: Path = ROOT) -> 
     if not leadership_path.is_file():
         return {
             "call_ready": True,
+            "seed_current_leadership": False,
             "status": (
                 "CALL_ORDERED_CAPTURE_WITH_EXISTING_BREADTH"
                 if breadth_path.is_file()
@@ -110,6 +132,7 @@ def request_readiness(prior_date: str, current_date: str, root: Path = ROOT) -> 
     if not breadth_path.is_file():
         return {
             "call_ready": False,
+            "seed_current_leadership": False,
             "status": "WAIT_EXISTING_LEADERSHIP_PRECEDES_MISSING_BREADTH",
             "prior_date": prior_iso,
             "current_date": current_iso,
@@ -125,6 +148,7 @@ def request_readiness(prior_date: str, current_date: str, root: Path = ROOT) -> 
     except Exception as exc:  # exact producer owns the detailed fail-closed reason
         return {
             "call_ready": False,
+            "seed_current_leadership": False,
             "status": "WAIT_EXISTING_PAIR_NOT_PRODUCER_ELIGIBLE",
             "reason": f"{type(exc).__name__}:{exc}",
             "prior_date": prior_iso,
@@ -141,6 +165,7 @@ def request_readiness(prior_date: str, current_date: str, root: Path = ROOT) -> 
     ):
         return {
             "call_ready": False,
+            "seed_current_leadership": False,
             "status": "WAIT_EXISTING_PAIR_NOT_PRODUCER_ELIGIBLE",
             "prior_date": prior_iso,
             "current_date": current_iso,
@@ -152,6 +177,7 @@ def request_readiness(prior_date: str, current_date: str, root: Path = ROOT) -> 
         }
     return {
         "call_ready": True,
+        "seed_current_leadership": False,
         "status": "CALL_EXISTING_ELIGIBLE_PAIR",
         "prior_date": prior_iso,
         "current_date": current_iso,
@@ -212,6 +238,59 @@ def classify_runs(
     }
 
 
+def _handoff_source_paths(prior_iso: str, current_iso: str) -> tuple[str, ...]:
+    """Files whose exact bytes determine the current-ratified packet."""
+    return (
+        ".github/scripts/korea_capital_rotation_ledger_proof.py",
+        "rotation/korea_capital_rotation.py",
+        "rotation/korea_capital_rotation_ledger_wire.py",
+        "rotation/korea_capital_rotation_policy_ratified.py",
+        "rotation/theme_taxonomy.py",
+        "rotation/theme_taxonomy_authority.py",
+        "market_data/krx_official_holiday_calendar.py",
+        "config/korea_capital_rotation_contract.json",
+        "config/korea_sector_identity_binding_contract.json",
+        "config/theme_taxonomy_contract.json",
+        "config/korea_leadership_policy.json",
+        "config/korea_rotation_sector_identity_decision.json",
+        "config/korea_rotation_sector_identity_binding_document.json",
+        "config/korea_rotation_sector_identity_taxonomy_binding.json",
+        "config/korea_capital_rotation_policy_ratified.json",
+        "evidence/market_calendar/krx_global_holiday/2026-09-09/capture-2026.json",
+        f"data/observations/korea_leadership_context/{prior_iso}/packet.json",
+        f"data/observations/korea_leadership_context/{current_iso}/packet.json",
+        f"data/observations/korea_breadth_context/{current_iso}/packet.json",
+    )
+
+
+def _verify_declared_source_revision(
+    commit: str, source_paths: tuple[str, ...], root: Path = ROOT
+) -> None:
+    """Require declared revision bytes to equal every current producer input.
+
+    An unrelated commit may advance main without invalidating an exact
+    artifact.  Conversely, a historical ancestor that lacks or differs in a
+    producer, policy, contract, calendar, or observation input cannot claim
+    the packet reconstructed from current bytes.
+    """
+    for relative in source_paths:
+        current_path = root / relative
+        try:
+            current_bytes = current_path.read_bytes()
+            declared_bytes = subprocess.check_output(
+                ["git", "-C", str(root), "show", f"{commit}:{relative}"],
+                stderr=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise RuntimeError(
+                f"FINAL_HANDOFF_DECLARED_SOURCE_UNAVAILABLE:{relative}"
+            ) from exc
+        if declared_bytes != current_bytes:
+            raise RuntimeError(
+                f"FINAL_HANDOFF_DECLARED_SOURCE_BYTES_MISMATCH:{relative}"
+            )
+
+
 def verify_handoff(
     artifact_dir: Path, prior_date: str, current_date: str
 ) -> dict:
@@ -257,6 +336,9 @@ def verify_handoff(
         )
     except subprocess.CalledProcessError as exc:
         raise RuntimeError("FINAL_HANDOFF_PUBLIC_COMMIT_NOT_IN_CURRENT_MAIN") from exc
+    _verify_declared_source_revision(
+        commit, _handoff_source_paths(prior_iso, current_iso)
+    )
     return {
         "validated": True,
         "status": "FINAL_ROTATION_HANDOFF_VALIDATED",

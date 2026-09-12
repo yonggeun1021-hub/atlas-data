@@ -37,11 +37,19 @@ class RequestReadinessTests(unittest.TestCase):
     def test_archived_pre_effective_pair_stays_waiting(self):
         result = CTRL.request_readiness("20260813", "20260814", self.root)
         self.assertFalse(result["call_ready"])
+        self.assertFalse(result["seed_current_leadership"])
         self.assertEqual(result["status"], "WAIT_POLICY_NOT_EFFECTIVE_FOR_PAIR")
+
+    def test_effective_date_seeds_current_leadership_before_first_full_pair(self):
+        result = CTRL.request_readiness("20260911", "20260914", self.root)
+        self.assertFalse(result["call_ready"])
+        self.assertTrue(result["seed_current_leadership"])
+        self.assertEqual(result["status"], "SEED_EFFECTIVE_DATE_LEADERSHIP_CONTEXT")
 
     def test_post_effective_missing_inputs_calls_only_ordered_combined_path(self):
         result = CTRL.request_readiness("20260914", "20260915", self.root)
         self.assertTrue(result["call_ready"])
+        self.assertFalse(result["seed_current_leadership"])
         self.assertEqual(result["status"], "CALL_ORDERED_CAPTURE")
 
     def test_existing_leadership_without_prior_breadth_waits_for_next_pair(self):
@@ -164,6 +172,7 @@ class FinalArtifactTests(unittest.TestCase):
             mock.patch.object(
                 CTRL.LEDGER, "build_current_ratified_packet", return_value=self.packet
             ),
+            mock.patch.object(CTRL, "_verify_declared_source_revision"),
         ):
             result = CTRL.verify_handoff(
                 self.artifact, "20260914", "20260915"
@@ -191,6 +200,56 @@ class FinalArtifactTests(unittest.TestCase):
             RuntimeError, "FINAL_HANDOFF_FILES_MISSING_OR_AMBIGUOUS"
         ):
             CTRL.verify_handoff(self.artifact, "20260914", "20260915")
+
+
+class DeclaredSourceRevisionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.name", "test"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.email", "test@example.invalid"],
+            check=True,
+        )
+        (self.root / "source.json").write_text('{"version":1}\n', encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "source.json"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "-qm", "source"], check=True
+        )
+        self.source_commit = subprocess.check_output(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"], text=True
+        ).strip()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_unrelated_newer_commit_preserves_valid_source_revision(self):
+        (self.root / "unrelated.txt").write_text("later\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "unrelated.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "-qm", "unrelated"], check=True
+        )
+        CTRL._verify_declared_source_revision(
+            self.source_commit, ("source.json",), self.root
+        )
+
+    def test_changed_source_rejects_older_ancestor(self):
+        (self.root / "source.json").write_text('{"version":2}\n', encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "source.json"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "-qm", "source update"],
+            check=True,
+        )
+        with self.assertRaisesRegex(
+            RuntimeError, "FINAL_HANDOFF_DECLARED_SOURCE_BYTES_MISMATCH:source.json"
+        ):
+            CTRL._verify_declared_source_revision(
+                self.source_commit, ("source.json",), self.root
+            )
 
 
 if __name__ == "__main__":
