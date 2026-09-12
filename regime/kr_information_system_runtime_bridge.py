@@ -174,14 +174,34 @@ def _validate_manifest(manifest: dict, raw_responses: Mapping[str, bytes]) -> tu
         require(isinstance(request, dict) and request.get("method") == "POST"
                 and request.get("url") == CAPTURE.ENDPOINT, "SOURCE_REQUEST_IDENTITY_INVALID")
         params = request.get("public_params")
-        require(isinstance(params, dict) and set(params).issubset(CAPTURE.PUBLIC_FIELDS),
-                "SOURCE_REQUEST_PARAMS_INVALID")
+        day, market, family = key.split(":")
+        if family == "stock":
+            expected_params = {
+                "bld": "dbms/MDC/STAT/standard/MDCSTAT01501",
+                "trdDd": day,
+                "mktId": {"KOSPI": "STK", "KOSDAQ": "KSQ"}[market],
+            }
+        else:
+            expected_params = {
+                "bld": "dbms/MDC/STAT/standard/MDCSTAT00101",
+                "trdDd": day,
+                "idxIndMidclssCd": {"KOSPI": "02", "KOSDAQ": "03"}[market],
+            }
+        require(params == expected_params, "SOURCE_REQUEST_PARAMS_INVALID")
         require(response.get("provider_published_at") is None,
                 "PROVIDER_TIME_SEMANTICS_INVALID")
         require(str(response.get("content_type", "")).split(";", 1)[0].strip().lower()
                 in {"application/json", "text/html"}, "SOURCE_RESPONSE_CONTENT_TYPE_INVALID")
         require(binding.get("raw_to_frame_equivalent") is True, "RAW_FRAME_EQUIVALENCE_MISSING")
         require(isinstance(binding.get("sha256"), str) and SHA256.fullmatch(binding["sha256"]), "FRAME_HASH_INVALID")
+        require(binding.get("schema") == f"pykrx_1_2_8_{family}_required_projection/1",
+                "FRAME_SCHEMA_INVALID")
+        try:
+            projection_sha256 = sha256(CAPTURE.canonical_bytes(CAPTURE._raw_projection(raw, family)))
+        except CAPTURE.CaptureError as exc:
+            raise InformationSystemRuntimeError("RAW_PROJECTION_INVALID") from exc
+        require(binding.get("required_projection_sha256") == projection_sha256,
+                "RAW_PROJECTION_HASH_MISMATCH")
         received = instant(response.get("received_at_utc"), "RECEIPT_TIME_INVALID")
         require(started <= received <= completed, "RECEIPT_TIME_ORDER_INVALID")
         by_key[key] = (record, raw)
@@ -362,9 +382,18 @@ def validate_natural_evidence(*, reference_raw: bytes, manifest_raw: bytes,
             and calendar.get("previous_completed_session") == previous
             and calendar.get("latest_completed_session") == current,
             "SOURCE_CALENDAR_BINDING_INVALID")
-    for family, markets in origin.get("requests", {}).items():
-        require(family in {"stock", "index"} and set(markets) == set(MARKETS), "SOURCE_LINEAGE_INVALID")
+    requests = origin.get("requests")
+    require(isinstance(requests, dict) and set(requests) == {"stock", "index"},
+            "SOURCE_LINEAGE_INVALID")
+    expected_endpoints = {
+        "stock": "KRX_INFORMATION_DATA_SYSTEM_PYKRX_STOCK_FRAME",
+        "index": "KRX_INFORMATION_DATA_SYSTEM_PYKRX_INDEX_FRAME",
+    }
+    for family, markets in requests.items():
+        require(isinstance(markets, dict) and set(markets) == set(MARKETS), "SOURCE_LINEAGE_INVALID")
         for market, row in markets.items():
+            require(isinstance(row, dict) and row.get("endpoint") == expected_endpoints[family],
+                    "SOURCE_ENDPOINT_MISMATCH")
             require(row.get("previous_fetched_at_utc") == receipts[f"{previous}:{market}:{family}"], "SOURCE_RECEIPT_BINDING_MISMATCH")
             require(row.get("current_fetched_at_utc") == receipts[f"{current}:{market}:{family}"], "SOURCE_RECEIPT_BINDING_MISMATCH")
             require(row.get("time_semantics") == "ACTUAL_RESPONSE_RECEIVED_AT_UTC", "SOURCE_TIME_SEMANTICS_INVALID")
@@ -388,9 +417,16 @@ def validate_natural_evidence(*, reference_raw: bytes, manifest_raw: bytes,
         == [{key: row[key] for key in semantic_fields} for row in normalized],
         "PAPER_REFERENCE_REDERIVATION_MISMATCH",
     )
+    rebuilt_reference = REFERENCE.build_kr(
+        source, reference_policy, render_version=REFERENCE.CURRENT_RENDER_VERSION
+    )
+    require(reported.get("paper_reference") == rebuilt_reference.get("paper_reference"),
+            "PAPER_REFERENCE_CLASSIFICATION_MISMATCH")
     return {"wrapper": wrapper, "source_packet": source, "axis_directions": directions,
             "available_at": source["available_at"], "previous_date": expected_previous,
-            "as_of_date": expected_current, "source_sha256": sha256(reference_raw)}
+            "as_of_date": expected_current, "source_sha256": sha256(reference_raw),
+            "normalized_axes": normalized,
+            "paper_reference": rebuilt_reference["paper_reference"]}
 
 
 def validate_historical_replay(raw: bytes, expected_sha256: str,
@@ -475,7 +511,8 @@ def evaluate_runtime(*, reference_raw: bytes, manifest_raw: bytes,
     available = instant(natural["available_at"], "SOURCE_AVAILABILITY_INVALID")
     display_floor = dt.datetime.combine(dt.date.fromisoformat(natural["as_of_date"]), dt.time(18), ZoneInfo("Asia/Seoul")).astimezone(dt.timezone.utc)
     effective = instant(qualification.get("effective_at"), "QUALIFICATION_EFFECTIVE_TIME_INVALID")
-    require(max(available, display_floor, effective) <= now, "SOURCE_NOT_YET_USABLE")
+    require(available >= display_floor, "SOURCE_BEFORE_EXISTING_EARLIEST_USABLE_TIME")
+    require(max(available, effective) <= now, "SOURCE_NOT_YET_USABLE")
     require(now < instant(session_boundary.get("execution_session_close_at"), "EXECUTION_CLOSE_INVALID"), "LATEST_SOURCE_STALE")
     steps.append({"packet_id": natural["source_packet"]["payload_sha256"], "as_of_date": natural["as_of_date"],
         "axes": {axis: {"status": "DEFINED", "direction": direction} for axis, direction in natural["axis_directions"].items()}})
@@ -483,7 +520,7 @@ def evaluate_runtime(*, reference_raw: bytes, manifest_raw: bytes,
     replay = COMMON.replay_common_v1(sequence)
     current = replay["steps"][-1]
     require(replay["final_regime"] != "UNKNOWN", "COMMON_CONFIRMATION_PENDING")
-    paper_reference = natural["wrapper"]["paper_reference"]
+    paper_reference = natural["paper_reference"]
     return {
         "schema_version": "kr_paper_runtime_decision/5", "market": "KR",
         "evaluation_at": evaluation_at, "code_revision": code_revision,
@@ -493,9 +530,9 @@ def evaluate_runtime(*, reference_raw: bytes, manifest_raw: bytes,
         "confidence": replay["final_confidence"], "runtime_decision_available": True,
         "current_observation": {"as_of_date": natural["as_of_date"],
             "candidate_regime": current["raw_classification"], "score": current["score"],
-            "candidate_confidence": paper_reference["paper_reference"]["confidence"],
+            "candidate_confidence": paper_reference["confidence"],
             "confirmed_regime": current["confirmed_regime"], "hysteresis": current["hysteresis"],
-            "leadership": paper_reference["axes"][-1]},
+            "leadership": natural["normalized_axes"][-1]},
         "source_sha256": natural["source_sha256"], "source_manifest_sha256": sha256(manifest_raw),
         "historical_replay_sha256": expected_historical_sha256,
         "historical_acceptance_sha256": expected_historical_acceptance_sha256,

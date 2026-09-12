@@ -128,6 +128,28 @@ def requalify(args):
     args["expected_qualification_sha256"] = digest(raw)
 
 
+def rewrite(args, source_edit=None, manifest_edit=None, wrapper_edit=None):
+    wrapper = json.loads(args["reference_raw"])
+    manifest = json.loads(args["manifest_raw"])
+    if manifest_edit:
+        manifest_edit(manifest)
+        manifest["payload_sha256"] = B._manifest_payload_sha256(manifest)
+        wrapper["source_packet"]["source"]["source_capture"]["manifest_payload_sha256"] = manifest["payload_sha256"]
+    if source_edit:
+        source_edit(wrapper["source_packet"])
+    source = wrapper["source_packet"]
+    unsigned = dict(source)
+    unsigned.pop("payload_sha256")
+    source["payload_sha256"] = digest(B.canonical_bytes(unsigned))
+    if wrapper_edit:
+        wrapper_edit(wrapper)
+    args["reference_raw"] = B.pretty_bytes(wrapper)
+    args["manifest_raw"] = B.pretty_bytes(manifest)
+    args["expected_source"]["reference_sha256"] = digest(args["reference_raw"])
+    args["expected_source"]["manifest_sha256"] = digest(args["manifest_raw"])
+    requalify(args)
+
+
 class InformationSystemRuntimeBridgeTest(unittest.TestCase):
     def test_actual_retained_bytes_open_confirmed_paper_display(self):
         result = B.evaluate_runtime(**inputs())
@@ -234,6 +256,64 @@ class InformationSystemRuntimeBridgeTest(unittest.TestCase):
         args["expected_historical_sha256"] = digest(args["historical_replay_raw"])
         requalify(args)
         with self.assertRaisesRegex(B.InformationSystemRuntimeError, "HISTORY_REPLAY_REDERIVATION_MISMATCH"):
+            B.evaluate_runtime(**args)
+
+    def test_request_lineage_and_raw_projection_tampering_fail(self):
+        args = inputs()
+        rewrite(args, source_edit=lambda source: source["source"].__setitem__("requests", {}))
+        with self.assertRaisesRegex(B.InformationSystemRuntimeError, "SOURCE_LINEAGE_INVALID"):
+            B.evaluate_runtime(**args)
+
+        args = inputs()
+        def replace_endpoints(source):
+            for markets in source["source"]["requests"].values():
+                for row in markets.values():
+                    row["endpoint"] = "https://invalid.example/no-provider"
+        rewrite(args, source_edit=replace_endpoints)
+        with self.assertRaisesRegex(B.InformationSystemRuntimeError, "SOURCE_ENDPOINT_MISMATCH"):
+            B.evaluate_runtime(**args)
+
+        args = inputs()
+        def replace_request(manifest):
+            manifest["records"][0]["request"]["public_params"].update(
+                {"trdDd": "20200101", "bld": "SYNTHETIC_WRONG_BUILDER"}
+            )
+        rewrite(args, manifest_edit=replace_request)
+        with self.assertRaisesRegex(B.InformationSystemRuntimeError, "SOURCE_REQUEST_PARAMS_INVALID"):
+            B.evaluate_runtime(**args)
+
+        args = inputs()
+        rewrite(args, manifest_edit=lambda manifest: manifest["records"][0]["normalized_frame"].__setitem__(
+            "required_projection_sha256", "0" * 64
+        ))
+        with self.assertRaisesRegex(B.InformationSystemRuntimeError, "RAW_PROJECTION_HASH_MISMATCH"):
+            B.evaluate_runtime(**args)
+
+    def test_early_source_and_forged_reference_confidence_fail(self):
+        args = inputs()
+        def early_manifest(manifest):
+            manifest["capture_started_at_utc"] = "2026-09-11T08:39:22Z"
+            manifest["capture_completed_at_utc"] = "2026-09-11T08:39:27Z"
+            for record in manifest["records"]:
+                record["response"]["received_at_utc"] = record["response"]["received_at_utc"].replace(
+                    "2026-09-12T22:", "2026-09-11T08:"
+                )
+        def early_source(source):
+            source["available_at"] = source["generated_at"] = "2026-09-11T08:39:27Z"
+            for markets in source["source"]["requests"].values():
+                for row in markets.values():
+                    for period in ("previous", "current"):
+                        key = period + "_fetched_at_utc"
+                        row[key] = row[key].replace("2026-09-12T22:", "2026-09-11T08:")
+        rewrite(args, source_edit=early_source, manifest_edit=early_manifest)
+        with self.assertRaisesRegex(B.InformationSystemRuntimeError, "SOURCE_BEFORE_EXISTING_EARLIEST_USABLE_TIME"):
+            B.evaluate_runtime(**args)
+
+        args = inputs()
+        rewrite(args, wrapper_edit=lambda wrapper: wrapper["paper_reference"]["paper_reference"].__setitem__(
+            "confidence", "0.99"
+        ))
+        with self.assertRaisesRegex(B.InformationSystemRuntimeError, "PAPER_REFERENCE_CLASSIFICATION_MISMATCH"):
             B.evaluate_runtime(**args)
 
 
