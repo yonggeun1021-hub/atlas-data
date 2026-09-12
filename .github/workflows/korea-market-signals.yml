@@ -27,11 +27,18 @@ jobs:
           python-version: "3.11"
       - name: Install KRX cross-check dependency
         run: |
-          python3 -m pip install -r requirements.txt -c requirements-korea-paper-source.constraints.txt
           mkdir -p artifact/dependency-wheels
-          python3 -m pip download --no-deps --require-hashes \
+          python3 -m pip download --only-binary=:all: --require-hashes \
             -r requirements-korea-paper-source.lock \
             -d artifact/dependency-wheels
+          python3 .github/scripts/verify_kr_paper_source_dependencies.py \
+            --contract config/krx_information_system_source_candidate_v1.json \
+            --wheel-dir artifact/dependency-wheels \
+            --skip-installed \
+            --out artifact/dependency-wheel-verification.json
+          python3 -m pip install --no-index --find-links artifact/dependency-wheels \
+            --only-binary=:all: --require-hashes \
+            -r requirements-korea-paper-source.lock
           python3 .github/scripts/verify_kr_paper_source_dependencies.py \
             --contract config/krx_information_system_source_candidate_v1.json \
             --wheel-dir artifact/dependency-wheels
@@ -137,7 +144,6 @@ jobs:
           python3 .github/scripts/korea_market_signals_pykrx_candidate.py \
             --previous-date "$PREVIOUS_DATE" \
             --current-date "$CURRENT_DATE" \
-            --expected-current-date "$CURRENT_DATE" \
             --fetched-at "$FETCHED_AT" \
             --capture-dir artifact/source-capture \
             --out artifact/KR_PAPER_REFERENCE_CANDIDATE.json
