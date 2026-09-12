@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from regime import decision_authority as COMMON
 from regime import paper_regime_reference as REFERENCE
+from regime import kr_information_system_runtime_bridge as INFORMATION_SYSTEM
 from decision import common_paper_candidate_funnel as FUNNEL
 from market_judgement import krx_market_judgement as JUDGEMENT
 from rotation import kr_internal_paper_theme_application as SESSION_PROFILE
@@ -360,12 +361,62 @@ def _source(raw, row, policy, source_contract, reference_policy):
     return source, axes
 
 
-def evaluate_kr_paper_runtime(*, source_packets: list[bytes], evaluation_at: str,
+def _evaluate_information_system_runtime(*, information_system_evidence: dict,
+                                         evaluation_at: str, code_revision: str,
+                                         session_boundary_freshness: dict | None) -> dict:
+    """Run the explicitly qualified Information System branch fail-closed."""
+    packet = {
+        "schema_version": "kr_paper_runtime_decision/5", "market": "KR",
+        "evaluation_at": evaluation_at, "code_revision": code_revision,
+        "evidence_class": "LIVE_NATURAL", "source_adapter": "KRX_INFORMATION_DATA_SYSTEM_PYKRX",
+        "decision_status": "BLOCKED", "paper_regime": "UNKNOWN",
+        "runtime_regime": "UNKNOWN", "direction": "UNKNOWN", "confidence": None,
+        "runtime_decision_available": False, "current_observation": None,
+        "source_sha256": None, "source_manifest_sha256": None,
+        "historical_replay_sha256": None, "historical_acceptance_sha256": None,
+        "qualification_sha256": None,
+        "session_boundary_freshness": None, "aggregation": None, "reasons": [],
+        "actual_source_qualification": "UNKNOWN",
+        "authority": {"paper_runtime_display_authorized": False,
+            "strategy_authorized": False, "stage_authorized": False,
+            "buy_authorized": False, "action_authorized": False,
+            "capital_authorized": False, "order_authorized": False,
+            "production_authorized": False, "trading_authorized": False,
+            "real_authorized": False},
+    }
+    try:
+        require(isinstance(information_system_evidence, dict), "INFORMATION_SYSTEM_EVIDENCE_INVALID")
+        require(set(information_system_evidence) == {
+            "reference_raw", "manifest_raw", "raw_responses", "expected_source",
+            "historical_replay_raw", "expected_historical_sha256",
+            "historical_acceptance_raw", "expected_historical_acceptance_sha256",
+            "qualification_raw", "expected_qualification_sha256",
+        }, "INFORMATION_SYSTEM_EVIDENCE_INVALID")
+        require(session_boundary_freshness is not None, "SESSION_BOUNDARY_FRESHNESS_MISSING")
+        boundary = _session_boundary_binding(session_boundary_freshness, _time(evaluation_at))
+        packet = INFORMATION_SYSTEM.evaluate_runtime(
+            **information_system_evidence, evaluation_at=evaluation_at,
+            code_revision=code_revision, session_boundary=boundary,
+        )
+        packet["actual_source_qualification"] = "RATIFIED_KR_PAPER_DISPLAY_ONLY"
+    except (KRRuntimeError, INFORMATION_SYSTEM.InformationSystemRuntimeError,
+            SESSION_PROFILE.ThemeApplicationError, OSError, KeyError, TypeError, ValueError) as exc:
+        code = str(exc).split(":", 1)[0] if isinstance(
+            exc, (KRRuntimeError, INFORMATION_SYSTEM.InformationSystemRuntimeError,
+                  SESSION_PROFILE.ThemeApplicationError)
+        ) else "INPUT_SHAPE_INVALID"
+        packet["reasons"] = [code]
+    packet["decision_id"] = "kr-paper-regime:" + COMMON.payload_sha256(packet)
+    return packet
+
+
+def evaluate_kr_paper_runtime(*, source_packets: list[bytes] | None = None, evaluation_at: str,
                               code_revision: str, experiment_policy: bytes | None = None,
                               expected_policy_sha256: str | None = None,
                               qualification_receipt: bytes | None = None,
                               expected_qualification_sha256: str | None = None,
-                              session_boundary_freshness: dict | None = None) -> dict:
+                              session_boundary_freshness: dict | None = None,
+                              information_system_evidence: dict | None = None) -> dict:
     """Pure calculation. No IO writes, registry ratification, or order authority.
 
     qualification_receipt is an owner-admitted ordered complete session chain,
@@ -376,6 +427,12 @@ def evaluate_kr_paper_runtime(*, source_packets: list[bytes], evaluation_at: str
     now = _time(evaluation_at)
     require(isinstance(code_revision, str) and re.fullmatch(r"[0-9a-f]{40}", code_revision),
             "CODE_REVISION_REQUIRED")
+    if information_system_evidence is not None:
+        return _evaluate_information_system_runtime(
+            information_system_evidence=information_system_evidence,
+            evaluation_at=evaluation_at, code_revision=code_revision,
+            session_boundary_freshness=session_boundary_freshness,
+        )
     require(isinstance(source_packets, list), "SOURCE_LIST_REQUIRED")
     hashes = [digest(raw) for raw in source_packets]
     boundary_mode = session_boundary_freshness is not None
