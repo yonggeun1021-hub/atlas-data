@@ -51,17 +51,6 @@ for its own date until Breadth is separately dispatched (or scheduled)
 for that same date. Closing that remaining half is a separate, not yet
 approved, bounded slice.
 
-**Update (2026-09-12, current-ratified producer connection):** after the
-combined workflow has committed Breadth and then Leadership, a final
-dependency job re-syncs to the exact resulting `main`, runs the existing
-current-ratified producer, and uploads the full
-`korea_capital_rotation_packet/4` plus the exact public commit as a workflow
-artifact. The producer remains fail-closed for pre-effective or otherwise
-invalid pairs. The workflow still has no schedule and does not update the
-legacy rolling pointer or create a state ledger. The artifact is the bounded
-Stage3 handoff input only; Stage, entry, production, order, capital and trading
-authority remain unchanged.
-
 ### Real dispatch failure and fix (2026-08-22, run 32566229770)
 
 The workflow's first real dispatch (2026-08-10 prior / 2026-08-11 current)

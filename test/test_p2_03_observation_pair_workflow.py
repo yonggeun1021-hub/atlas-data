@@ -5,11 +5,10 @@ structural regression (2026-08-22).
 Offline YAML structure checks only -- no KRX call, no tracked-file
 mutation. Confirms: still workflow_dispatch-only (no new schedule/cron),
 the real job dependency chain (Leadership needs the Breadth context
-commit, which needs the Breadth live-proof job, and the current-ratified
-producer needs Leadership) that structurally guarantees Breadth completes
-and commits before Leadership starts and the packet is built, and that no
-new fetch logic/endpoint was introduced -- every step reuses the exact
-scripts already approved in the existing paths.
+commit, which needs the Breadth live-proof job) that structurally
+guarantees Breadth completes and commits before Leadership starts, and
+that no new fetch logic/endpoint was introduced -- every step reuses the
+exact scripts already approved in the two standalone workflows.
 """
 from __future__ import annotations
 
@@ -50,19 +49,12 @@ class ObservationPairWorkflowTest(unittest.TestCase):
             "korea-breadth-live-proof",
             "korea-breadth-context-commit",
             "korea-leadership-live-fetch",
-            "korea-current-ratified-rotation-proof",
         })
         # Breadth's own internal two-step dependency is unchanged.
         self.assertEqual(jobs["korea-breadth-context-commit"]["needs"], "korea-breadth-live-proof")
         # The real dependency this workflow adds: Leadership cannot start
         # until Breadth's context commit has genuinely landed.
         self.assertEqual(jobs["korea-leadership-live-fetch"]["needs"], "korea-breadth-context-commit")
-        # The current-ratified producer cannot run until the exact committed
-        # Breadth -> Leadership pair is available on main.
-        self.assertEqual(
-            jobs["korea-current-ratified-rotation-proof"]["needs"],
-            "korea-leadership-live-fetch",
-        )
 
     def test_no_new_fetch_logic_reuses_existing_scripts_verbatim(self):
         # Same scripts as the two standalone, already-approved workflows
@@ -152,11 +144,7 @@ class ObservationPairWorkflowTest(unittest.TestCase):
         # may carry always()/failure()/cancelled(), so `needs:` keeps them
         # skipped and no same-date master/commit/Leadership is written.
         jobs = self.workflow["jobs"]
-        for job_name in (
-            "korea-breadth-context-commit",
-            "korea-leadership-live-fetch",
-            "korea-current-ratified-rotation-proof",
-        ):
+        for job_name in ("korea-breadth-context-commit", "korea-leadership-live-fetch"):
             job = jobs[job_name]
             self.assertNotIn("if", job, f"{job_name} must inherit its needs failure")
             for step in job["steps"]:
@@ -183,11 +171,6 @@ class ObservationPairWorkflowTest(unittest.TestCase):
         # The two commit jobs need write access to push their own evidence.
         self.assertEqual(jobs["korea-breadth-context-commit"]["permissions"]["contents"], "write")
         self.assertEqual(jobs["korea-leadership-live-fetch"]["permissions"]["contents"], "write")
-        # The packet handoff is an external artifact only and never pushes.
-        self.assertEqual(
-            jobs["korea-current-ratified-rotation-proof"]["permissions"]["contents"],
-            "read",
-        )
 
     def test_leadership_job_commits_only_its_own_evidence_path(self):
         # The final job's commit step must only ever stage the Leadership
