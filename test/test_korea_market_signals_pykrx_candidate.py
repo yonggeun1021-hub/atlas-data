@@ -75,6 +75,21 @@ class PykrxCandidateIdentityTest(unittest.TestCase):
         class Frame:
             columns = ["종가", "등락률", "거래대금", "시가총액"]
             empty = False
+            index = ["000001"]
+
+            class Accessor:
+                values = {
+                    "종가": 110,
+                    "등락률": 10,
+                    "거래대금": 1100,
+                    "시가총액": 10000,
+                }
+
+                def __getitem__(self, key):
+                    _identity, column = key
+                    return self.values[column]
+
+            at = Accessor()
 
             def iterrows(self):
                 return iter(

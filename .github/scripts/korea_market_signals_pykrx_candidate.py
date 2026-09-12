@@ -124,15 +124,15 @@ def stock_snapshot(date: str, market: str, fetched_at: str, source_capture=None)
     required = {"종가", "등락률", "거래대금", "시가총액"}
     require_columns(frame, required, f"stock:{market}:{date}")
     members = {}
-    for identity, row in frame.iterrows():
+    for identity in frame.index:
         key = str(identity).strip().zfill(6)
         if not key or key in members:
             raise CandidateError(f"SOURCE_IDENTITY_INVALID:stock:{market}:{date}")
         members[key] = {
-            "close": Decimal(str(row["종가"])),
-            "return_pct": Decimal(str(row["등락률"])),
-            "trading_value": Decimal(str(row["거래대금"])),
-            "market_cap": Decimal(str(row["시가총액"])),
+            "close": Decimal(str(frame.at[identity, "종가"])),
+            "return_pct": Decimal(str(frame.at[identity, "등락률"])),
+            "trading_value": Decimal(str(frame.at[identity, "거래대금"])),
+            "market_cap": Decimal(str(frame.at[identity, "시가총액"])),
         }
     digest = frame_sha256(frame)
     if source_capture is not None:
@@ -180,15 +180,16 @@ def index_snapshot(date: str, market: str, fetched_at: str, source_capture=None)
     canonical_names = canonical_index_name_map(market)
     resolved_count = 0
     source_projection = {}
-    for identity, row in frame.iterrows():
+    for identity in frame.index:
         source_name = index_name(identity)
-        source_projection[source_name] = {"close": Decimal(str(row["종가"]))}
+        close = Decimal(str(frame.at[identity, "종가"]))
+        source_projection[source_name] = {"close": close}
         name = canonical_names.get(source_name, source_name)
         if name != source_name:
             resolved_count += 1
         if name in indices:
             raise CandidateError(f"SOURCE_IDENTITY_INVALID:index:{market}:{date}:{name}")
-        indices[name] = Decimal(str(row["종가"]))
+        indices[name] = close
     digest = frame_sha256(frame)
     if source_capture is not None:
         source_capture.bind_normalized_frame(
