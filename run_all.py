@@ -1829,6 +1829,10 @@ APPROVED_TESTS = [
     # existing P10-11 offline simulator. Fixture NOT_EVALUATED is preserved;
     # no policy, broker, capital, production, or trading authority is opened.
     "test/test_stage5_paper_envelope_ledger.py",
+    # ★ Stage5 private lifecycle → P7-19 readiness boundary. The connector
+    # envelope/receipt/ledger are re-derived, but same-call caller pins remain
+    # explicitly untrusted; performance stays null and sample contribution 0.
+    "test/test_stage5_virtual_fill_performance_adapter.py",
     # ★ P7-13 — deterministic Crypto PAPER exit/position-management review.
     #   Entry-time plan embeds the exact P10-11 account and caller-supplied
     #   ordered triggers; current account and observation are independently
