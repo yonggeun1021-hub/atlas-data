@@ -494,26 +494,133 @@ def _market_evidence_freshness(record: dict) -> tuple[str, str | None]:
     return FRESH, None
 
 
-def _realtime_freshness(record: dict) -> tuple[str, str | None]:
+def _realtime_freshness(
+    record: dict, *, observed_at: dt.datetime | None = None,
+) -> tuple[str, str | None]:
     run = record["run"]
     status = run["status"]
     if not run["markets"] or not run["message_log"] or not status.get("markets"):
         return MISSING, "UPBIT_REALTIME_OBSERVATIONS_EMPTY"
     if status.get("connection_state") != "CONNECTED":
         return UNKNOWN, f"UPBIT_REALTIME_CONNECTION_NOT_CONNECTED:{status.get('connection_state')}"
-    # The repository currently ships only a proposal for these age bounds;
-    # the real P9-01 freshness guard has no ratified CRYPTO policy packet.
-    # Preserve the gate's observed label diagnostically, but do not promote
-    # it to an actionable FRESH fact.
-    proposal = REALTIME_GATE.load_freshness_policy_proposal()
-    if proposal.get("approval_status") != "RATIFIED":
-        return UNKNOWN, "UPBIT_REALTIME_FRESHNESS_POLICY_UNRATIFIED"
-    gate_status = status.get("overall_status")
-    if gate_status == FRESH:
-        return FRESH, None
-    if gate_status == STALE:
-        return STALE, "UPBIT_REALTIME_GATE_STATUS_STALE"
-    return UNKNOWN, f"UPBIT_REALTIME_GATE_STATUS_NOT_FRESH:{gate_status}"
+    # P9-06 already evaluates every retained ticker with the exact-hash
+    # RATIFIED P9-01 policy and stores that consumer result inside the run.
+    # Rebuild that exact result here.  The older proposal loader is display
+    # only and must never decide a production snapshot's freshness.
+    binding = run.get("ratified_freshness_policy")
+    if binding is None:
+        return UNKNOWN, "UPBIT_REALTIME_RATIFIED_POLICY_EVIDENCE_MISSING"
+    if not isinstance(binding, dict) or set(binding) != {
+        "path", "packet_sha256", "consumer_result",
+    }:
+        raise CryptoPaperDecisionSnapshotError(
+            "REALTIME_RATIFIED_POLICY_BINDING_INVALID"
+        )
+    contract = REALTIME_GATE.load_contract()
+    if (
+        binding["path"] != contract.get("ratified_freshness_policy_path")
+        or binding["packet_sha256"]
+        != contract.get("ratified_freshness_policy_sha256")
+    ):
+        raise CryptoPaperDecisionSnapshotError(
+            "REALTIME_RATIFIED_POLICY_BINDING_MISMATCH"
+        )
+    capture_observed_at = _parse_utc(
+        status.get("generated_at"), "REALTIME_STATUS_GENERATED_AT_INVALID"
+    )
+    latest = run.get("latest_public_messages")
+    if not isinstance(latest, dict):
+        raise CryptoPaperDecisionSnapshotError(
+            "REALTIME_RATIFIED_POLICY_INPUTS_MISSING"
+        )
+    quote_rows = []
+    for item in latest.values():
+        if not isinstance(item, dict) or item.get("kind") != "ticker":
+            continue
+        try:
+            received_at_text = item.get("received_at")
+            if (
+                not isinstance(received_at_text, str)
+                or not received_at_text.endswith("Z")
+            ):
+                raise ValueError("received_at must be canonical UTC")
+            parsed = REALTIME_GATE.parse_message(item.get("raw"))
+            received_at = dt.datetime.fromisoformat(
+                received_at_text[:-1] + "+00:00"
+            )
+            if received_at.utcoffset() != dt.timedelta(0):
+                raise ValueError("received_at must be UTC")
+            quote_rows.append(
+                REALTIME_GATE.quote_row_from_ticker(
+                    parsed, received_at=received_at
+                )
+            )
+        except (REALTIME_GATE.RealtimeGateError, TypeError, ValueError) as exc:
+            raise CryptoPaperDecisionSnapshotError(
+                "REALTIME_RATIFIED_POLICY_INPUT_INVALID"
+            ) from exc
+    if not quote_rows:
+        return MISSING, "UPBIT_REALTIME_RATIFIED_POLICY_INPUT_NO_TICKER"
+    try:
+        rebuilt = REALTIME_GATE.evaluate_with_ratified_freshness_policy(
+            quote_rows,
+            observed_at=capture_observed_at,
+            batch_id=(
+                f"P9_06_{capture_observed_at.strftime('%Y%m%dT%H%M%SZ')}"
+            ),
+            contract=contract,
+        )
+    except REALTIME_GATE.RealtimeGateError as exc:
+        raise CryptoPaperDecisionSnapshotError(
+            f"REALTIME_RATIFIED_POLICY_REVALIDATION_FAILED:{exc}"
+        ) from exc
+    if rebuilt != binding["consumer_result"]:
+        raise CryptoPaperDecisionSnapshotError(
+            "REALTIME_RATIFIED_POLICY_RESULT_MISMATCH"
+        )
+    current_observed_at = observed_at or capture_observed_at
+    if current_observed_at.tzinfo is None or current_observed_at.utcoffset() is None:
+        raise CryptoPaperDecisionSnapshotError(
+            "REALTIME_RATIFIED_POLICY_OBSERVED_AT_NAIVE"
+        )
+    current_observed_at = current_observed_at.astimezone(dt.timezone.utc)
+    if current_observed_at < capture_observed_at:
+        raise CryptoPaperDecisionSnapshotError(
+            "REALTIME_RATIFIED_POLICY_OBSERVED_AT_PRECEDES_CAPTURE"
+        )
+    current = rebuilt
+    if current_observed_at != capture_observed_at:
+        try:
+            current = REALTIME_GATE.evaluate_with_ratified_freshness_policy(
+                quote_rows,
+                observed_at=current_observed_at,
+                batch_id=(
+                    "P9_06_REEVAL_"
+                    f"{current_observed_at.strftime('%Y%m%dT%H%M%SZ')}"
+                ),
+                contract=contract,
+            )
+        except REALTIME_GATE.RealtimeGateError as exc:
+            raise CryptoPaperDecisionSnapshotError(
+                f"REALTIME_RATIFIED_POLICY_REEVALUATION_FAILED:{exc}"
+            ) from exc
+    if current.get("status") != "EVALUATED" or not isinstance(
+        current.get("result"), dict
+    ):
+        return UNKNOWN, (
+            current.get("reason") or "UPBIT_REALTIME_RATIFIED_POLICY_NOT_EVALUATED"
+        )
+    results = current["result"].get("results")
+    if not isinstance(results, list) or len(results) != len(quote_rows):
+        raise CryptoPaperDecisionSnapshotError(
+            "REALTIME_RATIFIED_POLICY_RESULT_ROWS_INVALID"
+        )
+    statuses = [row.get("freshness_status") for row in results]
+    if any(item not in {FRESH, STALE} for item in statuses):
+        return UNKNOWN, "UPBIT_REALTIME_RATIFIED_POLICY_RESULT_UNKNOWN"
+    if STALE in statuses:
+        return STALE, "UPBIT_REALTIME_RATIFIED_POLICY_RESULT_STALE"
+    return FRESH, None
 
 
 # ---------------------------------------------------------------------------
@@ -1132,7 +1239,9 @@ def build_snapshot(
             f"UPBIT_REALTIME_RUN_DATE_MISMATCH:universe={universe_date}:realtime={realtime_entry['date']}"
         )
     else:
-        realtime_status, realtime_reason = _realtime_freshness(realtime_entry["record"])
+        realtime_status, realtime_reason = _realtime_freshness(
+            realtime_entry["record"], observed_at=generated_dt,
+        )
         if realtime_reason:
             notes.append(realtime_reason)
 
