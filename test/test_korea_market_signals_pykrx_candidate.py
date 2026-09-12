@@ -140,6 +140,43 @@ class PykrxCandidateIdentityTest(unittest.TestCase):
                         capture,
                     )
 
+    def test_lineage_uses_each_actual_response_receipt(self):
+        packet = {
+            "source": {
+                "requests": {
+                    family: {
+                        market: {
+                            "previous_fetched_at_utc": "start",
+                            "current_fetched_at_utc": "start",
+                        }
+                        for market in ("KOSPI", "KOSDAQ")
+                    }
+                    for family in ("stock", "index")
+                }
+            }
+        }
+        records = []
+        counter = 0
+        for date in ("20260910", "20260911"):
+            for family in ("stock", "index"):
+                for market in ("KOSPI", "KOSDAQ"):
+                    counter += 1
+                    records.append(
+                        {
+                            "key": f"{date}:{market}:{family}",
+                            "response": {
+                                "received_at_utc": f"2026-09-12T21:22:{counter:02d}Z"
+                            },
+                        }
+                    )
+        MODULE.bind_receipt_times(
+            packet, {"dates": ["20260910", "20260911"], "records": records}
+        )
+        lineage = packet["source"]["requests"]["stock"]["KOSPI"]
+        self.assertEqual(lineage["previous_fetched_at_utc"], "2026-09-12T21:22:01Z")
+        self.assertEqual(lineage["current_fetched_at_utc"], "2026-09-12T21:22:05Z")
+        self.assertEqual(lineage["time_semantics"], "ACTUAL_RESPONSE_RECEIVED_AT_UTC")
+
 
 if __name__ == "__main__":
     unittest.main()
