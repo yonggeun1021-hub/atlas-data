@@ -50,7 +50,7 @@ digest
 
 The resulting real Stage 3 packet is therefore consumable and honest with
 `input_count=0`, `inputs=[]`, and payload digest
-`c2cd47d7ce8fd363225c8c487e6afbc183c35ec79de8e1769c99650de36a2ccc`.
+`e0de848c8c7ad9f4eac60f2d0962bc431fca496a76273472171649a8409e06b8`.
 Zero rows means no Rotation state observation was retained. It does not mean a
 candidate, NATURAL observation, ranking outcome, or investability verdict.
 

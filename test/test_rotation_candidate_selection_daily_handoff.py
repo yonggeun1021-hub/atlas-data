@@ -30,12 +30,12 @@ DAILY_PATH = (
 )
 STAGE1_PATH = ROOT / (
     "evidence/regime/paper_reference/2026-09-12/"
-    "ab1283311ef0e4d2e9045dc95b25d14e289bdb3066616943d88c1ca31e1a0cce/"
+    "10bab3b9d69ce85bed1ab2da9759e216deb24cd79e35b809962ffdc2678e4908/"
     "packet.json"
 )
 STAGE2_PATH = ROOT / (
     "evidence/portfolio/capital_flow_posture_reference/2026-09-12/"
-    "c396052fc6a335826f843276627b31f009c338ac0277cbc1d988f8fc6eae802a/"
+    "45beac6b52e9eb6831b01ac6b761f584df053287c69fc2ce873f67047e1483f8/"
     "packet.json"
 )
 
@@ -91,7 +91,7 @@ class RotationCandidateSelectionDailyHandoffTests(unittest.TestCase):
         self.assertEqual(self.packet["inputs"], [])
         self.assertEqual(
             self.packet["payload_sha256"],
-            "c2cd47d7ce8fd363225c8c487e6afbc183c35ec79de8e1769c99650de36a2ccc",
+            "e0de848c8c7ad9f4eac60f2d0962bc431fca496a76273472171649a8409e06b8",
         )
         self.assertEqual(
             [row["market"] for row in self.packet["stage1_lineage"]["markets"]],
