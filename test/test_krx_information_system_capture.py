@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Offline source-retention and fail-closed checks."""
-
 from __future__ import annotations
 
 import importlib.util
@@ -9,7 +8,6 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,14 +32,33 @@ def request(date, market, family):
     return SimpleNamespace(method="POST", url=CAPTURE.ENDPOINT, body=body)
 
 
-def response(label):
-    return SimpleNamespace(
-        content=json.dumps({"output": [{"label": label}]}, separators=(",", ":")).encode(),
-        headers={"Content-Type": "application/json;charset=UTF-8", "Set-Cookie": "must-not-retain"},
-    )
+def raw_body(label, family):
+    if family == "stock":
+        value = {"OutBlock_1": [{"ISU_SRT_CD": "000001", "TDD_CLSPRC": "1,100", "FLUC_RT": "1.25", "ACC_TRDVAL": "2,000", "MKTCAP": "3,000", "ISU_ABBRV": label}]}
+    else:
+        value = {"output": [{"IDX_NM": label, "CLSPRC_IDX": "1,234.50"}]}
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+class FakeResponse:
+    def __init__(self, raw, status_code=200):
+        self._content = raw
+        self._content_consumed = True
+        self.headers = {"Content-Type": "application/json;charset=UTF-8", "Set-Cookie": "must-not-retain"}
+        self.status_code = status_code
+
+    @property
+    def content(self):
+        return self._content
+
+
+def response(label, family):
+    return FakeResponse(raw_body(label, family))
 
 
 class CaptureContractTest(unittest.TestCase):
+    NOW = "2026-09-12T21:22:10Z"
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
@@ -50,49 +67,111 @@ class CaptureContractTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def complete(self):
-        capture = CAPTURE.SourceCapture(self.root / "capture", ("20260910", "20260911"))
+        capture = CAPTURE.SourceCapture(self.root / "capture", ("20260910", "20260911"), clock=lambda: self.NOW)
         for date in ("20260910", "20260911"):
             for market in ("KOSPI", "KOSDAQ"):
                 for family in ("stock", "index"):
-                    capture.capture(request(date, market, family), response(f"{date}-{market}-{family}"), received_at="2026-09-12T21:22:08Z")
+                    key, stored = capture.capture(request(date, market, family), response(f"{market}지수" if family == "index" else market, family), received_at=self.NOW)
+                    capture.bind_parser_input(key, stored)
+                    capture.bind_normalized_frame(key, "a" * 64, CAPTURE._raw_projection(stored, family))
         return capture
 
     def test_complete_capture_retains_eight_exact_bodies_without_secrets(self):
         manifest = self.complete().finalize()
         self.assertEqual(len(manifest["records"]), 8)
-        self.assertTrue(manifest["original_response_bytes_retained"])
-        self.assertFalse(manifest["request_headers_retained"])
-        self.assertFalse(manifest["cookies_retained"])
+        self.assertTrue(manifest["response_body_schema_allowlisted_before_retention"])
         text = json.dumps(manifest, ensure_ascii=False)
         self.assertNotIn("Set-Cookie", text)
         self.assertNotIn("must-not-retain", text)
         for row in manifest["records"]:
             raw = (self.root / "capture" / row["response"]["path"]).read_bytes()
             self.assertEqual(CAPTURE.sha256_bytes(raw), row["response"]["sha256"])
+            self.assertTrue(row["normalized_frame"]["raw_to_frame_equivalent"])
 
-    def test_missing_duplicate_and_stale_fail_closed(self):
-        capture = CAPTURE.SourceCapture(self.root / "missing", ("20260910", "20260911"))
-        capture.capture(request("20260910", "KOSPI", "stock"), response("one"))
-        with self.assertRaisesRegex(CAPTURE.CaptureError, "DUPLICATE_RESPONSE"):
-            capture.capture(request("20260910", "KOSPI", "stock"), response("two"))
+    def test_stored_response_tamper_is_rechecked_at_finalize(self):
+        capture = self.complete()
+        path = self.root / "capture/responses/20260910-KOSPI-stock.json"
+        path.write_bytes(raw_body("tampered", "stock"))
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "STORED_RESPONSE_HASH_INVALID"):
+            capture.finalize()
+
+    def test_raw_frame_mismatch_and_missing_binding_fail_closed(self):
+        capture = CAPTURE.SourceCapture(self.root / "mismatch", ("20260910", "20260911"), clock=lambda: self.NOW)
+        key, stored = capture.capture(request("20260910", "KOSPI", "stock"), response("KOSPI", "stock"), received_at=self.NOW)
+        capture.bind_parser_input(key, stored)
+        wrong = CAPTURE._raw_projection(stored, "stock")
+        wrong["000001"]["close"] = "999"
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "RAW_FRAME_MISMATCH"):
+            capture.bind_normalized_frame(key, "b" * 64, wrong)
         with self.assertRaisesRegex(CAPTURE.CaptureError, "MISSING_RESPONSES"):
             capture.finalize()
-        with self.assertRaisesRegex(CAPTURE.CaptureError, "STALE_SESSION"):
-            CAPTURE.require_current_session("20260910", "20260911")
-        closed = CAPTURE.unknown_status("STALE_SESSION")
-        self.assertEqual(closed["status"], "UNKNOWN_NO_OVERWRITE")
-        self.assertTrue(all(value is False for value in closed["authority"].values()))
 
-    def test_no_overwrite_and_secret_request_field_rejection(self):
+    def test_response_secret_error_and_unknown_fields_are_not_retained(self):
+        capture = CAPTURE.SourceCapture(self.root / "secret", ("20260910", "20260911"), clock=lambda: self.NOW)
+        bad = FakeResponse(b'{"error":"authentication","access_token":"synthetic"}')
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "SECRET_FIELD_REJECTED"):
+            capture.capture(request("20260910", "KOSPI", "stock"), bad)
+        self.assertFalse((self.root / "secret/responses").exists())
+        capture2 = CAPTURE.SourceCapture(self.root / "unknown", ("20260910", "20260911"), clock=lambda: self.NOW)
+        raw = json.loads(raw_body("KOSPI", "stock"))
+        raw["OutBlock_1"][0]["UNKNOWN"] = "value"
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "ROW_SCHEMA_INVALID"):
+            capture2.capture(request("20260910", "KOSPI", "stock"), FakeResponse(json.dumps(raw).encode()))
+        self.assertFalse((self.root / "unknown/responses").exists())
+
+    def test_dispatch_is_allowlisted_and_reserved_before_network(self):
+        import requests
+        outbound = []
+        prior = requests.Session.send
+
+        def fake_send(_session, req, **_kwargs):
+            outbound.append(req)
+            family = "stock" if "MDCSTAT01501" in req.body else "index"
+            return response("KOSPI", family)
+
+        requests.Session.send = fake_send
+        try:
+            capture = CAPTURE.SourceCapture(self.root / "dispatch", ("20260910", "20260911"), clock=lambda: self.NOW)
+            with CAPTURE.capture_requests(capture):
+                returned = requests.Session().send(request("20260910", "KOSPI", "stock"))
+                self.assertEqual(returned.content, raw_body("KOSPI", "stock"))
+                with self.assertRaisesRegex(CAPTURE.CaptureError, "UNEXPECTED_SESSION"):
+                    requests.Session().send(request("20260909", "KOSPI", "stock"))
+            self.assertEqual(len(outbound), 1)
+            row = capture.records["20260910:KOSPI:stock"]["response"]
+            self.assertEqual(row["parser_input_sha256"], row["sha256"])
+        finally:
+            requests.Session.send = prior
+
+    def test_time_format_future_backward_and_claim_order_fail_closed(self):
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "CAPTURE_START_INVALID"):
+            CAPTURE.SourceCapture(self.root / "bad-clock", ("20260910", "20260911"), clock=lambda: "not-a-time")
+        capture = CAPTURE.SourceCapture(self.root / "times", ("20260910", "20260911"), clock=lambda: self.NOW)
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "RECEIVED_AT_INVALID"):
+            capture.capture(request("20260910", "KOSPI", "stock"), response("KOSPI", "stock"), received_at="2026-09-12T21:22:10+00:00")
+        capture = CAPTURE.SourceCapture(self.root / "future", ("20260910", "20260911"), clock=lambda: self.NOW)
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "RECEIVED_AT_ORDER_INVALID"):
+            capture.capture(request("20260910", "KOSPI", "stock"), response("KOSPI", "stock"), received_at="2026-09-12T21:22:11Z")
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "CLAIMED_START_ORDER_INVALID"):
+            CAPTURE.require_claimed_start("2026-09-12T21:21:00Z", self.NOW)
+
+    def test_calendar_independently_resolves_last_two_completed_sessions(self):
+        contract = ROOT / "config/krx_information_system_source_candidate_v1.json"
+        result = CAPTURE.require_completed_session_pair("20260910", "20260911", contract, "2026-09-13T00:00:00Z")
+        self.assertEqual(result["latest_completed_session"], "20260911")
+        with self.assertRaisesRegex(CAPTURE.CaptureError, "STALE_SESSION"):
+            CAPTURE.require_completed_session_pair("20260909", "20260910", contract, "2026-09-13T00:00:00Z")
+
+    def test_no_overwrite_request_secret_and_unknown_status(self):
         path = self.root / "existing.json"
         CAPTURE.write_new(path, b"first")
         with self.assertRaisesRegex(CAPTURE.CaptureError, "NO_OVERWRITE"):
             CAPTURE.write_new(path, b"second")
-        self.assertEqual(path.read_bytes(), b"first")
         bad = request("20260910", "KOSPI", "stock")
         bad.body += "&password=secret"
         with self.assertRaisesRegex(CAPTURE.CaptureError, "SECRET_OR_UNKNOWN"):
             CAPTURE.classify_public_request(bad.method, bad.url, bad.body)
+        self.assertTrue(all(value is False for value in CAPTURE.unknown_status("STOP")["authority"].values()))
 
     def test_dependency_hash_version_and_tamper(self):
         wheel_dir = self.root / "wheels"

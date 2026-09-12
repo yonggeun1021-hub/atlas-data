@@ -118,7 +118,7 @@ def require_columns(frame, required: set[str], label: str) -> None:
         raise CandidateError(f"SOURCE_COLUMNS_MISSING:{label}:{','.join(sorted(missing))}")
 
 
-def stock_snapshot(date: str, market: str, fetched_at: str) -> dict:
+def stock_snapshot(date: str, market: str, fetched_at: str, source_capture=None) -> dict:
     stock = pykrx_stock()
     frame = stock.get_market_ohlcv_by_ticker(date, market.upper(), alternative=False)
     required = {"종가", "등락률", "거래대금", "시가총액"}
@@ -134,12 +134,27 @@ def stock_snapshot(date: str, market: str, fetched_at: str) -> dict:
             "trading_value": Decimal(str(row["거래대금"])),
             "market_cap": Decimal(str(row["시가총액"])),
         }
+    digest = frame_sha256(frame)
+    if source_capture is not None:
+        source_capture.bind_normalized_frame(
+            f"{date}:{market.upper()}:stock",
+            digest,
+            {
+                identity: {
+                    "close": values["close"],
+                    "return_pct": values["return_pct"],
+                    "trading_value": values["trading_value"],
+                    "market_cap": values["market_cap"],
+                }
+                for identity, values in members.items()
+            },
+        )
     return {
         "market": market,
         "date": date,
         "members": members,
         "endpoint": "KRX_INFORMATION_DATA_SYSTEM_PYKRX_STOCK_FRAME",
-        "response_sha256": frame_sha256(frame),
+        "response_sha256": digest,
         "fetched_at_utc": fetched_at,
     }
 
@@ -157,27 +172,34 @@ def index_name(identity: object) -> str:
     return name.strip()
 
 
-def index_snapshot(date: str, market: str, fetched_at: str) -> dict:
+def index_snapshot(date: str, market: str, fetched_at: str, source_capture=None) -> dict:
     stock = pykrx_stock()
     frame = stock.get_index_ohlcv_by_ticker(date, market.upper())
     require_columns(frame, {"종가"}, f"index:{market}:{date}")
     indices = {}
     canonical_names = canonical_index_name_map(market)
     resolved_count = 0
+    source_projection = {}
     for identity, row in frame.iterrows():
         source_name = index_name(identity)
+        source_projection[source_name] = {"close": Decimal(str(row["종가"]))}
         name = canonical_names.get(source_name, source_name)
         if name != source_name:
             resolved_count += 1
         if name in indices:
             raise CandidateError(f"SOURCE_IDENTITY_INVALID:index:{market}:{date}:{name}")
         indices[name] = Decimal(str(row["종가"]))
+    digest = frame_sha256(frame)
+    if source_capture is not None:
+        source_capture.bind_normalized_frame(
+            f"{date}:{market.upper()}:index", digest, source_projection
+        )
     return {
         "market": market,
         "date": date,
         "indices": indices,
         "endpoint": "KRX_INFORMATION_DATA_SYSTEM_PYKRX_INDEX_FRAME",
-        "response_sha256": frame_sha256(frame),
+        "response_sha256": digest,
         "fetched_at_utc": fetched_at,
         "identity_normalization": {
             "source_version": "pykrx/1.2.8",
@@ -189,18 +211,18 @@ def index_snapshot(date: str, market: str, fetched_at: str) -> dict:
     }
 
 
-def session(date: str, fetched_at: str) -> dict:
+def session(date: str, fetched_at: str, source_capture=None) -> dict:
     value = {"date": date, "stock": {}, "index": {}}
     for market in MARKETS:
-        value["stock"][market] = stock_snapshot(date, market, fetched_at)
-        value["index"][market] = index_snapshot(date, market, fetched_at)
+        value["stock"][market] = stock_snapshot(date, market, fetched_at, source_capture)
+        value["index"][market] = index_snapshot(date, market, fetched_at, source_capture)
     return value
 
 
-def build(previous_date: str, current_date: str, fetched_at: str) -> dict:
+def build(previous_date: str, current_date: str, fetched_at: str, source_capture=None) -> dict:
     contract = SIGNALS.load_contract()
-    previous = session(previous_date, fetched_at)
-    current = session(current_date, fetched_at)
+    previous = session(previous_date, fetched_at, source_capture)
+    current = session(current_date, fetched_at, source_capture)
     places = contract["output_decimal_places"]
     trend = SIGNALS._trend(previous, current, contract, places)
     leadership = SIGNALS._leadership(previous, current, contract, places)
@@ -216,7 +238,8 @@ def build(previous_date: str, current_date: str, fetched_at: str) -> dict:
         "name": "KRX_INFORMATION_DATA_SYSTEM_PYKRX",
         "tier": "Official",
         "adapter_status": "CANDIDATE_NOT_RUNTIME_ADOPTED",
-        "per_security_persistence": 0,
+        "per_security_persistence": 1,
+        "per_security_persistence_scope": "ORIGINAL_PROVIDER_RESPONSE_BYTES",
         "normalized_frame_persistence": 0,
         "hash_semantics": "SHA256_OF_IN_MEMORY_NORMALIZED_DATAFRAME_CSV",
         "requests": SIGNALS._source_lineage(previous, current),
@@ -268,7 +291,7 @@ def build(previous_date: str, current_date: str, fetched_at: str) -> dict:
     }
 
 
-def bind_source_capture(result: dict, manifest: dict) -> dict:
+def bind_source_capture(result: dict, manifest: dict, calendar: dict) -> dict:
     """Bind retained source bytes after all eight calls have completed."""
     packet = result["source_packet"]
     packet["source"]["source_capture"] = {
@@ -280,13 +303,15 @@ def bind_source_capture(result: dict, manifest: dict) -> dict:
         "cookies_retained": False,
         "credentials_retained": False,
         "provider_published_at_is_received_at": False,
+        "raw_to_normalized_frame_equivalence": "VERIFIED_FOR_ALL_REQUIRED_PROJECTIONS",
     }
+    packet["source"]["session_calendar"] = calendar
     packet["source"]["dependency_lock"] = {
         "contract": "config/krx_information_system_source_candidate_v1.json",
         "requirements": "requirements-korea-paper-source.lock",
         "pykrx": "1.2.8",
-        "pandas": "2.3.3",
-        "numpy": "2.4.6",
+        "pandas": "2.3.2",
+        "numpy": "2.2.6",
         "requests": "2.34.2",
     }
     packet["source"]["normalization_contract"] = {
@@ -295,6 +320,8 @@ def bind_source_capture(result: dict, manifest: dict) -> dict:
         "index_name_regex": r"[^-\w\.]",
         "client_price_adjustment": "NONE",
     }
+    packet["generated_at"] = manifest["capture_completed_at_utc"]
+    packet["available_at"] = manifest["capture_completed_at_utc"]
     unsigned = dict(packet)
     unsigned.pop("payload_sha256", None)
     packet["payload_sha256"] = SIGNALS.payload_sha256(unsigned)
@@ -309,21 +336,47 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--previous-date", required=True)
     parser.add_argument("--current-date", required=True)
-    parser.add_argument("--expected-current-date", required=True)
+    parser.add_argument(
+        "--contract",
+        type=Path,
+        default=ROOT / "config/krx_information_system_source_candidate_v1.json",
+    )
     parser.add_argument("--fetched-at", required=True)
     parser.add_argument("--capture-dir", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    CAPTURE.require_current_session(args.current_date, args.expected_current_date)
     if args.out.exists():
         raise CandidateError("NO_OVERWRITE")
     source_capture = CAPTURE.SourceCapture(
         args.capture_dir, (args.previous_date, args.current_date)
     )
-    with CAPTURE.capture_requests(source_capture):
-        result = build(args.previous_date, args.current_date, args.fetched_at)
-    manifest = source_capture.finalize()
-    result = bind_source_capture(result, manifest)
+    try:
+        CAPTURE.require_claimed_start(
+            args.fetched_at, source_capture.capture_started_at_utc
+        )
+        calendar = CAPTURE.require_completed_session_pair(
+            args.previous_date,
+            args.current_date,
+            args.contract,
+            source_capture.capture_started_at_utc,
+        )
+        with CAPTURE.capture_requests(source_capture):
+            result = build(
+                args.previous_date,
+                args.current_date,
+                source_capture.capture_started_at_utc,
+                source_capture,
+            )
+        manifest = source_capture.finalize()
+        result = bind_source_capture(result, manifest, calendar)
+    except (CAPTURE.CaptureError, CandidateError) as exc:
+        result = CAPTURE.unknown_status(str(exc))
+        CAPTURE.write_new(
+            args.out,
+            (json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
+        )
+        print(f"STOP_KR_PAPER_INFORMATION_SYSTEM_REFERENCE_CANDIDATE:{exc}")
+        return 2
     CAPTURE.write_new(
         args.out,
         (json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
