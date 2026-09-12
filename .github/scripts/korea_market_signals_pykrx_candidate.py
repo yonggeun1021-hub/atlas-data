@@ -242,6 +242,12 @@ def build(previous_date: str, current_date: str, fetched_at: str, source_capture
         "per_security_persistence_scope": "ORIGINAL_PROVIDER_RESPONSE_BYTES",
         "normalized_frame_persistence": 0,
         "hash_semantics": "SHA256_OF_IN_MEMORY_NORMALIZED_DATAFRAME_CSV",
+        "authentication_boundary": {
+            "session_initialized_before_source_capture": True,
+            "credentials_retained": False,
+            "authentication_response_retained": False,
+            "captured_market_data_request_count": 8,
+        },
         "requests": SIGNALS._source_lineage(previous, current),
     }
     packet = {
@@ -366,6 +372,20 @@ def main() -> int:
     args = parser.parse_args()
     if args.out.exists():
         raise CandidateError("NO_OVERWRITE")
+    try:
+        # pykrx 1.2.8 creates its authenticated read-only KRX session while
+        # importing the adapter.  Keep that credential exchange outside the
+        # market-data capture so the retained set is exactly eight public
+        # source responses and contains no credential-bearing bytes.
+        pykrx_stock()
+    except Exception as exc:
+        result = CAPTURE.unknown_status(f"SOURCE_SESSION_INITIALIZATION_FAILED:{type(exc).__name__}")
+        CAPTURE.write_new(
+            args.out,
+            (json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
+        )
+        print("STOP_KR_PAPER_INFORMATION_SYSTEM_REFERENCE_CANDIDATE:SOURCE_SESSION_INITIALIZATION_FAILED")
+        return 2
     source_capture = CAPTURE.SourceCapture(
         args.capture_dir, (args.previous_date, args.current_date)
     )

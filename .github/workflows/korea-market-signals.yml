@@ -135,6 +135,8 @@ jobs:
           PY
       - name: Build KRX information-system PAPER reference candidate
         env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
           PREVIOUS_DATE: ${{ inputs.previous_date }}
           CURRENT_DATE: ${{ inputs.current_date }}
         run: |
