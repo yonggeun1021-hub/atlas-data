@@ -412,6 +412,39 @@ APPROVED_TESTS = [
     #   Breadth BLOCKED + 실 Leadership 모두 briefing에 노출, 재실행
     #   byte-identical, standalone 재검증 포함.
     "test/test_korea_capital_rotation_ledger_proof.py",
+    # ★ P2-03 — durable sector identity binding + rotation-policy
+    #   canonicalization-only candidate lane (2026-09-12, corrected).
+    #   Phase A found the only korea_capital_rotation_policy/1 anywhere is
+    #   the self-ratified REAL_ROTATION_POLICY above (ratified_by=
+    #   "Atlas CIO", ratified_at_utc="2026-08-22T07:19:09Z", no external
+    #   ratification trail) with an honest all-zero taxonomy placeholder --
+    #   CIO verdict P2_03_ROTATION_POLICY_CANONICALIZATION_REQUIRED. This
+    #   lane's first attempt bound identity via a real theme_taxonomy/2
+    #   graph, but that graph is evaluated per-as_of_date and could not be
+    #   reused unchanged across sessions; ratifying it was also rejected
+    #   (a RATIFIED graph requires non-empty edges/memberships + US+KOREA
+    #   coverage -- the cross-market P2-01 contract, out of P2-03's scope,
+    #   owned separately under #576). CIO correction: adds one dedicated,
+    #   P2-03-owned, date-independent contract
+    #   (config/korea_sector_identity_binding_contract.json) plus a small,
+    #   surgical extension to korea_capital_rotation.py::_validate_binding()
+    #   accepting it as a third binding version. Four real, UNRATIFIED
+    #   candidate documents: a fixed positional series_identity->theme_id
+    #   binding for the real 46 already-RATIFIED
+    #   config/korea_leadership_policy.json SECTOR records (no as_of_date
+    #   field anywhere), a taxonomy_binding candidate, and a
+    #   korea_capital_rotation_policy/1 candidate (top_count=bottom_count=3,
+    #   maximum_calendar_gap_days=7 per revised CIO direction). Proven
+    #   durable: the identical committed binding/policy bytes validate,
+    #   unchanged, against two real Day N / Day N+1 Leadership observation
+    #   pairs built by the real korea_leadership.py::build_transform()
+    #   against the real committed policy file -- no rebuild, no new hash.
+    #   Fabricated/missing identity and upstream policy SHA drift both fail
+    #   closed against real code. P2-01's real authority registry stays
+    #   untouched (0 records, still #576's scope); no schedule/cron
+    #   touched; no production/trading/Regime/Candidate/Stage authority
+    #   opened; no full-packet automation.
+    "test/test_korea_capital_rotation_policy_candidate.py",
     # ★ P2-03 — dependency-ordered Breadth->Leadership observation-pair
     #   workflow (2026-08-22, no new cron): structural YAML checks only --
     #   still workflow_dispatch-only, real `needs:` chain (Leadership job
