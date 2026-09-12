@@ -26,6 +26,29 @@ observation checkout. The private request binds both the approved public-code
 commit and the exact observation commit plus its absolute host root so restart
 validation cannot silently switch either input.
 
+## Stage4 to Stage5 fixture connection
+
+This bridge is the selected Stage5 connection host because it already owns the
+validated Crypto decision, existing PAPER idempotency inputs, and strict public
+code versus rolling-observation separation. The three-market
+`paper_decision_bridge` is not used for this connection because it has no
+account or ledger consumer contract.
+
+`build_stage5_fixture_connection()` reads only the Stage4 envelope's
+repo-relative, hash-pinned source record and then calls the merged
+`stage5_paper_envelope_ledger` adapter. Its receipt retains that exact source
+record together with decision identity, evaluation time, status, and the
+Stage5 result. Re-signed source or receipt changes fail full rederivation. It
+does not read Stage1 regime evidence directly, and `UNKNOWN` remains distinct
+from a descriptive `NEUTRAL` candidate regime.
+
+This seam is proof of a mock path, not completion of PAPER execution. It
+accepts only the `STAGE5.FIXTURE.` ledger namespace, returns
+`MOCK_PATH_VERIFIED_NOT_PAPER_EXECUTION`, and cannot consume the existing
+Crypto PAPER account, KIS test account, or the integrated virtual portfolio.
+A natural Stage4 decision source with the same exact hash and lineage contract
+is still required before any non-fixture connection can be claimed.
+
 ## Time-ordered lifecycle
 
 1. P9 retains the exact latest **accepted** public ticker and orderbook message
