@@ -132,12 +132,42 @@ A must preserve that distinction and may not infer Theme from either code.
 
 The current repository generation has no connected
 `candidate_stage_gate_input/1` records. All 14 observed records therefore return
-`HOLD` with `MARKET_NATIVE_STAGE_GATE_INPUT_NOT_CONNECTED`. The Stage4 handoff
-reports `RATIFIED_POLICY_ACTIVE_NO_ELIGIBLE_CURRENT_RECORD` and an eligible
-count of zero. This is a connected policy with missing current evaluation input,
-not an unratified-policy state and not evidence that the names failed.
+`HOLD` with
+`canonical_population_membership:GATE_INPUT_NOT_CONNECTED`. This is a
+connected policy with missing current evaluation input, not an
+unratified-policy state and not evidence that the names failed.
+
+Each row now includes `gate_connection_audit`, which identifies the exact
+source position, owner, and automatic recovery requirement for all nine gates:
+
+| Gate | Current 14-record position | Owner lane |
+| --- | --- | --- |
+| canonical population membership | Stage-history coverage observations exist for 14/14, but no ratified adapter emits the Stage gate result | market population evaluator |
+| resolved security identity | two resolved source rows are available but not gate-admitted; two rows are explicitly not computable; ten rows are absent | canonical security identity authority |
+| market-native evaluation coverage | five symbols are in the bounded KR/US evaluator contracts; nine are outside those bounded contracts | Korea/US market-native evaluator owners |
+| evidence quality | no per-symbol ratified gate source for 14/14 | market-native evaluator owners |
+| Translation | no current per-symbol gate source for 14/14 | Alpha Review / Translation owner |
+| Expectations Gap | no current per-symbol gate source for 14/14 | Expectations Gap evaluator owner |
+| invalidation | review prose exists for 12/14 but is not a machine gate; two have no retained source | market-native invalidation evaluator |
+| freshness | P8-12 evidence exists for seven Korea rows but is trigger-temporal-only and cannot be reused as a Stage PASS; seven US rows have no Stage freshness source | market-native Stage freshness owner |
+| active veto | no current per-symbol gate source for 14/14 | Stage veto policy owner |
+
+No source fact in this audit is converted into PASS. The audit only closes the
+diagnostic connection and prevents an existing-but-scope-incompatible source
+from being mislabeled as wholly absent.
+
+The Stage4 handoff reuses the existing
+`common_paper_candidate_funnel_input/1` contract and binds its exact contract
+and schema hashes. A system Candidate alone is not a valid Stage4 row: the
+market adapter must still provide score breakdown, completed-bar evidence, all
+Stage4 Hard Gates, risk fields, source timestamp, TTL, and source references.
+Accordingly the current handoff reports
+`RATIFIED_STAGE_POLICY_ACTIVE_NO_SYSTEM_CANDIDATE`, with both system Candidate
+and Stage4 eligible counts at zero.
 
 When a market-native evaluator supplies all required current PASS results, the
 same receipt derives system `Candidate`, records `PROMOTE`, and lists that symbol
-in `stage4_eligible_symbols`. Ready/Buy, orders, Production, live trading, and
-real capital remain closed.
+in `system_candidate_symbols`. It still reports
+`SYSTEM_CANDIDATE_AVAILABLE_STAGE4_COMMON_FUNNEL_INPUT_REQUIRED` until the
+existing Stage4 input contract is satisfied. Ready/Buy, orders, Production,
+live trading, and real capital remain closed.

@@ -137,16 +137,26 @@ class CurrentEvidenceTests(unittest.TestCase):
         for row in self.receipt["lifecycle_records"]:
             evaluation = row["system_stage_evaluation"]
             self.assertEqual(evaluation["derived_transition"], "HOLD")
-            self.assertEqual(evaluation["first_blocker"], "MARKET_NATIVE_STAGE_GATE_INPUT_NOT_CONNECTED")
+            self.assertEqual(
+                evaluation["first_blocker"],
+                "canonical_population_membership:GATE_INPUT_NOT_CONNECTED",
+            )
             self.assertFalse(evaluation["manual_stage_used_as_promotion_input"])
+            audit = row["gate_connection_audit"]
+            self.assertEqual(audit["gate_count"], 9)
+            self.assertEqual(
+                [gate["gate"] for gate in audit["gates"]],
+                list(MODULE.REQUIRED_STAGE_GATES),
+            )
         handoff = self.receipt["downstream_handoff"]
-        self.assertEqual(handoff["status"], "RATIFIED_POLICY_ACTIVE_NO_ELIGIBLE_CURRENT_RECORD")
+        self.assertEqual(handoff["status"], "RATIFIED_STAGE_POLICY_ACTIVE_NO_SYSTEM_CANDIDATE")
+        self.assertEqual(handoff["system_candidate_record_count"], 0)
         self.assertEqual(handoff["stage4_eligible_record_count"], 0)
         self.assertEqual(handoff["evidence_query_record_count"], len(self.receipt["lifecycle_records"]))
 
 
 class RatifiedSystemStageTests(unittest.TestCase):
-    def test_all_required_pass_promotes_and_opens_only_stage4_internal_paper_handoff(self):
+    def test_all_required_pass_promotes_but_does_not_bypass_stage4_contract(self):
         receipt = MODULE.build_receipt(
             generated_at_utc=GENERATED_AT,
             system_gate_inputs={"298040": _gate_input("298040.KS", "KOREA")},
@@ -158,8 +168,14 @@ class RatifiedSystemStageTests(unittest.TestCase):
         evaluation = next(row for row in receipt["lifecycle_records"] if row["symbol"] == "298040")["system_stage_evaluation"]
         self.assertEqual(evaluation["system_evaluated_stage"], "Candidate")
         self.assertEqual(evaluation["derived_transition"], "PROMOTE")
-        self.assertTrue(evaluation["stage4_internal_paper_eligible"])
-        self.assertEqual(receipt["downstream_handoff"]["stage4_eligible_symbols"], ["298040"])
+        self.assertTrue(evaluation["system_candidate_eligible"])
+        self.assertFalse(evaluation["stage4_internal_paper_eligible"])
+        self.assertEqual(receipt["downstream_handoff"]["system_candidate_symbols"], ["298040"])
+        self.assertEqual(receipt["downstream_handoff"]["stage4_eligible_symbols"], [])
+        self.assertEqual(
+            receipt["downstream_handoff"]["status"],
+            "SYSTEM_CANDIDATE_AVAILABLE_STAGE4_COMMON_FUNNEL_INPUT_REQUIRED",
+        )
         self.assertFalse(receipt["authority"]["buy"])
         self.assertFalse(receipt["authority"]["trading"])
 
@@ -174,6 +190,7 @@ class RatifiedSystemStageTests(unittest.TestCase):
                 evaluation = next(row for row in receipt["lifecycle_records"] if row["symbol"] == "298040")["system_stage_evaluation"]
                 self.assertEqual(evaluation["derived_transition"], "HOLD")
                 self.assertEqual(evaluation["first_blocker"], f"translation_status:{status}")
+                self.assertFalse(evaluation["system_candidate_eligible"])
                 self.assertFalse(evaluation["stage4_internal_paper_eligible"])
 
     def test_manual_stage_observation_does_not_change_system_decision(self):
@@ -191,7 +208,12 @@ class RatifiedSystemStageTests(unittest.TestCase):
             policy,
             dt.datetime.fromisoformat(GENERATED_AT.replace("Z", "+00:00")),
         )
-        for field in ("system_evaluated_stage", "derived_transition", "stage4_internal_paper_eligible"):
+        for field in (
+            "system_evaluated_stage",
+            "derived_transition",
+            "system_candidate_eligible",
+            "stage4_internal_paper_eligible",
+        ):
             self.assertEqual(first[field], second[field])
         self.assertNotEqual(first["manual_watchlist_stage_observation"], second["manual_watchlist_stage_observation"])
 
