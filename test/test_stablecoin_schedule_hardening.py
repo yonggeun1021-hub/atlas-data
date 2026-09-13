@@ -6,9 +6,12 @@ isolated temporary roots, and the observer is read-only.
 """
 
 import datetime as dt
+import gzip
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -58,6 +61,70 @@ def environment(**overrides):
     }
     base.update(overrides)
     return base
+
+
+RETAINED_SNAPSHOT = ROOT / "evidence" / "stablecoin" / "raw" / "2026-09-13"
+FAKE_CURL = """#!/bin/sh
+out=""; url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    http*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+case "$url" in
+  */stablecoincharts/all) name=stablecoincharts_all.json ;;
+  */stablecoincharts/Terra) name=stablecoincharts_Terra.json ;;
+  */stablecoinchains) name=stablecoinchains.json ;;
+  */stablecoins?includePrices=true) name=stablecoins_withprices.json ;;
+  *) echo "unexpected url $url" >&2; exit 22 ;;
+esac
+cp "$FIXTURE_DIR/$name" "$out"
+"""
+FAKE_DATE = """#!/bin/sh
+case "$*" in
+  *%F*) echo "$FAKE_DAY" ;;
+  *) echo "${FAKE_DAY}T05:52:00Z" ;;
+esac
+"""
+
+
+def run_capture_step(base, *, day, event_name="schedule", schedule="50 5 * * *", broken_check=False):
+    """Execute the real capture step script offline against retained bytes."""
+    base = Path(base)
+    fixtures = base / "fixtures"
+    if not fixtures.is_dir():
+        fixtures.mkdir()
+        for path in RETAINED_SNAPSHOT.glob("*.json.gz"):
+            (fixtures / path.name[:-3]).write_bytes(gzip.decompress(path.read_bytes()))
+    bin_dir = base / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name, body in (("curl", FAKE_CURL), ("date", FAKE_DATE)):
+        (bin_dir / name).write_text(body, encoding="utf-8")
+        (bin_dir / name).chmod(0o755)
+    slug = "".join(ch if ch.isalnum() else "_" for ch in f"{day}-{event_name}-{schedule}-{int(broken_check)}")
+    root = base / f"root-{slug}"
+    scripts = root / ".github" / "scripts"
+    scripts.mkdir(parents=True)
+    for path in (ROOT / ".github" / "scripts").iterdir():
+        (scripts / path.name).symlink_to(path)
+    if broken_check:
+        (scripts / "stablecoin_net_issuance.py").unlink()
+        (scripts / "stablecoin_net_issuance.py").write_text(
+            "raise RuntimeError('forced current-row check failure')\n", encoding="utf-8")
+    runner_temp = base / f"runner-{root.name}"
+    runner_temp.mkdir()
+    output = base / f"output-{root.name}"
+    output.write_text("", encoding="utf-8")
+    env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", FIXTURE_DIR=str(fixtures),
+               FAKE_DAY=day, GITHUB_OUTPUT=str(output), RUNNER_TEMP=str(runner_temp),
+               EVENT_NAME=event_name, EVENT_SCHEDULE=schedule)
+    command = workflow_step("Capture raw snapshot (append-only)")["run"]
+    completed = subprocess.run(["bash", "-e", "-c", command], cwd=root, env=env,
+                               capture_output=True, text=True, timeout=300)
+    outputs = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines() if "=" in line)
+    return completed, outputs, root / "evidence" / "stablecoin" / "raw" / day
 
 
 def create_ready_snapshot(raw_root, snapshot_date="2026-08-20"):
@@ -217,6 +284,57 @@ class StablecoinScheduleHardeningTest(unittest.TestCase):
         pending = REC.build_record(environment(ATLAS_CAPTURE_RESULT="pending_current_observation"))
         self.assertEqual(pending["capture"]["result"], "pending_current_observation")
         self.assertFalse(pending["capture"]["provider_call_skipped"])
+
+    def test_capture_step_with_current_row_publishes_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(tmp, day="2026-09-13")
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertEqual(outputs.get("result"), "captured")
+            self.assertTrue((snapshot / "_sha256.txt").is_file())
+
+    def test_absent_current_row_on_early_slots_leaves_path_free(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for schedule in ("50 5 * * *", "20 6 * * *", "20 7 * * *"):
+                with self.subTest(schedule=schedule):
+                    completed, outputs, snapshot = run_capture_step(tmp, day="2026-09-14", schedule=schedule)
+                    self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+                    self.assertEqual(outputs.get("result"), "pending_current_observation")
+                    self.assertFalse(snapshot.exists())
+
+    def test_final_slot_and_manual_run_always_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for event_name, schedule in (("schedule", "20 8 * * *"), ("workflow_dispatch", "")):
+                with self.subTest(event_name=event_name):
+                    completed, outputs, snapshot = run_capture_step(
+                        tmp, day="2026-09-14", event_name=event_name, schedule=schedule)
+                    self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+                    self.assertEqual(outputs.get("result"), "captured")
+                    self.assertTrue((snapshot / "_sha256.txt").is_file())
+
+    def test_current_row_check_error_still_captures_raw_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(tmp, day="2026-09-14", broken_check=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertEqual(outputs.get("result"), "captured")
+            self.assertTrue((snapshot / "_sha256.txt").is_file())
+            self.assertIn("current-row check failed; capturing the snapshot anyway", completed.stdout)
+
+    def test_observer_keeps_legacy_primary_slot_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_ready_snapshot(root / "raw")
+            for slot_id, expected in (("primary_1520_kst", "present_primary"),
+                                      ("primary_1450_kst", "present_primary"),
+                                      ("backup_1520_kst", "present_backup")):
+                with self.subTest(slot_id=slot_id):
+                    runs = root / f"runs-{slot_id}"
+                    record = REC.build_record(environment())
+                    record["slot"]["id"] = slot_id
+                    REC.write_record(record, runs)
+                    report = OBS.observe(dt.date(2026, 8, 20),
+                                         dt.datetime(2026, 8, 20, 8, 25, tzinfo=dt.timezone.utc),
+                                         root / "raw", runs)
+                    self.assertEqual(report["classification"], expected)
 
     def test_crypto_runtime_cutoff_has_pre_cutoff_slots_off_the_hour(self):
         triggers = WF.get("on", WF.get(True))

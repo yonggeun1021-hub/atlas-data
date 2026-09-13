@@ -8,9 +8,11 @@ UTC-date append-only snapshot을 시도하며, 먼저 완성된 snapshot의
 CRYPTO_PAPER_RUNTIME_V1은 매일 07:00Z(16:00 KST)에 finalized packet을 확정한다.
 05:50Z primary와 06:20Z backup은 그 cutoff 전에 여유를 두기 위한 슬롯이다.
 07:20Z/08:20Z 슬롯의 capture는 증거로 보존되지만 runtime에서는 lookahead로
-거부되어 그날 LIQUIDITY 축은 missing(UNKNOWN)이 된다. 이른 슬롯에서 당일 UTC
-observation row가 아직 없으면 `pending_current_observation`으로 기록하고
-append-only 경로를 만들지 않으므로 뒤 슬롯이 다시 시도한다.
+거부되어 그날 LIQUIDITY 축은 missing(UNKNOWN)이 된다. 08:20Z 이전 예약 슬롯에서
+당일 UTC observation row가 아직 없으면 `pending_current_observation`으로 기록하고
+append-only 경로를 만들지 않으므로 뒤 슬롯이 다시 시도한다. row 판정 자체가
+실패하면 원문을 잃지 않도록 경고를 남기고 capture하며, 마지막 08:20Z 슬롯과
+수동 실행은 row 유무와 무관하게 항상 capture한다.
 
 각 runner 도착은
 `data/operations/stablecoin_capture_runs/{UTC_DATE}/run-{id}-attempt-{n}.json`

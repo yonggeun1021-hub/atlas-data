@@ -7,8 +7,11 @@ import copy
 import importlib.util
 from pathlib import Path
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -17,6 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from regime import crypto_paper_runtime as RUNTIME  # noqa: E402
+from regime import crypto_paper_runtime_publication as PUBLICATION  # noqa: E402
 
 PRODUCER = ROOT / ".github" / "workflows" / "crypto-paper-runtime.yml"
 STABLECOIN = ROOT / ".github" / "workflows" / "stablecoin-capture.yml"
@@ -85,7 +89,50 @@ class CryptoPaperRuntimeScheduleTest(unittest.TestCase):
         self.assertIn('LATEST="data/latest_crypto_paper_runtime_decision.json"', self.script)
         self.assertIn('EVIDENCE="evidence/regime/crypto_paper_runtime/$DECISION_DATE/$DIGEST.json"', self.script)
         self.assertIn("append-only evidence conflict", self.script)
-        self.assertNotIn("--force", self.script)
+
+    def all_run_text(self):
+        return "\n".join(
+            step.get("run", "")
+            for job in self.producer["jobs"].values() for step in job["steps"]
+        )
+
+    def test_no_force_push_of_any_form(self):
+        pushes = re.findall(r"git\s+push\b[^\n]*", self.all_run_text())
+        self.assertEqual(pushes, ['git push origin "HEAD:$DEFAULT_BRANCH"; then'])
+        forced = re.compile(r"\s(-[A-Za-z]*f[A-Za-z]*|--force\S*|--mirror|--delete|-d)(\s|$)|[\s\"':]\+")
+        for push in pushes:
+            self.assertIsNone(forced.search(push), push)
+        for variant in ("git push -f origin x", "git push --force origin x", "git push --force-with-lease origin x",
+                        'git push origin "+HEAD:main"', "git push origin +HEAD:main", "git push -uf origin x"):
+            self.assertIsNotNone(forced.search(variant), variant)
+
+    def test_commit_never_stages_implicitly(self):
+        commits = re.findall(r"git\s+commit\b[^\n]*", self.all_run_text())
+        self.assertEqual(len(commits), 1)
+        implicit = re.compile(r"\s(-[A-Za-z]*a[A-Za-z]*|--all|--amend)(\s|$)")
+        for commit in commits:
+            self.assertIsNone(implicit.search(commit), commit)
+        for variant in ("git commit -a -m x", "git commit -am x", "git commit --all -m x"):
+            self.assertIsNotNone(implicit.search(variant), variant)
+
+    def test_every_candidate_head_reruns_contract_tests_and_retry_skips_published_day(self):
+        loop = self.script.index("for attempt in")
+        reset = self.script.index('git reset --hard "origin/$DEFAULT_BRANCH"')
+        tests = self.script.index("python3 test/test_crypto_paper_runtime.py")
+        kraken = self.script.index("python3 test/test_crypto_kraken_btc_replay_diagnostic.py")
+        skip = self.script.index("--published-for-current-date")
+        build = self.script.index('--output "$LATEST"\n')
+        push = self.script.index("git push")
+        self.assertLess(loop, reset)
+        self.assertLess(reset, tests)
+        self.assertLess(tests, kraken)
+        self.assertLess(kraken, skip)
+        self.assertLess(skip, build)
+        self.assertLess(build, push)
+        self.assertEqual(self.script.count("python3 test/test_crypto_paper_runtime.py"), 1)
+        skip_block = self.script[self.script.rindex("if ", 0, skip):build]
+        self.assertIn("exit 0", skip_block)
+
 
     def test_stablecoin_has_pre_cutoff_primary_and_backup(self):
         minutes = cron_minutes(load(STABLECOIN))
@@ -111,6 +158,47 @@ class CryptoPaperRuntimeScheduleTest(unittest.TestCase):
                 else:
                     self.assertEqual(packet["runtime_regime"], "UNKNOWN")
                     self.assertIn("LIQUIDITY_LOOKAHEAD", packet["reasons"])
+
+
+class PublishedForCurrentDateTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.code_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+
+    def publish(self, target: Path, evaluation_at: str) -> None:
+        with mock.patch("builtins.print"):
+            self.assertEqual(PUBLICATION.main([
+                "--evaluation-at", evaluation_at, "--code-revision", self.code_revision, "--output", str(target)]), 0)
+
+    def cli(self, target: Path, evaluation_at: str) -> int:
+        with mock.patch("builtins.print"):
+            return PUBLICATION.main([
+                "--evaluation-at", evaluation_at, "--code-revision", self.code_revision, "--output", str(target),
+                "--published-for-current-date"])
+
+    def test_retry_slot_does_not_republish_same_utc_day(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "latest.json"
+            self.assertFalse(PUBLICATION.published_for_current_date(target, "2026-09-14T07:15:00Z"))
+            self.assertEqual(self.cli(target, "2026-09-14T07:15:00Z"), 3)
+            self.publish(target, "2026-09-14T07:15:00Z")
+            first = target.read_bytes()
+            self.assertTrue(PUBLICATION.published_for_current_date(target, "2026-09-14T08:45:00Z"))
+            self.assertTrue(PUBLICATION.published_for_current_date(target, "2026-09-15T06:59:59Z"))
+            self.assertEqual(self.cli(target, "2026-09-14T08:45:00Z"), 0)
+            self.assertEqual(target.read_bytes(), first)
+            self.assertFalse(PUBLICATION.published_for_current_date(target, "2026-09-15T07:00:00Z"))
+            self.assertEqual(self.cli(target, "2026-09-15T07:15:00Z"), 3)
+
+    def test_unverifiable_published_packet_is_rebuilt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "latest.json"
+            self.publish(target, "2026-09-14T07:15:00Z")
+            original = target.read_bytes()
+            target.write_bytes(original.replace(b'"BLOCKED"', b'"PAPER_RUNTIME_CLASSIFIED"', 1))
+            self.assertFalse(PUBLICATION.published_for_current_date(target, "2026-09-14T08:45:00Z"))
+            target.write_bytes(b"not json")
+            self.assertFalse(PUBLICATION.published_for_current_date(target, "2026-09-14T08:45:00Z"))
 
 
 if __name__ == "__main__":
