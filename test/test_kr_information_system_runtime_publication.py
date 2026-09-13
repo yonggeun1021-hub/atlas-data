@@ -95,6 +95,15 @@ class KrInformationSystemRuntimePublicationTest(unittest.TestCase):
                     self.assertEqual(PUBLICATION.main(), 0)
                 self.assertEqual(target.read_bytes(), first)
 
+    def test_committed_publication_rederives_exactly(self):
+        published = PUBLICATION.OUTPUT_PATH.read_bytes()
+        packet = json.loads(published)
+        rebuilt = PUBLICATION.build_decision(
+            evaluation_at=packet["evaluation_at"],
+            code_revision=packet["code_revision"],
+        )
+        self.assertEqual(BRIDGE.pretty_bytes(rebuilt), published)
+
 
 if __name__ == "__main__":
     unittest.main()
