@@ -1577,6 +1577,194 @@ def validate_packet(
     return copy.deepcopy(packet)
 
 
+def consume_paper_runtime_context(
+    runtime_bytes: bytes,
+    *,
+    expected_runtime_sha256: str,
+    source_commit: str,
+    evaluation_at: str,
+    prior_date: str,
+    current_date: str,
+    rotation_policy: dict,
+    rotation_packet: dict | None,
+    rotation_error: str | None = None,
+) -> dict:
+    """Consume a pinned Stage1 display decision alongside real P2-03 output.
+
+    This is a read-only receipt, NOT a korea_capital_rotation_packet/4.
+    The original ranking transform and its strict packet/4 contract remain
+    unchanged. Stage1's aggregate leadership count is never converted into
+    sector returns, Theme membership, buckets, or entry permission.
+    ``expected_runtime_sha256`` must come from the caller's trusted immutable
+    source, not a digest supplied inside the runtime document.
+    """
+    digest = hashlib.sha256(runtime_bytes).hexdigest()
+    if digest != _sha(expected_runtime_sha256, "PAPER_RUNTIME_EXPECTED_SHA_INVALID"):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_SOURCE_SHA_MISMATCH")
+    if not isinstance(source_commit, str) or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_SOURCE_COMMIT_INVALID")
+    try:
+        runtime = json.loads(runtime_bytes)
+    except (ValueError, UnicodeError) as exc:
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_JSON_INVALID") from exc
+    expected_authority = {
+        "paper_runtime_display_authorized": True,
+        **{f"{name}_authorized": False for name in (
+            "action", "buy", "capital", "order", "production", "real",
+            "stage", "strategy", "trading",
+        )},
+    }
+    if not isinstance(runtime, dict) or any(runtime.get(key) != value for key, value in {
+        "schema_version": "kr_paper_runtime_decision/5",
+        "market": "KR",
+        "evidence_class": "LIVE_NATURAL",
+        "actual_source_qualification": "RATIFIED_KR_PAPER_DISPLAY_ONLY",
+        "decision_status": "PAPER_RUNTIME_CLASSIFIED",
+        "reasons": [],
+    }.items()) or runtime.get("runtime_decision_available") is not True:
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_NOT_QUALIFIED_FOR_DISPLAY")
+    authority = runtime.get("authority")
+    if not isinstance(authority, dict) or set(authority) != set(expected_authority) or any(
+        authority[key] is not value for key, value in expected_authority.items()
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_AUTHORITY_MISMATCH")
+    observation = runtime.get("current_observation")
+    boundary = runtime.get("session_boundary_freshness")
+    if not isinstance(observation, dict) or not isinstance(boundary, dict):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_CONTEXT_MISSING")
+    prior = _date(prior_date, "PAPER_PRIOR_DATE_INVALID")
+    current = _date(current_date, "PAPER_CURRENT_DATE_INVALID")
+    if not prior < current or observation.get("as_of_date") != current_date or (
+        boundary.get("context_session_date") != current_date
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_CONTEXT_DATE_MISMATCH")
+    regime = runtime.get("runtime_regime")
+    if regime not in {"RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS"} or any(
+        value != regime for value in (
+            runtime.get("paper_regime"), observation.get("confirmed_regime"),
+        )
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_CONFIRMED_REGIME_MISMATCH")
+    if runtime.get("direction") not in {"IMPROVING", "STABLE", "DETERIORATING"}:
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_DIRECTION_INVALID")
+    confidence = _decimal(runtime.get("confidence"), "PAPER_RUNTIME_CONFIDENCE_INVALID")
+    if not Decimal(0) <= confidence <= Decimal(1):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_CONFIDENCE_INVALID")
+    now = _timestamp(evaluation_at, "PAPER_CONSUMPTION_TIME_INVALID")
+    published = _timestamp(runtime.get("evaluation_at"), "PAPER_RUNTIME_TIME_INVALID")
+    usable = _timestamp(boundary.get("calendar_usable_from"), "PAPER_CALENDAR_TIME_INVALID")
+    close = _timestamp(boundary.get("context_session_close_at"), "PAPER_CONTEXT_CLOSE_INVALID")
+    expires = _timestamp(boundary.get("execution_session_close_at"), "PAPER_EXPIRY_INVALID")
+    kst = dt.timezone(dt.timedelta(hours=9))
+    if close.astimezone(kst).date() != current or (
+        expires.astimezone(kst).date().isoformat() != boundary.get("execution_session_date")
+    ) or not current < expires.astimezone(kst).date():
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_SESSION_DATE_MISMATCH")
+    if boundary.get("paper_policy_use_authorized") is not True or not (
+        close <= published and usable <= published <= now < expires
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_NOT_AVAILABLE_OR_EXPIRED")
+    if type(boundary.get("derived_ttl_seconds")) is not int or (
+        boundary["derived_ttl_seconds"] != (expires - close).total_seconds()
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_TTL_MISMATCH")
+
+    if not isinstance(rotation_policy, dict) or (
+        rotation_policy.get("schema_version") != POLICY_SCHEMA_VERSION
+        or rotation_policy.get("approval_status") != "RATIFIED"
+    ):
+        raise KoreaCapitalRotationError("PAPER_ROTATION_POLICY_NOT_RATIFIED")
+    effective_from = _date(rotation_policy.get("effective_from"), "PAPER_POLICY_DATE_INVALID")
+    effective_to = rotation_policy.get("effective_to")
+    effective = effective_from <= prior and (
+        effective_to is None or current < _date(effective_to, "PAPER_POLICY_END_INVALID")
+    )
+    reasons = [] if effective else ["POLICY_NOT_EFFECTIVE_FOR_OBSERVATION_PAIR"]
+    packet = None
+    if rotation_packet is None:
+        reasons.append("ROTATION_PACKET_UNAVAILABLE")
+        if not isinstance(rotation_error, str) or not rotation_error:
+            raise KoreaCapitalRotationError("PAPER_ROTATION_MISSING_REASON_REQUIRED")
+        reasons.append(rotation_error)
+    else:
+        if rotation_error is not None:
+            raise KoreaCapitalRotationError("PAPER_ROTATION_RESULT_ERROR_CONFLICT")
+        packet = validate_packet(rotation_packet)
+        pair = packet["observation_pair"]
+        if packet["rotation_policy"] != rotation_policy or (
+            pair["prior_date"] != prior_date or pair["current_date"] != current_date
+        ):
+            raise KoreaCapitalRotationError("PAPER_ROTATION_PACKET_BINDING_MISMATCH")
+        if _timestamp(pair["current_available_at"], "PAPER_ROTATION_TIME_INVALID") > now:
+            raise KoreaCapitalRotationError("PAPER_ROTATION_PACKET_NOT_YET_AVAILABLE")
+        if packet["status"] != "ROTATION_BUCKETS_OBSERVED":
+            reasons.append(packet["status"])
+        if packet["coverage_context"]["breadth"]["status"] != "AVAILABLE":
+            reasons.append("ROTATION_BREADTH_NOT_AVAILABLE")
+
+    lineage = {
+        "runtime_source_commit": source_commit,
+        "runtime_path": "data/latest_kr_paper_runtime_decision.json",
+        "runtime_file_sha256": digest,
+        "runtime_decision_id": runtime.get("decision_id"),
+        "runtime_evaluation_at": runtime["evaluation_at"],
+        "runtime_producer_code_revision": runtime.get("code_revision"),
+        "rotation_policy_sha256": payload_sha256(rotation_policy),
+        "rotation_packet_sha256": None if packet is None else packet["payload_sha256"],
+    }
+    for key in (
+        "qualification_sha256", "source_sha256", "source_manifest_sha256",
+        "historical_acceptance_sha256", "historical_replay_sha256",
+    ):
+        lineage[key] = _sha(runtime.get(key), f"PAPER_RUNTIME_LINEAGE_INVALID:{key}")
+    receipt = {
+        "schema_version": "korea_capital_rotation_paper_consumption/1",
+        "mode": "INTERNAL_PAPER_READ_ONLY_CONTEXT",
+        "evaluation_at": evaluation_at,
+        "observation_pair": {"prior_date": prior_date, "current_date": current_date},
+        "market_context": {
+            "status": "CONSUMED_DISPLAY_ONLY",
+            "as_of_date": current_date,
+            "runtime_regime": regime,
+            "direction": runtime["direction"],
+            "confidence": runtime["confidence"],
+            "current_observation": copy.deepcopy(observation),
+            "expires_at": boundary["execution_session_close_at"],
+            "execution_session_date": boundary["execution_session_date"],
+            "ranking_input_authorized": False,
+        },
+        "rotation": {
+            "status": "ROTATION_PACKET_AVAILABLE" if not reasons else "WAIT_ROTATION_INPUT",
+            "reasons": list(dict.fromkeys(reasons)),
+            "policy_id": rotation_policy["policy_id"],
+            "policy_effective_from": rotation_policy["effective_from"],
+            "policy_effective_for_pair": effective,
+            "packet": packet,
+        },
+        "stage3_handoff": {
+            "market_context_available": True,
+            "rotation_packet_ready_for_contract_validation": not reasons,
+            "required_rotation_schema": OUTPUT_SCHEMA_VERSION,
+            "rotation_packet_field": "rotation.packet",
+            "entry_authorized": False,
+            "remaining_contract_checks": [
+                "EXACT_D_TO_E_SESSION_AND_TTL",
+                "INDEPENDENT_ASSET_THEME_MEMBERSHIP_AND_SAME_THEME_TOP_BUCKET",
+                "E_SESSION_IDENTITY_TRADABILITY_PRICE_COST_AND_FORWARD_EVIDENCE",
+            ],
+            "aggregate_leadership_is_not_sector_rotation_input": True,
+        },
+        "lineage": lineage,
+        "authority": expected_authority | {
+            "regime_as_ranking_input_authorized": False,
+            "candidate_ranking_authorized": False,
+            "stage3_entry_authorized": False,
+        },
+    }
+    receipt["payload_sha256"] = payload_sha256(receipt)
+    return receipt
+
+
 def write_json_atomic(path: Path, value: dict) -> None:
     path = Path(path)
     try:

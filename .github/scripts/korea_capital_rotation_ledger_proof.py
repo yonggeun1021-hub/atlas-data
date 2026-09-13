@@ -72,9 +72,12 @@ ratification.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -352,6 +355,103 @@ def run_current_ratified(
     return {"rotation_packet": packet, "packet_out": output_path}
 
 
+def build_current_ratified_paper_consumption(
+    prior_date: str, current_date: str, *, source_commit: str, evaluation_at: str,
+) -> dict:
+    """Bind immutable Stage1 display bytes to the existing real P2-03 attempt.
+
+    No provider request, legacy fallback, policy mutation, or pointer write.
+    Missing Leadership remains a recorded missing input; the aggregate
+    Stage1 leadership count cannot stand in for a per-sector observation.
+    """
+    if not isinstance(source_commit, str) or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
+        raise RuntimeError("PAPER_SOURCE_COMMIT_MUST_BE_FULL_SHA")
+
+    def pinned_bytes(relative_path: str) -> bytes:
+        try:
+            return subprocess.run(
+                ["git", "show", f"{source_commit}:{relative_path}"],
+                cwd=ROOT, check=True, capture_output=True,
+            ).stdout
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(f"PAPER_PINNED_SOURCE_UNAVAILABLE:{relative_path}") from exc
+
+    runtime_path = "data/latest_kr_paper_runtime_decision.json"
+    runtime_bytes = pinned_bytes(runtime_path)
+    # The existing ratified producer reads local inputs. Check those bytes
+    # against the same immutable source before attributing their lineage.
+    paths = [
+        RATIFIED.DECISION_PATH, RATIFIED.IDENTITY_DOCUMENT_PATH,
+        RATIFIED.BINDING_PATH, RATIFIED.POLICY_PATH,
+        RATIFIED.LEADERSHIP_POLICY_PATH, RATIFIED.KRX_HOLIDAY_CAPTURE_PATH,
+        KCR.CONTRACT_PATH, KCR.SECTOR_IDENTITY_BINDING_CONTRACT_PATH,
+    ]
+    for date in (prior_date, current_date):
+        KCR._date(date, "PAPER_OBSERVATION_DATE_INVALID")
+        paths.extend([
+            ROOT / "data/observations/korea_leadership_context" / date / "packet.json",
+            ROOT / "data/observations/korea_breadth_context" / date / "packet.json",
+        ])
+    source_files = []
+    for path in paths:
+        relative = path.relative_to(ROOT).as_posix()
+        try:
+            committed = pinned_bytes(relative)
+        except RuntimeError:
+            if path.is_file() or path in paths[:8]:
+                raise
+            source_files.append({"path": relative, "status": "ABSENT_AT_SOURCE_COMMIT", "sha256": None})
+            continue
+        if not path.is_file() or path.read_bytes() != committed:
+            raise RuntimeError(f"PAPER_LOCAL_SOURCE_DRIFT:{relative}")
+        source_files.append({"path": relative, "status": "PINNED", "sha256": hashlib.sha256(committed).hexdigest()})
+
+    _binding, policy = load_current_ratified_artifacts()
+    packet, error = None, None
+    try:
+        packet = build_current_ratified_packet(prior_date, current_date)
+    except (RuntimeError, KCR.KoreaCapitalRotationError, WIRE.KoreaRotationWireError) as exc:
+        error = str(exc)
+    for source_file in source_files:
+        path = ROOT / source_file["path"]
+        actual_sha = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+        if actual_sha != source_file["sha256"]:
+            raise RuntimeError(f"PAPER_SOURCE_CHANGED_DURING_CONSUMPTION:{source_file['path']}")
+    receipt = KCR.consume_paper_runtime_context(
+        runtime_bytes,
+        expected_runtime_sha256=hashlib.sha256(runtime_bytes).hexdigest(),
+        source_commit=source_commit, evaluation_at=evaluation_at,
+        prior_date=prior_date, current_date=current_date,
+        rotation_policy=policy, rotation_packet=packet, rotation_error=error,
+    )
+    receipt["lineage"]["rotation_inputs_source_commit"] = source_commit
+    receipt["lineage"]["rotation_source_files"] = source_files
+    receipt["lineage"]["consumer_code_sha256"] = {
+        path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+        for path in (
+            "rotation/korea_capital_rotation.py",
+            ".github/scripts/korea_capital_rotation_ledger_proof.py",
+        )
+    }
+    receipt.pop("payload_sha256")
+    receipt["payload_sha256"] = KCR.payload_sha256(receipt)
+    return receipt
+
+
+def run_current_ratified_paper_consumption(
+    prior_date: str, current_date: str, consumer_out: Path, *,
+    source_commit: str, evaluation_at: str,
+) -> dict:
+    receipt = build_current_ratified_paper_consumption(
+        prior_date, current_date, source_commit=source_commit, evaluation_at=evaluation_at,
+    )
+    output_path = write_external_ratified_packet(consumer_out, receipt)
+    persisted = json.loads(output_path.read_bytes())
+    if persisted != receipt:
+        raise RuntimeError("PAPER_CONSUMPTION_READBACK_MISMATCH")
+    return {"consumer_receipt": persisted, "consumer_out": output_path}
+
+
 def run(prior_date: str, current_date: str, pointer_out: Path | None) -> dict:
     as_of_date = current_date
     value, rotation_policy = build_real_price_side(prior_date, current_date)
@@ -407,7 +507,30 @@ def main() -> int:
             "(required with --current-ratified-policy)."
         ),
     )
+    parser.add_argument("--paper-runtime-source-commit", help="Immutable commit containing canonical Stage1 display and current P2 inputs.")
+    parser.add_argument("--paper-consumer-out", type=Path, help="External read-only consumption receipt; never a packet/4 replacement.")
+    parser.add_argument("--evaluation-at", help="Timezone-aware consumption time; source evaluation time is retained separately.")
     args = parser.parse_args()
+    paper_args = (args.paper_runtime_source_commit, args.paper_consumer_out, args.evaluation_at)
+    if any(value is not None for value in paper_args):
+        if not all(value is not None for value in paper_args) or not args.current_ratified_policy:
+            parser.error("PAPER consumption requires --current-ratified-policy and all three PAPER arguments")
+        if args.commit_pointer or args.packet_out:
+            parser.error("PAPER consumption cannot write the briefing pointer or substitute for --packet-out")
+        result = run_current_ratified_paper_consumption(
+            args.prior_date, args.current_date, args.paper_consumer_out,
+            source_commit=args.paper_runtime_source_commit, evaluation_at=args.evaluation_at,
+        )
+        receipt = result["consumer_receipt"]
+        print(json.dumps({
+            "market_context": receipt["market_context"]["status"],
+            "runtime_regime": receipt["market_context"]["runtime_regime"],
+            "rotation_status": receipt["rotation"]["status"],
+            "reasons": receipt["rotation"]["reasons"],
+            "payload_sha256": receipt["payload_sha256"],
+            "consumer_out": str(result["consumer_out"]),
+        }, ensure_ascii=False))
+        return 0
     if args.current_ratified_policy:
         if args.commit_pointer:
             parser.error(
