@@ -2,7 +2,7 @@
   "generation": {
     "generation_basis_at_utc": "2026-09-13T21:01:02+00:00",
     "generation_contract_version": 1,
-    "generation_id": "3b3c45760fe44accea72c1f1850e687e026e7020cf72dde47b1f8dd42fa55f52"
+    "generation_id": "c03a5eed11f37dac32a331a6891e35a9531e557fc447e46cbc73dc4dcf687234"
   },
   "market": "SEC",
   "schema_version": 2,
@@ -42,7 +42,7 @@
           "extracted": [],
           "extractor_version": "sec_filing_content/1",
           "interpretation_status": "UNDETERMINED",
-          "operation": "captured",
+          "operation": "skipped",
           "publication_status": "OK",
           "raw_cache_policy": "delete_after_90_days_allowed",
           "reasons": [
@@ -50,12 +50,13 @@
           ],
           "retrieved_at_utc": "2026-09-13T21:01:15Z",
           "rule_impact": "NONE",
+          "skip_reason": "already_captured",
           "source": {
             "collected_for_kst_date": "2026-09-14",
-            "observed_at_utc": "2026-09-13T21:01:15Z",
+            "observed_at_utc": "2026-09-13T21:21:29Z",
             "run_status": "OK",
             "source_file": "data/latest_sec_content.json",
-            "source_sha256": "30162fe9ffc0c03334ac3fc936cfceaab4f86d1adc0081ed6e7b93529f68f705"
+            "source_sha256": "72c28f54393a41072adfbca05d0ea75f9faf0af150f8f72789aabf63b4b8fb77"
           }
         },
         "date": "2026-09-11",
