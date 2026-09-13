@@ -172,6 +172,24 @@ same `RealtimeGate` class unchanged -- that is a future, separate
 infrastructure/deployment-track decision, explicitly out of scope for this
 PR (which is the public data-contract repo, cron-based).
 
+### Capture-to-decision step order (2026-09-14)
+
+Within that job the Crypto PAPER decision snapshot step runs **directly
+after** the bounded realtime capture step.  The decision re-evaluates the
+RATIFIED CRYPTO freshness policy (`P9_06_UPBIT_CRYPTO_PAPER_V1`, 20s provider
+age / 3s transport delay) at its own `generated_at`, so any step placed in
+between adds its wall-clock duration to every ticker's provider age.  The
+~30s decision-isolated public transport validation capture therefore runs
+after the decision chain (still only when the realtime capture succeeded).
+
+`.github/scripts/check_crypto_decision_capture_gap.py` measures
+`decision generated_at - run.status.generated_at` and fails its own step
+when the gap exceeds **5 seconds**.  That number is an *engineering budget*
+for GitHub Actions step hand-off (expected gap 0-1s), not a freshness policy:
+no freshness evaluation reads it, it does not alter the ratified 20s/3s
+limits, and it changes no decision outcome.  The measured gap is recorded in
+the run telemetry (`ATLAS_CRYPTO_DECISION_CAPTURE_GAP_*`).
+
 ## The `websockets` dependency (new)
 
 The `websockets>=12.0` package is added to `requirements.txt` --
