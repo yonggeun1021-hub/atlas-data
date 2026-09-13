@@ -2236,6 +2236,11 @@ APPROVED_TESTS = [
     # ★ P5-06/P7-08 — cross-row audit of unratified identity proposals.
     #   Coherence is review material only and never creates authority.
     "test/test_candidate_identity_authority_review_inventory.py",
+    # ★ Stage3 candidate evidence lifecycle — fail-closed candidate_stage_gate_input/1
+    #   adapter and lifecycle receipt. Missing evidence stays MISSING/UNKNOWN; a system
+    #   Candidate is never Stage4, order, or real-capital authority.
+    "test/test_candidate_evidence_lifecycle_receipt.py",
+    "test/test_candidate_stage_gate_input_adapter.py",
     # ★ P5-08 — Crypto Candidate Promotion Rule: TRADEABLE_UNIVERSE/
     #   PAPER_ELIGIBLE (P3-12) -> WATCH/FOCUSED_REVIEW/BLOCKED. Pure
     #   derivation over embedded, consumer-revalidated P3-12/P1-CR-08/
