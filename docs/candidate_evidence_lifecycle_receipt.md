@@ -1,8 +1,9 @@
 # Candidate evidence and lifecycle receipt
 
-`candidate_evidence_lifecycle_receipt/1` is a read-only sidecar for the
-three-market candidate lookup. It makes already retained evidence queryable
-without changing the lookup's owned files or inventing candidate policy.
+`candidate_evidence_lifecycle_receipt/2` is an evidence-bound sidecar for the
+three-market candidate lookup. It makes retained evidence queryable and applies
+the ratified, separate system-evaluated Candidate policy without mutating the
+manual Watchlist Stage field.
 
 ## Connected evidence
 
@@ -45,7 +46,7 @@ does not synthesize values:
 
 - security symbol to sector/Theme binding;
 - symbol-level rotation-ledger link;
-- general Discovery/Candidate/Ready promotion, hold, or exclusion rule.
+- security-to-rotation promotion or exclusion rules.
 
 The gap register distinguishes those policy gaps from two connection gaps now
 closed by this sidecar: retained inclusion-reason consumption was
@@ -66,45 +67,41 @@ Use `--output <path>` only when a caller needs a file. Without it, the receipt
 is printed to standard output. The module's `lookup_symbol()` accepts either a
 six-digit Korea symbol or its `.KS` form.
 
-No collector, schedule, runner, pin, policy, Stage, Buy, Action, Order,
-Production, Trading, or real-capital authority is added by this contract.
+No collector, schedule, runner, pin, manual Stage mutation, Ready, Buy, Action,
+Order, Production, Trading, or real-capital authority is added. The only opened
+authority is system Candidate evaluation and its internal PAPER Stage4 handoff.
 
-## CIO decision packet: removing the Stage adjudication dead end
+## Ratified decision: separate system-evaluated Stage
 
-Status: **proposal only / awaiting CIO ratification**. This section does not
-change Stage policy.
+Status: **ratified and effective from 2026-09-13T05:27:28Z**.
 
-The recommended option is **A: Separate System-Evaluated Stage**. The retained
-Notion Stage tag remains an immutable source observation, while an independently
-versioned system Stage is derived from ratified market-native evaluator fields.
-The manual tag is not an input requirement for system promotion. This repairs
-the current “strong evidence has nowhere to go” failure and the circular
-dependency in which an item must already have a manual Stage tag before it can
-be evaluated.
+The approved option is **A: Separate System-Evaluated Stage**. The retained
+Notion Stage tag remains a source observation, while an independently versioned
+system Stage is derived from market-native evaluator fields. The manual tag is
+never an input requirement for system promotion.
 
-| Policy element | Existing approved or observed basis | New proposal in option A |
-| --- | --- | --- |
-| Required conditions | Retained source, PIT time, `UNKNOWN` preservation, and no-forced-action are existing boundaries | Require population membership, resolved identity, evaluation coverage, evidence quality, Translation, Expectations Gap, invalidation, freshness, active-veto state, evidence refs, rule version, and effective time |
-| Evidence source | Market-native retained evidence remains authoritative in its own scope | Use a common decision wrapper; do not translate market-native facts into a common score |
-| Data period | Source times and date precision are retained as recorded | No universal lookback is proposed; the decision must name the exact evidence period it used |
-| Missing data | Existing doctrine forbids replacing missing evidence with PASS | `HOLD` or `NOT_COMPUTABLE`, never PASS |
-| Validity / expiry | P8-12 ratifies 48-hour trigger freshness only | Do not turn 48 hours into Stage expiry. A review/expiry time must be explicitly supplied and ratified; no default is proposed |
-| Promotion | No general ratified promotion policy exists | After CIO ratifies the field vocabulary and each evaluator's PASS semantics, all required current fields must PASS; `UNKNOWN`, missing, stale, or active veto holds. Manual Notion Stage is not required |
-| Maintenance | Current same-Stage observations can be mechanically reported | Any required field that is not PASS produces `HOLD` with exact first blocker and evidence refs |
-| Demotion / drop | Some symbol prose exists, but no general rule is ratified | Only a ratified market-native invalidation/exit result may derive `DEMOTE` or `DROP`; missing evidence alone does not imply either |
-| Re-entry | No general ratified re-entry policy exists | Require a fresh full evaluation and new evidence refs; do not carry prior validity or a manual tag forward |
-| Market differences | Korea, US, and Crypto keep separate native classifications | Same wrapper, separate market-native evidence contract; no cross-market rank or threshold |
+| Policy element | Ratified rule |
+| --- | --- |
+| Required conditions | Population membership, resolved identity, market-native evaluation coverage, evidence quality, Translation, Expectations Gap, invalidation, freshness, and no active veto must all be `PASS` |
+| Evidence source | Every PASS binds at least one hashed evidence reference and its point-in-time availability; each market keeps its native evaluator contract |
+| Data period | No universal lookback is invented; each gate input records its own evaluation and review/expiry time |
+| Missing data | `MISSING`, `UNKNOWN`, `STALE`, `FAIL`, or `ACTIVE_VETO` yields `HOLD` at the first required gate; none can become PASS |
+| Promotion | All required gates PASS derives system `Candidate` and permits only the internal PAPER Stage4 handoff |
+| Manual/system boundary | Manual Notion Stage is retained in the receipt for comparison but is not consumed by the decision expression |
+| Demotion / drop | Only a separately ratified market-native invalidation or exit may derive either; missing evidence never does |
+| Re-entry | A fresh full evaluation and new evidence references are required |
+| Market differences | One envelope, separate market-native contracts, no cross-market score and no security-to-Theme inference |
 
-Option B is the smaller human-decision-only contract: evidence opens a review,
-and a PM/CIO receipt changes Stage. It is safer to deploy first but does not
-meet the requirement that system evaluation can promote without manually
-updating a Notion tag. Option C keeps the evidence-only hold and therefore
-preserves the present adjudication dead end.
+The immutable bindings are:
 
-Option A's `ALL_REQUIRED` expression is a proposed control rule, not an active
-policy. The individual PASS semantics for Translation, Expectations Gap,
-invalidation, and evidence quality still require CIO ratification. No numeric
-score or threshold is supplied by this proposal.
+- policy: `config/candidate_stage_evaluation_policy_v1.json`;
+- current registry: `config/candidate_stage_evaluation_policy_registry.json`;
+- explicit approval evidence:
+  `evidence/authority/candidate_stage_evaluation_policy_approval_20260913.json`.
+
+The policy adds no numeric investment threshold. Market-native PASS semantics
+must arrive through `candidate_stage_gate_input/1`; this receipt does not invent
+or duplicate the Korea, US, or Crypto evaluator logic.
 
 ### Current first blockers (evidence generation as of 2026-09-12)
 
@@ -131,8 +128,16 @@ Raw KIS large/mid/small sector codes and US SEC SIC can be source facts, but
 they are not a ratified Atlas investment Theme or rotation membership. Option
 A must preserve that distinction and may not infer Theme from either code.
 
-The receipt exposes these records to a Stage4 consumer but reports
-`stage4_eligible_record_count=0` and
-`NOT_ADMISSIBLE_STAGE_POLICY_UNRATIFIED`. A later handoff must bind the exact
-ratified policy id, version, effective time, and decision evidence before any
-Stage4 candidate input becomes eligible.
+## Current re-evaluation
+
+The current repository generation has no connected
+`candidate_stage_gate_input/1` records. All 14 observed records therefore return
+`HOLD` with `MARKET_NATIVE_STAGE_GATE_INPUT_NOT_CONNECTED`. The Stage4 handoff
+reports `RATIFIED_POLICY_ACTIVE_NO_ELIGIBLE_CURRENT_RECORD` and an eligible
+count of zero. This is a connected policy with missing current evaluation input,
+not an unratified-policy state and not evidence that the names failed.
+
+When a market-native evaluator supplies all required current PASS results, the
+same receipt derives system `Candidate`, records `PROMOTE`, and lists that symbol
+in `stage4_eligible_symbols`. Ready/Buy, orders, Production, live trading, and
+real capital remain closed.

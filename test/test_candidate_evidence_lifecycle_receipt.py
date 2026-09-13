@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -25,19 +26,49 @@ def _row(name: str, stage: str | None, coverage: bool = True) -> dict:
     return {"name": name, "stage": stage, "coverage": coverage, "collected": False}
 
 
+def _gate_input(symbol: str, market: str, status_overrides: dict[str, str] | None = None) -> dict:
+    policy = MODULE.load_stage_evaluation_policy()["policy"]
+    overrides = status_overrides or {}
+    evidence = {
+        "ref": "evidence/test/market_native.json",
+        "sha256": "a" * 64,
+        "available_at_utc": "2026-09-13T05:27:28Z",
+    }
+    return {
+        "contract_version": "candidate_stage_gate_input/1",
+        "symbol": symbol,
+        "market": market,
+        "evaluation_at_utc": "2026-09-13T05:29:00Z",
+        "review_or_expiry_time_utc": "2026-09-14T05:29:00Z",
+        "market_native_evidence_contract": f"{market.lower()}_candidate_evaluator/1",
+        "reviewer_identity": "SYSTEM_EVALUATOR_TEST_FIXTURE",
+        "gates": {
+            name: {
+                "status": overrides.get(name, "PASS"),
+                "evidence_refs": [copy.deepcopy(evidence)],
+            }
+            for name in policy["required_gate_order"]
+        },
+    }
+
+
 class CurrentEvidenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.receipt = MODULE.build_receipt(generated_at_utc=GENERATED_AT)
 
-    def test_current_receipt_validates_and_keeps_all_authority_closed(self):
+    def test_current_receipt_validates_and_keeps_trading_authority_closed(self):
         self.assertEqual(MODULE.validate_receipt(self.receipt), self.receipt)
         self.assertEqual(self.receipt["contract_version"], MODULE.CONTRACT_VERSION)
         self.assertEqual(self.receipt["as_of_date"], "2026-09-11")
         self.assertEqual(self.receipt["previous_evaluation_date"], "2026-09-10")
         authority = self.receipt["authority"]
         self.assertTrue(authority["read_only"])
-        self.assertTrue(all(value is False for key, value in authority.items() if key != "read_only"))
+        self.assertTrue(authority["system_candidate_stage_evaluation"])
+        self.assertTrue(authority["stage4_internal_paper_candidate_handoff"])
+        self.assertTrue(authority["stage_promotion"])
+        for key in ("candidate_generation", "candidate_ranking", "manual_stage_mutation", "stage_exclusion", "rotation", "buy", "action", "order", "production", "trading", "real_capital"):
+            self.assertFalse(authority[key])
 
     def test_retained_reason_is_queryable_with_exact_source_and_normalized_symbol(self):
         row = MODULE.lookup_symbol(self.receipt, "298040.KS")
@@ -80,12 +111,10 @@ class CurrentEvidenceTests(unittest.TestCase):
             gaps["candidate_validity_and_expiry"]["prior_root_cause"],
             "CONSUMER_MISSING_EXISTING_RATIFIED_RULE",
         )
-        for field in (
-            "symbol_to_sector_binding",
-            "rotation_ledger_link",
-            "stage_promotion_hold_exclusion_rule",
-        ):
+        for field in ("symbol_to_sector_binding", "rotation_ledger_link"):
             self.assertEqual(gaps[field]["root_cause"], MODULE.POLICY_UNDEFINED)
+        self.assertEqual(gaps["stage_promotion_hold_exclusion_rule"]["prior_root_cause"], MODULE.POLICY_UNDEFINED)
+        self.assertEqual(gaps["stage_promotion_hold_exclusion_rule"]["current_status"], MODULE.CONNECTED)
 
         korea = MODULE.lookup_symbol(self.receipt, "298040")["sector_rotation"]
         self.assertEqual(korea["symbol_to_sector_binding"]["status"], MODULE.POLICY_UNDEFINED)
@@ -95,20 +124,118 @@ class CurrentEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(korea["rotation_ledger_link"]["evidence"]["repository_default_policy"], "ABSENT")
 
-    def test_policy_decision_packet_and_stage4_handoff_add_no_threshold_or_eligibility(self):
-        request = self.receipt["policy_decision_request"]
-        self.assertEqual(request["status"], "AWAITING_CIO_RATIFICATION")
-        self.assertEqual(request["recommended_option"], "A_SEPARATE_SYSTEM_EVALUATED_STAGE")
-        self.assertEqual(request["missing_data_policy"], "HOLD_OR_NOT_COMPUTABLE_NEVER_PASS")
+    def test_ratified_policy_holds_current_rows_without_connected_gate_inputs(self):
+        decision = self.receipt["policy_decision"]
+        self.assertEqual(decision["status"], "RATIFIED_ACTIVE")
+        self.assertEqual(decision["selected_option"], "A_SEPARATE_SYSTEM_EVALUATED_STAGE")
+        self.assertEqual(decision["missing_data_policy"], "HOLD_OR_NOT_COMPUTABLE_NEVER_PASS")
         self.assertEqual(
-            request["manual_system_boundary"],
+            decision["manual_system_boundary"],
             "MANUAL_NOTION_TAG_RETAINED_AS_SOURCE_FACT_NEVER_REQUIRED_AS_SYSTEM_PROMOTION_INPUT",
         )
-        self.assertTrue(all(option["numeric_thresholds_added"] is False for option in request["options"]))
+        self.assertFalse(decision["numeric_thresholds_added"])
+        for row in self.receipt["lifecycle_records"]:
+            evaluation = row["system_stage_evaluation"]
+            self.assertEqual(evaluation["derived_transition"], "HOLD")
+            self.assertEqual(evaluation["first_blocker"], "MARKET_NATIVE_STAGE_GATE_INPUT_NOT_CONNECTED")
+            self.assertFalse(evaluation["manual_stage_used_as_promotion_input"])
         handoff = self.receipt["downstream_handoff"]
-        self.assertEqual(handoff["status"], "NOT_ADMISSIBLE_STAGE_POLICY_UNRATIFIED")
+        self.assertEqual(handoff["status"], "RATIFIED_POLICY_ACTIVE_NO_ELIGIBLE_CURRENT_RECORD")
         self.assertEqual(handoff["stage4_eligible_record_count"], 0)
         self.assertEqual(handoff["evidence_query_record_count"], len(self.receipt["lifecycle_records"]))
+
+
+class RatifiedSystemStageTests(unittest.TestCase):
+    def test_all_required_pass_promotes_and_opens_only_stage4_internal_paper_handoff(self):
+        receipt = MODULE.build_receipt(
+            generated_at_utc=GENERATED_AT,
+            system_gate_inputs={"298040": _gate_input("298040.KS", "KOREA")},
+        )
+        MODULE.validate_receipt(
+            receipt,
+            system_gate_inputs={"298040": _gate_input("298040.KS", "KOREA")},
+        )
+        evaluation = next(row for row in receipt["lifecycle_records"] if row["symbol"] == "298040")["system_stage_evaluation"]
+        self.assertEqual(evaluation["system_evaluated_stage"], "Candidate")
+        self.assertEqual(evaluation["derived_transition"], "PROMOTE")
+        self.assertTrue(evaluation["stage4_internal_paper_eligible"])
+        self.assertEqual(receipt["downstream_handoff"]["stage4_eligible_symbols"], ["298040"])
+        self.assertFalse(receipt["authority"]["buy"])
+        self.assertFalse(receipt["authority"]["trading"])
+
+    def test_unknown_stale_fail_and_active_veto_each_hold_at_exact_first_blocker(self):
+        for status in ("MISSING", "UNKNOWN", "STALE", "FAIL", "ACTIVE_VETO"):
+            with self.subTest(status=status):
+                gate_input = _gate_input("298040", "KOREA", {"translation_status": status})
+                receipt = MODULE.build_receipt(
+                    generated_at_utc=GENERATED_AT,
+                    system_gate_inputs={"298040": gate_input},
+                )
+                evaluation = next(row for row in receipt["lifecycle_records"] if row["symbol"] == "298040")["system_stage_evaluation"]
+                self.assertEqual(evaluation["derived_transition"], "HOLD")
+                self.assertEqual(evaluation["first_blocker"], f"translation_status:{status}")
+                self.assertFalse(evaluation["stage4_internal_paper_eligible"])
+
+    def test_manual_stage_observation_does_not_change_system_decision(self):
+        policy = MODULE.load_stage_evaluation_policy()
+        gate_input = _gate_input("298040", "KOREA")
+        first = MODULE._validate_gate_input(
+            {"symbol": "298040", "market": "KOREA", "current_stage": None},
+            gate_input,
+            policy,
+            dt.datetime.fromisoformat(GENERATED_AT.replace("Z", "+00:00")),
+        )
+        second = MODULE._validate_gate_input(
+            {"symbol": "298040", "market": "KOREA", "current_stage": "Buy"},
+            gate_input,
+            policy,
+            dt.datetime.fromisoformat(GENERATED_AT.replace("Z", "+00:00")),
+        )
+        for field in ("system_evaluated_stage", "derived_transition", "stage4_internal_paper_eligible"):
+            self.assertEqual(first[field], second[field])
+        self.assertNotEqual(first["manual_watchlist_stage_observation"], second["manual_watchlist_stage_observation"])
+
+    def test_future_evidence_reference_is_rejected(self):
+        gate_input = _gate_input("298040", "KOREA")
+        gate_input["gates"]["freshness_status"]["evidence_refs"][0]["available_at_utc"] = "2026-09-13T05:29:01Z"
+        with self.assertRaisesRegex(MODULE.CandidateEvidenceLifecycleError, "NOT_POINT_IN_TIME"):
+            MODULE.build_receipt(
+                generated_at_utc=GENERATED_AT,
+                system_gate_inputs={"298040": gate_input},
+            )
+
+    def test_policy_is_not_applied_before_its_effective_time(self):
+        receipt = MODULE.build_receipt(
+            generated_at_utc="2026-09-12T05:30:00Z",
+            as_of_date="2026-09-11",
+        )
+        self.assertEqual(receipt["policy_decision"]["status"], "RATIFIED_NOT_YET_EFFECTIVE")
+        self.assertEqual(receipt["downstream_handoff"]["status"], "RATIFIED_POLICY_NOT_YET_EFFECTIVE")
+        self.assertTrue(all(
+            row["system_stage_evaluation"]["first_blocker"] == "POLICY_NOT_YET_EFFECTIVE"
+            for row in receipt["lifecycle_records"]
+        ))
+
+    def test_rebound_policy_tamper_cannot_open_trading_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            policy_path = tmp_path / "policy.json"
+            registry_path = tmp_path / "registry.json"
+            approval_path = tmp_path / "approval.json"
+            policy = json.loads(MODULE.STAGE_POLICY_PATH.read_text(encoding="utf-8"))
+            policy["authority"]["trading"] = True
+            policy_path.write_text(json.dumps(policy), encoding="utf-8")
+            approval_path.write_bytes(MODULE.STAGE_POLICY_APPROVAL_PATH.read_bytes())
+            registry = json.loads(MODULE.STAGE_POLICY_REGISTRY_PATH.read_text(encoding="utf-8"))
+            registry["records"][0]["content_sha256"] = hashlib.sha256(policy_path.read_bytes()).hexdigest()
+            registry["records"][0]["authority_evidence_sha256"] = hashlib.sha256(approval_path.read_bytes()).hexdigest()
+            registry_path.write_text(json.dumps(registry), encoding="utf-8")
+            with self.assertRaisesRegex(MODULE.CandidateEvidenceLifecycleError, "AUTHORITY_INVALID"):
+                MODULE.load_stage_evaluation_policy(
+                    policy_path=policy_path,
+                    registry_path=registry_path,
+                    approval_path=approval_path,
+                )
 
 
 class MechanicalDeltaTests(unittest.TestCase):

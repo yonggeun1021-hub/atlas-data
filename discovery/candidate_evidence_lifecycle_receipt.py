@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Evidence-only candidate inclusion and lifecycle receipt.
+"""Evidence-bound candidate inclusion, lifecycle, and system-Stage receipt.
 
 This sidecar connects retained PM Watchlist rationale and the ratified P8-12
-temporal-freshness assessment without changing candidate, Stage, rotation, or
-trading policy.  Missing security-to-sector and Stage-transition policy stays
-explicitly undefined; no mapping or threshold is inferred from prose.
+temporal-freshness assessment.  It also applies the separately ratified P3-05
+system Candidate policy without mutating or depending on a manual Stage tag.
+Missing gate inputs hold; no mapping, score, or threshold is inferred.
 """
 from __future__ import annotations
 
@@ -26,8 +26,8 @@ if str(ROOT) not in sys.path:
 from replay.opportunity_trigger import canonical_json, payload_sha256
 
 
-CONTRACT_VERSION = "candidate_evidence_lifecycle_receipt/1"
-SCHEMA_VERSION = 1
+CONTRACT_VERSION = "candidate_evidence_lifecycle_receipt/2"
+SCHEMA_VERSION = 2
 
 WATCHLIST_PATH = ROOT / "_watchlist_rows.json"
 STAGE_HISTORY_PATH = ROOT / "data" / "stage_history.json"
@@ -44,6 +44,16 @@ KOREA_SECTOR_BINDING_PATH = (
     ROOT / "config" / "korea_rotation_sector_identity_binding_document.json"
 )
 ROTATION_LEDGER_CONTRACT_PATH = ROOT / "config" / "rotation_state_ledger_contract.json"
+STAGE_POLICY_PATH = ROOT / "config" / "candidate_stage_evaluation_policy_v1.json"
+STAGE_POLICY_REGISTRY_PATH = (
+    ROOT / "config" / "candidate_stage_evaluation_policy_registry.json"
+)
+STAGE_POLICY_APPROVAL_PATH = (
+    ROOT
+    / "evidence"
+    / "authority"
+    / "candidate_stage_evaluation_policy_approval_20260913.json"
+)
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -62,12 +72,27 @@ CONNECTED = "CONNECTED_BY_THIS_RECEIPT"
 NO_EVIDENCE = "NO_EVIDENCE"
 NOT_YET_AVAILABLE = "NOT_YET_AVAILABLE_AT_EVALUATION"
 POLICY_UNDEFINED = "POLICY_UNDEFINED"
+REQUIRED_STAGE_GATES = (
+    "canonical_population_membership",
+    "resolved_security_identity",
+    "market_native_evaluation_coverage",
+    "evidence_quality_status",
+    "translation_status",
+    "expectations_gap_status",
+    "invalidation_status",
+    "freshness_status",
+    "active_veto_status",
+)
+HOLD_GATE_STATUSES = frozenset({"MISSING", "UNKNOWN", "STALE", "FAIL", "ACTIVE_VETO"})
 
 AUTHORITY = {
     "read_only": True,
     "candidate_generation": False,
     "candidate_ranking": False,
-    "stage_promotion": False,
+    "system_candidate_stage_evaluation": True,
+    "stage4_internal_paper_candidate_handoff": True,
+    "manual_stage_mutation": False,
+    "stage_promotion": True,
     "stage_exclusion": False,
     "rotation": False,
     "buy": False,
@@ -316,6 +341,248 @@ def load_policy_boundaries(
     }
 
 
+def load_stage_evaluation_policy(
+    *,
+    policy_path: Path = STAGE_POLICY_PATH,
+    registry_path: Path = STAGE_POLICY_REGISTRY_PATH,
+    approval_path: Path = STAGE_POLICY_APPROVAL_PATH,
+) -> dict:
+    policy = _read_json(policy_path, "STAGE_POLICY_READ_FAILED")
+    registry = _read_json(registry_path, "STAGE_POLICY_REGISTRY_READ_FAILED")
+    approval = _read_json(approval_path, "STAGE_POLICY_APPROVAL_READ_FAILED")
+    records = registry.get("records")
+    if (
+        registry.get("schema_version")
+        != "candidate_stage_evaluation_policy_registry/1"
+        or not isinstance(records, list)
+        or len(records) != 1
+    ):
+        _fail("STAGE_POLICY_REGISTRY_INVALID")
+    record = records[0]
+    if (
+        policy.get("schema_version") != "candidate_stage_evaluation_policy/1"
+        or policy.get("policy_id") != "P3-05-SEPARATE-SYSTEM-EVALUATED-STAGE"
+        or policy.get("policy_version") != "1"
+        or policy.get("option") != "A_SEPARATE_SYSTEM_EVALUATED_STAGE"
+        or policy.get("decision_expression") != "ALL_REQUIRED_GATES_PASS"
+        or policy.get("accepted_gate_status") != "PASS"
+        or policy.get("manual_system_boundary")
+        != "MANUAL_NOTION_TAG_RETAINED_AS_SOURCE_FACT_NEVER_REQUIRED_AS_SYSTEM_PROMOTION_INPUT"
+        or policy.get("manual_stage_mutation_authorized") is not False
+        or policy.get("missing_data_policy") != "HOLD_OR_NOT_COMPUTABLE_NEVER_PASS"
+        or policy.get("numeric_thresholds_added") is not False
+        or policy.get("system_stage_output") != "Candidate"
+        or policy.get("input_contract_version") != "candidate_stage_gate_input/1"
+    ):
+        _fail("STAGE_POLICY_SEMANTICS_INVALID")
+    gates = policy.get("required_gate_order")
+    expected_transitions = [
+        {"from": "EVALUATION_ELIGIBLE", "to": "Candidate", "decision": "PROMOTE"},
+        {"from": "Candidate", "to": "Candidate", "decision": "MAINTAIN"},
+    ]
+    if (
+        gates != list(REQUIRED_STAGE_GATES)
+        or not isinstance(policy.get("hold_gate_statuses"), list)
+        or set(policy["hold_gate_statuses"]) != HOLD_GATE_STATUSES
+        or policy.get("allowed_transition_graph") != expected_transitions
+        or policy.get("demotion_drop_policy")
+        != "ONLY_SEPARATELY_RATIFIED_MARKET_NATIVE_INVALIDATION_OR_EXIT_MAY_DEMOTE_OR_DROP_MISSING_EVIDENCE_NEVER_DOES"
+        or policy.get("reentry_policy")
+        != "FRESH_FULL_EVALUATION_AND_NEW_EVIDENCE_REFS_REQUIRED"
+    ):
+        _fail("STAGE_POLICY_GATES_INVALID")
+    expected_authority = {
+        "system_candidate_stage_evaluation": True,
+        "stage4_internal_paper_candidate_handoff": True,
+        "manual_stage_mutation": False,
+        "candidate_ranking": False,
+        "buy": False,
+        "action": False,
+        "order": False,
+        "production": False,
+        "trading": False,
+        "real_capital": False,
+    }
+    if policy.get("authority") != expected_authority:
+        _fail("STAGE_POLICY_AUTHORITY_INVALID")
+    expected_approved_scope = {
+        "manual_watchlist_stage_is_observation_only": True,
+        "system_evaluated_stage_is_independent": True,
+        "all_required_current_gates_must_pass": True,
+        "missing_unknown_stale_or_active_veto_holds": True,
+        "stage4_internal_paper_candidate_handoff": True,
+    }
+    expected_not_approved = {
+        "NUMERIC_INVESTMENT_THRESHOLD",
+        "CROSS_MARKET_SCORE",
+        "SECURITY_TO_THEME_INFERENCE",
+        "MANUAL_NOTION_STAGE_MUTATION",
+        "READY_OR_BUY_STAGE",
+        "CAPITAL_ALLOCATION",
+        "POSITION_SIZE",
+        "ORDER_OR_BROKER_ACTION",
+        "PRODUCTION_OR_LIVE_TRADING_AUTHORITY",
+    }
+    if (
+        approval.get("schema_version") != "candidate_stage_evaluation_policy_approval/1"
+        or approval.get("source_kind") != "EXPLICIT_USER_APPROVAL_IN_IMPLEMENTATION_THREAD"
+        or approval.get("approved_recommendation") != policy["option"]
+        or approval.get("policy_id") != policy["policy_id"]
+        or approval.get("policy_version") != policy["policy_version"]
+        or approval.get("historical_backfill_authorized") is not False
+        or approval.get("approved_scope") != expected_approved_scope
+        or not isinstance(approval.get("not_approved"), list)
+        or set(approval["not_approved"]) != expected_not_approved
+    ):
+        _fail("STAGE_POLICY_APPROVAL_INVALID")
+    effective = _datetime(
+        approval.get("effective_from"), "STAGE_POLICY_EFFECTIVE_FROM_INVALID"
+    )
+    ratified = _datetime(
+        approval.get("ratified_at"), "STAGE_POLICY_RATIFIED_AT_INVALID"
+    )
+    if effective != ratified:
+        _fail("STAGE_POLICY_EFFECTIVE_TIME_INVALID")
+    expected_record = {
+        "policy_id": policy["policy_id"],
+        "policy_version": policy["policy_version"],
+        "record_state": "CURRENT",
+        "ratified_at": approval["ratified_at"],
+        "effective_from": approval["effective_from"],
+        "content_ref": "config/candidate_stage_evaluation_policy_v1.json",
+        "content_sha256": _file_sha256(policy_path),
+        "authority_evidence_ref": "evidence/authority/candidate_stage_evaluation_policy_approval_20260913.json",
+        "authority_evidence_sha256": _file_sha256(approval_path),
+    }
+    if record != expected_record:
+        _fail("STAGE_POLICY_REGISTRY_BINDING_INVALID")
+    return {
+        "policy": policy,
+        "approval": approval,
+        "record": record,
+        "effective_from": effective,
+        "paths": {
+            "policy": Path(policy_path),
+            "registry": Path(registry_path),
+            "approval": Path(approval_path),
+        },
+        "hashes": {
+            "policy": _file_sha256(policy_path),
+            "registry": _file_sha256(registry_path),
+            "approval": _file_sha256(approval_path),
+        },
+    }
+
+
+def _validate_gate_input(
+    row: dict,
+    gate_input: dict | None,
+    stage_policy: dict,
+    evaluation_at: dt.datetime,
+) -> dict:
+    policy = stage_policy["policy"]
+    base = {
+        "manual_watchlist_stage_observation": row.get("current_stage"),
+        "manual_stage_used_as_promotion_input": False,
+        "policy_id": policy["policy_id"],
+        "policy_version": policy["policy_version"],
+        "policy_effective_from": stage_policy["approval"]["effective_from"],
+        "system_evaluated_stage": None,
+        "derived_transition": "HOLD",
+        "stage4_internal_paper_eligible": False,
+    }
+    if evaluation_at < stage_policy["effective_from"]:
+        return {
+            **base,
+            "input_status": "POLICY_NOT_YET_EFFECTIVE",
+            "first_blocker": "POLICY_NOT_YET_EFFECTIVE",
+            "gate_results": [],
+        }
+    if gate_input is None:
+        return {
+            **base,
+            "input_status": "NOT_CONNECTED",
+            "first_blocker": "MARKET_NATIVE_STAGE_GATE_INPUT_NOT_CONNECTED",
+            "gate_results": [],
+        }
+    if not isinstance(gate_input, dict):
+        _fail("STAGE_GATE_INPUT_INVALID")
+    input_time = _datetime(
+        gate_input.get("evaluation_at_utc"), "STAGE_GATE_INPUT_TIME_INVALID"
+    )
+    if input_time < stage_policy["effective_from"] or input_time > evaluation_at:
+        _fail("STAGE_GATE_INPUT_TIME_OUT_OF_BOUNDS")
+    if (
+        gate_input.get("contract_version") != policy["input_contract_version"]
+        or normalize_symbol(gate_input.get("symbol")) != row["symbol"]
+        or gate_input.get("market") != row["market"]
+        or not isinstance(gate_input.get("market_native_evidence_contract"), str)
+        or not gate_input["market_native_evidence_contract"].strip()
+        or not isinstance(gate_input.get("reviewer_identity"), str)
+        or not gate_input["reviewer_identity"].strip()
+    ):
+        _fail("STAGE_GATE_INPUT_IDENTITY_INVALID")
+    review_time = _datetime(
+        gate_input.get("review_or_expiry_time_utc"),
+        "STAGE_GATE_INPUT_REVIEW_TIME_INVALID",
+    )
+    if review_time < input_time:
+        _fail("STAGE_GATE_INPUT_REVIEW_TIME_PRECEDES_EVALUATION")
+    gates = gate_input.get("gates")
+    required = policy["required_gate_order"]
+    if not isinstance(gates, dict) or set(gates) != set(required):
+        _fail("STAGE_GATE_INPUT_GATES_INVALID")
+    allowed = {policy["accepted_gate_status"], *policy["hold_gate_statuses"]}
+    results = []
+    first_blocker = None
+    for name in required:
+        gate = gates[name]
+        if not isinstance(gate, dict) or gate.get("status") not in allowed:
+            _fail("STAGE_GATE_RESULT_INVALID")
+        refs = gate.get("evidence_refs")
+        if not isinstance(refs, list) or (gate["status"] == "PASS" and not refs):
+            _fail("STAGE_GATE_EVIDENCE_REFS_INVALID")
+        normalized_refs = []
+        for evidence in refs:
+            if (
+                not isinstance(evidence, dict)
+                or not isinstance(evidence.get("ref"), str)
+                or not evidence["ref"].strip()
+                or not isinstance(evidence.get("sha256"), str)
+                or SHA_RE.fullmatch(evidence["sha256"]) is None
+            ):
+                _fail("STAGE_GATE_EVIDENCE_REF_INVALID")
+            available = _datetime(
+                evidence.get("available_at_utc"),
+                "STAGE_GATE_EVIDENCE_AVAILABLE_AT_INVALID",
+            )
+            if available > input_time:
+                _fail("STAGE_GATE_EVIDENCE_NOT_POINT_IN_TIME")
+            normalized_refs.append(copy.deepcopy(evidence))
+        result = {
+            "gate": name,
+            "status": gate["status"],
+            "evidence_refs": normalized_refs,
+        }
+        results.append(result)
+        if first_blocker is None and gate["status"] != policy["accepted_gate_status"]:
+            first_blocker = f"{name}:{gate['status']}"
+    passed = first_blocker is None
+    return {
+        **base,
+        "input_status": "VALIDATED",
+        "evaluation_at_utc": gate_input["evaluation_at_utc"],
+        "review_or_expiry_time_utc": gate_input["review_or_expiry_time_utc"],
+        "reviewer_identity": gate_input["reviewer_identity"],
+        "market_native_evidence_contract": gate_input["market_native_evidence_contract"],
+        "gate_results": results,
+        "first_blocker": first_blocker,
+        "system_evaluated_stage": policy["system_stage_output"] if passed else None,
+        "derived_transition": "PROMOTE" if passed else "HOLD",
+        "stage4_internal_paper_eligible": passed,
+    }
+
+
 def _lifecycle_status(previous: dict | None, current: dict | None) -> str:
     if previous is None and current is not None:
         return NEW
@@ -483,6 +750,7 @@ def build_receipt(
     watchlist_path: Path = WATCHLIST_PATH,
     stage_history_path: Path = STAGE_HISTORY_PATH,
     validity_path: Path = VALIDITY_PATH,
+    system_gate_inputs: dict[str, dict] | None = None,
 ) -> dict:
     generated = _datetime(generated_at_utc, "GENERATED_AT_INVALID")
     if generated.utcoffset() != dt.timedelta(0):
@@ -492,10 +760,21 @@ def build_receipt(
     stage = load_stage_history(stage_history_path)
     validity = load_validity_assessment(validity_path)
     policy = load_policy_boundaries()
+    stage_policy = load_stage_evaluation_policy()
     delta = classify_stage_history(stage["document"], as_of_date)
     selected_date = delta["as_of_date"]
     if generated.astimezone(ZoneInfo("Asia/Seoul")).date() < _date(selected_date, "AS_OF_DATE_INVALID"):
         _fail("GENERATED_AT_PRECEDES_AS_OF_DATE")
+
+    normalized_gate_inputs: dict[str, dict] = {}
+    if system_gate_inputs is not None:
+        if not isinstance(system_gate_inputs, dict):
+            _fail("STAGE_GATE_INPUTS_INVALID")
+        for raw_symbol, gate_input in system_gate_inputs.items():
+            symbol = normalize_symbol(raw_symbol)
+            if symbol in normalized_gate_inputs:
+                _fail("STAGE_GATE_INPUT_SYMBOL_DUPLICATE")
+            normalized_gate_inputs[symbol] = copy.deepcopy(gate_input)
 
     records = []
     sector_cache = {
@@ -504,6 +783,12 @@ def build_receipt(
     }
     for row in delta["rows"]:
         inclusion = _inclusion_evidence(row["symbol"], watchlist, selected_date, root)
+        system_evaluation = _validate_gate_input(
+            row,
+            normalized_gate_inputs.get(row["symbol"]),
+            stage_policy,
+            generated,
+        )
         records.append({
             **row,
             "evidence_as_of": {"value": selected_date, "precision": "DATE_ONLY"},
@@ -517,6 +802,7 @@ def build_receipt(
             "candidate_validity": _validity_evidence(
                 row["symbol"], row["market"], validity, selected_date, root
             ),
+            "system_stage_evaluation": system_evaluation,
             "sector_rotation": copy.deepcopy(sector_cache[row["market"]]),
         })
 
@@ -544,6 +830,14 @@ def build_receipt(
                 "file_sha256": validity["file_sha256"],
                 "assessment_sha256": validity["document"]["assessment_sha256"],
             },
+            "candidate_stage_policy": {
+                "policy_path": _path_label(stage_policy["paths"]["policy"], root),
+                "policy_sha256": stage_policy["hashes"]["policy"],
+                "registry_path": _path_label(stage_policy["paths"]["registry"], root),
+                "registry_sha256": stage_policy["hashes"]["registry"],
+                "authority_evidence_path": _path_label(stage_policy["paths"]["approval"], root),
+                "authority_evidence_sha256": stage_policy["hashes"]["approval"],
+            },
         },
         "gap_classification": [
             {
@@ -570,56 +864,27 @@ def build_receipt(
             },
             {
                 "field": "stage_promotion_hold_exclusion_rule",
-                "root_cause": POLICY_UNDEFINED,
-                "current_status": "BLOCKED_NO_THRESHOLD_INVENTION",
+                "prior_root_cause": POLICY_UNDEFINED,
+                "current_status": CONNECTED,
+                "boundary": "RATIFIED_CANDIDATE_ONLY_ALL_REQUIRED_NO_NUMERIC_THRESHOLD",
             },
         ],
-        "policy_decision_request": {
-            "status": "AWAITING_CIO_RATIFICATION",
-            "recommended_option": "A_SEPARATE_SYSTEM_EVALUATED_STAGE",
-            "options": [
-                {
-                    "option": "A_SEPARATE_SYSTEM_EVALUATED_STAGE",
-                    "effect": "RATIFIED_ALL_REQUIRED_GATES_DERIVE_SYSTEM_STAGE_WITHOUT_MUTATING_MANUAL_WATCHLIST_TAG",
-                    "numeric_thresholds_added": False,
-                },
-                {
-                    "option": "B_HUMAN_STAGE_REVIEW_DECISION_CONTRACT",
-                    "effect": "EVIDENCE_OPENS_REVIEW_ONLY_EXPLICIT_CIO_PM_DECISION_CHANGES_STAGE",
-                    "numeric_thresholds_added": False,
-                },
-                {
-                    "option": "C_RETAIN_EVIDENCE_ONLY_HOLD",
-                    "effect": "NO_STAGE_ADJUDICATION_PATH_ADDED",
-                    "numeric_thresholds_added": False,
-                },
-            ],
-            "minimum_fields_for_option_a": [
-                "manual_watchlist_stage_observation",
-                "system_evaluated_stage",
-                "allowed_transition_graph",
-                "canonical_population_membership",
-                "resolved_security_identity",
-                "market_native_evaluation_coverage",
-                "evidence_quality_status",
-                "translation_status",
-                "expectations_gap_status",
-                "invalidation_status",
-                "freshness_status",
-                "active_veto_status",
-                "derived_transition_PROMOTE_HOLD_DEMOTE_or_DROP",
-                "transition_reason",
-                "evidence_refs_and_point_in_time_availability",
-                "rule_version_and_effective_from",
-                "review_or_expiry_time_without_invented_default",
-                "reentry_decision_and_new_evidence_refs",
-                "market_native_evidence_contract",
-                "reviewer_identity",
-            ],
-            "option_a_gate_semantics": "ALL_REQUIRED_RATIFIED_FIELDS_MUST_PASS_UNKNOWN_MISSING_OR_STALE_HOLDS",
-            "missing_data_policy": "HOLD_OR_NOT_COMPUTABLE_NEVER_PASS",
-            "manual_system_boundary": "MANUAL_NOTION_TAG_RETAINED_AS_SOURCE_FACT_NEVER_REQUIRED_AS_SYSTEM_PROMOTION_INPUT",
-            "market_policy": "COMMON_STAGE_ENVELOPE_MARKET_NATIVE_EVALUATORS_NO_CROSS_MARKET_SCORE_OR_SECTOR_THEME_INFERENCE",
+        "policy_decision": {
+            "status": (
+                "RATIFIED_ACTIVE"
+                if generated >= stage_policy["effective_from"]
+                else "RATIFIED_NOT_YET_EFFECTIVE"
+            ),
+            "selected_option": stage_policy["policy"]["option"],
+            "policy_id": stage_policy["policy"]["policy_id"],
+            "policy_version": stage_policy["policy"]["policy_version"],
+            "ratified_at": stage_policy["approval"]["ratified_at"],
+            "effective_from": stage_policy["approval"]["effective_from"],
+            "gate_semantics": "ALL_REQUIRED_RATIFIED_FIELDS_MUST_PASS_UNKNOWN_MISSING_STALE_FAIL_OR_ACTIVE_VETO_HOLDS",
+            "missing_data_policy": stage_policy["policy"]["missing_data_policy"],
+            "manual_system_boundary": stage_policy["policy"]["manual_system_boundary"],
+            "market_policy": stage_policy["policy"]["market_policy"],
+            "numeric_thresholds_added": False,
         },
         "lifecycle_summary": {
             "record_count": len(records),
@@ -628,11 +893,42 @@ def build_receipt(
         "lifecycle_records": records,
         "downstream_handoff": {
             "consumer": "STAGE4_INTERNAL_PAPER_CANDIDATE_INPUT",
-            "status": "NOT_ADMISSIBLE_STAGE_POLICY_UNRATIFIED",
+            "status": (
+                "ADMISSIBLE_RATIFIED_SYSTEM_CANDIDATE_INPUTS_AVAILABLE"
+                if any(
+                    row["system_stage_evaluation"]["stage4_internal_paper_eligible"]
+                    for row in records
+                )
+                else (
+                    "RATIFIED_POLICY_ACTIVE_NO_ELIGIBLE_CURRENT_RECORD"
+                    if generated >= stage_policy["effective_from"]
+                    else "RATIFIED_POLICY_NOT_YET_EFFECTIVE"
+                )
+            ),
             "evidence_query_record_count": len(records),
-            "stage4_eligible_record_count": 0,
-            "first_blocker": "RATIFIED_STAGE_REVIEW_OR_PROMOTION_POLICY_ABSENT",
-            "required_next_receipt": "CIO_RATIFIED_STAGE_POLICY_ID_VERSION_EFFECTIVE_FROM_AND_DECISION_EVIDENCE",
+            "stage4_eligible_record_count": sum(
+                row["system_stage_evaluation"]["stage4_internal_paper_eligible"]
+                for row in records
+            ),
+            "stage4_eligible_symbols": [
+                row["symbol"]
+                for row in records
+                if row["system_stage_evaluation"]["stage4_internal_paper_eligible"]
+            ],
+            "first_blocker_counts": dict(
+                Counter(
+                    row["system_stage_evaluation"]["first_blocker"]
+                    for row in records
+                    if not row["system_stage_evaluation"][
+                        "stage4_internal_paper_eligible"
+                    ]
+                )
+            ),
+            "policy_binding": {
+                "policy_id": stage_policy["policy"]["policy_id"],
+                "policy_version": stage_policy["policy"]["policy_version"],
+                "effective_from": stage_policy["approval"]["effective_from"],
+            },
         },
         "authority": copy.deepcopy(AUTHORITY),
     }
@@ -647,6 +943,7 @@ def validate_receipt(
     watchlist_path: Path = WATCHLIST_PATH,
     stage_history_path: Path = STAGE_HISTORY_PATH,
     validity_path: Path = VALIDITY_PATH,
+    system_gate_inputs: dict[str, dict] | None = None,
     rederive: bool = True,
 ) -> dict:
     _validate_self_hash(document, "receipt_sha256", "RECEIPT_HASH_MISMATCH")
@@ -670,6 +967,29 @@ def validate_receipt(
             _fail("RECEIPT_CLASSIFICATION_AUTHORITY_INVALID")
         if row.get("sector_rotation", {}).get("symbol_to_sector_binding", {}).get("status") != POLICY_UNDEFINED:
             _fail("RECEIPT_SYMBOL_SECTOR_POLICY_INVENTED")
+        evaluation = row.get("system_stage_evaluation") or {}
+        eligible = evaluation.get("stage4_internal_paper_eligible")
+        if (
+            evaluation.get("manual_stage_used_as_promotion_input") is not False
+            or eligible not in (True, False)
+            or (
+                eligible
+                and (
+                    evaluation.get("system_evaluated_stage") != "Candidate"
+                    or evaluation.get("derived_transition") != "PROMOTE"
+                    or evaluation.get("first_blocker") is not None
+                )
+            )
+            or (
+                not eligible
+                and (
+                    evaluation.get("system_evaluated_stage") is not None
+                    or evaluation.get("derived_transition") != "HOLD"
+                    or not isinstance(evaluation.get("first_blocker"), str)
+                )
+            )
+        ):
+            _fail("RECEIPT_SYSTEM_STAGE_EVALUATION_INVALID")
     expected_counts = {
         status: counts.get(status, 0) for status in sorted(LIFECYCLE_STATUSES)
     }
@@ -678,22 +998,34 @@ def validate_receipt(
         "status_counts": expected_counts,
     }:
         _fail("RECEIPT_SUMMARY_MISMATCH")
-    policy_request = document.get("policy_decision_request") or {}
+    policy_decision = document.get("policy_decision") or {}
     if (
-        policy_request.get("status") != "AWAITING_CIO_RATIFICATION"
-        or policy_request.get("recommended_option") != "A_SEPARATE_SYSTEM_EVALUATED_STAGE"
-        or policy_request.get("missing_data_policy") != "HOLD_OR_NOT_COMPUTABLE_NEVER_PASS"
-        or policy_request.get("manual_system_boundary") != "MANUAL_NOTION_TAG_RETAINED_AS_SOURCE_FACT_NEVER_REQUIRED_AS_SYSTEM_PROMOTION_INPUT"
-        or any(option.get("numeric_thresholds_added") is not False for option in policy_request.get("options", []))
+        policy_decision.get("status") not in {"RATIFIED_ACTIVE", "RATIFIED_NOT_YET_EFFECTIVE"}
+        or policy_decision.get("selected_option") != "A_SEPARATE_SYSTEM_EVALUATED_STAGE"
+        or policy_decision.get("missing_data_policy") != "HOLD_OR_NOT_COMPUTABLE_NEVER_PASS"
+        or policy_decision.get("manual_system_boundary") != "MANUAL_NOTION_TAG_RETAINED_AS_SOURCE_FACT_NEVER_REQUIRED_AS_SYSTEM_PROMOTION_INPUT"
+        or policy_decision.get("numeric_thresholds_added") is not False
     ):
         _fail("RECEIPT_POLICY_DECISION_BOUNDARY_INVALID")
     handoff = document.get("downstream_handoff") or {}
+    eligible_symbols = [
+        row["symbol"]
+        for row in records
+        if row["system_stage_evaluation"]["stage4_internal_paper_eligible"]
+    ]
+    if eligible_symbols:
+        expected_status = "ADMISSIBLE_RATIFIED_SYSTEM_CANDIDATE_INPUTS_AVAILABLE"
+    elif policy_decision.get("status") == "RATIFIED_ACTIVE":
+        expected_status = "RATIFIED_POLICY_ACTIVE_NO_ELIGIBLE_CURRENT_RECORD"
+    else:
+        expected_status = "RATIFIED_POLICY_NOT_YET_EFFECTIVE"
     if (
-        handoff.get("status") != "NOT_ADMISSIBLE_STAGE_POLICY_UNRATIFIED"
-        or handoff.get("stage4_eligible_record_count") != 0
+        handoff.get("status") != expected_status
+        or handoff.get("stage4_eligible_record_count") != len(eligible_symbols)
+        or handoff.get("stage4_eligible_symbols") != eligible_symbols
         or handoff.get("evidence_query_record_count") != len(records)
     ):
-        _fail("RECEIPT_DOWNSTREAM_AUTHORITY_OPENED")
+        _fail("RECEIPT_DOWNSTREAM_HANDOFF_INVALID")
     if rederive:
         rebuilt = build_receipt(
             generated_at_utc=document.get("generated_at_utc"),
@@ -702,6 +1034,7 @@ def validate_receipt(
             watchlist_path=watchlist_path,
             stage_history_path=stage_history_path,
             validity_path=validity_path,
+            system_gate_inputs=system_gate_inputs,
         )
         if rebuilt != document:
             _fail("RECEIPT_SOURCE_REDERIVATION_MISMATCH")
