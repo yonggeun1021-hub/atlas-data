@@ -1,12 +1,23 @@
 #!/usr/bin/env python3
+"""Candidate evidence lifecycle receipt regression.
+
+GENERATED_AT is a fixed past instant, so the receipt's rolling-pointer
+sources (data/stage_history.json and the Dynamic Clock candidate validity /
+identity observations, all rewritten by the daily collect chain) are pinned
+for the whole module to the frozen snapshot in test/rolling_pointer_snapshot.py.
+Against the live tree every newer collect date would otherwise make
+GENERATED_AT precede the selected as_of date and fail closed.
+"""
 from __future__ import annotations
 
+import contextlib
 import copy
 import datetime as dt
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
@@ -17,9 +28,22 @@ SPEC = importlib.util.spec_from_file_location("candidate_evidence_lifecycle_rece
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
+if str(ROOT / "test") not in sys.path:
+    sys.path.insert(0, str(ROOT / "test"))
+import rolling_pointer_snapshot as SNAPSHOT  # noqa: E402
 
 
 GENERATED_AT = "2026-09-13T05:30:00Z"
+_PINNED = contextlib.ExitStack()
+
+
+def setUpModule():
+    snapshot = SNAPSHOT.materialize(Path(_PINNED.enter_context(tempfile.TemporaryDirectory())))
+    _PINNED.enter_context(SNAPSHOT.pinned_candidate_receipt_sources(MODULE, snapshot))
+
+
+def tearDownModule():
+    _PINNED.close()
 
 
 def _row(name: str, stage: str | None, coverage: bool = True) -> dict:
@@ -56,6 +80,16 @@ class CurrentEvidenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.receipt = MODULE.build_receipt(generated_at_utc=GENERATED_AT)
+
+    def test_receipt_reads_the_pinned_rolling_pointer_snapshot(self):
+        pinned = {row["repo_path"]: row["sha256"] for row in SNAPSHOT.MANIFEST["files"]}
+        lineage = self.receipt["source_lineage"]
+        self.assertEqual(lineage["stage_history"]["file_sha256"], pinned[SNAPSHOT.STAGE_HISTORY_PATH])
+        self.assertEqual(lineage["candidate_validity"]["file_sha256"], pinned[SNAPSHOT.VALIDITY_PATH])
+
+    def test_generated_before_selected_as_of_date_fails_closed(self):
+        with self.assertRaisesRegex(MODULE.CandidateEvidenceLifecycleError, "GENERATED_AT_PRECEDES_AS_OF_DATE"):
+            MODULE.build_receipt(generated_at_utc="2026-09-10T05:30:00Z", as_of_date="2026-09-11")
 
     def test_current_receipt_validates_and_keeps_trading_authority_closed(self):
         self.assertEqual(MODULE.validate_receipt(self.receipt), self.receipt)
