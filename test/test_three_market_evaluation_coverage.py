@@ -34,7 +34,7 @@ CRYPTO_DECISION = ROOT / (
 
 def build(**overrides):
     values = {
-        "generated_at": "2026-09-12T14:15:00Z",
+        "generated_at": "2026-09-13T07:20:00Z",
         "kr_universe_path": KR_UNIVERSE,
         "kr_review_path": KR_REVIEW,
         "us_universe_path": US_UNIVERSE,
@@ -68,7 +68,7 @@ class NaturalCoverageTests(unittest.TestCase):
         )
         self.assertEqual(
             self.by_market["US"]["bounded_output_state_counts"],
-            {"BLOCKED": 1, "WAIT": 1},
+            {"WAIT": 2},
         )
         self.assertEqual(
             self.by_market["US"]["population_evaluation_connection"],
@@ -106,7 +106,7 @@ class NaturalCoverageTests(unittest.TestCase):
                 "trading_halt": 0,
                 "scheduled_delisting": 0,
                 "corporate_action_state": 0,
-                "liquidity_ohlcv_inputs": 18,
+                "liquidity_ohlcv_inputs": 22,
                 "liquidity": 0,
             },
         )
@@ -134,7 +134,7 @@ class NaturalCoverageTests(unittest.TestCase):
                 ],
                 "partially_available_fields": {
                     "financial_status": 5605,
-                    "liquidity_ohlcv_inputs": 18,
+                    "liquidity_ohlcv_inputs": 22,
                 },
                 "resulting_artifact_boundary": (
                     "SOURCE_FACT_INPUTS_ONLY_NOT_US_INVESTABLE_SNAPSHOT"

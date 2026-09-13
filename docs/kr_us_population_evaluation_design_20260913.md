@@ -163,7 +163,7 @@ us_symbol_market_review._compact_source(market, stages, contract)               
 1. `_symbol_row` 추출 + 회귀 고정(작은 PR, 출력 불변).
 2. KR 어댑터 + 테스트(2세션 자료로 `EVALUABLE_SESSION_PRICE_ONLY` 확정).
 3. US 어댑터 + `us_investable_registry` 결합 + 테스트.
-4. #697 소비자 연결(별도 PR): `data_acquired.population_level_symbol_data`를 새 패킷 집계로 교체, `summary.categories.unevaluated`를 `NOT_EVALUABLE` 사유별로 세분.
+4. #697 소비자 연결(별도 PR): `data_acquired.population_level_symbol_data`를 새 패킷 집계로 교체 -- 구현됨 (`discovery/market_candidate_discovery_lookup.py::_population_level_symbol_data`, `docs/market_candidate_discovery_lookup_contract.md`의 "KR/US `data_acquired.population_level_symbol_data`" 절 참고). `summary.categories.unevaluated`를 `NOT_EVALUABLE` 사유별로 세분하는 부분은 아직 미착수.
 
 ## 5. 편입 이유·종목→섹터 연결 — 기존 증거 경로
 
