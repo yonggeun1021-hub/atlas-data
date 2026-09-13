@@ -99,16 +99,37 @@ def gate() -> "G.RealtimeGate":
 
 
 class GapReceiptRecoveryTests(unittest.TestCase):
-    def test_time_gap_stays_pending_until_hashed_public_rest_receipt_applies(self):
+    def test_unverified_provider_silence_is_never_sent_to_rest_recovery(self):
+        contract = G.load_contract()
+        candidate = {
+            "schema_version": "upbit_realtime_gap/1",
+            "source": "WS_PROVIDER_TIME_GAP",
+            "kind": "trade",
+            "timeframe": None,
+            "market": "KRW-BTC",
+            "from": "2026-08-28T00:00:00Z",
+            "to": "2026-08-28T00:00:10Z",
+            "duration_seconds": 10,
+            "bounded": True,
+            "max_backfill_window_seconds": 300,
+            "gap_id": "a" * 64,
+            "status": "PENDING",
+        }
+        self.assertEqual(C.plan_public_rest_backfill([candidate], ["KRW-BTC"], contract), [])
+
+    def test_sequence_regression_stays_pending_until_hashed_public_rest_receipt_applies(self):
         realtime = gate()
         t0 = z("2026-08-28T00:00:00Z")
-        realtime.handle_message(trade(int(t0.timestamp() * 1000), 100), received_at=t0)
         second = t0 + dt.timedelta(seconds=30)
         realtime.handle_message(trade(int(second.timestamp() * 1000), 200), received_at=second)
+        realtime.handle_message(
+            trade(int(t0.timestamp() * 1000), 100),
+            received_at=second + dt.timedelta(seconds=1),
+        )
 
         pending = realtime.pending_gap_windows()
         self.assertEqual(len(pending), 1)
-        self.assertEqual(pending[0]["source"], "WS_PROVIDER_TIME_GAP")
+        self.assertEqual(pending[0]["source"], "WS_SEQUENCE_REGRESSION")
         self.assertTrue(pending[0]["bounded"])
         self.assertEqual(realtime.status_snapshot(second)["overall_status"], G.UNKNOWN)
 
@@ -187,9 +208,12 @@ class GapReceiptRecoveryTests(unittest.TestCase):
     def test_gap_larger_than_bound_is_visible_and_never_planned(self):
         realtime = gate()
         t0 = z("2026-08-28T00:00:00Z")
-        realtime.handle_message(trade(int(t0.timestamp() * 1000), 100), received_at=t0)
         second = t0 + dt.timedelta(seconds=301)
         realtime.handle_message(trade(int(second.timestamp() * 1000), 200), received_at=second)
+        realtime.handle_message(
+            trade(int(t0.timestamp() * 1000), 100),
+            received_at=second + dt.timedelta(seconds=1),
+        )
         pending = realtime.pending_gap_windows()
         self.assertEqual(len(pending), 1)
         self.assertFalse(pending[0]["bounded"])
@@ -212,9 +236,12 @@ class GapReceiptRecoveryTests(unittest.TestCase):
     def test_partial_receipt_cannot_hide_or_resolve_pending_gap(self):
         realtime = gate()
         t0 = z("2026-08-28T00:00:00Z")
-        realtime.handle_message(trade(int(t0.timestamp() * 1000), 100), received_at=t0)
         second = t0 + dt.timedelta(seconds=30)
         realtime.handle_message(trade(int(second.timestamp() * 1000), 200), received_at=second)
+        realtime.handle_message(
+            trade(int(t0.timestamp() * 1000), 100),
+            received_at=second + dt.timedelta(seconds=1),
+        )
         gap_id = realtime.pending_gap_windows()[0]["gap_id"]
         incomplete = G.build_backfill_receipt(
             gap_ids=[gap_id], responses=[], evidence_class=G.SYNTHETIC_FIXTURE,
