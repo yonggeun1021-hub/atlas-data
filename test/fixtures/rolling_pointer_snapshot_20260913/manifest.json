@@ -83,6 +83,20 @@
       "git_blob_oid": "6b34109105019fb411e90a80d3b831d67e7fb4b2",
       "repo_path": "data/briefing/krx/329180.json",
       "sha256": "0aa3f735ee0db07a721f84aeb0f3af40f637527b61fe3c370d1f738f9b300e73"
+    },
+    {
+      "bytes": 139108,
+      "fixture_path": "evidence/operational/dynamic_clock/candidate_validity_window_assessment.json.gz",
+      "git_blob_oid": "1d9f45b0f07be820937edaccb8c917cc249f3d09",
+      "repo_path": "evidence/operational/dynamic_clock/candidate_validity_window_assessment.json",
+      "sha256": "417179f6208178130399bbdd27eb3a812b12d5af45cd7188e64517dac790ee2f"
+    },
+    {
+      "bytes": 146047,
+      "fixture_path": "evidence/operational/dynamic_clock/candidate_identity_observation.json.gz",
+      "git_blob_oid": "980cf90fb34ea23bb6b5810e0b9c814d61ba8200",
+      "repo_path": "evidence/operational/dynamic_clock/candidate_identity_observation.json",
+      "sha256": "1935ef34f1cea98fd71792b87cf1d01f1d216a603e66fd9e1a2b3b41b1f573b7"
     }
   ],
   "immutable_inputs_in_place": [
@@ -102,8 +116,8 @@
       "sha256": "f97c3853527623a37868a40bedb7b2c5dc52ce780400021f232d6d0971127bd9"
     }
   ],
-  "purpose": "Frozen consistent input snapshot for test_symbol_review_row_extraction.py and test_population_symbol_observation.py. The rolling pointers below are rewritten by separately scheduled workflows (collect.yml rewrites stage_history.json and data/briefing/krx at 05:55-06:35 KST; korea-market-signals.yml and free-market-data.yml rewrite the bounded reviews later), so between those runs the live tree is not one consistent snapshot. Each file is the exact git blob at source_commit (last commit where the committed bounded reviews were reproducible from the live tree), gzip-wrapped.",
-  "schema_version": "bounded_symbol_review_snapshot_fixture/1",
+  "purpose": "Frozen consistent snapshot of rolling pointers that scheduled workflows rewrite on different clocks, for regressions that rebuild past outputs: data/stage_history.json and data/briefing/krx (collect.yml, 05:55-06:35 KST), the Dynamic Clock candidate validity/identity observations (P8-12 refresh after each collect), and the bounded KR/US symbol reviews with their market packets (korea-market-signals.yml ~18:24 KST, free-market-data.yml). Between those runs the live tree is not one consistent snapshot. Each file is the exact git blob at source_commit (last main commit before the 2026-09-14 collect, where every consumer test passed), gzip-wrapped; consumers re-verify blob id, sha256 and size on every read.",
+  "schema_version": "rolling_pointer_snapshot_fixture/1",
   "session_dates": {
     "KR": "2026-09-10",
     "US": "2026-09-11"

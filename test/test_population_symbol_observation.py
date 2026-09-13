@@ -10,7 +10,7 @@ tampering fails closed, and a fresh-process re-read succeeds.
 
 Inputs are pinned: the rolling pointers (stage_history.json,
 data/briefing/krx, latest market packets and bounded reviews) come from the
-frozen consistent snapshot in test/bounded_symbol_review_snapshot.py, and the
+frozen consistent snapshot in test/rolling_pointer_snapshot.py, and the
 dated universe packets / KRX capture are read in place under recorded hashes.
 The live pointers are rewritten by separately scheduled workflows hours
 apart, so the default inputs are not one snapshot for most of a weekday.
@@ -37,7 +37,7 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(CORE)
 if str(ROOT / "test") not in sys.path:
     sys.path.insert(0, str(ROOT / "test"))
-import bounded_symbol_review_snapshot as SNAPSHOT  # noqa: E402
+import rolling_pointer_snapshot as SNAPSHOT  # noqa: E402
 
 
 def now_utc() -> str:

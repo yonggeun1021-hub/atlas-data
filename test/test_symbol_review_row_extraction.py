@@ -6,7 +6,7 @@ must report missing SMA20 / investor flows / prices / stage tags explicitly
 instead of raising (KR) or estimating (both).
 
 Byte identity is proven on a frozen consistent input snapshot
-(test/bounded_symbol_review_snapshot.py): the live stage_history.json and
+(test/rolling_pointer_snapshot.py): the live stage_history.json and
 data/briefing/krx are rewritten by the daily collect hours before the
 committed reviews are, so rebuilding from the live pointers tests data
 timing, not code.  The live committed reviews are still re-derived from
@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "test") not in sys.path:
     sys.path.insert(0, str(ROOT / "test"))
 
-import bounded_symbol_review_snapshot as SNAPSHOT  # noqa: E402
+import rolling_pointer_snapshot as SNAPSHOT  # noqa: E402
 
 
 def _load(name: str, relative: str):

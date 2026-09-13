@@ -35,6 +35,10 @@ from decision import korea_symbol_market_review as korea_review  # noqa: E402
 from decision import us_symbol_market_review as us_review  # noqa: E402
 from discovery import candidate_evidence_lifecycle_receipt as receipt  # noqa: E402
 
+if str(ROOT / "test") not in sys.path:
+    sys.path.insert(0, str(ROOT / "test"))
+import rolling_pointer_snapshot as SNAPSHOT  # noqa: E402
+
 
 EVALUATION_AT = "2026-09-13T06:00:00Z"
 KOREA_NAMES = {
@@ -336,14 +340,20 @@ class FullCoverageTests(unittest.TestCase):
         gate_inputs = self._build()
         gate_input = gate_inputs["298040"]
         system_gate_inputs = {"298040": gate_input}
-        gen_receipt = receipt.build_receipt(
-            generated_at_utc="2026-09-13T06:05:00Z",
-            system_gate_inputs=system_gate_inputs,
-        )
-        # lookup_symbol() only re-derives with no system_gate_inputs, so it
-        # cannot be used here; validate directly with the same gate inputs
-        # the receipt was actually built with, then find the row.
-        receipt.validate_receipt(gen_receipt, system_gate_inputs=system_gate_inputs)
+        # The receipt is built at a fixed past instant, so its rolling-pointer
+        # sources (stage history, Dynamic Clock validity/identity) are pinned
+        # to the frozen snapshot; the live tree advances with every collect.
+        with tempfile.TemporaryDirectory() as snapshot_tmp, SNAPSHOT.pinned_candidate_receipt_sources(
+            receipt, SNAPSHOT.materialize(Path(snapshot_tmp))
+        ):
+            gen_receipt = receipt.build_receipt(
+                generated_at_utc="2026-09-13T06:05:00Z",
+                system_gate_inputs=system_gate_inputs,
+            )
+            # lookup_symbol() only re-derives with no system_gate_inputs, so it
+            # cannot be used here; validate directly with the same gate inputs
+            # the receipt was actually built with, then find the row.
+            receipt.validate_receipt(gen_receipt, system_gate_inputs=system_gate_inputs)
         row = next(r for r in gen_receipt["lifecycle_records"] if r["symbol"] == "298040")
         evaluation = row["system_stage_evaluation"]
         self.assertFalse(evaluation["system_candidate_eligible"])
