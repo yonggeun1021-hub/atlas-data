@@ -561,6 +561,12 @@ def default_inputs(root: Path = ROOT) -> dict:
             root / "data/observations/upbit_bounded_identity_registry", "snapshot_date"
         ),
         "crypto_leadership_path": _latest_crypto_leadership(root / "data/observations/crypto_leadership"),
+        # T1 market_rotation_discovery/1 (TKT-1): count-only connection --
+        # this file never scans/ranks/selects, it only surfaces the count
+        # T1 already produced. See _load_market_rotation_discovery.
+        "market_rotation_discovery_path": _latest_dated_packet(
+            root / "data/observations/market_rotation_discovery", "snapshot_date"
+        ),
     }
 
 
@@ -697,6 +703,14 @@ def _load_optional_hashed(path: Path | None, hash_field: str, code: str, *, sche
     if schema_version is not None and record.get("schema_version") != schema_version:
         _fail(f"{code}_SCHEMA_INVALID")
     return record
+
+
+def _load_market_rotation_discovery(path: Path | None) -> dict | None:
+    """T1 market_rotation_discovery/1 (TKT-1), CRYPTO only. Count-only
+    connection: this loads the packet (self-hash verified) so its
+    ``counts``/``rotation_selection_status`` can be surfaced; it does not
+    re-derive, re-rank, or re-select anything T1 already decided."""
+    return _load_optional_hashed(path, "payload_sha256", "MARKET_ROTATION_DISCOVERY")
 
 
 def _load_stage_history(path: Path) -> dict:
@@ -1559,6 +1573,7 @@ def _crypto_context(inputs: dict, observed_at: dt.datetime) -> dict:
         schema_version="upbit_bounded_identity_registry_packet/1",
     )
     leadership = _load_crypto_leadership(inputs.get("crypto_leadership_path"))
+    rotation_discovery = _load_market_rotation_discovery(inputs.get("market_rotation_discovery_path"))
     identity_review = _read_json(inputs["crypto_identity_review_path"], "CRYPTO_IDENTITY_REVIEW_READ_FAILED")
     _validate_self_hash(identity_review, "payload_sha256", "CRYPTO_IDENTITY_REVIEW_PAYLOAD_SHA256_MISMATCH")
     markets = universe["packet"]["markets"]
@@ -1593,6 +1608,7 @@ def _crypto_context(inputs: dict, observed_at: dt.datetime) -> dict:
         "detail": detail,
         "bounded": bounded,
         "leadership": leadership,
+        "rotation_discovery": rotation_discovery,
         "identity_review": identity_review,
         "by_market": by_market,
         "decision_by_market": decision_by_market,
@@ -1855,6 +1871,16 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, ge
         "gap_classification": gaps,
         "next_step_conditions": next_steps,
         "candidate_zero_semantics": zero_semantics,
+        "rotation_discovery_context": (
+            {
+                "level": "COUNT_ONLY",
+                "evaluation_as_of": ctx["rotation_discovery"].get("evaluation_as_of"),
+                "rotation_selection_status": ctx["rotation_discovery"].get("rotation_selection_status"),
+                "counts": ctx["rotation_discovery"].get("counts"),
+                "source": _source_ref(inputs["market_rotation_discovery_path"], ctx["rotation_discovery"].get("payload_sha256")),
+            }
+            if ctx["rotation_discovery"] else {"status": NOT_AVAILABLE}
+        ),
         "symbols": [_crypto_compact_row(row, ctx["decision_by_market"].get(row["market"]), ctx["detail_by_market"].get(row["market"])) for row in markets],
     }
 
