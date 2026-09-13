@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 from functools import lru_cache
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -19,6 +20,14 @@ SPEC = importlib.util.spec_from_file_location("crypto_axis_trade_bridge", MODULE
 BRIDGE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(BRIDGE)
+
+STALE_REALTIME_RUN_FIXTURE = (
+    ROOT / "test" / "fixtures" / "crypto_axis_trade_bridge"
+    / "upbit_realtime_2026-09-13_run_004_cf3cf83e.json"
+)
+STALE_REALTIME_RUN_FIXTURE_SHA256 = (
+    "fa0dc3106ffdff404f454c10ea68f193b45bfb5fc8b5e84ce2bebac5e4fd831a"
+)
 
 
 def source_observation_ceiling(
@@ -265,7 +274,17 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
         self.assertEqual(reason, "UPBIT_MARKET_EVIDENCE_COMPONENT_STALE")
 
     def test_stale_realtime_remains_stale(self):
-        record = BRIDGE.DECISION.find_latest_realtime_run()["record"]
+        # Pinned to a frozen byte-exact copy of a committed EVALUATED P9-06
+        # run (evidence/crypto/upbit/realtime/2026-09-13/run_004.json at
+        # commit cf3cf83e) whose ratified consumer result contains STALE
+        # rows.  The newest live capture's status varies run to run (for
+        # example a guard-rejected UNKNOWN run), so selecting it via
+        # find_latest_realtime_run() made this regression non-deterministic.
+        raw = STALE_REALTIME_RUN_FIXTURE.read_bytes()
+        self.assertEqual(
+            hashlib.sha256(raw).hexdigest(), STALE_REALTIME_RUN_FIXTURE_SHA256,
+        )
+        record = json.loads(raw)
         status, reason = BRIDGE.DECISION._realtime_freshness(record)
         self.assertEqual(status, "STALE")
         self.assertEqual(reason, "UPBIT_REALTIME_RATIFIED_POLICY_RESULT_STALE")

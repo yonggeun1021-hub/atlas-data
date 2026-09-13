@@ -40,7 +40,7 @@ PRODUCER_PINS = {
     "docs/crypto_axis_trade_bridge_contract.md":
         "64cf3dedd75138fe91862ebe969a7d442cec8edf5d19ec84a2fb0516f2af05de",
     "test/test_crypto_axis_trade_bridge.py":
-        "c9c6f0fce1b147c5679d7bbab4fc49bf2d602861d86f3e6b3be73b29276c9ccc",
+        "9b37ea81a7997cf36432c4017d1d67583ebcc63d763240cf49027b1aed5b191f",
     "decision/crypto_paper_decision_snapshot.py":
         "b47fee86dd06edcd60b91e2c8495a06b6a27b84c0fcf8bc4bf2051c29c58524a",
 }
