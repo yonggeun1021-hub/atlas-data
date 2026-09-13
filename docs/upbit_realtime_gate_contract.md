@@ -172,6 +172,33 @@ same `RealtimeGate` class unchanged -- that is a future, separate
 infrastructure/deployment-track decision, explicitly out of scope for this
 PR (which is the public data-contract repo, cron-based).
 
+### Per-market realtime freshness and realtime liquidity floor (2026-09-14)
+
+User ratification `CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914`
+(record `evidence/authority/crypto_realtime_freshness_per_market_user_ratification_20260914.json`,
+sha256 `043932a4…5ac4`) is bound by
+`config/crypto_realtime_freshness_per_market_policy_ratified.json` (self hash
+pinned in `realtime/crypto_realtime_per_market_policy.py`). From
+`2026-09-13T23:25:00Z` the decision producer writes
+`crypto_paper_decision_snapshot_packet/2`:
+
+* each market's realtime freshness is the unchanged ratified P9-01 result for
+  its own ticker (20s provider age / 3s transport delay); a STALE, MISSING,
+  UNKNOWN or MIXED_GENERATION market caps only its own actionable state, and
+  `freshness_status.realtime` / `overall` stay recorded for display only;
+* universe and market-evidence freshness remain global caps;
+* admitted P3-12 markets whose daily universe raw capture 24h KRW traded value
+  (`acc_trade_price_24h`) is below KRW 5,000,000,000 are neither subscribed by
+  the bounded capture nor allowed an actionable state; unknown turnover is
+  excluded; every exclusion is recorded with its reason;
+* `portfolio/crypto_paper_stale_hold.py` turns a /2 packet plus the private
+  runtime's held-market list into per-market HOLD rows (no PAPER exit
+  execution while not FRESH) and an alert beyond a 30-minute engineering
+  alert budget.
+
+Packets generated before the effective instant keep the /1 derivation and
+revalidate unchanged.
+
 ### Capture-to-decision step order (2026-09-14)
 
 Within that job the Crypto PAPER decision snapshot step runs **directly

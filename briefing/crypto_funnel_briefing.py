@@ -2,7 +2,8 @@
 """P8-16 Crypto funnel and PAPER-decision briefing read model.
 
 The sole input is one exact, fully revalidated P1/P3/P4/P5/P9
-``crypto_paper_decision_snapshot_packet/1`` generation.  This module does
+``crypto_paper_decision_snapshot_packet/1`` or ``/2`` (per-market realtime
+freshness, 2026-09-14) generation.  This module does
 not capture market data, calculate a factor, promote a candidate, authorize
 a PAPER order, or call any network/private/order endpoint.  It projects the
 already-derived facts into one JSON/API contract and one deterministic Korean
@@ -85,12 +86,25 @@ def _read_json(path: Path):
         raise CryptoFunnelBriefingError(f"JSON_READ_FAILED:{path}:{exc}") from exc
 
 
+LEGACY_CONTRACT_VERSION = "crypto_funnel_briefing_contract/1"
+CONTRACT_VERSION = "crypto_funnel_briefing_contract/2"
+
+
+def _expected_legacy_contract() -> dict:
+    """Frozen /1 contract: only for revalidating briefings it already issued."""
+    contract = _expected_contract()
+    contract.pop("source_schema_versions")
+    contract["contract_version"] = LEGACY_CONTRACT_VERSION
+    contract["source_schema_version"] = DECISION.LEGACY_OUTPUT_SCHEMA_VERSION
+    return contract
+
+
 def _expected_contract() -> dict:
     return {
         "schema_version": 1,
-        "contract_version": "crypto_funnel_briefing_contract/1",
+        "contract_version": CONTRACT_VERSION,
         "output_schema_version": "crypto_funnel_briefing/1",
-        "source_schema_version": DECISION.OUTPUT_SCHEMA_VERSION,
+        "source_schema_versions": list(DECISION.OUTPUT_SCHEMA_VERSIONS),
         "status": "READ_MODEL_ONLY",
         "axis_order": ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"],
         "funnel_order": [
@@ -111,10 +125,20 @@ def _expected_contract() -> dict:
 
 
 def _validate_contract(value: dict) -> dict:
-    expected = _expected_contract()
+    expected = (
+        _expected_legacy_contract()
+        if isinstance(value, dict) and value.get("contract_version") == LEGACY_CONTRACT_VERSION
+        else _expected_contract()
+    )
     if value != expected:
         raise CryptoFunnelBriefingError("CONTRACT_MISMATCH")
     return copy.deepcopy(value)
+
+
+def _accepted_source_schema_versions(contract: dict) -> list[str]:
+    if contract["contract_version"] == LEGACY_CONTRACT_VERSION:
+        return [contract["source_schema_version"]]
+    return list(contract["source_schema_versions"])
 
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
@@ -313,7 +337,7 @@ def build_briefing(
         )
     except DECISION.CryptoPaperDecisionSnapshotError as exc:
         raise CryptoFunnelBriefingError(f"SOURCE_DECISION_INVALID:{exc}") from exc
-    if source["schema_version"] != contract["source_schema_version"]:
+    if source["schema_version"] not in _accepted_source_schema_versions(contract):
         raise CryptoFunnelBriefingError("SOURCE_SCHEMA_VERSION_INVALID")
     if not isinstance(source_file_sha256, str) or not SHA256_RE.fullmatch(source_file_sha256):
         raise CryptoFunnelBriefingError("SOURCE_FILE_SHA256_INVALID")
@@ -330,7 +354,14 @@ def validate_briefing(
     *,
     allow_external_sources: bool = False,
 ) -> dict:
-    contract = load_contract() if contract is None else _validate_contract(contract)
+    if contract is None:
+        contract = (
+            _expected_legacy_contract()
+            if isinstance(packet, dict) and packet.get("contract_version") == LEGACY_CONTRACT_VERSION
+            else load_contract()
+        )
+    else:
+        contract = _validate_contract(contract)
     fields = {
         "schema_version", "contract_version", "status", "source_ref", "source_packet",
         "as_of", "regime", "funnel", "candidates", "freshness", "finalized_candle",
@@ -370,6 +401,8 @@ def validate_briefing(
         )
     except DECISION.CryptoPaperDecisionSnapshotError as exc:
         raise CryptoFunnelBriefingError(f"SOURCE_DECISION_INVALID:{exc}") from exc
+    if source["schema_version"] not in _accepted_source_schema_versions(contract):
+        raise CryptoFunnelBriefingError("SOURCE_SCHEMA_VERSION_INVALID")
     expected = _assemble(source, ref["path"], ref["file_sha256"], contract)
     if canonical_json(expected) != canonical_json(packet):
         raise CryptoFunnelBriefingError("OUTPUT_DERIVATION_MISMATCH")

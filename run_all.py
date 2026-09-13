@@ -2339,6 +2339,15 @@ APPROVED_TESTS = [
     #   budget (scheduler hand-off, not a freshness policy). No threshold,
     #   decision semantics or authority change.
     "test/test_crypto_decision_capture_timing.py",
+    # ★ 2026-09-14 user ratification CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1
+    #   (option B) + CIO companion liquidity decision. Realtime freshness is
+    #   judged per market with the unchanged 20s/3s thresholds; a non-FRESH
+    #   market caps only its own action state (aggregate is display only);
+    #   admitted markets below KRW 5B 24h traded value (daily universe raw
+    #   capture) are excluded from subscription/action, unknown excluded;
+    #   held stale positions HOLD with a 30-minute engineering alert budget.
+    #   Decision packets /1 before the effective instant keep revalidating.
+    "test/test_crypto_realtime_per_market_freshness.py",
     # ★ CIO item 3 (2026-08-29): CRYPTO_BREADTH real coverage-ratio
     #   diagnostics (additive, never a new gate) and CRYPTO_LEADERSHIP's
     #   daily_orchestrator.py component-row wiring into build_packet(),

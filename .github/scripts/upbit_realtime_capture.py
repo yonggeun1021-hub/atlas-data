@@ -74,6 +74,10 @@ def _load_module(name: str, relative_path: str):
 
 
 GATE = _load_module("upbit_realtime_gate_for_capture", "realtime/upbit_realtime_gate.py")
+PER_MARKET = _load_module(
+    "crypto_realtime_per_market_policy_for_capture",
+    "realtime/crypto_realtime_per_market_policy.py",
+)
 
 
 class RealtimeCaptureError(RuntimeError):
@@ -655,13 +659,22 @@ def main(argv=None) -> int:
 
     contract = GATE.load_contract()
     duration = args.duration_seconds or contract["bounded_run_default_duration_seconds"]
+    liquidity_excluded = []
     if args.validation_anchor_contract is not None:
         anchor_contract = load_validation_anchor_contract(args.validation_anchor_contract)
         capture_mode = PUBLIC_VALIDATION_MODE
         markets = anchor_contract["markets"]
     else:
         capture_mode = ELIGIBLE_UNIVERSE_MODE
-        markets = GATE.eligible_markets_from_universe_packet(args.universe_packet)
+        admitted = GATE.eligible_markets_from_universe_packet(args.universe_packet)
+        # CIO-CRYPTO-REALTIME-SUBSCRIPTION-LIQUIDITY-20260914: only admitted
+        # P3-12 markets whose daily-capture 24h KRW traded value meets the
+        # ratified KRW 5B floor are subscribed; unknown turnover is excluded.
+        subscription = PER_MARKET.subscription_markets(args.universe_packet)
+        markets = subscription["markets"]
+        if not set(markets) <= set(admitted):
+            raise RealtimeCaptureError("LIQUIDITY_FLOOR_SUBSCRIPTION_OUTSIDE_ADMITTED_UNIVERSE")
+        liquidity_excluded = subscription["excluded"]
     validate_evidence_root(capture_mode, args.evidence_root)
     snapshot_date = args.snapshot_date or utc_now().date()
 
@@ -678,6 +691,7 @@ def main(argv=None) -> int:
         "path": str(target),
         "capture_mode": capture_mode,
         "market_count": len(markets),
+        "liquidity_floor_excluded_markets": liquidity_excluded,
         "overall_status": run_record["status"]["overall_status"],
         "accepted": run_record["status"]["counts"]["accepted"],
         "reconnect_count": run_record["status"]["reconnect_count"],

@@ -1,0 +1,27 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "ratification_id": "CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914",
+  "ratified_at_utc": "2026-09-13T23:25:00Z",
+  "ratified_by": "USER (explicit instruction: '코인 신선도 종목별 판정 채택')",
+  "recommended_by": "CLAUDE_CIO",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "amends": "Application scope of P9_06_UPBIT_CRYPTO_PAPER_V1 (config/upbit_realtime_freshness_policy_ratified.json) for INTERNAL_VIRTUAL_PAPER. Thresholds unchanged: CRYPTO provider age 20s, transport delay 3s.",
+  "rule": {
+    "per_market_freshness": "Each market's realtime freshness is judged independently with the ratified thresholds.",
+    "action_cap": "A STALE/MISSING/UNKNOWN market caps only that market's action state (no new PAPER entry for it). Other FRESH markets are evaluated normally.",
+    "exit_path": "A held position in a STALE market gets no PAPER exit execution until fresh data returns; the runtime records HOLD with reason per market and raises an alert if a held position stays stale beyond 30 minutes (engineering alert budget, not a policy threshold).",
+    "aggregate_status": "The aggregate realtime overall_status continues to be recorded for display/telemetry but no longer blocks all candidates.",
+    "regime_axes": "Unchanged: regime axes do not use realtime ticker freshness."
+  },
+  "cio_companion_decision": {
+    "id": "CIO-CRYPTO-REALTIME-SUBSCRIPTION-LIQUIDITY-20260914",
+    "decision": "Apply the already-ratified Upbit liquidity floor (24h traded value >= KRW 5,000,000,000) to the realtime subscription/candidate set; markets below it are not subscribed as PAPER candidates (e.g. LINK ~3.2B, SHIB ~4.0B at 2026-09-13). Evaluated daily from the universe capture; fail-closed if turnover unknown."
+  },
+  "not_adopted": "Option A (use ticker message timestamp as provider time) and option C (orderbook liveness) are NOT ratified here.",
+  "scope": "INTERNAL_VIRTUAL_PAPER only. REAL unchanged/prohibited.",
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}
