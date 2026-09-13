@@ -3,6 +3,7 @@
 
 import ast
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -37,6 +38,46 @@ DISCOVERY_FIXTURE = load_module(
 CONTRACT = MODULE.load_contract()
 BRIEFING_CONTRACT = BRIEFING.load_contract()
 GENERATED_AT = "2026-08-21T02:00:00Z"
+STAGE1_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
+STAGE2_PATH = ROOT / "data" / "latest_capital_flow_posture_reference.json"
+STAGE1_REFERENCE = json.loads(STAGE1_PATH.read_text(encoding="utf-8"))
+STAGE2_REFERENCE = json.loads(STAGE2_PATH.read_text(encoding="utf-8"))
+
+
+def build_input(
+    source_briefing,
+    source_ledger,
+    contract=CONTRACT,
+    *,
+    stage2_reference=STAGE2_REFERENCE,
+    stage1_reference=STAGE1_REFERENCE,
+):
+    return MODULE.build_candidate_selection_input(
+        source_briefing,
+        source_ledger,
+        contract,
+        stage2_reference=stage2_reference,
+        stage1_reference=stage1_reference,
+    )
+
+
+def validate_input(
+    packet,
+    source_briefing,
+    source_ledger,
+    contract=CONTRACT,
+    *,
+    stage2_reference=STAGE2_REFERENCE,
+    stage1_reference=STAGE1_REFERENCE,
+):
+    return MODULE.validate_candidate_selection_input(
+        packet,
+        source_briefing,
+        source_ledger,
+        contract,
+        stage2_reference=stage2_reference,
+        stage1_reference=stage1_reference,
+    )
 
 
 def observed_ledger():
@@ -86,9 +127,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
         cls.empty_ledger = BRIEFING.ROTATION.empty_ledger()
         cls.observed = briefing(cls.ledger)
         cls.empty = briefing(cls.empty_ledger)
-        cls.packet = MODULE.build_candidate_selection_input(
-            cls.observed, cls.ledger, CONTRACT
-        )
+        cls.packet = build_input(cls.observed, cls.ledger, CONTRACT)
 
     # ---------------------------------------------------------------- positive
 
@@ -107,6 +146,102 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             CONTRACT["source_ledger_schema_version"],
             "rotation_state_ledger_packet/1",
         )
+        self.assertEqual(CONTRACT["contract_version"], "rotation_candidate_selection_input/2")
+        self.assertEqual(
+            CONTRACT["output_schema_version"],
+            "rotation_candidate_selection_input_packet/2",
+        )
+        self.assertEqual(CONTRACT["stage1_market_order"], ["US", "KR", "CRYPTO"])
+
+    def test_real_stage2_to_stage1_lineage_is_revalidated_and_forwarded(self):
+        lineage = self.packet["stage1_lineage"]
+        self.assertEqual(
+            lineage["generation_id"],
+            STAGE1_REFERENCE["generation_id"],
+        )
+        self.assertEqual(
+            lineage["payload_sha256"],
+            STAGE1_REFERENCE["payload_sha256"],
+        )
+        self.assertEqual(
+            lineage["file_sha256"],
+            hashlib.sha256(STAGE1_PATH.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            lineage["markets"],
+            [
+                {
+                    "market": row["market"],
+                    "as_of_date": row["as_of_date"],
+                    "candidate_regime": row["paper_reference"]["candidate_regime"],
+                    "runtime_regime": row["runtime_regime"],
+                }
+                for row in STAGE1_REFERENCE["markets"]
+            ],
+        )
+        stage2 = lineage["stage2_binding"]
+        self.assertEqual(
+            stage2["generation_id"],
+            STAGE2_REFERENCE["generation_id"],
+        )
+        self.assertEqual(
+            stage2["payload_sha256"],
+            STAGE2_REFERENCE["payload_sha256"],
+        )
+        self.assertEqual(
+            stage2["file_sha256"],
+            hashlib.sha256(STAGE2_PATH.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            stage2["status"], "EXACT_STAGE2_TO_STAGE1_BINDING_REVALIDATED"
+        )
+
+    def test_stage1_or_stage2_self_resigning_cannot_replace_real_inputs(self):
+        stage1 = copy.deepcopy(STAGE1_REFERENCE)
+        stage1["markets"][0]["paper_reference"]["candidate_regime"] = "RISK_ON"
+        stage1.pop("payload_sha256")
+        stage1["payload_sha256"] = MODULE.PAPER_REGIME.payload_sha256(stage1)
+        with self.assertRaisesRegex(
+            MODULE.RotationCandidateSelectionInputError,
+            "STAGE1_SOURCE_REVALIDATION_FAILED",
+        ):
+            build_input(
+                self.observed, self.ledger, stage1_reference=stage1
+            )
+
+        stage2 = copy.deepcopy(STAGE2_REFERENCE)
+        stage2["sources"][0]["generation_id"] = "0" * 64
+        stage2.pop("payload_sha256")
+        stage2["payload_sha256"] = MODULE.CAPITAL_FLOW.payload_sha256(stage2)
+        with self.assertRaisesRegex(
+            MODULE.RotationCandidateSelectionInputError,
+            "STAGE2_SOURCE_REVALIDATION_FAILED",
+        ):
+            build_input(
+                self.observed, self.ledger, stage2_reference=stage2
+            )
+
+    def test_stage1_and_stage2_are_both_mandatory_caller_inputs(self):
+        for kwargs, error in (
+            ({"stage1_reference": None}, "STAGE1_SOURCE_INVALID"),
+            ({"stage2_reference": None}, "STAGE2_SOURCE_INVALID"),
+        ):
+            with self.subTest(error=error), self.assertRaisesRegex(
+                MODULE.RotationCandidateSelectionInputError, error
+            ):
+                build_input(self.observed, self.ledger, **kwargs)
+
+    def test_stage1_lineage_cannot_be_rebound_inside_stage3_packet(self):
+        packet = copy.deepcopy(self.packet)
+        packet["stage1_lineage"]["markets"][1]["market"] = "KOREA"
+        packet["payload_sha256"] = MODULE.payload_sha256(
+            {key: value for key, value in packet.items() if key != "payload_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.RotationCandidateSelectionInputError,
+            "INPUT_DERIVATION_MISMATCH",
+        ):
+            validate_input(packet, self.observed, self.ledger)
 
     def test_latest_changes_are_projected_one_to_one_in_existing_order(self):
         changes = self.observed["rotation"]["latest_changes"]
@@ -175,7 +310,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             )
 
     def test_payload_hash_is_deterministic_and_source_bound(self):
-        again = MODULE.build_candidate_selection_input(
+        again = build_input(
             self.observed, self.ledger, CONTRACT
         )
         self.assertEqual(again, self.packet)
@@ -185,21 +320,21 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
         self.assertEqual(
             MODULE.payload_sha256(unsigned), self.packet["payload_sha256"]
         )
-        other = MODULE.build_candidate_selection_input(
+        other = build_input(
             self.empty, self.empty_ledger, CONTRACT
         )
         self.assertNotEqual(other["payload_sha256"], self.packet["payload_sha256"])
 
     def test_validator_rederives_projection_from_the_same_source_pair(self):
         self.assertEqual(
-            MODULE.validate_candidate_selection_input(
+            validate_input(
                 self.packet, self.observed, self.ledger, CONTRACT
             ),
             self.packet,
         )
 
     def test_empty_rotation_projects_zero_rows_without_inventing_a_candidate(self):
-        packet = MODULE.build_candidate_selection_input(
+        packet = build_input(
             self.empty, self.empty_ledger, CONTRACT
         )
         self.assertEqual(packet["inputs"], [])
@@ -209,7 +344,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
         )
 
     def test_returned_packet_is_a_copy_the_caller_cannot_mutate_into_source(self):
-        packet = MODULE.build_candidate_selection_input(
+        packet = build_input(
             self.observed, self.ledger, CONTRACT
         )
         packet["inputs"][0]["selected"] = True
@@ -232,7 +367,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             with self.subTest(error=error), self.assertRaisesRegex(
                 MODULE.RotationCandidateSelectionInputError, error
             ):
-                MODULE.build_candidate_selection_input(value, self.ledger, CONTRACT)
+                build_input(value, self.ledger, CONTRACT)
 
     def test_foreign_or_downgraded_source_schema_is_rejected(self):
         wrong_schema = copy.deepcopy(self.observed)
@@ -241,7 +376,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             MODULE.RotationCandidateSelectionInputError,
             "SOURCE_BRIEFING_SCHEMA_INVALID",
         ):
-            MODULE.build_candidate_selection_input(
+            build_input(
                 wrong_schema, self.ledger, CONTRACT
             )
         wrong_contract = copy.deepcopy(self.observed)
@@ -250,7 +385,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             MODULE.RotationCandidateSelectionInputError,
             "SOURCE_BRIEFING_CONTRACT_INVALID",
         ):
-            MODULE.build_candidate_selection_input(
+            build_input(
                 wrong_contract, self.ledger, CONTRACT
             )
 
@@ -261,7 +396,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             MODULE.RotationCandidateSelectionInputError,
             "SOURCE_BRIEFING_REVALIDATION_FAILED",
         ):
-            MODULE.build_candidate_selection_input(forged, self.ledger, CONTRACT)
+            build_input(forged, self.ledger, CONTRACT)
 
         opened = copy.deepcopy(self.observed)
         opened["authority"]["stage_promotion_authorized"] = True
@@ -269,7 +404,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             MODULE.RotationCandidateSelectionInputError,
             "SOURCE_BRIEFING_REVALIDATION_FAILED",
         ):
-            MODULE.build_candidate_selection_input(opened, self.ledger, CONTRACT)
+            build_input(opened, self.ledger, CONTRACT)
 
     # -- bound rotation_state_ledger source admission -------------------------
 
@@ -283,7 +418,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             with self.subTest(error=error), self.assertRaisesRegex(
                 MODULE.RotationCandidateSelectionInputError, error
             ):
-                MODULE.build_candidate_selection_input(
+                build_input(
                     self.observed, value, CONTRACT
                 )
 
@@ -309,7 +444,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             with self.subTest(error=error), self.assertRaisesRegex(
                 MODULE.RotationCandidateSelectionInputError, error
             ):
-                MODULE.build_candidate_selection_input(
+                build_input(
                     self.observed, ledger, CONTRACT
                 )
 
@@ -321,19 +456,19 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
         with self.assertRaisesRegex(
             MODULE.RotationCandidateSelectionInputError, "SOURCE_LEDGER_NOT_BOUND"
         ):
-            MODULE.build_candidate_selection_input(
+            build_input(
                 self.observed, self.empty_ledger, CONTRACT
             )
         with self.assertRaisesRegex(
             MODULE.RotationCandidateSelectionInputError, "SOURCE_LEDGER_NOT_BOUND"
         ):
-            MODULE.build_candidate_selection_input(
+            build_input(
                 self.empty, self.ledger, CONTRACT
             )
         with self.assertRaisesRegex(
             MODULE.RotationCandidateSelectionInputError, "SOURCE_LEDGER_NOT_BOUND"
         ):
-            MODULE.validate_candidate_selection_input(
+            validate_input(
                 self.packet, self.observed, self.empty_ledger, CONTRACT
             )
 
@@ -409,14 +544,14 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
                     MODULE.RotationCandidateSelectionInputError,
                     "SOURCE_ROTATION_SECTION_TAMPERED",
                 ):
-                    MODULE.build_candidate_selection_input(
+                    build_input(
                         tampered, self.ledger, CONTRACT
                     )
                 with self.assertRaisesRegex(
                     MODULE.RotationCandidateSelectionInputError,
                     "SOURCE_ROTATION_SECTION_TAMPERED",
                 ):
-                    MODULE.validate_candidate_selection_input(
+                    validate_input(
                         self.packet, tampered, self.ledger, CONTRACT
                     )
 
@@ -442,7 +577,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
                     MODULE.RotationCandidateSelectionInputError,
                     "SOURCE_ROTATION_SECTION_TAMPERED",
                 ):
-                    MODULE.build_candidate_selection_input(
+                    build_input(
                         tampered, self.ledger, CONTRACT
                     )
 
@@ -469,7 +604,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             with self.subTest(error=error), self.assertRaisesRegex(
                 MODULE.RotationCandidateSelectionInputError, error
             ):
-                MODULE.validate_candidate_selection_input(
+                validate_input(
                     packet, self.observed, self.ledger, CONTRACT
                 )
 
@@ -489,7 +624,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
                 MODULE.RotationCandidateSelectionInputError,
                 f"INPUT_ROW_AUTHORITY_OPENED:{key}",
             ):
-                MODULE.validate_candidate_selection_input(
+                validate_input(
                     packet, self.observed, self.ledger, CONTRACT
                 )
 
@@ -502,7 +637,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 MODULE.RotationCandidateSelectionInputError, "INPUT_ROW_FIELDS_INVALID"
             ):
-                MODULE.validate_candidate_selection_input(
+                validate_input(
                     packet, self.observed, self.ledger, CONTRACT
                 )
 
@@ -512,7 +647,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
         with self.assertRaisesRegex(
             MODULE.RotationCandidateSelectionInputError, "INPUT_DERIVATION_MISMATCH"
         ):
-            MODULE.validate_candidate_selection_input(
+            validate_input(
                 packet, self.observed, self.ledger, CONTRACT
             )
 
@@ -540,7 +675,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             with self.subTest(mutation=name), self.assertRaisesRegex(
                 MODULE.RotationCandidateSelectionInputError, "INPUT_DERIVATION_MISMATCH"
             ):
-                MODULE.validate_candidate_selection_input(
+                validate_input(
                     packet, self.observed, self.ledger, CONTRACT
                 )
 
@@ -568,7 +703,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             with self.subTest(error=error), self.assertRaisesRegex(
                 MODULE.RotationCandidateSelectionInputError, error
             ):
-                MODULE.validate_candidate_selection_input(
+                validate_input(
                     packet, self.observed, self.ledger, CONTRACT
                 )
 
@@ -576,14 +711,14 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
         with self.assertRaisesRegex(
             MODULE.RotationCandidateSelectionInputError, "INPUT_DERIVATION_MISMATCH"
         ):
-            MODULE.validate_candidate_selection_input(
+            validate_input(
                 self.packet, self.empty, self.empty_ledger, CONTRACT
             )
         evening = briefing(self.ledger, slot="evening")
         with self.assertRaisesRegex(
             MODULE.RotationCandidateSelectionInputError, "INPUT_DERIVATION_MISMATCH"
         ):
-            MODULE.validate_candidate_selection_input(
+            validate_input(
                 self.packet, evening, self.ledger, CONTRACT
             )
 
@@ -608,7 +743,7 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             with self.subTest(error=error), self.assertRaisesRegex(
                 MODULE.RotationCandidateSelectionInputError, error
             ):
-                MODULE.build_candidate_selection_input(
+                build_input(
                     self.observed, self.ledger, contract
                 )
 
@@ -677,7 +812,14 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             ledger_path = temp / "ledger.json"
             ledger_path.write_text(json.dumps(self.ledger), encoding="utf-8")
             self.assertEqual(
-                MODULE.run(briefing_path, ledger_path, temp / "out" / "input.json"), 0
+                MODULE.run(
+                    briefing_path,
+                    ledger_path,
+                    STAGE2_PATH,
+                    STAGE1_PATH,
+                    temp / "out" / "input.json",
+                ),
+                0,
             )
             written = json.loads(
                 (temp / "out" / "input.json").read_text(encoding="utf-8")
@@ -687,13 +829,25 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             )
 
             forbidden = ROOT / "data" / "rotation_candidate_selection_input_test.json"
-            self.assertEqual(MODULE.run(briefing_path, ledger_path, forbidden), 1)
+            self.assertEqual(
+                MODULE.run(
+                    briefing_path, ledger_path, STAGE2_PATH, STAGE1_PATH, forbidden
+                ),
+                1,
+            )
             self.assertFalse(forbidden.exists())
 
             unbound = temp / "unbound.json"
             unbound.write_text(json.dumps(self.empty_ledger), encoding="utf-8")
             self.assertEqual(
-                MODULE.run(briefing_path, unbound, temp / "out" / "unbound.json"), 1
+                MODULE.run(
+                    briefing_path,
+                    unbound,
+                    STAGE2_PATH,
+                    STAGE1_PATH,
+                    temp / "out" / "unbound.json",
+                ),
+                1,
             )
             self.assertFalse((temp / "out" / "unbound.json").exists())
 
@@ -708,7 +862,12 @@ class RotationCandidateSelectionInputTests(unittest.TestCase):
             into_repo = temp / "into-repo"
             into_repo.symlink_to(ROOT / "data")
             target = into_repo / f"candidate-input-symlink-{os.getpid()}.json"
-            self.assertEqual(MODULE.run(briefing_path, ledger_path, target), 1)
+            self.assertEqual(
+                MODULE.run(
+                    briefing_path, ledger_path, STAGE2_PATH, STAGE1_PATH, target
+                ),
+                1,
+            )
             self.assertFalse((ROOT / "data" / target.name).exists())
 
 

@@ -11,6 +11,7 @@ import ast
 import copy
 import importlib.util
 from pathlib import Path
+import tempfile
 import unittest
 
 
@@ -98,7 +99,11 @@ class RuntimeRegimeReadinessTests(unittest.TestCase):
         self.assertIsNone(packet["final_decision"])
         self.assertEqual(packet["summary"]["runtime_ready_market_count"], 0)
         self.assertEqual(
-            packet["summary"]["signed_normalization_ratified_market_count"], 0
+            packet["summary"]["signed_normalization_ratified_market_count"], 2
+        )
+        self.assertEqual(
+            packet["summary"]["signed_normalization_ratified_markets"],
+            ["US", "KR"],
         )
         for row in packet["markets"]:
             self.assertFalse(row["runtime_decision_available"], row["market"])
@@ -127,10 +132,22 @@ class RuntimeRegimeReadinessTests(unittest.TestCase):
         self.assertIn("P1_REGIME_DECISION_NOT_RUNTIME_WIRED", reasons)
         for component in AUTHORITY.load_contract()["required_policy_components"]:
             self.assertIn(f"REGIME_POLICY_COMPONENT_MISSING:{component}", reasons)
-        for market in MARKETS:
-            self.assertIn(
+        for market in ("US", "KR"):
+            self.assertNotIn(
                 f"SIGNED_NORMALIZATION_POLICY_UNRATIFIED:{market}", reasons
             )
+            self.assertIn(
+                f"MARKET_POLICY_READINESS:{market}:"
+                "POLICY_READY_PIT_EVIDENCE_PENDING",
+                reasons,
+            )
+        self.assertIn("SIGNED_NORMALIZATION_POLICY_UNRATIFIED:CRYPTO", reasons)
+        self.assertIn(
+            "MARKET_POLICY_READINESS:CRYPTO:"
+            "SIGNED_NORMALIZATION_POLICY_UNRATIFIED",
+            reasons,
+        )
+        for market in MARKETS:
             self.assertIn(f"PIT_REPLAY_NOT_ACCEPTED:{market}", reasons)
             self.assertIn(f"MINIMUM_COVERAGE_NOT_MET:{market}", reasons)
             for axis in AXES:
@@ -143,9 +160,9 @@ class RuntimeRegimeReadinessTests(unittest.TestCase):
         self.assertTrue(row["coverage"]["minimum_coverage_met"])
         self.assertEqual(row["coverage"]["ratio"], f"{len(AXES)}/{len(AXES)}")
         self.assertEqual(row["coverage"]["gate_result"], "COVERAGE_MET")
-        # 5/5 coverage is the ONLY thing that changes.  Direction is still
-        # unassignable because no market has a ratified signed-normalization
-        # policy, so the boundary stays blocked and the Regime stays UNKNOWN.
+        # The later CIO decision ratified US normalization and semantic
+        # freshness. Direction is still unassignable because PIT evidence and
+        # runtime binding remain closed, so the Regime stays UNKNOWN.
         self.assertEqual(
             row["signed_axis_gate"]["normalization_status"],
             "BLOCKED_SIGNED_NORMALIZATION_UNRATIFIED",
@@ -153,6 +170,16 @@ class RuntimeRegimeReadinessTests(unittest.TestCase):
         self.assertEqual(
             row["signed_axis_gate"]["signed_normalization_policy_status"],
             "UNRATIFIED_ABSENT",
+        )
+        self.assertEqual(
+            row["signed_axis_gate"][
+                "market_scoped_normalization_policy_status"
+            ],
+            "RATIFIED",
+        )
+        self.assertEqual(
+            row["signed_axis_gate"]["market_scoped_policy_readiness_status"],
+            "POLICY_READY_PIT_EVIDENCE_PENDING",
         )
         self.assertFalse(row["signed_axis_gate"]["replay_step_emitted"])
         self.assertTrue(
@@ -170,12 +197,19 @@ class RuntimeRegimeReadinessTests(unittest.TestCase):
         self.assertEqual(packet["summary"]["runtime_ready_market_count"], 0)
         reasons = packet["p1_regime_decision_unavailable_reasons"]
         self.assertNotIn(f"MINIMUM_COVERAGE_NOT_MET:{market}", reasons)
-        self.assertIn(f"SIGNED_NORMALIZATION_POLICY_UNRATIFIED:{market}", reasons)
+        self.assertNotIn(
+            f"SIGNED_NORMALIZATION_POLICY_UNRATIFIED:{market}", reasons
+        )
+        self.assertIn(
+            f"MARKET_POLICY_READINESS:{market}:"
+            "POLICY_READY_PIT_EVIDENCE_PENDING",
+            reasons,
+        )
         self.assertIn(
             f"DECISION_AUTHORITY_BLOCKED:{market}:BLOCKED_POLICY_UNRATIFIED", reasons
         )
 
-    def test_registry_acceptance_state_is_reported_verbatim(self):
+    def test_market_scoped_pit_state_is_reported_verbatim(self):
         packet = self.build()
         expected = {
             "US": "BLOCKED_FINISHED_SESSION_TTL_PIT_REPLAY",
@@ -193,9 +227,30 @@ class RuntimeRegimeReadinessTests(unittest.TestCase):
             self.assertEqual(
                 row["signed_axis_gate"]["pit_replay_acceptance"], "NOT_ACCEPTED"
             )
-            self.assertIn(
-                f"MARKET_ACCEPTANCE_BLOCKED:{market}:{expected[market]}", reasons
+            self.assertEqual(
+                row["signed_axis_gate"]["market_scoped_pit_acceptance_status"],
+                "NOT_ACCEPTED",
             )
+            self.assertIn(
+                f"MARKET_ACCEPTANCE_BLOCKED:{market}:NOT_ACCEPTED", reasons
+            )
+
+    def test_unverified_committed_pit_pointer_fails_closed(self):
+        original = MODULE.PIT_STATUS_PATH
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pit.json"
+            packet = MODULE.MARKET_PIT.build_status()
+            packet["markets"][0]["status"] = "PIT_ACCEPTED"
+            path.write_text(MODULE.canonical_json(packet), encoding="utf-8")
+            MODULE.PIT_STATUS_PATH = path
+            try:
+                with self.assertRaisesRegex(
+                    MODULE.RuntimeRegimeReadinessError,
+                    "MARKET_PIT_STATUS_UNVERIFIED",
+                ):
+                    self.build()
+            finally:
+                MODULE.PIT_STATUS_PATH = original
 
     def test_output_is_deterministic_and_round_trips_through_its_validator(self):
         first = self.build()

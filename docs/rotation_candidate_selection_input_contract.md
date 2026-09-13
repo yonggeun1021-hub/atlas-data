@@ -1,17 +1,25 @@
 # Rotation Stage 3 candidate-selection input projection
 
-`briefing/rotation_candidate_selection_input.py` turns an already validated
-`rotation_discovery_briefing_packet/4` object into the non-interpretive input a
-later candidate-selection stage would read. It is a projection, not a stage: it
-answers "which rotation state changes are available to look at", never "which
-one is the candidate".
+`briefing/rotation_candidate_selection_input.py` turns four caller-supplied,
+revalidated packets into the non-interpretive input a later candidate-selection
+stage would read:
+
+1. `rotation_discovery_briefing_packet/4`,
+2. the exact `rotation_state_ledger_packet/1` it binds,
+3. `capital_flow_posture_reference/v1` (Stage 2), and
+4. the exact `paper_regime_reference/v2` (Stage 1) bound at Stage 2 source index
+   `0`.
+
+It is a projection, not a stage: it answers "which rotation state changes and
+which upstream lineage are available to inspect", never "which one is the
+candidate".
 
 ## Input admission
 
-The accepted input is a caller-supplied **pair**: a briefing object and the
-exact `rotation_state_ledger` packet that briefing bound. Both are required.
-The module does not discover a file, call a provider, or touch the network, and
-it has no default input path. Before any field is read, the briefing must
+The accepted input is a caller-supplied **four-packet tuple**. All four objects
+are required. The module does not discover a file (including a latest Stage 1
+pointer), call a provider, or touch the network, and it has no default input
+path. Before any field is read, the briefing must
 
 1. be a `dict`,
 2. declare `schema_version == rotation_discovery_briefing_packet/4`,
@@ -58,6 +66,27 @@ reordered, restated, or rehashed fails closed as
 were recomputed**, and so does an edited `ledger_status`, `ledger_revision`, or
 `source_boundaries`.
 
+### Stage 2 to Stage 1 admission
+
+The two upstream packets are independently passed to their existing producer
+validators, rather than accepted from their declared hashes. The Stage 2
+packet's exact source entry at index `0` must then equal the supplied Stage 1
+packet's complete identity:
+
+`source_type`, `path`, `sha256`, `schema_version`, `contract_version`,
+`payload_sha256`, and `generation_id`.
+
+The Stage 1 `file_sha256` is computed with the producer's immutable packet-byte
+format and must therefore equal the digest Stage 2 actually bound. Stage 2's
+file digest is computed in the same producer format and carried separately.
+The admitted Stage 1 market rows must occur exactly as `US`, `KR`, `CRYPTO`.
+There is no aliasing or normalisation such as `KOREA` to `KR`.
+
+Only the exact four fields `market`, `as_of_date`, `candidate_regime`, and
+`runtime_regime` are projected from each Stage 1 market row. `runtime_regime`
+must remain `UNKNOWN`. The module does not derive a natural-observation label,
+promote the paper regime, or interpret the Stage 2 posture as investability.
+
 ## Projection
 
 `rotation.latest_changes` is projected one-to-one from the **ledger-derived**
@@ -98,29 +127,39 @@ supplied and re-derived from, so it is a proven binding rather than a carried
 claim. `unresolved_boundaries` is carried verbatim from the briefing; this
 projection neither resolves nor adds a boundary.
 
+`stage1_lineage` is a distinct top-level object. It carries the admitted Stage
+1 schema, contract, generation ID, payload digest, producer-format file digest,
+and the exact three four-field market rows. Its nested `stage2_binding` carries
+the admitted Stage 2 schema, contract, generation ID, payload digest,
+producer-format file digest, source index, and the closed status
+`EXACT_STAGE2_TO_STAGE1_BINDING_REVALIDATED`. It is not folded into Rotation
+rows and is not a candidate label.
+
 The packet is closed with a deterministic `payload_sha256` over its canonical
 JSON, so the same source pair always yields the same bytes and a different one
 always yields a different digest.
 
 ## Validator
 
-`validate_candidate_selection_input(packet, briefing, rotation_ledger, ...)`
-re-derives the whole projection from the same source pair and requires exact
-equality before recomputing the digest over the re-derived bytes. It does not
-check the packet for internal self-consistency and then trust it. Consequently
-a reordered, resized, rescored, field-added, metadata-edited, boundary-edited,
-or hash-rebound packet fails as `INPUT_DERIVATION_MISMATCH`, and a packet
-presented against a different briefing fails the same way. The ledger
-admission above runs on this path too, so validation of a genuine packet
-against a self-resigned briefing fails as `SOURCE_ROTATION_SECTION_TAMPERED`.
+`validate_candidate_selection_input(packet, briefing, rotation_ledger,
+stage2_reference=..., stage1_reference=..., ...)` re-derives the whole
+projection from the same four-packet tuple and requires exact equality before
+recomputing the digest over the re-derived bytes. It does not check the packet
+for internal self-consistency and then trust it. Consequently a reordered,
+resized, rescored, field-added, metadata-edited, boundary-edited,
+lineage-rebound, or hash-rebound packet fails as `INPUT_DERIVATION_MISMATCH`,
+and a packet presented against a different source fails. All four producer
+admission paths run during validation too.
 
 ## Authority this projection does not have
 
 The contract's `authority` block keeps `input_projection_only` true and every
 other flag false: no candidate selection, ranking, scoring, readiness
-evaluation, stage promotion, action generation, persistence default,
-production, or trading. The module adds no metric, threshold, score, weight,
-TTL, or policy of any kind, and reads no Regime or Stage 6 input.
+evaluation, stage promotion, action generation, persistence default, runtime
+regime, capital, order, production, or trading authority. Every row retains
+`selection_rank=null`, `selected=false`, `candidate_eligible=false`, and
+`action=null`. The module adds no metric, threshold, score, weight, TTL, or
+policy of any kind.
 
 ## Tracked output
 
@@ -152,11 +191,14 @@ focused invocation only.
 
 ```
 python3 briefing/rotation_candidate_selection_input.py <briefing.json> \
-    --rotation-ledger <rotation_state_ledger.json> --out <path outside the repo>
+    --rotation-ledger <rotation_state_ledger.json> \
+    --stage2-posture-reference <capital_flow_posture_reference.json> \
+    --stage1-paper-reference <paper_regime_reference.json> \
+    --out <path outside the repo>
 ```
 
-Both source paths are required; there is no default for either, and no source
-is discovered.
+All four source paths are required; there is no default for any of them, and no
+source is discovered.
 
 ## Remaining unresolved boundaries
 
@@ -164,4 +206,6 @@ US and GAM source admission remain an `ADMISSION_GAP` upstream, so this
 projection is exercised against the existing Rotation Discovery briefing
 sources only; it does not itself admit a new source. Candidate selection,
 ranking, and promotion policy remain unratified, so no consumer of this input
-is authorised to act on it yet.
+is authorised to act on it yet. If an actual briefing or its bound rotation
+ledger is unavailable, no natural Stage 3 packet is emitted; availability of
+the Stage 1/2 lineage alone cannot manufacture one.

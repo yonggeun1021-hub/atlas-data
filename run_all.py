@@ -470,8 +470,8 @@ APPROVED_TESTS = [
     #   pre-effective_from pair (ratification alone is not a natural proof)
     #   and only activates for a structurally in-interval pair (a mechanism
     #   proof, not a claim that a real natural sample exists yet). Real P2-01
-    #   authority registry stays untouched (0 records); no schedule/cron
-    #   file touched; no Regime/Candidate/Stage/briefing/Production/
+    #   authority registry stays untouched (0 records); no new schedule/cron
+    #   is introduced; no Regime/Candidate/Stage/briefing/Production/
     #   trading/order/capital authority opened; Phase B stays closed until a
     #   real post-ratification natural observation pair is verified.
     "test/test_korea_capital_rotation_policy_ratified.py",
@@ -480,9 +480,11 @@ APPROVED_TESTS = [
     #   external path, preserves the historical default proof path, and does
     #   not write a rolling pointer or invoke the P2-05 state ledger.
     "test/test_korea_capital_rotation_current_ratified_proof.py",
+    # Stage1 display-only context never substitutes for a P2-03 packet/4.
+    "test/test_korea_capital_rotation_paper_consumption.py",
     # ★ P2-03 — dependency-ordered Breadth->Leadership observation-pair
     #   workflow (2026-08-22, no new cron): structural YAML checks only --
-    #   still workflow_dispatch-only, real `needs:` chain (Leadership job
+    #   manual and reusable entrypoints share exact inputs, real `needs:` chain (Leadership job
     #   needs the Breadth context-commit job) that structurally guarantees
     #   Breadth's real first_seen_at predates Leadership's real
     #   available_at (decision_time), no new fetch logic/endpoint, least-
@@ -674,6 +676,11 @@ APPROVED_TESTS = [
     #   --verify-existing-only 경로를 재사용하는지를 오프라인 YAML 구조
     #   검증만으로 확인한다. ⛔ live KRX 호출 없음 — YAML 파싱/문자열 검증뿐.
     "test/test_korea_leadership_live_proof_workflow.py",
+    # ★ P2-03 automatic pair controller — policy effectivity, missing-input
+    #   waiting, Breadth-before-Leadership chronology, exact-request active
+    #   dedupe, and final artifact/source/policy revalidation. A green run
+    #   without the exact final artifact never suppresses a recovery call.
+    "test/test_korea_observation_pair_controller.py",
     # ★ P1-KR-06 — Korea Risk / Vol transient derived-feature contract.
     #   비준된 KRX index available_at envelope에서 RV/drawdown만 재현하며
     #   기본 source timing policy와 stress/Regime/Production 권한은 닫아 둔다.
@@ -696,6 +703,8 @@ APPROVED_TESTS = [
     #   retaining no raw response or per-symbol row and opening no Regime,
     #   Stage, Buy, Action, Order, Production, or trading authority.
     "test/test_korea_market_signals.py",
+    "test/test_korea_market_signals_pykrx_candidate.py",
+    "test/test_krx_information_system_capture.py",
     # ★ Korea 5/5 observation → staged-symbol review bridge. Confirmed KRX
     #   price/SMA20/investor flow is joined to 012450/298040/329180 while the
     #   final market policy and every entry/exit/order authority remain closed.
@@ -737,6 +746,21 @@ APPROVED_TESTS = [
     #   Regime, entry, exit, order, broker, Production or Trading authority.
     #   ⛔ current committed inputs only; no live network or order endpoint.
     "test/test_us_symbol_market_review.py",
+    # ★ Three-market evaluation-coverage receipt (stacked from PR #680/#682,
+    #   unchanged). Exact KR/US source-coverage universes and bounded symbol
+    #   reviews are kept separate; the Crypto PAPER funnel contributes only
+    #   its source-native counts. Missing population totals stay 미집계.
+    #   ⛔ read-only; no scanner/ranking/policy/promotion/order authority.
+    "test/test_three_market_evaluation_coverage.py",
+    # ★ Per-market candidate discovery status + per-symbol evidence lookup.
+    #   Reuses the coverage receipt, KR/US symbol reviews, Crypto decision
+    #   snapshot and candidate detail view; reconciles population → data
+    #   acquired → evaluated → passed/held/excluded/unevaluated per market,
+    #   classifies gaps (collection / stale-by-source-interval / not
+    #   implemented / policy 미정 / criteria unknown), keeps missing evidence
+    #   as NO_EVIDENCE (never 0) and preserves every source's own date.
+    #   ⛔ read-only; no candidate rule, threshold, ranking, or authority.
+    "test/test_market_candidate_discovery_lookup.py",
     # ★ FRED VIX append-only provenance — content-and-capture addressed raw
     #   revisions are independently decompressed/re-derived and cannot be
     #   overwritten, backdated, path-substituted, or re-signed after tamper.
@@ -822,6 +846,9 @@ APPROVED_TESTS = [
     #   provider, advances strategy state, allocates capital, or issues orders.
     "test/test_paper_regime_runtime_adoption.py",
     "test/test_kr_paper_runtime.py",
+    "test/test_kr_paper_runtime_ratification_candidate.py",
+    "test/test_kr_information_system_runtime_bridge.py",
+    "test/test_kr_information_system_runtime_publication.py",
     "test/test_kr_internal_paper_theme_application.py",
     "test/test_us_paper_policy_binding.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — normalization replay-readiness
@@ -886,6 +913,8 @@ APPROVED_TESTS = [
     #   Regime policy is introduced; natural_promotion and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_kr_historical_replay_population.py",
+    "test/test_kr_retained_historical_population.py",
+    "test/test_kr_contiguous_historical_range.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — US free-source historical replay
     #   population (SHADOW backfill only, never NATURAL). Scope is exactly the
     #   three axes that free/existing sources can rebuild point-in-time:
@@ -1546,6 +1575,14 @@ APPROVED_TESTS = [
     #   ⛔ ranking/selection/scoring/promotion/action/Production/trading 및
     #      live network 없음 — synthetic packets + temp output only.
     "test/test_rotation_candidate_selection_input.py",
+    # ★ Rotation Stage 3 retained-daily handoff.
+    #   daily_orchestrator/6 bundle 안에 이미 보관된 exact ROTATION_DISCOVERY
+    #   child를 producer validator로 재검증하고, frozen US source가 없으면
+    #   canonical empty ledger를 재유도해 Stage 3 v2 입력으로 연결한다.
+    #   latest discovery/새 수집/상태정책 발명 없이 실제 0-row packet을 만든다.
+    #   ⛔ selection/NATURAL/ranking/promotion/action/order/capital/Production/
+    #      trading 권한 없음.
+    "test/test_rotation_candidate_selection_daily_handoff.py",
     # ★ P8-06 — Action/Bear-Hedge/Portfolio briefing read model.
     #   exact P8-02/P6/P7 packet identity and SHA are presented while BUY/WATCH/
     #   REDUCE/HEDGE/EXIT/NOTHING all remain NOT_EVALUATED with action=null.
@@ -1810,6 +1847,10 @@ APPROVED_TESTS = [
     # existing P10-11 offline simulator. Fixture NOT_EVALUATED is preserved;
     # no policy, broker, capital, production, or trading authority is opened.
     "test/test_stage5_paper_envelope_ledger.py",
+    # ★ Stage5 private lifecycle → P7-19 readiness boundary. The connector
+    # envelope/receipt/ledger are re-derived, but same-call caller pins remain
+    # explicitly untrusted; performance stays null and sample contribution 0.
+    "test/test_stage5_virtual_fill_performance_adapter.py",
     # ★ P7-13 — deterministic Crypto PAPER exit/position-management review.
     #   Entry-time plan embeds the exact P10-11 account and caller-supplied
     #   ordered triggers; current account and observation are independently
@@ -2327,6 +2368,8 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_candidate_validity_shadow_observation.py": 24.4,
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
+    "test/test_three_market_evaluation_coverage.py": 60.0,
+    "test/test_market_candidate_discovery_lookup.py": 120.0,
 }
 DEFAULT_ESTIMATED_SECONDS = 1.0
 
