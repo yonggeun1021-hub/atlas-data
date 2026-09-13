@@ -746,6 +746,17 @@ APPROVED_TESTS = [
     #   Regime, entry, exit, order, broker, Production or Trading authority.
     #   ⛔ current committed inputs only; no live network or order endpoint.
     "test/test_us_symbol_market_review.py",
+    # ★ Per-symbol row extraction from the KR/US symbol reviews. The bounded
+    #   3/2-subject packets stay byte-identical; the extracted builders report
+    #   missing SMA20 / flows / prices / stage tags explicitly (never estimated).
+    "test/test_symbol_review_row_extraction.py",
+    # ★ KR/US full-population symbol observation packet. Every population
+    #   symbol appears once with data-observed / evaluable / evaluated /
+    #   formal-candidate axes; bounded rows are copied, missing inputs stay
+    #   NOT_EVALUABLE with reasons, generation-id idempotency and chunked
+    #   resume reproduce the same bytes, fresh-process reverify passes.
+    #   ⛔ no stage change, no promotion, no threshold, no network, no order.
+    "test/test_population_symbol_observation.py",
     # ★ FRED VIX append-only provenance — content-and-capture addressed raw
     #   revisions are independently decompressed/re-derived and cannot be
     #   overwritten, backdated, path-substituted, or re-signed after tamper.
@@ -2353,6 +2364,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_candidate_validity_shadow_observation.py": 24.4,
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
+    "test/test_population_symbol_observation.py": 60.0,
 }
 DEFAULT_ESTIMATED_SECONDS = 1.0
 
