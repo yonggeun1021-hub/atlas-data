@@ -2305,6 +2305,14 @@ APPROVED_TESTS = [
     #   presence only; no axis interpretation, threshold, strategy, action,
     #   PAPER/exchange order, withdrawal, Production, Trading or REAL authority.
     "test/test_crypto_live_component_registry.py",
+    # ★ W5-01/W5-02 (2026-09-14) Crypto decision-generation defects D1/D2.
+    #   The unratified realtime gate overall_status STALE no longer blocks a
+    #   scheduler decision packet (MISSING/CONNECTION/DATE_MISMATCH stay WAIT;
+    #   cap_state_for_freshness is unchanged and still caps action state).
+    #   The live component registry binds UTC-keyed sources to the UTC vintage
+    #   date (schema /2); issued /1 records keep revalidating; absent sources
+    #   stay absent. Crypto regime remains UNKNOWN; no new threshold/authority.
+    "test/test_crypto_regime_vintage_d1_d2.py",
     # ★ CIO item 3 (2026-08-29): CRYPTO_BREADTH real coverage-ratio
     #   diagnostics (additive, never a new gate) and CRYPTO_LEADERSHIP's
     #   daily_orchestrator.py component-row wiring into build_packet(),
@@ -2373,6 +2381,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_portfolio_account_fact_v3_producer.py": 39.6,
     "test/test_entry_proposal_boundary.py": 38.3,
     "test/test_crypto_live_component_registry.py": 36.5,
+    "test/test_crypto_regime_vintage_d1_d2.py": 30.0,
     "test/test_profit_harvest_population.py": 34.3,
     "test/test_profit_harvest_end_to_end.py": 33.6,
     "test/test_pit_replay_end_to_end.py": 33.4,
