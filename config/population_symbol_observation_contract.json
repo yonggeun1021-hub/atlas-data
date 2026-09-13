@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "contract_version": "population_symbol_observation/1",
+  "input_schema_version": "population_symbol_observation_input/1",
+  "output_schema_version": "population_symbol_observation_packet/1",
+  "chunk_schema_version": "population_symbol_observation_chunk/1",
+  "progress_schema_version": "population_symbol_observation_progress/1",
+  "markets": ["KR", "US"],
+  "chunk_size": {"KR": 500, "US": 2000},
+  "data_observation_statuses": ["DATA_OBSERVED", "DATA_NOT_OBSERVED"],
+  "evaluability_statuses": ["EVALUABLE", "NOT_EVALUABLE"],
+  "evaluation_statuses": ["EVALUATED_BOUNDED", "EVALUATED", "NOT_EVALUATED"],
+  "formal_candidate_statuses": ["PIPELINE_SUBJECT", "NOT_A_FORMAL_CANDIDATE"],
+  "observation_statuses": [
+    "EVALUATED_BOUNDED",
+    "EVALUABLE_PRICE_FLOW_SMA20",
+    "EVALUABLE_PRICE",
+    "EVALUABLE_SESSION_PRICE_ONLY",
+    "NOT_EVALUABLE"
+  ],
+  "not_evaluable_reasons": [
+    "SMA20_NOT_COMPUTABLE",
+    "INVESTOR_FLOW_NOT_AVAILABLE",
+    "PRICE_SOURCE_NOT_CONFIGURED",
+    "PRICE_SOURCE_NOT_RETAINED",
+    "SOURCE_ROW_MISSING",
+    "SESSION_DATE_MISMATCH",
+    "ROW_BUILD_FAILED"
+  ],
+  "missing_policy": {
+    "KR": {"missing_price_state": "BLOCKED", "missing_input_state": "BLOCKED"},
+    "US": {"missing_price_state": "BLOCKED"}
+  },
+  "formal_candidate_basis": "notion_atlas_stage_tag_via_stage_history_only",
+  "promotion_by_this_packet": false,
+  "estimation_of_missing_inputs": "PROHIBITED",
+  "state_lifetime": {
+    "snapshot_only": true,
+    "automatic_carry_forward": false,
+    "reevaluation_required": true
+  },
+  "authority": {
+    "observation_only": true,
+    "candidate_creation_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "entry_eligibility_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}
