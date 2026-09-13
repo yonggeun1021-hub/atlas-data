@@ -22,7 +22,8 @@ UTC = dt.timezone.utc
 KST = dt.timezone(dt.timedelta(hours=9))
 
 SCHEDULE_SLOTS = {
-    "20 6 * * *": ("primary_1520_kst", 6, 20),
+    "50 5 * * *": ("primary_1450_kst", 5, 50),
+    "20 6 * * *": ("backup_1520_kst", 6, 20),
     "20 7 * * *": ("backup_1620_kst", 7, 20),
     "20 8 * * *": ("final_1720_kst", 8, 20),
 }
@@ -121,6 +122,9 @@ def capture_observation(step_outcome: str, result: str) -> dict:
     elif declared == "captured":
         normalized = "captured"
         reason = "new_snapshot_published"
+    elif declared == "pending_current_observation":
+        normalized = "pending_current_observation"
+        reason = "current_utc_observation_row_absent"
     elif declared == "skipped_existing":
         normalized = "skipped_existing"
         reason = "snapshot_already_exists"
