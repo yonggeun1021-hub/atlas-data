@@ -236,99 +236,141 @@ def _axes(source: dict, contract: dict) -> dict:
     }
 
 
-def _symbol_reviews(source: dict, coverage: dict, contract: dict) -> list[dict]:
-    rows = []
-    stage_snapshot = source["stage_snapshot"]
+def _leadership_by_symbol(coverage: dict) -> dict:
     leadership = coverage["axes"]["LEADERSHIP"].get("facts") or {}
-    leadership_by_symbol = {
+    return {
         row.get("symbol"): row
         for row in leadership.get("ordered_groups", [])
         if isinstance(row, dict) and isinstance(row.get("symbol"), str)
     }
-    breadth = coverage["axes"]["BREADTH"].get("facts")
-    for symbol in contract["supported_pipeline_subjects"]:
-        identity = stage_snapshot["subjects"][symbol]
-        prices = source["symbol_daily_bars"][symbol]
-        if prices:
-            price = {
-                "status": "OBSERVED",
-                "as_of_session_date": str(prices[-1].get("opened_at"))[:10],
-                "close_usd": _decimal_text(_decimal(prices[-1].get("close"), "PRICE_CLOSE_INVALID")),
-                "available_session_count": len(prices),
-                "returns": {
-                    f"{window}_session_pct": _session_return(prices, window)
-                    for window in contract["return_windows_sessions"]
-                },
-                "source_scope": source["market_capture"]["alpaca_scope"],
-            }
-            entry_state = contract["entry_policy"]["observed_price_state"]
-            entry_reasons = ["CURRENT_PRICE_AND_RETURN_CONTEXT_CONNECTED"]
-            if coverage["missing_axes"]:
-                entry_reasons.append(
-                    "OFFICIAL_AXES_INCOMPLETE:" + ",".join(coverage["missing_axes"])
-                )
-            else:
-                entry_reasons.append("FIVE_AXIS_CURRENT_REFERENCE_CONNECTED")
-            entry_reasons.extend([
-                "FINAL_US_REGIME_NOT_AVAILABLE",
-                "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY",
-            ])
+
+
+def _symbol_row(
+    symbol: str,
+    identity: dict,
+    prices: list,
+    coverage: dict,
+    contract: dict,
+    stage_as_of: str,
+    *,
+    leadership_by_symbol: dict,
+    breadth,
+    source_scope: str,
+) -> dict:
+    """Build one pipeline-symbol review row.
+
+    ``prices`` may be empty: the row then carries an explicit
+    ``UNAVAILABLE`` price context and the contract's ``missing_price_state``
+    (this branch already existed for bounded subjects).  Leadership proxies
+    are looked up with ``contract["symbol_leadership_proxies"].get(symbol)`` so
+    a symbol without a declared proxy list gets ``[]`` rather than an error;
+    ``identity["stage"]`` may be ``None`` for a symbol that has no Notion
+    stage tag, which is reported as ``PIPELINE_STAGE_NOT_ASSIGNED`` and never
+    treated as promotion.
+    """
+    stage = identity.get("stage")
+    stage_reason = "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY" if stage is not None else "PIPELINE_STAGE_NOT_ASSIGNED"
+    if prices:
+        price = {
+            "status": "OBSERVED",
+            "as_of_session_date": str(prices[-1].get("opened_at"))[:10],
+            "close_usd": _decimal_text(_decimal(prices[-1].get("close"), "PRICE_CLOSE_INVALID")),
+            "available_session_count": len(prices),
+            "returns": {
+                f"{window}_session_pct": _session_return(prices, window)
+                for window in contract["return_windows_sessions"]
+            },
+            "source_scope": source_scope,
+        }
+        entry_state = contract["entry_policy"]["observed_price_state"]
+        entry_reasons = ["CURRENT_PRICE_AND_RETURN_CONTEXT_CONNECTED"]
+        if coverage["missing_axes"]:
+            entry_reasons.append(
+                "OFFICIAL_AXES_INCOMPLETE:" + ",".join(coverage["missing_axes"])
+            )
         else:
-            price = {
-                "status": "UNAVAILABLE",
-                "as_of_session_date": None,
-                "close_usd": None,
-                "available_session_count": 0,
-                "returns": None,
-                "source_scope": source["market_capture"]["alpaca_scope"],
-            }
-            entry_state = contract["entry_policy"]["missing_price_state"]
-            entry_reasons = ["PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE"]
-            if coverage["missing_axes"]:
-                entry_reasons.append(
-                    "OFFICIAL_AXES_INCOMPLETE:" + ",".join(coverage["missing_axes"])
-                )
-            else:
-                entry_reasons.append("FIVE_AXIS_CURRENT_REFERENCE_CONNECTED")
-            entry_reasons.append("FINAL_US_REGIME_NOT_AVAILABLE")
-        proxy_rows = [
-            copy.deepcopy(leadership_by_symbol[proxy])
-            for proxy in contract["symbol_leadership_proxies"][symbol]
-            if proxy in leadership_by_symbol
-        ]
-        rows.append({
-            "symbol": symbol,
-            "name": identity["name"],
-            "pipeline_stage": identity["stage"],
-            "pipeline_as_of": stage_snapshot["as_of"],
-            "price_context": price,
-            "market_context": {
-                "five_axis_reference_ratio": coverage["ratio"],
-                "breadth_reference": copy.deepcopy(breadth),
-                "leadership_proxies": proxy_rows,
-                "scope_warning": (
-                    "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE"
-                ),
-                "interpretation": "OBSERVED_UNCLASSIFIED",
-            },
-            "entry_review": {
-                "state": entry_state,
-                "reasons": entry_reasons,
-                "automatic_entry_generated": False,
-                "order_draft": None,
-            },
-            "holding_review": {
-                "state": contract["holding_policy"]["state_without_account_position"],
-                "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
-                "automatic_holding_action_generated": False,
-            },
-            "exit_review": {
-                "state": contract["exit_policy"]["state_without_account_position"],
-                "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
-                "automatic_exit_generated": False,
-            },
-        })
-    return rows
+            entry_reasons.append("FIVE_AXIS_CURRENT_REFERENCE_CONNECTED")
+        entry_reasons.extend([
+            "FINAL_US_REGIME_NOT_AVAILABLE",
+            stage_reason,
+        ])
+    else:
+        price = {
+            "status": "UNAVAILABLE",
+            "as_of_session_date": None,
+            "close_usd": None,
+            "available_session_count": 0,
+            "returns": None,
+            "source_scope": source_scope,
+        }
+        entry_state = contract["entry_policy"]["missing_price_state"]
+        entry_reasons = ["PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE"]
+        if coverage["missing_axes"]:
+            entry_reasons.append(
+                "OFFICIAL_AXES_INCOMPLETE:" + ",".join(coverage["missing_axes"])
+            )
+        else:
+            entry_reasons.append("FIVE_AXIS_CURRENT_REFERENCE_CONNECTED")
+        entry_reasons.append("FINAL_US_REGIME_NOT_AVAILABLE")
+        if stage is None:
+            entry_reasons.append("PIPELINE_STAGE_NOT_ASSIGNED")
+    proxy_rows = [
+        copy.deepcopy(leadership_by_symbol[proxy])
+        for proxy in (contract["symbol_leadership_proxies"].get(symbol) or [])
+        if proxy in leadership_by_symbol
+    ]
+    return {
+        "symbol": symbol,
+        "name": identity["name"],
+        "pipeline_stage": stage,
+        "pipeline_as_of": stage_as_of,
+        "price_context": price,
+        "market_context": {
+            "five_axis_reference_ratio": coverage["ratio"],
+            "breadth_reference": copy.deepcopy(breadth),
+            "leadership_proxies": proxy_rows,
+            "scope_warning": (
+                "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE"
+            ),
+            "interpretation": "OBSERVED_UNCLASSIFIED",
+        },
+        "entry_review": {
+            "state": entry_state,
+            "reasons": entry_reasons,
+            "automatic_entry_generated": False,
+            "order_draft": None,
+        },
+        "holding_review": {
+            "state": contract["holding_policy"]["state_without_account_position"],
+            "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+            "automatic_holding_action_generated": False,
+        },
+        "exit_review": {
+            "state": contract["exit_policy"]["state_without_account_position"],
+            "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+            "automatic_exit_generated": False,
+        },
+    }
+
+
+def _symbol_reviews(source: dict, coverage: dict, contract: dict) -> list[dict]:
+    stage_snapshot = source["stage_snapshot"]
+    leadership_by_symbol = _leadership_by_symbol(coverage)
+    breadth = coverage["axes"]["BREADTH"].get("facts")
+    return [
+        _symbol_row(
+            symbol,
+            stage_snapshot["subjects"][symbol],
+            source["symbol_daily_bars"][symbol],
+            coverage,
+            contract,
+            stage_snapshot["as_of"],
+            leadership_by_symbol=leadership_by_symbol,
+            breadth=breadth,
+            source_scope=source["market_capture"]["alpaca_scope"],
+        )
+        for symbol in contract["supported_pipeline_subjects"]
+    ]
 
 
 def _build_from_source(source: dict) -> dict:
