@@ -69,13 +69,40 @@ population   -> data_acquired -> evaluated -> passed | held | excluded | unevalu
 
 | class | meaning | current KR/US/CRYPTO example |
 | --- | --- | --- |
-| `COLLECTION_FAILED` | a source was asked for and returned nothing usable | US `SNDK`: `PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE` (IEX-only scope); CRYPTO: `P5_08_DID_NOT_EVALUATE_ADMITTED_MARKETS_IN_LATEST_GENERATION` with the decision's `derivation_notes` |
+| `COLLECTION_FAILED` | a source was asked for and returned nothing usable | US `SNDK`: `PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE` (IEX-only scope); CRYPTO skipped generation whose `derivation_notes` carry no date-mismatch marker |
+| `EVALUATION_HALTED_INPUT_DATE_MISMATCH` | inputs were collected but belong to different dates, so the evaluator halted (`*_DATE_MISMATCH`, `*FUTURE_DATED` in the decision's `derivation_notes`) — not a collection failure | CRYPTO latest generation 2026-09-13 00:22Z: `UPBIT_REALTIME_RUN_DATE_MISMATCH`, `REGIME_PAYLOAD_FUTURE_DATED` |
 | `SOURCE_STALE` | the source's **own** `effective_interval` has elapsed at lookup time | KR/US universe packets outside their `valid_from..valid_to` |
 | `FEATURE_NOT_IMPLEMENTED` | no connected component produces the figure | KR/US full-population evaluator; KR per-symbol price retention |
 | `POLICY_UNDEFINED` (`미정`) | a rule/threshold is not ratified | KRX/US `policy_status` UNRATIFIED entries, `FINAL_*_REGIME_*`, crypto criteria `NO_RATIFIED_*` |
 | `EVALUATED_CRITERIA_UNKNOWN` | the evaluator ran but every criterion stayed UNKNOWN | crypto P5-08 held markets |
 | `EVALUATED_EXCLUDED_BY_RATIFIED_RULE` | a ratified rule excluded the row | crypto `INVESTMENT_WARNING_ACTIVE` (taxonomy ratified) |
 | `EVALUATED_NO_CANDIDATE` | criteria known, none passed | not present today |
+
+### Reader summary (`markets[].summary`)
+
+Each market row also carries a `summary` that separates the population from
+the symbols actually evaluated and buckets the outcome into categories a
+reader must be able to tell apart (`category_labels` in the report):
+
+| key | label | meaning |
+| --- | --- | --- |
+| `unevaluated` | 미평가 | population minus evaluated symbols (KR/US: no full-population evaluator); CRYPTO: admitted markets skipped for a non-date reason |
+| `evaluation_halted_input_date_mismatch` | 평가 중단(입력 날짜 불일치) | CRYPTO admitted markets the latest generation halted on, with the decision's `derivation_notes` |
+| `collection_failed` | 수집 실패 | evaluated subjects whose input data collection failed (US `SNDK`) |
+| `policy_undefined` | 정책 미정 | evaluated but held by unratified rules (KR/US regime policy; CRYPTO identity scope + criteria UNKNOWN) |
+| `no_evidence` | 근거 없음 | inclusion reason / sector binding / rotation link not recorded |
+| `excluded_by_ratified_rule` | 비준 규칙에 의한 제외 | CRYPTO taxonomy exclusions (investment warning) |
+| `evaluated_no_candidate` | 정상 평가 후 후보 없음 | `applicable=false` while no pass rule is ratified; the `0` is the absence of a rule, not a negative result |
+
+`summary.explanation` is a Korean sentence built only from those fields. For
+CRYPTO it names the latest generation, why it halted, and the last evaluating
+generation as a past result (`last_generation_with_evaluations.historical =
+true`, never substituted for the latest one).
+
+Each `lookup_symbol` result carries `classification` = one category above
+(or `candidate`), its `label`, the driving `reason`, and
+`no_evidence_items` (the evidence fields that are `NO_EVIDENCE` for that
+symbol).
 
 Freshness for sources without a declared interval is reported as
 `policy = 미정` plus the elapsed days; no numeric window is invented. The
@@ -93,9 +120,12 @@ status, stage history, `inclusion_reason` -- `NO_EVIDENCE` for KR/US because
 row), `discovery_cases`, `detail_contract_refs`. Crypto adds `detail_view`
 copied from the bound `crypto_candidate_detail_view/v1` packet and, for an
 admitted market the latest generation skipped, `last_evaluation.status =
-ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION` with the latest generation's
-`derivation_notes` plus `last_evaluated_generation`. An unknown symbol raises
-`SYMBOL_NOT_FOUND`.
+ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION` (or
+`ADMITTED_EVALUATION_HALTED_INPUT_DATE_MISMATCH`) with the latest
+generation's `derivation_notes` plus `last_evaluated_generation`
+(`historical=true`, `evaluated_date_utc`, `label`). An unknown symbol raises
+`SYMBOL_NOT_FOUND`. See `docs/market_candidate_discovery_portal_mapping.md`
+for the portal field mapping.
 
 ## Portal reuse
 
