@@ -5,6 +5,17 @@ Uses this repo's own dynamic-module-loading convention
 (importlib.util.spec_from_file_location), matching
 test/test_crypto_leadership.py / test/test_upbit_tradeable_universe.py,
 rather than a package import.
+
+Fixtures below are shaped to match the real ``crypto_leadership.py``
+output exactly -- confirmed by reading that file directly:
+``status`` is always the literal string ``"OBSERVED_UNCLASSIFIED"``,
+never ``"OBSERVED"`` (an earlier draft's mistake, independent-review
+finding B2, fixed here); a bucket row inside ``group_relative_strength.bucket``
+carries its own independent ``status``/``unknown_reason``, distinct from
+the window's own status; asset rows in ``asset_relative_strength`` carry
+no per-row status field at all (only ``classification``, always
+``"UNDEFINED"``) -- only the window's own status gates whether they are
+trustworthy.
 """
 from __future__ import annotations
 
@@ -42,6 +53,20 @@ def _market_row(market: str, asset_id: str | None) -> dict:
 # The 8 identity-ratified assets in config/upbit_asset_identity_registry.json today.
 _RATIFIED = ("BTC", "ETH", "LINK", "SHIB", "SOL", "SUI", "WLD", "XRP")
 
+# Real crypto_leadership packet dates confirmed UNKNOWN by direct inspection
+# of this repo's history at the time this test suite was written
+# (2026-09-13). A *fixed* list, not "whatever the latest snapshot happens
+# to be" -- independent-review finding B1: an earlier draft asserted this
+# property against every packet the live directory currently contains,
+# which would break itself the day a pilot_7d window is first observed
+# (the regime status file's own natural_history_progress already project
+# that could happen as early as 2026-09-15). Fixed dates make this a
+# historical regression check, not a ticking time bomb.
+_CONFIRMED_UNKNOWN_LEADERSHIP_DATES = (
+    "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", "2026-09-06",
+    "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-12",
+)
+
 
 def base_universe_packet(*, available_at: str = "2026-09-13T00:56:39Z", market_count: int = 282) -> dict:
     markets = [_market_row(f"KRW-{asset}", asset) for asset in _RATIFIED]
@@ -62,8 +87,7 @@ def base_universe_packet(*, available_at: str = "2026-09-13T00:56:39Z", market_c
 
 def unknown_leadership_packet(as_of_date: str = "2026-09-12") -> dict:
     """Shaped exactly like the real (current) packets under
-    data/observations/crypto_leadership/*/packet.json -- every date in
-    this repo's history is UNKNOWN today."""
+    data/observations/crypto_leadership/*/packet.json."""
     return {
         "schema_version": 2,
         "contract_version": "crypto_leadership_contract/v2",
@@ -78,23 +102,34 @@ def unknown_leadership_packet(as_of_date: str = "2026-09-12") -> dict:
     }
 
 
-def observed_leadership_packet(as_of_date: str = "2026-09-13") -> dict:
-    """A synthetic OBSERVED packet, shaped per crypto_leadership.py's own
-    build_transform() output, used only to test the decimal-exact
-    passthrough helpers -- this shape has never actually occurred in this
-    repo's real history (every real packet to date is UNKNOWN)."""
+def observed_leadership_packet(as_of_date: str = "2026-09-13", *, alt_bucket_status: str = "OBSERVED_UNCLASSIFIED") -> dict:
+    """A synthetic packet shaped *exactly* like crypto_leadership.py's own
+    build_transform() output (confirmed by reading that file directly):
+    status "OBSERVED_UNCLASSIFIED" (never "OBSERVED"), asset rows with no
+    per-row status, bucket rows each carrying their own status. This shape
+    has never actually occurred in this repo's real history (every real
+    packet to date is UNKNOWN) -- used only to test the passthrough
+    helpers against the real schema.
+    """
+    alt_row = (
+        {"group_id": "ALT", "status": "OBSERVED_UNCLASSIFIED", "unknown_reason": None,
+         "cumulative_gross_return": "1.005918273645", "relative_strength_vs_btc": "-0.034261830192", "classification": "UNDEFINED"}
+        if alt_bucket_status == "OBSERVED_UNCLASSIFIED" else
+        {"group_id": "ALT", "status": "UNKNOWN", "unknown_reason": "BUCKET_EMPTY_ON_REQUIRED_DATE",
+         "cumulative_gross_return": None, "relative_strength_vs_btc": None, "classification": "UNDEFINED"}
+    )
     return {
         "schema_version": 2,
         "contract_version": "crypto_leadership_contract/v2",
         "market": "CRYPTO",
         "as_of_date": as_of_date,
-        "status": "OBSERVED",
+        "status": "OBSERVED_UNCLASSIFIED",
         "unknown_reason": None,
         "windows": [
             {
                 "window_id": "primary_30d",
                 "role": "PRIMARY",
-                "status": "OBSERVED",
+                "status": "OBSERVED_UNCLASSIFIED",
                 "unknown_reason": None,
                 "asset_relative_strength": [
                     {"canonical_asset_id": "BTC", "cumulative_gross_return": "1.041592837465", "relative_strength_vs_btc": "0.000000000000", "classification": "UNDEFINED"},
@@ -103,9 +138,9 @@ def observed_leadership_packet(as_of_date: str = "2026-09-13") -> dict:
                 ],
                 "group_relative_strength": {
                     "bucket": [
-                        {"group_id": "BTC", "cumulative_gross_return": "1.041592837465", "relative_strength_vs_btc": "0.000000000000", "classification": "UNDEFINED"},
-                        {"group_id": "ETH", "cumulative_gross_return": "1.128374659201", "relative_strength_vs_btc": "0.083374651937", "classification": "UNDEFINED"},
-                        {"group_id": "ALT", "cumulative_gross_return": "1.005918273645", "relative_strength_vs_btc": "-0.034261830192", "classification": "UNDEFINED"},
+                        {"group_id": "BTC", "status": "OBSERVED_UNCLASSIFIED", "unknown_reason": None, "cumulative_gross_return": "1.041592837465", "relative_strength_vs_btc": "0.000000000000", "classification": "UNDEFINED"},
+                        {"group_id": "ETH", "status": "OBSERVED_UNCLASSIFIED", "unknown_reason": None, "cumulative_gross_return": "1.128374659201", "relative_strength_vs_btc": "0.083374651937", "classification": "UNDEFINED"},
+                        alt_row,
                     ]
                 },
             },
@@ -114,11 +149,12 @@ def observed_leadership_packet(as_of_date: str = "2026-09-13") -> dict:
     }
 
 
-def base_regime_status(as_of_date: str = "2026-09-13") -> dict:
+def base_regime_status(as_of_date: str = "2026-09-13", *, generated_at: str = "2026-09-13T02:40:55Z") -> dict:
     return {
         "schema_version": "crypto_regime_refresh_status/1",
         "status": "CURRENT_REFERENCE_INCOMPLETE",
         "generation_id": "test-generation-id",
+        "generated_at": generated_at,
         "current_reference": {"as_of_date": as_of_date, "leadership_code": "MIXED_WINDOW_LEADERSHIP"},
         "official_decision": {"runtime_regime": "UNKNOWN"},
     }
@@ -178,8 +214,10 @@ class PopulationCountTests(unittest.TestCase):
 
 class LeadershipUnknownTests(unittest.TestCase):
     """Acceptance criterion 3: leadership UNKNOWN -> selection and ranking
-    empty, no substitute ranking -- even with a ratified rotation policy,
-    and even with no leadership packet at all."""
+    empty, no substitute ranking -- and (independent-review fix B3) the
+    rotation_selection_gate never returns anything but UNKNOWN today,
+    regardless of leadership status, because the actual selection rule is
+    not implemented yet."""
 
     def test_unknown_leadership_packet_yields_empty_selection_and_ranking(self):
         contract = ratified_rotation_policy_contract()
@@ -199,14 +237,13 @@ class LeadershipUnknownTests(unittest.TestCase):
             universe_packet=base_universe_packet(), leadership_packet=None,
             regime_status=base_regime_status(), contract=contract, evaluation_as_of="2026-09-13T12:00:00Z",
         )
-        self.assertEqual(result["rotation_selection_status"], "UNKNOWN:LEADERSHIP_PACKET_NOT_AVAILABLE")
+        self.assertEqual(result["rotation_selection_status"], "UNKNOWN:ROTATION_SELECTION_RULE_NOT_IMPLEMENTED")
         self.assertEqual(result["rotation_selection"], [])
         self.assertEqual(result["ranked"], [])
 
-    def test_unratified_rotation_policy_yields_unknown_even_with_observed_leadership(self):
+    def test_unratified_rotation_policy_yields_unknown(self):
         """The real current state: no rotation selection policy is
-        ratified at all, so the result is UNKNOWN regardless of whether
-        the leadership data itself would otherwise be usable."""
+        ratified at all."""
         contract = MRD.load_contract()  # unmodified: rotation_selection_policy.approval_status == UNRATIFIED
         result = MRD.build_crypto_rotation_discovery(
             universe_packet=base_universe_packet(), leadership_packet=observed_leadership_packet(),
@@ -216,31 +253,58 @@ class LeadershipUnknownTests(unittest.TestCase):
         self.assertEqual(result["rotation_selection"], [])
         self.assertEqual(result["ranked"], [])
 
-    def test_real_current_repo_leadership_packets_are_all_unknown(self):
-        """Sanity check against the actual repo state (not a fixture):
-        every data/observations/crypto_leadership/*/packet.json in this
-        repo's history is UNKNOWN today, so this module's real-world
-        behavior right now is always the empty-selection path."""
+    def test_ratified_policy_with_fully_observed_leadership_is_still_unknown(self):
+        """Independent-review fix B3: even with a ratified policy AND a
+        fully-observed leadership packet, this module must never emit a
+        substitute ranking -- the actual selection algorithm is not
+        implemented yet, so the result stays UNKNOWN with a distinct code
+        naming exactly that."""
+        contract = ratified_rotation_policy_contract()
+        result = MRD.build_crypto_rotation_discovery(
+            universe_packet=base_universe_packet(), leadership_packet=observed_leadership_packet(),
+            regime_status=base_regime_status(), contract=contract, evaluation_as_of="2026-09-13T12:00:00Z",
+        )
+        self.assertEqual(result["rotation_selection_status"], "UNKNOWN:ROTATION_SELECTION_RULE_NOT_IMPLEMENTED")
+        self.assertEqual(result["rotation_selection"], [])
+        self.assertEqual(result["ranked"], [])
+        # Not merely empty by accident -- rotation_selection_gate itself
+        # never returns "OBSERVED" from any input combination.
+        self.assertEqual(MRD.rotation_selection_gate(contract), ("UNKNOWN", "ROTATION_SELECTION_RULE_NOT_IMPLEMENTED"))
+
+    def test_real_confirmed_historical_leadership_packets_are_unknown(self):
+        """Regression check against a *fixed* set of dates already
+        confirmed UNKNOWN at the time this suite was written (independent-
+        review fix B1) -- not "whatever the latest snapshot in the repo
+        happens to be", which would break itself once a pilot_7d window is
+        first observed (the regime status file's own natural_history_progress
+        projects that as early as 2026-09-15)."""
         leadership_root = ROOT / "data" / "observations" / "crypto_leadership"
         if not leadership_root.is_dir():
             self.skipTest("crypto_leadership observations not present in this checkout")
-        dated = sorted(p for p in leadership_root.iterdir() if p.is_dir())
-        self.assertTrue(dated, "expected at least one crypto_leadership snapshot date")
-        for entry in dated:
-            packet_path = entry / "packet.json"
-            if not packet_path.is_file():
-                continue
-            import json
+        import json
 
+        checked = 0
+        for date in _CONFIRMED_UNKNOWN_LEADERSHIP_DATES:
+            packet_path = leadership_root / date / "packet.json"
+            if not packet_path.is_file():
+                continue  # this checkout may not have every historical date; skip, don't fail
             packet = json.loads(packet_path.read_text(encoding="utf-8"))
-            with self.subTest(date=entry.name):
-                self.assertEqual(packet.get("status"), "UNKNOWN", msg=entry.name)
+            with self.subTest(date=date):
+                self.assertEqual(packet.get("status"), "UNKNOWN", msg=date)
+            checked += 1
+        if checked == 0:
+            self.skipTest("none of the confirmed-UNKNOWN dates are present in this checkout")
 
 
 class RelativeStrengthPassthroughTests(unittest.TestCase):
     """Acceptance criterion 4: 7d/30d values match the existing leadership
-    formula to the decimal -- verified here as an exact passthrough
-    (never a recomputation) of the published crypto_leadership packet."""
+    formula to the decimal -- verified as an exact passthrough (never a
+    recomputation) of the published crypto_leadership packet, against
+    fixtures shaped exactly like the real schema (status
+    "OBSERVED_UNCLASSIFIED", per-bucket-row status)."""
+
+    def test_status_constant_matches_the_real_value_not_the_wrong_literal(self):
+        self.assertEqual(MRD.LEADERSHIP_OBSERVED_STATUS, "OBSERVED_UNCLASSIFIED")
 
     def test_asset_relative_strength_is_passed_through_unchanged(self):
         packet = observed_leadership_packet()
@@ -260,9 +324,30 @@ class RelativeStrengthPassthroughTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["relative_strength_vs_btc"], "-0.034261830192")
 
+    def test_group_relative_strength_respects_the_bucket_rows_own_unknown_status(self):
+        """A bucket can be UNKNOWN (BUCKET_EMPTY_ON_REQUIRED_DATE) even
+        while its window is OBSERVED_UNCLASSIFIED overall -- the row's own
+        status must gate the passthrough, not just the window's."""
+        packet = observed_leadership_packet(alt_bucket_status="UNKNOWN")
+        self.assertIsNone(MRD.extract_group_relative_strength(packet, "primary_30d", "ALT"))
+        # BTC/ETH buckets in the same window are unaffected.
+        self.assertIsNotNone(MRD.extract_group_relative_strength(packet, "primary_30d", "BTC"))
+
     def test_unobserved_window_returns_none_not_a_fabricated_value(self):
         packet = observed_leadership_packet()
         self.assertIsNone(MRD.extract_asset_relative_strength(packet, "pilot_7d", "ETH"))
+
+    def test_wrong_status_literal_never_matches_real_data(self):
+        """Direct regression test for independent-review finding B2: a
+        window whose status is the real 'OBSERVED_UNCLASSIFIED' must be
+        treated as observed; a window incorrectly checked against the
+        literal 'OBSERVED' (this module's earlier bug) would never match
+        real data at all."""
+        packet = observed_leadership_packet()
+        window = packet["windows"][0]
+        self.assertEqual(window["status"], "OBSERVED_UNCLASSIFIED")
+        self.assertNotEqual(window["status"], "OBSERVED")
+        self.assertIsNotNone(MRD.extract_asset_relative_strength(packet, "primary_30d", "BTC"))
 
     def test_build_ranked_row_carries_the_exact_relative_strength_string(self):
         market_row = _market_row("KRW-ETH", "ETH")
@@ -279,9 +364,23 @@ class RelativeStrengthPassthroughTests(unittest.TestCase):
         self.assertIn("LEADERSHIP_ASSET_ROW_NOT_OBSERVED", row["data_gaps"])
         self.assertEqual(row["features"], {})
 
+    def test_build_ranked_row_is_never_called_by_the_main_pipeline_today(self):
+        """Independent-review fix B3: build_ranked_row is a tested,
+        standalone building block for a later ticket -- confirm the main
+        pipeline genuinely never reaches it by checking ranked stays empty
+        even with everything else favorable."""
+        contract = ratified_rotation_policy_contract()
+        result = MRD.build_crypto_rotation_discovery(
+            universe_packet=base_universe_packet(), leadership_packet=observed_leadership_packet(),
+            regime_status=base_regime_status(), contract=contract, evaluation_as_of="2026-09-13T12:00:00Z",
+        )
+        self.assertEqual(result["ranked"], [])
+
 
 class PitTests(unittest.TestCase):
-    """Acceptance criterion 5: PIT -- a future-dated input fails the build."""
+    """Acceptance criterion 5: PIT -- a future-dated or missing-timestamp
+    input fails the build (independent-review fix: missing as_of_date/
+    generated_at now fails closed instead of being silently skipped)."""
 
     def test_future_dated_universe_available_at_fails_closed(self):
         universe = base_universe_packet(available_at="2099-01-01T00:00:00Z")
@@ -308,6 +407,15 @@ class PitTests(unittest.TestCase):
                 contract=MRD.load_contract(), evaluation_as_of="2026-09-13T12:00:00Z",
             )
 
+    def test_future_dated_regime_generated_at_fails_closed(self):
+        regime_status = base_regime_status(generated_at="2099-01-01T00:00:00Z")
+        with self.assertRaises(MRD.MarketRotationDiscoveryError) as ctx:
+            MRD.build_crypto_rotation_discovery(
+                universe_packet=base_universe_packet(), leadership_packet=None, regime_status=regime_status,
+                contract=MRD.load_contract(), evaluation_as_of="2026-09-13T12:00:00Z",
+            )
+        self.assertIn("REGIME_GENERATED_AT_FUTURE_DATED", str(ctx.exception))
+
     def test_missing_available_at_fails_closed_not_silently_accepted(self):
         universe = base_universe_packet()
         del universe["packet"]["available_at"]
@@ -317,6 +425,36 @@ class PitTests(unittest.TestCase):
                 contract=MRD.load_contract(), evaluation_as_of="2026-09-13T12:00:00Z",
             )
 
+    def test_missing_leadership_as_of_date_fails_closed(self):
+        leadership = unknown_leadership_packet()
+        del leadership["as_of_date"]
+        with self.assertRaises(MRD.MarketRotationDiscoveryError) as ctx:
+            MRD.build_crypto_rotation_discovery(
+                universe_packet=base_universe_packet(), leadership_packet=leadership, regime_status=None,
+                contract=MRD.load_contract(), evaluation_as_of="2026-09-13T12:00:00Z",
+            )
+        self.assertIn("LEADERSHIP_AS_OF_DATE_MISSING", str(ctx.exception))
+
+    def test_missing_regime_generated_at_fails_closed(self):
+        regime_status = base_regime_status()
+        del regime_status["generated_at"]
+        with self.assertRaises(MRD.MarketRotationDiscoveryError) as ctx:
+            MRD.build_crypto_rotation_discovery(
+                universe_packet=base_universe_packet(), leadership_packet=None, regime_status=regime_status,
+                contract=MRD.load_contract(), evaluation_as_of="2026-09-13T12:00:00Z",
+            )
+        self.assertIn("REGIME_GENERATED_AT_MISSING", str(ctx.exception))
+
+    def test_missing_regime_as_of_date_fails_closed(self):
+        regime_status = base_regime_status()
+        del regime_status["current_reference"]["as_of_date"]
+        with self.assertRaises(MRD.MarketRotationDiscoveryError) as ctx:
+            MRD.build_crypto_rotation_discovery(
+                universe_packet=base_universe_packet(), leadership_packet=None, regime_status=regime_status,
+                contract=MRD.load_contract(), evaluation_as_of="2026-09-13T12:00:00Z",
+            )
+        self.assertIn("REGIME_AS_OF_DATE_MISSING", str(ctx.exception))
+
     def test_evaluation_at_exactly_available_at_succeeds(self):
         universe = base_universe_packet(available_at="2026-09-13T00:56:39Z")
         result = MRD.build_crypto_rotation_discovery(
@@ -324,6 +462,28 @@ class PitTests(unittest.TestCase):
             contract=MRD.load_contract(), evaluation_as_of="2026-09-13T00:56:39Z",
         )
         self.assertIsInstance(result, dict)
+
+    def test_latest_dated_packet_never_looks_ahead_of_a_historical_evaluation_date(self):
+        """Independent-review fix: a backfill/replay evaluation_as_of must
+        only ever see packets dated at or before it, never a packet
+        published later."""
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for date in ("2026-09-10", "2026-09-11", "2026-09-12"):
+                (root / date).mkdir()
+                (root / date / "packet.json").write_text(json.dumps({"date": date}), encoding="utf-8")
+
+            latest_unbounded = MRD._latest_dated_packet(root)
+            self.assertEqual(latest_unbounded.parent.name, "2026-09-12")
+
+            latest_as_of_11 = MRD._latest_dated_packet(root, not_after_date="2026-09-11")
+            self.assertEqual(latest_as_of_11.parent.name, "2026-09-11")
+
+            latest_as_of_09 = MRD._latest_dated_packet(root, not_after_date="2026-09-09")
+            self.assertIsNone(latest_as_of_09)
 
 
 class AuthorityTests(unittest.TestCase):
@@ -345,7 +505,11 @@ class AuthorityTests(unittest.TestCase):
 
 
 class DeterminismTests(unittest.TestCase):
-    """Acceptance criterion 7: rerunning produces byte-identical output."""
+    """Acceptance criterion 7: rerunning produces byte-identical output,
+    including on the same UTC day without an explicit --evaluation-as-of
+    (independent-review fix: the CLI now defaults to a fixed end-of-day
+    timestamp so two same-day runs share one evaluation_as_of, rather than
+    each capturing the current instant and permanently diverging)."""
 
     def test_same_inputs_twice_produce_canonically_identical_output(self):
         universe = base_universe_packet()
@@ -401,6 +565,43 @@ class DeterminismTests(unittest.TestCase):
             self.assertEqual(MRD.run(argv), 0)  # idempotent rerun -- verified_existing, no error
             second_payload = (output_root / "2026-09-13" / "packet.json").read_text(encoding="utf-8")
             self.assertEqual(first_payload, second_payload)
+
+    def test_populate_cli_same_day_rerun_without_explicit_evaluation_as_of_is_idempotent(self):
+        """Independent-review fix: two runs on the same UTC day with no
+        --evaluation-as-of flag (the real workflow's own invocation shape)
+        must not fail -- both must resolve to the same fixed end-of-day
+        timestamp, not each capture a different current instant."""
+        import datetime as dt
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            output_root = tmp_path / "market_rotation_discovery"
+            universe_root = tmp_path / "universe"
+            leadership_root = tmp_path / "leadership"
+            regime_path = tmp_path / "regime.json"
+            contract_path = tmp_path / "contract.json"
+
+            today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+            (universe_root / today).mkdir(parents=True)
+            (universe_root / today / "packet.json").write_text(
+                MRD.canonical_json(base_universe_packet(available_at=f"{today}T00:00:01Z")), encoding="utf-8"
+            )
+            regime_path.write_text(
+                MRD.canonical_json(base_regime_status(as_of_date=today, generated_at=f"{today}T00:00:01Z")),
+                encoding="utf-8",
+            )
+            contract_path.write_text(MRD.canonical_json(MRD.load_contract()), encoding="utf-8")
+
+            argv = [
+                "--universe-root", str(universe_root),
+                "--leadership-root", str(leadership_root),
+                "--regime-status-path", str(regime_path),
+                "--contract-path", str(contract_path),
+                "--output-root", str(output_root),
+            ]
+            self.assertEqual(MRD.run(argv), 0)  # first run: populated
+            self.assertEqual(MRD.run(argv), 0)  # second run, same day, no explicit timestamp: verified_existing
 
 
 if __name__ == "__main__":

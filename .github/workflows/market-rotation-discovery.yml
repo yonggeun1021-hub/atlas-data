@@ -1,8 +1,11 @@
 name: T1 CRYPTO Market Rotation Discovery Daily Build
 
+# CIO decision (independent review of PR #715): no schedule yet --
+# workflow_dispatch only, until the fixes in this revision are reviewed.
+# A cron (previously proposed: "10 1 * * *", 01:10 UTC, after
+# crypto-breadth-capture at 00:40 UTC and upbit-universe-capture at 00:50
+# UTC) is a separate, later CIO approval once this is reviewed.
 on:
-  schedule:
-    - cron: "10 1 * * *"  # 01:10 UTC; after crypto-breadth-capture (00:40 UTC, crypto_leadership) and upbit-universe-capture (00:50 UTC)
   workflow_dispatch:
 
 permissions:

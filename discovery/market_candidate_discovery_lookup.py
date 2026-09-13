@@ -705,12 +705,34 @@ def _load_optional_hashed(path: Path | None, hash_field: str, code: str, *, sche
     return record
 
 
-def _load_market_rotation_discovery(path: Path | None) -> dict | None:
+def _load_market_rotation_discovery(path: Path | None, observed_at: dt.datetime) -> dict | None:
     """T1 market_rotation_discovery/1 (TKT-1), CRYPTO only. Count-only
     connection: this loads the packet (self-hash verified) so its
     ``counts``/``rotation_selection_status`` can be surfaced; it does not
-    re-derive, re-rank, or re-select anything T1 already decided."""
-    return _load_optional_hashed(path, "payload_sha256", "MARKET_ROTATION_DISCOVERY")
+    re-derive, re-rank, or re-select anything T1 already decided.
+
+    PIT: a T1 packet whose own ``evaluation_as_of`` is later than this
+    lookup's ``observed_at`` is never surfaced -- treated the same as
+    "not available" rather than read (independent review of PR #715:
+    this loader previously had no PIT filter or schema_version check at
+    all)."""
+    if path is None:
+        return None
+    record = _load_optional_hashed(path, "payload_sha256", "MARKET_ROTATION_DISCOVERY")
+    if record is None:
+        return None
+    if record.get("schema_version") != 1:
+        _fail("MARKET_ROTATION_DISCOVERY_SCHEMA_INVALID")
+    evaluation_as_of = record.get("evaluation_as_of")
+    if not evaluation_as_of:
+        _fail("MARKET_ROTATION_DISCOVERY_EVALUATION_AS_OF_MISSING")
+    try:
+        evaluation_dt = dt.datetime.strptime(evaluation_as_of, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        _fail("MARKET_ROTATION_DISCOVERY_EVALUATION_AS_OF_INVALID", evaluation_as_of)
+    if evaluation_dt > observed_at:
+        return None
+    return record
 
 
 def _load_stage_history(path: Path) -> dict:
@@ -1573,7 +1595,7 @@ def _crypto_context(inputs: dict, observed_at: dt.datetime) -> dict:
         schema_version="upbit_bounded_identity_registry_packet/1",
     )
     leadership = _load_crypto_leadership(inputs.get("crypto_leadership_path"))
-    rotation_discovery = _load_market_rotation_discovery(inputs.get("market_rotation_discovery_path"))
+    rotation_discovery = _load_market_rotation_discovery(inputs.get("market_rotation_discovery_path"), observed_at)
     identity_review = _read_json(inputs["crypto_identity_review_path"], "CRYPTO_IDENTITY_REVIEW_READ_FAILED")
     _validate_self_hash(identity_review, "payload_sha256", "CRYPTO_IDENTITY_REVIEW_PAYLOAD_SHA256_MISMATCH")
     markets = universe["packet"]["markets"]
