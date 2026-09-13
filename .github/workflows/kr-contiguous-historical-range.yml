@@ -1,0 +1,46 @@
+name: KR Contiguous Historical PIT Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      historical_start_date:
+        description: "Contiguous historical range start (YYYY-MM-DD)"
+        required: true
+      historical_end_date:
+        description: "Contiguous historical range end (YYYY-MM-DD)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  historical-range-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline contiguous-range regression
+        run: python3 test/test_kr_contiguous_historical_range.py
+      - name: Build complete official-calendar historical range
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          HISTORICAL_START_DATE: ${{ inputs.historical_start_date }}
+          HISTORICAL_END_DATE: ${{ inputs.historical_end_date }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          mkdir -p "$RUNNER_TEMP/kr-contiguous-history"
+          python3 -m regime.kr_contiguous_historical_range \
+            --start "$HISTORICAL_START_DATE" \
+            --end "$HISTORICAL_END_DATE" \
+            --out-dir "$RUNNER_TEMP/kr-contiguous-history"
+      - name: Upload validated historical evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kr-contiguous-history-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/kr-contiguous-history
+          if-no-files-found: warn
+      - name: Tracked output prohibition
+        run: git diff --exit-code
