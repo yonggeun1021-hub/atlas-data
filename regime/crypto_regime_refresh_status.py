@@ -223,9 +223,175 @@ def _coverage(defined_axes: list[str]) -> dict:
     }
 
 
+def _reject_ambiguous_latest_generation(candidates: list[Path]) -> None:
+    """The newest date/time bucket in ``evidence/crypto_paper_decision`` must
+    resolve to exactly one generation. Two different generation hashes under
+    the same date/time would mean two different decision-snapshot runs claim
+    the same "latest" slot, and picking either one silently for display would
+    be a guess. Fail closed instead of choosing.
+    """
+    if len(candidates) < 2:
+        return
+    newest_bucket = candidates[0].parent.parent
+    newest_generation = candidates[0].parent.name
+    for other in candidates[1:]:
+        if other.parent.parent != newest_bucket:
+            break
+        if other.parent.name != newest_generation:
+            fail("AXIS_HISTORY_AMBIGUOUS_LATEST")
+
+
+def _historical_axis_observation(root: Path, axis: str, not_after: dt.datetime) -> dict | None:
+    """Walk committed ``evidence/crypto_paper_decision`` packets, newest
+    first, for the most recent byte-exact packet where ``axis`` was DEFINED.
+    This never re-derives or re-validates the decision logic (that is
+    ``_select_official_decision``'s job); it only binds an already-committed
+    file's path and sha256 so a display row can cite it verbatim. A
+    candidate whose own claimed capture time is after ``not_after`` (the
+    packet's own generated_at) is skipped rather than trusted.
+    """
+    for path in sorted(
+        (root / "evidence" / "crypto_paper_decision").glob("*/*/*/packet.json"),
+        reverse=True,
+    ):
+        try:
+            packet = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(packet, dict):
+            continue
+        axes = packet.get("crypto_regime_five_axis")
+        if not isinstance(axes, dict):
+            continue
+        factor = axes.get(axis)
+        if not isinstance(factor, dict) or factor.get("status") != "DEFINED":
+            continue
+        captured = packet.get("captured_at_utc") or packet.get("generated_at")
+        if not isinstance(captured, str) or not UTC.fullmatch(captured):
+            continue
+        captured_dt = dt.datetime.strptime(captured, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        if captured_dt > not_after:
+            continue
+        generation_id = packet.get("generation_id")
+        if not isinstance(generation_id, str) or not generation_id:
+            continue
+        return {
+            "path": path,
+            "sha256": file_sha256(path),
+            "generation_id": generation_id,
+            "captured_at_utc": captured,
+            "observation_date": factor.get("observation_date"),
+            "available_at": factor.get("available_at"),
+        }
+    return None
+
+
+def _axis_provenance_rows(
+    root: Path,
+    official_axes: dict | None,
+    official_defined: list[str],
+    decision_path: Path | None,
+    decision: dict | None,
+    reference_path: Path,
+    reference: dict,
+    not_after: dt.datetime,
+) -> list[dict]:
+    """Display-only per-axis provenance. Never promotes a value into
+    ``official_decision.runtime_regime`` or its coverage; only reports which
+    already-committed, exact-hash-bound source last observed each axis and
+    why it is or is not eligible for the official same-generation aggregate.
+    """
+    _reject_ambiguous_latest_generation(
+        sorted((root / "evidence" / "crypto_paper_decision").glob("*/*/*/packet.json"), reverse=True)
+    )
+
+    rows: list[dict] = []
+    for axis in AXES:
+        if axis == "LEADERSHIP":
+            same_generation = bool(official_axes) and official_axes.get("LEADERSHIP", {}).get("status") == "DEFINED"
+            rows.append({
+                "axis": axis,
+                "state": "SAME_GENERATION_ELIGIBLE" if same_generation else "LAST_KNOWN_OBSERVATION_AVAILABLE",
+                "observed_status": "DEFINED",
+                "observation_date": reference["decision_date"],
+                "available_at": reference.get("generated_at_utc"),
+                "vintage_label": "CURRENT_REFERENCE_GENERATION",
+                "official_same_generation_eligible": same_generation,
+                "reason": (
+                    "CURRENT_REFERENCE_AND_OFFICIAL_DECISION_SAME_GENERATION"
+                    if same_generation
+                    else "CURRENT_REFERENCE_OBSERVED_OFFICIAL_GENERATION_PENDING"
+                ),
+                "source": {
+                    "kind": "CURRENT_REFERENCE",
+                    "path": str(reference_path.relative_to(root)),
+                    "sha256": file_sha256(reference_path),
+                    "generation_id": None,
+                    "captured_at_utc": reference.get("generated_at_utc"),
+                },
+            })
+            continue
+
+        if axis in official_defined and decision_path is not None and decision is not None:
+            factor = official_axes[axis]
+            rows.append({
+                "axis": axis,
+                "state": "SAME_GENERATION_ELIGIBLE",
+                "observed_status": "DEFINED",
+                "observation_date": factor.get("observation_date"),
+                "available_at": factor.get("available_at"),
+                "vintage_label": "CURRENT_OFFICIAL_GENERATION",
+                "official_same_generation_eligible": True,
+                "reason": "OFFICIAL_DECISION_AXIS_DEFINED_CURRENT_GENERATION",
+                "source": {
+                    "kind": "OFFICIAL_DECISION",
+                    "path": str(decision_path.relative_to(root)),
+                    "sha256": file_sha256(decision_path),
+                    "generation_id": decision["generation_id"],
+                    "captured_at_utc": _decision_time(decision),
+                },
+            })
+            continue
+
+        historical = _historical_axis_observation(root, axis, not_after)
+        if historical is None:
+            rows.append({
+                "axis": axis,
+                "state": "UNAVAILABLE",
+                "observed_status": None,
+                "observation_date": None,
+                "available_at": None,
+                "vintage_label": None,
+                "official_same_generation_eligible": False,
+                "reason": "NO_COMMITTED_DEFINED_OBSERVATION_FOUND",
+                "source": {"kind": None, "path": None, "sha256": None, "generation_id": None, "captured_at_utc": None},
+            })
+            continue
+
+        rows.append({
+            "axis": axis,
+            "state": "STALE",
+            "observed_status": "DEFINED",
+            "observation_date": historical["observation_date"],
+            "available_at": historical["available_at"],
+            "vintage_label": "HISTORICAL_GENERATION",
+            "official_same_generation_eligible": False,
+            "reason": "HISTORICAL_GENERATION_NOT_SAME_AS_CURRENT_OFFICIAL_DECISION",
+            "source": {
+                "kind": "OFFICIAL_DECISION",
+                "path": str(historical["path"].relative_to(root)),
+                "sha256": historical["sha256"],
+                "generation_id": historical["generation_id"],
+                "captured_at_utc": historical["captured_at_utc"],
+            },
+        })
+    return rows
+
+
 def build_status(root: Path = ROOT) -> dict:
     reference_path, reference = _select_current_reference(root)
     decision_path, decision, decision_wait_reason = _select_official_decision(root)
+    official_axes: dict | None = None
     if decision is None:
         official_defined = []
     else:
@@ -285,6 +451,17 @@ def build_status(root: Path = ROOT) -> dict:
             "sha256": file_sha256(decision_path),
             "generation_id": decision["generation_id"],
         })
+    not_after_dt = dt.datetime.strptime(generated_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    axis_provenance = _axis_provenance_rows(
+        root=root,
+        official_axes=official_axes,
+        official_defined=official_defined,
+        decision_path=decision_path,
+        decision=decision,
+        reference_path=reference_path,
+        reference=reference,
+        not_after=not_after_dt,
+    )
     generation_id = payload_sha256({
         "schema_version": SCHEMA_VERSION,
         "sources": source_rows,
@@ -318,6 +495,7 @@ def build_status(root: Path = ROOT) -> dict:
             ),
             "unavailable_reason": decision_wait_reason,
         },
+        "axis_provenance": axis_provenance,
         "natural_history_progress": {
             "eligible_consecutive_days": streak,
             "pilot_required_days": 7,

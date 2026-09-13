@@ -156,6 +156,88 @@ class CryptoRegimeRefreshStatusTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.CryptoRegimeRefreshStatusError, "CURRENT_REFERENCE_DATE_STALE"):
             MODULE.validate_expected_date(self.packet, next_day)
 
+    def test_axis_provenance_covers_five_axes_with_exact_source_binding(self):
+        provenance = self.packet["axis_provenance"]
+        self.assertEqual([row["axis"] for row in provenance], MODULE.AXES)
+        valid_states = {
+            "SAME_GENERATION_ELIGIBLE",
+            "LAST_KNOWN_OBSERVATION_AVAILABLE",
+            "STALE",
+            "UNAVAILABLE",
+        }
+        for row in provenance:
+            self.assertIn(row["state"], valid_states)
+            source = row["source"]
+            if row["state"] == "UNAVAILABLE":
+                self.assertIsNone(row["observed_status"])
+                self.assertIsNone(source["path"])
+                self.assertIsNone(source["sha256"])
+            else:
+                self.assertEqual(row["observed_status"], "DEFINED")
+                path = MODULE.ROOT / source["path"]
+                self.assertEqual(MODULE.file_sha256(path), source["sha256"])
+                self.assertEqual(row["official_same_generation_eligible"], row["state"] == "SAME_GENERATION_ELIGIBLE")
+
+    def test_axis_provenance_is_display_only_and_does_not_expand_official_state(self):
+        official = self.packet["official_decision"]
+        self.assertEqual(official["runtime_regime"], "UNKNOWN")
+        cross_vintage_axes = {
+            row["axis"] for row in self.packet["axis_provenance"] if row["state"] == "STALE"
+        }
+        # A STALE row proves a historical observation exists for an axis that
+        # is absent from the current official decision -- it must never leak
+        # into official coverage's defined_axes.
+        self.assertTrue(cross_vintage_axes.isdisjoint(set(official["coverage"]["defined_axes"])))
+
+    def test_axis_provenance_future_dated_historical_candidate_is_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            far_future = "2999-01-01T00:00:00Z"
+            target = (
+                root / "evidence" / "crypto_paper_decision" / "2999-01-01" / "0000"
+                / ("a" * 64) / "packet.json"
+            )
+            target.parent.mkdir(parents=True)
+            target.write_text(json.dumps({
+                "generation_id": "a" * 64,
+                "captured_at_utc": far_future,
+                "crypto_regime_five_axis": {
+                    "TREND": {
+                        "status": "DEFINED",
+                        "observation_date": "2999-01-01",
+                        "available_at": far_future,
+                    },
+                },
+            }), encoding="utf-8")
+            not_after = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+            self.assertIsNone(MODULE._historical_axis_observation(root, "TREND", not_after))
+
+    def test_axis_provenance_ambiguous_latest_generation_is_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            base = root / "evidence" / "crypto_paper_decision" / "2026-09-01" / "0000"
+            for generation in ("a" * 64, "b" * 64):
+                target = base / generation / "packet.json"
+                target.parent.mkdir(parents=True)
+                target.write_text(json.dumps({
+                    "generation_id": generation,
+                    "captured_at_utc": "2026-09-01T00:00:00Z",
+                    "crypto_regime_five_axis": {
+                        "TREND": {
+                            "status": "DEFINED",
+                            "observation_date": "2026-09-01",
+                            "available_at": "2026-09-01T00:00:00Z",
+                        },
+                    },
+                }), encoding="utf-8")
+            candidates = sorted(
+                (root / "evidence" / "crypto_paper_decision").glob("*/*/*/packet.json"), reverse=True
+            )
+            with self.assertRaisesRegex(
+                MODULE.CryptoRegimeRefreshStatusError, "AXIS_HISTORY_AMBIGUOUS_LATEST"
+            ):
+                MODULE._reject_ambiguous_latest_generation(candidates)
+
     def test_resigned_tamper_fails_full_rederivation(self):
         self.assertEqual(MODULE.validate_status(self.packet), self.packet)
         tampered = copy.deepcopy(self.packet)
