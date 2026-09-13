@@ -1141,6 +1141,16 @@ APPROVED_TESTS = [
     # Crypto five-axis reference.  It preserves the provisional caveats and
     # cannot grant runtime, capital, order, Production, or trading authority.
     "test/test_crypto_paper_descriptive_normalization.py",
+    # CRYPTO_PAPER_RUNTIME_V1 (user ratification 2026-09-14): crypto-scoped
+    # PAPER runtime identity, ratified RISK_VOL absolute rule boundaries,
+    # LEADERSHIP pilot->primary window rule, 07:00Z finalized packets with
+    # immediate UNKNOWN on stale/missing/date-mismatch/lookahead/mixed
+    # generation, PROVISIONAL_FORWARD_ACCEPTANCE with auto-revert, the Kraken
+    # bulk BTC-only replay diagnostic, and the retained-evidence publisher.
+    # Strategy, capital, order, production, trading and REAL stay closed.
+    "test/test_crypto_paper_runtime.py",
+    "test/test_crypto_kraken_btc_replay_diagnostic.py",
+    "test/test_crypto_paper_runtime_publication.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
