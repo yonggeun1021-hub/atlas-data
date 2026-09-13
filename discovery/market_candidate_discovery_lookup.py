@@ -658,7 +658,7 @@ def _kr_context(inputs: dict, observed_at: dt.datetime) -> dict:
     }
 
 
-def _kr_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated_date: dt.date) -> dict:
+def _kr_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, generated_date: dt.date) -> dict:
     universe, review, signals = ctx["universe"], ctx["review"], ctx["signals"]
     population_count = universe["total_count"]
     symbols = review["symbols"]
@@ -672,10 +672,16 @@ def _kr_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated_dat
     passed = review["summary"]["automatic_entry_count"]
     excluded = 0 if not not_in_population else len(not_in_population)
     unevaluated = population_count - len(in_population)
-    if coverage_row["universe_count"] != population_count or coverage_row["bounded_current_output_count"] != len(symbols):
-        _fail("KR_COVERAGE_CROSS_CHECK_MISMATCH")
-    if coverage_row["evaluated_count"] != NOT_COUNTED:
-        _fail("KR_COVERAGE_SEMANTICS_CHANGED")
+    if coverage_row is None:
+        cross_check = NOT_AVAILABLE
+        missing_reasons = ["COVERAGE_RECEIPT_NOT_AVAILABLE", "FULL_POPULATION_EVALUATION_INPUT_NOT_CONNECTED"]
+    else:
+        if coverage_row["universe_count"] != population_count or coverage_row["bounded_current_output_count"] != len(symbols):
+            _fail("KR_COVERAGE_CROSS_CHECK_MISMATCH")
+        if coverage_row["evaluated_count"] != NOT_COUNTED:
+            _fail("KR_COVERAGE_SEMANTICS_CHANGED")
+        cross_check = "MATCH"
+        missing_reasons = copy.deepcopy(coverage_row["missing_reasons"])
 
     gaps = [
         {
@@ -683,7 +689,7 @@ def _kr_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated_dat
             "code": "FULL_POPULATION_EVALUATOR_NOT_CONNECTED",
             "affected_count": unevaluated,
             "affected_population": "krx_global_universe minus bounded review subjects",
-            "evidence": {"coverage_missing_reasons": copy.deepcopy(coverage_row["missing_reasons"])},
+            "evidence": {"coverage_missing_reasons": missing_reasons},
         },
         {
             "class": "FEATURE_NOT_IMPLEMENTED",
@@ -819,17 +825,17 @@ def _kr_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated_dat
             "evaluated_symbols_in_population": in_population,
             "evaluated_symbols_not_in_population": not_in_population,
             "evaluated_duplicate_count": 0,
-            "coverage_receipt_cross_check": "MATCH",
+            "coverage_receipt_cross_check": cross_check,
         },
         "screening_layer": screening,
         "gap_classification": gaps,
-        "next_step_conditions": _kr_next_steps(universe, review, coverage_row),
+        "next_step_conditions": _kr_next_steps(universe, review),
         "candidate_zero_semantics": "BOUNDED_REVIEW_ONLY_NO_POPULATION_CANDIDATE_RULE",
         "symbols": [_kr_compact_row(row) for row in symbols],
     }
 
 
-def _kr_next_steps(universe: dict, review: dict, coverage_row: dict) -> list[dict]:
+def _kr_next_steps(universe: dict, review: dict) -> list[dict]:
     rows = [
         {"condition": "FULL_POPULATION_EVALUATION_INPUT_CONNECTED", "status": "UNMET",
          "defined_by": "three_market_evaluation_coverage missing_reasons"},
@@ -997,7 +1003,7 @@ def _us_context(inputs: dict, observed_at: dt.datetime) -> dict:
     }
 
 
-def _us_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated_date: dt.date) -> dict:
+def _us_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, generated_date: dt.date) -> dict:
     universe, review, market_data = ctx["universe"], ctx["review"], ctx["market_data"]
     packet = universe["packet"]
     population_count = packet["total_count"]
@@ -1011,14 +1017,30 @@ def _us_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated_dat
     reason_counts = Counter(reason for row in symbols for reason in row["entry_review"]["reasons"])
     passed = review["summary"]["automatic_entry_count"]
     unevaluated = population_count - len(in_population)
-    if (
-        coverage_row["universe_count"] != population_count
-        or coverage_row["bounded_current_output_count"] != len(symbols)
-        or coverage_row.get("bounded_output_state_counts") != dict(sorted(state_counts.items()))
-    ):
-        _fail("US_COVERAGE_CROSS_CHECK_MISMATCH")
-    connection = coverage_row.get("population_evaluation_connection") or {}
-    readiness = coverage_row.get("investable_input_readiness") or {}
+    registry_contract = COVERAGE.US_INVESTABLE_REGISTRY.load_contract()
+    if coverage_row is None:
+        cross_check = NOT_AVAILABLE
+        connection = {
+            "status": "NOT_CONNECTED",
+            "required_input_schema": "us_investable_snapshot/1",
+            "required_fail_closed_facts": copy.deepcopy(registry_contract.get("required_fail_closed_facts") or []),
+            "liquidity_policy_status": (
+                "ABSENT_EXTERNAL_RATIFIED_POLICY_REQUIRED"
+                if (registry_contract.get("liquidity") or {}).get("repository_default_policy") == "ABSENT" else UNDEFINED
+            ),
+            "reason": "COVERAGE_RECEIPT_NOT_AVAILABLE_CONTRACT_FACTS_ONLY",
+        }
+        readiness = {}
+    else:
+        if (
+            coverage_row["universe_count"] != population_count
+            or coverage_row["bounded_current_output_count"] != len(symbols)
+            or coverage_row.get("bounded_output_state_counts") != dict(sorted(state_counts.items()))
+        ):
+            _fail("US_COVERAGE_CROSS_CHECK_MISMATCH")
+        cross_check = "MATCH"
+        connection = coverage_row.get("population_evaluation_connection") or {}
+        readiness = coverage_row.get("investable_input_readiness") or {}
     price_unavailable = [row["symbol"] for row in symbols if row["price_context"].get("status") != "OBSERVED"]
 
     gaps = [
@@ -1107,7 +1129,10 @@ def _us_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated_dat
             "directory_attributes": {
                 "count": population_count,
                 "as_of": packet["as_of_date"],
-                "facts_available": {row["fact"]: row["available_count"] for row in readiness.get("field_source_matrix") or []},
+                "facts_available": (
+                    {row["fact"]: row["available_count"] for row in readiness.get("field_source_matrix") or []}
+                    if readiness else NOT_AVAILABLE
+                ),
             },
             "daily_bars": {
                 "symbol_count": len(ctx["daily_symbols"]),
@@ -1154,12 +1179,12 @@ def _us_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated_dat
             "evaluated_symbols_in_population": in_population,
             "evaluated_symbols_not_in_population": not_in_population,
             "evaluated_duplicate_count": 0,
-            "coverage_receipt_cross_check": "MATCH",
+            "coverage_receipt_cross_check": cross_check,
         },
         "screening_layer": {
             "status": NOT_AVAILABLE,
             "reason": "NO_US_POPULATION_SCREENING_PACKET",
-            "closable_natural_input_count": readiness.get("current_fully_closable_natural_symbol_count"),
+            "closable_natural_input_count": readiness.get("current_fully_closable_natural_symbol_count", NOT_AVAILABLE),
         },
         "gap_classification": gaps,
         "next_step_conditions": next_steps,
@@ -1309,6 +1334,12 @@ def _crypto_context(inputs: dict, observed_at: dt.datetime) -> dict:
     if detail and not detail["_unbound"]:
         for row in detail["record"]["candidates"]:
             detail_by_market[row["market"]] = row
+    decision_root = Path(inputs["crypto_decision_path"]).parent.parent.parent.parent
+    last_evaluated_by_market, last_evaluating_generation = _last_generation_with_candidates(decision_root, decision)
+    newest_universe_path = _latest_dated_packet(Path(inputs["crypto_universe_path"]).parent.parent, "snapshot_date")
+    newest_universe_date = (
+        _read_json(newest_universe_path, "CRYPTO_UNIVERSE_READ_FAILED").get("snapshot_date") if newest_universe_path else None
+    )
     proposals_by_market = {}
     for proposal in identity_review.get("proposals") or []:
         claim = proposal.get("claim") or {}
@@ -1325,10 +1356,61 @@ def _crypto_context(inputs: dict, observed_at: dt.datetime) -> dict:
         "decision_by_market": decision_by_market,
         "detail_by_market": detail_by_market,
         "proposals_by_market": proposals_by_market,
+        "last_evaluated_by_market": last_evaluated_by_market,
+        "last_evaluating_generation": last_evaluating_generation,
+        "newest_universe_snapshot_date": newest_universe_date,
     }
 
 
-def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated_date: dt.date) -> dict:
+def _last_generation_with_candidates(decision_root: Path, latest: dict) -> tuple[dict, dict | None]:
+    """Newest committed decision generation (by its verified capture time) that
+    actually carries P5-08 candidate rows, per market.
+
+    A generation in which P5-08 did not run has ``candidates == []``; the
+    market's *last evaluation time* is then the newest earlier generation
+    that evaluated it, which is reported separately from the latest
+    generation -- never substituted for it.
+    """
+    root = Path(decision_root)
+    entries = []
+    if root.is_dir():
+        for candidate in root.glob("*/*/*/packet.json"):
+            try:
+                entries.append(CRYPTO_DETAIL._verified_decision_entry(candidate))
+            except CRYPTO_DETAIL.CryptoCandidateDetailViewError:
+                continue
+    entries.sort(key=lambda row: (row["captured_at"], row["generation_id"]))
+    by_market: dict[str, dict] = {}
+    last_generation = None
+    for entry in reversed(entries):
+        record = entry["record"]
+        rows = record.get("candidates") or []
+        if not rows:
+            continue
+        if last_generation is None:
+            last_generation = {
+                "generated_at": record.get("generated_at"),
+                "generation_id": record.get("generation_id"),
+                "path": _relative(entry["path"]),
+                "candidate_count": len(rows),
+                "is_latest_generation": record.get("generation_id") == latest.get("generation_id"),
+            }
+        for row in rows:
+            market = row.get("market")
+            if market in by_market or not isinstance(market, str):
+                continue
+            by_market[market] = {
+                "generated_at": record.get("generated_at"),
+                "generation_id": record.get("generation_id"),
+                "path": _relative(entry["path"]),
+                "state": row.get("state"),
+                "reason": row.get("reason"),
+                "is_latest_generation": record.get("generation_id") == latest.get("generation_id"),
+            }
+    return by_market, last_generation
+
+
+def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, generated_date: dt.date) -> dict:
     universe, decision, detail = ctx["universe"], ctx["decision"], ctx["detail"]
     packet = universe["packet"]
     markets = packet["markets"]
@@ -1340,17 +1422,26 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated
     excluded_rows = [row for row in markets if row["state"] in ("OBSERVATION_POOL", "BLOCKED")]
     admitted = [row for row in markets if row["state"] in ("TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE")]
     evaluated_markets = [row["market"] for row in evaluated]
-    if sorted(evaluated_markets) != sorted(row["market"] for row in admitted):
-        _fail("CRYPTO_EVALUATED_ADMITTED_MISMATCH")
-    if (
-        coverage_row["universe_count"] != population_count
-        or coverage_row["evaluated_count"] != len(evaluated)
-        or coverage_row["candidate_count"] != funnel["focused_review_count"]
-        or coverage_row["excluded_count"] != len(excluded_rows)
-        or coverage_row["held_count"] != sum(state_counts[s] for s in ("WATCH", "WAIT"))
-        or coverage_row["paper_ready_count"] != funnel["paper_ready_count"]
-    ):
-        _fail("CRYPTO_COVERAGE_CROSS_CHECK_MISMATCH")
+    admitted_markets = [row["market"] for row in admitted]
+    if not set(evaluated_markets) <= set(admitted_markets):
+        _fail("CRYPTO_EVALUATED_NOT_ADMITTED", ",".join(sorted(set(evaluated_markets) - set(admitted_markets))))
+    if funnel["tradeable_universe_count"] != len(admitted):
+        _fail("CRYPTO_FUNNEL_ADMITTED_COUNT_MISMATCH")
+    admitted_not_evaluated = sorted(set(admitted_markets) - set(evaluated_markets))
+    derivation_notes = [note for note in decision.get("derivation_notes") or [] if isinstance(note, str)]
+    if coverage_row is None:
+        cross_check = NOT_AVAILABLE
+    else:
+        if (
+            coverage_row["universe_count"] != population_count
+            or coverage_row["evaluated_count"] != len(evaluated)
+            or coverage_row["candidate_count"] != funnel["focused_review_count"]
+            or coverage_row["excluded_count"] != len(excluded_rows)
+            or coverage_row["held_count"] != sum(state_counts[s] for s in ("WATCH", "WAIT"))
+            or coverage_row["paper_ready_count"] != funnel["paper_ready_count"]
+        ):
+            _fail("CRYPTO_COVERAGE_CROSS_CHECK_MISMATCH")
+        cross_check = "MATCH"
     if detail is not None and not detail["_unbound"] and len(detail["record"]["candidates"]) != population_count:
         _fail("CRYPTO_DETAIL_POPULATION_MISMATCH")
     candle_rows = [row for row in markets if (row.get("observed_daily_candle_count") or 0) > 0]
@@ -1380,6 +1471,18 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated
                 "affected_population": "upbit_tradeable_universe markets",
                 "evidence": {"taxonomy_version": packet.get("taxonomy_version"), "taxonomy_ratified": packet.get("taxonomy_ratified")},
             })
+    if admitted_not_evaluated:
+        gaps.append({
+            "class": "COLLECTION_FAILED",
+            "code": "P5_08_DID_NOT_EVALUATE_ADMITTED_MARKETS_IN_LATEST_GENERATION",
+            "affected_count": len(admitted_not_evaluated),
+            "affected_population": "P3-12 admitted markets (TRADEABLE_UNIVERSE/PAPER_ELIGIBLE)",
+            "evidence": {
+                "derivation_notes": derivation_notes,
+                "freshness_status": copy.deepcopy(decision.get("freshness_status")),
+                "markets": admitted_not_evaluated,
+            },
+        })
     unknown_total = sum(state_counts[s] for s in ("WATCH", "WAIT"))
     if unknown_total:
         gaps.append({
@@ -1398,10 +1501,12 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated
             "evidence": {"criterion": name, "status": status},
         })
     if funnel["focused_review_count"] == 0:
-        zero_semantics = (
-            "CRITERIA_UNKNOWN_NOT_A_NEGATIVE_RESULT" if unknown_total == len(evaluated)
-            else "EVALUATED_NO_CANDIDATE"
-        )
+        if not evaluated and admitted:
+            zero_semantics = "EVALUATOR_DID_NOT_RUN_IN_LATEST_GENERATION"
+        elif unknown_total == len(evaluated):
+            zero_semantics = "CRITERIA_UNKNOWN_NOT_A_NEGATIVE_RESULT"
+        else:
+            zero_semantics = "EVALUATED_NO_CANDIDATE"
     else:
         zero_semantics = "CANDIDATES_PRESENT"
     if zero_semantics == "EVALUATED_NO_CANDIDATE":
@@ -1418,6 +1523,9 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated
     ]
     next_steps.append({"condition": "IDENTITY_SCOPE_DECISION_FOR_UNRATIFIED_MARKETS", "status": "UNMET",
                        "defined_by": "three_market_evaluation_coverage evaluation_only_scope_readiness (CIO choice)"})
+    if admitted_not_evaluated:
+        next_steps.insert(0, {"condition": "P5_08_EVALUATION_RUN_FOR_ADMITTED_MARKETS", "status": "UNMET",
+                              "defined_by": "decision derivation_notes: " + "; ".join(derivation_notes)})
     next_steps.append({"condition": "P5_09_TRIGGER_EVALUATION", "status": "UNMET",
                        "defined_by": "decision candidates p5_09=null for every evaluated market" if all(row.get("p5_09") is None for row in evaluated) else "p5_09 present for some markets"})
     return {
@@ -1432,6 +1540,8 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated
             "policy_version": packet.get("policy_version"),
             "taxonomy_version": packet.get("taxonomy_version"),
             "freshness": freshness,
+            "newest_committed_universe_snapshot_date": ctx["newest_universe_snapshot_date"],
+            "newest_snapshot_bound_to_latest_decision": ctx["newest_universe_snapshot_date"] == packet["snapshot_date"],
             "state_reason_counts": {f"{state}|{reason}": count for (state, reason), count in sorted(universe_state_counts.items())},
             "source": _source_ref(inputs["crypto_universe_path"], universe["payload_sha256"]),
         },
@@ -1460,6 +1570,10 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated
             "captured_at_utc": decision.get("captured_at_utc"),
             "operational_date_kst": decision.get("operational_date_kst"),
             "generation_id": decision["generation_id"],
+            "admitted_count": len(admitted),
+            "admitted_not_evaluated": admitted_not_evaluated,
+            "derivation_notes": derivation_notes,
+            "last_generation_with_evaluations": ctx["last_evaluating_generation"] or NO_EVIDENCE,
             "source": _source_ref(inputs["crypto_decision_path"], decision["payload_sha256"]),
         },
         "disposition": {
@@ -1469,21 +1583,27 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict, generated
             "excluded": {"count": len(excluded_rows), "by_reason": dict(sorted(excluded_reason_counts.items())),
                          "semantics": "P3_12_UNIVERSE_STATES_OBSERVATION_POOL_OR_BLOCKED"},
             "unevaluated": {"count": population_count - len(evaluated) - len(excluded_rows),
-                            "basis": "population.count - evaluated - excluded"},
+                            "basis": "population.count - evaluated - excluded",
+                            "admitted_not_evaluated_count": len(admitted_not_evaluated)},
             "criteria_status_counts": {f"{name}|{status}": count for (name, status), count in sorted(criteria_status_counts.items(), key=lambda i: (i[0][0], str(i[0][1])))},
         },
         "reconciliation": {
             "population_equals_evaluated_plus_excluded_plus_unevaluated": population_count == len(evaluated) + len(excluded_rows) + (population_count - len(evaluated) - len(excluded_rows)),
-            "evaluated_equals_admitted": True,
+            "evaluated_subset_of_admitted": True,
+            "evaluated_equals_admitted": not admitted_not_evaluated,
             "evaluated_duplicate_count": 0,
             "detail_view_binding": "BOUND_TO_SAME_DECISION_GENERATION" if detail and not detail["_unbound"] else ("UNBOUND_DIFFERENT_GENERATION" if detail else NOT_AVAILABLE),
-            "coverage_receipt_cross_check": "MATCH",
+            "coverage_receipt_cross_check": cross_check,
         },
-        "screening_layer": {
-            "status": "AVAILABLE",
-            "contract": "three_market_evaluation_coverage/1 evaluation_only_scope_readiness",
-            "selection_market_count": ((coverage_row.get("evaluation_only_scope_readiness") or {}).get("selection") or {}).get("market_count"),
-        },
+        "screening_layer": (
+            {
+                "status": "AVAILABLE",
+                "contract": "three_market_evaluation_coverage/1 evaluation_only_scope_readiness",
+                "selection_market_count": ((coverage_row.get("evaluation_only_scope_readiness") or {}).get("selection") or {}).get("market_count"),
+            }
+            if coverage_row is not None else
+            {"status": NOT_AVAILABLE, "reason": "COVERAGE_RECEIPT_NOT_AVAILABLE"}
+        ),
         "gap_classification": gaps,
         "next_step_conditions": next_steps,
         "candidate_zero_semantics": zero_semantics,
@@ -1552,7 +1672,24 @@ def _crypto_symbol_lookup(ctx: dict, inputs: dict, symbol: str, cases: dict | No
             "source": _source_ref(inputs["crypto_leadership_path"], None),
             "lineage": copy.deepcopy(leadership.get("lineage")),
         }
-    if decision_row is None:
+    admitted = universe_row["state"] in ("TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE")
+    last_evaluated = ctx["last_evaluated_by_market"].get(market)
+    if decision_row is None and admitted:
+        last_eval = {
+            "status": "ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION",
+            "latest_generation": {
+                "generated_at": decision["generated_at"],
+                "generation_id": decision["generation_id"],
+                "derivation_notes": [n for n in decision.get("derivation_notes") or [] if isinstance(n, str)],
+                "freshness_status": copy.deepcopy(decision.get("freshness_status")),
+            },
+            "last_evaluated_generation": last_evaluated or NO_EVIDENCE,
+            "universe_state": universe_row["state"],
+            "universe_reason": universe_row["reason"],
+        }
+        unmet = [{"condition": "P5_08_EVALUATION_RUN", "status": "UNMET", "class": "COLLECTION_FAILED",
+                  "reason": "; ".join(n for n in decision.get("derivation_notes") or [] if isinstance(n, str))}]
+    elif decision_row is None:
         last_eval = {
             "status": "NOT_EVALUATED_BY_P5_08",
             "reason": "MARKET_NOT_ADMITTED_TO_DECISION_INPUT",
@@ -1560,6 +1697,7 @@ def _crypto_symbol_lookup(ctx: dict, inputs: dict, symbol: str, cases: dict | No
             "universe_reason": universe_row["reason"],
             "universe_evaluation_as_of": packet["evaluation_as_of"],
             "universe_available_at": packet["available_at"],
+            "last_evaluated_generation": last_evaluated or NO_EVIDENCE,
         }
         unmet = [{"condition": "P3_12_ADMISSION_TO_TRADEABLE_UNIVERSE", "status": "UNMET",
                   "class": "POLICY_UNDEFINED" if universe_row["reason"] == "IDENTITY_UNRATIFIED" else "EVALUATED_EXCLUDED_BY_RATIFIED_RULE",
@@ -1578,6 +1716,7 @@ def _crypto_symbol_lookup(ctx: dict, inputs: dict, symbol: str, cases: dict | No
             "criteria": copy.deepcopy(criteria),
             "p5_09": copy.deepcopy(decision_row.get("p5_09")),
             "freshness_capped": decision_row.get("freshness_capped"),
+            "last_evaluated_generation": last_evaluated or NO_EVIDENCE,
         }
         unmet = [
             {"condition": name, "status": criterion.get("status"), "reason": criterion.get("reason"),
@@ -1619,7 +1758,7 @@ def _crypto_symbol_lookup(ctx: dict, inputs: dict, symbol: str, cases: dict | No
             "trailing_30d_krw_turnover": universe_row.get("trailing_30d_krw_turnover"),
         },
         "candidate_inclusion": {
-            "status": "ADMITTED_TO_EVALUATION_INPUT" if decision_row is not None else "OBSERVATION_POOL_ONLY",
+            "status": "ADMITTED_TO_EVALUATION_INPUT" if admitted else "OBSERVATION_POOL_ONLY",
             "inclusion_reason": {
                 "status": "RULE_RECORDED",
                 "rule": f"{packet.get('policy_version')} / {packet.get('taxonomy_version')}",
@@ -1666,7 +1805,26 @@ def _crypto_symbol_lookup(ctx: dict, inputs: dict, symbol: str, cases: dict | No
 # --------------------------------------------------------------------------
 # report assembly
 # --------------------------------------------------------------------------
-def _coverage_report(inputs: dict, generated_at: str) -> dict:
+def _coverage_report(inputs: dict, generated_at: str, *, strict: bool) -> dict:
+    """Build the three-market coverage receipt; report (not hide) its fail-closed state.
+
+    The receipt asserts that the newest Crypto decision generation evaluated
+    every admitted market.  A generation in which P5-08 did not run (for
+    example ``P5_08_PROMOTION_FUNNEL_UNAVAILABLE``) makes the receipt refuse.
+    That refusal is itself a status fact, so by default it is returned as
+    ``FAILED_CLOSED`` with the exact reason and the lookup continues from the
+    per-symbol sources; ``strict=True`` re-raises instead.
+    """
+    try:
+        report = _build_coverage(inputs, generated_at)
+    except COVERAGE.ThreeMarketEvaluationCoverageError as exc:
+        if strict:
+            raise
+        return {"status": "FAILED_CLOSED", "reason": str(exc), "report": None}
+    return {"status": "BUILT", "reason": None, "report": report}
+
+
+def _build_coverage(inputs: dict, generated_at: str) -> dict:
     return COVERAGE.build_report(
         generated_at=generated_at,
         kr_universe_path=Path(inputs["kr_universe_path"]),
@@ -1697,9 +1855,11 @@ def _optional_packets(inputs: dict) -> tuple[dict | None, dict | None]:
     return cases, validity
 
 
-def _portal_block(inputs: dict, coverage: dict, ctxs: dict) -> dict:
+def _portal_block(inputs: dict, coverage: dict | None, ctxs: dict) -> dict:
     refs = [
-        {"role": "three_market_coverage", "contract": coverage["schema_version"], "payload_sha256": coverage["payload_sha256"]},
+        {"role": "three_market_coverage", "contract": COVERAGE.SCHEMA_VERSION,
+         "payload_sha256": coverage["payload_sha256"] if coverage else None,
+         "status": "BUILT" if coverage else "FAILED_CLOSED"},
         {"role": "kr_symbol_review", "contract": ctxs["KR"]["review"]["contract_version"],
          "source": _source_ref(inputs["kr_review_path"], ctxs["KR"]["review"]["packet_sha256"])},
         {"role": "us_symbol_review", "contract": ctxs["US"]["review"]["contract_version"],
@@ -1731,12 +1891,13 @@ def _portal_block(inputs: dict, coverage: dict, ctxs: dict) -> dict:
     }
 
 
-def build_report(*, generated_at: str, inputs: dict | None = None, markets: tuple = MARKETS) -> dict:
+def build_report(*, generated_at: str, inputs: dict | None = None, markets: tuple = MARKETS, strict: bool = False) -> dict:
     observed_at = _utc(generated_at, "GENERATED_AT_INVALID")
     generated_date = observed_at.date()
     inputs = inputs or default_inputs()
-    coverage = _coverage_report(inputs, generated_at)
-    by_market = {row["market"]: row for row in coverage["markets"]}
+    coverage_state = _coverage_report(inputs, generated_at, strict=strict)
+    coverage = coverage_state["report"]
+    by_market = {row["market"]: row for row in coverage["markets"]} if coverage else {}
     ctxs = {
         "KR": _kr_context(inputs, observed_at),
         "US": _us_context(inputs, observed_at),
@@ -1745,11 +1906,11 @@ def build_report(*, generated_at: str, inputs: dict | None = None, markets: tupl
     rows = []
     for market in markets:
         if market == "KR":
-            rows.append(_kr_market_status(ctxs["KR"], inputs, by_market["KR"], generated_date))
+            rows.append(_kr_market_status(ctxs["KR"], inputs, by_market.get("KR"), generated_date))
         elif market == "US":
-            rows.append(_us_market_status(ctxs["US"], inputs, by_market["US"], generated_date))
+            rows.append(_us_market_status(ctxs["US"], inputs, by_market.get("US"), generated_date))
         elif market == "CRYPTO":
-            rows.append(_crypto_market_status(ctxs["CRYPTO"], inputs, by_market["CRYPTO"], generated_date))
+            rows.append(_crypto_market_status(ctxs["CRYPTO"], inputs, by_market.get("CRYPTO"), generated_date))
         else:
             _fail("MARKET_INVALID", str(market))
     report = {
@@ -1757,12 +1918,22 @@ def build_report(*, generated_at: str, inputs: dict | None = None, markets: tupl
         "generated_at": generated_at,
         "generated_at_semantics": "LOOKUP_TIME_ONLY_NEVER_A_SOURCE_DATE",
         "gap_classes": list(GAP_CLASSES),
-        "coverage_receipt": {
-            "contract": coverage["schema_version"],
-            "generated_at": coverage["generated_at"],
-            "payload_sha256": coverage["payload_sha256"],
-            "summary": copy.deepcopy(coverage["summary"]),
-        },
+        "coverage_receipt": (
+            {
+                "status": "BUILT",
+                "contract": coverage["schema_version"],
+                "generated_at": coverage["generated_at"],
+                "payload_sha256": coverage["payload_sha256"],
+                "summary": copy.deepcopy(coverage["summary"]),
+            }
+            if coverage else
+            {
+                "status": "FAILED_CLOSED",
+                "contract": COVERAGE.SCHEMA_VERSION,
+                "reason": coverage_state["reason"],
+                "note": "the coverage receipt refused this generation; every count below is derived from the per-symbol sources and carries coverage_receipt_cross_check=NOT_AVAILABLE",
+            }
+        ),
         "markets": rows,
         "portal": _portal_block(inputs, coverage, ctxs),
         "authority": _authority(),

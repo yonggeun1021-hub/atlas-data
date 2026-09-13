@@ -69,17 +69,28 @@ class CurrentInputsTests(unittest.TestCase):
         self.assertEqual(self.report["coverage_receipt"]["contract"], "three_market_evaluation_coverage/1")
 
     def test_every_market_chain_reconciles_and_cross_checks_coverage(self):
+        receipt = self.report["coverage_receipt"]
+        self.assertIn(receipt["status"], ("BUILT", "FAILED_CLOSED"))
+        expected_cross_check = "MATCH" if receipt["status"] == "BUILT" else MODULE.NOT_AVAILABLE
+        if receipt["status"] == "FAILED_CLOSED":
+            self.assertTrue(receipt["reason"])
         for market, row in self.by_market.items():
             with self.subTest(market=market):
                 recon = row["reconciliation"]
-                self.assertEqual(recon["coverage_receipt_cross_check"], "MATCH")
+                self.assertEqual(recon["coverage_receipt_cross_check"], expected_cross_check)
                 self.assertEqual(recon["evaluated_duplicate_count"], 0)
                 population = row["population"]["count"]
                 self.assertIsInstance(population, int)
                 self.assertGreater(population, 0)
                 if market == "CRYPTO":
                     self.assertTrue(recon["population_equals_evaluated_plus_excluded_plus_unevaluated"])
-                    self.assertTrue(recon["evaluated_equals_admitted"])
+                    self.assertTrue(recon["evaluated_subset_of_admitted"])
+                    evaluated = row["evaluated"]
+                    self.assertEqual(
+                        evaluated["admitted_count"],
+                        evaluated["count"] + len(evaluated["admitted_not_evaluated"]),
+                    )
+                    self.assertEqual(recon["evaluated_equals_admitted"], not evaluated["admitted_not_evaluated"])
                     disposition = row["disposition"]
                     self.assertEqual(
                         population,
@@ -110,7 +121,8 @@ class CurrentInputsTests(unittest.TestCase):
         for market in ("KR", "US"):
             freshness = self.by_market[market]["population"]["freshness"]
             self.assertEqual(freshness["policy"], "SOURCE_DECLARED_EFFECTIVE_INTERVAL")
-            self.assertNotEqual(freshness["valid_to"], generated_date + "T")
+            self.assertEqual(freshness["valid_from"], self.by_market[market]["population"]["as_of"])
+        self.assertEqual(self.report["generated_at"][:10], generated_date)
         crypto_freshness = self.by_market["CRYPTO"]["population"]["freshness"]
         self.assertEqual(crypto_freshness["policy"], MODULE.UNDEFINED)
         self.assertEqual(crypto_freshness["source_date"], self.by_market["CRYPTO"]["population"]["as_of"])
@@ -165,7 +177,9 @@ class CurrentInputsTests(unittest.TestCase):
     def test_portal_block_links_existing_contracts_with_hashes(self):
         portal = self.report["portal"]
         roles = {ref["role"]: ref for ref in portal["reused_contracts"]}
-        self.assertEqual(roles["three_market_coverage"]["payload_sha256"], self.report["coverage_receipt"]["payload_sha256"])
+        receipt = self.report["coverage_receipt"]
+        self.assertEqual(roles["three_market_coverage"]["status"], receipt["status"])
+        self.assertEqual(roles["three_market_coverage"]["payload_sha256"], receipt.get("payload_sha256"))
         self.assertEqual(roles["kr_symbol_review"]["contract"], "korea_symbol_market_review/1")
         self.assertEqual(roles["us_symbol_review"]["contract"], "us_symbol_market_review/1")
         self.assertEqual(roles["crypto_decision"]["contract"], "crypto_paper_decision_snapshot_packet/1")
@@ -224,6 +238,45 @@ class CurrentInputsTests(unittest.TestCase):
                 self.assertNotIn("PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE", classes)
             self.assertEqual(detail["sector_rotation_link"]["symbol_to_sector_binding"]["status"], MODULE.NO_EVIDENCE)
             self.assertIn(detail["discovery_cases"]["status"], ("CASES_PRESENT", MODULE.NO_EVIDENCE, MODULE.NOT_AVAILABLE))
+
+    def test_crypto_latest_generation_without_evaluation_is_reported_as_collection_gap(self):
+        row = self.by_market["CRYPTO"]
+        evaluated = row["evaluated"]
+        codes = {gap["code"]: gap for gap in row["gap_classification"]}
+        if evaluated["admitted_not_evaluated"]:
+            gap = codes["P5_08_DID_NOT_EVALUATE_ADMITTED_MARKETS_IN_LATEST_GENERATION"]
+            self.assertEqual(gap["class"], "COLLECTION_FAILED")
+            self.assertEqual(gap["affected_count"], len(evaluated["admitted_not_evaluated"]))
+            self.assertTrue(gap["evidence"]["derivation_notes"])
+            if evaluated["count"] == 0:
+                self.assertEqual(row["candidate_zero_semantics"], "EVALUATOR_DID_NOT_RUN_IN_LATEST_GENERATION")
+            self.assertEqual(self.report["coverage_receipt"]["status"], "FAILED_CLOSED")
+            self.assertEqual(row["next_step_conditions"][0]["condition"], "P5_08_EVALUATION_RUN_FOR_ADMITTED_MARKETS")
+            last = evaluated["last_generation_with_evaluations"]
+            if last != MODULE.NO_EVIDENCE:
+                self.assertFalse(last["is_latest_generation"])
+                self.assertLess(last["generated_at"], evaluated["evaluated_at"])
+            with self.assertRaises(MODULE.COVERAGE.ThreeMarketEvaluationCoverageError):
+                MODULE.build_report(generated_at=self.generated_at, inputs=self.inputs, markets=("CRYPTO",), strict=True)
+        else:
+            self.assertNotIn("P5_08_DID_NOT_EVALUATE_ADMITTED_MARKETS_IN_LATEST_GENERATION", codes)
+            self.assertIn(row["candidate_zero_semantics"], ("CRITERIA_UNKNOWN_NOT_A_NEGATIVE_RESULT", "EVALUATED_NO_CANDIDATE", "CANDIDATES_PRESENT"))
+
+    def test_crypto_admitted_market_lookup_never_mislabels_a_skipped_generation(self):
+        admitted = [row for row in self.by_market["CRYPTO"]["symbols"] if row["universe_state"] in ("TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE")]
+        self.assertTrue(admitted)
+        detail = MODULE.lookup_symbol("CRYPTO", admitted[0]["symbol"], generated_at=self.generated_at, inputs=self.inputs)
+        self.assertEqual(detail["candidate_inclusion"]["status"], "ADMITTED_TO_EVALUATION_INPUT")
+        status = detail["last_evaluation"]["status"]
+        self.assertIn(status, ("EVALUATED", "ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION"))
+        if status == "ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION":
+            self.assertTrue(detail["last_evaluation"]["latest_generation"]["derivation_notes"])
+            self.assertEqual(detail["next_step_unmet_conditions"][0]["class"], "COLLECTION_FAILED")
+            last = detail["last_evaluation"]["last_evaluated_generation"]
+            if last != MODULE.NO_EVIDENCE:
+                self.assertEqual(last["state"] in ("WATCH", "WAIT", "FOCUSED_REVIEW", "PAPER_BUY_ELIGIBLE", "BLOCKED"), True)
+        self.assertEqual(detail["exclusion_expiry"]["excluded_by_existing_rule"]["status"], "NOT_EXCLUDED")
+        self.assertEqual(detail["discovery_cases"]["status"], "FEATURE_NOT_IMPLEMENTED")
 
     def test_unknown_symbol_fails_closed(self):
         for market, symbol in (("KR", "999999"), ("US", "ZZZZNOTASYMBOL"), ("CRYPTO", "KRW-NOPE")):
@@ -306,6 +359,10 @@ class PinnedCryptoGenerationTests(unittest.TestCase):
         self.assertEqual(row["disposition"]["unevaluated"]["count"], 0)
         self.assertEqual(row["candidate_zero_semantics"], "CRITERIA_UNKNOWN_NOT_A_NEGATIVE_RESULT")
         self.assertEqual(row["reconciliation"]["detail_view_binding"], MODULE.NOT_AVAILABLE)
+        self.assertTrue(row["reconciliation"]["evaluated_equals_admitted"])
+        self.assertEqual(row["evaluated"]["admitted_not_evaluated"], [])
+        self.assertEqual(self.report["coverage_receipt"]["status"], "BUILT")
+        self.assertEqual(row["reconciliation"]["coverage_receipt_cross_check"], "MATCH")
         classes = {(gap["class"], gap["code"]): gap["affected_count"] for gap in row["gap_classification"]}
         self.assertEqual(classes[("POLICY_UNDEFINED", "IDENTITY_SCOPE_NOT_RATIFIED_BEYOND_CURRENT_PAPER_EIGHT")], 267)
         self.assertEqual(classes[("EVALUATED_EXCLUDED_BY_RATIFIED_RULE", "INVESTMENT_WARNING_ACTIVE")], 7)

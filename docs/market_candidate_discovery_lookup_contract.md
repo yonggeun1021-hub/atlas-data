@@ -25,6 +25,18 @@ threshold, ranking, or freshness window and grants no authority.
 | validity / expiry | `evidence/operational/dynamic_clock/candidate_validity_window_assessment.json` (P8-12) | temporal status per subject; `NO_EVIDENCE` when the subject is not assessed |
 | discovery cases | latest `data/observations/event_discovery_cases/<date>/packet-*.json` | per-subject case counts and evidence status; crypto is `FEATURE_NOT_IMPLEMENTED` per the packet's own `source_coverage` |
 
+The coverage receipt asserts that the newest Crypto decision generation
+evaluated every admitted market. When P5-08 did not run in that generation
+(for example `P5_08_PROMOTION_FUNNEL_UNAVAILABLE:REGIME_PAYLOAD_FUTURE_DATED`),
+the receipt refuses; the lookup then reports
+`coverage_receipt.status = FAILED_CLOSED` with the exact reason, marks every
+`coverage_receipt_cross_check` as `NOT_AVAILABLE`, and still builds the chain
+from the per-symbol sources. `build_report(..., strict=True)` re-raises
+instead. The Crypto row then carries `evaluated.admitted_not_evaluated`, the
+decision's own `derivation_notes`, a `COLLECTION_FAILED` gap, and
+`last_generation_with_evaluations` (the newest earlier generation that did
+evaluate, reported separately and never substituted for the latest one).
+
 Every packet is loaded with its own hash / validator (`payload_sha256`,
 `packet_sha256`, `assessment_sha256`, the existing `validate_output`
 functions, the decision module's leadership lineage check). The newest packet
@@ -47,14 +59,17 @@ population   -> data_acquired -> evaluated -> passed | held | excluded | unevalu
   for CRYPTO.
 * `candidate_zero_semantics` separates
   `BOUNDED_REVIEW_ONLY_NO_POPULATION_CANDIDATE_RULE` (KR/US),
-  `CRITERIA_UNKNOWN_NOT_A_NEGATIVE_RESULT` (CRYPTO today) and
-  `EVALUATED_NO_CANDIDATE` (only when every criterion was known and failed).
+  `EVALUATOR_DID_NOT_RUN_IN_LATEST_GENERATION` (CRYPTO when the latest
+  decision generation carries no P5-08 rows),
+  `CRITERIA_UNKNOWN_NOT_A_NEGATIVE_RESULT` (CRYPTO when every evaluated
+  market stayed UNKNOWN) and `EVALUATED_NO_CANDIDATE` (only when every
+  criterion was known and failed).
 
 ### Gap classification
 
 | class | meaning | current KR/US/CRYPTO example |
 | --- | --- | --- |
-| `COLLECTION_FAILED` | a source was asked for and returned nothing usable | US `SNDK`: `PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE` (IEX-only scope) |
+| `COLLECTION_FAILED` | a source was asked for and returned nothing usable | US `SNDK`: `PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE` (IEX-only scope); CRYPTO: `P5_08_DID_NOT_EVALUATE_ADMITTED_MARKETS_IN_LATEST_GENERATION` with the decision's `derivation_notes` |
 | `SOURCE_STALE` | the source's **own** `effective_interval` has elapsed at lookup time | KR/US universe packets outside their `valid_from..valid_to` |
 | `FEATURE_NOT_IMPLEMENTED` | no connected component produces the figure | KR/US full-population evaluator; KR per-symbol price retention |
 | `POLICY_UNDEFINED` (`미정`) | a rule/threshold is not ratified | KRX/US `policy_status` UNRATIFIED entries, `FINAL_*_REGIME_*`, crypto criteria `NO_RATIFIED_*` |
@@ -76,8 +91,11 @@ status, stage history, `inclusion_reason` -- `NO_EVIDENCE` for KR/US because
 (existing reason / criterion codes only; undefined rules stay `미정`),
 `exclusion_expiry` (existing rule exclusion, stage status, P8-12 validity
 row), `discovery_cases`, `detail_contract_refs`. Crypto adds `detail_view`
-copied from the bound `crypto_candidate_detail_view/v1` packet. An unknown
-symbol raises `SYMBOL_NOT_FOUND`.
+copied from the bound `crypto_candidate_detail_view/v1` packet and, for an
+admitted market the latest generation skipped, `last_evaluation.status =
+ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION` with the latest generation's
+`derivation_notes` plus `last_evaluated_generation`. An unknown symbol raises
+`SYMBOL_NOT_FOUND`.
 
 ## Portal reuse
 
