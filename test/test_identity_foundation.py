@@ -632,6 +632,103 @@ class Defect3RealNestedConfigPathTests(_GitRepoMixin, unittest.TestCase):
         self.assertIsNotNone(real_path_result)
 
 
+class CIOA4Step2GitHelperMemoizationTests(_GitRepoMixin, unittest.TestCase):
+    """CIO-A4 step 2 (2026-09-13): _git_repo_root/_git_history_commits/
+    _git_show_bytes are now memoized in identity/canonical_identity.py.
+    These prove the three required exactness properties directly against
+    the cache, rather than only inferring them from unrelated resolver
+    tests: a different HEAD misses, a different path misses, and the
+    working-tree dirty check (never memoized) still fires live even once
+    the caches above are warm."""
+
+    def test_repo_root_cache_does_not_mix_up_two_different_directories(self):
+        issuer = self.ratify(make_issuer("ISSUER-ROOT-A"), ci.LAYER_ISSUER)
+        self.build(issuers=[issuer], commit_iso="2026-01-02T00:00:00Z")
+        path_a = self.repo.root / "config" / "canonical_security_identity.json"
+
+        other_root_dir = self.tmp_path / "repo_b"
+        repo_b = GitAuthorityRepo(other_root_dir)
+        repo_b.commit_authority(full_authority(issuers=[make_issuer("ISSUER-ROOT-B")]), "2026-01-02T00:00:00Z")
+        path_b = other_root_dir / "config" / "canonical_security_identity.json"
+
+        # Populate both before asserting either, so a cache keyed on the
+        # wrong thing (e.g. always returning the first result) would be
+        # caught by the second assertion.
+        root_a = ci._git_repo_root(path_a)
+        root_b = ci._git_repo_root(path_b)
+        self.assertEqual(root_a, self.repo.root.resolve())
+        self.assertEqual(root_b, other_root_dir.resolve())
+        self.assertNotEqual(root_a, root_b)
+
+    def test_history_cache_misses_when_head_advances(self):
+        """A second real commit to the same file changes HEAD; the very
+        next _git_history_commits call must see the new commit -- never a
+        stale list cached under the previous HEAD."""
+        issuer = self.ratify(make_issuer("ISSUER-CACHE-HEAD"), ci.LAYER_ISSUER)
+        instr = self.ratify(make_instrument("INSTR-CACHE-HEAD", "ISSUER-CACHE-HEAD"), ci.LAYER_INSTRUMENT)
+        self.build(issuers=[issuer], instruments=[instr], commit_iso="2026-01-02T00:00:00Z")
+        path = self.repo.root / "config" / "canonical_security_identity.json"
+
+        head_before = self.repo.head_commit()
+        commits_before = ci._git_history_commits(path)
+        self.assertTrue(commits_before)
+        self.assertEqual(commits_before[-1][0], head_before)
+
+        issuer_2 = self.ratify(make_issuer("ISSUER-CACHE-HEAD-2"), ci.LAYER_ISSUER)
+        self.build(issuers=[issuer, issuer_2], instruments=[instr], commit_iso="2026-01-03T00:00:00Z")
+        head_after = self.repo.head_commit()
+        self.assertNotEqual(head_before, head_after, "fixture assumption: content changed, HEAD must advance")
+
+        commits_after = ci._git_history_commits(path)
+        self.assertEqual(len(commits_after), len(commits_before) + 1)
+        self.assertEqual(commits_after[-1][0], head_after)
+
+    def test_show_bytes_cache_distinguishes_different_paths_at_the_same_commit(self):
+        """Two different files committed together (same commit hash) must
+        never share a cache entry: each path's own real bytes come back,
+        keyed by (repo_root, commit, path)."""
+        issuer = self.ratify(make_issuer("ISSUER-TWO-FILES"), ci.LAYER_ISSUER)
+        edge = self.ratify(make_scope_edge("KOREA", "TEST_ACCOUNT"), ci.LAYER_MARKET_ACCOUNT_SCOPE)
+        self.build(issuers=[issuer], commit_iso="2026-01-02T00:00:00Z")
+        self.build_scope(edges=[edge], commit_iso="2026-01-02T00:05:00Z")
+        commit = self.repo.head_commit()
+        repo_root = self.repo.root.resolve()
+
+        authority_bytes = ci._git_show_bytes(repo_root, commit, "config/canonical_security_identity.json")
+        scope_bytes = ci._git_show_bytes(repo_root, commit, "config/market_account_scope_map.json")
+        self.assertIsNotNone(authority_bytes)
+        self.assertIsNotNone(scope_bytes)
+        self.assertNotEqual(authority_bytes, scope_bytes)
+        self.assertIn(b"ISSUER-TWO-FILES", authority_bytes)
+        self.assertNotIn(b"canonical_issuer_id", scope_bytes)
+
+    def test_dirty_tree_still_detected_after_warm_show_bytes_cache(self):
+        """A clean verify_document_matches_source call warms the
+        _git_show_bytes cache for (repo_root, HEAD, path). An uncommitted
+        edit made after that -- same HEAD, same path -- must still be
+        caught: the dirty check (git status --porcelain) is never
+        memoized, so it must run live on every call regardless of the
+        warm show-bytes cache next to it."""
+        issuer = self.ratify(make_issuer("ISSUER-DIRTY-CACHE"), ci.LAYER_ISSUER)
+        instr = self.ratify(make_instrument("INSTR-DIRTY-CACHE", "ISSUER-DIRTY-CACHE"), ci.LAYER_INSTRUMENT)
+        authority = self.build(issuers=[issuer], instruments=[instr])
+
+        ok, reason = ci.verify_document_matches_source(authority)
+        self.assertTrue(ok)
+        self.assertIsNone(reason)
+
+        authority["instruments"][0]["instrument_type"] = "PREFERRED_STOCK"  # tamper, mirrored to disk below
+        clean = {k: v for k, v in authority.items() if not k.startswith("_")}
+        self.repo.write_dirty(
+            "config/canonical_security_identity.json",
+            json.dumps(clean, ensure_ascii=False, sort_keys=True).encode("utf-8"),
+        )
+
+        ok, reason = ci.verify_document_matches_source(authority)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "WORKING_TREE_DIRTY")
+
+
 class Defect4DocumentLevelValidationTests(unittest.TestCase):
     """A directly-injected (never file-loaded) document with an
     unsupported policy_version must be rejected identically to a
