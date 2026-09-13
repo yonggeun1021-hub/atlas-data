@@ -24,7 +24,7 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
@@ -3732,6 +3732,472 @@ def build_action_risk_summary(
 
 
 # ---------------------------------------------------------------------------
+# Presentation-only reference context (briefing content recency, 2026-09-14)
+#
+# The 2026-09-14 briefing content audit found date defects, not arithmetic
+# defects: the KRX board named the five-axis observation date as the "latest
+# confirmed close" (one session older than data/latest_krx.json already
+# confirmed), weekend mornings showed Friday's recorded KRX session nowhere,
+# and the PAPER regime reference that PAPER posture reads was omitted while
+# every runtime regime rendered UNKNOWN.
+#
+# These references only feed the human-readable render and the claim ledger.
+# They never feed a component row, a status, an aggregate, a rule or any
+# action/order/Production/trading path, so nothing below can promote anything.
+#
+# Freeze pattern (same as PRIOR_CONFIRMED_REFERENCE): chosen once on a FRESH
+# build and attached to the STEP0_READ_MODEL_HEALTH snapshot; on replay the
+# persisted choice is used and every displayed field is re-derived from the
+# choice's own immutable retained bytes. A replayed snapshot without the field
+# is a legacy build and stays byte-identical.
+#   * krx_confirmed_close -- data/latest_krx.json is a mutable rolling pointer
+#     with no dated archive, so only the git blob id of the bytes read is
+#     frozen. Replay reads that blob from the trusted repository, requires its
+#     sha256 to equal the STEP0 gate's recorded sources.krx.source_sha256, and
+#     re-derives confirmed_through/collected_at_utc; a missing blob fails
+#     validation.
+#   * krx_post_close -- the newest immutable
+#     data/observations/krx_post_close/<date>/ bundle at or before the decision
+#     date whose own collection instant precedes generation.
+#   * paper_regime -- the immutable
+#     evidence/regime/paper_reference/<date>/<generation>/packet.json copy of
+#     data/latest_paper_regime_reference.json (the pointer PAPER posture reads),
+#     byte-identical, self-hash verified and generated before this briefing.
+#     Always labelled a PAPER reference; runtime regime stays UNKNOWN.
+# ---------------------------------------------------------------------------
+
+PRESENTATION_REFERENCES = "presentation_references"
+# The only ratified freshness rule these rows can cite: the CIO-ratified KR
+# session-based axes rule (SESSION_EXACT_MATCH, no numeric TTL). It is applied
+# to KR five-axis-derived rows only. No window is ratified for filings, pilot
+# states or official releases, so those rows carry their dates and a 기준일
+# label, never an invented stale threshold.
+KR_SESSION_FRESHNESS_POLICY_PATH = "config/regime_semantic_freshness_policy_v1.json"
+KR_SESSION_NOT_ADVANCED_REASON = "SOURCE_NOT_ADVANCED_EXPECTED_SESSION"
+KR_SESSION_FRESHNESS_POLICY_REF = f"{KR_SESSION_FRESHNESS_POLICY_PATH} KR SESSION_EXACT_MATCH"
+PRESENTATION_REFERENCES_VERSION = 1
+KRX_CONFIRMED_SOURCE_PATH = "data/latest_krx.json"
+KRX_POST_CLOSE_OBSERVATION_ROOT = Path("data") / "observations" / "krx_post_close"
+PAPER_REGIME_REFERENCE_EVIDENCE_ROOT = Path("evidence") / "regime" / "paper_reference"
+_PRESENTATION_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+_GIT_BLOB_OID = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _git_blob_oid(data: bytes) -> str:
+    return hashlib.sha1(f"blob {len(data)}".encode("ascii") + b"\0" + data).hexdigest()
+
+
+def _git_blob_bytes(repository_root: Path, oid: str) -> bytes | None:
+    """Exact blob bytes from the trusted repository's object database, or None.
+
+    Replace refs are ignored and the returned bytes are re-hashed against the
+    oid itself, so the repository cannot answer with different content.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "--no-replace-objects", "cat-file", "blob", oid],
+            cwd=repository_root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0 or _git_blob_oid(completed.stdout) != oid:
+        return None
+    return completed.stdout
+
+
+def _capture_krx_confirmed_close(root: Path, repository_root: Path) -> dict:
+    """Freeze only the git blob id of the data/latest_krx.json bytes read now.
+
+    The rolling pointer has no dated archive, so its committed git blob is the
+    immutable copy a validator can re-read. When the bytes read now are not a
+    blob the trusted repository holds (e.g. an uncommitted working-tree edit),
+    nothing is frozen and the date renders UNKNOWN; it is never trusted from a
+    packet field.
+    """
+    try:
+        raw = (Path(root) / KRX_CONFIRMED_SOURCE_PATH).read_bytes()
+    except OSError:
+        return {"source_git_blob_sha1": None}
+    oid = _git_blob_oid(raw)
+    if _git_blob_bytes(repository_root, oid) is None:
+        return {"source_git_blob_sha1": None}
+    return {"source_git_blob_sha1": oid}
+
+
+def _krx_confirmed_close_reference(
+    frozen,
+    decision_date: str,
+    generated_at_dt: dt.datetime,
+    *,
+    step0_source_sha256,
+    repository_root: Path,
+) -> dict:
+    """Re-derive the confirmed-close fields from the frozen git blob.
+
+    Only ``source_git_blob_sha1`` is read from the frozen value. Every
+    displayed field is re-derived from that blob in the trusted repository, and
+    its sha256 must equal the STEP0 gate's own recorded latest_krx sha256. A
+    frozen blob the repository does not hold fails validation outright.
+    """
+    oid = frozen.get("source_git_blob_sha1") if isinstance(frozen, dict) else None
+    result = {
+        "source_path": KRX_CONFIRMED_SOURCE_PATH,
+        "basis": "decision_readiness.confirmed_through",
+        "source_git_blob_sha1": None,
+        "source_sha256": None,
+        "collected_at_utc": None,
+        "confirmed_through": None,
+        "unknown_reason": None,
+    }
+    if oid is None:
+        return result | {"unknown_reason": "KRX_CONFIRMED_SOURCE_NOT_COMMITTED"}
+    if not isinstance(oid, str) or _GIT_BLOB_OID.fullmatch(oid) is None:
+        fail("PRESENTATION_KRX_CONFIRMED_SOURCE_BLOB_INVALID", repr(oid))
+    raw = _git_blob_bytes(repository_root, oid)
+    if raw is None:
+        fail("PRESENTATION_KRX_CONFIRMED_SOURCE_BLOB_MISSING", oid)
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = None
+    payload = payload if isinstance(payload, dict) else {}
+    readiness = payload.get("decision_readiness")
+    confirmed = readiness.get("confirmed_through") if isinstance(readiness, dict) else None
+    collected = payload.get("collected_at_utc")
+    result |= {
+        "source_git_blob_sha1": oid,
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "collected_at_utc": collected if isinstance(collected, str) else None,
+        "confirmed_through": confirmed if isinstance(confirmed, str) else None,
+    }
+    reason = None
+    if result["source_sha256"] != step0_source_sha256:
+        reason = "KRX_CONFIRMED_SOURCE_NOT_STEP0_BYTES"
+    elif _canonical_iso_date(confirmed) is None:
+        reason = "KRX_CONFIRMED_THROUGH_INVALID"
+    elif confirmed > decision_date:
+        reason = "KRX_CONFIRMED_THROUGH_AFTER_DECISION_DATE"
+    else:
+        instant = _evidence_instant(collected)
+        if instant is None:
+            reason = "KRX_CONFIRMED_SOURCE_COLLECTED_AT_INVALID"
+        elif instant > generated_at_dt:
+            reason = "KRX_CONFIRMED_SOURCE_COLLECTED_AFTER_GENERATION"
+    result["unknown_reason"] = reason
+    return result
+
+
+def _read_json_bytes(path: Path) -> tuple[bytes | None, dict | None]:
+    try:
+        raw = Path(path).read_bytes()
+    except OSError:
+        return None, None
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return raw, None
+    return raw, value if isinstance(value, dict) else None
+
+
+def _krx_post_close_reference(
+    root: Path, selected_date, decision_date: str, generated_at_dt: dt.datetime
+) -> dict:
+    """Re-derive the displayed post-close facts from the selected bundle."""
+    base = {
+        "root": KRX_POST_CLOSE_OBSERVATION_ROOT.as_posix(),
+        "selected_date": selected_date if isinstance(selected_date, str) else None,
+        "index_sha256": None,
+        "observation_status": None,
+        "latest_observed_day": None,
+        "latest_trading_day": None,
+        "collected_at_utc": None,
+        "unknown_reason": None,
+    }
+    if selected_date is None:
+        return base | {
+            "unknown_reason": "NO_RETAINED_POST_CLOSE_BUNDLE_AT_OR_BEFORE_DECISION_DATE"
+        }
+    if _canonical_iso_date(selected_date) is None or selected_date > decision_date:
+        return base | {"selected_date": None, "unknown_reason": "POST_CLOSE_SELECTION_INVALID"}
+    raw, index = _read_json_bytes(
+        Path(root) / KRX_POST_CLOSE_OBSERVATION_ROOT / selected_date / "index.json"
+    )
+    if raw is None or index is None:
+        return base | {"unknown_reason": "RETAINED_POST_CLOSE_INDEX_MISSING"}
+    source = index.get("source") if isinstance(index.get("source"), dict) else {}
+    derived = base | {
+        "index_sha256": hashlib.sha256(raw).hexdigest(),
+        "observation_status": index.get("observation_status"),
+        "latest_observed_day": index.get("latest_observed_day"),
+        "latest_trading_day": index.get("latest_trading_day"),
+        "collected_at_utc": source.get("collected_at_utc"),
+    }
+    instant = _evidence_instant(derived["collected_at_utc"])
+    if not KRX_POST_CLOSE.COLLECTOR.check_bundle(selected_date, data_root=Path(root) / "data"):
+        derived["unknown_reason"] = "RETAINED_POST_CLOSE_BUNDLE_INVALID"
+    elif derived["latest_observed_day"] != selected_date:
+        derived["unknown_reason"] = "POST_CLOSE_OBSERVED_DAY_MISMATCH"
+    elif instant is None or instant > generated_at_dt:
+        derived["unknown_reason"] = "POST_CLOSE_COLLECTED_AFTER_GENERATION"
+    return derived
+
+
+def _select_krx_post_close(
+    root: Path, decision_date: str, generated_at_dt: dt.datetime, *, limit: int = 31
+) -> str | None:
+    directory = Path(root) / KRX_POST_CLOSE_OBSERVATION_ROOT
+    try:
+        names = sorted(
+            (path.name for path in directory.iterdir() if path.is_dir()),
+            reverse=True,
+        )
+    except OSError:
+        return None
+    candidates = [
+        name for name in names
+        if _canonical_iso_date(name) is not None and name <= decision_date
+    ][:limit]
+    for name in candidates:
+        reference = _krx_post_close_reference(root, name, decision_date, generated_at_dt)
+        if reference["unknown_reason"] is None:
+            return name
+    return None
+
+
+def _paper_regime_reference(
+    root: Path, selected_path, generated_at_dt: dt.datetime
+) -> dict:
+    """Re-derive the displayed PAPER reference facts from retained bytes."""
+    base = {
+        "label": "PAPER_REFERENCE_NOT_RUNTIME_AUTHORITY",
+        "evidence_path": selected_path if isinstance(selected_path, str) else None,
+        "evidence_sha256": None,
+        "generated_at": None,
+        "runtime_regime_authorized": False,
+        "markets": [],
+        "unknown_reason": None,
+    }
+    if selected_path is None:
+        return base | {"unknown_reason": "NO_RETAINED_PAPER_REFERENCE_BEFORE_GENERATION"}
+    relative = PurePosixPath(selected_path) if isinstance(selected_path, str) else None
+    prefix = PurePosixPath(PAPER_REGIME_REFERENCE_EVIDENCE_ROOT.as_posix())
+    if (
+        relative is None
+        or relative.is_absolute()
+        or ".." in relative.parts
+        or relative.parts[: len(prefix.parts)] != prefix.parts
+        or relative.name != "packet.json"
+    ):
+        return base | {"evidence_path": None, "unknown_reason": "PAPER_REFERENCE_SELECTION_INVALID"}
+    raw, value = _read_json_bytes(Path(root) / relative)
+    if raw is None or value is None:
+        return base | {"unknown_reason": "RETAINED_PAPER_REFERENCE_MISSING"}
+    unsigned = {key: item for key, item in value.items() if key != "payload_sha256"}
+    if value.get("payload_sha256") != payload_sha256(unsigned):
+        return base | {
+            "evidence_sha256": hashlib.sha256(raw).hexdigest(),
+            "unknown_reason": "RETAINED_PAPER_REFERENCE_SELF_HASH_MISMATCH",
+        }
+    authority = value.get("authority") if isinstance(value.get("authority"), dict) else {}
+    markets = []
+    for row in value.get("markets") or []:
+        if not isinstance(row, dict):
+            continue
+        reference = row.get("paper_reference") if isinstance(row.get("paper_reference"), dict) else {}
+        coverage = row.get("coverage") if isinstance(row.get("coverage"), dict) else {}
+        markets.append({
+            "market": row.get("market"),
+            "as_of_date": row.get("as_of_date"),
+            "classification_status": row.get("classification_status"),
+            "candidate_regime": reference.get("candidate_regime"),
+            "score": reference.get("score"),
+            "confidence": reference.get("confidence"),
+            "coverage_ratio": coverage.get("ratio"),
+            "runtime_regime": row.get("runtime_regime"),
+        })
+    derived = base | {
+        "evidence_sha256": hashlib.sha256(raw).hexdigest(),
+        "generated_at": value.get("generated_at"),
+        "runtime_regime_authorized": authority.get("runtime_regime_authorized") is True,
+        "markets": markets,
+    }
+    instant = _evidence_instant(derived["generated_at"])
+    if instant is None or instant > generated_at_dt:
+        derived["unknown_reason"] = "PAPER_REFERENCE_GENERATED_AFTER_GENERATION"
+    elif derived["runtime_regime_authorized"]:
+        # The display must never read as runtime authority; a packet claiming
+        # it is outside what this presentation line is allowed to show.
+        derived["unknown_reason"] = "PAPER_REFERENCE_CLAIMS_RUNTIME_AUTHORITY"
+    return derived
+
+
+PAPER_REGIME_REFERENCE_POINTER_PATH = "data/latest_paper_regime_reference.json"
+
+
+def _select_paper_regime_reference(root: Path, generated_at_dt: dt.datetime) -> str | None:
+    """The retained evidence copy of the PAPER reference pointer PAPER reads now.
+
+    regime/paper_regime_reference.py write_packet() writes the same bytes to
+    evidence/regime/paper_reference/<max market as_of>/<generation_id>/ and to
+    the rolling pointer. The pointer's generation is selected only when that
+    immutable copy exists byte-identically and was generated before this
+    briefing; anything else selects nothing (rendered UNKNOWN, never guessed).
+    """
+    pointer_raw, pointer = _read_json_bytes(Path(root) / PAPER_REGIME_REFERENCE_POINTER_PATH)
+    if pointer_raw is None or pointer is None:
+        return None
+    generation = pointer.get("generation_id")
+    dates = [
+        row.get("as_of_date") for row in pointer.get("markets") or []
+        if isinstance(row, dict) and _canonical_iso_date(row.get("as_of_date"))
+    ]
+    if not isinstance(generation, str) or _PRESENTATION_SHA256.fullmatch(generation) is None or not dates:
+        return None
+    relative = (PAPER_REGIME_REFERENCE_EVIDENCE_ROOT / max(dates) / generation / "packet.json").as_posix()
+    try:
+        retained = (Path(root) / relative).read_bytes()
+    except OSError:
+        return None
+    if retained != pointer_raw:
+        return None
+    reference = _paper_regime_reference(root, relative, generated_at_dt)
+    return relative if reference["unknown_reason"] is None else None
+
+
+def _presentation_references_snapshot(
+    snapshot,
+    decision_date: str,
+    generated_at_dt: dt.datetime,
+    *,
+    root: Path | None,
+    repository_root: Path = ROOT,
+):
+    """STEP0 snapshot plus its presentation-only references.
+
+    ``root`` is the live repository on a FRESH build ("choose once, now") and
+    None on replay, where only the snapshot's own frozen choice may be used.
+    Replay still re-reads immutable retained bytes from ROOT, and the
+    confirmed-close blob from ``repository_root`` (the trusted repository).
+    """
+    if not isinstance(snapshot, dict):
+        return snapshot
+    frozen = snapshot.get(PRESENTATION_REFERENCES)
+    if frozen is None and root is None:
+        return snapshot
+    base = {key: value for key, value in snapshot.items() if key != PRESENTATION_REFERENCES}
+    step0_value = base.get("value") if isinstance(base.get("value"), dict) else {}
+    step0_krx = ((step0_value.get("sources") or {}).get("krx") or {}) if isinstance(
+        step0_value.get("sources"), dict
+    ) else {}
+    step0_krx_sha256 = step0_krx.get("source_sha256") if isinstance(step0_krx, dict) else None
+    if frozen is None:
+        captured = _capture_krx_confirmed_close(root, repository_root)
+        post_close_date = _select_krx_post_close(root, decision_date, generated_at_dt)
+        paper_path = _select_paper_regime_reference(root, generated_at_dt)
+    else:
+        frozen = frozen if isinstance(frozen, dict) else {}
+        captured = frozen.get("krx_confirmed_close")
+        post_close_date = (frozen.get("krx_post_close") or {}).get("selected_date") if isinstance(
+            frozen.get("krx_post_close"), dict
+        ) else None
+        paper_path = (frozen.get("paper_regime") or {}).get("evidence_path") if isinstance(
+            frozen.get("paper_regime"), dict
+        ) else None
+    return base | {
+        PRESENTATION_REFERENCES: {
+            "version": PRESENTATION_REFERENCES_VERSION,
+            "scope": "PRESENTATION_ONLY_NOT_A_COMPONENT_INPUT",
+            "krx_confirmed_close": _krx_confirmed_close_reference(
+                captured,
+                decision_date,
+                generated_at_dt,
+                step0_source_sha256=step0_krx_sha256,
+                repository_root=repository_root,
+            ),
+            "krx_post_close": _krx_post_close_reference(
+                ROOT, post_close_date, decision_date, generated_at_dt
+            ),
+            "paper_regime": _paper_regime_reference(ROOT, paper_path, generated_at_dt),
+        }
+    }
+
+
+def presentation_references(packet: dict) -> dict | None:
+    """The packet's frozen presentation references, or None for a legacy build."""
+    frozen = (packet.get("frozen_sources") or {}).get("STEP0_READ_MODEL_HEALTH")
+    value = frozen.get(PRESENTATION_REFERENCES) if isinstance(frozen, dict) else None
+    return value if isinstance(value, dict) else None
+
+
+def krx_session_context(packet: dict) -> dict | None:
+    """Market-scoped KRX session dates for render and claims.
+
+    latest_confirmed_close_date is data/latest_krx.json
+    decision_readiness.confirmed_through (the collector's own next-day
+    confirmation), bound to the exact bytes the STEP0 gate read.
+    latest_completed_session_date is the newest KRX session with any retained
+    session evidence: the confirmed close, or a later retained post-close
+    observation that is still observed_unconfirmed. Returns None for a legacy
+    packet without frozen references.
+    """
+    references = presentation_references(packet)
+    if references is None:
+        return None
+    step0 = next(
+        (
+            row for row in packet.get("components", [])
+            if isinstance(row, dict) and row.get("component_id") == "STEP0_READ_MODEL_HEALTH"
+        ),
+        {},
+    )
+    step0_krx = (((step0.get("packet") or {}).get("sources") or {}).get("krx") or {})
+    confirmed_reference = references.get("krx_confirmed_close") or {}
+    confirmed = None
+    confirmed_reason = confirmed_reference.get("unknown_reason")
+    if confirmed_reason is None:
+        if confirmed_reference.get("source_sha256") != step0_krx.get("source_sha256"):
+            confirmed_reason = "KRX_CONFIRMED_SOURCE_NOT_STEP0_BYTES"
+        else:
+            confirmed = confirmed_reference.get("confirmed_through")
+    post_close = references.get("krx_post_close") or {}
+    observed = None
+    if (
+        post_close.get("unknown_reason") is None
+        and post_close.get("observation_status") == "observed_unconfirmed"
+        and isinstance(post_close.get("latest_observed_day"), str)
+        and (confirmed is None or post_close["latest_observed_day"] > confirmed)
+    ):
+        observed = post_close["latest_observed_day"]
+    if observed is not None:
+        completed, completed_status = observed, "OBSERVED_UNCONFIRMED"
+    elif confirmed is not None:
+        completed, completed_status = confirmed, "CONFIRMED"
+    else:
+        completed, completed_status = None, "UNKNOWN"
+    return {
+        "latest_confirmed_close_date": confirmed,
+        "latest_confirmed_close_unknown_reason": confirmed_reason,
+        "latest_confirmed_close_source_sha256": confirmed_reference.get("source_sha256"),
+        "latest_observed_unconfirmed_date": observed,
+        "latest_completed_session_date": completed,
+        "latest_completed_session_status": completed_status,
+        "post_close_collected_at_utc": post_close.get("collected_at_utc") if observed else None,
+    }
+
+
+def paper_regime_context(packet: dict) -> dict | None:
+    references = presentation_references(packet)
+    if references is None:
+        return None
+    return references.get("paper_regime") or None
+
+
+# ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------
 
@@ -4112,8 +4578,18 @@ def build_packet(
         return _enforce_temporal_boundary(row, decision_date, generated_at_dt)
 
     step0_snapshot = frozen_sources.get("STEP0_READ_MODEL_HEALTH")
-    if step0_snapshot is None:
+    step0_fresh = step0_snapshot is None
+    if step0_fresh:
         step0_snapshot = _fetch_step0_snapshot(decision_date)
+    # Presentation-only references ride on the STEP0 snapshot (chosen once on
+    # a fresh build, replayed afterwards). _classify_step0 never reads them.
+    step0_snapshot = _presentation_references_snapshot(
+        step0_snapshot,
+        decision_date,
+        generated_at_dt,
+        root=ROOT if step0_fresh else None,
+        repository_root=trusted_repository_root,
+    )
     step0 = _boundary(_classify_step0(decision_date, step0_snapshot))
     rows["STEP0_READ_MODEL_HEALTH"] = step0
     rows["KRX_PREOPEN_COMPACT"] = _boundary(
@@ -4997,6 +5473,7 @@ def _format_component_detail(
                         f"    - DART {observation.get('subject_id')} "
                         f"{observation.get('subject_name')}: "
                         f"{observation.get('filing_title')} "
+                        f"기준일(filing_date)={_date8_to_iso(observation.get('filing_date'))} "
                         f"evidence={observation.get('evidence_status')} "
                         "action=null"
                     )
@@ -5025,10 +5502,18 @@ def _format_component_detail(
             )
             radar = packet.get("radar_packet") or {}
             for result in radar.get("series_results", []):
+                evidence_rows = [
+                    item for item in result.get("evidence_source", [])
+                    if isinstance(item, dict)
+                ]
+                latest_evidence = evidence_rows[-1] if evidence_rows else {}
+                latest_identity = latest_evidence.get("source_identity") or {}
                 lines.append(
                     f"    - {result.get('subject')} {result.get('series_id')}: "
                     f"pattern={result.get('pattern')} values_pct={result.get('values_pct')} "
-                    f"candidate_eligible={result.get('candidate_eligible')}"
+                    f"candidate_eligible={result.get('candidate_eligible')} "
+                    f"기준일(latest_period_end)={latest_evidence.get('economic_period_end') or 'UNKNOWN'} "
+                    f"available_at={latest_identity.get('available_at') or 'UNKNOWN'}"
                 )
         elif cid == "OFFICIAL_RELEASE_SUMMARY":
             lines.append(
@@ -5038,10 +5523,12 @@ def _format_component_detail(
                 "interpretation=UNDETERMINED ranking=UNRATIFIED"
             )
             for observation in packet.get("observations", []):
+                lineage = observation.get("lineage") or {}
                 lines.append(
                     f"    - {observation.get('subject')}: "
                     f"{observation.get('release_title')} "
-                    f"published_at={observation.get('published_at')}"
+                    f"published_at={observation.get('published_at')} "
+                    f"기준일(retrieved)={str(lineage.get('retrieved_at_utc') or packet.get('evidence_as_of') or 'UNKNOWN')[:10]}"
                 )
                 for item in observation.get("summary_items", []):
                     lines.append(
@@ -5137,12 +5624,18 @@ def _format_component_detail(
             )
         elif cid == "FORWARD_ALPHA_REVIEW":
             subjects = packet.get("pilot_subjects", {})
-            lines.append(f"    - pilot_subjects={sorted(subjects)}")
-            for subject, row in sorted(subjects.items()):
+            pilot_date = packet.get("pilot_evidence_decision_date") or "UNKNOWN"
+            lines.append(
+                f"    - pilot_subjects={sorted(subjects)} "
+                f"기준일(pilot_evidence_decision_date)={pilot_date}"
+            )
+            for subject, subject_row in sorted(subjects.items()):
                 lines.append(
-                    f"    - {subject}: opportunity_state={row.get('opportunity_state')} "
-                    f"shadow_action={row.get('shadow_action')} "
-                    f"comparison_label={row.get('comparison_label')}"
+                    f"    - {subject}: opportunity_state={subject_row.get('opportunity_state')} "
+                    f"shadow_action={subject_row.get('shadow_action')} "
+                    f"comparison_label={subject_row.get('comparison_label')} "
+                    f"기준일={pilot_date} "
+                    f"next_review_date={subject_row.get('next_review_date')}"
                 )
         elif cid == "DYNAMIC_CLOCK":
             lines.append(f"    - policy_approval_status={packet.get('policy_approval_status')}")
@@ -5243,7 +5736,8 @@ def _format_component_detail(
                     if len(candidates) > _RENDER_CAP:
                         lines.append(
                             f"      - ... +{len(candidates) - _RENDER_CAP} more {tier_label} candidates "
-                            "(full list: evidence/operational/dynamic_clock/briefing_section.json)"
+                            f"(full list: this revision's packet.json, DYNAMIC_CLOCK "
+                            f"markets.{market}.{tier_key}; 기준일={dynamic_decision_date})"
                         )
         elif cid == "SHADOW_ENTRY_REVIEW":
             summary = packet.get("summary", {})
@@ -5261,6 +5755,7 @@ def _format_component_detail(
                     f"price_state={item.get('price_state')} "
                     f"review_due={item.get('review_due_status')} "
                     f"next_review_at={item.get('next_review_at')} "
+                    f"기준일={row.get('as_of_date') or 'UNKNOWN'} "
                     f"reason={item.get('review_reason')} capital=0 trade_proposal=null"
                 )
             lines.append(
@@ -5273,6 +5768,13 @@ def _format_component_detail(
         # than raising, the status/reason line above still stands.
         return []
     return lines
+
+
+def _date8_to_iso(value) -> str:
+    text = str(value or "")
+    if re.fullmatch(r"[0-9]{8}", text):
+        return f"{text[:4]}-{text[4:6]}-{text[6:]}"
+    return _canonical_iso_date(text) or "UNKNOWN"
 
 
 def _crypto_prior_confirmed_reference_lines(
@@ -5385,6 +5887,9 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         else "UNKNOWN"
     )
     krx_fresh = krx.get("status") == "READY" and krx.get("as_of_date") == decision_date
+    # Market-scoped KRX session dates (presentation references). A legacy
+    # packet without frozen references keeps its historical rendering.
+    krx_session = krx_session_context(packet)
     us = by_id.get("FREE_MARKET_DATA") or {}
     us_session_date = measurement_date("FREE_MARKET_DATA")
     us_fresh = us.get("status") == "READY" and us_session_date == decision_date
@@ -5394,17 +5899,61 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
 
     lines = ["## 3-market session board"]
 
-    lines.extend([
-        "### KRX · 한국",
-        ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
-        + f"; evidence_date={source_date('KOREA_MARKET_SIGNALS')}",
-        "- latest_confirmed_close_date: " + source_date("KOREA_MARKET_SIGNALS"),
-        "- latest_observed_unconfirmed_date: " + krx_observed_unconfirmed,
-        "- pending_reason: same-day post-close observations remain decision-ineligible "
-        "until canonical confirmation."
-        if krx_observed_unconfirmed != "UNKNOWN"
-        else "- pending_reason: no same-day post-close observation is available.",
-    ])
+    if krx_session is None:
+        lines.extend([
+            "### KRX · 한국",
+            ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
+            + f"; evidence_date={source_date('KOREA_MARKET_SIGNALS')}",
+            "- latest_confirmed_close_date: " + source_date("KOREA_MARKET_SIGNALS"),
+            "- latest_observed_unconfirmed_date: " + krx_observed_unconfirmed,
+            "- pending_reason: same-day post-close observations remain decision-ineligible "
+            "until canonical confirmation."
+            if krx_observed_unconfirmed != "UNKNOWN"
+            else "- pending_reason: no same-day post-close observation is available.",
+        ])
+    else:
+        confirmed_close = krx_session["latest_confirmed_close_date"] or "UNKNOWN"
+        if krx_observed_unconfirmed == "UNKNOWN" and krx_session["latest_observed_unconfirmed_date"]:
+            krx_observed_unconfirmed = krx_session["latest_observed_unconfirmed_date"]
+        completed = krx_session["latest_completed_session_date"] or "UNKNOWN"
+        index_move_date = source_date("KOREA_MARKET_SIGNALS")
+        lines.extend([
+            "### KRX · 한국",
+            ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
+            + f"; evidence_date={confirmed_close}",
+            "- latest_confirmed_close_date: " + confirmed_close
+            + ("; 거래소 확정 종가" if confirmed_close != "UNKNOWN" else ""),
+            "- latest_confirmed_close_basis: data/latest_krx.json "
+            "decision_readiness.confirmed_through (collector next-day confirmation)"
+            + (
+                f"; unknown_reason={krx_session['latest_confirmed_close_unknown_reason']}"
+                if krx_session["latest_confirmed_close_unknown_reason"]
+                else ""
+            ),
+            "- latest_observed_unconfirmed_date: " + krx_observed_unconfirmed
+            + ("; 관측·미확정(거래소 확정 전)" if krx_observed_unconfirmed != "UNKNOWN" else ""),
+            "- latest_completed_session_date: " + completed
+            + f" ({krx_session['latest_completed_session_status']}); 최근 완료 거래일"
+            + _KRX_SESSION_STATUS_GLOSS.get(krx_session["latest_completed_session_status"], ""),
+            "- index_move_observation_date: " + index_move_date
+            + (
+                f"; freshness={KR_SESSION_NOT_ADVANCED_REASON} "
+                f"(KOSPI/KOSDAQ one-session moves after {index_move_date} through "
+                f"{completed} are not yet observed; {KR_SESSION_FRESHNESS_POLICY_REF})"
+                if index_move_date != "UNKNOWN" and completed != "UNKNOWN"
+                and index_move_date < completed
+                else ""
+            ),
+            (
+                "- pending_reason: same-day post-close observations remain decision-ineligible "
+                "until canonical confirmation."
+                if krx_observed_unconfirmed == decision_date
+                else "- pending_reason: post-close observations remain decision-ineligible "
+                "until canonical confirmation."
+            )
+            if krx_observed_unconfirmed != "UNKNOWN"
+            else "- pending_reason: no post-close observation newer than the confirmed close is available.",
+        ])
     if krx_fresh:
         lines.extend(_format_component_detail(krx, decision_date))
     else:
@@ -5467,6 +6016,58 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
     return lines
 
 
+_KRX_SESSION_STATUS_GLOSS = {
+    "OBSERVED_UNCONFIRMED": " · 관측·미확정(거래소 확정 전)",
+    "CONFIRMED": " · 거래소 확정 종가",
+    "UNKNOWN": " · 확인 불가",
+}
+
+
+def _paper_regime_reference_lines(packet: dict) -> list[str]:
+    """Show the PAPER regime reference with its dates and a non-authority label.
+
+    Runtime regime stays UNKNOWN everywhere; this is the dated PAPER reference
+    PAPER posture reads, rendered so an existing decision-relevant state is not
+    silently omitted. Legacy packets without frozen references render nothing.
+    """
+    reference = paper_regime_context(packet)
+    if reference is None:
+        return []
+    label = "- PAPER 참고 판정 (런타임 판정 아님 · 매매/주문 권한 없음)"
+    if reference.get("unknown_reason"):
+        return [f"{label}: UNKNOWN ({reference['unknown_reason']})"]
+    lines = [
+        f"{label}: reference_generated_at={reference.get('generated_at')}",
+    ]
+    krx_session = krx_session_context(packet) or {}
+    krx_completed = krx_session.get("latest_completed_session_date")
+    for market in reference.get("markets", []):
+        as_of = market.get("as_of_date")
+        freshness = ""
+        if (
+            market.get("market") == "KR"
+            and isinstance(as_of, str)
+            and isinstance(krx_completed, str)
+            and as_of < krx_completed
+        ):
+            freshness = (
+                f" freshness={KR_SESSION_NOT_ADVANCED_REASON}"
+                f"(latest_completed_session={krx_completed})"
+            )
+        lines.append(
+            f"  - {market.get('market')}: PAPER 참고 판정={market.get('candidate_regime')} "
+            f"score={market.get('score')} confidence={market.get('confidence')} "
+            f"기준일={as_of or 'UNKNOWN'}{freshness} "
+            f"coverage={market.get('coverage_ratio')} "
+            f"runtime_regime={market.get('runtime_regime')}"
+        )
+    lines.append(
+        f"  - source: `{reference.get('evidence_path')}` "
+        f"sha256=`{reference.get('evidence_sha256')}`"
+    )
+    return lines
+
+
 def render_markdown(packet: dict) -> str:
     by_id = {row["component_id"]: row for row in packet["components"]}
     flow_first = FLOW_FIRST_BRIEFING.build_packet(packet)
@@ -5497,8 +6098,33 @@ def render_markdown(packet: dict) -> str:
             "- new_session: NONE",
             f"- latest_confirmed_evidence_date: {latest_confirmed}",
             "- latest_confirmed_evidence_relabelled_as_today: false",
-            "",
         ])
+        krx_session = krx_session_context(packet)
+        if krx_session is not None:
+            # The line above is the STEP0 collector run date, not a market
+            # session date; say so and name each market's own last session.
+            us_row = by_id.get("FREE_MARKET_DATA") or {}
+            us_session = (
+                ((us_row.get("packet") or {}).get("us_market_reference") or {}).get(
+                    "as_of_session_date"
+                )
+                or "UNKNOWN"
+            )
+            lines.extend([
+                "- latest_confirmed_evidence_date_scope: STEP0 collector run KST date, "
+                "not a market session date",
+                "- krx_latest_completed_session_date: "
+                + (krx_session["latest_completed_session_date"] or "UNKNOWN")
+                + f" ({krx_session['latest_completed_session_status']}; "
+                + "confirmed close "
+                + (krx_session["latest_confirmed_close_date"] or "UNKNOWN")
+                + ") · 최근 완료 거래일"
+                + _KRX_SESSION_STATUS_GLOSS.get(krx_session["latest_completed_session_status"], "")
+                + " · 거래소 확정 종가 "
+                + (krx_session["latest_confirmed_close_date"] or "UNKNOWN"),
+                f"- us_latest_session_date: {us_session}",
+            ])
+        lines.append("")
     for index, section in enumerate(flow_first["sections"], start=1):
         lines.append(f"## {index}. {section['title']}")
         lines.append(f"- status: {section['status']}")
@@ -5521,6 +6147,8 @@ def render_markdown(packet: dict) -> str:
                     for source in section["source_components"]
                 )
             )
+        if section["section_id"] == "REGIME":
+            lines.extend(_paper_regime_reference_lines(packet))
         if section["section_id"] == "CROSS_MARKET_FLOW":
             evidence = section["cross_asset_flow_evidence"]
             lines.append(
@@ -5550,7 +6178,8 @@ def render_markdown(packet: dict) -> str:
         for row in rows:
             mark = _STATUS_MARK.get(row["status"], row["status"])
             reason = f" — {row['reason']}" if row["reason"] else ""
-            lines.append(f"- **{row['component_id']}**: {mark}{reason}")
+            as_of = f" · 기준일={row['as_of_date']}" if row.get("as_of_date") else ""
+            lines.append(f"- **{row['component_id']}**: {mark}{reason}{as_of}")
             lines.extend(_format_component_detail(row, packet["decision_date"]))
             if row["source_packet_path"]:
                 lines.append(f"  - source: `{row['source_packet_path']}`")

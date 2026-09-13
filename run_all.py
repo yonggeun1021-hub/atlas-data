@@ -1647,6 +1647,14 @@ APPROVED_TESTS = [
     #   atomic append-only publish, self-rehash 재검증, 컴포넌트별 실패 격리,
     #   결정론적 재생성을 검증한다. ⛔ live network·provider 호출 없음.
     "test/test_daily_orchestrator.py",
+    # ★ Briefing content recency (CLAUDE_CIO briefing audit 2026-09-14 Task B) —
+    #   real audited slots 09-10 AM/PM … 09-13 AM as fixtures. KRX confirmed
+    #   close binds to latest_krx decision_readiness, weekend shows Friday's
+    #   recorded session, PAPER regime reference shown dated and labelled
+    #   (runtime regime stays UNKNOWN), rows carry 기준일, KOSPI/KOSDAQ moves
+    #   recomputed from retained raw index bytes. Presentation only; no status,
+    #   aggregate, action, order, Production or trading authority changes.
+    "test/test_briefing_content_recency_20260914.py",
     # ★ Daily Briefing same-day recovery — original natural schedule run만
     #   KST slot/date로 식별하고 briefing job 실패 시 최대 3회 안에서 재실행한다.
     #   성공한 briefing은 병렬 regression 결론과 분리해 다시 실행하지 않으며,
