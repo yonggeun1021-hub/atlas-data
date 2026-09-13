@@ -334,6 +334,24 @@ jobs:
             git commit -m "korea leadership effective-date seed $(date -u +%Y-%m-%d) [run ${{ github.run_id }}] [trigger=${{ github.event_name }}]"
             git push
           fi
+      # Runs only after the reuse check or the fetch+commit above has
+      # already preserved this date's attempt evidence (reused evidence
+      # is re-checked here too) -- opt-in on top of the unchanged
+      # --verify-existing-only integrity check, never a second provider
+      # call. continue-on-error: true because a faithfully preserved
+      # BLOCKED attempt is an expected, honest outcome, not a workflow
+      # failure -- this step only distinguishes and logs that a usable
+      # Leadership seed is not yet available, it never fails the job,
+      # invokes Stage3, or changes the schedule/commit scope above.
+      - name: Confirm effective-date Leadership seed usable-seed readiness
+        id: seed_readiness
+        continue-on-error: true
+        run: |
+          python3 .github/scripts/korea_leadership_live_fetch.py \
+            --prior-date "$PRIOR_DATE" \
+            --current-date "$CURRENT_DATE" \
+            --verify-existing-only \
+            --require-usable-seed
 
   scheduled-observation-pair:
     needs: prepare-scheduled-observation-pair
