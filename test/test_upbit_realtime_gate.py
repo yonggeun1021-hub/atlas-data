@@ -91,6 +91,15 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(contract["private_channel_subscribed"])
         self.assertEqual(set(contract["public_message_types"]), set(G.PUBLIC_MESSAGE_TYPES))
         self.assertEqual(contract["candle_ws_type_by_timeframe"], G.CANDLE_WS_TYPE_BY_TIMEFRAME)
+        self.assertEqual(
+            contract["provider_time_interval_classification"],
+            "CONTINUITY_UNVERIFIED_DIAGNOSTIC",
+        )
+        self.assertFalse(contract["provider_time_interval_proves_packet_loss"])
+        self.assertEqual(
+            contract["rest_backfill_gap_sources"],
+            ["WS_CONNECTION_GAP", "WS_SEQUENCE_REGRESSION"],
+        )
 
     def test_contract_rejects_tampered_safety_invariant(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
@@ -376,6 +385,42 @@ class FreshnessTests(unittest.TestCase):
         status = gate.status_snapshot(later)
         self.assertEqual(status["markets"][0]["freshness_by_kind"]["ticker"]["status"], G.STALE)
         self.assertEqual(status["overall_status"], G.STALE)
+
+    def test_event_silence_is_diagnostic_not_unproven_packet_loss(self):
+        gate = new_gate(markets=("KRW-BTC",))
+        t0 = dt.datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
+        gate.handle_message(make_trade(ts=1_800_000_000_000), received_at=t0)
+        later = t0 + dt.timedelta(seconds=10)
+        result = gate.handle_message(
+            make_trade(ts=1_800_000_010_000, sid=17_800_000_000_000_001),
+            received_at=later,
+        )
+        self.assertIn("detected_provider_silence", result)
+        self.assertFalse(result["detected_provider_silence"]["packet_loss_claimed"])
+        self.assertEqual(gate.pending_gap_windows(), [])
+        self.assertEqual(len(gate.status_snapshot(later)["provider_silence_windows"]), 1)
+
+    def test_next_natural_messages_restore_freshness_after_provider_silence(self):
+        gate = new_gate(markets=("KRW-BTC",))
+        t0 = dt.datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
+        messages = (
+            make_ticker(ts=1_800_000_000_000),
+            make_trade(ts=1_800_000_000_000),
+            make_orderbook(ts=1_800_000_000_000),
+        )
+        for raw in messages:
+            gate.handle_message(raw, received_at=t0)
+        self.assertEqual(gate.status_snapshot(t0 + dt.timedelta(seconds=60))["overall_status"], G.STALE)
+
+        recovered_at = t0 + dt.timedelta(seconds=61)
+        recovered_messages = (
+            make_ticker(ts=1_800_000_061_000),
+            make_trade(ts=1_800_000_061_000, sid=17_800_000_000_000_001),
+            make_orderbook(ts=1_800_000_061_000),
+        )
+        for raw in recovered_messages:
+            gate.handle_message(raw, received_at=recovered_at)
+        self.assertEqual(gate.status_snapshot(recovered_at)["overall_status"], G.FRESH)
 
     def test_unknown_outranks_stale_when_some_kinds_were_never_observed(self):
         gate = new_gate(markets=("KRW-BTC",))
