@@ -245,17 +245,34 @@ class CurrentInputsTests(unittest.TestCase):
         codes = {gap["code"]: gap for gap in row["gap_classification"]}
         if evaluated["admitted_not_evaluated"]:
             gap = codes["P5_08_DID_NOT_EVALUATE_ADMITTED_MARKETS_IN_LATEST_GENERATION"]
-            self.assertEqual(gap["class"], "COLLECTION_FAILED")
+            skipped = evaluated["latest_generation_skipped_class"]
+            self.assertIn(skipped, ("COLLECTION_FAILED", "EVALUATION_HALTED_INPUT_DATE_MISMATCH"))
+            self.assertEqual(gap["class"], skipped)
             self.assertEqual(gap["affected_count"], len(evaluated["admitted_not_evaluated"]))
             self.assertTrue(gap["evidence"]["derivation_notes"])
+            notes = " ".join(gap["evidence"]["derivation_notes"])
+            self.assertEqual(
+                skipped == "EVALUATION_HALTED_INPUT_DATE_MISMATCH",
+                bool(MODULE.DATE_MISMATCH_NOTE_RE.search(notes)),
+            )
             if evaluated["count"] == 0:
-                self.assertEqual(row["candidate_zero_semantics"], "EVALUATOR_DID_NOT_RUN_IN_LATEST_GENERATION")
+                self.assertEqual(
+                    row["candidate_zero_semantics"],
+                    "EVALUATION_HALTED_INPUT_DATE_MISMATCH" if skipped == "EVALUATION_HALTED_INPUT_DATE_MISMATCH"
+                    else "EVALUATOR_DID_NOT_RUN_IN_LATEST_GENERATION",
+                )
             self.assertEqual(self.report["coverage_receipt"]["status"], "FAILED_CLOSED")
             self.assertEqual(row["next_step_conditions"][0]["condition"], "P5_08_EVALUATION_RUN_FOR_ADMITTED_MARKETS")
             last = evaluated["last_generation_with_evaluations"]
             if last != MODULE.NO_EVIDENCE:
+                self.assertTrue(last["historical"])
+                self.assertFalse(last["substitutes_latest_generation"])
                 self.assertFalse(last["is_latest_generation"])
                 self.assertLess(last["generated_at"], evaluated["evaluated_at"])
+                self.assertEqual(last["evaluated_date_utc"], last["generated_at"][:10])
+                self.assertIn(last["generated_at"], row["summary"]["explanation"])
+            halted_key = "evaluation_halted_input_date_mismatch" if skipped == "EVALUATION_HALTED_INPUT_DATE_MISMATCH" else "unevaluated"
+            self.assertEqual(row["summary"]["categories"][halted_key]["count"], len(evaluated["admitted_not_evaluated"]))
             with self.assertRaises(MODULE.COVERAGE.ThreeMarketEvaluationCoverageError):
                 MODULE.build_report(generated_at=self.generated_at, inputs=self.inputs, markets=("CRYPTO",), strict=True)
         else:
@@ -268,15 +285,73 @@ class CurrentInputsTests(unittest.TestCase):
         detail = MODULE.lookup_symbol("CRYPTO", admitted[0]["symbol"], generated_at=self.generated_at, inputs=self.inputs)
         self.assertEqual(detail["candidate_inclusion"]["status"], "ADMITTED_TO_EVALUATION_INPUT")
         status = detail["last_evaluation"]["status"]
-        self.assertIn(status, ("EVALUATED", "ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION"))
-        if status == "ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION":
+        self.assertIn(status, ("EVALUATED", "ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION", "ADMITTED_EVALUATION_HALTED_INPUT_DATE_MISMATCH"))
+        classification = detail["classification"]
+        self.assertEqual(classification["label"], MODULE.CATEGORY_LABELS.get(classification["category"], "후보"))
+        if status != "EVALUATED":
             self.assertTrue(detail["last_evaluation"]["latest_generation"]["derivation_notes"])
-            self.assertEqual(detail["next_step_unmet_conditions"][0]["class"], "COLLECTION_FAILED")
+            expected_class = "EVALUATION_HALTED_INPUT_DATE_MISMATCH" if status.endswith("DATE_MISMATCH") else "COLLECTION_FAILED"
+            self.assertEqual(detail["last_evaluation"]["skipped_class"], expected_class)
+            self.assertEqual(detail["next_step_unmet_conditions"][0]["class"], expected_class)
+            self.assertEqual(
+                classification["category"],
+                "evaluation_halted_input_date_mismatch" if status.endswith("DATE_MISMATCH") else "unevaluated",
+            )
             last = detail["last_evaluation"]["last_evaluated_generation"]
             if last != MODULE.NO_EVIDENCE:
-                self.assertEqual(last["state"] in ("WATCH", "WAIT", "FOCUSED_REVIEW", "PAPER_BUY_ELIGIBLE", "BLOCKED"), True)
+                self.assertTrue(last["historical"])
+                self.assertFalse(last["substitutes_latest_generation"])
+                self.assertIn(last["state"], ("WATCH", "WAIT", "FOCUSED_REVIEW", "PAPER_BUY_ELIGIBLE", "BLOCKED"))
+        else:
+            self.assertFalse(detail["last_evaluation"]["last_evaluated_generation"]["historical"])
         self.assertEqual(detail["exclusion_expiry"]["excluded_by_existing_rule"]["status"], "NOT_EXCLUDED")
         self.assertEqual(detail["discovery_cases"]["status"], "FEATURE_NOT_IMPLEMENTED")
+
+    def test_market_summary_separates_population_from_evaluated_symbols(self):
+        for market in ("KR", "US"):
+            row = self.by_market[market]
+            summary = row["summary"]
+            self.assertEqual(summary["population_count"], row["population"]["count"])
+            self.assertEqual(summary["evaluated_symbol_count"], len(row["symbols"]))
+            self.assertNotEqual(summary["population_count"], summary["evaluated_symbol_count"])
+            self.assertEqual(summary["evaluated_symbols"], [s["symbol"] for s in row["symbols"]])
+            categories = summary["categories"]
+            self.assertEqual(
+                sorted(categories),
+                ["collection_failed", "evaluated_no_candidate", "no_evidence", "policy_undefined", "unevaluated"],
+            )
+            self.assertEqual(categories["unevaluated"]["count"], summary["population_count"] - summary["evaluated_symbol_count"])
+            self.assertEqual(categories["unevaluated"]["label"], "미평가")
+            self.assertFalse(categories["evaluated_no_candidate"]["applicable"])
+            self.assertEqual(categories["evaluated_no_candidate"]["count"], 0)
+            self.assertEqual(categories["no_evidence"]["count"], summary["evaluated_symbol_count"])
+            self.assertIn("inclusion_reason", categories["no_evidence"]["items"])
+            self.assertIn("미평가", summary["explanation"])
+            self.assertIn(str(summary["population_count"]), summary["explanation"])
+            self.assertIn(row["evaluated"]["evaluated_at"], summary["explanation"])
+        crypto = self.by_market["CRYPTO"]["summary"]
+        self.assertIn("evaluation_halted_input_date_mismatch", crypto["categories"])
+        self.assertEqual(crypto["categories"]["excluded_by_ratified_rule"]["label"], "비준 규칙에 의한 제외")
+        self.assertIn("최신 세대", crypto["explanation"])
+        self.assertEqual(self.report["category_labels"], MODULE.CATEGORY_LABELS)
+
+    def test_symbol_classification_matches_evidence(self):
+        kr_rows = self.by_market["KR"]["symbols"]
+        detail = MODULE.lookup_symbol("KR", kr_rows[0]["symbol"], generated_at=self.generated_at, inputs=self.inputs)
+        self.assertIn(detail["classification"]["category"], ("policy_undefined", "collection_failed"))
+        self.assertIn("inclusion_reason", detail["classification"]["no_evidence_items"])
+        self.assertIn("sector_rotation_link.symbol_to_sector_binding", detail["classification"]["no_evidence_items"])
+        self.assertFalse(detail["classification"]["evaluated_no_candidate_applicable"])
+        kr_universe = json.loads(Path(self.inputs["kr_universe_path"]).read_text(encoding="utf-8"))
+        subjects = {row["symbol"] for row in kr_rows}
+        other = next(r["primary_symbol"] for r in kr_universe["asset_master"]["records"] if r["primary_symbol"] not in subjects)
+        detail = MODULE.lookup_symbol("KR", other, generated_at=self.generated_at, inputs=self.inputs)
+        self.assertEqual(detail["classification"]["category"], "unevaluated")
+        self.assertEqual(detail["classification"]["label"], "미평가")
+        for row in self.by_market["US"]["symbols"]:
+            detail = MODULE.lookup_symbol("US", row["symbol"], generated_at=self.generated_at, inputs=self.inputs)
+            expected = "collection_failed" if row["price_status"] != "OBSERVED" else "policy_undefined"
+            self.assertEqual(detail["classification"]["category"], expected)
 
     def test_unknown_symbol_fails_closed(self):
         for market, symbol in (("KR", "999999"), ("US", "ZZZZNOTASYMBOL"), ("CRYPTO", "KRW-NOPE")):
@@ -369,6 +444,11 @@ class PinnedCryptoGenerationTests(unittest.TestCase):
         self.assertEqual(classes[("EVALUATED_CRITERIA_UNKNOWN", "P5_08_CRITERIA_UNKNOWN_FOR_ALL_HELD_MARKETS")], 8)
         self.assertEqual(classes[("POLICY_UNDEFINED", "TREND:NO_RATIFIED_CANDIDATE_TREND_RULE")], 8)
         self.assertNotIn("EVALUATED_NO_CANDIDATE", {gap["class"] for gap in row["gap_classification"]})
+        self.assertIsNone(row["evaluated"]["latest_generation_skipped_class"])
+        self.assertEqual(row["summary"]["categories"]["evaluation_halted_input_date_mismatch"]["count"], 0)
+        self.assertEqual(row["summary"]["categories"]["policy_undefined"]["count"], 267 + 8)
+        self.assertEqual(row["summary"]["categories"]["excluded_by_ratified_rule"]["count"], 7)
+        self.assertEqual(len(row["summary"]["evaluated_symbols"]), 8)
 
     def test_pinned_crypto_symbol_lookups(self):
         btc = MODULE.lookup_symbol("CRYPTO", "BTC", generated_at=self.generated_at, inputs=self.inputs)
@@ -387,7 +467,12 @@ class PinnedCryptoGenerationTests(unittest.TestCase):
         self.assertEqual(btc["detail_view"]["status"], MODULE.NOT_AVAILABLE)
         self.assertEqual(btc["discovery_cases"]["status"], "FEATURE_NOT_IMPLEMENTED")
 
+        self.assertEqual(btc["classification"]["category"], "policy_undefined")
+        self.assertEqual(btc["classification"]["label"], "정책 미정")
+        self.assertFalse(btc["last_evaluation"]["last_evaluated_generation"]["historical"])
         arb = MODULE.lookup_symbol("CRYPTO", "KRW-ARB", generated_at=self.generated_at, inputs=self.inputs)
+        self.assertEqual(arb["classification"]["category"], "policy_undefined")
+        self.assertEqual(arb["classification"]["reason"], "IDENTITY_UNRATIFIED")
         self.assertEqual(arb["candidate_inclusion"]["status"], "OBSERVATION_POOL_ONLY")
         self.assertEqual(arb["candidate_inclusion"]["bounded_identity_verdict"]["status"], "HOLD_TICKER_COLLISION")
         self.assertEqual(arb["last_evaluation"]["status"], "NOT_EVALUATED_BY_P5_08")
@@ -427,6 +512,20 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(before["status_at_generated_date"], "BEFORE_SOURCE_INTERVAL")
         with self.assertRaises(MODULE.MarketCandidateDiscoveryLookupError):
             MODULE._interval_status("2026-09-12", "2026-09-11", dt.date(2026, 9, 13))
+
+    def test_skipped_generation_class_separates_date_mismatch_from_collection_failure(self):
+        halted = ["CRYPTO_LIVE_COMPONENT_REGISTRY_WIRED:0_SOURCE_COMPONENTS",
+                  "UPBIT_REALTIME_RUN_DATE_MISMATCH:universe=2026-09-12:realtime=2026-09-13",
+                  "P5_08_PROMOTION_FUNNEL_UNAVAILABLE:REGIME_PAYLOAD_FUTURE_DATED"]
+        self.assertEqual(MODULE._skipped_generation_class(halted), "EVALUATION_HALTED_INPUT_DATE_MISMATCH")
+        self.assertEqual(MODULE._skipped_generation_class(["P5_08_PROMOTION_FUNNEL_UNAVAILABLE:SOURCE_FETCH_FAILED"]), "COLLECTION_FAILED")
+        self.assertEqual(MODULE._skipped_generation_class([]), "COLLECTION_FAILED")
+        self.assertEqual(MODULE._historical(None), MODULE.NO_EVIDENCE)
+        marked = MODULE._historical({"generated_at": "2026-09-12T22:38:01Z", "generation_id": "x", "candidate_count": 8})
+        self.assertTrue(marked["historical"])
+        self.assertEqual(marked["evaluated_date_utc"], "2026-09-12")
+        self.assertFalse(marked["substitutes_latest_generation"])
+        self.assertIn("EVALUATION_HALTED_INPUT_DATE_MISMATCH", MODULE.GAP_CLASSES)
 
     def test_unclassified_reason_codes_stay_undefined(self):
         rows = MODULE._classify_reasons(["FINAL_KOREA_REGIME_POLICY_PENDING", "SOME_FUTURE_CODE"])

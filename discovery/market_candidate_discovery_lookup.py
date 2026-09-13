@@ -60,6 +60,7 @@ NO_EVIDENCE = "NO_EVIDENCE"
 NOT_AVAILABLE = "NOT_AVAILABLE"
 GAP_CLASSES = (
     "COLLECTION_FAILED",
+    "EVALUATION_HALTED_INPUT_DATE_MISMATCH",
     "SOURCE_STALE",
     "FEATURE_NOT_IMPLEMENTED",
     "POLICY_UNDEFINED",
@@ -67,6 +68,18 @@ GAP_CLASSES = (
     "EVALUATED_EXCLUDED_BY_RATIFIED_RULE",
     "EVALUATED_NO_CANDIDATE",
 )
+# Korean reader labels for the disposition categories a user must be able to
+# tell apart.  They are display labels only; the machine codes stay English.
+CATEGORY_LABELS = {
+    "unevaluated": "미평가",
+    "evaluation_halted_input_date_mismatch": "평가 중단(입력 날짜 불일치)",
+    "collection_failed": "수집 실패",
+    "policy_undefined": "정책 미정",
+    "no_evidence": "근거 없음",
+    "excluded_by_ratified_rule": "비준 규칙에 의한 제외",
+    "evaluated_no_candidate": "정상 평가 후 후보 없음",
+}
+DATE_MISMATCH_NOTE_RE = re.compile(r"DATE_MISMATCH|FUTURE_DATED|MIXED_GENERATION")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -241,6 +254,34 @@ def _undefined_freshness(source_date: str, generated_date: dt.date, *, note: str
         "elapsed_days_at_generated_date": (generated_date - parsed).days,
         "note": note,
     }
+
+
+def _skipped_generation_class(derivation_notes: list) -> str:
+    """Why the latest Crypto decision generation carries no P5-08 rows.
+
+    Input-date mismatch (``*_DATE_MISMATCH``, ``*FUTURE_DATED``) is the
+    evaluator halting on inconsistent input dates -- the inputs were
+    collected, they just do not belong to the same generation.  Anything
+    else is reported as a collection failure.  The notes themselves are
+    copied verbatim next to the class.
+    """
+    if any(DATE_MISMATCH_NOTE_RE.search(note) for note in derivation_notes):
+        return "EVALUATION_HALTED_INPUT_DATE_MISMATCH"
+    return "COLLECTION_FAILED"
+
+
+def _historical(generation: dict | None) -> dict | str:
+    """Mark an earlier evaluating generation as a past result, never a substitute."""
+    if not generation:
+        return NO_EVIDENCE
+    row = dict(generation)
+    row.update({
+        "historical": True,
+        "evaluated_date_utc": str(row.get("generated_at") or "")[:10] or None,
+        "label": "과거 평가 결과 — 최신 세대를 대체하지 않음",
+        "substitutes_latest_generation": False,
+    })
+    return row
 
 
 def _authority() -> dict:
@@ -1471,9 +1512,10 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, ge
                 "affected_population": "upbit_tradeable_universe markets",
                 "evidence": {"taxonomy_version": packet.get("taxonomy_version"), "taxonomy_ratified": packet.get("taxonomy_ratified")},
             })
+    skipped_class = _skipped_generation_class(derivation_notes) if admitted_not_evaluated else None
     if admitted_not_evaluated:
         gaps.append({
-            "class": "COLLECTION_FAILED",
+            "class": skipped_class,
             "code": "P5_08_DID_NOT_EVALUATE_ADMITTED_MARKETS_IN_LATEST_GENERATION",
             "affected_count": len(admitted_not_evaluated),
             "affected_population": "P3-12 admitted markets (TRADEABLE_UNIVERSE/PAPER_ELIGIBLE)",
@@ -1502,7 +1544,11 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, ge
         })
     if funnel["focused_review_count"] == 0:
         if not evaluated and admitted:
-            zero_semantics = "EVALUATOR_DID_NOT_RUN_IN_LATEST_GENERATION"
+            zero_semantics = (
+                "EVALUATION_HALTED_INPUT_DATE_MISMATCH"
+                if skipped_class == "EVALUATION_HALTED_INPUT_DATE_MISMATCH"
+                else "EVALUATOR_DID_NOT_RUN_IN_LATEST_GENERATION"
+            )
         elif unknown_total == len(evaluated):
             zero_semantics = "CRITERIA_UNKNOWN_NOT_A_NEGATIVE_RESULT"
         else:
@@ -1573,7 +1619,8 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, ge
             "admitted_count": len(admitted),
             "admitted_not_evaluated": admitted_not_evaluated,
             "derivation_notes": derivation_notes,
-            "last_generation_with_evaluations": ctx["last_evaluating_generation"] or NO_EVIDENCE,
+            "latest_generation_skipped_class": skipped_class,
+            "last_generation_with_evaluations": _historical(ctx["last_evaluating_generation"]),
             "source": _source_ref(inputs["crypto_decision_path"], decision["payload_sha256"]),
         },
         "disposition": {
@@ -1675,20 +1722,27 @@ def _crypto_symbol_lookup(ctx: dict, inputs: dict, symbol: str, cases: dict | No
     admitted = universe_row["state"] in ("TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE")
     last_evaluated = ctx["last_evaluated_by_market"].get(market)
     if decision_row is None and admitted:
+        notes = [n for n in decision.get("derivation_notes") or [] if isinstance(n, str)]
+        skipped_class = _skipped_generation_class(notes)
         last_eval = {
-            "status": "ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION",
+            "status": (
+                "ADMITTED_EVALUATION_HALTED_INPUT_DATE_MISMATCH"
+                if skipped_class == "EVALUATION_HALTED_INPUT_DATE_MISMATCH"
+                else "ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION"
+            ),
+            "skipped_class": skipped_class,
             "latest_generation": {
                 "generated_at": decision["generated_at"],
                 "generation_id": decision["generation_id"],
-                "derivation_notes": [n for n in decision.get("derivation_notes") or [] if isinstance(n, str)],
+                "derivation_notes": notes,
                 "freshness_status": copy.deepcopy(decision.get("freshness_status")),
             },
-            "last_evaluated_generation": last_evaluated or NO_EVIDENCE,
+            "last_evaluated_generation": _historical(last_evaluated),
             "universe_state": universe_row["state"],
             "universe_reason": universe_row["reason"],
         }
-        unmet = [{"condition": "P5_08_EVALUATION_RUN", "status": "UNMET", "class": "COLLECTION_FAILED",
-                  "reason": "; ".join(n for n in decision.get("derivation_notes") or [] if isinstance(n, str))}]
+        unmet = [{"condition": "P5_08_EVALUATION_RUN", "status": "UNMET", "class": skipped_class,
+                  "reason": "; ".join(notes)}]
     elif decision_row is None:
         last_eval = {
             "status": "NOT_EVALUATED_BY_P5_08",
@@ -1697,7 +1751,7 @@ def _crypto_symbol_lookup(ctx: dict, inputs: dict, symbol: str, cases: dict | No
             "universe_reason": universe_row["reason"],
             "universe_evaluation_as_of": packet["evaluation_as_of"],
             "universe_available_at": packet["available_at"],
-            "last_evaluated_generation": last_evaluated or NO_EVIDENCE,
+            "last_evaluated_generation": _historical(last_evaluated),
         }
         unmet = [{"condition": "P3_12_ADMISSION_TO_TRADEABLE_UNIVERSE", "status": "UNMET",
                   "class": "POLICY_UNDEFINED" if universe_row["reason"] == "IDENTITY_UNRATIFIED" else "EVALUATED_EXCLUDED_BY_RATIFIED_RULE",
@@ -1716,7 +1770,8 @@ def _crypto_symbol_lookup(ctx: dict, inputs: dict, symbol: str, cases: dict | No
             "criteria": copy.deepcopy(criteria),
             "p5_09": copy.deepcopy(decision_row.get("p5_09")),
             "freshness_capped": decision_row.get("freshness_capped"),
-            "last_evaluated_generation": last_evaluated or NO_EVIDENCE,
+            "last_evaluated_generation": {"historical": False, "generated_at": decision["generated_at"],
+                                          "generation_id": decision["generation_id"], "is_latest_generation": True},
         }
         unmet = [
             {"condition": name, "status": criterion.get("status"), "reason": criterion.get("reason"),
@@ -1891,6 +1946,205 @@ def _portal_block(inputs: dict, coverage: dict | None, ctxs: dict) -> dict:
     }
 
 
+def _category(key: str, count, **extra) -> dict:
+    row = {"label": CATEGORY_LABELS[key], "count": count}
+    row.update(extra)
+    return row
+
+
+def _market_summary(row: dict) -> dict:
+    """Reader-facing separation of population vs. evaluated symbols and of the
+    four dispositions a user must be able to tell apart: 미평가 / 정책 미정 /
+    근거 없음 / 정상 평가 후 후보 없음 (plus 수집 실패, 평가 중단, 규칙 제외
+    where they occur).  Derived only from the row's own fields.
+    """
+    market = row["market"]
+    population = row["population"]
+    evaluated = row["evaluated"]
+    disposition = row["disposition"]
+    gaps = row["gap_classification"]
+    policy_codes = sorted({gap["code"] for gap in gaps if gap["class"] == "POLICY_UNDEFINED"})
+    symbols = row["symbols"]
+    if market in ("KR", "US"):
+        blocked_by_policy = [
+            s["symbol"] for s in symbols
+            if any(REVIEW_REASON_CLASS.get(code) == "POLICY_UNDEFINED" for code in s["blocking_reasons"])
+        ]
+        collection_failed = [
+            s["symbol"] for s in symbols
+            if any(REVIEW_REASON_CLASS.get(code) == "COLLECTION_FAILED" for code in s["blocking_reasons"])
+        ]
+        categories = {
+            "unevaluated": _category(
+                "unevaluated", disposition["unevaluated"]["count"],
+                meaning="전체 모집단 평가기가 연결되지 않아 평가 자체가 없는 종목 수 (모집단 − 실제 평가 종목)",
+                population_id=population["population_id"],
+            ),
+            "collection_failed": _category(
+                "collection_failed", len(collection_failed), symbols=collection_failed,
+                meaning="평가 대상이지만 가격 이력 등 입력 자료 수집이 실패한 종목",
+            ),
+            "policy_undefined": _category(
+                "policy_undefined", len(blocked_by_policy), symbols=blocked_by_policy,
+                policies=policy_codes,
+                meaning="평가는 됐으나 최종 판정 규칙(시장 Regime 정책·통과 규칙 등)이 미비준이라 보류된 종목",
+            ),
+            "no_evidence": _category(
+                "no_evidence", len(symbols), symbols=[s["symbol"] for s in symbols],
+                items=["inclusion_reason", "symbol_to_sector_binding", "rotation_ledger_link"],
+                meaning="편입 사유·종목→섹터 바인딩·로테이션 연결 근거가 저장소에 기록되지 않은 종목",
+            ),
+            "evaluated_no_candidate": _category(
+                "evaluated_no_candidate", 0, applicable=False,
+                meaning="통과 규칙이 미정이므로 '정상 평가 후 후보 없음'으로 분류된 종목은 없음 (0은 규칙 부재의 결과)",
+            ),
+        }
+        explanation = (
+            f"{market}: 모집단 {population['count']}종목({population['as_of']} 기준) 중 실제 평가 종목은 "
+            f"{evaluated['count']}종목({evaluated['evaluated_at']} 평가)입니다. "
+            f"미평가 {disposition['unevaluated']['count']}종목은 전체 모집단 평가기 미연결 때문이며, "
+            f"평가된 {evaluated['count']}종목은 통과 0 / 보류 {disposition['held']['count']}로 정책 미정"
+            f"({', '.join(sorted({c for s in symbols for c in s['blocking_reasons'] if REVIEW_REASON_CLASS.get(c) == 'POLICY_UNDEFINED'})) or '없음'}) 상태입니다."
+            + (f" 수집 실패: {', '.join(collection_failed)}." if collection_failed else "")
+            + " 편입 사유·섹터 바인딩 근거는 기록이 없습니다. 통과 규칙이 미정이라 '정상 평가 후 후보 없음'은 해당 없음입니다."
+        )
+    else:
+        skipped_class = evaluated.get("latest_generation_skipped_class")
+        not_evaluated = evaluated.get("admitted_not_evaluated") or []
+        held = disposition["held"]["count"]
+        excluded_by_reason = disposition["excluded"].get("by_reason") or {}
+        identity_unratified = excluded_by_reason.get("IDENTITY_UNRATIFIED", 0)
+        rule_excluded = sum(v for k, v in excluded_by_reason.items() if k != "IDENTITY_UNRATIFIED")
+        last_hist = evaluated.get("last_generation_with_evaluations")
+        categories = {
+            "unevaluated": _category(
+                "unevaluated", len(not_evaluated) if skipped_class == "COLLECTION_FAILED" else 0,
+                symbols=not_evaluated if skipped_class == "COLLECTION_FAILED" else [],
+                meaning="입력 자료 수집 실패로 최신 세대에서 평가되지 못한 admitted 종목",
+            ),
+            "evaluation_halted_input_date_mismatch": _category(
+                "evaluation_halted_input_date_mismatch",
+                len(not_evaluated) if skipped_class == "EVALUATION_HALTED_INPUT_DATE_MISMATCH" else 0,
+                symbols=not_evaluated if skipped_class == "EVALUATION_HALTED_INPUT_DATE_MISMATCH" else [],
+                derivation_notes=evaluated.get("derivation_notes") or [],
+                meaning="입력(universe/realtime/regime) 날짜가 서로 달라 최신 세대에서 P5-08 평가가 중단된 admitted 종목 — 수집 실패가 아님",
+            ),
+            "policy_undefined": _category(
+                "policy_undefined", identity_unratified + held,
+                identity_scope_unratified=identity_unratified, criteria_unknown_held=held,
+                policies=policy_codes,
+                meaning="identity 범위 미비준으로 관찰 풀에 머문 종목 + 평가됐으나 모든 기준이 규칙 미비준으로 UNKNOWN인 종목",
+            ),
+            "excluded_by_ratified_rule": _category(
+                "excluded_by_ratified_rule", rule_excluded,
+                by_reason={k: v for k, v in excluded_by_reason.items() if k != "IDENTITY_UNRATIFIED"},
+                meaning="비준된 taxonomy 규칙(투자유의 등)으로 제외된 종목",
+            ),
+            "no_evidence": _category(
+                "no_evidence", population["count"],
+                items=["symbol_to_sector_binding", "leadership_relative_strength"],
+                meaning="섹터 바인딩·leadership 상대강도 근거가 아직 관측되지 않음 (crypto_leadership 상태 UNKNOWN)",
+            ),
+            "evaluated_no_candidate": _category(
+                "evaluated_no_candidate",
+                evaluated["count"] if row["candidate_zero_semantics"] == "EVALUATED_NO_CANDIDATE" else 0,
+                applicable=row["candidate_zero_semantics"] == "EVALUATED_NO_CANDIDATE",
+                meaning="모든 기준이 판정 가능했고 통과한 종목이 없는 경우에만 해당",
+            ),
+        }
+        latest_line = (
+            f"최신 세대({evaluated['evaluated_at']})는 "
+            + ("입력 날짜 불일치로 평가가 중단되어" if skipped_class == "EVALUATION_HALTED_INPUT_DATE_MISMATCH"
+               else "입력 수집 실패로 평가되지 않아" if skipped_class == "COLLECTION_FAILED"
+               else f"{evaluated['count']}종목을 평가해")
+            + f" admitted {evaluated.get('admitted_count')}종목 중 {evaluated['count']}종목이 평가됐습니다."
+        )
+        hist_line = ""
+        if isinstance(last_hist, dict) and last_hist.get("historical"):
+            hist_line = (
+                f" 마지막 정상 평가는 {last_hist['generated_at']}({last_hist['candidate_count']}종목) 세대이며 "
+                f"과거 결과로만 표시하고 최신 평가로 대체하지 않습니다."
+            )
+        explanation = (
+            f"CRYPTO: 모집단 {population['count']}종목({population['as_of']} 스냅샷) 중 "
+            f"identity 미비준 {identity_unratified}종목(정책 미정)과 비준 규칙 제외 {rule_excluded}종목을 뺀 "
+            f"{evaluated.get('admitted_count')}종목이 평가 입력입니다. " + latest_line + hist_line
+            + (f" 평가된 종목은 모두 기준 UNKNOWN(규칙 미비준)으로 보류 상태입니다." if held else "")
+        )
+    return {
+        "population_count": population["count"],
+        "population_as_of": population["as_of"],
+        "evaluated_symbol_count": evaluated["count"],
+        "evaluated_at": evaluated["evaluated_at"],
+        "evaluated_symbols": (
+            [s["symbol"] for s in symbols] if market in ("KR", "US")
+            else [s["symbol"] for s in symbols if s.get("evaluated_by_p5_08")]
+        ),
+        "categories": categories,
+        "explanation": explanation,
+    }
+
+
+def _symbol_classification(detail: dict) -> dict:
+    """One reader-facing category per symbol plus the evidence items that are missing."""
+    market = detail["market"]
+    last_eval = detail["last_evaluation"]
+    no_evidence_items = []
+    inclusion = detail["candidate_inclusion"]
+    if (inclusion.get("inclusion_reason") or {}).get("status") == NO_EVIDENCE:
+        no_evidence_items.append("inclusion_reason")
+    for key, value in (detail.get("sector_rotation_link") or {}).items():
+        if isinstance(value, dict) and value.get("status") == NO_EVIDENCE:
+            no_evidence_items.append(f"sector_rotation_link.{key}")
+        elif value == NO_EVIDENCE:
+            no_evidence_items.append(f"sector_rotation_link.{key}")
+    if market in ("KR", "US"):
+        if last_eval["status"] != "EVALUATED":
+            key, reason = "unevaluated", last_eval.get("reason")
+        else:
+            classes = {u.get("class") for u in detail["next_step_unmet_conditions"]}
+            if "COLLECTION_FAILED" in classes:
+                key, reason = "collection_failed", "PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE"
+            elif "POLICY_UNDEFINED" in classes:
+                key, reason = "policy_undefined", ", ".join(
+                    u["condition"] for u in detail["next_step_unmet_conditions"] if u.get("class") == "POLICY_UNDEFINED"
+                )
+            else:
+                key, reason = "evaluated_no_candidate", last_eval.get("entry_state")
+        evaluated_no_candidate_applicable = False
+    else:
+        excluded = detail["exclusion_expiry"]["excluded_by_existing_rule"]
+        status = last_eval["status"]
+        if excluded["status"] == "EXCLUDED" and excluded.get("reason") == "IDENTITY_UNRATIFIED":
+            key, reason = "policy_undefined", "IDENTITY_UNRATIFIED"
+        elif excluded["status"] == "EXCLUDED":
+            key, reason = "excluded_by_ratified_rule", excluded.get("reason")
+        elif status == "ADMITTED_EVALUATION_HALTED_INPUT_DATE_MISMATCH":
+            key, reason = "evaluation_halted_input_date_mismatch", "; ".join(last_eval["latest_generation"]["derivation_notes"])
+        elif status == "ADMITTED_NOT_EVALUATED_IN_LATEST_GENERATION":
+            key, reason = "unevaluated", "; ".join(last_eval["latest_generation"]["derivation_notes"])
+        elif status == "EVALUATED":
+            unknown = [u["condition"] for u in detail["next_step_unmet_conditions"] if u.get("status") == "UNKNOWN"]
+            if unknown:
+                key, reason = "policy_undefined", ", ".join(unknown)
+            elif last_eval.get("state") in ("FOCUSED_REVIEW", "PAPER_BUY_ELIGIBLE"):
+                key, reason = "evaluated_no_candidate", None
+                key = "candidate"
+            else:
+                key, reason = "evaluated_no_candidate", last_eval.get("reason")
+        else:
+            key, reason = "unevaluated", status
+        evaluated_no_candidate_applicable = key == "evaluated_no_candidate"
+    label = CATEGORY_LABELS.get(key, "후보")
+    return {
+        "category": key,
+        "label": label,
+        "reason": reason,
+        "no_evidence_items": no_evidence_items,
+        "evaluated_no_candidate_applicable": evaluated_no_candidate_applicable,
+    }
+
+
 def build_report(*, generated_at: str, inputs: dict | None = None, markets: tuple = MARKETS, strict: bool = False) -> dict:
     observed_at = _utc(generated_at, "GENERATED_AT_INVALID")
     generated_date = observed_at.date()
@@ -1913,11 +2167,14 @@ def build_report(*, generated_at: str, inputs: dict | None = None, markets: tupl
             rows.append(_crypto_market_status(ctxs["CRYPTO"], inputs, by_market.get("CRYPTO"), generated_date))
         else:
             _fail("MARKET_INVALID", str(market))
+    for row in rows:
+        row["summary"] = _market_summary(row)
     report = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at,
         "generated_at_semantics": "LOOKUP_TIME_ONLY_NEVER_A_SOURCE_DATE",
         "gap_classes": list(GAP_CLASSES),
+        "category_labels": dict(CATEGORY_LABELS),
         "coverage_receipt": (
             {
                 "status": "BUILT",
@@ -1960,6 +2217,7 @@ def lookup_symbol(market: str, symbol: str, *, generated_at: str, inputs: dict |
     else:
         _fail("MARKET_INVALID", str(market))
         raise  # unreachable
+    result["classification"] = _symbol_classification(result)
     result["schema_version"] = f"{SCHEMA_VERSION}#symbol_detail"
     result["generated_at"] = generated_at
     result["generated_at_semantics"] = "LOOKUP_TIME_ONLY_NEVER_A_SOURCE_DATE"
