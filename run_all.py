@@ -2333,6 +2333,16 @@ APPROVED_TESTS = [
     #   User-ratified economic inputs have no defaults. No credentials,
     #   exchange endpoints, or REAL authority are introduced.
     "test/test_crypto_paper_runtime_bridge.py",
+    # ★ US-DATA-1 item 1 (CIO 2026-09-13): US-U1 investable-universe T1
+    #   display generator -- deterministic ETF/Test-Issue/Financial-Status
+    #   flag filter + a documented, unratified Security-Name common/ADS
+    #   pattern heuristic + a SEC company_tickers_exchange CIK presence
+    #   cross-check over the already-published P3-02 us_global_universe
+    #   packet. Every exclusion reason is counted and the pipeline fails
+    #   closed unless kept+excluded reconciles to the source row count.
+    #   t1_display_only=true, ratified=false on every row; no W2/W3/T2/T3
+    #   authority and no trading/order/capital authority anywhere.
+    "test/test_us_investable_universe_v1.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
