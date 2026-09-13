@@ -2112,22 +2112,29 @@ def _optional_packets(inputs: dict) -> tuple[dict | None, dict | None]:
 
 
 def _portal_block(inputs: dict, coverage: dict | None, ctxs: dict) -> dict:
+    # ``ctxs`` only holds the markets ``build_report`` was actually asked
+    # for (see its lazy-context-build comment): a market this report never
+    # requested is never referenced here either, matching the rest of the
+    # report.
     refs = [
         {"role": "three_market_coverage", "contract": COVERAGE.SCHEMA_VERSION,
          "payload_sha256": coverage["payload_sha256"] if coverage else None,
          "status": "BUILT" if coverage else "FAILED_CLOSED"},
-        {"role": "kr_symbol_review", "contract": ctxs["KR"]["review"]["contract_version"],
-         "source": _source_ref(inputs["kr_review_path"], ctxs["KR"]["review"]["packet_sha256"])},
-        {"role": "us_symbol_review", "contract": ctxs["US"]["review"]["contract_version"],
-         "source": _source_ref(inputs["us_review_path"], ctxs["US"]["review"]["packet_sha256"])},
-        {"role": "crypto_decision", "contract": ctxs["CRYPTO"]["decision"]["schema_version"],
-         "source": _source_ref(inputs["crypto_decision_path"], ctxs["CRYPTO"]["decision"]["payload_sha256"])},
     ]
-    detail = ctxs["CRYPTO"]["detail"]
-    if detail is not None:
-        refs.append({"role": "crypto_candidate_detail", "contract": CRYPTO_DETAIL.CONTRACT_VERSION,
-                     "binding": "BOUND_TO_SAME_DECISION_GENERATION" if not detail["_unbound"] else "UNBOUND_DIFFERENT_GENERATION",
-                     "source": _source_ref(inputs["crypto_detail_path"], detail["record"].get("payload_sha256"))})
+    if "KR" in ctxs:
+        refs.append({"role": "kr_symbol_review", "contract": ctxs["KR"]["review"]["contract_version"],
+                     "source": _source_ref(inputs["kr_review_path"], ctxs["KR"]["review"]["packet_sha256"])})
+    if "US" in ctxs:
+        refs.append({"role": "us_symbol_review", "contract": ctxs["US"]["review"]["contract_version"],
+                     "source": _source_ref(inputs["us_review_path"], ctxs["US"]["review"]["packet_sha256"])})
+    if "CRYPTO" in ctxs:
+        refs.append({"role": "crypto_decision", "contract": ctxs["CRYPTO"]["decision"]["schema_version"],
+                     "source": _source_ref(inputs["crypto_decision_path"], ctxs["CRYPTO"]["decision"]["payload_sha256"])})
+        detail = ctxs["CRYPTO"]["detail"]
+        if detail is not None:
+            refs.append({"role": "crypto_candidate_detail", "contract": CRYPTO_DETAIL.CONTRACT_VERSION,
+                         "binding": "BOUND_TO_SAME_DECISION_GENERATION" if not detail["_unbound"] else "UNBOUND_DIFFERENT_GENERATION",
+                         "source": _source_ref(inputs["crypto_detail_path"], detail["record"].get("payload_sha256"))})
     return {
         "market_list_contract": {
             "schema": f"{SCHEMA_VERSION}#market_list",
@@ -2347,17 +2354,31 @@ def _symbol_classification(detail: dict) -> dict:
 
 
 def build_report(*, generated_at: str, inputs: dict | None = None, markets: tuple = MARKETS, strict: bool = False) -> dict:
+    # Validate every requested market before building anything, then build
+    # only the contexts those markets actually need. A caller asking for one
+    # market (for example a pinned Crypto-only regression) must never be
+    # broken by an unrelated, unrequested market's source being out of its
+    # own point-in-time bounds (e.g. dated after the lookup time): that
+    # market was never asked for and its context is never built. The
+    # three-market coverage receipt below is a separate, always-all-three
+    # cross-check with its own existing fail-closed degrade (``strict``);
+    # this lazy-context change does not touch it.
+    for market in markets:
+        if market not in MARKETS:
+            _fail("MARKET_INVALID", str(market))
     observed_at = _utc(generated_at, "GENERATED_AT_INVALID")
     generated_date = observed_at.date()
     inputs = inputs or default_inputs()
     coverage_state = _coverage_report(inputs, generated_at, strict=strict)
     coverage = coverage_state["report"]
     by_market = {row["market"]: row for row in coverage["markets"]} if coverage else {}
-    ctxs = {
-        "KR": _kr_context(inputs, observed_at),
-        "US": _us_context(inputs, observed_at),
-        "CRYPTO": _crypto_context(inputs, observed_at),
-    }
+    ctxs = {}
+    if "KR" in markets:
+        ctxs["KR"] = _kr_context(inputs, observed_at)
+    if "US" in markets:
+        ctxs["US"] = _us_context(inputs, observed_at)
+    if "CRYPTO" in markets:
+        ctxs["CRYPTO"] = _crypto_context(inputs, observed_at)
     rows = []
     for market in markets:
         if market == "KR":
@@ -2366,8 +2387,6 @@ def build_report(*, generated_at: str, inputs: dict | None = None, markets: tupl
             rows.append(_us_market_status(ctxs["US"], inputs, by_market.get("US"), generated_date, observed_at))
         elif market == "CRYPTO":
             rows.append(_crypto_market_status(ctxs["CRYPTO"], inputs, by_market.get("CRYPTO"), generated_date))
-        else:
-            _fail("MARKET_INVALID", str(market))
     for row in rows:
         row["summary"] = _market_summary(row)
     report = {

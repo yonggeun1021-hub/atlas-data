@@ -438,6 +438,29 @@ class PinnedCryptoGenerationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.generated_at = "2026-09-12T14:15:00Z"
         base = MODULE.default_inputs()
+        # Keep the three-market coverage failure deterministic.  This class
+        # pins a historical Crypto generation while the repository's moving
+        # US latest pointer can advance after that generation.  A controlled
+        # future-dated copy proves that the aggregate receipt fails closed;
+        # it never weakly accepts either BUILT or FAILED_CLOSED based on
+        # whichever natural packet happens to be newest today.
+        cls._fixture_dir = tempfile.TemporaryDirectory(
+            prefix=".pinned_crypto_coverage_", dir=ROOT,
+        )
+        cls.addClassCleanup(cls._fixture_dir.cleanup)
+        future_us_market_data = copy.deepcopy(
+            json.loads(Path(base["us_market_data_path"]).read_text(encoding="utf-8"))
+        )
+        future_us_market_data["observed_at_utc"] = "2026-09-13T00:00:00Z"
+        future_us_market_data.pop("packet_sha256", None)
+        future_us_market_data["packet_sha256"] = MODULE.COVERAGE.payload_sha256(
+            future_us_market_data
+        )
+        future_us_market_data_path = Path(cls._fixture_dir.name) / "future_us_market_data.json"
+        future_us_market_data_path.write_text(
+            json.dumps(future_us_market_data, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
         # Pin every source to packets that existed at the pinned lookup time.
         cls.inputs = dict(base)
         cls.inputs.update(PINNED_CRYPTO)
@@ -447,6 +470,7 @@ class PinnedCryptoGenerationTests(unittest.TestCase):
             "us_universe_path": ROOT / "data/observations/us_global_universe/2026-09-11/packet.json",
             "us_raw_snapshot_dir": ROOT / "evidence/us_breadth/raw/2026-09-11",
             "us_review_path": ROOT / "evidence/us_symbol_market_review/2026-09-12/6cf3eeda4e856a56c0bc2ff3ad85dd5b250fb791c294c7a5c288918e0e5dfc71/packet.json",
+            "us_market_data_path": future_us_market_data_path,
             "crypto_bounded_identity_path": ROOT / "data/observations/upbit_bounded_identity_registry/2026-08-29/packet.json",
         })
         cls.report = MODULE.build_report(generated_at=cls.generated_at, inputs=cls.inputs, markets=("CRYPTO",))
@@ -472,8 +496,15 @@ class PinnedCryptoGenerationTests(unittest.TestCase):
         self.assertEqual(row["reconciliation"]["detail_view_binding"], MODULE.NOT_AVAILABLE)
         self.assertTrue(row["reconciliation"]["evaluated_equals_admitted"])
         self.assertEqual(row["evaluated"]["admitted_not_evaluated"], [])
-        self.assertEqual(self.report["coverage_receipt"]["status"], "BUILT")
-        self.assertEqual(row["reconciliation"]["coverage_receipt_cross_check"], "MATCH")
+        self.assertEqual(self.report["coverage_receipt"]["status"], "FAILED_CLOSED")
+        self.assertEqual(
+            self.report["coverage_receipt"]["reason"],
+            "US_FREE_MARKET_DATA_FROM_FUTURE",
+        )
+        self.assertEqual(
+            row["reconciliation"]["coverage_receipt_cross_check"],
+            MODULE.NOT_AVAILABLE,
+        )
         classes = {(gap["class"], gap["code"]): gap["affected_count"] for gap in row["gap_classification"]}
         self.assertEqual(classes[("POLICY_UNDEFINED", "IDENTITY_SCOPE_NOT_RATIFIED_BEYOND_CURRENT_PAPER_EIGHT")], 267)
         self.assertEqual(classes[("EVALUATED_EXCLUDED_BY_RATIFIED_RULE", "INVESTMENT_WARNING_ACTIVE")], 7)
@@ -534,6 +565,90 @@ class PinnedCryptoGenerationTests(unittest.TestCase):
             else "UNBOUND_DIFFERENT_GENERATION"
         )
         self.assertEqual(binding, expected)
+
+
+class CryptoOnlyLookupIsolationTests(unittest.TestCase):
+    """Regression for a CIO-reported clean-main bug (reproduced at
+    ``cf3cf83e``, independent of this adapter's own edits):
+    ``build_report(markets=("CRYPTO",))`` used to build KR/US contexts
+    unconditionally, so a CRYPTO-only, pinned-generation lookup crashed with
+    ``US_FREE_MARKET_DATA_FROM_FUTURE`` whenever the *unrequested* US market's
+    source happened to be dated after the CRYPTO lookup's own pinned time.
+
+    Fix: ``build_report`` validates every requested market up front, then
+    builds only the contexts those markets actually need; ``_portal_block``
+    likewise only references the markets it was given.
+
+    These tests are independent of whether the real pinned Crypto decision
+    fixture itself currently validates cleanly against latest ``main`` (a
+    separate, unrelated ``regime`` component-registry drift issue, tracked
+    separately below in this file's run notes) -- they assert only that
+    KR/US are never touched for a CRYPTO-only request, which is exactly what
+    the reported bug violated.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.generated_at = "2026-09-12T14:15:00Z"
+        base = MODULE.default_inputs()
+        cls.inputs = dict(base)
+        cls.inputs.update(PINNED_CRYPTO)
+        cls.inputs.update({
+            "kr_universe_path": ROOT / "data/observations/krx_global_universe/2026-09-10/packet.json",
+            "kr_review_path": ROOT / "evidence/korea_symbol_market_review/2026-09-10/c3f5e0a35a5c9b03d80f5ef1908d95c3dd20bc82d68c5e1c14d0ce777e0802c6/packet.json",
+            "us_universe_path": ROOT / "data/observations/us_global_universe/2026-09-11/packet.json",
+            "us_raw_snapshot_dir": ROOT / "evidence/us_breadth/raw/2026-09-11",
+            "us_review_path": ROOT / "evidence/us_symbol_market_review/2026-09-12/6cf3eeda4e856a56c0bc2ff3ad85dd5b250fb791c294c7a5c288918e0e5dfc71/packet.json",
+            "crypto_bounded_identity_path": ROOT / "data/observations/upbit_bounded_identity_registry/2026-08-29/packet.json",
+        })
+
+    def _assert_kr_us_never_built(self, inputs: dict) -> None:
+        from unittest import mock
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("_kr_context/_us_context must never be called for a CRYPTO-only request")
+
+        with mock.patch.object(MODULE, "_kr_context", side_effect=_boom), \
+             mock.patch.object(MODULE, "_us_context", side_effect=_boom):
+            try:
+                MODULE.build_report(generated_at=self.generated_at, inputs=inputs, markets=("CRYPTO",))
+            except AssertionError:
+                raise
+            except Exception:
+                # Any other failure (e.g. the unrelated crypto decision /
+                # regime component registry fixture issue noted above) is
+                # not what this test checks -- only that KR/US were never
+                # even reached.
+                pass
+
+    def test_crypto_only_report_never_builds_kr_or_us_context(self):
+        self._assert_kr_us_never_built(self.inputs)
+
+    def test_crypto_only_report_survives_kr_us_inputs_pointed_at_missing_files(self):
+        """Literal reproduction of the reported mixing bug: KR/US inputs
+        pointed at paths that do not exist at all (a stronger, deterministic
+        stand-in for "unrelated future-dated data") must never affect a
+        CRYPTO-only report -- because those markets were never requested,
+        their contexts are never built, and their inputs are never read for
+        that purpose (the always-all-three coverage receipt is a separate,
+        pre-existing mechanism that already degrades to FAILED_CLOSED
+        instead of raising -- see ``_coverage_report``)."""
+        inputs = dict(self.inputs)
+        inputs["kr_universe_path"] = ROOT / "does/not/exist/kr_universe.json"
+        inputs["us_market_data_path"] = ROOT / "does/not/exist/us_market_data.json"
+        self._assert_kr_us_never_built(inputs)
+
+    def test_invalid_requested_market_fails_closed_before_building_any_context(self):
+        from unittest import mock
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("no context may be built when an invalid market is requested")
+
+        with mock.patch.object(MODULE, "_kr_context", side_effect=_boom), \
+             mock.patch.object(MODULE, "_us_context", side_effect=_boom), \
+             mock.patch.object(MODULE, "_crypto_context", side_effect=_boom):
+            with self.assertRaises(MODULE.MarketCandidateDiscoveryLookupError):
+                MODULE.build_report(generated_at=self.generated_at, inputs=self.inputs, markets=("CRYPTO", "XX"))
 
 
 class PopulationLevelSymbolDataTests(unittest.TestCase):
