@@ -49,9 +49,21 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    # ``decision.population_symbol_observation`` self-registers into
+    # ``sys.modules`` under its own ``__name__`` at import time (so its KR/US
+    # adapter siblings can import it by a stable short name).  That only
+    # works through Python's normal import machinery, which registers a
+    # module into ``sys.modules`` before executing its body -- not through
+    # ``_load_module``'s ``spec_from_file_location`` + ``exec_module`` below,
+    # which never registers the module under its own name and would raise
+    # ``KeyError`` inside that self-registration line.  A standard import
+    # needs the repository root on ``sys.path`` first.
+    sys.path.insert(0, str(ROOT))
 SCHEMA_VERSION = "market_candidate_discovery_lookup/1"
 MARKETS = ("KR", "US", "CRYPTO")
 NOT_COUNTED = "미집계"
@@ -131,6 +143,19 @@ CRYPTO_DECISION = COVERAGE.CRYPTO_DECISION
 CRYPTO_DETAIL = _load_module(
     "lookup_crypto_candidate_detail_view", "decision/crypto_candidate_detail_view.py"
 )
+# population_symbol_observation_packet/1 (PR #702): read-only full-population
+# KR/US observation snapshot.  Only its own ``reverify`` (hash / schema /
+# sidecar-consistency check) is reused here; this lookup never rebuilds or
+# re-scores a row, and never reads its ``DEFAULT_OUTPUT_ROOTS`` directly --
+# the session root always comes from the caller's own ``inputs`` dict (see
+# ``default_inputs()``'s ``{kr,us}_population_observation_root``), so
+# ``build_report(inputs=...)`` / ``validate_report(report, inputs=...)`` stay
+# reproducible from exactly the inputs they were given.  Loaded through a
+# standard import (not ``_load_module``): the module registers itself into
+# ``sys.modules`` under its own ``__name__`` at import time, which requires
+# Python's normal import machinery, not ``spec_from_file_location`` +
+# ``exec_module`` without a prior ``sys.modules`` registration.
+from decision import population_symbol_observation as POPULATION_SYMBOL_OBSERVATION  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -224,6 +249,160 @@ def _latest_dated_packet(root: Path, date_field: str, *, glob: str = "packet.jso
         return None
     found.sort()
     return found[-1][1]
+
+
+def _eligible_population_symbol_observation_dir(root: Path, lookup_at: dt.datetime) -> tuple[Path | None, str]:
+    """Newest ``<root>/<YYYY-MM-DD>/`` session not newer than ``lookup_at``.
+
+    Point-in-time boundary: a session directory dated after ``lookup_at``'s
+    date, or whose own packet ``generated_at`` is after ``lookup_at``, was
+    not yet available at lookup time and is skipped -- never selected, and
+    never a reason by itself to report anything invalid.  Walking to an
+    older session for this reason is not a "fallback" (that term is reserved
+    for the separate, hard-stop case: the newest *eligible* session existing
+    but failing its own reverify -- see the caller, which never keeps
+    walking past that point). A directory whose ``summary.json`` cannot be
+    read/parsed is treated as eligible-but-unreadable, deferring the exact
+    failure to the caller's own read of it.
+    """
+    root = Path(root)
+    if not root.is_dir():
+        return None, "OBSERVATION_ROOT_ABSENT"
+    candidates = sorted(
+        (d for d in root.iterdir() if d.is_dir() and DATE_RE.fullmatch(d.name)),
+        key=lambda d: d.name,
+        reverse=True,
+    )
+    lookup_date = lookup_at.date()
+    saw_any = False
+    for directory in candidates:
+        saw_any = True
+        if dt.date.fromisoformat(directory.name) > lookup_date:
+            continue  # future session date: not yet available at lookup time
+        summary_path = directory / "summary.json"
+        try:
+            sidecar_generated_at = json.loads(summary_path.read_text(encoding="utf-8")).get("generated_at")
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return directory, "ELIGIBLE"  # let the caller's own read surface the exact failure
+        if isinstance(sidecar_generated_at, str) and UTC_RE.fullmatch(sidecar_generated_at):
+            generated_at_dt = dt.datetime.strptime(sidecar_generated_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+            if generated_at_dt > lookup_at:
+                continue  # packet generated after the lookup instant: not yet available
+        return directory, "ELIGIBLE"
+    return None, ("NO_ELIGIBLE_SESSION_ALL_FUTURE" if saw_any else "NO_SESSION_RETAINED")
+
+
+def _population_level_symbol_data(
+    market: str,
+    *,
+    observation_root: Path,
+    lookup_at: dt.datetime,
+    population_as_of: str,
+    population_id: str | None,
+    population_count: int,
+) -> dict:
+    """Population-wide per-symbol observation, adapted from ``population_symbol_observation_packet/1``.
+
+    ``observation_root`` must come from the caller's own ``inputs`` dict
+    (``default_inputs()``'s ``{kr,us}_population_observation_root``), never
+    from an ambient/global default: this keeps ``build_report(inputs=...)``
+    and ``validate_report(report, inputs=...)`` reproducible from exactly the
+    inputs they were given, the same as every other source this lookup reads.
+
+    Distinct from ``symbol_level`` (the bounded review's already-evaluated
+    subset): this reports every population symbol's ``data_observation`` /
+    ``evaluability`` / ``evaluation`` status, taken verbatim from the
+    packet's own ``summary`` sidecar after the packet's own ``reverify``
+    (hash, schema, authority, sidecar-consistency) has passed. When no
+    *eligible* (not-future, per ``lookup_at``) session is retained, the
+    pre-existing placeholder is reported unchanged. A packet whose own
+    population disagrees with the population this lookup is reporting for is
+    surfaced, never silently substituted or discarded. The newest eligible
+    session that fails its own reverify is reported as
+    ``OBSERVATION_PACKET_INVALID`` -- an older eligible session is never
+    used as a silent fallback.
+    """
+    session_dir, eligibility = _eligible_population_symbol_observation_dir(Path(observation_root), lookup_at)
+    if session_dir is None:
+        return {
+            "count": NOT_COUNTED,
+            "status": "NOT_RETAINED_IN_PUBLIC_REPOSITORY",
+            "evidence": (
+                # Only the "at least one session exists but every one is
+                # future-dated" case gets its own explicit evidence string;
+                # a genuinely absent root or an empty root both fall back to
+                # the pre-existing placeholder text unchanged.
+                eligibility if eligibility == "NO_ELIGIBLE_SESSION_ALL_FUTURE" else (
+                    "korea_market_signals.source.per_symbol_persistence=0" if market == "KR"
+                    else "POPULATION_SYMBOL_OBSERVATION_PACKET_ABSENT"
+                )
+            ),
+        }
+    try:
+        reverified = POPULATION_SYMBOL_OBSERVATION.reverify(session_dir)
+    except POPULATION_SYMBOL_OBSERVATION.PopulationSymbolObservationError as exc:
+        return {
+            "count": NOT_COUNTED,
+            "status": "OBSERVATION_PACKET_INVALID",
+            "evidence": str(exc),
+            "source": {"path": _relative(session_dir)},
+        }
+    sidecar = _read_json(session_dir / "summary.json", "POPULATION_OBSERVATION_SUMMARY_READ_FAILED")
+    if sidecar.get("as_of_session_date") != session_dir.name:
+        _fail("POPULATION_OBSERVATION_SESSION_DATE_MISMATCH", f"{session_dir}:{sidecar.get('as_of_session_date')}")
+    if (
+        sidecar.get("generation_id") != reverified["generation_id"]
+        or sidecar.get("payload_sha256") != reverified["payload_sha256"]
+    ):
+        _fail("POPULATION_OBSERVATION_SIDECAR_DRIFT", str(session_dir))
+    summary = sidecar["summary"]
+    observed_population = sidecar["population"]
+    matched = (
+        observed_population.get("population_id") == population_id
+        and observed_population.get("count") == population_count
+        and observed_population.get("as_of") == population_as_of
+    )
+    session_date = dt.date.fromisoformat(sidecar["as_of_session_date"])
+    lookup_date = lookup_at.date()
+    if session_date > lookup_date:
+        _fail("POPULATION_OBSERVATION_SESSION_DATE_AFTER_LOOKUP", str(session_dir))
+    return {
+        "status": "OBSERVED" if matched else "OBSERVED_POPULATION_MISMATCH",
+        "count": summary["population_count"],
+        "data_observed_count": summary["data_observed_count"],
+        "evaluable_count": summary["evaluable_count"],
+        "evaluated_count": summary["evaluated_count"],
+        "evaluated_bounded_count": summary["evaluated_bounded_count"],
+        "evaluated_without_full_inputs_count": summary["evaluated_without_full_inputs_count"],
+        "formal_candidate_count": summary["formal_candidate_count"],
+        "not_evaluable_reason_counts": copy.deepcopy(summary["not_evaluable_reason_counts"]),
+        "entry_state_counts": copy.deepcopy(summary["entry_state_counts"]),
+        "contract_version": "population_symbol_observation_packet/1",
+        "as_of_session_date": sidecar["as_of_session_date"],
+        "session_recency": {
+            # A deterministic date comparison only -- no invented freshness
+            # window or staleness policy. ``CURRENT_SESSION`` when the
+            # session is dated the same as the lookup date; otherwise
+            # ``HISTORICAL`` (future is already excluded above by
+            # construction, never reachable here).
+            "status": "CURRENT_SESSION" if session_date == lookup_date else "HISTORICAL",
+            "as_of_session_date": sidecar["as_of_session_date"],
+            "lookup_date": lookup_date.isoformat(),
+            "days_before_lookup_date": (lookup_date - session_date).days,
+        },
+        "generated_at": sidecar["generated_at"],
+        "generated_at_semantics": "INPUT_SNAPSHOT_TIME_MAX_OF_SOURCE_TIMESTAMPS_NOT_WALL_CLOCK",
+        "generation_id": sidecar["generation_id"],
+        "reverify_outcome": reverified["outcome"],
+        "population_match": {
+            "matched": matched,
+            "lookup_population": {
+                "population_id": population_id, "count": population_count, "as_of": population_as_of,
+            },
+            "observation_population": copy.deepcopy(observed_population),
+        },
+        "source": _source_ref(ROOT / reverified["path"], sidecar.get("payload_sha256")),
+    }
 
 
 def _interval_status(valid_from: object, valid_to: object, generated_date: dt.date) -> dict:
@@ -357,11 +536,18 @@ def default_inputs(root: Path = ROOT) -> dict:
         "kr_registry_coverage_path": _latest_dated_packet(
             root / "data/observations/krx_registry_evaluation_coverage", "evaluation_session_date"
         ),
+        # Directory only -- never a pre-selected "latest" session -- so that
+        # the point-in-time eligible-session selection in
+        # ``_population_level_symbol_data`` can apply the caller's exact
+        # lookup time (future sessions excluded) using only this input, never
+        # an ambient/global default.
+        "kr_population_observation_root": root / "data/observations/korea_population_symbol_observation",
         "us_universe_path": us_universe,
         "us_review_path": root / "data/latest_us_symbol_market_review.json",
         "us_review_contract_path": root / "config/us_symbol_market_review_contract.json",
         "us_raw_snapshot_dir": root / "evidence/us_breadth/raw" / us_source_date,
         "us_market_data_path": root / "data/latest_free_market_data.json",
+        "us_population_observation_root": root / "data/observations/us_population_symbol_observation",
         "stage_history_path": root / "data/stage_history.json",
         "discovery_cases_path": _latest_discovery_cases(root / "data/observations/event_discovery_cases"),
         "validity_assessment_path": _optional(validity),
@@ -699,7 +885,9 @@ def _kr_context(inputs: dict, observed_at: dt.datetime) -> dict:
     }
 
 
-def _kr_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, generated_date: dt.date) -> dict:
+def _kr_market_status(
+    ctx: dict, inputs: dict, coverage_row: dict | None, generated_date: dt.date, observed_at: dt.datetime,
+) -> dict:
     universe, review, signals = ctx["universe"], ctx["review"], ctx["signals"]
     population_count = universe["total_count"]
     symbols = review["symbols"]
@@ -823,11 +1011,14 @@ def _kr_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, genera
                 "flow_connected_count": review["summary"]["flow_connected_count"],
                 "as_of_session_date": sorted({row["price_context"]["as_of_session_date"] for row in symbols}),
             },
-            "population_level_symbol_data": {
-                "count": NOT_COUNTED,
-                "status": "NOT_RETAINED_IN_PUBLIC_REPOSITORY",
-                "evidence": "korea_market_signals.source.per_symbol_persistence=0",
-            },
+            "population_level_symbol_data": _population_level_symbol_data(
+                "KR",
+                observation_root=inputs["kr_population_observation_root"],
+                lookup_at=observed_at,
+                population_as_of=universe["as_of_date"],
+                population_id=universe["asset_master"]["master_id"],
+                population_count=population_count,
+            ),
         },
         "evaluated": {
             "count": len(symbols),
@@ -1044,7 +1235,9 @@ def _us_context(inputs: dict, observed_at: dt.datetime) -> dict:
     }
 
 
-def _us_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, generated_date: dt.date) -> dict:
+def _us_market_status(
+    ctx: dict, inputs: dict, coverage_row: dict | None, generated_date: dt.date, observed_at: dt.datetime,
+) -> dict:
     universe, review, market_data = ctx["universe"], ctx["review"], ctx["market_data"]
     packet = universe["packet"]
     population_count = packet["total_count"]
@@ -1190,6 +1383,14 @@ def _us_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, genera
                 "population_count": len(symbols),
                 "price_unavailable_symbols": price_unavailable,
             },
+            "population_level_symbol_data": _population_level_symbol_data(
+                "US",
+                observation_root=inputs["us_population_observation_root"],
+                lookup_at=observed_at,
+                population_as_of=packet["as_of_date"],
+                population_id=(packet.get("asset_master") or {}).get("master_id"),
+                population_count=population_count,
+            ),
         },
         "evaluated": {
             "count": len(symbols),
@@ -2160,9 +2361,9 @@ def build_report(*, generated_at: str, inputs: dict | None = None, markets: tupl
     rows = []
     for market in markets:
         if market == "KR":
-            rows.append(_kr_market_status(ctxs["KR"], inputs, by_market.get("KR"), generated_date))
+            rows.append(_kr_market_status(ctxs["KR"], inputs, by_market.get("KR"), generated_date, observed_at))
         elif market == "US":
-            rows.append(_us_market_status(ctxs["US"], inputs, by_market.get("US"), generated_date))
+            rows.append(_us_market_status(ctxs["US"], inputs, by_market.get("US"), generated_date, observed_at))
         elif market == "CRYPTO":
             rows.append(_crypto_market_status(ctxs["CRYPTO"], inputs, by_market.get("CRYPTO"), generated_date))
         else:

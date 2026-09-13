@@ -136,16 +136,50 @@ class CurrentInputsTests(unittest.TestCase):
                 self.by_market[market]["candidate_zero_semantics"],
                 "BOUNDED_REVIEW_ONLY_NO_POPULATION_CANDIDATE_RULE",
             )
-            self.assertEqual(
-                self.by_market[market]["data_acquired"].get("population_level_symbol_data", {}).get("count", MODULE.NOT_COUNTED),
-                MODULE.NOT_COUNTED,
-            )
+            population_level = self.by_market[market]["data_acquired"]["population_level_symbol_data"]
+            if population_level["status"] == "NOT_RETAINED_IN_PUBLIC_REPOSITORY":
+                self.assertEqual(population_level["count"], MODULE.NOT_COUNTED)
+            else:
+                # A retained population_symbol_observation_packet/1 session is
+                # connected: the count is real, never the placeholder.
+                self.assertIn(
+                    population_level["status"], ("OBSERVED", "OBSERVED_POPULATION_MISMATCH"),
+                )
+                self.assertIsInstance(population_level["count"], int)
+                self.assertEqual(population_level["reverify_outcome"], "REVERIFIED")
         screening = self.by_market["KR"]["screening_layer"]
         self.assertIn(screening["status"], ("AVAILABLE", MODULE.NOT_AVAILABLE))
         if screening["status"] == MODULE.NOT_AVAILABLE:
             self.assertEqual(screening["reason"], "KRX_REGISTRY_EVALUATION_COVERAGE_PACKET_ABSENT")
         us_screening = self.by_market["US"]["screening_layer"]
         self.assertEqual(us_screening["status"], MODULE.NOT_AVAILABLE)
+
+    def test_population_level_symbol_data_cross_checks_the_retained_observation_packet(self):
+        """PR #702's ``population_symbol_observation_packet/1`` is read through
+        its own ``reverify`` (never rebuilt), and its population is cross-checked
+        against the same KR/US population this lookup already reports, never
+        silently substituted when the two disagree.
+
+        Uses ``with self.subTest`` (never ``skipTest``) so one market's
+        absence of a retained session never hides an assertion failure for
+        the other market -- see ``PopulationLevelSymbolDataTests`` below for
+        exhaustive, deterministic coverage of every status this field can
+        take (synthetic fixtures; does not depend on ambient real data).
+        """
+        for market in ("KR", "US"):
+            with self.subTest(market=market):
+                population_level = self.by_market[market]["data_acquired"]["population_level_symbol_data"]
+                if population_level["status"] == "NOT_RETAINED_IN_PUBLIC_REPOSITORY":
+                    continue
+                lookup_population = self.by_market[market]["population"]
+                match = population_level["population_match"]
+                self.assertEqual(match["lookup_population"]["count"], lookup_population["count"])
+                self.assertEqual(match["lookup_population"]["as_of"], lookup_population["as_of"])
+                self.assertEqual(match["matched"], population_level["status"] == "OBSERVED")
+                # every count reported is the packet's own summary, verbatim
+                self.assertGreaterEqual(population_level["count"], population_level["evaluable_count"])
+                self.assertGreaterEqual(population_level["evaluable_count"], population_level["evaluated_count"] - population_level["evaluated_without_full_inputs_count"])
+                self.assertEqual(population_level["contract_version"], "population_symbol_observation_packet/1")
 
     def test_gap_classes_come_only_from_the_fixed_enumeration(self):
         for market, row in self.by_market.items():
@@ -500,6 +534,257 @@ class PinnedCryptoGenerationTests(unittest.TestCase):
             else "UNBOUND_DIFFERENT_GENERATION"
         )
         self.assertEqual(binding, expected)
+
+
+class PopulationLevelSymbolDataTests(unittest.TestCase):
+    """Real, deterministic execution of ``_population_level_symbol_data`` /
+    ``_eligible_population_symbol_observation_dir`` against synthetic
+    ``population_symbol_observation_packet/1`` sessions built with the real,
+    unmodified ``decision.population_symbol_observation`` module (never a
+    copy) in temporary directories -- so this runs regardless of whether the
+    real committed KR/US population observation sessions happen to be
+    present in a given checkout. Covers: the standard-import fix (no more
+    ``KeyError`` on the module's own self-registration), point-in-time
+    exclusion of future session dates and future packet ``generated_at``,
+    the no-older-fallback rule when the newest eligible session is invalid,
+    population id/count/as_of mismatch, deterministic historical/current
+    labelling, and that ``observation_root`` -- not an ambient default --
+    is what determines the result (``build_report``/``validate_report``
+    reproducibility).
+    """
+
+    def setUp(self):
+        # ``_source_ref`` (via ``_relative``) fails closed on any path outside
+        # ``MODULE.ROOT`` -- exactly as it does for every other source this
+        # lookup reads -- so the synthetic observation root must live inside
+        # the repository, not under the system temp directory.
+        import shutil
+        self.root = Path(tempfile.mkdtemp(dir=str(MODULE.ROOT / "test")))
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def _row(self, symbol: str) -> dict:
+        return {
+            "symbol": symbol, "name": symbol, "membership": {}, "observation_status": "NOT_EVALUABLE",
+            "data_observation": {"status": "DATA_OBSERVED"},
+            "evaluability": {"status": "NOT_EVALUABLE", "reasons": ["TEST_REASON"]},
+            "evaluation": {"status": "NOT_EVALUATED", "entry_state": None},
+            "formal_candidate": {"status": "NOT_A_FORMAL_CANDIDATE", "promotion_by_this_packet": False},
+            "facts": {}, "evidence_refs": [],
+        }
+
+    def _persist_session(
+        self, root: Path, *, session_date: str, generated_at: str, count: int = 2,
+        population_id: str = "TEST.POP", gen_id: str | None = None,
+    ) -> Path:
+        m = MODULE.POPULATION_SYMBOL_OBSERVATION
+        contract = m.load_contract()
+        rows = [self._row(f"SYM{i:03d}") for i in range(count)]
+        packet = m.assemble_packet(
+            market="KR", session_date=session_date, generated_at=generated_at,
+            gen_id=gen_id or f"testgen-{session_date}-{count}",
+            population={"count": count, "as_of": session_date, "population_id": population_id},
+            sources={}, rows=rows, policy_undefined=[], resume_report={"complete": True}, contract=contract,
+        )
+        m.validate_packet(packet, contract)
+        out_dir = root / session_date
+        persisted = m.persist_packet(packet, out_dir, compress=False)
+        self.assertEqual(persisted["outcome"], "populated")
+        return out_dir
+
+    def test_real_standard_import_no_keyerror_and_module_registered(self):
+        """Regression for the ``KeyError`` the dynamic ``_load_module`` /
+        ``exec_module``-without-registration pattern used to raise inside
+        ``population_symbol_observation.py``'s own self-registration line."""
+        import sys
+        m = MODULE.POPULATION_SYMBOL_OBSERVATION
+        self.assertEqual(m.__name__, "decision.population_symbol_observation")
+        self.assertIs(sys.modules.get("decision.population_symbol_observation"), m)
+        self.assertIs(sys.modules.get("population_symbol_observation"), m)
+
+    def test_observed_when_population_matches(self):
+        session_date = "2026-09-13"
+        self._persist_session(self.root, session_date=session_date, generated_at="2026-09-13T00:30:00Z", count=3)
+        result = MODULE._population_level_symbol_data(
+            "KR", observation_root=self.root, lookup_at=dt.datetime(2026, 9, 13, 1, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of=session_date, population_id="TEST.POP", population_count=3,
+        )
+        self.assertEqual(result["status"], "OBSERVED")
+        self.assertEqual(result["count"], 3)
+        self.assertEqual(result["reverify_outcome"], "REVERIFIED")
+        self.assertTrue(result["population_match"]["matched"])
+
+    def test_population_id_count_as_of_mismatch_is_surfaced_never_substituted(self):
+        session_date = "2026-09-10"
+        self._persist_session(self.root, session_date=session_date, generated_at="2026-09-10T00:30:00Z", count=5, population_id="REAL.POP")
+        result = MODULE._population_level_symbol_data(
+            "KR", observation_root=self.root, lookup_at=dt.datetime(2026, 9, 13, 0, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of=session_date, population_id="DIFFERENT.POP", population_count=999,
+        )
+        self.assertEqual(result["status"], "OBSERVED_POPULATION_MISMATCH")
+        self.assertFalse(result["population_match"]["matched"])
+        self.assertEqual(result["population_match"]["observation_population"]["population_id"], "REAL.POP")
+        self.assertEqual(result["population_match"]["observation_population"]["count"], 5)
+        self.assertEqual(result["population_match"]["lookup_population"]["population_id"], "DIFFERENT.POP")
+        self.assertEqual(result["population_match"]["lookup_population"]["count"], 999)
+        # the packet's own real count is still reported, never silently replaced
+        self.assertEqual(result["count"], 5)
+
+    def test_historical_label_for_sep10_kr_style_session_on_sep13_lookup(self):
+        session_date = "2026-09-10"
+        self._persist_session(self.root, session_date=session_date, generated_at="2026-09-10T00:30:00Z")
+        result = MODULE._population_level_symbol_data(
+            "KR", observation_root=self.root, lookup_at=dt.datetime(2026, 9, 13, 5, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of=session_date, population_id="TEST.POP", population_count=2,
+        )
+        self.assertEqual(result["status"], "OBSERVED")
+        self.assertEqual(result["session_recency"]["status"], "HISTORICAL")
+        self.assertEqual(result["session_recency"]["as_of_session_date"], "2026-09-10")
+        self.assertEqual(result["session_recency"]["lookup_date"], "2026-09-13")
+        self.assertEqual(result["session_recency"]["days_before_lookup_date"], 3)
+
+    def test_historical_label_for_sep11_us_style_session_on_sep13_lookup(self):
+        session_date = "2026-09-11"
+        self._persist_session(self.root, session_date=session_date, generated_at="2026-09-11T00:30:00Z")
+        result = MODULE._population_level_symbol_data(
+            "US", observation_root=self.root, lookup_at=dt.datetime(2026, 9, 13, 5, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of=session_date, population_id="TEST.POP", population_count=2,
+        )
+        self.assertEqual(result["session_recency"]["status"], "HISTORICAL")
+        self.assertEqual(result["session_recency"]["days_before_lookup_date"], 2)
+
+    def test_current_session_label_when_session_date_equals_lookup_date(self):
+        session_date = "2026-09-13"
+        self._persist_session(self.root, session_date=session_date, generated_at="2026-09-13T00:30:00Z")
+        result = MODULE._population_level_symbol_data(
+            "KR", observation_root=self.root, lookup_at=dt.datetime(2026, 9, 13, 5, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of=session_date, population_id="TEST.POP", population_count=2,
+        )
+        self.assertEqual(result["session_recency"]["status"], "CURRENT_SESSION")
+        self.assertEqual(result["session_recency"]["days_before_lookup_date"], 0)
+
+    def test_future_session_date_is_excluded_older_eligible_session_used(self):
+        """A session directory dated after the lookup date must never be
+        selected; the newest session that is not in the future is used
+        instead -- this is temporal-availability exclusion, not the
+        no-fallback rule (which only applies once an eligible session has
+        been chosen and found invalid)."""
+        older = self._persist_session(self.root, session_date="2026-09-10", generated_at="2026-09-10T00:30:00Z", count=7)
+        self._persist_session(self.root, session_date="2026-09-14", generated_at="2026-09-14T00:30:00Z", count=999)
+        result = MODULE._population_level_symbol_data(
+            "KR", observation_root=self.root, lookup_at=dt.datetime(2026, 9, 13, 0, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of="2026-09-10", population_id="TEST.POP", population_count=7,
+        )
+        self.assertEqual(result["status"], "OBSERVED")
+        self.assertEqual(result["count"], 7)
+        self.assertEqual(result["as_of_session_date"], "2026-09-10")
+        self.assertEqual(
+            Path(MODULE.ROOT / result["source"]["path"]).resolve(),
+            (older / "packet.json").resolve(),
+        )
+
+    def test_future_packet_generated_at_is_excluded_even_same_day(self):
+        """Same-day session whose own ``generated_at`` is after the exact
+        lookup instant is not yet available at lookup time either, and must
+        be excluded exactly like a future session date."""
+        self._persist_session(self.root, session_date="2026-09-10", generated_at="2026-09-10T00:30:00Z", count=11)
+        self._persist_session(self.root, session_date="2026-09-13", generated_at="2026-09-13T23:00:00Z", count=999)
+        result = MODULE._population_level_symbol_data(
+            "KR", observation_root=self.root, lookup_at=dt.datetime(2026, 9, 13, 1, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of="2026-09-10", population_id="TEST.POP", population_count=11,
+        )
+        self.assertEqual(result["status"], "OBSERVED")
+        self.assertEqual(result["count"], 11)
+        self.assertEqual(result["as_of_session_date"], "2026-09-10")
+
+    def test_invalid_latest_eligible_session_reports_invalid_never_falls_back(self):
+        """The newest *eligible* (not-future) session failing its own
+        reverify must be reported as ``OBSERVATION_PACKET_INVALID`` -- an
+        older, perfectly valid session must never be silently substituted."""
+        self._persist_session(self.root, session_date="2026-09-10", generated_at="2026-09-10T00:30:00Z", count=13)
+        newest = self._persist_session(self.root, session_date="2026-09-12", generated_at="2026-09-12T00:30:00Z", count=17)
+        # Tamper with the newest eligible packet after persistence so its own
+        # reverify() fails closed on the hash check.
+        packet_path = newest / "packet.json"
+        packet_path.write_text(packet_path.read_text(encoding="utf-8").replace('"population_count":17', '"population_count":18'), encoding="utf-8")
+        result = MODULE._population_level_symbol_data(
+            "KR", observation_root=self.root, lookup_at=dt.datetime(2026, 9, 13, 0, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of="2026-09-10", population_id="TEST.POP", population_count=13,
+        )
+        self.assertEqual(result["status"], "OBSERVATION_PACKET_INVALID")
+        self.assertEqual(result["count"], MODULE.NOT_COUNTED)
+        self.assertNotEqual(result.get("count"), 13)  # never silently falls back to the older, valid session
+
+    def test_no_eligible_session_when_only_future_sessions_exist(self):
+        self._persist_session(self.root, session_date="2026-09-20", generated_at="2026-09-20T00:30:00Z")
+        result = MODULE._population_level_symbol_data(
+            "KR", observation_root=self.root, lookup_at=dt.datetime(2026, 9, 13, 0, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of="2026-09-10", population_id="TEST.POP", population_count=2,
+        )
+        self.assertEqual(result["status"], "NOT_RETAINED_IN_PUBLIC_REPOSITORY")
+        self.assertEqual(result["count"], MODULE.NOT_COUNTED)
+        self.assertEqual(result["evidence"], "NO_ELIGIBLE_SESSION_ALL_FUTURE")
+
+    def test_absent_root_reports_unchanged_placeholder(self):
+        result = MODULE._population_level_symbol_data(
+            "KR", observation_root=self.root / "does_not_exist", lookup_at=dt.datetime(2026, 9, 13, 0, 0, 0, tzinfo=dt.timezone.utc),
+            population_as_of="2026-09-10", population_id="TEST.POP", population_count=2,
+        )
+        self.assertEqual(result["status"], "NOT_RETAINED_IN_PUBLIC_REPOSITORY")
+        self.assertEqual(result["count"], MODULE.NOT_COUNTED)
+        self.assertEqual(result["evidence"], "korea_market_signals.source.per_symbol_persistence=0")
+
+    def test_two_roots_are_isolated_no_ambient_default_leakage(self):
+        """P1: the function must consume only the ``observation_root`` it is
+        given, never an ambient/global default. Two independent temp roots
+        with different counts/hashes must never cross-contaminate, which is
+        exactly the property ``build_report(inputs=...)`` /
+        ``validate_report(report, inputs=...)`` reproducibility depends on.
+        """
+        import shutil
+        root_b = Path(tempfile.mkdtemp(dir=str(MODULE.ROOT / "test")))
+        self.addCleanup(shutil.rmtree, root_b, True)
+        root_a = self.root
+        self._persist_session(root_a, session_date="2026-09-10", generated_at="2026-09-10T00:30:00Z", count=3, population_id="A.POP")
+        self._persist_session(root_b, session_date="2026-09-10", generated_at="2026-09-10T00:30:00Z", count=9000, population_id="B.POP")
+        lookup_at = dt.datetime(2026, 9, 13, 0, 0, 0, tzinfo=dt.timezone.utc)
+        result_a = MODULE._population_level_symbol_data(
+            "KR", observation_root=root_a, lookup_at=lookup_at,
+            population_as_of="2026-09-10", population_id="A.POP", population_count=3,
+        )
+        result_b = MODULE._population_level_symbol_data(
+            "KR", observation_root=root_b, lookup_at=lookup_at,
+            population_as_of="2026-09-10", population_id="B.POP", population_count=9000,
+        )
+        self.assertEqual(result_a["status"], "OBSERVED")
+        self.assertEqual(result_a["count"], 3)
+        self.assertEqual(result_b["status"], "OBSERVED")
+        self.assertEqual(result_b["count"], 9000)
+        self.assertNotEqual(result_a["generation_id"], result_b["generation_id"])
+        self.assertNotEqual(result_a["source"]["path"], result_b["source"]["path"])
+        # rebuilding A again, after B was built and read, must reproduce
+        # the exact same result -- the source-rederivation consistency
+        # ``validate_report`` relies on.
+        result_a_again = MODULE._population_level_symbol_data(
+            "KR", observation_root=root_a, lookup_at=lookup_at,
+            population_as_of="2026-09-10", population_id="A.POP", population_count=3,
+        )
+        self.assertEqual(result_a, result_a_again)
+
+    def test_result_is_deterministic_given_the_same_inputs(self):
+        """Direct proxy for the ``validate_report`` rebuild-and-compare
+        contract: calling the function twice with byte-identical arguments
+        must return a byte-identical result -- no hidden global/mutable
+        state (e.g. an ambient default root or wall-clock read) may leak in.
+        """
+        self._persist_session(self.root, session_date="2026-09-10", generated_at="2026-09-10T00:30:00Z", count=4)
+        lookup_at = dt.datetime(2026, 9, 13, 0, 0, 0, tzinfo=dt.timezone.utc)
+        kwargs = dict(
+            observation_root=self.root, lookup_at=lookup_at,
+            population_as_of="2026-09-10", population_id="TEST.POP", population_count=4,
+        )
+        first = MODULE._population_level_symbol_data("KR", **kwargs)
+        second = MODULE._population_level_symbol_data("KR", **kwargs)
+        self.assertEqual(first, second)
 
 
 class HelperTests(unittest.TestCase):
