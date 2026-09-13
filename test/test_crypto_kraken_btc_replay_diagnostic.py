@@ -43,9 +43,9 @@ class KrakenReplayDiagnosticTest(unittest.TestCase):
         self.base = Path(self.tmp.name)
 
     def archive(self, *, last="2025-12-31", start="2019-01-01", end="2025-12-31",
-                drop=(), change=None, name="out") -> Path:
+                drop=(), change=None, name="out", prefix=()) -> Path:
         rows = []
-        for candle in self.api:
+        for candle in [*prefix, *self.api]:
             day = candle["date"].isoformat()
             if day > last or day in drop:
                 continue
@@ -102,6 +102,31 @@ class KrakenReplayDiagnosticTest(unittest.TestCase):
         self.assertEqual(KRAKEN.missing_dates(joined), ["2024-12-01"])
         index = next(i for i, c in enumerate(joined) if c["date"].isoformat() == "2024-12-02")
         self.assertFalse(KRAKEN.contiguous_window(joined, index, 2))
+
+    def test_end_to_end_bulk_gap_is_undefined_never_filled(self):
+        """Mirrors the real archive: XBTUSD has no 2024-03-31 bulk row."""
+        first_api = self.api[0]["date"]
+        synthetic, cursor, index = [], dt.date(2024, 1, 1), 0
+        while cursor < first_api:
+            synthetic.append({"date": cursor, "close": Decimal(40000 + 37 * index + (index % 11) * 250)})
+            cursor += dt.timedelta(days=1)
+            index += 1
+        archive = self.archive(prefix=synthetic, drop={"2024-03-31"}, name="realgap")
+        receipt = KRAKEN.build_receipt(archive, API_SNAPSHOT)
+        self.assertEqual(receipt["range"]["missing_calendar_dates"], ["2024-03-31"])
+        self.assertEqual(receipt["range"]["first_close_date"], "2024-01-01")
+        self.assertEqual(receipt["undefined_risk_point_count"], 89)
+        self.assertEqual(receipt["undefined_risk_point_first_date"], "2024-04-01")
+        self.assertEqual(receipt["undefined_risk_point_last_date"], "2024-06-28")
+        self.assertEqual(receipt["overlap_check"]["close_mismatch_count"], 0)
+        validated = KRAKEN.validate_archive(archive)
+        closes = KRAKEN.btc_candles(archive, validated["pair"])
+        self.assertNotIn(dt.date(2024, 3, 31), {row["date"] for row in closes})
+        # Every close after the first full lookback is either a defined point or
+        # a disclosed UNDEFINED point; none is silently dropped or synthesized.
+        joined, _ = KRAKEN.join_history(closes, KRAKEN.api_candles(API_SNAPSHOT)[0])
+        self.assertEqual(receipt["risk_point_count"] + receipt["undefined_risk_point_count"], len(joined) - 89)
+        self.assertEqual(KRAKEN.validate_receipt(copy.deepcopy(receipt)), receipt)
 
     def test_required_results_missing_is_fail(self):
         with mock.patch.object(RUNTIME, "risk_vol_direction", return_value="NEUTRAL"):

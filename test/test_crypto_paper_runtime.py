@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import hashlib
+import json
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -18,6 +20,8 @@ if str(ROOT) not in sys.path:
 
 from regime import crypto_paper_descriptive_normalization as DESCRIPTIVE  # noqa: E402
 from regime import crypto_paper_runtime as RUNTIME  # noqa: E402
+from regime import crypto_kraken_btc_replay_diagnostic as KRAKEN  # noqa: E402
+from regime import decision_authority as COMMON  # noqa: E402
 
 CODE_REVISION = "0" * 40
 MANIFEST = "a" * 64
@@ -52,7 +56,8 @@ def window(decision_date: dt.date, days: int, *, status="OBSERVED_UNCLASSIFIED",
     }
 
 
-def record(decision_date: dt.date, *, primary=False, vol="0.5", dd="-0.05") -> dict:
+def record(decision_date: dt.date, *, primary=False, vol="0.5", dd="-0.05", breadth="0.60",
+           daily="100", weekly="200") -> dict:
     iso = decision_date.isoformat()
     previous = (decision_date - dt.timedelta(days=1)).isoformat()
     return {
@@ -68,12 +73,12 @@ def record(decision_date: dt.date, *, primary=False, vol="0.5", dd="-0.05") -> d
         "breadth": {
             "vintage_date": iso, "available_at": f"{iso}T00:52:00Z", "as_of_date": previous,
             "status": "OBSERVED_UNCLASSIFIED", "unknown_reason": None,
-            "advance_fraction": "0.60", "manifest_sha256": MANIFEST,
+            "advance_fraction": breadth, "manifest_sha256": MANIFEST,
         },
         "stablecoin": {
             "vintage_date": iso, "available_at": f"{iso}T06:39:53Z", "observation_date": iso,
             "daily_status": "AVAILABLE", "weekly_status": "AVAILABLE",
-            "daily_net_issuance": "100", "weekly_net_issuance": "200", "response_sha256": "c" * 64,
+            "daily_net_issuance": daily, "weekly_net_issuance": weekly, "response_sha256": "c" * 64,
         },
         "leadership": {"windows": {
             RUNTIME.PILOT: window(decision_date, 7),
@@ -427,6 +432,124 @@ class ProvisionalForwardAcceptanceTest(unittest.TestCase):
             packet, evaluation_at="2026-09-20T07:30:00Z", code_revision=CODE_REVISION,
             day_records=records, rerun_day_records=copy.deepcopy(records),
             evidence_class=RUNTIME.LIVE_NATURAL, kraken_receipt_raw=receipt_raw())
+
+
+# Score fixtures: TREND +1 and RISK_VOL 0 (vol 0.5, dd -0.05) are fixed.
+SCORE_4 = {}                                              # BREADTH +1, LIQUIDITY +1, LEADERSHIP +1
+SCORE_3 = {"breadth": "0.50"}                             # BREADTH 0
+SCORE_2 = {"breadth": "0.50", "daily": "100", "weekly": "-1"}  # BREADTH 0, LIQUIDITY 0
+
+
+class CommonV1ReuseTest(unittest.TestCase):
+    """B1: aggregation and hysteresis must be the unmodified common-v1 replay."""
+
+    start, current = D(2026, 9, 14), D(2026, 9, 20)
+
+    def records(self, *per_day):
+        result = {}
+        for offset, kwargs in enumerate(per_day):
+            day = self.start + dt.timedelta(days=offset)
+            result[day.isoformat()] = record(day, **kwargs)
+        return result
+
+    def independent_replay(self, packet):
+        sequence = {"schema_version": 1, "market": "CRYPTO", "case_id": "crypto-paper-runtime", "steps": [
+            {"packet_id": f"crypto-{row['decision_date']}", "as_of_date": row["decision_date"],
+             "axes": {axis: ({"status": "DEFINED", "direction": direction} if direction is not None
+                             else {"status": "UNDEFINED", "direction": None})
+                      for axis, direction in row["axis_directions"].items()}}
+            for row in packet["chain"]
+        ]}
+        return COMMON.replay_common_v1(sequence)
+
+    def test_aggregation_equals_direct_common_v1_replay(self):
+        for days in ([SCORE_4] * 7, [SCORE_2] * 6 + [SCORE_4], [SCORE_3, SCORE_2] * 3 + [SCORE_3]):
+            with self.subTest(days=days):
+                packet = evaluate(self.records(*days))
+                self.assertEqual(COMMON.canonical_bytes(packet["aggregation"]),
+                                 COMMON.canonical_bytes(self.independent_replay(packet)))
+                self.assertEqual(packet["aggregation"]["thresholds"]["ordinary_transition_finalized_packets"], 2)
+                self.assertEqual(packet["aggregation"]["thresholds"]["risk_on_min_score"], 3)
+
+    def test_neutral_to_risk_on_flip_on_current_day_stays_pending(self):
+        packet = evaluate(self.records(*([SCORE_2] * 6 + [SCORE_4])))
+        self.assertEqual(packet["decision_status"], "PAPER_RUNTIME_CLASSIFIED", packet["reasons"])
+        self.assertEqual(packet["runtime_regime"], "NEUTRAL")
+        current = packet["current_observation"]
+        self.assertEqual(current["candidate_regime"], "RISK_ON")
+        self.assertEqual(current["score"], 4)
+        self.assertEqual(current["hysteresis"]["confirmation_count"], 1)
+        self.assertEqual(current["hysteresis"]["rule"], "ORDINARY_CONFIRMATION_PENDING")
+
+    def test_score_plus_three_and_plus_two_land_on_correct_sides(self):
+        plus_three = evaluate(self.records(*([SCORE_3] * 7)))
+        self.assertEqual(plus_three["current_observation"]["score"], 3)
+        self.assertEqual(plus_three["current_observation"]["candidate_regime"], "RISK_ON")
+        self.assertEqual(plus_three["runtime_regime"], "RISK_ON")
+        plus_two = evaluate(self.records(*([SCORE_2] * 7)))
+        self.assertEqual(plus_two["current_observation"]["score"], 2)
+        self.assertEqual(plus_two["current_observation"]["candidate_regime"], "NEUTRAL")
+        self.assertEqual(plus_two["runtime_regime"], "NEUTRAL")
+
+
+class AcceptanceHardeningTest(unittest.TestCase):
+    start, current = D(2026, 9, 14), D(2026, 9, 20)
+
+    def test_fail_receipt_under_bound_anchor_is_unknown(self):
+        """B2: a hash-anchored but FAIL receipt never passes condition 6."""
+        receipt = json.loads(receipt_raw())
+        receipt.pop("payload_sha256")
+        counts = receipt["risk_vol_counts"]
+        counts["NEUTRAL"] += counts["STRESS"]
+        counts["STRESS"] = 0
+        receipt["risk_vol_first_seen"]["STRESS"] = None
+        receipt["missing_required_results"] = ["STRESS"]
+        receipt["status"] = "FAIL"
+        receipt["payload_sha256"] = KRAKEN.payload_sha256(receipt)
+        raw = (json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        self.assertEqual(KRAKEN.validate_receipt(json.loads(raw))["status"], "FAIL")
+        policy = copy.deepcopy(RUNTIME.load_policy())
+        policy["acceptance"]["replaced_condition_6"]["receipt_sha256"] = hashlib.sha256(raw).hexdigest()
+        records = chain(self.start, self.current)
+        with mock.patch.object(RUNTIME, "load_policy", return_value=policy):
+            packet = evaluate(records, kraken_receipt_raw=raw)
+        self.assertEqual(packet["runtime_regime"], "UNKNOWN")
+        self.assertFalse(packet["acceptance"]["conditions"]["6_REPLACED_KRAKEN_BULK_BTC_REPLAY_DIAGNOSTIC"])
+        self.assertIn("ACCEPTANCE_CONDITION_FAILED:6_KRAKEN_REPLAY_REQUIRED_RESULTS_NOT_OBSERVED",
+                      packet["reasons"])
+        self.assertTrue(all(v is False for v in packet["authority"].values()))
+
+    def test_leadership_manifest_hashes_must_be_real_sha256(self):
+        for window_hash, breadth_hash in ((None, None), ("", ""), ("x", "x"), (MANIFEST, None)):
+            with self.subTest(window_hash=window_hash, breadth_hash=breadth_hash):
+                row = record(self.current)
+                row["leadership"]["windows"][RUNTIME.PILOT]["last_manifest_sha256"] = window_hash
+                row["breadth"]["manifest_sha256"] = breadth_hash
+                step = RUNTIME.evaluate_day(row, self.current, False)
+                self.assertEqual(step["axes"]["LEADERSHIP"]["status"], "UNDEFINED")
+                self.assertIn("LEADERSHIP_MANIFEST_BINDING_INVALID", step["reasons"])
+
+    def test_owner_runtime_error_is_axis_missing_not_crash(self):
+        class Broken:
+            @staticmethod
+            def median(values):
+                return sorted(values)[len(values) // 2]
+
+            @staticmethod
+            def leadership_reference(windows):
+                raise RuntimeError("LEADERSHIP_REFERENCE_INVALID: forced")
+
+        with mock.patch.object(RUNTIME, "_recent_reference_module", return_value=Broken):
+            packet = evaluate(chain(self.start, self.current))
+        self.assertEqual(packet["runtime_regime"], "UNKNOWN")
+        self.assertIn("LEADERSHIP_DERIVATION_FAILED", packet["reasons"])
+
+    def test_top_level_runtime_error_publishes_unknown(self):
+        with mock.patch.object(RUNTIME, "build_chain", side_effect=RuntimeError("REFERENCE_FAIL: forced")):
+            packet = evaluate(chain(self.start, self.current))
+        self.assertEqual(packet["runtime_regime"], "UNKNOWN")
+        self.assertEqual(packet["reasons"], ["RUNTIME_DERIVATION_FAILED"])
+        self.assertTrue(all(v is False for v in packet["authority"].values()))
 
 
 if __name__ == "__main__":

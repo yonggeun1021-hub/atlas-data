@@ -449,8 +449,15 @@ def evaluate_day(record: object, decision_date: dt.date, primary_observed_earlie
             direction, observed = derive()
             axes[axis] = {"status": "DEFINED", "direction": direction}
             diagnostics[axis] = observed
-        except (CryptoPaperRuntimeError, KeyError, TypeError, AttributeError) as exc:
-            code = str(exc).split(":", 1)[0] if isinstance(exc, CryptoPaperRuntimeError) else f"{axis}_INPUT_SHAPE_INVALID"
+        except (CryptoPaperRuntimeError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
+            # RuntimeError covers owner helpers such as crypto_recent_reference.fail;
+            # a derivation failure is that axis missing, never a crash.
+            if isinstance(exc, CryptoPaperRuntimeError):
+                code = str(exc).split(":", 1)[0]
+            elif isinstance(exc, RuntimeError):
+                code = f"{axis}_DERIVATION_FAILED"
+            else:
+                code = f"{axis}_INPUT_SHAPE_INVALID"
             axes[axis] = {"status": "UNDEFINED", "direction": None}
             diagnostics[axis] = {"missing_reason": code}
             reasons.append(code)
@@ -490,8 +497,11 @@ def evaluate_day(record: object, decision_date: dt.date, primary_observed_earlie
         official, window = select_leadership_window(
             source.get("leadership"), decision_date, primary_observed_earlier)
         breadth_row = source.get("breadth")
-        require(isinstance(breadth_row, dict)
-                and window.get("last_manifest_sha256") == breadth_row.get("manifest_sha256"),
+        require(isinstance(breadth_row, dict), "LEADERSHIP_MIXED_GENERATION")
+        for value in (window.get("last_manifest_sha256"), breadth_row.get("manifest_sha256")):
+            require(isinstance(value, str) and SHA256.fullmatch(value) is not None,
+                    "LEADERSHIP_MANIFEST_BINDING_INVALID")
+        require(window["last_manifest_sha256"] == breadth_row["manifest_sha256"],
                 "LEADERSHIP_MIXED_GENERATION")
         code = leadership_code(window)
         return leadership_direction(code), {
@@ -721,9 +731,13 @@ def evaluate_crypto_paper_runtime(*, evaluation_at: str, code_revision: str, day
             )
             packet["authority"]["paper_runtime_display_authorized"] = True
     except (CryptoPaperRuntimeError, COMMON.DecisionAuthorityError, OSError, KeyError,
-            TypeError, ValueError) as exc:
-        code = str(exc).split(":", 1)[0] if isinstance(
-            exc, (CryptoPaperRuntimeError, COMMON.DecisionAuthorityError)) else "INPUT_SHAPE_INVALID"
+            TypeError, ValueError, RuntimeError) as exc:
+        if isinstance(exc, (CryptoPaperRuntimeError, COMMON.DecisionAuthorityError)):
+            code = str(exc).split(":", 1)[0]
+        elif isinstance(exc, RuntimeError):
+            code = "RUNTIME_DERIVATION_FAILED"
+        else:
+            code = "INPUT_SHAPE_INVALID"
         packet.update(decision_status="BLOCKED", paper_regime="UNKNOWN", runtime_regime="UNKNOWN",
                       direction="UNKNOWN", confidence=None, runtime_decision_available=False,
                       reasons=[code], authority=dict(AUTHORITY_CLOSED))
