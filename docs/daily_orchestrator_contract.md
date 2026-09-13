@@ -503,7 +503,16 @@ defects. The renderer now binds each date to its own source:
 These references are presentation-only. They are chosen once on a fresh
 build and attached to the `STEP0_READ_MODEL_HEALTH` frozen snapshot under
 `presentation_references`; replay re-derives the post-close and PAPER fields
-from immutable retained bytes, a legacy snapshot without the field replays
+from immutable retained bytes. For the confirmed close only the git blob id of
+the `data/latest_krx.json` bytes is frozen: replay reads that blob from the
+trusted repository (`validate_packet(trusted_repository_root=...)`, so full
+git history is required, as it already is for Flow replay), requires its
+sha256 to equal STEP0's recorded hash and re-derives `confirmed_through`; a
+missing blob fails validation. When references are present the claim ledger
+names the five-axis date `freshness.krx.index_move_observation_date` (legacy
+packets keep `freshness.krx.latest_confirmed_close_date`). Board values keep
+their machine form before `;` and carry Korean glosses after it
+(거래소 확정 종가, 관측·미확정(거래소 확정 전), 최근 완료 거래일), a legacy snapshot without the field replays
 byte-identically, and no component row, status, aggregate or authority reads
 them. `validation/korea_index_move_recompute.py` recomputes KOSPI/KOSDAQ
 one-session moves from retained KRX Information Data System index responses

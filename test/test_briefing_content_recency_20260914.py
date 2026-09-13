@@ -76,7 +76,9 @@ def _with_references(decision_date: str, slot: str) -> tuple[dict, dict]:
     generated = _instant(packet["generated_at"])
     step0 = copy.deepcopy(packet["frozen_sources"]["STEP0_READ_MODEL_HEALTH"])
     frozen = {
-        "krx_confirmed_close": dict(fixture["latest_krx_at_seal"]),
+        "krx_confirmed_close": {
+            "source_git_blob_sha1": fixture["latest_krx_at_seal"]["source_git_blob_sha1"]
+        },
         "krx_post_close": {
             "selected_date": ORCH._select_krx_post_close(ORCH.ROOT, decision_date, generated)
         },
@@ -99,8 +101,11 @@ def _board(packet: dict) -> str:
 
 
 def _field(text: str, name: str) -> str:
+    """The machine value of a board line: text before the first ';' (the portal
+    parser reads exactly this span), without the Korean gloss after it."""
     prefix = f"- {name}: "
-    return next(line for line in text.splitlines() if line.startswith(prefix))[len(prefix):]
+    line = next(line for line in text.splitlines() if line.startswith(prefix))[len(prefix):]
+    return line.split(";", 1)[0].strip()
 
 
 class AuditedFixtureIdentityTests(unittest.TestCase):
@@ -219,6 +224,17 @@ class KrxSessionRecencyTests(unittest.TestCase):
                     rendered,
                 )
                 self.assertIn("- us_latest_session_date: 2026-09-11", rendered)
+                # Korean glosses for the machine labels.
+                self.assertIn("- latest_confirmed_close_date: 2026-09-10; 거래소 확정 종가", rendered)
+                self.assertIn(
+                    "- latest_observed_unconfirmed_date: 2026-09-11; 관측·미확정(거래소 확정 전)",
+                    rendered,
+                )
+                self.assertIn(
+                    "- latest_completed_session_date: 2026-09-11 (OBSERVED_UNCONFIRMED); "
+                    "최근 완료 거래일 · 관측·미확정(거래소 확정 전)",
+                    rendered,
+                )
                 self.assertNotIn("- latest_observed_unconfirmed_date: UNKNOWN", rendered)
                 self.assertIn(
                     "freshness=SOURCE_NOT_ADVANCED_EXPECTED_SESSION (KOSPI/KOSDAQ one-session "
@@ -239,10 +255,12 @@ class KrxSessionRecencyTests(unittest.TestCase):
 
     def test_temporal_guards_fail_closed(self):
         generated = _instant("2026-09-09T22:59:53Z")
-        captured = dict(SLOTS[("2026-09-11", "morning")]["latest_krx_at_seal"])
-        reference = ORCH._krx_confirmed_close_reference(captured, "2026-09-09", generated)
+        seal = SLOTS[("2026-09-11", "morning")]["latest_krx_at_seal"]
+        frozen = {"source_git_blob_sha1": seal["source_git_blob_sha1"]}
+        kwargs = {"step0_source_sha256": seal["source_sha256"], "repository_root": ORCH.ROOT}
+        reference = ORCH._krx_confirmed_close_reference(frozen, "2026-09-09", generated, **kwargs)
         self.assertEqual(reference["unknown_reason"], "KRX_CONFIRMED_THROUGH_AFTER_DECISION_DATE")
-        reference = ORCH._krx_confirmed_close_reference(captured, "2026-09-11", generated)
+        reference = ORCH._krx_confirmed_close_reference(frozen, "2026-09-11", generated, **kwargs)
         self.assertEqual(
             reference["unknown_reason"], "KRX_CONFIRMED_SOURCE_COLLECTED_AFTER_GENERATION"
         )
@@ -310,12 +328,18 @@ class PresentationReferenceFreezeTests(unittest.TestCase):
 
             krx = {"collected_at_utc": "2026-09-10T21:00:33+00:00",
                    "decision_readiness": {"confirmed_through": "2026-09-10"}}
-            raw = json.dumps(krx).encode()
-            (root / "data" / "latest_krx.json").write_bytes(raw)
-            captured = ORCH._capture_krx_confirmed_close(root)
-            self.assertEqual(captured["confirmed_through"], "2026-09-10")
-            self.assertEqual(captured["collected_at_utc"], "2026-09-10T21:00:33+00:00")
-            self.assertEqual(len(captured["source_sha256"]), 64)
+            (root / "data" / "latest_krx.json").write_bytes(json.dumps(krx).encode())
+            # Bytes the trusted repository never committed freeze nothing.
+            self.assertEqual(
+                ORCH._capture_krx_confirmed_close(root, ORCH.ROOT), {"source_git_blob_sha1": None}
+            )
+            committed = (ROOT / "data/latest_krx.json").read_bytes()
+            (root / "data" / "latest_krx.json").write_bytes(committed)
+            oid = ORCH._git_blob_oid(committed)
+            if ORCH._git_blob_bytes(ORCH.ROOT, oid) is not None:
+                self.assertEqual(
+                    ORCH._capture_krx_confirmed_close(root, ORCH.ROOT), {"source_git_blob_sha1": oid}
+                )
             self.assertIsNone(ORCH._select_krx_post_close(root, "2026-09-11", generated))
 
 
@@ -352,6 +376,114 @@ class FreshBuildReplayTests(unittest.TestCase):
         tampered["packet_sha256"] = ORCH.payload_sha256(tampered)
         with self.assertRaisesRegex(ORCH.DailyOrchestratorError, "OUTPUT_MISMATCH"):
             ORCH.validate_packet(tampered)
+
+
+class ConfirmedCloseValidatorBindingTests(unittest.TestCase):
+    """CIO review #722 blocking 1: the confirmed-close date is validator-bound."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.packet = ORCH.build_packet("morning", "2026-09-13", "2026-09-12T22:15:36Z")
+
+    def _rehashed(self, mutate) -> dict:
+        tampered = copy.deepcopy(self.packet)
+        mutate(tampered["frozen_sources"]["STEP0_READ_MODEL_HEALTH"][ORCH.PRESENTATION_REFERENCES])
+        tampered.pop("packet_sha256")
+        tampered["packet_sha256"] = ORCH.payload_sha256(tampered)
+        return tampered
+
+    def test_fresh_build_freezes_committed_blob(self):
+        confirmed = ORCH.presentation_references(self.packet)["krx_confirmed_close"]
+        step0 = next(
+            row for row in self.packet["components"]
+            if row["component_id"] == "STEP0_READ_MODEL_HEALTH"
+        )
+        if confirmed["source_git_blob_sha1"] is None:
+            self.assertEqual(confirmed["unknown_reason"], "KRX_CONFIRMED_SOURCE_NOT_COMMITTED")
+        else:
+            raw = ORCH._git_blob_bytes(ORCH.ROOT, confirmed["source_git_blob_sha1"])
+            self.assertEqual(ORCH.hashlib.sha256(raw).hexdigest(), confirmed["source_sha256"])
+            self.assertEqual(confirmed["source_sha256"], step0["packet"]["sources"]["krx"]["source_sha256"])
+
+    def test_altered_confirmed_through_fails_validation(self):
+        confirmed = ORCH.presentation_references(self.packet)["krx_confirmed_close"]
+        if confirmed["source_git_blob_sha1"] is None:
+            self.skipTest("working-tree latest_krx.json is not a committed blob")
+        for field, value in (
+            ("confirmed_through", "2026-09-12"),
+            ("collected_at_utc", "2026-09-11T21:00:00+00:00"),
+            ("source_sha256", "0" * 64),
+            ("unknown_reason", None if confirmed["unknown_reason"] else "X"),
+        ):
+            with self.subTest(field=field):
+                tampered = self._rehashed(
+                    lambda refs: refs["krx_confirmed_close"].__setitem__(field, value)
+                )
+                # Validation fails, so no ledger is ever built from the tampered packet.
+                with self.assertRaisesRegex(ORCH.DailyOrchestratorError, "OUTPUT_MISMATCH"):
+                    ORCH.validate_packet(tampered)
+
+    def test_missing_or_foreign_blob_fails_or_is_unbound(self):
+        missing = self._rehashed(
+            lambda refs: refs["krx_confirmed_close"].__setitem__("source_git_blob_sha1", "f" * 40)
+        )
+        with self.assertRaisesRegex(
+            ORCH.DailyOrchestratorError, "PRESENTATION_KRX_CONFIRMED_SOURCE_BLOB_MISSING"
+        ):
+            ORCH.validate_packet(missing)
+        # A real committed blob whose bytes are not the STEP0 gate's bytes never
+        # yields a confirmed date.
+        foreign_oid = SLOTS[("2026-09-10", "morning")]["latest_krx_at_seal"]["source_git_blob_sha1"]
+        reference = ORCH._krx_confirmed_close_reference(
+            {"source_git_blob_sha1": foreign_oid},
+            "2026-09-13",
+            _instant("2026-09-12T22:15:36Z"),
+            step0_source_sha256=SLOTS[("2026-09-13", "morning")]["latest_krx_at_seal"]["source_sha256"],
+            repository_root=ORCH.ROOT,
+        )
+        self.assertEqual(reference["unknown_reason"], "KRX_CONFIRMED_SOURCE_NOT_STEP0_BYTES")
+
+
+class ClaimLedgerBoardAgreementTests(unittest.TestCase):
+    """CIO review #722 blocking 2 and mutation M11."""
+
+    def test_board_and_ledger_dates_agree(self):
+        for (decision_date, slot) in SLOTS:
+            with self.subTest(slot=f"{decision_date}/{slot}"):
+                packet, _ = _with_references(decision_date, slot)
+                board = _board(packet)
+                claims = {
+                    claim["claim_id"]: claim["statement"]
+                    for claim in chain._delivery_claims(packet, "packet.json")
+                }
+                self.assertNotIn("freshness.krx.latest_confirmed_close_date", claims)
+                self.assertIn(
+                    f"through {_field(board, 'latest_confirmed_close_date')}.",
+                    claims["freshness.krx.latest_confirmed_session_date"],
+                )
+                self.assertIn(
+                    f"dated {_field(board, 'index_move_observation_date')}.",
+                    claims["freshness.krx.index_move_observation_date"],
+                )
+                self.assertIn(
+                    _field(board, "latest_completed_session_date").split(" ")[0],
+                    claims["freshness.krx.latest_completed_session_date"],
+                )
+        legacy, _ = _audited_packet("2026-09-13", "morning")
+        legacy_claims = {claim["claim_id"] for claim in chain._delivery_claims(legacy, "packet.json")}
+        self.assertIn("freshness.krx.latest_confirmed_close_date", legacy_claims)
+        self.assertNotIn("freshness.krx.index_move_observation_date", legacy_claims)
+
+    def test_ledger_requires_step0_hash_binding(self):
+        packet, _ = _with_references("2026-09-11", "morning")
+        references = packet["frozen_sources"]["STEP0_READ_MODEL_HEALTH"][ORCH.PRESENTATION_REFERENCES]
+        references["krx_confirmed_close"]["source_sha256"] = "0" * 64
+        self.assertIsNone(references["krx_confirmed_close"]["unknown_reason"])
+        statements = dict(chain._presentation_reference_statements(packet))
+        self.assertNotIn("freshness.krx.latest_confirmed_session_date", statements)
+        self.assertNotIn("confirmed 2026-09-10 session", statements.get(
+            "freshness.krx.latest_completed_session_date", ""
+        ))
 
 
 class PaperRegimeReferenceTests(unittest.TestCase):

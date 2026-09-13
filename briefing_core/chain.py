@@ -495,6 +495,11 @@ def _major_event_registry(
     return registry, explicit_path, body
 
 
+def _has_presentation_references(packet: dict) -> bool:
+    frozen = (packet.get("frozen_sources") or {}).get("STEP0_READ_MODEL_HEALTH")
+    return isinstance(frozen, dict) and isinstance(frozen.get("presentation_references"), dict)
+
+
 def _presentation_reference_statements(packet: dict) -> list[tuple[str, str]]:
     """Claims for the orchestrator's frozen presentation-only references.
 
@@ -773,10 +778,19 @@ def _delivery_claims(packet: dict, packet_ref: str) -> list[dict]:
     korea_packet = korea.get("packet") or {}
     confirmed_date = korea_packet.get("as_of_date") or korea.get("as_of_date")
     if isinstance(confirmed_date, str):
-        fact(
-            "freshness.krx.latest_confirmed_close_date",
-            f"The confirmed Korea five-axis market observation is dated {confirmed_date}.",
-        )
+        if _has_presentation_references(packet):
+            # The board's latest_confirmed_close_date is the collector-confirmed
+            # session (freshness.krx.latest_confirmed_session_date below); the
+            # five-axis date is the index-move observation date, named as such.
+            fact(
+                "freshness.krx.index_move_observation_date",
+                f"The Korea five-axis index move observation is dated {confirmed_date}.",
+            )
+        else:
+            fact(
+                "freshness.krx.latest_confirmed_close_date",
+                f"The confirmed Korea five-axis market observation is dated {confirmed_date}.",
+            )
 
     post_close = components.get("KRX_POST_CLOSE") or {}
     post_packet = post_close.get("packet") or {}

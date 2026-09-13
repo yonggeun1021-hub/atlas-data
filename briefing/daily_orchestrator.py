@@ -3751,10 +3751,11 @@ def build_action_risk_summary(
 # choice's own immutable retained bytes. A replayed snapshot without the field
 # is a legacy build and stays byte-identical.
 #   * krx_confirmed_close -- data/latest_krx.json is a mutable rolling pointer
-#     with no dated archive, so its raw sha256/collected_at/confirmed_through
-#     are frozen exactly like STEP0's own collected_at_utc_raw, and the render
-#     additionally requires that sha256 to equal the STEP0 payload's own
-#     sources.krx.source_sha256 (same bytes the read-model gate read).
+#     with no dated archive, so only the git blob id of the bytes read is
+#     frozen. Replay reads that blob from the trusted repository, requires its
+#     sha256 to equal the STEP0 gate's recorded sources.krx.source_sha256, and
+#     re-derives confirmed_through/collected_at_utc; a missing blob fails
+#     validation.
 #   * krx_post_close -- the newest immutable
 #     data/observations/krx_post_close/<date>/ bundle at or before the decision
 #     date whose own collection instant precedes generation.
@@ -3781,13 +3782,85 @@ PAPER_REGIME_REFERENCE_EVIDENCE_ROOT = Path("evidence") / "regime" / "paper_refe
 _PRESENTATION_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _capture_krx_confirmed_close(root: Path) -> dict:
-    """Raw fields of data/latest_krx.json needed for the confirmed-close date."""
-    path = Path(root) / KRX_CONFIRMED_SOURCE_PATH
+_GIT_BLOB_OID = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _git_blob_oid(data: bytes) -> str:
+    return hashlib.sha1(f"blob {len(data)}".encode("ascii") + b"\0" + data).hexdigest()
+
+
+def _git_blob_bytes(repository_root: Path, oid: str) -> bytes | None:
+    """Exact blob bytes from the trusted repository's object database, or None.
+
+    Replace refs are ignored and the returned bytes are re-hashed against the
+    oid itself, so the repository cannot answer with different content.
+    """
     try:
-        raw = path.read_bytes()
+        completed = subprocess.run(
+            ["git", "--no-replace-objects", "cat-file", "blob", oid],
+            cwd=repository_root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
     except OSError:
-        return {"source_sha256": None, "collected_at_utc": None, "confirmed_through": None}
+        return None
+    if completed.returncode != 0 or _git_blob_oid(completed.stdout) != oid:
+        return None
+    return completed.stdout
+
+
+def _capture_krx_confirmed_close(root: Path, repository_root: Path) -> dict:
+    """Freeze only the git blob id of the data/latest_krx.json bytes read now.
+
+    The rolling pointer has no dated archive, so its committed git blob is the
+    immutable copy a validator can re-read. When the bytes read now are not a
+    blob the trusted repository holds (e.g. an uncommitted working-tree edit),
+    nothing is frozen and the date renders UNKNOWN; it is never trusted from a
+    packet field.
+    """
+    try:
+        raw = (Path(root) / KRX_CONFIRMED_SOURCE_PATH).read_bytes()
+    except OSError:
+        return {"source_git_blob_sha1": None}
+    oid = _git_blob_oid(raw)
+    if _git_blob_bytes(repository_root, oid) is None:
+        return {"source_git_blob_sha1": None}
+    return {"source_git_blob_sha1": oid}
+
+
+def _krx_confirmed_close_reference(
+    frozen,
+    decision_date: str,
+    generated_at_dt: dt.datetime,
+    *,
+    step0_source_sha256,
+    repository_root: Path,
+) -> dict:
+    """Re-derive the confirmed-close fields from the frozen git blob.
+
+    Only ``source_git_blob_sha1`` is read from the frozen value. Every
+    displayed field is re-derived from that blob in the trusted repository, and
+    its sha256 must equal the STEP0 gate's own recorded latest_krx sha256. A
+    frozen blob the repository does not hold fails validation outright.
+    """
+    oid = frozen.get("source_git_blob_sha1") if isinstance(frozen, dict) else None
+    result = {
+        "source_path": KRX_CONFIRMED_SOURCE_PATH,
+        "basis": "decision_readiness.confirmed_through",
+        "source_git_blob_sha1": None,
+        "source_sha256": None,
+        "collected_at_utc": None,
+        "confirmed_through": None,
+        "unknown_reason": None,
+    }
+    if oid is None:
+        return result | {"unknown_reason": "KRX_CONFIRMED_SOURCE_NOT_COMMITTED"}
+    if not isinstance(oid, str) or _GIT_BLOB_OID.fullmatch(oid) is None:
+        fail("PRESENTATION_KRX_CONFIRMED_SOURCE_BLOB_INVALID", repr(oid))
+    raw = _git_blob_bytes(repository_root, oid)
+    if raw is None:
+        fail("PRESENTATION_KRX_CONFIRMED_SOURCE_BLOB_MISSING", oid)
     try:
         payload = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -3796,29 +3869,15 @@ def _capture_krx_confirmed_close(root: Path) -> dict:
     readiness = payload.get("decision_readiness")
     confirmed = readiness.get("confirmed_through") if isinstance(readiness, dict) else None
     collected = payload.get("collected_at_utc")
-    return {
+    result |= {
+        "source_git_blob_sha1": oid,
         "source_sha256": hashlib.sha256(raw).hexdigest(),
         "collected_at_utc": collected if isinstance(collected, str) else None,
         "confirmed_through": confirmed if isinstance(confirmed, str) else None,
     }
-
-
-def _krx_confirmed_close_reference(
-    captured, decision_date: str, generated_at_dt: dt.datetime
-) -> dict:
-    """Pure: the raw captured fields echoed unchanged plus one derived reason.
-
-    The raw fields are echoed (never nulled) so a replay of this exact output
-    re-derives the exact same reason; the render uses confirmed_through only
-    when unknown_reason is None.
-    """
-    captured = captured if isinstance(captured, dict) else {}
-    sha = captured.get("source_sha256")
-    collected = captured.get("collected_at_utc")
-    confirmed = captured.get("confirmed_through")
     reason = None
-    if not isinstance(sha, str) or _PRESENTATION_SHA256.fullmatch(sha) is None:
-        reason = "KRX_CONFIRMED_SOURCE_MISSING"
+    if result["source_sha256"] != step0_source_sha256:
+        reason = "KRX_CONFIRMED_SOURCE_NOT_STEP0_BYTES"
     elif _canonical_iso_date(confirmed) is None:
         reason = "KRX_CONFIRMED_THROUGH_INVALID"
     elif confirmed > decision_date:
@@ -3829,14 +3888,8 @@ def _krx_confirmed_close_reference(
             reason = "KRX_CONFIRMED_SOURCE_COLLECTED_AT_INVALID"
         elif instant > generated_at_dt:
             reason = "KRX_CONFIRMED_SOURCE_COLLECTED_AFTER_GENERATION"
-    return {
-        "source_path": KRX_CONFIRMED_SOURCE_PATH,
-        "basis": "decision_readiness.confirmed_through",
-        "source_sha256": sha if isinstance(sha, str) else None,
-        "collected_at_utc": collected if isinstance(collected, str) else None,
-        "confirmed_through": confirmed if isinstance(confirmed, str) else None,
-        "unknown_reason": reason,
-    }
+    result["unknown_reason"] = reason
+    return result
 
 
 def _read_json_bytes(path: Path) -> tuple[bytes | None, dict | None]:
@@ -4022,12 +4075,14 @@ def _presentation_references_snapshot(
     generated_at_dt: dt.datetime,
     *,
     root: Path | None,
+    repository_root: Path = ROOT,
 ):
     """STEP0 snapshot plus its presentation-only references.
 
     ``root`` is the live repository on a FRESH build ("choose once, now") and
     None on replay, where only the snapshot's own frozen choice may be used.
-    Replay still re-reads immutable retained bytes from ROOT.
+    Replay still re-reads immutable retained bytes from ROOT, and the
+    confirmed-close blob from ``repository_root`` (the trusted repository).
     """
     if not isinstance(snapshot, dict):
         return snapshot
@@ -4035,8 +4090,13 @@ def _presentation_references_snapshot(
     if frozen is None and root is None:
         return snapshot
     base = {key: value for key, value in snapshot.items() if key != PRESENTATION_REFERENCES}
+    step0_value = base.get("value") if isinstance(base.get("value"), dict) else {}
+    step0_krx = ((step0_value.get("sources") or {}).get("krx") or {}) if isinstance(
+        step0_value.get("sources"), dict
+    ) else {}
+    step0_krx_sha256 = step0_krx.get("source_sha256") if isinstance(step0_krx, dict) else None
     if frozen is None:
-        captured = _capture_krx_confirmed_close(root)
+        captured = _capture_krx_confirmed_close(root, repository_root)
         post_close_date = _select_krx_post_close(root, decision_date, generated_at_dt)
         paper_path = _select_paper_regime_reference(root, generated_at_dt)
     else:
@@ -4053,7 +4113,11 @@ def _presentation_references_snapshot(
             "version": PRESENTATION_REFERENCES_VERSION,
             "scope": "PRESENTATION_ONLY_NOT_A_COMPONENT_INPUT",
             "krx_confirmed_close": _krx_confirmed_close_reference(
-                captured, decision_date, generated_at_dt
+                captured,
+                decision_date,
+                generated_at_dt,
+                step0_source_sha256=step0_krx_sha256,
+                repository_root=repository_root,
             ),
             "krx_post_close": _krx_post_close_reference(
                 ROOT, post_close_date, decision_date, generated_at_dt
@@ -4524,6 +4588,7 @@ def build_packet(
         decision_date,
         generated_at_dt,
         root=ROOT if step0_fresh else None,
+        repository_root=trusted_repository_root,
     )
     step0 = _boundary(_classify_step0(decision_date, step0_snapshot))
     rows["STEP0_READ_MODEL_HEALTH"] = step0
@@ -5856,7 +5921,8 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
             "### KRX · 한국",
             ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
             + f"; evidence_date={confirmed_close}",
-            "- latest_confirmed_close_date: " + confirmed_close,
+            "- latest_confirmed_close_date: " + confirmed_close
+            + ("; 거래소 확정 종가" if confirmed_close != "UNKNOWN" else ""),
             "- latest_confirmed_close_basis: data/latest_krx.json "
             "decision_readiness.confirmed_through (collector next-day confirmation)"
             + (
@@ -5864,9 +5930,11 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
                 if krx_session["latest_confirmed_close_unknown_reason"]
                 else ""
             ),
-            "- latest_observed_unconfirmed_date: " + krx_observed_unconfirmed,
+            "- latest_observed_unconfirmed_date: " + krx_observed_unconfirmed
+            + ("; 관측·미확정(거래소 확정 전)" if krx_observed_unconfirmed != "UNKNOWN" else ""),
             "- latest_completed_session_date: " + completed
-            + f" ({krx_session['latest_completed_session_status']})",
+            + f" ({krx_session['latest_completed_session_status']}); 최근 완료 거래일"
+            + _KRX_SESSION_STATUS_GLOSS.get(krx_session["latest_completed_session_status"], ""),
             "- index_move_observation_date: " + index_move_date
             + (
                 f"; freshness={KR_SESSION_NOT_ADVANCED_REASON} "
@@ -5946,6 +6014,13 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
 
     lines.append("")
     return lines
+
+
+_KRX_SESSION_STATUS_GLOSS = {
+    "OBSERVED_UNCONFIRMED": " · 관측·미확정(거래소 확정 전)",
+    "CONFIRMED": " · 거래소 확정 종가",
+    "UNKNOWN": " · 확인 불가",
+}
 
 
 def _paper_regime_reference_lines(packet: dict) -> list[str]:
@@ -6043,7 +6118,10 @@ def render_markdown(packet: dict) -> str:
                 + f" ({krx_session['latest_completed_session_status']}; "
                 + "confirmed close "
                 + (krx_session["latest_confirmed_close_date"] or "UNKNOWN")
-                + ")",
+                + ") · 최근 완료 거래일"
+                + _KRX_SESSION_STATUS_GLOSS.get(krx_session["latest_completed_session_status"], "")
+                + " · 거래소 확정 종가 "
+                + (krx_session["latest_confirmed_close_date"] or "UNKNOWN"),
                 f"- us_latest_session_date: {us_session}",
             ])
         lines.append("")

@@ -1,6 +1,6 @@
 {
   "audit_sha256": "ebd75026f05ee63e6ecfc5c6771b1230b1ec5eea4dac2d34eb94fb698d7df249",
-  "purpose": "Real audited briefing slots (CLAUDE_CIO_BRIEFING_VERIFICATION_TIMELINE_AUDIT_20260914 Task B). latest_krx fields are the exact raw fields of data/latest_krx.json at each finalization seal commit; its sha256 equals the sealed packet's STEP0 sources.krx.source_sha256.",
+  "purpose": "Real audited briefing slots (CLAUDE_CIO_BRIEFING_VERIFICATION_TIMELINE_AUDIT_20260914 Task B). latest_krx fields are the exact raw fields of data/latest_krx.json at each finalization seal commit; its sha256 equals the sealed packet's STEP0 sources.krx.source_sha256. source_git_blob_sha1 is the blob id of those bytes; replay reads it from the full git history (actions-pass regression and daily-briefing checkouts use fetch-depth: 0).",
   "schema_version": 1,
   "slots": [
     {
@@ -9,6 +9,7 @@
       "latest_krx_at_seal": {
         "collected_at_utc": "2026-09-09T21:00:41+00:00",
         "confirmed_through": "2026-09-09",
+        "source_git_blob_sha1": "25c6f18d3f52a2ac890129a8ad037b93daaa1344",
         "source_sha256": "d2bf104c97fee4bf8c4b218e8b281530e03d7bf16bb5c21f0406e2103efe3b4d"
       },
       "packet_path": "evidence/daily_briefing/morning/2026-09-10/rev-002/packet.json",
@@ -26,6 +27,7 @@
       "latest_krx_at_seal": {
         "collected_at_utc": "2026-09-09T21:00:41+00:00",
         "confirmed_through": "2026-09-09",
+        "source_git_blob_sha1": "25c6f18d3f52a2ac890129a8ad037b93daaa1344",
         "source_sha256": "d2bf104c97fee4bf8c4b218e8b281530e03d7bf16bb5c21f0406e2103efe3b4d"
       },
       "packet_path": "evidence/daily_briefing/evening/2026-09-10/rev-001/packet.json",
@@ -43,6 +45,7 @@
       "latest_krx_at_seal": {
         "collected_at_utc": "2026-09-10T21:00:33+00:00",
         "confirmed_through": "2026-09-10",
+        "source_git_blob_sha1": "eec4fc7af1121766008deefe3b1dc6c0d31e9250",
         "source_sha256": "9b4ef669085eb2225482a9a5761fd614e688fa872bbbffabb6967a5c0ac8380d"
       },
       "packet_path": "evidence/daily_briefing/morning/2026-09-11/rev-002/packet.json",
@@ -60,6 +63,7 @@
       "latest_krx_at_seal": {
         "collected_at_utc": "2026-09-10T21:00:33+00:00",
         "confirmed_through": "2026-09-10",
+        "source_git_blob_sha1": "eec4fc7af1121766008deefe3b1dc6c0d31e9250",
         "source_sha256": "9b4ef669085eb2225482a9a5761fd614e688fa872bbbffabb6967a5c0ac8380d"
       },
       "packet_path": "evidence/daily_briefing/evening/2026-09-11/rev-001/packet.json",
@@ -77,6 +81,7 @@
       "latest_krx_at_seal": {
         "collected_at_utc": "2026-09-10T21:00:33+00:00",
         "confirmed_through": "2026-09-10",
+        "source_git_blob_sha1": "eec4fc7af1121766008deefe3b1dc6c0d31e9250",
         "source_sha256": "9b4ef669085eb2225482a9a5761fd614e688fa872bbbffabb6967a5c0ac8380d"
       },
       "packet_path": "evidence/daily_briefing/morning/2026-09-12/rev-002/packet.json",
@@ -94,6 +99,7 @@
       "latest_krx_at_seal": {
         "collected_at_utc": "2026-09-10T21:00:33+00:00",
         "confirmed_through": "2026-09-10",
+        "source_git_blob_sha1": "eec4fc7af1121766008deefe3b1dc6c0d31e9250",
         "source_sha256": "9b4ef669085eb2225482a9a5761fd614e688fa872bbbffabb6967a5c0ac8380d"
       },
       "packet_path": "evidence/daily_briefing/morning/2026-09-13/rev-001/packet.json",
