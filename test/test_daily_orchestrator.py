@@ -3923,11 +3923,13 @@ class DynamicClockRenderCapTest(unittest.TestCase):
 
 
 class ShadowEntryReviewBriefingTests(unittest.TestCase):
-    def setUp(self):
-        MODULE._SHADOW_REVIEW_VALIDATION_CACHE.clear()
-
-    def tearDown(self):
-        MODULE._SHADOW_REVIEW_VALIDATION_CACHE.clear()
+    # No setUp/tearDown cache clear here: _validated_shadow_review_source's
+    # cache key (_shadow_review_source_cache_key) fingerprints every input
+    # byte plus git HEAD plus the validator callable's identity, so a warm
+    # cache is safe to share across every test in this class except one --
+    # see test_resigned_review_state_tamper_is_rejected_by_production_validator,
+    # which patches _read_json (a source the cache key does not observe)
+    # and must clear/save/restore the cache itself around that patch.
 
     def _source_decision_date(self):
         return MODULE._read_json(
@@ -4053,42 +4055,55 @@ class ShadowEntryReviewBriefingTests(unittest.TestCase):
         self.assertFalse(row["decision_eligible"])
 
     def test_resigned_review_state_tamper_is_rejected_by_production_validator(self):
-        original_read = MODULE._read_json
-        shadow_path = MODULE.ROOT / MODULE._SHADOW_REVIEW_PACKET_PATH
-        tampered = copy.deepcopy(original_read(shadow_path))
-        self.assertTrue(
-            tampered["review_items"],
-            "committed shadow-review fixture must contain a row for tamper testing",
-        )
-        target = min(
-            tampered["review_items"],
-            key=lambda item: (
-                item["market"],
-                item["subject"],
-                item["candidate_id"],
-            ),
-        )
-        target["review_state"] = (
-            "WATCH_REVIEW"
-            if target["review_state"] == "MOMENTUM_PROBE_REVIEW"
-            else "MOMENTUM_PROBE_REVIEW"
-        )
-        target["row_sha256"] = MODULE.SHADOW_ENTRY_REVIEW.payload_sha256(
-            {key: value for key, value in target.items() if key != "row_sha256"}
-        )
-        tampered["packet_sha256"] = MODULE.SHADOW_ENTRY_REVIEW.payload_sha256(
-            {key: value for key, value in tampered.items() if key != "packet_sha256"}
-        )
+        # _shadow_review_source_cache_key() fingerprints real on-disk bytes
+        # (path.read_bytes()), never the _read_json patched below, so a
+        # cache warmed by an earlier test's real validation would return
+        # that stale GOOD result under the same key here and hide this
+        # exact tamper. Clear before, save/restore around it so this test
+        # neither reads a stale hit nor leaves the tampered miss cached for
+        # tests that run after it.
+        saved_cache = copy.deepcopy(MODULE._SHADOW_REVIEW_VALIDATION_CACHE)
+        MODULE._SHADOW_REVIEW_VALIDATION_CACHE.clear()
+        try:
+            original_read = MODULE._read_json
+            shadow_path = MODULE.ROOT / MODULE._SHADOW_REVIEW_PACKET_PATH
+            tampered = copy.deepcopy(original_read(shadow_path))
+            self.assertTrue(
+                tampered["review_items"],
+                "committed shadow-review fixture must contain a row for tamper testing",
+            )
+            target = min(
+                tampered["review_items"],
+                key=lambda item: (
+                    item["market"],
+                    item["subject"],
+                    item["candidate_id"],
+                ),
+            )
+            target["review_state"] = (
+                "WATCH_REVIEW"
+                if target["review_state"] == "MOMENTUM_PROBE_REVIEW"
+                else "MOMENTUM_PROBE_REVIEW"
+            )
+            target["row_sha256"] = MODULE.SHADOW_ENTRY_REVIEW.payload_sha256(
+                {key: value for key, value in target.items() if key != "row_sha256"}
+            )
+            tampered["packet_sha256"] = MODULE.SHADOW_ENTRY_REVIEW.payload_sha256(
+                {key: value for key, value in tampered.items() if key != "packet_sha256"}
+            )
 
-        def read_with_tamper(path):
-            if Path(path) == shadow_path:
-                return copy.deepcopy(tampered)
-            return original_read(path)
+            def read_with_tamper(path):
+                if Path(path) == shadow_path:
+                    return copy.deepcopy(tampered)
+                return original_read(path)
 
-        with mock.patch.object(MODULE, "_read_json", side_effect=read_with_tamper):
-            row = self._row()
-        self.assertEqual(row["status"], "DEGRADED")
-        self.assertIn("SHADOW_ENTRY_REVIEW_SEMANTIC_TAMPER_OR_DRIFT", row["reason"])
+            with mock.patch.object(MODULE, "_read_json", side_effect=read_with_tamper):
+                row = self._row()
+            self.assertEqual(row["status"], "DEGRADED")
+            self.assertIn("SHADOW_ENTRY_REVIEW_SEMANTIC_TAMPER_OR_DRIFT", row["reason"])
+        finally:
+            MODULE._SHADOW_REVIEW_VALIDATION_CACHE.clear()
+            MODULE._SHADOW_REVIEW_VALIDATION_CACHE.update(saved_cache)
 
     def test_markdown_says_why_now_and_why_not_without_buy_language(self):
         row = self._row()
