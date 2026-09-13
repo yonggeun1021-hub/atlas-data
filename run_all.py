@@ -861,6 +861,7 @@ APPROVED_TESTS = [
     "test/test_kr_information_system_runtime_bridge.py",
     "test/test_kr_information_system_runtime_publication.py",
     "test/test_kr_internal_paper_theme_application.py",
+    "test/test_kr_internal_paper_theme_next_session_v4.py",
     "test/test_us_paper_policy_binding.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — normalization replay-readiness
     #   evidence (SHADOW only). Reuses build_us/build_kr from

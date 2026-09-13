@@ -1,0 +1,68 @@
+{
+  "schema_version": "kr_internal_paper_previous_completed_session_context_amendment/1",
+  "decision_id": "KR_INTERNAL_PAPER_PREVIOUS_COMPLETED_SESSION_CONTEXT_V2",
+  "recorded_after_decision_at_utc": "2026-09-13T13:17:50Z",
+  "recording_decision_id": "CIO-C1-IMPL-20260913",
+  "authority": "USER explicit ratification KR-NEXT-SESSION-INPUT-POLICY-DBE-20260913 ('D·B·E 권장안 채택'), recommended by CLAUDE_CIO",
+  "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0_ENTRY_FILTER",
+  "status": "ADOPTED_UNVALIDATED_INTERNAL_PAPER_HYPOTHESIS",
+  "user_ratification": {
+    "ratification_id": "KR-NEXT-SESSION-INPUT-POLICY-DBE-20260913",
+    "ratified_at_utc": "2026-09-13T12:40:00Z",
+    "ratification_sha256": "c18d397994324f09e95a0ba17baae5a722448d595ad1d401e1fb2536f0b0e3b5",
+    "decisions_applied_here": {
+      "B_e_identity_substitute": "ADOPT"
+    },
+    "decisions_recorded_not_activated": {
+      "D_same_day_post_close_source": "ADOPT_CONDITIONAL; condition precedent V1 FAILED (validation sha256 41e99cb8ef812690c72b0d325ccc76c3bae480b7f235095579882f4d4ea0d8b2); not activated; returned to user"
+    },
+    "decisions_recorded_elsewhere": {
+      "E_stage3_population_carry": "ADOPT (Stage3 population adapter scope, not this application scope)"
+    },
+    "decisions_not_applied": {
+      "A_relax_D_definition": "NOT_ADOPTED",
+      "C_pre_open_E_master_source": "DEFERRED"
+    }
+  },
+  "amends": {
+    "decision_id": "KR_INTERNAL_PAPER_PREVIOUS_COMPLETED_SESSION_CONTEXT_V1",
+    "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_adoption_20260908.json",
+    "sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b",
+    "amended_rule_indices": [3],
+    "amended_rule_file_line": 17,
+    "unchanged_rule_indices": [0, 1, 2, 4, 5, 6],
+    "predecessor_file_modified": false,
+    "rules_3_before": "E candidate identity/tradability/master and membership must be actually valid at the E decision and forward execution instants. Never extend a historical D master interval [D,D+1) into E or backdate new membership. Apply the explicitly approved classification sources prospectively to independently verified current E identity.",
+    "rules_3_after": "E candidate identity/tradability/master and membership must be actually valid at the E decision and forward execution instants. Never extend a historical D master interval [D,D+1) into E or backdate new membership. Apply the explicitly approved classification sources prospectively to independently verified current E identity. Bounded substitute (user ratification KR-NEXT-SESSION-INPUT-POLICY-DBE-20260913, decision B): E identity and prospective membership evidence may instead be the latest published asset master whose actual availability (git first-seen and source retrieval) is at or before the E decision instant, combined with ratified canonical listing resolution evaluated at the E decision and forward execution instants and an exact committed E calendar envelope proving OPEN_REGULAR. This substitute does not extend any master effective interval, introduces no maximum age, applies only to this application scope, and does not replace actual E tradability evidence, any separately required E-day regime state, or qualified current E execution observations. d_master_interval_extension_authorized remains false."
+  },
+  "added_rules": [
+    "Decision D of user ratification KR-NEXT-SESSION-INPUT-POLICY-DBE-20260913 (same-day post-close KRX source as D context) is not activated: its condition precedent V1 failed (coverage, preliminary volume, no per-symbol official comparison), so the decision returns to the user. Under this decision no same-day post-close source is a D-context decision input and no validator path admits one; any D master or D leadership whose source is not the next-session official daily source yields UNKNOWN. D remains the immediately previous completed OPEN_REGULAR session before E, and every D input must actually be available before the E decision; no D-2 fallback, no calendar-day subtraction, no E+1 carry."
+  ],
+  "contract": {
+    "path": "config/kr_internal_paper_theme_next_session_contract_v4.json",
+    "schema_version": "kr_internal_paper_theme_next_session_contract/4",
+    "predecessor_contract_path": "config/kr_internal_paper_theme_next_session_contract.json",
+    "predecessor_contract_sha256": "717fea4b6e7fca24e1cba607bd330f8455aa4777727cb0eb7a46edacd6e7c602",
+    "predecessor_retained_for_replay": true
+  },
+  "validation_required": [
+    "Preserve every v3 counterexample and the v3 positive output byte-for-byte.",
+    "B positive path with latest available published master, E listing resolution at both instants, and E OPEN_REGULAR calendar.",
+    "Reject look-ahead master, not-latest master, newer available invalid master, listing mismatch or non-resolution, E calendar closed or future, evaluation outside E local date, and unadmitted post-close D source.",
+    "No numeric staleness window.",
+    "No validator branch admits a same-day post-close D source; any future same-day source requires a new user ratification, source admission, contract version and review.",
+    "Actual E tradability, E-day regime state, qualified E execution observations and exact D TOP bucket remain separately required."
+  ],
+  "implementation": {
+    "public_module": "rotation/kr_internal_paper_theme_next_session_v4.py",
+    "predecessor_module_modified": false,
+    "private_consumer_follow_up": "private_evidence/krx_natural_ingress_v1/rotation_entry_gate.py (C2, after atlas-data merge)",
+    "overlapping_writes": false
+  },
+  "authority_changes": {
+    "real": false,
+    "production": false,
+    "global_taxonomy": false,
+    "profitability_claim": false
+  }
+}
