@@ -5684,13 +5684,13 @@ def _format_component_detail(
             )
             for item in packet.get("review_items", []):
                 lines.append(
-                    f"    - {item.get('subject')} ({item.get('market')}) "
-                    f"기준일={row.get('as_of_date') or 'UNKNOWN'}: "
+                    f"    - {item.get('subject')} ({item.get('market')}): "
                     f"review_state={item.get('review_state')} "
                     f"participation={item.get('participation_state')} "
                     f"price_state={item.get('price_state')} "
                     f"review_due={item.get('review_due_status')} "
                     f"next_review_at={item.get('next_review_at')} "
+                    f"기준일={row.get('as_of_date') or 'UNKNOWN'} "
                     f"reason={item.get('review_reason')} capital=0 trade_proposal=null"
                 )
             lines.append(
