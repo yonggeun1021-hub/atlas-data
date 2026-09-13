@@ -1766,6 +1766,322 @@ def consume_paper_runtime_context(
     return receipt
 
 
+USABLE_SEED_CONSUMPTION_SCHEMA_VERSION = "korea_capital_rotation_usable_seed_consumption/1"
+LEADERSHIP_LIVE_ATTEMPT_SCHEMA_VERSION = "korea_leadership_live_attempt/1"
+USABLE_SEED_SOURCE_DIRECTORY = "data/observations/korea_leadership_context"
+# Where the seed bytes were found at the caller's source commit. Every value
+# except PINNED is a fixed, reasoned NOT_READY; a committed-but-unmaterialized
+# file is a readback capability gap, never evidence that the seed is absent.
+USABLE_SEED_AVAILABILITY_REASONS = {
+    "PINNED": (),
+    "COMMITTED_NOT_MATERIALIZED": ("NATURAL_READBACK_UNAVAILABLE_MATERIALIZATION",),
+    "SOURCE_COMMIT_UNAVAILABLE": (
+        "NATURAL_READBACK_UNAVAILABLE_MATERIALIZATION", "SEED_SOURCE_COMMIT_UNAVAILABLE",
+    ),
+    "ABSENT_AT_SOURCE_COMMIT": ("SEED_OBSERVATION_ABSENT_AT_SOURCE_COMMIT",),
+    "UNCOMMITTED_LOCAL_ONLY": ("SEED_OBSERVATION_NOT_COMMITTED_AT_SOURCE_COMMIT",),
+    "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT": ("SEED_LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT",),
+}
+_USABLE_SEED_COMMITTED_AVAILABILITY = {
+    "PINNED", "COMMITTED_NOT_MATERIALIZED", "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT",
+}
+_USABLE_SEED_LOCAL_REQUIRED = {"PINNED", "UNCOMMITTED_LOCAL_ONLY", "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT"}
+_USABLE_SEED_LOCAL_FORBIDDEN = {"COMMITTED_NOT_MATERIALIZED", "ABSENT_AT_SOURCE_COMMIT"}
+
+
+def _usable_seed_record(seed: dict, label: str, contract: dict) -> tuple[dict, dict | None]:
+    """Re-derive one committed Leadership seed's readiness from its own bytes.
+
+    ``seed`` carries the exact committed bytes, the caller's already-run
+    generic verifier output and the predecessor ``require_usable_seed``
+    verdict.  None of those are trusted: the outer and inner digests, dates
+    and populated/non-null outcome are re-proven here and must agree.  The
+    file digest is recorded as an observation of those bytes, never as an
+    independently approved expected hash.  Integrity failures raise;
+    readiness gaps return a reasoned NOT_READY record.
+    """
+    fields = {
+        "observation_date", "seed_fetch_prior_date", "source_commit", "source_path",
+        "availability", "committed_bytes", "local_file_sha256", "verified_summary",
+        "predecessor_not_ready_reason",
+    }
+    if not isinstance(seed, dict) or set(seed) != fields:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_FIELDS_MISMATCH:{label}")
+    observation_date = _date(seed["observation_date"], f"USABLE_SEED_DATE_INVALID:{label}")
+    fetch_prior = _date(
+        seed["seed_fetch_prior_date"], f"USABLE_SEED_FETCH_PRIOR_DATE_INVALID:{label}"
+    )
+    if not fetch_prior < observation_date:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_FETCH_PRIOR_DATE_INVALID:{label}")
+    source_commit = seed["source_commit"]
+    if not isinstance(source_commit, str) or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SOURCE_COMMIT_INVALID:{label}")
+    if seed["source_path"] != (
+        f"{USABLE_SEED_SOURCE_DIRECTORY}/{observation_date.isoformat()}/packet.json"
+    ):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SOURCE_PATH_MISMATCH:{label}")
+    availability = seed["availability"]
+    if availability not in USABLE_SEED_AVAILABILITY_REASONS:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_AVAILABILITY_INVALID:{label}")
+    committed = seed["committed_bytes"]
+    if (committed is not None) is not (availability in _USABLE_SEED_COMMITTED_AVAILABILITY) or (
+        committed is not None and not isinstance(committed, bytes)
+    ):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_COMMITTED_BYTES_BINDING_INVALID:{label}")
+    committed_sha = None if committed is None else hashlib.sha256(committed).hexdigest()
+    local_sha = seed["local_file_sha256"]
+    if local_sha is not None:
+        _sha(local_sha, f"USABLE_SEED_LOCAL_SHA_INVALID:{label}")
+    if (
+        (local_sha is None and availability in _USABLE_SEED_LOCAL_REQUIRED)
+        or (local_sha is not None and availability in _USABLE_SEED_LOCAL_FORBIDDEN)
+        or (availability == "PINNED" and local_sha != committed_sha)
+        or (availability == "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT" and local_sha == committed_sha)
+    ):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_LOCAL_BYTES_BINDING_INVALID:{label}")
+    summary = seed["verified_summary"]
+    not_ready = seed["predecessor_not_ready_reason"]
+    record = {
+        "observation_date": observation_date.isoformat(),
+        "seed_fetch_prior_date": fetch_prior.isoformat(),
+        "source_commit": source_commit,
+        "source_path": seed["source_path"],
+        "availability": availability,
+        "committed_file_sha256_observed": committed_sha,
+        "local_file_sha256_observed": local_sha,
+        "hash_role": "OBSERVED_FROM_SOURCE_BYTES_NOT_INDEPENDENTLY_APPROVED",
+        "readiness": "NOT_READY",
+        "reasons": list(USABLE_SEED_AVAILABILITY_REASONS[availability]),
+        "summary": None,
+        "leadership": None,
+    }
+    if availability != "PINNED":
+        if summary is not None or not_ready is not None:
+            raise KoreaCapitalRotationError(f"USABLE_SEED_UNPINNED_SUMMARY_FORBIDDEN:{label}")
+        return record, None
+    try:
+        decoded = json.loads(committed)
+    except (ValueError, UnicodeError) as exc:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SOURCE_JSON_INVALID:{label}") from exc
+    if not isinstance(summary, dict) or decoded != summary:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_VERIFIED_SUMMARY_BYTES_MISMATCH:{label}")
+    if (
+        summary.get("schema_version") != LEADERSHIP_LIVE_ATTEMPT_SCHEMA_VERSION
+        or summary.get("observation_date") != observation_date.isoformat()
+        or summary.get("prior_date") != fetch_prior.isoformat()
+    ):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SUMMARY_IDENTITY_MISMATCH:{label}")
+    unsigned = copy.deepcopy(summary)
+    claimed = unsigned.pop("payload_sha256", None)
+    if claimed != payload_sha256(unsigned):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SUMMARY_HASH_MISMATCH:{label}")
+    inner = summary.get("leadership_packet")
+    inner_claimed = summary.get("leadership_packet_sha256")
+    if inner is None:
+        if inner_claimed is not None:
+            raise KoreaCapitalRotationError(f"USABLE_SEED_LEADERSHIP_HASH_MISMATCH:{label}")
+    else:
+        if not isinstance(inner, dict):
+            raise KoreaCapitalRotationError(f"USABLE_SEED_LEADERSHIP_HASH_MISMATCH:{label}")
+        inner_unsigned = copy.deepcopy(inner)
+        inner_digest = inner_unsigned.pop("payload_sha256", None)
+        if inner_digest != payload_sha256(inner_unsigned) or inner_claimed != inner_digest:
+            raise KoreaCapitalRotationError(f"USABLE_SEED_LEADERSHIP_HASH_MISMATCH:{label}")
+    record["summary"] = {
+        "payload_sha256": claimed,
+        "observation_date": summary["observation_date"],
+        "prior_date": summary["prior_date"],
+        "outcome": summary.get("outcome"),
+        "reason": summary.get("reason"),
+        "generated_at": summary.get("generated_at"),
+        "leadership_packet_sha256": inner_claimed,
+    }
+    ready = summary.get("outcome") == "populated" and inner is not None
+    if not_ready is not None and (not isinstance(not_ready, str) or not not_ready):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_READINESS_DERIVATION_MISMATCH:{label}")
+    if ready is not (not_ready is None):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_READINESS_DERIVATION_MISMATCH:{label}")
+    if not ready:
+        record["reasons"] = [not_ready]
+        return record, None
+    try:
+        parsed = _validate_upstream(inner, label, contract)
+    except KoreaCapitalRotationError as exc:
+        record["reasons"] = [f"SEED_LEADERSHIP_PACKET_INVALID:{exc}"]
+        return record, None
+    if parsed["observation_date"] != observation_date:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_INNER_OBSERVATION_DATE_MISMATCH:{label}")
+    record["readiness"] = "READY"
+    record["reasons"] = []
+    record["leadership"] = {
+        "payload_sha256": parsed["packet_sha256"],
+        "observation_date": inner["observation_date"],
+        "available_at": inner["available_at"],
+        "status": inner["status"],
+        "lookback_sessions": parsed["lookback_sessions"],
+        "policy_version": inner["policy"]["policy_version"],
+        "policy_sha256": parsed["policy_sha256"],
+    }
+    return record, parsed
+
+
+def usable_seed_readiness(seed: dict, label: str) -> dict:
+    """Public readiness view of one seed; the connection must not attempt a
+    rotation build unless both seeds are READY here."""
+    record, _ = _usable_seed_record(seed, label, load_contract())
+    return record
+
+
+def _assert_usable_seed_lineage(
+    packet: dict, prior: dict, current: dict, rotation_policy: dict, contract: dict
+) -> None:
+    """The validated packet/4 must be exactly the existing consumer's output
+    for these two READY seeds: same dates, available_at, upstream packet and
+    policy digests, and relative-strength values rendered from the seeds'
+    own rows. Nothing is recomputed into the packet."""
+    pair = packet["observation_pair"]
+    lineage = packet["lineage"]
+    checks = {
+        "prior_date": pair["prior_date"] == prior["observation_date"].isoformat(),
+        "current_date": pair["current_date"] == current["observation_date"].isoformat(),
+        "prior_available_at": _timestamp(
+            pair["prior_available_at"], "USABLE_SEED_ROTATION_TIME_INVALID"
+        ) == prior["available_at"],
+        "current_available_at": _timestamp(
+            pair["current_available_at"], "USABLE_SEED_ROTATION_TIME_INVALID"
+        ) == current["available_at"],
+        "lookback_sessions": pair["lookback_sessions"] == current["lookback_sessions"],
+        "prior_upstream_packet_sha256": (
+            lineage["prior_upstream_packet_sha256"] == prior["packet_sha256"]
+        ),
+        "current_upstream_packet_sha256": (
+            lineage["current_upstream_packet_sha256"] == current["packet_sha256"]
+        ),
+        "upstream_leadership_policy_sha256": (
+            lineage["upstream_leadership_policy_sha256"]
+            == prior["policy_sha256"] == current["policy_sha256"]
+        ),
+        "rotation_policy": packet["rotation_policy"] == rotation_policy,
+    }
+    for key, matched in checks.items():
+        if not matched:
+            raise KoreaCapitalRotationError(f"USABLE_SEED_ROTATION_LINEAGE_MISMATCH:{key}")
+    places = contract["output_decimal_places"]
+    for scope in packet["benchmark_scopes"]:
+        for row in scope["theme_observations"]:
+            series = row["series_identity"]
+            before = prior["rows"].get(series)
+            after = current["rows"].get(series)
+            if (
+                before is None or after is None or row["role"] != after["role"]
+                or row["prior_relative_strength_vs_benchmark"]
+                != _render(before["relative_strength_vs_benchmark"], places)
+                or row["current_relative_strength_vs_benchmark"]
+                != _render(after["relative_strength_vs_benchmark"], places)
+            ):
+                raise KoreaCapitalRotationError(
+                    f"USABLE_SEED_ROTATION_LINEAGE_MISMATCH:relative_strength:{series}"
+                )
+
+
+def consume_usable_seed_pair(
+    prior_seed: dict,
+    current_seed: dict,
+    *,
+    rotation_policy: dict,
+    rotation_packet: dict | None,
+    rotation_error: str | None = None,
+) -> dict:
+    """Opt-in read-only receipt connecting two committed Leadership seeds to
+    the existing packet/4 consumer.
+
+    This is NOT a korea_capital_rotation_packet/4 and adds nothing to one:
+    the unchanged packet is carried as-is under ``rotation.packet``. A READY
+    seed proves only that one committed observation is usable; the pair still
+    needs the existing policy effectivity, Breadth and timing checks, and a
+    NOT_READY seed forbids any rotation attempt. No classification, threshold,
+    candidate or order authority is created here.
+    """
+    contract = load_contract()
+    prior_record, prior = _usable_seed_record(prior_seed, "prior", contract)
+    current_record, current = _usable_seed_record(current_seed, "current", contract)
+    prior_date = _date(prior_record["observation_date"], "USABLE_SEED_DATE_INVALID:prior")
+    current_date = _date(current_record["observation_date"], "USABLE_SEED_DATE_INVALID:current")
+    if not prior_date < current_date:
+        raise KoreaCapitalRotationError("USABLE_SEED_PAIR_DATE_ORDER_INVALID")
+    if prior_record["source_commit"] != current_record["source_commit"]:
+        raise KoreaCapitalRotationError("USABLE_SEED_SOURCE_COMMIT_MISMATCH")
+    if not isinstance(rotation_policy, dict) or (
+        rotation_policy.get("schema_version") != POLICY_SCHEMA_VERSION
+        or rotation_policy.get("approval_status") != "RATIFIED"
+    ):
+        raise KoreaCapitalRotationError("USABLE_SEED_ROTATION_POLICY_NOT_RATIFIED")
+    effective_from = _date(rotation_policy.get("effective_from"), "USABLE_SEED_POLICY_DATE_INVALID")
+    effective_to = rotation_policy.get("effective_to")
+    effective = effective_from <= prior_date and (
+        effective_to is None
+        or current_date < _date(effective_to, "USABLE_SEED_POLICY_END_INVALID")
+    )
+    reasons = [] if effective else ["POLICY_NOT_EFFECTIVE_FOR_OBSERVATION_PAIR"]
+    pair_ready = prior is not None and current is not None
+    packet = None
+    if not pair_ready:
+        if rotation_packet is not None or rotation_error is not None:
+            raise KoreaCapitalRotationError("USABLE_SEED_NOT_READY_ROTATION_ATTEMPT_FORBIDDEN")
+        reasons.append("USABLE_SEED_PAIR_NOT_READY")
+        for label, record in (("prior", prior_record), ("current", current_record)):
+            reasons.extend(f"{label}:{reason}" for reason in record["reasons"])
+    elif rotation_packet is None:
+        if not isinstance(rotation_error, str) or not rotation_error:
+            raise KoreaCapitalRotationError("USABLE_SEED_ROTATION_MISSING_REASON_REQUIRED")
+        reasons.extend(["ROTATION_PACKET_UNAVAILABLE", rotation_error])
+    else:
+        if rotation_error is not None:
+            raise KoreaCapitalRotationError("USABLE_SEED_ROTATION_RESULT_ERROR_CONFLICT")
+        packet = validate_packet(rotation_packet)
+        _assert_usable_seed_lineage(packet, prior, current, rotation_policy, contract)
+        if packet["status"] != "ROTATION_BUCKETS_OBSERVED":
+            reasons.append(packet["status"])
+        if packet["coverage_context"]["breadth"]["status"] != "AVAILABLE":
+            reasons.append("ROTATION_BREADTH_NOT_AVAILABLE")
+    receipt = {
+        "schema_version": USABLE_SEED_CONSUMPTION_SCHEMA_VERSION,
+        "mode": "READ_ONLY_USABLE_SEED_ROTATION_CONNECTION",
+        "observation_pair": {
+            "prior_date": prior_date.isoformat(), "current_date": current_date.isoformat(),
+        },
+        "seeds": {"prior": prior_record, "current": current_record},
+        "seed_pair_readiness": "READY" if pair_ready else "NOT_READY",
+        "rotation": {
+            "status": "ROTATION_PACKET_AVAILABLE" if not reasons else "WAIT_ROTATION_INPUT",
+            "reasons": list(dict.fromkeys(reasons)),
+            "policy_id": rotation_policy.get("policy_id"),
+            "policy_effective_from": rotation_policy["effective_from"],
+            "policy_ratified_at_utc": rotation_policy.get("ratified_at_utc"),
+            "policy_effective_for_pair": effective,
+            "packet": packet,
+        },
+        "lineage": {
+            "source_commit": prior_record["source_commit"],
+            "prior_upstream_packet_sha256": None if prior is None else prior["packet_sha256"],
+            "current_upstream_packet_sha256": None if current is None else current["packet_sha256"],
+            "upstream_leadership_policy_sha256": (
+                None if packet is None else packet["lineage"]["upstream_leadership_policy_sha256"]
+            ),
+            "rotation_policy_sha256": payload_sha256(rotation_policy),
+            "rotation_packet_sha256": None if packet is None else packet["payload_sha256"],
+        },
+        "authority": copy.deepcopy(contract["authority"]) | {
+            "candidate_promotion_authorized": False,
+            "account_linkage_authorized": False,
+            "order_authorized": False,
+            "stage3_entry_authorized": False,
+        },
+    }
+    receipt["payload_sha256"] = payload_sha256(receipt)
+    return receipt
+
+
 def write_json_atomic(path: Path, value: dict) -> None:
     path = Path(path)
     try:

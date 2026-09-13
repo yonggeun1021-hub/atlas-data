@@ -116,16 +116,22 @@ RATIFIED = _load_module(
 )
 
 
+def _leadership_context_root() -> Path:
+    """Resolved from ROOT at CALL time, never cached at import time -- a
+    test (or a real alternate checkout) that reassigns the module's own
+    ROOT after import must see every leadership-context read/write follow
+    it. A module-level constant computed once at import would silently
+    keep pointing at the original ROOT forever."""
+    return ROOT / "data" / "observations" / "korea_leadership_context"
+
+
 def load_real_leadership_packet(observation_date: str) -> dict:
     """Reads the real, already-committed korea_leadership_context
     evidence (built by a real .github/scripts/korea_leadership_live_
     fetch.py workflow_dispatch run) and returns the full real
     korea_leadership.build_transform() output for that date -- fails
     closed if that date's real run never populated or was blocked."""
-    path = (
-        ROOT / "data" / "observations" / "korea_leadership_context"
-        / observation_date / "packet.json"
-    )
+    path = _leadership_context_root() / observation_date / "packet.json"
     if not path.is_file():
         raise RuntimeError(f"NO_LEADERSHIP_EVIDENCE_FOR_DATE:{observation_date}")
     summary = json.loads(path.read_text(encoding="utf-8"))
@@ -369,6 +375,58 @@ def run_current_ratified(
     return {"rotation_packet": packet, "packet_out": output_path}
 
 
+def _pin_source_files(
+    paths: list, source_commit: str, *, required_count: int, error_prefix: str,
+) -> list:
+    """Pins a list of local files to their committed bytes at source_commit
+    -- shared shape for the PAPER and usable-seed consumption paths (the
+    PAPER path's own original pinned_bytes/PAPER_LOCAL_SOURCE_DRIFT loop,
+    factored out and reused, never duplicated).
+
+    The first ``required_count`` entries are mandatory config/policy/
+    binding sources: absent-at-commit there is always a hard failure,
+    exactly like any path that exists locally but was never committed at
+    source_commit (an unreviewed local addition or a stale/wrong commit --
+    never silently tolerated). Any remaining entries are optional per-date
+    evidence that may legitimately not exist yet -- recorded as
+    ABSENT_AT_SOURCE_COMMIT, never raised, only when genuinely absent from
+    both the commit and the local checkout."""
+    def pinned_bytes(relative_path: str) -> bytes:
+        try:
+            return subprocess.run(
+                ["git", "show", f"{source_commit}:{relative_path}"],
+                cwd=ROOT, check=True, capture_output=True,
+            ).stdout
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(f"{error_prefix}_PINNED_SOURCE_UNAVAILABLE:{relative_path}") from exc
+
+    source_files = []
+    for index, path in enumerate(paths):
+        relative = path.relative_to(ROOT).as_posix()
+        try:
+            committed = pinned_bytes(relative)
+        except RuntimeError:
+            if path.is_file() or index < required_count:
+                raise
+            source_files.append({"path": relative, "status": "ABSENT_AT_SOURCE_COMMIT", "sha256": None})
+            continue
+        if not path.is_file() or path.read_bytes() != committed:
+            raise RuntimeError(f"{error_prefix}_LOCAL_SOURCE_DRIFT:{relative}")
+        source_files.append({"path": relative, "status": "PINNED", "sha256": hashlib.sha256(committed).hexdigest()})
+    return source_files
+
+
+def _verify_source_files_unchanged(source_files: list, *, error_prefix: str) -> None:
+    """Re-reads every pinned path's actual current bytes immediately before
+    persisting a receipt that already recorded their pinned digests --
+    refuses if anything moved locally during consumption."""
+    for source_file in source_files:
+        path = ROOT / source_file["path"]
+        actual_sha = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+        if actual_sha != source_file["sha256"]:
+            raise RuntimeError(f"{error_prefix}_SOURCE_CHANGED_DURING_CONSUMPTION:{source_file['path']}")
+
+
 def build_current_ratified_paper_consumption(
     prior_date: str, current_date: str, *, source_commit: str,
     expected_runtime_sha256: str, evaluation_at: str,
@@ -437,19 +495,7 @@ def build_current_ratified_paper_consumption(
             ROOT / "data/observations/korea_leadership_context" / date / "packet.json",
             ROOT / "data/observations/korea_breadth_context" / date / "packet.json",
         ])
-    source_files = []
-    for path in paths:
-        relative = path.relative_to(ROOT).as_posix()
-        try:
-            committed = pinned_bytes(relative)
-        except RuntimeError:
-            if path.is_file() or path in paths[:8]:
-                raise
-            source_files.append({"path": relative, "status": "ABSENT_AT_SOURCE_COMMIT", "sha256": None})
-            continue
-        if not path.is_file() or path.read_bytes() != committed:
-            raise RuntimeError(f"PAPER_LOCAL_SOURCE_DRIFT:{relative}")
-        source_files.append({"path": relative, "status": "PINNED", "sha256": hashlib.sha256(committed).hexdigest()})
+    source_files = _pin_source_files(paths, source_commit, required_count=8, error_prefix="PAPER")
 
     _binding, policy = load_current_ratified_artifacts()
     packet, error = None, None
@@ -457,11 +503,7 @@ def build_current_ratified_paper_consumption(
         packet = build_current_ratified_packet(prior_date, current_date)
     except (RuntimeError, KCR.KoreaCapitalRotationError, WIRE.KoreaRotationWireError) as exc:
         error = str(exc)
-    for source_file in source_files:
-        path = ROOT / source_file["path"]
-        actual_sha = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-        if actual_sha != source_file["sha256"]:
-            raise RuntimeError(f"PAPER_SOURCE_CHANGED_DURING_CONSUMPTION:{source_file['path']}")
+    _verify_source_files_unchanged(source_files, error_prefix="PAPER")
     receipt = KCR.consume_paper_runtime_context(
         runtime_bytes,
         expected_runtime_sha256=expected_runtime_sha256,
@@ -497,6 +539,194 @@ def run_current_ratified_paper_consumption(
     if persisted != receipt:
         raise RuntimeError("PAPER_CONSUMPTION_READBACK_MISMATCH")
     return {"consumer_receipt": persisted, "consumer_out": output_path}
+
+
+_LIVE_FETCH = None
+
+
+def _live_fetch_module():
+    """Lazily load the existing seed verifier; default proof paths never import it."""
+    global _LIVE_FETCH
+    if _LIVE_FETCH is None:
+        _LIVE_FETCH = _load_module(
+            "korea_leadership_live_fetch_for_proof",
+            ".github/scripts/korea_leadership_live_fetch.py",
+        )
+    return _LIVE_FETCH
+
+
+def _read_usable_seed(
+    live, observation_date: str, seed_fetch_prior_date: str,
+    source_commit: str, commit_available: bool,
+) -> tuple[dict, bytes | None]:
+    """Locate one seed at the immutable source commit; never fetch or repair.
+
+    Only byte-identical committed and local evidence is handed to the
+    existing generic verifier (whose integrity failures propagate) and the
+    existing require_usable_seed() check. Every other location state is a
+    reasoned NOT_READY decided by the central consumer.
+    """
+    relative = f"{KCR.USABLE_SEED_SOURCE_DIRECTORY}/{observation_date}/packet.json"
+    local_path = _leadership_context_root() / observation_date / "packet.json"
+    if live.output_path_for(observation_date) != local_path:
+        raise RuntimeError("USABLE_SEED_VERIFIER_PATH_BINDING_MISMATCH")
+    local = local_path.read_bytes() if local_path.is_file() else None
+    committed = None
+    if commit_available:
+        shown = subprocess.run(
+            ["git", "show", f"{source_commit}:{relative}"], cwd=ROOT, capture_output=True,
+        )
+        committed = shown.stdout if shown.returncode == 0 else None
+    if not commit_available:
+        availability = "SOURCE_COMMIT_UNAVAILABLE"
+    elif committed is None:
+        availability = "ABSENT_AT_SOURCE_COMMIT" if local is None else "UNCOMMITTED_LOCAL_ONLY"
+    elif local is None:
+        availability = "COMMITTED_NOT_MATERIALIZED"
+    elif local != committed:
+        availability = "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT"
+    else:
+        availability = "PINNED"
+    summary = not_ready = None
+    if availability == "PINNED":
+        summary = live.verify_existing_observation(
+            seed_fetch_prior_date.replace("-", ""), observation_date.replace("-", ""),
+        )
+        try:
+            live.require_usable_seed(summary)
+        except live.LeadershipLiveFetchError as exc:
+            not_ready = str(exc)
+    seed = {
+        "observation_date": observation_date,
+        "seed_fetch_prior_date": seed_fetch_prior_date,
+        "source_commit": source_commit,
+        "source_path": relative,
+        "availability": availability,
+        "committed_bytes": committed if availability in (
+            "PINNED", "COMMITTED_NOT_MATERIALIZED", "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT",
+        ) else None,
+        "local_file_sha256": (
+            None if local is None or availability == "COMMITTED_NOT_MATERIALIZED"
+            else hashlib.sha256(local).hexdigest()
+        ),
+        "verified_summary": summary,
+        "predecessor_not_ready_reason": not_ready,
+    }
+    return seed, local
+
+
+def build_usable_seed_rotation_consumption(
+    prior_date: str, current_date: str, *, source_commit: str,
+    prior_seed_fetch_prior_date: str, current_seed_fetch_prior_date: str,
+) -> dict:
+    """Connect two committed usable Leadership seeds to the existing
+    current-ratified consumer without writing any repository file.
+
+    Each seed is named by the same (fetch prior date, observation date) pair
+    the live-fetch verifier binds; the adapter supplies no date, policy or
+    threshold of its own. Only when both seeds are READY does the unchanged
+    build_current_ratified_packet() run, and its packet/4 is carried unchanged
+    in an external receipt. A full commit identifies where bytes are read;
+    it does not independently approve those bytes.
+    """
+    if not isinstance(source_commit, str) or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
+        raise RuntimeError("USABLE_SEED_SOURCE_COMMIT_MUST_BE_FULL_SHA")
+    for value in (prior_date, current_date, prior_seed_fetch_prior_date, current_seed_fetch_prior_date):
+        KCR._date(value, "USABLE_SEED_DATE_INVALID")
+    live = _live_fetch_module()
+    try:
+        commit_available = subprocess.run(
+            ["git", "cat-file", "-e", f"{source_commit}^{{commit}}"], cwd=ROOT, capture_output=True,
+        ).returncode == 0
+    except OSError:
+        commit_available = False
+    prior_seed, prior_local = _read_usable_seed(
+        live, prior_date, prior_seed_fetch_prior_date, source_commit, commit_available,
+    )
+    current_seed, current_local = _read_usable_seed(
+        live, current_date, current_seed_fetch_prior_date, source_commit, commit_available,
+    )
+    # Ratified policy/binding bytes and Breadth packets are pinned to the
+    # same immutable source_commit the two Leadership seeds are pinned to
+    # -- the same shape as the PAPER path's own pinned_bytes loop (F2).
+    # Leadership evidence itself is not repeated here: it already has its
+    # own, stricter verifier via _read_usable_seed()/require_usable_seed().
+    # The first 8 are mandatory ratified config/policy/binding sources
+    # (hard fail if absent-at-commit, exactly like the PAPER path); the
+    # per-date Breadth packets are optional evidence that may genuinely
+    # not exist yet -- absent-at-commit there stays a recorded, non-raising
+    # lineage gap, and the rotation attempt below (which reads the same
+    # live Breadth file itself) still surfaces the reason as its own
+    # NOT_READY/WAIT result. No new policy or threshold is introduced.
+    pinned_paths = [
+        RATIFIED.DECISION_PATH, RATIFIED.IDENTITY_DOCUMENT_PATH,
+        RATIFIED.BINDING_PATH, RATIFIED.POLICY_PATH,
+        RATIFIED.LEADERSHIP_POLICY_PATH, RATIFIED.KRX_HOLIDAY_CAPTURE_PATH,
+        KCR.CONTRACT_PATH, KCR.SECTOR_IDENTITY_BINDING_CONTRACT_PATH,
+    ] + [
+        ROOT / "data/observations/korea_breadth_context" / date / "packet.json"
+        for date in (prior_date, current_date)
+    ]
+    if commit_available:
+        pinned_source_files = _pin_source_files(
+            pinned_paths, source_commit, required_count=8, error_prefix="USABLE_SEED",
+        )
+    else:
+        # Mirrors the seeds' own SOURCE_COMMIT_UNAVAILABLE handling: no
+        # source_commit to pin against at all, so nothing here is treated
+        # as pinned, drifted or approved -- purely informational.
+        pinned_source_files = [
+            {"path": path.relative_to(ROOT).as_posix(), "status": "SOURCE_COMMIT_UNAVAILABLE", "sha256": None}
+            for path in pinned_paths
+        ]
+    _binding, policy = load_current_ratified_artifacts()
+    packet, error = None, None
+    if all(
+        KCR.usable_seed_readiness(seed, label)["readiness"] == "READY"
+        for seed, label in ((prior_seed, "prior"), (current_seed, "current"))
+    ):
+        try:
+            packet = build_current_ratified_packet(prior_date, current_date)
+        except (RuntimeError, KCR.KoreaCapitalRotationError, WIRE.KoreaRotationWireError) as exc:
+            error = str(exc)
+    for date, before in ((prior_date, prior_local), (current_date, current_local)):
+        path = _leadership_context_root() / date / "packet.json"
+        if (path.read_bytes() if path.is_file() else None) != before:
+            raise RuntimeError(f"USABLE_SEED_SOURCE_CHANGED_DURING_CONSUMPTION:{date}")
+    if commit_available:
+        _verify_source_files_unchanged(pinned_source_files, error_prefix="USABLE_SEED")
+    receipt = KCR.consume_usable_seed_pair(
+        prior_seed, current_seed, rotation_policy=policy,
+        rotation_packet=packet, rotation_error=error,
+    )
+    receipt["lineage"]["rotation_source_files"] = pinned_source_files
+    receipt["lineage"]["consumer_code_sha256"] = {
+        path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+        for path in (
+            "rotation/korea_capital_rotation.py",
+            ".github/scripts/korea_capital_rotation_ledger_proof.py",
+            ".github/scripts/korea_leadership_live_fetch.py",
+        )
+    }
+    receipt.pop("payload_sha256")
+    receipt["payload_sha256"] = KCR.payload_sha256(receipt)
+    return receipt
+
+
+def run_usable_seed_rotation_consumption(
+    prior_date: str, current_date: str, receipt_out: Path, *, source_commit: str,
+    prior_seed_fetch_prior_date: str, current_seed_fetch_prior_date: str,
+) -> dict:
+    receipt = build_usable_seed_rotation_consumption(
+        prior_date, current_date, source_commit=source_commit,
+        prior_seed_fetch_prior_date=prior_seed_fetch_prior_date,
+        current_seed_fetch_prior_date=current_seed_fetch_prior_date,
+    )
+    output_path = write_external_ratified_packet(receipt_out, receipt)
+    persisted = json.loads(output_path.read_bytes())
+    if persisted != receipt:
+        raise RuntimeError("USABLE_SEED_RECEIPT_READBACK_MISMATCH")
+    return {"usable_seed_receipt": persisted, "receipt_out": output_path}
 
 
 def run(prior_date: str, current_date: str, pointer_out: Path | None) -> dict:
@@ -558,11 +788,41 @@ def main() -> int:
     parser.add_argument("--expected-paper-runtime-sha256", help="Required independent reviewed SHA-256 of the canonical runtime bytes; do not derive it from the input being admitted.")
     parser.add_argument("--paper-consumer-out", type=Path, help="External read-only consumption receipt; never a packet/4 replacement.")
     parser.add_argument("--evaluation-at", help="Timezone-aware consumption time; source evaluation time is retained separately.")
+    parser.add_argument("--usable-seed-source-commit", help="Immutable full commit the two committed Leadership seed files are read at; not an approval of their bytes.")
+    parser.add_argument("--prior-seed-fetch-prior-date", help="YYYY-MM-DD fetch prior date recorded in the prior-date seed (live-fetch verifier binding).")
+    parser.add_argument("--current-seed-fetch-prior-date", help="YYYY-MM-DD fetch prior date recorded in the current-date seed (live-fetch verifier binding).")
+    parser.add_argument("--usable-seed-receipt-out", type=Path, help="External read-only usable-seed connection receipt; never a packet/4 replacement.")
     args = parser.parse_args()
     paper_args = (
         args.paper_runtime_source_commit, args.expected_paper_runtime_sha256,
         args.paper_consumer_out, args.evaluation_at,
     )
+    seed_args = (
+        args.usable_seed_source_commit, args.prior_seed_fetch_prior_date,
+        args.current_seed_fetch_prior_date, args.usable_seed_receipt_out,
+    )
+    if any(value is not None for value in seed_args):
+        if not all(value is not None for value in seed_args) or not args.current_ratified_policy:
+            parser.error("usable-seed consumption requires --current-ratified-policy and all four usable-seed arguments")
+        if args.commit_pointer or args.packet_out or any(value is not None for value in paper_args):
+            parser.error("usable-seed consumption cannot write the briefing pointer, substitute for --packet-out, or combine with PAPER consumption")
+        result = run_usable_seed_rotation_consumption(
+            args.prior_date, args.current_date, args.usable_seed_receipt_out,
+            source_commit=args.usable_seed_source_commit,
+            prior_seed_fetch_prior_date=args.prior_seed_fetch_prior_date,
+            current_seed_fetch_prior_date=args.current_seed_fetch_prior_date,
+        )
+        receipt = result["usable_seed_receipt"]
+        print(json.dumps({
+            "seed_pair_readiness": receipt["seed_pair_readiness"],
+            "prior_seed": receipt["seeds"]["prior"]["readiness"],
+            "current_seed": receipt["seeds"]["current"]["readiness"],
+            "rotation_status": receipt["rotation"]["status"],
+            "reasons": receipt["rotation"]["reasons"],
+            "payload_sha256": receipt["payload_sha256"],
+            "receipt_out": str(result["receipt_out"]),
+        }, ensure_ascii=False))
+        return 0 if receipt["rotation"]["status"] == "ROTATION_PACKET_AVAILABLE" else 3
     if any(value is not None for value in paper_args):
         if not all(value is not None for value in paper_args) or not args.current_ratified_policy:
             parser.error("PAPER consumption requires --current-ratified-policy and all four PAPER arguments, including --expected-paper-runtime-sha256")
