@@ -185,6 +185,36 @@ class LeadershipLiveProofWorkflowTest(unittest.TestCase):
         self.assertIn("git add data/observations/korea_leadership_context", commit["run"])
         self.assertNotIn("korea_breadth_context", commit["run"])
 
+    def test_effective_date_seed_confirms_usable_seed_readiness_after_commit(self):
+        step_names = [step["name"] for step in self.seed["steps"] if "name" in step]
+        # Ordering: the opt-in readiness check runs last, after both the
+        # reuse check and the conditional fetch+commit -- so a fresh
+        # attempt's evidence is preserved/committed before readiness is
+        # ever distinguished, and a reused attempt is re-checked too.
+        self.assertEqual(
+            step_names[-4:],
+            [
+                "Reuse an exact committed effective-date Leadership observation",
+                "Korea Leadership effective-date real KRX index fetch attempt",
+                "Commit effective-date Korea Leadership evidence",
+                "Confirm effective-date Leadership seed usable-seed readiness",
+            ],
+        )
+        readiness = self.seed_steps["Confirm effective-date Leadership seed usable-seed readiness"]
+        # Never gated behind steps.existing_leadership.outputs.exists --
+        # reused evidence is subject to this final check too.
+        self.assertNotIn("if", readiness)
+        # A faithfully preserved BLOCKED attempt is an expected, honest
+        # outcome, not a workflow failure -- this step must never turn
+        # the scheduled job red for that alone.
+        self.assertTrue(readiness.get("continue-on-error"))
+        run = readiness["run"]
+        self.assertIn("korea_leadership_live_fetch.py", run)
+        self.assertIn("--verify-existing-only", run)
+        self.assertIn("--require-usable-seed", run)
+        self.assertIn('--prior-date "$PRIOR_DATE"', run)
+        self.assertIn('--current-date "$CURRENT_DATE"', run)
+
     def test_called_failure_propagates_and_success_handoff_is_reverified(self):
         verify = self.workflow["jobs"]["verify-scheduled-observation-pair-handoff"]
         self.assertEqual(
