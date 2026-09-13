@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from decimal import Decimal
 import hashlib
 import importlib.util
 import json
@@ -9,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -311,6 +313,226 @@ class PinnedCurrentRatifiedIntegrationTests(unittest.TestCase):
                     )
                 writer.assert_not_called()
                 self.assertFalse(out.exists())
+
+
+# Exact seed-readiness predecessor head this connection is built on.
+BASE_HEAD = "3a1a4f019e10984a48f76833840d4bd8393f36d2"
+SYNTHETIC_SEED_COMMIT = "c" * 40  # SYNTHETIC_TEST_ONLY source identity, never natural proof
+
+
+def synthetic_seed_summary(inner, observation_date, fetch_prior_date, *, outcome="populated"):
+    summary = {
+        "schema_version": "korea_leadership_live_attempt/1",
+        "observation_date": observation_date,
+        "prior_date": fetch_prior_date,
+        "outcome": outcome,
+        "reason": None if outcome == "populated" else "SYNTHETIC_BLOCKED_FIXTURE",
+        "leadership_packet_sha256": None if inner is None else inner["payload_sha256"],
+        "leadership_packet": inner,
+        "markets": {
+            market: {"raw_response_sha256": {"prior": "1" * 64, "current": "2" * 64}}
+            for market in ("KOSDAQ", "KOSPI")
+        },
+        "generated_at": f"{observation_date}T09:05:00Z",
+    }
+    summary["payload_sha256"] = KCR.payload_sha256(summary)
+    return summary
+
+
+def synthetic_seed_input(summary):
+    raw = (json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    ready = summary["outcome"] == "populated" and summary["leadership_packet"] is not None
+    return {
+        "observation_date": summary["observation_date"],
+        "seed_fetch_prior_date": summary["prior_date"],
+        "source_commit": SYNTHETIC_SEED_COMMIT,
+        "source_path": f"data/observations/korea_leadership_context/{summary['observation_date']}/packet.json",
+        "availability": "PINNED",
+        "committed_bytes": raw,
+        "local_file_sha256": hashlib.sha256(raw).hexdigest(),
+        "verified_summary": json.loads(raw),
+        "predecessor_not_ready_reason": None if ready else f"SEED_NOT_USABLE:outcome={summary['outcome']}",
+    }
+
+
+class UsableSeedRotationConnectionTests(unittest.TestCase):
+    """SYNTHETIC_TEST_ONLY: legal rotation fixtures in memory, no natural evidence."""
+
+    def setUp(self):
+        self.value, self.policy = FIXTURES.make_bundle()
+        market = FIXTURES.forward_live_market("a" * 64, "2026-08-20", "2026-08-20T18:00:00+09:00")
+        self.available = copy.deepcopy(self.value)
+        self.available["coverage_context"]["breadth"] = FIXTURES.breadth_context(
+            "AVAILABLE", True, kosdaq=market, kospi=market,
+        )
+        self.prior_summary = synthetic_seed_summary(self.value["prior_observation"], "2026-08-18", "2026-08-14")
+        self.current_summary = synthetic_seed_summary(self.value["current_observation"], "2026-08-20", "2026-08-19")
+        self.prior_seed = synthetic_seed_input(self.prior_summary)
+        self.current_seed = synthetic_seed_input(self.current_summary)
+
+    def consume(self, prior=None, current=None, **kwargs):
+        kwargs = {"rotation_policy": self.policy, "rotation_packet": None} | kwargs
+        return KCR.consume_usable_seed_pair(
+            self.prior_seed if prior is None else prior,
+            self.current_seed if current is None else current, **kwargs,
+        )
+
+    def test_default_packet_bytes_match_base_head_consumer(self):
+        shown = subprocess.run(
+            ["git", "show", f"{BASE_HEAD}:rotation/korea_capital_rotation.py"], cwd=ROOT, capture_output=True,
+        )
+        if shown.returncode != 0:
+            self.skipTest(f"BASE_HEAD_SOURCE_UNAVAILABLE:{BASE_HEAD}")
+        base = types.ModuleType("korea_capital_rotation_base_head")
+        base.__file__ = str(ROOT / "rotation" / "korea_capital_rotation.py")
+        exec(compile(shown.stdout, "korea_capital_rotation_base_head", "exec"), base.__dict__)
+        for label, value in (("unknown_breadth", self.value), ("available_breadth", self.available)):
+            with self.subTest(label=label):
+                value_before = KCR.canonical_json(value)
+                policy_before = KCR.canonical_json(self.policy)
+                expected = base.canonical_json(
+                    base.build_packet(copy.deepcopy(value), copy.deepcopy(self.policy))
+                ).encode("utf-8")
+                packet = KCR.build_packet(value, self.policy)
+                self.assertEqual(KCR.canonical_json(packet).encode("utf-8"), expected)
+                self.assertEqual(base.validate_packet(copy.deepcopy(packet)), packet)
+                receipt = self.consume(rotation_packet=packet)
+                self.assertEqual(KCR.canonical_json(receipt["rotation"]["packet"]).encode("utf-8"), expected)
+                self.assertEqual(KCR.canonical_json(value), value_before)
+                self.assertEqual(KCR.canonical_json(self.policy), policy_before)
+
+    def test_ready_seed_pair_preserves_leadership_lineage_through_existing_consumer(self):
+        packet = KCR.build_packet(copy.deepcopy(self.available), self.policy)
+        seeds_before = copy.deepcopy((self.prior_seed, self.current_seed))
+        receipt = self.consume(rotation_packet=packet)
+        self.assertEqual((self.prior_seed, self.current_seed), seeds_before)
+        self.assertEqual(receipt["seed_pair_readiness"], "READY")
+        self.assertEqual(receipt["rotation"]["status"], "ROTATION_PACKET_AVAILABLE")
+        self.assertEqual(receipt["rotation"]["reasons"], [])
+        self.assertEqual(receipt["rotation"]["packet"], packet)
+        self.assertNotIn("seeds", receipt["rotation"]["packet"])
+        for label, summary, seed in (
+            ("prior", self.prior_summary, self.prior_seed), ("current", self.current_summary, self.current_seed),
+        ):
+            record = receipt["seeds"][label]
+            inner = summary["leadership_packet"]
+            self.assertEqual(record["readiness"], "READY")
+            self.assertEqual(record["source_commit"], SYNTHETIC_SEED_COMMIT)
+            self.assertEqual(record["source_path"], seed["source_path"])
+            self.assertEqual(record["seed_fetch_prior_date"], summary["prior_date"])
+            self.assertEqual(record["committed_file_sha256_observed"], hashlib.sha256(seed["committed_bytes"]).hexdigest())
+            self.assertEqual(record["hash_role"], "OBSERVED_FROM_SOURCE_BYTES_NOT_INDEPENDENTLY_APPROVED")
+            self.assertEqual(record["summary"]["payload_sha256"], summary["payload_sha256"])
+            self.assertEqual(record["summary"]["generated_at"], summary["generated_at"])
+            self.assertEqual(record["summary"]["leadership_packet_sha256"], inner["payload_sha256"])
+            self.assertEqual(record["leadership"]["payload_sha256"], inner["payload_sha256"])
+            self.assertEqual(record["leadership"]["available_at"], inner["available_at"])
+            self.assertEqual(record["leadership"]["policy_sha256"], inner["policy"]["policy_sha256"])
+            self.assertEqual(receipt["lineage"][f"{label}_upstream_packet_sha256"], inner["payload_sha256"])
+            self.assertEqual(packet["lineage"][f"{label}_upstream_packet_sha256"], inner["payload_sha256"])
+        self.assertEqual(receipt["lineage"]["upstream_leadership_policy_sha256"], self.policy["upstream_leadership_policy_sha256"])
+        self.assertEqual(receipt["lineage"]["rotation_policy_sha256"], packet["lineage"]["rotation_policy_sha256"])
+        self.assertEqual(receipt["rotation"]["policy_effective_from"], self.policy["effective_from"])
+        self.assertEqual(receipt["rotation"]["policy_ratified_at_utc"], self.policy["ratified_at_utc"])
+        # Original relative strengths trace to the seed rows; TOP/BOTTOM are the
+        # existing consumer's own buckets, not re-derived here.
+        prior_rows = {row["series_identity"]: row for row in self.value["prior_observation"]["relative_strength_observations"]}
+        current_rows = {row["series_identity"]: row for row in self.value["current_observation"]["relative_strength_observations"]}
+        for scope in receipt["rotation"]["packet"]["benchmark_scopes"]:
+            for row in scope["theme_observations"]:
+                series = row["series_identity"]
+                self.assertEqual(row["prior_relative_strength_vs_benchmark"], KCR._render(Decimal(prior_rows[series]["relative_strength_vs_benchmark"]), 12))
+                self.assertEqual(row["current_relative_strength_vs_benchmark"], KCR._render(Decimal(current_rows[series]["relative_strength_vs_benchmark"]), 12))
+        scopes = receipt["rotation"]["packet"]["benchmark_scopes"]
+        self.assertEqual([scope["top_themes"] for scope in scopes], [["THEME.KR.KOSPI.BIO"], ["THEME.KR.KOSDAQ.SEMICONDUCTOR"]])
+        self.assertEqual([scope["bottom_themes"] for scope in scopes], [["THEME.KR.KOSPI.DEFENSE"], ["THEME.KR.KOSDAQ.ROBOTICS"]])
+        self.assertEqual(
+            {key for key, value in receipt["authority"].items() if value is not False},
+            {"external_ratified_rotation_policy_only"},
+        )
+        self.assertEqual(receipt.pop("payload_sha256"), KCR.payload_sha256(receipt))
+
+    def test_blocked_or_unpinned_seed_is_not_ready_and_forbids_rotation(self):
+        packet = KCR.build_packet(copy.deepcopy(self.available), self.policy)
+        blocked = synthetic_seed_input(synthetic_seed_summary(None, "2026-08-20", "2026-08-19", outcome="blocked"))
+        receipt = self.consume(current=blocked)
+        record = receipt["seeds"]["current"]
+        self.assertEqual(record["readiness"], "NOT_READY")
+        self.assertEqual(record["reasons"], ["SEED_NOT_USABLE:outcome=blocked"])
+        self.assertEqual(record["summary"]["outcome"], "blocked")
+        self.assertIsNone(record["leadership"])
+        self.assertEqual(receipt["seeds"]["prior"]["readiness"], "READY")
+        self.assertEqual(receipt["seed_pair_readiness"], "NOT_READY")
+        self.assertEqual(receipt["rotation"]["status"], "WAIT_ROTATION_INPUT")
+        self.assertIsNone(receipt["rotation"]["packet"])
+        self.assertIn("USABLE_SEED_PAIR_NOT_READY", receipt["rotation"]["reasons"])
+        self.assertIn("current:SEED_NOT_USABLE:outcome=blocked", receipt["rotation"]["reasons"])
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "ROTATION_ATTEMPT_FORBIDDEN"):
+            self.consume(current=blocked, rotation_packet=packet)
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "READINESS_DERIVATION_MISMATCH"):
+            self.consume(current=blocked | {"predecessor_not_ready_reason": None})
+        unmaterialized = self.current_seed | {
+            "availability": "COMMITTED_NOT_MATERIALIZED", "local_file_sha256": None,
+            "verified_summary": None, "predecessor_not_ready_reason": None,
+        }
+        absent = unmaterialized | {"availability": "ABSENT_AT_SOURCE_COMMIT", "committed_bytes": None}
+        for seed, reasons, committed_sha in (
+            (unmaterialized, ["NATURAL_READBACK_UNAVAILABLE_MATERIALIZATION"], hashlib.sha256(self.current_seed["committed_bytes"]).hexdigest()),
+            (absent, ["SEED_OBSERVATION_ABSENT_AT_SOURCE_COMMIT"], None),
+        ):
+            with self.subTest(availability=seed["availability"]):
+                record = self.consume(current=seed)["seeds"]["current"]
+                self.assertEqual(record["readiness"], "NOT_READY")
+                self.assertEqual(record["reasons"], reasons)
+                self.assertEqual(record["committed_file_sha256_observed"], committed_sha)
+                self.assertIsNone(record["summary"])
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "UNPINNED_SUMMARY_FORBIDDEN"):
+            self.consume(current=unmaterialized | {"verified_summary": self.current_summary})
+
+    def test_malformed_tampered_wrong_date_or_wrong_policy_seed_is_rejected(self):
+        tampered = copy.deepcopy(self.current_summary)
+        tampered["leadership_packet"]["relative_strength_observations"][2]["relative_strength_vs_benchmark"] = "0.9"
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "HASH_MISMATCH"):
+            self.consume(current=synthetic_seed_input(tampered))
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "VERIFIED_SUMMARY_BYTES_MISMATCH"):
+            self.consume(current=self.current_seed | {"verified_summary": self.prior_summary})
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "SUMMARY_IDENTITY_MISMATCH"):
+            self.consume(current=self.current_seed | {"seed_fetch_prior_date": "2026-08-18"})
+        malformed_inner = copy.deepcopy(self.value["current_observation"])
+        malformed_inner["status"] = "CLASSIFIED"
+        FIXTURES.rehash(malformed_inner)
+        malformed = synthetic_seed_input(synthetic_seed_summary(malformed_inner, "2026-08-20", "2026-08-19"))
+        record = self.consume(current=malformed)["seeds"]["current"]
+        self.assertEqual(record["readiness"], "NOT_READY")
+        self.assertTrue(record["reasons"][0].startswith("SEED_LEADERSHIP_PACKET_INVALID:UPSTREAM_IDENTITY_INVALID"))
+        packet = KCR.build_packet(copy.deepcopy(self.available), self.policy)
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "LINEAGE_MISMATCH:rotation_policy"):
+            self.consume(rotation_packet=packet, rotation_policy=self.policy | {"policy_id": "POLICY.P2.03.OTHER"})
+        foreign = copy.deepcopy(packet)
+        foreign["lineage"]["current_upstream_packet_sha256"] = "f" * 64
+        FIXTURES.rehash_output(foreign)
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "LINEAGE_MISMATCH:current_upstream_packet_sha256"):
+            self.consume(rotation_packet=foreign)
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "PAIR_DATE_ORDER_INVALID"):
+            self.consume(prior=self.current_seed, current=self.prior_seed)
+
+    def test_ready_seeds_without_breadth_or_policy_effectivity_remain_not_ready(self):
+        receipt = self.consume(rotation_packet=KCR.build_packet(copy.deepcopy(self.value), self.policy))
+        self.assertEqual(receipt["seed_pair_readiness"], "READY")
+        self.assertEqual(receipt["rotation"]["status"], "WAIT_ROTATION_INPUT")
+        self.assertEqual(receipt["rotation"]["reasons"], ["ROTATION_BREADTH_NOT_AVAILABLE"])
+        pre_effective = self.policy | {"effective_from": "2026-08-19"}
+        packet = KCR.build_packet(copy.deepcopy(self.available), pre_effective)
+        receipt = self.consume(rotation_packet=packet, rotation_policy=pre_effective)
+        self.assertFalse(receipt["rotation"]["policy_effective_for_pair"])
+        self.assertEqual(
+            receipt["rotation"]["reasons"],
+            ["POLICY_NOT_EFFECTIVE_FOR_OBSERVATION_PAIR", "POLICY_NOT_EFFECTIVE"],
+        )
+        receipt = self.consume(rotation_error="NO_BREADTH_OR_PAIR_SYNTHETIC")
+        self.assertEqual(receipt["rotation"]["reasons"], ["ROTATION_PACKET_UNAVAILABLE", "NO_BREADTH_OR_PAIR_SYNTHETIC"])
+        with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "MISSING_REASON_REQUIRED"):
+            self.consume()
 
 
 if __name__ == "__main__":

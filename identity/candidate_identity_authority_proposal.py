@@ -135,20 +135,84 @@ def _parse_collected_at(value: object, *, code: str) -> dt.datetime:
     return parsed.astimezone(dt.timezone.utc)
 
 
-def _load_korea_evidence(root: Path, decision_date: str, symbol: str) -> dict:
+KOREA_EVIDENCE_DATE_BASIS = "DYNAMIC_CLOCK_REPORT_KOREA_EVIDENCE_AS_OF"
+
+
+def _korea_evidence_date(report: dict, decision_date: str) -> str:
+    """Return the Korea collection date the Dynamic Clock itself admitted.
+
+    The Dynamic Clock evaluates each market on its own evidence clock
+    (BTC/KOREA/CRYPTO are never blended).  Its KOREA scanner selects the
+    latest committed ``data/<date>/krx.json`` whose own date is <=
+    ``decision_date`` and records that date as
+    ``by_market.KOREA.evidence_as_of``.  KRX collections do not exist on
+    Saturdays, Sundays, or KRX holidays, so on those refresh dates the
+    report's calendar ``decision_date`` has no Korea collection at all.
+
+    Korea identity evidence must bind to the exact snapshot that produced the
+    Korea candidates -- not to the refresh calendar date and not to any
+    independently scanned "latest" directory.  No staleness window is
+    introduced here: the admissible date is exactly the one the already
+    validated report recorded, and anything else fails closed.
+    """
+    try:
+        decision = dt.date.fromisoformat(decision_date)
+    except (TypeError, ValueError) as exc:
+        raise CandidateIdentityAuthorityProposalError("DECISION_DATE_INVALID") from exc
+    market = report.get("by_market", {}).get("KOREA") if isinstance(report, dict) else None
+    value = market.get("evidence_as_of") if isinstance(market, dict) else None
+    if value is None:
+        raise CandidateIdentityAuthorityProposalError(
+            "KOREA_IDENTITY_EVIDENCE_UNAVAILABLE_OR_INVALID"
+        )
+    try:
+        evidence = dt.date.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise CandidateIdentityAuthorityProposalError("KOREA_EVIDENCE_DATE_INVALID") from exc
+    if evidence.isoformat() != value:
+        raise CandidateIdentityAuthorityProposalError("KOREA_EVIDENCE_DATE_INVALID")
+    if evidence > decision:
+        raise CandidateIdentityAuthorityProposalError("KOREA_EVIDENCE_DATE_FUTURE_DATED")
+    return value
+
+
+def _load_korea_evidence(
+    root: Path,
+    decision_date: str,
+    symbol: str,
+    *,
+    evidence_date: str | None = None,
+) -> dict:
     """Load two independent official collector records for a Korea symbol.
 
     KRX proves the exact listed symbol/name pair.  OpenDART independently
     proves the stock-code/name/corp-code pair.  Neither source proves the
     share class, so the proposal deliberately remains OTHER_UNCLASSIFIED.
+
+    ``evidence_date`` is the Korea collection date (see
+    ``_korea_evidence_date``); it defaults to ``decision_date``.  It may never
+    be later than ``decision_date``, both records must be collected for
+    exactly that date, and both must have been collected no later than the
+    end of the KST ``decision_date`` (the refresh date).  A missing or
+    invalid record on that exact date fails closed; there is no fallback to
+    an older directory.
     """
     try:
         decision = dt.date.fromisoformat(decision_date)
     except ValueError as exc:
         raise CandidateIdentityAuthorityProposalError("DECISION_DATE_INVALID") from exc
+    if evidence_date is None:
+        evidence = decision
+    else:
+        try:
+            evidence = dt.date.fromisoformat(evidence_date)
+        except (TypeError, ValueError) as exc:
+            raise CandidateIdentityAuthorityProposalError("KOREA_EVIDENCE_DATE_INVALID") from exc
+        if evidence > decision:
+            raise CandidateIdentityAuthorityProposalError("KOREA_EVIDENCE_DATE_FUTURE_DATED")
     if not (isinstance(symbol, str) and len(symbol) == 6 and symbol.isdigit()):
         raise CandidateIdentityAuthorityProposalError("KOREA_SYMBOL_INVALID")
-    day_root = root / decision.isoformat()
+    day_root = root / evidence.isoformat()
     krx_path = day_root / "krx.json"
     dart_path = day_root / "dart.json"
     try:
@@ -167,7 +231,7 @@ def _load_korea_evidence(root: Path, decision_date: str, symbol: str) -> dict:
         (krx, "KRX 정보데이터시스템 (pykrx)", "KOREA_KRX_EVIDENCE_INVALID"),
         (dart, "OpenDART (금융감독원)", "KOREA_DART_EVIDENCE_INVALID"),
     ):
-        if doc.get("collected_for_kst_date") != decision.isoformat():
+        if doc.get("collected_for_kst_date") != evidence.isoformat():
             raise CandidateIdentityAuthorityProposalError(code)
         if _parse_collected_at(doc.get("collected_at_utc"), code=code) > decision_end:
             raise CandidateIdentityAuthorityProposalError(code)
@@ -190,6 +254,8 @@ def _load_korea_evidence(root: Path, decision_date: str, symbol: str) -> dict:
         "symbol": symbol,
         "name": name,
         "corp_code": corp_code,
+        "evidence_date": evidence.isoformat(),
+        "evidence_date_basis": KOREA_EVIDENCE_DATE_BASIS,
         "krx": {
             "path": _source_ref(krx_path),
             "bytes_sha256": _file_sha(krx_path),
@@ -270,7 +336,7 @@ def _validate_source_gap_inventory(
     report_path: Path,
     authority_path: Path,
     scope_authority_path: Path,
-) -> tuple[dict, dict[str, dict]]:
+) -> tuple[dict, dict[str, dict], dict]:
     """Independently rebuild the source inventory from its canonical inputs.
 
     A packet hash is not provenance: a caller could alter the inventory and
@@ -299,7 +365,7 @@ def _validate_source_gap_inventory(
         raise CandidateIdentityAuthorityProposalError(
             "SOURCE_GAP_INVENTORY_INDEPENDENT_VALIDATION_FAILED"
         ) from exc
-    return taxonomy_doc, taxonomy_records
+    return taxonomy_doc, taxonomy_records, report
 
 
 def build_packet(
@@ -318,7 +384,7 @@ def build_packet(
         raise CandidateIdentityAuthorityProposalError("GAP_INVENTORY_SCHEMA_INVALID")
     if gaps.get("policy_boundary", {}).get("authority_rows_created") != 0:
         raise CandidateIdentityAuthorityProposalError("GAP_INVENTORY_AUTHORITY_ESCALATION")
-    taxonomy, _ = _validate_source_gap_inventory(
+    taxonomy, _, report = _validate_source_gap_inventory(
         gaps,
         taxonomy_path,
         observation_path=observation_path,
@@ -332,12 +398,18 @@ def build_packet(
         capture_date=kraken_capture_date,
     )
     korea_evidence: dict[str, dict] = {}
+    korea_evidence_date: str | None = None
     for gap in gaps["identity_gaps"]:
         if gap.get("market") == "KOREA":
+            if korea_evidence_date is None:
+                korea_evidence_date = _korea_evidence_date(report, gaps["decision_date"])
             diagnostic = gap.get("provider_pair_diagnostics", [{}])[0]
             symbol = diagnostic.get("source_asset_id")
             korea_evidence[gap["candidate_id"]] = _load_korea_evidence(
-                market_data_root, gaps["decision_date"], symbol
+                market_data_root,
+                gaps["decision_date"],
+                symbol,
+                evidence_date=korea_evidence_date,
             )
     proposals = sorted(
         (

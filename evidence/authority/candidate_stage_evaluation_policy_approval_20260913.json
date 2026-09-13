@@ -1,0 +1,28 @@
+{
+  "schema_version": "candidate_stage_evaluation_policy_approval/1",
+  "source_kind": "EXPLICIT_USER_APPROVAL_IN_IMPLEMENTATION_THREAD",
+  "approved_recommendation": "A_SEPARATE_SYSTEM_EVALUATED_STAGE",
+  "policy_id": "P3-05-SEPARATE-SYSTEM-EVALUATED-STAGE",
+  "policy_version": "1",
+  "ratified_at": "2026-09-13T05:27:28Z",
+  "effective_from": "2026-09-13T05:27:28Z",
+  "approved_scope": {
+    "manual_watchlist_stage_is_observation_only": true,
+    "system_evaluated_stage_is_independent": true,
+    "all_required_current_gates_must_pass": true,
+    "missing_unknown_stale_or_active_veto_holds": true,
+    "stage4_internal_paper_candidate_handoff": true
+  },
+  "not_approved": [
+    "NUMERIC_INVESTMENT_THRESHOLD",
+    "CROSS_MARKET_SCORE",
+    "SECURITY_TO_THEME_INFERENCE",
+    "MANUAL_NOTION_STAGE_MUTATION",
+    "READY_OR_BUY_STAGE",
+    "CAPITAL_ALLOCATION",
+    "POSITION_SIZE",
+    "ORDER_OR_BROKER_ACTION",
+    "PRODUCTION_OR_LIVE_TRADING_AUTHORITY"
+  ],
+  "historical_backfill_authorized": false
+}
