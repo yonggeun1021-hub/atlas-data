@@ -1343,15 +1343,50 @@ def lookup_symbol(document: dict, symbol: str) -> dict:
     return copy.deepcopy(matches[0])
 
 
+def load_system_gate_inputs_from_market_native_adapter(
+    *, evaluation_at_utc: str, review_or_expiry_time_utc: str | None = None
+) -> dict[str, dict]:
+    """Optional hook: connect discovery.candidate_stage_gate_input_adapter's
+    current output (STAGE3-CANDIDATE-GATE-INPUT-ADAPTER-001) as this
+    receipt's ``system_gate_inputs``. Imported lazily so this module carries
+    no unconditional dependency on the adapter. The adapter alone decides
+    per-symbol gate results for the five bounded Korea/US subjects; every
+    other subject and every other gate is unaffected. Absent unless a
+    caller explicitly asks for it (see ``--connect-market-native-adapter``).
+    """
+    from discovery.candidate_stage_gate_input_adapter import build_gate_inputs
+
+    return build_gate_inputs(
+        evaluation_at_utc=evaluation_at_utc,
+        review_or_expiry_time_utc=review_or_expiry_time_utc,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--generated-at-utc", required=True)
     parser.add_argument("--as-of-date")
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--connect-market-native-adapter",
+        action="store_true",
+        help=(
+            "Connect discovery.candidate_stage_gate_input_adapter's current "
+            "output as system_gate_inputs. Default off; other eight required "
+            "gates remain MISSING regardless, so this alone still cannot "
+            "promote a system Candidate."
+        ),
+    )
     args = parser.parse_args()
+    system_gate_inputs = None
+    if args.connect_market_native_adapter:
+        system_gate_inputs = load_system_gate_inputs_from_market_native_adapter(
+            evaluation_at_utc=args.generated_at_utc,
+        )
     document = build_receipt(
         generated_at_utc=args.generated_at_utc,
         as_of_date=args.as_of_date,
+        system_gate_inputs=system_gate_inputs,
     )
     validate_receipt(document)
     payload = canonical_json(document) + "\n"
