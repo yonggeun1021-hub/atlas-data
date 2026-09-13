@@ -111,9 +111,11 @@ jobs:
       # included); zero network/order calls -- see
       # decision/crypto_paper_decision_snapshot.py's own module docstring
       # for the full scope boundary (Continuous Briefing/alerting stays
-      # UNDEFINED/out of scope). Runs unconditionally: it degrades honestly
-      # (MISSING/STALE/WAIT) rather than skipping when upstream evidence is
-      # absent, exactly like the P3-12 classification step above.
+      # UNDEFINED/out of scope). Runs unconditionally, but writes no decision
+      # generation until universe, market-evidence and this run's realtime
+      # capture share the scheduler's UTC date. Before then it reports the
+      # explicit WAIT / NOT_EVALUATED state and retains the prior actual
+      # evaluation reference for telemetry.
       - name: Crypto PAPER decision snapshot (P1-CR-08 + P5-08 + P5-09 composition, read-only)
         id: crypto_paper_decision
         if: always()
@@ -124,8 +126,13 @@ jobs:
         run: |
           set -euo pipefail
           GENERATED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          EXPECTED_VINTAGE_DATE="${GENERATED_AT:0:10}"
           SOURCE_COMMIT="$(git rev-parse HEAD)"
-          ARGS=(--generated-at "$GENERATED_AT" --source-commit "$SOURCE_COMMIT")
+          ARGS=(
+            --generated-at "$GENERATED_AT"
+            --source-commit "$SOURCE_COMMIT"
+            --expected-vintage-date "$EXPECTED_VINTAGE_DATE"
+          )
           if [ -n "${OBSERVED_STARTED_AT_UTC:-}" ]; then
             ARGS+=(--started-at "$OBSERVED_STARTED_AT_UTC")
           fi
@@ -145,7 +152,7 @@ jobs:
       # order endpoint are read.
       - name: P5-10 Crypto five-axis per-symbol entry and exit bridge (read-only)
         id: crypto_axis_trade_bridge
-        if: steps.crypto_paper_decision.outcome == 'success'
+        if: steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED'
         env:
           DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
         run: |
@@ -173,7 +180,7 @@ jobs:
       # candidate promotion, PAPER execution, or private-ledger read.
       - name: P8-16 Crypto funnel and PAPER decision briefing (read-only)
         id: crypto_funnel_briefing
-        if: steps.crypto_paper_decision.outcome == 'success'
+        if: steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED'
         env:
           DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
         run: |
@@ -182,7 +189,7 @@ jobs:
           python3 briefing/crypto_funnel_briefing.py --decision-packet "$DECISION_PATH"
       - name: Crypto candidate detail projection (read-only)
         id: crypto_candidate_detail
-        if: steps.crypto_paper_decision.outcome == 'success'
+        if: steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED'
         env:
           DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
         run: |
@@ -205,9 +212,14 @@ jobs:
           ATLAS_VALIDATION_CAPTURE_RESULT: ${{ steps.validation_capture.outputs.result }}
           ATLAS_CRYPTO_PAPER_DECISION_STEP_OUTCOME: ${{ steps.crypto_paper_decision.outcome }}
           ATLAS_CRYPTO_PAPER_DECISION_OUTCOME: ${{ steps.crypto_paper_decision.outputs.outcome }}
+          ATLAS_CRYPTO_PAPER_DECISION_EVALUATION_STATUS: ${{ steps.crypto_paper_decision.outputs.evaluation_status }}
+          ATLAS_CRYPTO_PAPER_DECISION_STATE: ${{ steps.crypto_paper_decision.outputs.decision_state }}
+          ATLAS_CRYPTO_PAPER_DECISION_REASON: ${{ steps.crypto_paper_decision.outputs.reason }}
           ATLAS_CRYPTO_PAPER_DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
           ATLAS_CRYPTO_PAPER_DECISION_GENERATION_ID: ${{ steps.crypto_paper_decision.outputs.generation_id }}
           ATLAS_CRYPTO_PAPER_DECISION_SHA256: ${{ steps.crypto_paper_decision.outputs.payload_sha256 }}
+          ATLAS_CRYPTO_PAPER_DECISION_LAST_EVALUATED_GENERATION_ID: ${{ steps.crypto_paper_decision.outputs.last_evaluated_generation_id }}
+          ATLAS_CRYPTO_PAPER_DECISION_LAST_EVALUATED_SHA256: ${{ steps.crypto_paper_decision.outputs.last_evaluated_payload_sha256 }}
           ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_STEP_OUTCOME: ${{ steps.crypto_axis_trade_bridge.outcome }}
           ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_OUTCOME: ${{ steps.crypto_axis_trade_bridge.outputs.outcome }}
           ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_PATH: ${{ steps.crypto_axis_trade_bridge.outputs.path }}

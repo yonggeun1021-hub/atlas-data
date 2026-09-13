@@ -827,6 +827,118 @@ def find_previous_packet(output_root: Path, before_date: str, before_hhmm: str):
     }
 
 
+def vintage_readiness(
+    *,
+    expected_date: str,
+    generated_dt: dt.datetime,
+    universe_entry: dict | None,
+    market_evidence_entry: dict | None,
+    realtime_entry: dict | None,
+) -> list[str]:
+    """Return reasons why a scheduler run must remain NOT_EVALUATED."""
+    if not isinstance(expected_date, str) or DATE_RE.fullmatch(expected_date) is None:
+        raise CryptoPaperDecisionSnapshotError("EXPECTED_VINTAGE_DATE_INVALID")
+    generated_date = generated_dt.date().isoformat()
+    if expected_date != generated_date:
+        raise CryptoPaperDecisionSnapshotError(
+            f"EXPECTED_VINTAGE_DATE_GENERATED_DATE_MISMATCH:"
+            f"expected={expected_date}:generated={generated_date}"
+        )
+
+    reasons: list[str] = []
+    if universe_entry is None:
+        reasons.append("UPBIT_UNIVERSE_NOT_READY:MISSING")
+    else:
+        _validate_universe_entry(universe_entry, not_after=generated_dt)
+        if universe_entry["date"] != expected_date:
+            reasons.append(
+                f"UPBIT_UNIVERSE_NOT_READY:DATE_MISMATCH:"
+                f"expected={expected_date}:actual={universe_entry['date']}"
+            )
+        available_at = _parse_utc(
+            universe_entry["packet"].get("available_at"), "universe.available_at"
+        )
+        if available_at > generated_dt:
+            raise CryptoPaperDecisionSnapshotError("UNIVERSE_AVAILABLE_AT_FUTURE_DATED")
+        max_age_hours = Decimal(str(UNIVERSE.load_policy()["max_capture_age_hours"]))
+        age_hours = Decimal(
+            str((generated_dt - available_at).total_seconds())
+        ) / Decimal("3600")
+        if age_hours > max_age_hours:
+            reasons.append(
+                f"UPBIT_UNIVERSE_NOT_READY:STALE:"
+                f"age_hours={age_hours}:max={max_age_hours}"
+            )
+
+    if market_evidence_entry is None:
+        reasons.append("UPBIT_MARKET_EVIDENCE_NOT_READY:MISSING")
+    else:
+        _validate_market_evidence_entry(market_evidence_entry)
+        if market_evidence_entry["date"] != expected_date:
+            reasons.append(
+                f"UPBIT_MARKET_EVIDENCE_NOT_READY:DATE_MISMATCH:"
+                f"expected={expected_date}:actual={market_evidence_entry['date']}"
+            )
+        market_generated = _parse_utc(
+            market_evidence_entry["record"].get("generated_at"),
+            "market_evidence.generated_at",
+        )
+        if market_generated > generated_dt:
+            raise CryptoPaperDecisionSnapshotError("MARKET_EVIDENCE_FUTURE_DATED")
+        for market, source_packet in market_evidence_entry["record"]["packets"].items():
+            captured_at = _parse_utc(
+                source_packet.get("captured_at"),
+                f"market_evidence.{market}.captured_at",
+            )
+            if captured_at > generated_dt:
+                raise CryptoPaperDecisionSnapshotError(
+                    f"MARKET_EVIDENCE_PACKET_FUTURE_DATED:{market}"
+                )
+        if market_evidence_entry["record"].get("errors"):
+            reasons.append("UPBIT_MARKET_EVIDENCE_NOT_READY:COLLECTION_ERRORS")
+        if universe_entry is not None and market_evidence_entry["record"].get(
+            "schema_version"
+        ) == "upbit_microstructure_population/2":
+            expected_universe_hash = universe_entry["record"].get("payload_sha256")
+            actual_universe_hash = (
+                market_evidence_entry["record"].get("universe_lineage") or {}
+            ).get("record_payload_sha256")
+            if actual_universe_hash != expected_universe_hash:
+                reasons.append(
+                    "UPBIT_MARKET_EVIDENCE_NOT_READY:UNIVERSE_HASH_MISMATCH:"
+                    f"expected={expected_universe_hash}:actual={actual_universe_hash}"
+                )
+        market_status, _ = _market_evidence_freshness(market_evidence_entry["record"])
+        if market_status in {MISSING, STALE}:
+            reasons.append(f"UPBIT_MARKET_EVIDENCE_NOT_READY:{market_status}")
+
+    if realtime_entry is None:
+        reasons.append("UPBIT_REALTIME_NOT_READY:MISSING")
+    else:
+        _validate_realtime_entry(realtime_entry)
+        if realtime_entry["date"] != expected_date:
+            reasons.append(
+                f"UPBIT_REALTIME_NOT_READY:DATE_MISMATCH:"
+                f"expected={expected_date}:actual={realtime_entry['date']}"
+            )
+        run = realtime_entry["record"]["run"]
+        ended_at = _parse_utc(run.get("ended_at"), "realtime.ended_at")
+        if ended_at > generated_dt:
+            raise CryptoPaperDecisionSnapshotError("REALTIME_EVIDENCE_FUTURE_DATED")
+        status = run["status"]
+        if not run["markets"] or not run["message_log"] or not status.get("markets"):
+            reasons.append("UPBIT_REALTIME_NOT_READY:MISSING_OBSERVATIONS")
+        if status.get("connection_state") != "CONNECTED":
+            reasons.append(
+                f"UPBIT_REALTIME_NOT_READY:CONNECTION_"
+                f"{status.get('connection_state') or 'UNKNOWN'}"
+            )
+        if status.get("overall_status") == STALE:
+            reasons.append("UPBIT_REALTIME_NOT_READY:STALE")
+
+    return reasons
+
+
 def resolve_source_commit(explicit: str | None = None) -> str:
     if explicit is not None:
         if not FULL_SHA_RE.fullmatch(explicit):
@@ -1632,6 +1744,7 @@ def populate(
     output_root: Path = OUTPUT_ROOT,
     started_at: str | None = None,
     wire_regime_components: bool = False,
+    expected_vintage_date: str | None = None,
 ) -> dict:
     resolved_source_commit = resolve_source_commit(source_commit)
     generated_dt = _parse_utc(generated_at, "generated_at")
@@ -1655,14 +1768,35 @@ def populate(
         leadership_data_root, not_after=generated_dt,
     )
 
+    capture_date = generated_at[:10]
+    capture_hhmm = generated_at[11:13] + generated_at[14:16]
+    previous_entry = find_previous_packet(output_root, capture_date, capture_hhmm)
+
+    if expected_vintage_date is not None:
+        wait_reasons = vintage_readiness(
+            expected_date=expected_vintage_date,
+            generated_dt=generated_dt,
+            universe_entry=universe_entry,
+            market_evidence_entry=market_evidence_entry,
+            realtime_entry=realtime_entry,
+        )
+        if wait_reasons:
+            return {
+                "outcome": "not_evaluated",
+                "evaluation_status": "NOT_EVALUATED",
+                "decision_state": "WAIT",
+                "reason": "WAIT:VINTAGE_NOT_READY:" + "|".join(wait_reasons),
+                "path": None,
+                "payload_sha256": None,
+                "generation_id": None,
+                "last_evaluated": previous_entry,
+                "record": None,
+            }
+
     universe_entry = retain_source(universe_entry, output_root)
     market_evidence_entry = retain_source(market_evidence_entry, output_root)
     realtime_entry = retain_source(realtime_entry, output_root)
     leadership_entry = retain_source(leadership_entry, output_root)
-
-    capture_date = generated_at[:10]
-    capture_hhmm = generated_at[11:13] + generated_at[14:16]
-    previous_entry = find_previous_packet(output_root, capture_date, capture_hhmm)
 
     component_registry = None
     if wire_regime_components:
@@ -1702,6 +1836,8 @@ def populate(
         return {
             "outcome": "verified_existing", "reason": None, "path": str(target),
             "payload_sha256": record["payload_sha256"], "generation_id": record["generation_id"],
+            "evaluation_status": "EVALUATED", "decision_state": None,
+            "last_evaluated": previous_entry,
             "record": record,
         }
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -1716,6 +1852,8 @@ def populate(
     return {
         "outcome": "populated", "reason": None, "path": str(target),
         "payload_sha256": record["payload_sha256"], "generation_id": record["generation_id"],
+        "evaluation_status": "EVALUATED", "decision_state": None,
+        "last_evaluated": previous_entry,
         "record": record,
     }
 
@@ -1727,10 +1865,14 @@ def _write_github_output(result: dict) -> None:
     single_line = lambda value: (value or "").replace("\n", " ").replace("\r", " ")
     lines = [
         f"outcome={single_line(result.get('outcome'))}",
+        f"evaluation_status={single_line(result.get('evaluation_status'))}",
+        f"decision_state={single_line(result.get('decision_state'))}",
         f"reason={single_line(result.get('reason'))}",
         f"path={single_line(result.get('path'))}",
         f"payload_sha256={single_line(result.get('payload_sha256'))}",
         f"generation_id={single_line(result.get('generation_id'))}",
+        f"last_evaluated_generation_id={single_line((result.get('last_evaluated') or {}).get('generation_id'))}",
+        f"last_evaluated_payload_sha256={single_line((result.get('last_evaluated') or {}).get('payload_sha256'))}",
     ]
     with open(path, "a", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
@@ -1765,6 +1907,13 @@ def run(argv=None) -> int:
         ),
     )
     parser.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
+    parser.add_argument(
+        "--expected-vintage-date", default=None,
+        help=(
+            "Scheduler UTC date whose universe, market-evidence and realtime "
+            "inputs must all match before a new evaluation may be written."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
         result = populate(
@@ -1779,6 +1928,7 @@ def run(argv=None) -> int:
             output_root=args.output_root,
             started_at=args.started_at,
             wire_regime_components=args.wire_regime_components,
+            expected_vintage_date=args.expected_vintage_date,
         )
     except CryptoPaperDecisionSnapshotError as exc:
         _write_github_output({"outcome": "failed", "reason": str(exc), "path": None, "payload_sha256": None, "generation_id": None})
@@ -1786,6 +1936,15 @@ def run(argv=None) -> int:
         return 1
     _write_github_output(result)
     record = result["record"]
+    if record is None:
+        print(json.dumps({
+            "outcome": result["outcome"],
+            "evaluation_status": result["evaluation_status"],
+            "decision_state": result["decision_state"],
+            "reason": result["reason"],
+            "last_evaluated": result["last_evaluated"],
+        }, indent=2, sort_keys=True))
+        return 0
     print(json.dumps({
         "outcome": result["outcome"],
         "path": result["path"],
