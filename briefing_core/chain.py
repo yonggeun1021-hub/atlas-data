@@ -495,6 +495,74 @@ def _major_event_registry(
     return registry, explicit_path, body
 
 
+def _presentation_reference_statements(packet: dict) -> list[tuple[str, str]]:
+    """Claims for the orchestrator's frozen presentation-only references.
+
+    Mirrors briefing/daily_orchestrator.py krx_session_context() and
+    paper_regime_context() over the same sealed packet bytes (a regression
+    pins the two in agreement). Legacy packets without the references yield
+    nothing, so their claim ledgers are unchanged.
+    """
+    frozen = (packet.get("frozen_sources") or {}).get("STEP0_READ_MODEL_HEALTH")
+    references = frozen.get("presentation_references") if isinstance(frozen, dict) else None
+    if not isinstance(references, dict):
+        return []
+    statements: list[tuple[str, str]] = []
+    step0 = next(
+        (
+            row for row in packet.get("components", [])
+            if isinstance(row, dict) and row.get("component_id") == "STEP0_READ_MODEL_HEALTH"
+        ),
+        {},
+    )
+    step0_sha = (((step0.get("packet") or {}).get("sources") or {}).get("krx") or {}).get("source_sha256")
+    confirmed_reference = references.get("krx_confirmed_close") or {}
+    confirmed = None
+    if (
+        confirmed_reference.get("unknown_reason") is None
+        and confirmed_reference.get("source_sha256") == step0_sha
+        and isinstance(confirmed_reference.get("confirmed_through"), str)
+    ):
+        confirmed = confirmed_reference["confirmed_through"]
+        statements.append((
+            "freshness.krx.latest_confirmed_session_date",
+            "data/latest_krx.json decision_readiness.confirmed_through, read from the same bytes "
+            f"as the read-model gate, confirms KRX sessions through {confirmed}.",
+        ))
+    post_close = references.get("krx_post_close") or {}
+    observed = post_close.get("latest_observed_day")
+    if (
+        post_close.get("unknown_reason") is None
+        and post_close.get("observation_status") == "observed_unconfirmed"
+        and isinstance(observed, str)
+        and (confirmed is None or observed > confirmed)
+    ):
+        statements.append((
+            "freshness.krx.latest_completed_session_date",
+            f"A retained KRX post-close observation shows the {observed} session was observed "
+            "but is not yet confirmed.",
+        ))
+    elif confirmed is not None:
+        statements.append((
+            "freshness.krx.latest_completed_session_date",
+            f"The latest KRX session with retained session evidence is the confirmed {confirmed} session.",
+        ))
+    paper = references.get("paper_regime") or {}
+    if paper.get("unknown_reason") is None:
+        for market in paper.get("markets") or []:
+            if not isinstance(market, dict) or not isinstance(market.get("market"), str):
+                continue
+            statements.append((
+                f"paper_reference.{market['market'].lower()}.candidate_regime",
+                f"The retained PAPER regime reference generated at {paper.get('generated_at')} reads "
+                f"{market['market']} candidate_regime={market.get('candidate_regime')} "
+                f"(score={market.get('score')}, confidence={market.get('confidence')}) as of "
+                f"{market.get('as_of_date')}; it is a PAPER reference, runtime_regime="
+                f"{market.get('runtime_regime')}, not a runtime regime or trading authority.",
+            ))
+    return statements
+
+
 def _delivery_claims(packet: dict, packet_ref: str) -> list[dict]:
     """Project bounded delivery facts from the exact sealed packet.
 
@@ -751,6 +819,9 @@ def _delivery_claims(packet: dict, packet_ref: str) -> list[dict]:
             f"decision_eligible_symbols={post_summary.get('decision_eligible_symbol_count')}, and "
             f"confirmed_same_day={post_summary.get('confirmed_same_day_count')}.",
         )
+    for claim_id, statement in _presentation_reference_statements(packet):
+        fact(claim_id, statement)
+
     if post_packet.get("observation_status") == "observed_unconfirmed":
         unknown(
             "boundary.krx.same_day_confirmation",
