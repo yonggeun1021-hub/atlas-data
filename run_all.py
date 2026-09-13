@@ -744,6 +744,21 @@ APPROVED_TESTS = [
     #   Regime, entry, exit, order, broker, Production or Trading authority.
     #   ⛔ current committed inputs only; no live network or order endpoint.
     "test/test_us_symbol_market_review.py",
+    # ★ Three-market evaluation-coverage receipt (stacked from PR #680/#682,
+    #   unchanged). Exact KR/US source-coverage universes and bounded symbol
+    #   reviews are kept separate; the Crypto PAPER funnel contributes only
+    #   its source-native counts. Missing population totals stay 미집계.
+    #   ⛔ read-only; no scanner/ranking/policy/promotion/order authority.
+    "test/test_three_market_evaluation_coverage.py",
+    # ★ Per-market candidate discovery status + per-symbol evidence lookup.
+    #   Reuses the coverage receipt, KR/US symbol reviews, Crypto decision
+    #   snapshot and candidate detail view; reconciles population → data
+    #   acquired → evaluated → passed/held/excluded/unevaluated per market,
+    #   classifies gaps (collection / stale-by-source-interval / not
+    #   implemented / policy 미정 / criteria unknown), keeps missing evidence
+    #   as NO_EVIDENCE (never 0) and preserves every source's own date.
+    #   ⛔ read-only; no candidate rule, threshold, ranking, or authority.
+    "test/test_market_candidate_discovery_lookup.py",
     # ★ FRED VIX append-only provenance — content-and-capture addressed raw
     #   revisions are independently decompressed/re-derived and cannot be
     #   overwritten, backdated, path-substituted, or re-signed after tamper.
@@ -2351,6 +2366,8 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_candidate_validity_shadow_observation.py": 24.4,
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
+    "test/test_three_market_evaluation_coverage.py": 60.0,
+    "test/test_market_candidate_discovery_lookup.py": 120.0,
 }
 DEFAULT_ESTIMATED_SECONDS = 1.0
 
