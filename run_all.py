@@ -480,6 +480,8 @@ APPROVED_TESTS = [
     #   external path, preserves the historical default proof path, and does
     #   not write a rolling pointer or invoke the P2-05 state ledger.
     "test/test_korea_capital_rotation_current_ratified_proof.py",
+    # Stage1 display-only context never substitutes for a P2-03 packet/4.
+    "test/test_korea_capital_rotation_paper_consumption.py",
     # ★ P2-03 — dependency-ordered Breadth->Leadership observation-pair
     #   workflow (2026-08-22, no new cron): structural YAML checks only --
     #   manual and reusable entrypoints share exact inputs, real `needs:` chain (Leadership job
