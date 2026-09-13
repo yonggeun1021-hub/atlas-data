@@ -471,6 +471,54 @@ why. A packet shape the formatter does not recognize falls back to no
 detail line rather than raising, so a future upstream schema change cannot
 break the whole render.
 
+### Market-scoped session dates, PAPER reference, and row dates (2026-09-14)
+
+The 2026-09-14 briefing content audit found date defects, not arithmetic
+defects. The renderer now binds each date to its own source:
+
+- KRX `latest_confirmed_close_date` is `data/latest_krx.json`
+  `decision_readiness.confirmed_through` (the collector's next-day
+  confirmation), rendered only when its sha256 equals the STEP0 read-model
+  gate's `sources.krx.source_sha256`. The five-axis observation date stays
+  visible as `index_move_observation_date`. `latest_completed_session_date`
+  is the newest KRX session with retained session evidence (confirmed, or a
+  later `observed_unconfirmed` post-close bundle), so a weekend morning shows
+  Friday's recorded session instead of only the previous confirmed close.
+- The weekend context keeps its four contract lines unchanged and adds that
+  `latest_confirmed_evidence_date` is the STEP0 collector run date, plus the
+  KRX and US last-session dates.
+- The Regime section shows the PAPER regime reference (the pointer PAPER
+  posture reads) per market with its `기준일`, labelled
+  `PAPER 참고 판정 (런타임 판정 아님 · 매매/주문 권한 없음)`. Runtime regime
+  stays `UNKNOWN`.
+- Every component header carries `기준일=<as_of_date>`; Forward Alpha,
+  official release, DART, business-acceleration and zero-capital review rows
+  carry their own dates. No stale window is ratified for those rows, so none
+  is applied. Only KR five-axis-derived rows cite the ratified
+  `config/regime_semantic_freshness_policy_v1.json` KR `SESSION_EXACT_MATCH`
+  rule (`SOURCE_NOT_ADVANCED_EXPECTED_SESSION`).
+- The Dynamic Clock overflow pointer names this revision's own packet instead
+  of a separately refreshed file.
+
+These references are presentation-only. They are chosen once on a fresh
+build and attached to the `STEP0_READ_MODEL_HEALTH` frozen snapshot under
+`presentation_references`; replay re-derives the post-close and PAPER fields
+from immutable retained bytes. For the confirmed close only the git blob id of
+the `data/latest_krx.json` bytes is frozen: replay reads that blob from the
+trusted repository (`validate_packet(trusted_repository_root=...)`, so full
+git history is required, as it already is for Flow replay), requires its
+sha256 to equal STEP0's recorded hash and re-derives `confirmed_through`; a
+missing blob fails validation. When references are present the claim ledger
+names the five-axis date `freshness.krx.index_move_observation_date` (legacy
+packets keep `freshness.krx.latest_confirmed_close_date`). Board values keep
+their machine form before `;` and carry Korean glosses after it
+(거래소 확정 종가, 관측·미확정(거래소 확정 전), 최근 완료 거래일), a legacy snapshot without the field replays
+byte-identically, and no component row, status, aggregate or authority reads
+them. `validation/korea_index_move_recompute.py` recomputes KOSPI/KOSDAQ
+one-session moves from retained KRX Information Data System index responses
+(hash-checked against their capture manifest) and reports
+`NOT_VERIFIABLE_RAW_NOT_RETAINED` for sessions without retained bytes.
+
 ## Storage is not delivery
 
 Committing `evidence/daily_briefing/...` to `main` is *storage*, not proof

@@ -1661,6 +1661,14 @@ APPROVED_TESTS = [
     #   atomic append-only publish, self-rehash 재검증, 컴포넌트별 실패 격리,
     #   결정론적 재생성을 검증한다. ⛔ live network·provider 호출 없음.
     "test/test_daily_orchestrator.py",
+    # ★ Briefing content recency (CLAUDE_CIO briefing audit 2026-09-14 Task B) —
+    #   real audited slots 09-10 AM/PM … 09-13 AM as fixtures. KRX confirmed
+    #   close binds to latest_krx decision_readiness, weekend shows Friday's
+    #   recorded session, PAPER regime reference shown dated and labelled
+    #   (runtime regime stays UNKNOWN), rows carry 기준일, KOSPI/KOSDAQ moves
+    #   recomputed from retained raw index bytes. Presentation only; no status,
+    #   aggregate, action, order, Production or trading authority changes.
+    "test/test_briefing_content_recency_20260914.py",
     # ★ Daily Briefing same-day recovery — original natural schedule run만
     #   KST slot/date로 식별하고 briefing job 실패 시 최대 3회 안에서 재실행한다.
     #   성공한 briefing은 병렬 regression 결론과 분리해 다시 실행하지 않으며,
@@ -2319,6 +2327,14 @@ APPROVED_TESTS = [
     #   presence only; no axis interpretation, threshold, strategy, action,
     #   PAPER/exchange order, withdrawal, Production, Trading or REAL authority.
     "test/test_crypto_live_component_registry.py",
+    # ★ W5-01/W5-02 (2026-09-14) Crypto decision-generation defects D1/D2.
+    #   The unratified realtime gate overall_status STALE no longer blocks a
+    #   scheduler decision packet (MISSING/CONNECTION/DATE_MISMATCH stay WAIT;
+    #   cap_state_for_freshness is unchanged and still caps action state).
+    #   The live component registry binds UTC-keyed sources to the UTC vintage
+    #   date (schema /2); issued /1 records keep revalidating; absent sources
+    #   stay absent. Crypto regime remains UNKNOWN; no new threshold/authority.
+    "test/test_crypto_regime_vintage_d1_d2.py",
     # ★ CIO item 3 (2026-08-29): CRYPTO_BREADTH real coverage-ratio
     #   diagnostics (additive, never a new gate) and CRYPTO_LEADERSHIP's
     #   daily_orchestrator.py component-row wiring into build_packet(),
@@ -2387,6 +2403,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_portfolio_account_fact_v3_producer.py": 39.6,
     "test/test_entry_proposal_boundary.py": 38.3,
     "test/test_crypto_live_component_registry.py": 36.5,
+    "test/test_crypto_regime_vintage_d1_d2.py": 30.0,
     "test/test_profit_harvest_population.py": 34.3,
     "test/test_profit_harvest_end_to_end.py": 33.6,
     "test/test_pit_replay_end_to_end.py": 33.4,

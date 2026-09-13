@@ -1040,8 +1040,16 @@ def vintage_readiness(
                 f"UPBIT_REALTIME_NOT_READY:CONNECTION_"
                 f"{status.get('connection_state') or 'UNKNOWN'}"
             )
-        if status.get("overall_status") == STALE:
-            reasons.append("UPBIT_REALTIME_NOT_READY:STALE")
+        # W5-01 (D1): the gate status ``overall_status`` is the worst of the
+        # UNRATIFIED per-channel staleness defaults in
+        # config/upbit_realtime_gate_contract.json (a trade channel is silent
+        # until a fill, so thin markets are structurally STALE there).  It is
+        # therefore never a decision-generation blocker.  Realtime freshness
+        # is decided only by the RATIFIED P9-01 rebuild in
+        # ``_realtime_freshness`` and still caps every actionable candidate
+        # state through ``cap_state_for_freshness``.  MISSING observations,
+        # CONNECTION and DATE_MISMATCH above remain WAIT.  Crypto-only: this
+        # gate is reached solely from the Upbit crypto decision producer.
 
     return reasons
 

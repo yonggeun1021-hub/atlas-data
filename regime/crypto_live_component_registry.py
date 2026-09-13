@@ -26,6 +26,19 @@ policy.  Those source directories are fingerprinted individually.  Until both
 windows have natural history, the row stays POLICY_BLOCKED. CRYPTO_BREADTH
 remains whatever its existing taxonomy gate reports. The registry never
 converts either gap into a synthetic value.
+
+Source lookup date (W5-02).  Every source root is keyed by the UTC capture
+date (``btc-price-capture.yml``, ``stablecoin-capture.yml`` and
+``crypto-breadth-capture.yml`` all name the directory with ``date -u``).
+``crypto_live_component_registry/2`` therefore looks sources up by the UTC
+vintage date of ``generated_at`` and records it as ``vintage_date_utc``.
+Schema ``/1`` looked the same UTC-keyed directories up by the KST operational
+date, so every generation between 15:00Z and 24:00Z asked for a directory
+that did not exist yet and silently dropped to zero components.  Schema ``/1``
+records remain revalidatable exactly as issued (KST lookup) so already
+committed decision packets keep reproducing; new records are always ``/2``.
+A source absent for the lookup date is still simply absent: nothing falls
+back to another date.
 """
 from __future__ import annotations
 
@@ -49,6 +62,8 @@ UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KST = dt.timezone(dt.timedelta(hours=9))
+UTC_VINTAGE_DATE = "UTC_VINTAGE_DATE"
+KST_OPERATIONAL_DATE = "KST_OPERATIONAL_DATE"
 
 
 class CryptoLiveComponentRegistryError(ValueError):
@@ -82,9 +97,19 @@ def _read_json(path: Path):
 
 def _expected_contract() -> dict:
     return {
-        "schema_version": 1,
-        "contract_version": "crypto_live_component_registry_contract/1",
-        "output_schema_version": "crypto_live_component_registry/1",
+        "schema_version": 2,
+        "contract_version": "crypto_live_component_registry_contract/2",
+        "output_schema_version": "crypto_live_component_registry/2",
+        "lookup_date_basis": UTC_VINTAGE_DATE,
+        "lookup_date_field": "vintage_date_utc",
+        "legacy_output_schemas": {
+            "crypto_live_component_registry/1": {
+                "contract_version": "crypto_live_component_registry_contract/1",
+                "lookup_date_basis": KST_OPERATIONAL_DATE,
+                "lookup_date_field": "operational_date_kst",
+                "use": "REVALIDATION_OF_ISSUED_RECORDS_ONLY",
+            },
+        },
         "mode": "PUBLIC_EVIDENCE_ONLY_NO_INTERPRETATION",
         "component_order": [
             "BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE",
@@ -134,7 +159,49 @@ def _parse_utc(value: object, label: str) -> dt.datetime:
 
 
 def _operational_date_kst(generated_at: str) -> str:
+    """Legacy schema /1 lookup date.  Kept only to revalidate issued records."""
     return _parse_utc(generated_at, "generated_at").astimezone(KST).date().isoformat()
+
+
+def _vintage_date_utc(generated_at: str) -> str:
+    """UTC date of the decision instant: the key of every source directory."""
+    return _parse_utc(generated_at, "generated_at").date().isoformat()
+
+
+_LOOKUP_DATE_FUNCTIONS = {
+    UTC_VINTAGE_DATE: _vintage_date_utc,
+    KST_OPERATIONAL_DATE: _operational_date_kst,
+}
+
+
+def _schema_profile(contract: dict, output_schema_version: object) -> dict:
+    """Return the contract/date identity for one registry output schema."""
+    if output_schema_version == contract["output_schema_version"]:
+        profile = {
+            "contract_version": contract["contract_version"],
+            "lookup_date_basis": contract["lookup_date_basis"],
+            "lookup_date_field": contract["lookup_date_field"],
+        }
+    elif (
+        isinstance(output_schema_version, str)
+        and output_schema_version in contract["legacy_output_schemas"]
+    ):
+        legacy = contract["legacy_output_schemas"][output_schema_version]
+        profile = {
+            "contract_version": legacy["contract_version"],
+            "lookup_date_basis": legacy["lookup_date_basis"],
+            "lookup_date_field": legacy["lookup_date_field"],
+        }
+    else:
+        raise CryptoLiveComponentRegistryError("REGISTRY_IDENTITY_INVALID")
+    if profile["lookup_date_basis"] not in _LOOKUP_DATE_FUNCTIONS:
+        raise CryptoLiveComponentRegistryError("CONTRACT_MISMATCH")
+    profile["schema_version"] = output_schema_version
+    return profile
+
+
+def _lookup_date(profile: dict, generated_at: str) -> str:
+    return _LOOKUP_DATE_FUNCTIONS[profile["lookup_date_basis"]](generated_at)
 
 
 def _relative_directory(
@@ -333,14 +400,18 @@ def _authority_is_safe(row: dict) -> bool:
     return visit(row)
 
 
-def _assemble(generated_at: str, contract: dict, *, root: Path) -> dict:
+def _assemble(
+    generated_at: str, contract: dict, *, root: Path, profile: dict | None = None
+) -> dict:
     root = Path(root).resolve()
     if not root.is_dir():
         raise CryptoLiveComponentRegistryError("OBSERVATION_ROOT_INVALID")
+    if profile is None:
+        profile = _schema_profile(contract, contract["output_schema_version"])
     generated_dt = _parse_utc(generated_at, "generated_at")
-    operational_date = _operational_date_kst(generated_at)
-    if not DATE_RE.fullmatch(operational_date):
-        raise CryptoLiveComponentRegistryError("OPERATIONAL_DATE_INVALID")
+    lookup_date = _lookup_date(profile, generated_at)
+    if not DATE_RE.fullmatch(lookup_date):
+        raise CryptoLiveComponentRegistryError("LOOKUP_DATE_INVALID")
 
     _reject_source_tree_symlinks(contract, root=root)
     daily = _daily_module(root)
@@ -348,7 +419,7 @@ def _assemble(generated_at: str, contract: dict, *, root: Path) -> dict:
     rows = {}
     components_by_path: dict[str, list[str]] = {}
     for component_id in contract["component_order"]:
-        row = builders[component_id](operational_date)
+        row = builders[component_id](lookup_date)
         if not isinstance(row, dict) or row.get("component_id") != component_id:
             raise CryptoLiveComponentRegistryError(
                 f"COMPONENT_ROW_INVALID:{component_id}"
@@ -372,7 +443,7 @@ def _assemble(generated_at: str, contract: dict, *, root: Path) -> dict:
             source_paths = [_relative_directory(
                 path_value,
                 contract["source_roots"][component_id],
-                operational_date,
+                lookup_date,
                 root=root,
             )]
         if row.get("validated") is not True or not _authority_is_safe(row):
@@ -408,11 +479,11 @@ def _assemble(generated_at: str, contract: dict, *, root: Path) -> dict:
         })
 
     record = {
-        "schema_version": contract["output_schema_version"],
-        "contract_version": contract["contract_version"],
+        "schema_version": profile["schema_version"],
+        "contract_version": profile["contract_version"],
         "mode": contract["mode"],
         "generated_at": generated_at,
-        "operational_date_kst": operational_date,
+        profile["lookup_date_field"]: lookup_date,
         "rows": rows,
         "source_directories": source_directories,
         "deferred_components": copy.deepcopy(contract["deferred_components"]),
@@ -444,19 +515,24 @@ def validate_registry(
     contract = load_contract() if contract is None else contract
     if contract != _expected_contract():
         raise CryptoLiveComponentRegistryError("CONTRACT_MISMATCH")
+    if not isinstance(record, dict):
+        raise CryptoLiveComponentRegistryError("REGISTRY_FIELDS_MISMATCH")
+    # The record's own schema selects its lookup-date identity: /2 (UTC
+    # vintage) for every new record, /1 (KST) only to revalidate issued ones.
+    profile = _schema_profile(contract, record.get("schema_version"))
     fields = {
         "schema_version", "contract_version", "mode", "generated_at",
-        "operational_date_kst", "rows", "source_directories",
+        profile["lookup_date_field"], "rows", "source_directories",
         "deferred_components", "authority", "payload_sha256",
     }
-    if not isinstance(record, dict) or set(record) != fields:
+    if set(record) != fields:
         raise CryptoLiveComponentRegistryError("REGISTRY_FIELDS_MISMATCH")
     if (
-        record.get("schema_version") != contract["output_schema_version"]
-        or record.get("contract_version") != contract["contract_version"]
+        record.get("contract_version") != profile["contract_version"]
         or record.get("mode") != contract["mode"]
         or record.get("generated_at") != expected_generated_at
-        or record.get("operational_date_kst") != _operational_date_kst(expected_generated_at)
+        or record.get(profile["lookup_date_field"])
+        != _lookup_date(profile, expected_generated_at)
         or record.get("deferred_components") != contract["deferred_components"]
         or record.get("authority") != contract["authority"]
     ):
@@ -468,7 +544,9 @@ def validate_registry(
     unsigned.pop("payload_sha256")
     if payload_sha256(unsigned) != digest:
         raise CryptoLiveComponentRegistryError("REGISTRY_SHA256_MISMATCH")
-    expected = _assemble(expected_generated_at, contract, root=root)
+    expected = _assemble(
+        expected_generated_at, contract, root=root, profile=profile
+    )
     if canonical_json(expected) != canonical_json(record):
         raise CryptoLiveComponentRegistryError("REGISTRY_DERIVATION_MISMATCH")
     return copy.deepcopy(record)

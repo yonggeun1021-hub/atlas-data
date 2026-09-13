@@ -6,15 +6,15 @@
     "rule_evaluation_authorized": false,
     "trading_authorized": false
   },
-  "collected_for_kst_date": "2026-09-11",
+  "collected_for_kst_date": "2026-09-14",
   "contract_version": "sec_filing_content/1",
   "counts": {
-    "captured": 0,
+    "captured": 1,
     "failed": 0,
     "not_applicable": 8,
-    "skipped": 5
+    "skipped": 4
   },
-  "observed_at_utc": "2026-09-10T21:45:54Z",
+  "observed_at_utc": "2026-09-13T21:01:15Z",
   "records": [
     {
       "action": "NO_CHANGE",
@@ -223,6 +223,60 @@
       "rule_impact": "NONE",
       "schema_version": "sec_filing_content/1",
       "ticker": "NVDA"
+    },
+    {
+      "action": "NO_CHANGE",
+      "atlas_stage": "Discovery",
+      "canonical_identity": "hash+url+extracted",
+      "capture_policy": "best_effort",
+      "content_status": "OK",
+      "discovery_status": "OK",
+      "documents": [
+        {
+          "content_bytes": 32053,
+          "content_sha256": "e401308b20e3480ab885788ff4c54d0e04d4781bc2e63110628e26806eb8d437",
+          "document_name": "d138343d8k.htm",
+          "kind": "primary",
+          "source_uri": "https://www.sec.gov/Archives/edgar/data/2023554/000119312526389293/d138343d8k.htm"
+        }
+      ],
+      "evidence_status": "PENDING",
+      "extracted": [],
+      "extractor_version": "sec_filing_content/1",
+      "filing_date": "2026-09-11",
+      "filing_identity": {
+        "accession": "0001193125-26-389293",
+        "cik": "0002023554"
+      },
+      "form": "8-K",
+      "form_classification": "MATERIAL",
+      "identity_evidence": {
+        "filing_index": {
+          "content_bytes": 9872,
+          "content_sha256": "9bbd70ae4aef691f38b4fd426de9a74c0004bafefaba4231ed404f86e7d50619",
+          "document_name": "0001193125-26-389293-index.htm",
+          "kind": "identity",
+          "source_uri": "https://www.sec.gov/Archives/edgar/data/2023554/000119312526389293/0001193125-26-389293-index.htm"
+        },
+        "full_submission": {
+          "content_bytes": 1461332,
+          "content_sha256": "d8718611245c60b3a85ccf954925749efdd897716564049ac5de55da8636bcf6",
+          "document_name": "0001193125-26-389293.txt",
+          "kind": "identity",
+          "source_uri": "https://www.sec.gov/Archives/edgar/data/2023554/000119312526389293/0001193125-26-389293.txt"
+        }
+      },
+      "interpretation_status": "UNDETERMINED",
+      "operation": "captured",
+      "publication_status": "OK",
+      "raw_cache_policy": "delete_after_90_days_allowed",
+      "reasons": [
+        "EXTRACTOR_NOT_REGISTERED"
+      ],
+      "retrieved_at_utc": "2026-09-13T21:01:15Z",
+      "rule_impact": "NONE",
+      "schema_version": "sec_filing_content/1",
+      "ticker": "SNDK"
     },
     {
       "action": "NO_CHANGE",
@@ -443,72 +497,10 @@
       "schema_version": "sec_filing_content/1",
       "skip_reason": "already_captured",
       "ticker": "TSM"
-    },
-    {
-      "action": "NO_CHANGE",
-      "atlas_stage": "Ready",
-      "canonical_identity": "hash+url+extracted",
-      "capture_policy": "required",
-      "content_status": "OK",
-      "discovery_status": "OK",
-      "documents": [
-        {
-          "content_bytes": 18510,
-          "content_sha256": "c8e0f723c518934a35dc6f3c703493901cadea6b7ad73a0d0964c201e75a9c7d",
-          "document_name": "tsm-fsx20260814x6k.htm",
-          "kind": "primary",
-          "source_uri": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000541/tsm-fsx20260814x6k.htm"
-        },
-        {
-          "content_bytes": 4841859,
-          "content_sha256": "f421f6fe7b0c14ba15969f57749effdd54a04342cbfff49ef1fadf128f495251",
-          "document_name": "a2026q2consolidatedreport-.htm",
-          "kind": "exhibit",
-          "source_uri": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000541/a2026q2consolidatedreport-.htm"
-        }
-      ],
-      "evidence_status": "PENDING",
-      "extracted": [],
-      "extractor_version": "sec_filing_content/1",
-      "filing_date": "2026-08-14",
-      "filing_identity": {
-        "accession": "0001046179-26-000541",
-        "cik": "0001046179"
-      },
-      "form": "6-K",
-      "form_classification": "MATERIAL",
-      "identity_evidence": {
-        "filing_index": {
-          "content_bytes": 7732,
-          "content_sha256": "bc6a9ac2bea29faf0c7e30b04d9f3561781cf79d5b63ae6dcdd2bea2f86c9a1c",
-          "document_name": "0001046179-26-000541-index.htm",
-          "kind": "identity",
-          "source_uri": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000541/0001046179-26-000541-index.htm"
-        },
-        "full_submission": {
-          "content_bytes": 4877781,
-          "content_sha256": "981b31ef386f00a3efd9577686afd8572e74f08f7e3ccd8cfad35e7a4ae5ecdc",
-          "document_name": "0001046179-26-000541.txt",
-          "kind": "identity",
-          "source_uri": "https://www.sec.gov/Archives/edgar/data/1046179/000104617926000541/0001046179-26-000541.txt"
-        }
-      },
-      "interpretation_status": "UNDETERMINED",
-      "operation": "skipped",
-      "publication_status": "OK",
-      "raw_cache_policy": "permanent",
-      "reasons": [
-        "EXTRACTOR_NOT_REGISTERED"
-      ],
-      "retrieved_at_utc": "2026-08-20T21:59:19Z",
-      "rule_impact": "NONE",
-      "schema_version": "sec_filing_content/1",
-      "skip_reason": "already_captured",
-      "ticker": "TSM"
     }
   ],
   "run_status": "OK",
   "schema_version": "sec_filing_content_run/1",
   "source_file": "data/latest_sec.json",
-  "source_sha256": "8e9d6424ea6d40142112854bd52fe1b026a14ab23f916353563a5adde8d30cc1"
+  "source_sha256": "9b5d17ef82f6eee3dbb7578d4a4a2c7ad4dca757dc4c32ebc9210367e69c0ab4"
 }

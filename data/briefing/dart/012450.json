@@ -1,16 +1,16 @@
 {
   "generation": {
-    "generation_basis_at_utc": "2026-09-10T21:00:59+00:00",
+    "generation_basis_at_utc": "2026-09-13T21:01:02+00:00",
     "generation_contract_version": 1,
-    "generation_id": "fe30dfbc3dc31267db3bcb0d0639b23cfe37134788fa77f854b1bc31c019b574"
+    "generation_id": "3b3c45760fe44accea72c1f1850e687e026e7020cf72dde47b1f8dd42fa55f52"
   },
   "market": "DART",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-09-10T21:00:51+00:00",
-    "collected_for_kst_date": "2026-09-11",
+    "collected_at_utc": "2026-09-13T21:00:54+00:00",
+    "collected_for_kst_date": "2026-09-14",
     "source_file": "data/latest_dart.json",
-    "source_sha256": "e79531594eec8b12421de6319ac79798807d399dd25e8426b06eb5aec9d97adc"
+    "source_sha256": "a4f240aca395bc685fa0f7bfb3360f8c8955e2df98de0339662e7d7e4cf6cd91"
   },
   "stock": {
     "atlas_stage": "Discovery",
@@ -19,10 +19,63 @@
     "db_state": "관찰",
     "in_notion": true,
     "name": "한화에어로스페이스",
-    "relevant": [],
-    "relevant_count": 0,
+    "relevant": [
+      {
+        "body_capture_status": "OK",
+        "body_captured": true,
+        "content": {
+          "action": "NO_CHANGE",
+          "capture_policy": "best_effort",
+          "content_status": "OK",
+          "discovery_status": "OK",
+          "documents": [
+            {
+              "cache_name": "member-001-57cd9ee263b35a11.gz",
+              "content_bytes": 8508,
+              "content_sha256": "57cd9ee263b35a11a57e53c5deb0cf43b6b99f8211b19d3e71c7085e41dcb4be",
+              "member_name": "20260911800004.xml",
+              "normalized_text_chars": 1793,
+              "normalized_text_sha256": "a30f1cbccc6d1312c8cbd84e2037b65622df548d8c72f2890ae71213e75ef606",
+              "offset_basis": "normalized_visible_text",
+              "text_status": "OK"
+            }
+          ],
+          "evidence_status": "PENDING",
+          "extracted": [],
+          "extractor_version": "dart_filing_content/1-no-items-ratified",
+          "filing_classification": "MATERIAL_RELEVANT_TITLE",
+          "interpretation_status": "UNDETERMINED",
+          "operation": "captured",
+          "publication_status": "OK",
+          "raw_cache_policy": "delete_after_90_days_allowed",
+          "reasons": [
+            "ITEM_EXTRACTION_POLICY_UNRATIFIED"
+          ],
+          "retrieved_at_utc": "2026-09-13T21:01:14Z",
+          "rule_impact": "NONE",
+          "source": {
+            "collected_for_kst_date": "2026-09-14",
+            "observed_at_utc": "2026-09-13T21:01:14Z",
+            "run_status": "OK",
+            "source_file": "data/latest_dart_content.json",
+            "source_sha256": "8b33aa12e87e776ee592701ac1ebb59e5071182cad0b162c0b69c1fb2cc7b62d"
+          },
+          "source_archive": {
+            "content_bytes": 2189,
+            "content_sha256": "1521a4ea3fd65c599718b0565ffb5ca812e2719c2ccaca27bac1f01fba0d0749",
+            "rcept_no": "20260911800004",
+            "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260911800004"
+          }
+        },
+        "date": "20260911",
+        "rcept_no": "20260911800004",
+        "title": "단일판매ㆍ공급계약체결(자율공시)              ",
+        "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260911800004"
+      }
+    ],
+    "relevant_count": 1,
     "status": "ok",
-    "total_count": 3
+    "total_count": 4
   },
   "symbol": "012450"
 }
