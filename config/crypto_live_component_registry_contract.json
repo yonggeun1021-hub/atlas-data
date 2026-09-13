@@ -1,7 +1,17 @@
 {
-  "schema_version": 1,
-  "contract_version": "crypto_live_component_registry_contract/1",
-  "output_schema_version": "crypto_live_component_registry/1",
+  "schema_version": 2,
+  "contract_version": "crypto_live_component_registry_contract/2",
+  "output_schema_version": "crypto_live_component_registry/2",
+  "lookup_date_basis": "UTC_VINTAGE_DATE",
+  "lookup_date_field": "vintage_date_utc",
+  "legacy_output_schemas": {
+    "crypto_live_component_registry/1": {
+      "contract_version": "crypto_live_component_registry_contract/1",
+      "lookup_date_basis": "KST_OPERATIONAL_DATE",
+      "lookup_date_field": "operational_date_kst",
+      "use": "REVALIDATION_OF_ISSUED_RECORDS_ONLY"
+    }
+  },
   "mode": "PUBLIC_EVIDENCE_ONLY_NO_INTERPRETATION",
   "component_order": [
     "BTC_TREND",

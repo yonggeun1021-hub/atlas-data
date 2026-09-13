@@ -12,6 +12,26 @@ filenames, sizes, and SHA-256 hashes. Validation rebuilds the existing daily
 component rows and the directory fingerprints. Row omission, substitution,
 future evidence, and retained-byte drift fail closed.
 
+## Source lookup date (W5-02, schema `/2`)
+
+Every source root is keyed by the UTC capture date (`btc-price-capture.yml`,
+`stablecoin-capture.yml`, `crypto-breadth-capture.yml` name the directory with
+`date -u`). Contract `crypto_live_component_registry_contract/2` therefore
+emits `crypto_live_component_registry/2` records that look sources up by the
+UTC date of `generated_at` and record it as `vintage_date_utc`.
+
+Schema `/1` looked the same directories up by the KST operational date
+(`operational_date_kst`). Every generation between 15:00Z and 24:00Z asked
+for the next UTC day's directories, which did not exist yet, and wired zero
+components. Issued `/1` records remain revalidatable exactly as issued (KST
+lookup, contract `/1` identity), so committed decision packets keep
+reproducing; new records are always `/2`. Relabelling a `/1` record as `/2`
+fails re-derivation.
+
+A source absent for the lookup date is still absent. The registry never falls
+back to an earlier date, so a generation before that UTC day's capture wires
+fewer components rather than borrowing yesterday's.
+
 The registry feeds the existing `regime/live_axis_adapter.py` without changing
 its semantics:
 
