@@ -4,6 +4,13 @@
 The bounded reviews must stay byte-identical, and the extracted builders
 must report missing SMA20 / investor flows / prices / stage tags explicitly
 instead of raising (KR) or estimating (both).
+
+Byte identity is proven on a frozen consistent input snapshot
+(test/bounded_symbol_review_snapshot.py): the live stage_history.json and
+data/briefing/krx are rewritten by the daily collect hours before the
+committed reviews are, so rebuilding from the live pointers tests data
+timing, not code.  The live committed reviews are still re-derived from
+their own embedded source.
 """
 from __future__ import annotations
 
@@ -11,10 +18,16 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+import sys
+import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "test") not in sys.path:
+    sys.path.insert(0, str(ROOT / "test"))
+
+import bounded_symbol_review_snapshot as SNAPSHOT  # noqa: E402
 
 
 def _load(name: str, relative: str):
@@ -30,27 +43,75 @@ US = _load("row_extraction_us", "decision/us_symbol_market_review.py")
 MISSING_KR = {"missing_price_state": "BLOCKED", "missing_input_state": "BLOCKED"}
 
 
-def _read(relative: str):
+def _snapshot(relative: str):
+    return json.loads(SNAPSHOT.fixture_bytes(relative))
+
+
+def _live(relative: str):
     return json.loads((ROOT / relative).read_text(encoding="utf-8"))
 
 
 class BoundedOutputsUnchangedTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.snapshot = SNAPSHOT.materialize(Path(cls.tmp.name))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
     def test_kr_bounded_review_is_byte_identical_to_committed_packet(self):
-        stages = _read("data/stage_history.json")
-        rebuilt = KR.build_review(_read("data/latest_korea_market_signals.json"), stages)
-        committed = _read("data/latest_korea_symbol_market_review.json")
+        stages = _snapshot("data/stage_history.json")
+        rebuilt = KR.build_review(
+            _snapshot("data/latest_korea_market_signals.json"), stages, briefing_root=self.snapshot / "data" / "briefing" / "krx"
+        )
+        committed = _snapshot("data/latest_korea_symbol_market_review.json")
         self.assertEqual(rebuilt, committed)
         self.assertEqual(rebuilt["packet_sha256"], committed["packet_sha256"])
+        self.assertEqual(rebuilt["source_stage_history_sha256"], KR.payload_sha256(stages))
 
     def test_us_bounded_review_is_byte_identical_to_committed_packet(self):
-        stages = _read("data/stage_history.json")
-        rebuilt = US.build_review(_read("data/latest_free_market_data.json"), stages)
-        committed = _read("data/latest_us_symbol_market_review.json")
+        stages = _snapshot("data/stage_history.json")
+        rebuilt = US.build_review(_snapshot("data/latest_free_market_data.json"), stages)
+        committed = _snapshot("data/latest_us_symbol_market_review.json")
         self.assertEqual(rebuilt, committed)
         self.assertEqual(rebuilt["packet_sha256"], committed["packet_sha256"])
 
+    def test_snapshot_drift_is_detected_not_absorbed(self):
+        # A stage_history refresh alone (same tags, one newer date) must change
+        # the rebuilt review: the byte-identity check is not vacuous.
+        stages = _snapshot("data/stage_history.json")
+        latest = sorted(stages)[-1]
+        stages["9999-12-31"] = copy.deepcopy(stages[latest])
+        rebuilt = KR.build_review(
+            _snapshot("data/latest_korea_market_signals.json"), stages, briefing_root=self.snapshot / "data" / "briefing" / "krx"
+        )
+        self.assertNotEqual(rebuilt, _snapshot("data/latest_korea_symbol_market_review.json"))
+        rebuilt_us = US.build_review(_snapshot("data/latest_free_market_data.json"), stages)
+        self.assertNotEqual(rebuilt_us, _snapshot("data/latest_us_symbol_market_review.json"))
+
+    def test_tampered_snapshot_bytes_fail_closed(self):
+        entry = SNAPSHOT.MANIFEST["files"][0]
+        original = SNAPSHOT.MANIFEST["files"][0]["sha256"]
+        try:
+            entry["sha256"] = "0" * 64
+            with self.assertRaises(SNAPSHOT.SnapshotIntegrityError):
+                SNAPSHOT.fixture_bytes(entry["repo_path"])
+        finally:
+            entry["sha256"] = original
+
+    def test_live_committed_reviews_rederive_from_their_embedded_source(self):
+        for module, relative in (
+            (KR, "data/latest_korea_symbol_market_review.json"),
+            (US, "data/latest_us_symbol_market_review.json"),
+        ):
+            with self.subTest(relative=relative):
+                committed = _live(relative)
+                self.assertEqual(module.validate_output(committed), committed)
+
     def test_kr_symbol_row_with_missing_policy_equals_bounded_row_when_inputs_complete(self):
-        review = _read("data/latest_korea_symbol_market_review.json")
+        review = _snapshot("data/latest_korea_symbol_market_review.json")
         contract = KR.load_contract()
         for row in review["symbols"]:
             observed = review["source"]["stage_snapshot"]["subjects"][row["symbol"]]
@@ -60,7 +121,7 @@ class BoundedOutputsUnchangedTests(unittest.TestCase):
 
 class KoreaMissingInputTests(unittest.TestCase):
     def setUp(self):
-        review = _read("data/latest_korea_symbol_market_review.json")
+        review = _snapshot("data/latest_korea_symbol_market_review.json")
         self.contract = KR.load_contract()
         self.stage_as_of = review["source"]["stage_snapshot"]["as_of"]
         self.observed = copy.deepcopy(review["source"]["stage_snapshot"]["subjects"]["012450"])
@@ -114,8 +175,8 @@ class KoreaMissingInputTests(unittest.TestCase):
 
 class UsRowTests(unittest.TestCase):
     def setUp(self):
-        self.market = _read("data/latest_free_market_data.json")
-        self.stages = _read("data/stage_history.json")
+        self.market = _snapshot("data/latest_free_market_data.json")
+        self.stages = _snapshot("data/stage_history.json")
         self.contract = US.load_contract()
         self.source = US._compact_source(self.market, self.stages, self.contract)
         self.coverage = US._axes(self.source, self.contract)
