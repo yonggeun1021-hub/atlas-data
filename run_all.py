@@ -2331,6 +2331,14 @@ APPROVED_TESTS = [
     #   date (schema /2); issued /1 records keep revalidating; absent sources
     #   stay absent. Crypto regime remains UNKNOWN; no new threshold/authority.
     "test/test_crypto_regime_vintage_d1_d2.py",
+    # ★ 2026-09-14 Crypto capture-to-decision timing. The decision step runs
+    #   directly after the P9-06 realtime capture and the ~30s decision-
+    #   isolated validation capture runs after the decision chain, so the
+    #   ratified 20s/3s CRYPTO freshness re-evaluation no longer sees a
+    #   pipeline-added 30s age. A read-only guard fails over a 5s ENGINEERING
+    #   budget (scheduler hand-off, not a freshness policy). No threshold,
+    #   decision semantics or authority change.
+    "test/test_crypto_decision_capture_timing.py",
     # ★ CIO item 3 (2026-08-29): CRYPTO_BREADTH real coverage-ratio
     #   diagnostics (additive, never a new gate) and CRYPTO_LEADERSHIP's
     #   daily_orchestrator.py component-row wiring into build_packet(),
