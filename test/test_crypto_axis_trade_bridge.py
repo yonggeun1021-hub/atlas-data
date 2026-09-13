@@ -265,25 +265,10 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
         self.assertEqual(reason, "UPBIT_MARKET_EVIDENCE_COMPONENT_STALE")
 
     def test_stale_realtime_remains_stale(self):
-        record = {
-            "run": {
-                "markets": ["KRW-BTC"],
-                "message_log": [{}],
-                "status": {
-                    "markets": {"KRW-BTC": {}},
-                    "connection_state": "CONNECTED",
-                    "overall_status": "STALE",
-                },
-            }
-        }
-        with mock.patch.object(
-            BRIDGE.DECISION.REALTIME_GATE,
-            "load_freshness_policy_proposal",
-            return_value={"approval_status": "RATIFIED"},
-        ):
-            status, reason = BRIDGE.DECISION._realtime_freshness(record)
+        record = BRIDGE.DECISION.find_latest_realtime_run()["record"]
+        status, reason = BRIDGE.DECISION._realtime_freshness(record)
         self.assertEqual(status, "STALE")
-        self.assertEqual(reason, "UPBIT_REALTIME_GATE_STATUS_STALE")
+        self.assertEqual(reason, "UPBIT_REALTIME_RATIFIED_POLICY_RESULT_STALE")
 
     def test_mixed_market_date_remains_mixed_generation(self):
         universe = BRIDGE.DECISION.find_latest_universe_packet()
