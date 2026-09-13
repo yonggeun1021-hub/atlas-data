@@ -1,0 +1,92 @@
+{
+  "api_extension": {
+    "capture_version": "btc-price-capture/v1",
+    "fetched_at_utc": "2026-09-13T00:38:56Z",
+    "first_finalized_date": "2024-09-23",
+    "last_finalized_date": "2026-09-12",
+    "manifest_sha256": "4211cf8cfd436bc779839f73c1426c2a5ba87da5e48b64eb22bcea6c40fb0240",
+    "response_sha256": "d72a3552e3350aa8f68a74ef594424ac28515cdf1d7325486f44fe5bff916301",
+    "snapshot_date": "2026-09-13",
+    "snapshot_path": "evidence/crypto/btc/raw/2026-09-13"
+  },
+  "authority": {
+    "capital_authorized": false,
+    "diagnostic_only": true,
+    "natural_pit_evidence": false,
+    "order_authorized": false,
+    "real_authorized": false,
+    "runtime_authorized": false,
+    "threshold_revision_authorized": false,
+    "trading_authorized": false
+  },
+  "axes": [
+    "TREND",
+    "RISK_VOL"
+  ],
+  "market": "CRYPTO",
+  "missing_required_results": [],
+  "mode": "DIAGNOSTIC_REPLAY_NOT_NATURAL_PIT",
+  "overlap_check": {
+    "close_mismatch_count": 0,
+    "close_mismatch_dates": [],
+    "comparison": "EXACT_DECIMAL_CLOSE_EQUALITY_EVERY_SHARED_DATE",
+    "extension_row_count": 255,
+    "first_shared_date": "2024-09-23",
+    "last_shared_date": "2025-12-31",
+    "shared_date_count": 465
+  },
+  "payload_sha256": "2c15301aed9e01f0c462cd8f4ea89cb82fcceba19e1f9d526ca012aad51864bf",
+  "range": {
+    "first_close_date": "2019-01-01",
+    "first_risk_point_date": "2019-03-31",
+    "last_close_date": "2026-09-12",
+    "missing_calendar_dates": [
+      "2024-03-31"
+    ],
+    "missing_interval_policy": "PRESERVED_ABSENCE_WINDOW_UNDEFINED_NO_FILL",
+    "range_selection": "NONE_ALL_COMPUTABLE_DAYS",
+    "requested_start_date": "2019-01-01"
+  },
+  "required_risk_vol_results": [
+    "STRESS",
+    "NEGATIVE",
+    "POSITIVE"
+  ],
+  "risk_point_count": 2633,
+  "risk_vol_counts": {
+    "NEGATIVE": 799,
+    "NEUTRAL": 833,
+    "POSITIVE": 382,
+    "STRESS": 619
+  },
+  "risk_vol_first_seen": {
+    "NEGATIVE": "2019-04-11",
+    "NEUTRAL": "2019-04-02",
+    "POSITIVE": "2019-03-31",
+    "STRESS": "2019-06-04"
+  },
+  "risk_vol_rule": "CRYPTO_PAPER_RUNTIME_V1_ABSOLUTE",
+  "schema_version": "crypto_kraken_bulk_btc_replay_diagnostic/1",
+  "source": {
+    "archive_byte_length": 7885068519,
+    "archive_file_name": "Kraken_OHLCVT.zip",
+    "archive_sha256": "e6ab4a3d2fe3be99167607fa28f230a84a038ad3ea3348ef81dc4bffcabb758d",
+    "bulk_first_date": "2019-01-01",
+    "bulk_last_date": "2025-12-31",
+    "daily_rows_sha256": "62a903e307cc0418bf0aba0d64b44e79d31fc6b2ea9255d4a8cfcfe464bd8960",
+    "import_manifest_sha256": "dd0a81998a32eeca85e94f9a2b861cd41cfee695f6828f09de658361ab1343eb",
+    "import_sha256sums_sha256": "4fcb92c427d0b909cc14c31d8e7a972a67a0365e33bf4c22b9c810d615e28ee7",
+    "source_name": "kraken_official_downloadable_ohlcvt",
+    "source_pair_id": "XBTUSD"
+  },
+  "status": "PASS",
+  "trend_counts": {
+    "ABOVE_200DMA": 1375,
+    "AT_200DMA": 0,
+    "BELOW_200DMA": 1038
+  },
+  "undefined_risk_point_count": 89,
+  "undefined_risk_point_first_date": "2024-04-01",
+  "undefined_risk_point_last_date": "2024-06-28",
+  "undefined_trend_point_count": 220
+}
