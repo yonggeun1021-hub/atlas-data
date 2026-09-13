@@ -119,6 +119,7 @@ class FreeMarketDataTests(unittest.TestCase):
         self.assertEqual(c["fred"]["raw_retention"], "APPEND_ONLY_CONTENT_ADDRESSED")
         self.assertTrue(c["fred"]["partial_publish_authorized"])
         self.assertEqual(c["alpaca"]["credential_scope"], "DEDICATED_MARKET_DATA_ONLY")
+        self.assertTrue({"ANET", "CRDO", "MU", "SNDK"} <= set(c["alpaca"]["symbols"]))
         self.assertEqual(c["alpaca"]["trend_symbols"], ["SPY", "QQQ", "IWM"])
         self.assertEqual(c["fred"]["liquidity_series"], ["WRESBAL", "TOTBKCR"])
         self.assertTrue(c["authority"]["evidence_capture_only"])
