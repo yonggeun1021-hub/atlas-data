@@ -28,6 +28,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,6 +94,52 @@ def _with_references(decision_date: str, slot: str) -> tuple[dict, dict]:
     packet.pop("packet_sha256")
     packet["packet_sha256"] = ORCH.payload_sha256(packet)
     return packet, fixture
+
+
+def _pinned_fresh_build(decision_date: str, slot: str) -> dict:
+    """A real fresh ``build_packet`` for an audited slot, pinned to its seal.
+
+    A fresh build reads live collector state "now": the STEP0 read model and
+    the rolling pointers data/latest_krx.json and
+    data/latest_paper_regime_reference.json. Building a past slot against the
+    live tree therefore changes whenever the daily collect rewrites those
+    files (STEP0 becomes SOURCE_GENERATED_AT_AFTER_PACKET_GENERATED_AT).
+    Here exactly those reads return the audited seal-time inputs: the STEP0
+    snapshot frozen in the sealed packet, the latest_krx git blob recorded at
+    the seal, and the retained PAPER pointer generation at the seal. The
+    capture, selection, freeze, classify and validate code runs unmodified.
+    """
+    sealed, fixture = _audited_packet(decision_date, slot)
+    step0_at_seal = copy.deepcopy(sealed["frozen_sources"]["STEP0_READ_MODEL_HEALTH"])
+    seal_krx = fixture["latest_krx_at_seal"]
+    krx_raw = ORCH._git_blob_bytes(ORCH.ROOT, seal_krx["source_git_blob_sha1"])
+    if krx_raw is None or ORCH.hashlib.sha256(krx_raw).hexdigest() != seal_krx["source_sha256"]:
+        raise AssertionError(f"seal-time latest_krx blob unavailable: {seal_krx['source_git_blob_sha1']}")
+    pointer = fixture["paper_reference_pointer_at_seal"]
+    pointer_raw = (ROOT / pointer["evidence_path"]).read_bytes()
+    if ORCH.hashlib.sha256(pointer_raw).hexdigest() != pointer["sha256"]:
+        raise AssertionError(f"retained PAPER pointer generation rewritten: {pointer['evidence_path']}")
+    capture_krx = ORCH._capture_krx_confirmed_close
+    select_paper = ORCH._select_paper_regime_reference
+    with tempfile.TemporaryDirectory() as temp:
+        seal_root = Path(temp)
+        (seal_root / ORCH.KRX_CONFIRMED_SOURCE_PATH).parent.mkdir(parents=True, exist_ok=True)
+        (seal_root / ORCH.KRX_CONFIRMED_SOURCE_PATH).write_bytes(krx_raw)
+        (seal_root / ORCH.PAPER_REGIME_REFERENCE_POINTER_PATH).write_bytes(pointer_raw)
+        (seal_root / pointer["evidence_path"]).parent.mkdir(parents=True)
+        (seal_root / pointer["evidence_path"]).write_bytes(pointer_raw)
+
+        def step0_snapshot(requested_date):
+            if requested_date != decision_date:
+                raise AssertionError(f"unexpected STEP0 read for {requested_date}")
+            return copy.deepcopy(step0_at_seal)
+
+        with mock.patch.object(ORCH, "_fetch_step0_snapshot", step0_snapshot), mock.patch.object(
+            ORCH, "_capture_krx_confirmed_close", lambda root, repository_root: capture_krx(seal_root, repository_root)
+        ), mock.patch.object(
+            ORCH, "_select_paper_regime_reference", lambda root, generated_at_dt: select_paper(seal_root, generated_at_dt)
+        ):
+            return ORCH.build_packet(slot, decision_date, sealed["generated_at"])
 
 
 def _board(packet: dict) -> str:
@@ -347,7 +394,8 @@ class FreshBuildReplayTests(unittest.TestCase):
     """A real fresh build freezes the references and validate_packet replays them."""
 
     def test_fresh_weekend_build_round_trips_and_tamper_fails(self):
-        packet = ORCH.build_packet("morning", "2026-09-13", "2026-09-12T22:15:36Z")
+        packet = _pinned_fresh_build("2026-09-13", "morning")
+        self.assertEqual(packet["generated_at"], "2026-09-12T22:15:36Z")
         references = ORCH.presentation_references(packet)
         self.assertIsNotNone(references)
         self.assertEqual(references["scope"], "PRESENTATION_ONLY_NOT_A_COMPONENT_INPUT")
@@ -383,7 +431,7 @@ class ConfirmedCloseValidatorBindingTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.packet = ORCH.build_packet("morning", "2026-09-13", "2026-09-12T22:15:36Z")
+        cls.packet = _pinned_fresh_build("2026-09-13", "morning")
 
     def _rehashed(self, mutate) -> dict:
         tampered = copy.deepcopy(self.packet)
@@ -398,12 +446,24 @@ class ConfirmedCloseValidatorBindingTests(unittest.TestCase):
             row for row in self.packet["components"]
             if row["component_id"] == "STEP0_READ_MODEL_HEALTH"
         )
-        if confirmed["source_git_blob_sha1"] is None:
-            self.assertEqual(confirmed["unknown_reason"], "KRX_CONFIRMED_SOURCE_NOT_COMMITTED")
-        else:
-            raw = ORCH._git_blob_bytes(ORCH.ROOT, confirmed["source_git_blob_sha1"])
-            self.assertEqual(ORCH.hashlib.sha256(raw).hexdigest(), confirmed["source_sha256"])
-            self.assertEqual(confirmed["source_sha256"], step0["packet"]["sources"]["krx"]["source_sha256"])
+        seal = SLOTS[("2026-09-13", "morning")]["latest_krx_at_seal"]
+        # The seal-time STEP0 row is reproduced (weekend: DATA_BLOCKED with its payload).
+        sealed, _ = _audited_packet("2026-09-13", "morning")
+        sealed_step0 = next(
+            row for row in sealed["components"] if row["component_id"] == "STEP0_READ_MODEL_HEALTH"
+        )
+        self.assertEqual(step0, sealed_step0)
+        self.assertEqual(confirmed["source_git_blob_sha1"], seal["source_git_blob_sha1"])
+        raw = ORCH._git_blob_bytes(ORCH.ROOT, confirmed["source_git_blob_sha1"])
+        self.assertEqual(ORCH.hashlib.sha256(raw).hexdigest(), confirmed["source_sha256"])
+        self.assertEqual(confirmed["source_sha256"], step0["packet"]["sources"]["krx"]["source_sha256"])
+        self.assertIsNone(confirmed["unknown_reason"])
+        self.assertEqual(confirmed["confirmed_through"], seal["confirmed_through"])
+        self.assertEqual(
+            ORCH.presentation_references(self.packet)["paper_regime"]["evidence_path"],
+            SLOTS[("2026-09-13", "morning")]["paper_reference_pointer_at_seal"]["evidence_path"],
+        )
+        ORCH.validate_packet(self.packet)
 
     def test_altered_confirmed_through_fails_validation(self):
         confirmed = ORCH.presentation_references(self.packet)["krx_confirmed_close"]
