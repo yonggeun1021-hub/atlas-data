@@ -113,20 +113,30 @@ class RuntimeFixture(unittest.TestCase):
         self.assertTrue(checked["policy_ratified"])
         self.assertEqual(checked["policy_version"], policy["policy_version"])
 
-    def decision(self, *, received_at="2026-08-29T01:30:30.000000Z"):
+    def decision(
+        self, *, received_at="2026-08-30T01:30:30.000000Z",
+        orderbook_received_at=None, include_ratified_binding=True,
+    ):
         latest = {}
         received = dt.datetime.strptime(received_at, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
-        for raw in (raw_ticker(), raw_orderbook()):
+        orderbook_received = dt.datetime.strptime(
+            orderbook_received_at or received_at, "%Y-%m-%dT%H:%M:%S.%fZ",
+        ).replace(tzinfo=UTC)
+        raw_and_received = (
+            (raw_ticker(timestamp=int((received - dt.timedelta(seconds=1)).timestamp() * 1000)), received),
+            (raw_orderbook(timestamp=int(orderbook_received.timestamp() * 1000)), orderbook_received),
+        )
+        for raw, retained_at in raw_and_received:
             parsed = BRIDGE.REALTIME.parse_message(raw)
             CAPTURE.retain_latest_public_message(
                 latest,
                 raw=raw,
                 result={"action": "ACCEPTED", "market": parsed["market"], "kind": parsed["kind"]},
-                received_at=received,
+                received_at=retained_at,
             )
         status = {
             "schema_version": "upbit_realtime_gate_status/1",
-            "generated_at": "2026-08-29T01:30:31Z",
+            "generated_at": "2026-08-30T01:30:31Z",
             "connection_state": "CONNECTED",
             "reconnect_count": 0,
             "last_disconnect_reason": None,
@@ -145,8 +155,8 @@ class RuntimeFixture(unittest.TestCase):
         }
         status["payload_sha256"] = BRIDGE.payload_sha256(status)
         run = {
-            "started_at": "2026-08-29T01:30:00Z",
-            "ended_at": "2026-08-29T01:30:31Z",
+            "started_at": "2026-08-30T01:30:00Z",
+            "ended_at": "2026-08-30T01:30:31Z",
             "requested_duration_seconds": 31,
             "markets": ["KRW-BTC"],
             "message_log": [{
@@ -158,6 +168,23 @@ class RuntimeFixture(unittest.TestCase):
             "latest_public_messages_schema_version": CAPTURE.LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
             "latest_public_messages": latest,
         }
+        if include_ratified_binding:
+            contract = DECISION.REALTIME_GATE.load_contract()
+            parsed_ticker = DECISION.REALTIME_GATE.parse_message(raw_and_received[0][0])
+            quote = DECISION.REALTIME_GATE.quote_row_from_ticker(
+                parsed_ticker, received_at=received,
+            )
+            observed_at = dt.datetime(2026, 8, 30, 1, 30, 31, tzinfo=UTC)
+            run["ratified_freshness_policy"] = {
+                "path": contract["ratified_freshness_policy_path"],
+                "packet_sha256": contract["ratified_freshness_policy_sha256"],
+                "consumer_result": DECISION.REALTIME_GATE.evaluate_with_ratified_freshness_policy(
+                    [quote],
+                    observed_at=observed_at,
+                    batch_id="P9_06_20260830T013031Z",
+                    contract=contract,
+                ),
+            }
         record = {
             "schema_version": "upbit_realtime_capture_run/1",
             "transform_version": "upbit_realtime_gate/1",
@@ -167,13 +194,13 @@ class RuntimeFixture(unittest.TestCase):
             "run": run,
         }
         record["source_sha256"] = BRIDGE.payload_sha256(run)
-        directory = self.tmp / "realtime" / "2026-08-29"
+        directory = self.tmp / "realtime" / "2026-08-30"
         directory.mkdir(parents=True)
         path = directory / "run_001.json"
         path.write_text(json.dumps(record), encoding="utf-8")
-        entry = {"date": "2026-08-29", "path": path, "record": record}
+        entry = {"date": "2026-08-30", "path": path, "record": record}
         return DECISION.build_snapshot(
-            generated_at="2026-08-29T01:31:00Z",
+            generated_at="2026-08-30T01:30:40Z",
             source_commit=SOURCE_COMMIT,
             universe_entry=None,
             market_evidence_entry=None,
@@ -181,12 +208,12 @@ class RuntimeFixture(unittest.TestCase):
         )
 
     def account_with_open_order(
-        self, *, submitted_at="2026-08-29T01:00:00Z",
-        expires_at="2026-08-29T02:00:00Z",
+        self, *, submitted_at="2026-08-30T01:00:00Z",
+        expires_at="2026-08-30T02:00:00Z",
     ):
         ledger = SIMULATOR.create_ledger(
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash="1000",
-            opened_at="2026-08-29T00:59:00Z",
+            opened_at="2026-08-30T00:59:00Z",
             idempotency_key="PAPER.ACCOUNT.OPEN.RUNTIME.TEST",
         )
         intent = SIMULATOR.build_intent(
@@ -201,7 +228,7 @@ class RuntimeFixture(unittest.TestCase):
         )
         ledger = SIMULATOR.submit_order(ledger, intent)
         return SIMULATOR.build_account_state(
-            ledger, observed_at="2026-08-29T01:31:00Z", mark_prices={},
+            ledger, observed_at="2026-08-30T01:31:00Z", mark_prices={},
             mark_freshness_status="FRESH", mark_source_ref="test://marks/runtime",
             mark_source_sha256="d" * 64,
         )
@@ -209,11 +236,11 @@ class RuntimeFixture(unittest.TestCase):
     def empty_account(self):
         ledger = SIMULATOR.create_ledger(
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash="1000",
-            opened_at="2026-08-29T00:59:00Z",
+            opened_at="2026-08-30T00:59:00Z",
             idempotency_key="PAPER.ACCOUNT.OPEN.RUNTIME.TEST",
         )
         return SIMULATOR.build_account_state(
-            ledger, observed_at="2026-08-29T01:31:00Z", mark_prices={},
+            ledger, observed_at="2026-08-30T01:31:00Z", mark_prices={},
             mark_freshness_status="FRESH", mark_source_ref="test://marks/runtime",
             mark_source_sha256="d" * 64,
         )
@@ -221,7 +248,7 @@ class RuntimeFixture(unittest.TestCase):
     def config(self):
         return BRIDGE.build_runtime_config(
             approval_status=BRIDGE.RUNTIME_CONFIG_APPROVAL,
-            approved_by="CIO_TEST", approved_at="2026-08-29T01:00:00Z",
+            approved_by="CIO_TEST", approved_at="2026-08-30T01:00:00Z",
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash_krw="1000",
             fee_rate="0", queue_fraction="1", order_type="LIMIT",
             limit_price_source="ENTRY_ZONE_LOW",
@@ -253,7 +280,7 @@ class RuntimeFixture(unittest.TestCase):
     @staticmethod
     def promotion_packet():
         return {
-            "evaluation_as_of": "2026-08-29T01:31:00Z",
+            "evaluation_as_of": "2026-08-30T01:31:00Z",
             "source_packets": {"regime": {"regime": "UNKNOWN"}},
         }
 
@@ -650,7 +677,7 @@ class BridgeContractTests(RuntimeFixture):
             decision,
         )
         snapshot = BRIDGE.orderbook_snapshot(decision, market="KRW-BTC")
-        self.assertEqual(snapshot["captured_at"], "2026-08-29T01:30:30Z")
+        self.assertEqual(snapshot["captured_at"], "2026-08-30T01:30:30Z")
         self.assertEqual(snapshot["ask_levels"], [{"price": "101", "quantity": "2"}])
         self.assertEqual(snapshot["bid_levels"], [{"price": "99", "quantity": "3"}])
         self.assertFalse(snapshot["authority"]["exchange_order_authorized"])
@@ -768,10 +795,10 @@ class BridgeContractTests(RuntimeFixture):
 
     def test_equal_timestamp_is_not_a_later_match_snapshot(self):
         request = BRIDGE.build_runtime_request(
-            self.decision(received_at="2026-08-29T01:30:30.000000Z"),
+            self.decision(received_at="2026-08-30T01:30:30.000000Z"),
             expected_source_commit=SOURCE_COMMIT,
             account_state=self.account_with_open_order(
-                submitted_at="2026-08-29T01:30:30Z",
+                submitted_at="2026-08-30T01:30:30Z",
             ),
             open_position_risk=None,
             runtime_config=None,
@@ -783,20 +810,15 @@ class BridgeContractTests(RuntimeFixture):
         )
 
     def test_unratified_realtime_freshness_cannot_match_virtual_order(self):
-        with mock.patch.object(
-            DECISION.REALTIME_GATE,
-            "load_freshness_policy_proposal",
-            return_value={"approval_status": "PROPOSED_UNRATIFIED"},
-        ):
-            decision = self.decision()
-            self.assertEqual(decision["freshness_status"]["realtime"], "UNKNOWN")
-            request = BRIDGE.build_runtime_request(
-                decision,
-                expected_source_commit=SOURCE_COMMIT,
-                account_state=self.account_with_open_order(),
-                open_position_risk=None,
-                runtime_config=None,
-            )
+        decision = self.decision(include_ratified_binding=False)
+        self.assertEqual(decision["freshness_status"]["realtime"], "UNKNOWN")
+        request = BRIDGE.build_runtime_request(
+            decision,
+            expected_source_commit=SOURCE_COMMIT,
+            account_state=self.account_with_open_order(),
+            open_position_risk=None,
+            runtime_config=None,
+        )
         self.assertEqual(request["match_snapshots"], [])
         self.assertTrue(any(
             "DECISION_REALTIME_FRESHNESS_NOT_RATIFIED_FRESH" in blocker
@@ -829,7 +851,7 @@ class BridgeContractTests(RuntimeFixture):
     def test_future_runtime_ratification_cannot_apply_to_past_decision(self):
         config = BRIDGE.build_runtime_config(
             approval_status=BRIDGE.RUNTIME_CONFIG_APPROVAL,
-            approved_by="CIO_TEST", approved_at="2026-08-29T01:32:00Z",
+            approved_by="CIO_TEST", approved_at="2026-08-30T01:32:00Z",
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash_krw="1000",
             fee_rate="0", queue_fraction="1", order_type="LIMIT",
             limit_price_source="ENTRY_ZONE_LOW",
@@ -845,7 +867,9 @@ class BridgeContractTests(RuntimeFixture):
             )
 
     def test_future_retained_public_message_cannot_be_used_as_decision_evidence(self):
-        decision = self.decision(received_at="2026-08-29T01:31:01.000000Z")
+        decision = self.decision(
+            orderbook_received_at="2026-08-30T01:31:01.000000Z",
+        )
         with self.assertRaisesRegex(
             BRIDGE.CryptoPaperRuntimeBridgeError,
             "REALTIME_ORDERBOOK_FUTURE_DATED:KRW-BTC",
@@ -915,7 +939,7 @@ class BridgeContractTests(RuntimeFixture):
     def test_runtime_config_requires_explicit_ratification_hash_and_keeps_real_authority_false(self):
         config = BRIDGE.build_runtime_config(
             approval_status=BRIDGE.RUNTIME_CONFIG_APPROVAL,
-            approved_by="CIO_TEST", approved_at="2026-08-29T01:00:00Z",
+            approved_by="CIO_TEST", approved_at="2026-08-30T01:00:00Z",
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash_krw="1000",
             fee_rate="0", queue_fraction="1", order_type="LIMIT",
             limit_price_source="ENTRY_ZONE_LOW",
