@@ -27,7 +27,7 @@ CRYPTO_SNAPSHOT = ROOT / "evidence/crypto/upbit/raw/2026-09-12"
 PRIOR_IDENTITY_EVIDENCE = ROOT / "config/upbit_bounded_identity_evidence.json"
 CRYPTO_DECISION = ROOT / (
     "evidence/crypto_paper_decision/2026-09-12/1351/"
-    "4aaa821be20c357e201f83fe3b1a2ae3adfd9b533fbe7c7cbc25d31eac06c6ad/"
+    "a841b4fd0fe492dd60a76fbfe877eb61b3bc28b569e0792be9a376b0341b37dd/"
     "packet.json"
 )
 
