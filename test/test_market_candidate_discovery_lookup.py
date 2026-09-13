@@ -34,7 +34,7 @@ PINNED_CRYPTO = {
     "crypto_snapshot_dir": ROOT / "evidence/crypto/upbit/raw/2026-09-12",
     "crypto_decision_path": ROOT / (
         "evidence/crypto_paper_decision/2026-09-12/1351/"
-        "4aaa821be20c357e201f83fe3b1a2ae3adfd9b533fbe7c7cbc25d31eac06c6ad/packet.json"
+        "a841b4fd0fe492dd60a76fbfe877eb61b3bc28b569e0792be9a376b0341b37dd/packet.json"
     ),
     "crypto_detail_path": None,
 }
@@ -530,7 +530,7 @@ class PinnedCryptoGenerationTests(unittest.TestCase):
         detail_record = json.loads(detail_path.read_text(encoding="utf-8"))
         expected = (
             "BOUND_TO_SAME_DECISION_GENERATION"
-            if detail_record["decision_snapshot"]["generation_id"] == "4aaa821be20c357e201f83fe3b1a2ae3adfd9b533fbe7c7cbc25d31eac06c6ad"
+            if detail_record["decision_snapshot"]["generation_id"] == "a841b4fd0fe492dd60a76fbfe877eb61b3bc28b569e0792be9a376b0341b37dd"
             else "UNBOUND_DIFFERENT_GENERATION"
         )
         self.assertEqual(binding, expected)

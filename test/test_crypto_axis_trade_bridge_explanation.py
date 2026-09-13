@@ -26,8 +26,8 @@ CONTRACT = EXPLAIN.load_contract()
 
 # The natural committed generation named by the adopted P5-10 contract.
 REAL_PACKET_PATH = (
-    ROOT / "evidence" / "crypto_axis_trade_bridge" / "2026-09-06" / "2349" /
-    "3a35da983bae7f2a6d66e802f279a9264162a43ef99727a8bd2e1c5f574951ae" / "packet.json"
+    ROOT / "evidence" / "crypto_axis_trade_bridge" / "2026-09-12" / "1351" /
+    "a841b4fd0fe492dd60a76fbfe877eb61b3bc28b569e0792be9a376b0341b37dd" / "packet.json"
 )
 
 # Producer files this task must leave byte-identical, pinned by the adopted
@@ -40,9 +40,9 @@ PRODUCER_PINS = {
     "docs/crypto_axis_trade_bridge_contract.md":
         "64cf3dedd75138fe91862ebe969a7d442cec8edf5d19ec84a2fb0516f2af05de",
     "test/test_crypto_axis_trade_bridge.py":
-        "1d18f4aa9a3f87748878f432dc13f023ba7c1e765b3d1e9599a2b80f343c5d66",
+        "c9c6f0fce1b147c5679d7bbab4fc49bf2d602861d86f3e6b3be73b29276c9ccc",
     "decision/crypto_paper_decision_snapshot.py":
-        "35d04eb80522f3a6ff0ce9ce7dc07a75d78e23830d49883fcadb30c04d8a7dbf",
+        "b47fee86dd06edcd60b91e2c8495a06b6a27b84c0fcf8bc4bf2051c29c58524a",
 }
 
 _VALIDATED: list = []
@@ -418,15 +418,23 @@ class RealEvidenceTests(unittest.TestCase):
     def test_committed_generation_explains_every_symbol_as_entry_wait(self):
         source = validated_bridge_packet()
         result = real_explanation()
-        self.assertEqual(result["summary"]["symbol_count"], 7)
-        self.assertEqual(stage(result, "ENTRY_WAIT")["member_count"], 7)
+        self.assertEqual(result["summary"]["symbol_count"], 8)
+        self.assertEqual(stage(result, "ENTRY_WAIT")["member_count"], 8)
         self.assertEqual(stage(result, "ENTRY_BLOCKED")["member_count"], 0)
         self.assertEqual(len(result["five_axis_explained"]), 5)
-        self.assertTrue(
-            all(row["status"] == "UNDEFINED" for row in result["five_axis_explained"])
+        self.assertEqual(
+            {row["axis"]: row["status"] for row in result["five_axis_explained"]},
+            {
+                "TREND": "DEFINED", "RISK_VOL": "DEFINED",
+                "LIQUIDITY": "DEFINED", "BREADTH": "DEFINED",
+                "LEADERSHIP": "UNDEFINED",
+            },
         )
-        self.assertTrue(all(row["is_hold_cause"] for row in result["five_axis_explained"]))
-        self.assertEqual(result["summary"]["axis_defined_count"], 0)
+        self.assertEqual(
+            [row["axis"] for row in result["five_axis_explained"] if row["is_hold_cause"]],
+            ["LEADERSHIP"],
+        )
+        self.assertEqual(result["summary"]["axis_defined_count"], 4)
         self.assertEqual(
             result["source_bridge_sha256"], source["packet_sha256"],
         )
@@ -556,9 +564,11 @@ class RealEvidenceTests(unittest.TestCase):
             packet_path = Path(first["path"])
             markdown_path = Path(first["markdown_path"])
             self.assertTrue(packet_path.exists() and markdown_path.exists())
+            decision = committed_bridge_packet()["source"]["decision_snapshot"]
             self.assertEqual(
                 packet_path.parent,
-                output_root / "2026-09-06" / "2349" / first["source_generation_id"],
+                output_root / decision["capture_date"] / decision["capture_hhmm"] /
+                first["source_generation_id"],
             )
             packet_bytes = packet_path.read_bytes()
             markdown_bytes = markdown_path.read_bytes()

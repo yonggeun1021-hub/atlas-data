@@ -201,6 +201,14 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         raise RealtimeGateError("CONTRACT_PROVIDER_GAP_THRESHOLDS_INVALID")
     if any(type(item) is not int or item < 1 for item in thresholds.values()):
         raise RealtimeGateError("CONTRACT_PROVIDER_GAP_THRESHOLD_INVALID")
+    if (
+        value.get("provider_time_interval_classification")
+        != "CONTINUITY_UNVERIFIED_DIAGNOSTIC"
+        or value.get("provider_time_interval_proves_packet_loss") is not False
+        or value.get("rest_backfill_gap_sources")
+        != ["WS_CONNECTION_GAP", "WS_SEQUENCE_REGRESSION"]
+    ):
+        raise RealtimeGateError("CONTRACT_PROVIDER_CONTINUITY_CLASSIFICATION_INVALID")
     return copy.deepcopy(value)
 
 
@@ -1009,6 +1017,7 @@ class RealtimeGate:
         self.last_message_at: dict = {}
         self.last_provider_at: dict = {}
         self._gaps: dict = {}
+        self._provider_silences: dict = {}
         self.receipt_ledger: dict = {}
         self.counts = {
             "accepted": 0, "duplicate_ignored": 0, "out_of_order": 0,
@@ -1052,6 +1061,38 @@ class RealtimeGate:
     def pending_gap_windows(self) -> list:
         return [copy.deepcopy(self._gaps[key]) for key in sorted(self._gaps) if self._gaps[key]["status"] == "PENDING"]
 
+    def _record_provider_silence(
+        self, *, kind: str, timeframe, market: str,
+        start: dt.datetime, end: dt.datetime,
+    ) -> dict:
+        """Record an event-stream silence without claiming packet loss.
+
+        Upbit's public streams are event driven; a provider timestamp jump
+        can mean that no trade or book change occurred.  It remains useful
+        freshness telemetry, but only a disconnect or sequence regression is
+        evidence of a recoverable transport gap.
+        """
+        start = _require_aware(start, "PROVIDER_SILENCE_START_NAIVE")
+        end = _require_aware(end, "PROVIDER_SILENCE_END_NAIVE")
+        if end <= start:
+            raise RealtimeGateError("PROVIDER_SILENCE_WINDOW_INVALID")
+        body = {
+            "schema_version": "upbit_realtime_provider_silence/1",
+            "kind": kind,
+            "timeframe": timeframe,
+            "market": market,
+            "from": _iso_utc(start),
+            "to": _iso_utc(end),
+            "duration_seconds": int((end - start).total_seconds()),
+            "threshold_seconds": self.provider_gap_threshold_seconds_by_kind.get(kind),
+            "packet_loss_claimed": False,
+            "rest_backfill_required": False,
+        }
+        silence_id = payload_sha256(body)
+        row = {**body, "silence_id": silence_id}
+        self._provider_silences.setdefault(silence_id, row)
+        return copy.deepcopy(self._provider_silences[silence_id])
+
     def handle_message(self, raw: dict, *, received_at: dt.datetime, as_of: dt.datetime = None) -> dict:
         """Never raises: any failure mode (malformed input, out-of-scope
         market) is caught and returned as a structured, non-fatal result so
@@ -1092,13 +1133,13 @@ class RealtimeGate:
         provider_at = self._provider_at(parsed)
         provider_key = (parsed["kind"], parsed["timeframe"], parsed["market"])
         last_provider_at = self.last_provider_at.get(provider_key)
-        gap = None
+        provider_silence = None
         threshold = self.provider_gap_threshold_seconds_by_kind.get(parsed["kind"])
         if last_provider_at is not None and threshold is not None:
             elapsed = (provider_at - last_provider_at).total_seconds()
             if elapsed > threshold:
-                gap = self._record_gap(
-                    source="WS_PROVIDER_TIME_GAP", kind=parsed["kind"], timeframe=parsed["timeframe"],
+                provider_silence = self._record_provider_silence(
+                    kind=parsed["kind"], timeframe=parsed["timeframe"],
                     market=parsed["market"], start=last_provider_at, end=provider_at,
                 )
         self.last_provider_at[provider_key] = provider_at
@@ -1110,8 +1151,8 @@ class RealtimeGate:
             result["candle_ingest"] = self.candles.ingest(
                 parsed["market"], parsed["timeframe"], parsed["raw"], as_of=as_of,
             )
-        if gap is not None:
-            result["detected_gap"] = gap
+        if provider_silence is not None:
+            result["detected_provider_silence"] = provider_silence
         self.counts["accepted"] += 1
         return result
 
@@ -1233,6 +1274,10 @@ class RealtimeGate:
                 row for row in gap_windows if row["source"] == "WS_CONNECTION_GAP"
             ],
             "pending_gap_windows": gap_windows,
+            "provider_silence_windows": [
+                copy.deepcopy(self._provider_silences[key])
+                for key in sorted(self._provider_silences)
+            ],
             "receipt_ledger_count": len(self.receipt_ledger),
             "finalized_candle_ledger_count": self.candles.total_finalized_count(),
             "in_progress_candle_count": self.candles.total_in_progress_count(),
