@@ -29,6 +29,8 @@ KCR = PROOF.KCR
 FIXTURES = load("paper_rotation_fixtures", "test/test_korea_capital_rotation.py")
 RUNTIME_PATH = ROOT / "data/latest_kr_paper_runtime_decision.json"
 NOW = "2026-09-13T03:00:00Z"
+# External Stage1/Root-reviewed #696 canonical pin, not calculated from input.
+REVIEWED_RUNTIME_SHA256 = "a5f76eb6b38292185a893bcf9d321da7154777d5cd5e0cb7c2c994a1874aea44"
 
 
 class PaperConsumptionTests(unittest.TestCase):
@@ -67,6 +69,7 @@ class PaperConsumptionTests(unittest.TestCase):
         for key, value in receipt["authority"].items():
             self.assertIs(value, key == "paper_runtime_display_authorized")
         self.assertEqual(receipt["lineage"]["runtime_file_sha256"], self.kwargs["expected_runtime_sha256"])
+        self.assertEqual(receipt["lineage"]["expected_runtime_file_sha256"], self.kwargs["expected_runtime_sha256"])
         self.assertNotIn("aggregation", receipt["market_context"])
         self.assertEqual(receipt, self.consume())
         self.assertEqual(receipt.pop("payload_sha256"), KCR.payload_sha256(receipt))
@@ -194,10 +197,10 @@ class PinnedCurrentRatifiedIntegrationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
 
-    def build(self):
-        return PROOF.build_current_ratified_paper_consumption(
-            "2026-09-10", "2026-09-11", source_commit=self.commit, evaluation_at=NOW,
-        )
+    def build(self, expected_runtime_sha256=REVIEWED_RUNTIME_SHA256, **changes):
+        kwargs = {"source_commit": self.commit, "expected_runtime_sha256": expected_runtime_sha256,
+                  "evaluation_at": NOW} | changes
+        return PROOF.build_current_ratified_paper_consumption("2026-09-10", "2026-09-11", **kwargs)
 
     def test_real_current_ratified_path_reads_canonical_and_records_absence(self):
         with mock.patch.object(PROOF.KCR, "build_packet", wraps=PROOF.KCR.build_packet) as rank:
@@ -208,8 +211,46 @@ class PinnedCurrentRatifiedIntegrationTests(unittest.TestCase):
         absent = [row["path"] for row in receipt["lineage"]["rotation_source_files"] if row["status"] == "ABSENT_AT_SOURCE_COMMIT"]
         self.assertIn("data/observations/korea_leadership_context/2026-09-11/packet.json", absent)
         self.assertEqual(receipt["lineage"]["runtime_source_commit"], self.commit)
+        self.assertEqual(receipt["lineage"]["expected_runtime_file_sha256"], REVIEWED_RUNTIME_SHA256)
+        self.assertEqual(receipt["lineage"]["reviewed_runtime_release"], PROOF.REVIEWED_PAPER_RUNTIME_RELEASE)
+        with self.assertRaisesRegex(RuntimeError, "NOT_DESCENDANT_OF_REVIEWED_PUBLICATION"):
+            self.build(source_commit=PROOF.REVIEWED_PAPER_RUNTIME_RELEASE["code_revision"])
+        with self.assertRaisesRegex(RuntimeError, "REVIEWED_PUBLICATION_NOT_YET_AVAILABLE"):
+            self.build(evaluation_at="2026-09-13T01:02:05Z")
 
     def test_source_policy_drift_fails_before_rotation_attempt(self):
+        for expected, error in (("0" * 64, "EXPECTED_SHA_NOT_REVIEWED"), ("bad", "EXPECTED_SHA_INVALID")):
+            with self.subTest(expected=expected), mock.patch.object(PROOF, "load_current_ratified_artifacts") as policy:
+                with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, error):
+                    self.build(expected_runtime_sha256=expected)
+                policy.assert_not_called()
+        # Change both source bytes and the caller's SHA. The separate #696
+        # approval pin remains fixed, so this cannot self-approve a release.
+        proposed = json.loads(RUNTIME_PATH.read_bytes())
+        proposed["direction"] = "IMPROVING"
+        proposed_bytes = json.dumps(proposed).encode()
+        real_run = subprocess.run
+        def changed_git_read(args, **kwargs):
+            if args == ["git", "show", f"{self.commit}:data/latest_kr_paper_runtime_decision.json"]:
+                return subprocess.CompletedProcess(args, 0, stdout=proposed_bytes, stderr=b"")
+            return real_run(args, **kwargs)
+        with mock.patch.object(PROOF.subprocess, "run", changed_git_read):
+            with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "SOURCE_SHA_MISMATCH"):
+                self.build()
+            with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "EXPECTED_SHA_NOT_REVIEWED"):
+                self.build(hashlib.sha256(proposed_bytes).hexdigest())
+        def changed_approved_read(args, **kwargs):
+            approved = PROOF.REVIEWED_PAPER_RUNTIME_RELEASE["publication_commit"]
+            if args == ["git", "show", f"{approved}:data/latest_kr_paper_runtime_decision.json"]:
+                return subprocess.CompletedProcess(args, 0, stdout=proposed_bytes, stderr=b"")
+            return real_run(args, **kwargs)
+        with mock.patch.object(PROOF.subprocess, "run", changed_approved_read):
+            with self.assertRaisesRegex(RuntimeError, "REVIEWED_PUBLICATION_RECEIPT_MISMATCH"):
+                self.build()
+        with self.assertRaises(TypeError):
+            PROOF.build_current_ratified_paper_consumption(
+                "2026-09-10", "2026-09-11", source_commit=self.commit, evaluation_at=NOW,
+            )
         original = Path.read_bytes
         def changed(path):
             raw = original(path)
@@ -226,6 +267,7 @@ class PinnedCurrentRatifiedIntegrationTests(unittest.TestCase):
             command = [sys.executable, str(ROOT / ".github/scripts/korea_capital_rotation_ledger_proof.py"),
                        "--current-ratified-policy", "--prior-date", "2026-09-10", "--current-date", "2026-09-11",
                        "--paper-runtime-source-commit", self.commit, "--evaluation-at", NOW,
+                       "--expected-paper-runtime-sha256", REVIEWED_RUNTIME_SHA256,
                        "--paper-consumer-out", str(output)]
             first = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=True)
             stored = json.loads(output.read_bytes())
@@ -239,12 +281,36 @@ class PinnedCurrentRatifiedIntegrationTests(unittest.TestCase):
     def test_paper_mode_forbids_pointer_packet_substitution_and_partial_options(self):
         base = [sys.executable, str(ROOT / ".github/scripts/korea_capital_rotation_ledger_proof.py"),
                 "--current-ratified-policy", "--prior-date", "2026-09-10", "--current-date", "2026-09-11",
-                "--paper-runtime-source-commit", self.commit]
+                "--paper-runtime-source-commit", self.commit,
+                "--expected-paper-runtime-sha256", REVIEWED_RUNTIME_SHA256]
         for suffix in ([], ["--paper-consumer-out", "/tmp/unused-paper-consumer.json", "--evaluation-at", NOW, "--commit-pointer"],
                        ["--paper-consumer-out", "/tmp/unused-paper-consumer.json", "--evaluation-at", NOW, "--packet-out", "/tmp/unused-packet.json"]):
             with self.subTest(suffix=suffix):
                 result = subprocess.run(base + suffix, cwd=ROOT, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "must-not-exist.json"
+            suffix = ["--paper-consumer-out", str(out), "--evaluation-at", NOW]
+            missing = subprocess.run(base[:-2] + suffix, cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 2)
+            self.assertIn("--expected-paper-runtime-sha256", missing.stderr)
+            self.assertFalse(out.exists())
+            mismatch = subprocess.run(base[:-1] + ["0" * 64] + suffix, cwd=ROOT, capture_output=True, text=True)
+            self.assertNotEqual(mismatch.returncode, 0)
+            self.assertIn("PAPER_RUNTIME_EXPECTED_SHA_NOT_REVIEWED", mismatch.stderr)
+            self.assertFalse(out.exists())
+            proposed = json.loads(RUNTIME_PATH.read_bytes())
+            proposed["direction"] = "IMPROVING"
+            forged_bytes = json.dumps(proposed).encode()
+            forged_sha = hashlib.sha256(forged_bytes).hexdigest()
+            with mock.patch.object(PROOF, "write_external_ratified_packet") as writer:
+                with self.assertRaisesRegex(KCR.KoreaCapitalRotationError, "EXPECTED_SHA_NOT_REVIEWED"):
+                    PROOF.run_current_ratified_paper_consumption(
+                        "2026-09-10", "2026-09-11", out,
+                        source_commit=self.commit, expected_runtime_sha256=forged_sha, evaluation_at=NOW,
+                    )
+                writer.assert_not_called()
+                self.assertFalse(out.exists())
 
 
 if __name__ == "__main__":

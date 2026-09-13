@@ -8,8 +8,11 @@ briefing pointer, or register a schedule.
 
 ## Run
 
-Use a full reviewed source commit containing the canonical Stage1 decision
-and P2-03 inputs. The current-ratified policy, binding, calendar and existing
+Supply a full source commit AND an independently reviewed expected runtime
+file SHA-256. A commit locates bytes; a digest calculated from those same
+bytes does not approve them. The expected digest must be supplied separately
+by the trusted reviewer/producer receipt, never derived by this consumer.
+The current-ratified policy, binding, calendar and existing
 Leadership/Breadth files must match that commit's exact bytes locally.
 
 ```sh
@@ -17,6 +20,7 @@ python3 .github/scripts/korea_capital_rotation_ledger_proof.py \
   --current-ratified-policy \
   --prior-date 2026-09-10 --current-date 2026-09-11 \
   --paper-runtime-source-commit b1e904ce9af380f73fc7d0a54496907523d39180 \
+  --expected-paper-runtime-sha256 a5f76eb6b38292185a893bcf9d321da7154777d5cd5e0cb7c2c994a1874aea44 \
   --evaluation-at 2026-09-13T03:00:00Z \
   --paper-consumer-out /absolute/external/path/consumer.json
 ```
@@ -26,6 +30,31 @@ time. A current invocation must use its actual timezone-aware evaluation
 time; the canonical decision's original evaluation time is retained
 separately. Before publication or at/after the supplied E-session close,
 the display input fails closed. No new TTL policy is introduced.
+Missing expected SHA fails CLI argument validation; a mismatch fails before
+policy loading, rotation construction, or output creation. An arbitrary
+full commit plus a self-computed digest is not an independent trust decision.
+
+### Independent approval anchor and actual call path
+
+The expected SHA in the example is the canonical digest separately supplied
+by Stage1 and Root for merged PR #696, not a shell-computed hash of the
+proposed input. `REVIEWED_PAPER_RUNTIME_RELEASE` fixes that receipt to merged
+publication commit `b08c5db2c87e47a059c31463acb627fe0d3742c4`, its merge time,
+producer revision, runtime evaluation time and display-only qualification.
+
+The actual path is: caller's reviewed pin -> CLI required argument ->
+build/run required keyword -> independent fixed receipt comparison ->
+publication ancestry and canonical blob verification -> proposed blob hash
+comparison -> existing KCR authority/time checks -> output. Changing both the
+proposed bytes and the supplied SHA still conflicts with the separate
+reviewed receipt and is rejected. The selected source commit must descend
+from the approved publication; missing Git history fails closed (the existing
+Actions regression checkout already uses fetch-depth 0). No output is
+created for a missing, mismatched or self-substituted pin.
+
+Only this reviewed display release is admitted by this bounded integration.
+A newer release requires an independently reviewed receipt/pin update; an
+operator must not "refresh" this anchor from unverified runtime bytes.
 
 ## Output and authority boundary
 

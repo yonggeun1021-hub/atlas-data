@@ -1706,6 +1706,7 @@ def consume_paper_runtime_context(
         "runtime_source_commit": source_commit,
         "runtime_path": "data/latest_kr_paper_runtime_decision.json",
         "runtime_file_sha256": digest,
+        "expected_runtime_file_sha256": expected_runtime_sha256,
         "runtime_decision_id": runtime.get("decision_id"),
         "runtime_evaluation_at": runtime["evaluation_at"],
         "runtime_producer_code_revision": runtime.get("code_revision"),

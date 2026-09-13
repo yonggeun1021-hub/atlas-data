@@ -81,6 +81,20 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[2]
+# Existing externally approved publication: merged PR #696. The file digest
+# was separately supplied by the Stage1 owner and independently reviewed by
+# Root; it is NOT generated from a caller's proposed runtime bytes.
+# A later display release needs an independently reviewed pin update.
+REVIEWED_PAPER_RUNTIME_RELEASE = {
+    "publication_commit": "b08c5db2c87e47a059c31463acb627fe0d3742c4",
+    "publication_merged_at": "2026-09-13T01:02:06Z",
+    "path": "data/latest_kr_paper_runtime_decision.json",
+    "sha256": "a5f76eb6b38292185a893bcf9d321da7154777d5cd5e0cb7c2c994a1874aea44",
+    "code_revision": "0be1d1ab8b43916ad11b5c6ad51394ed2fc58f08",
+    "evaluation_at": "2026-09-13T00:58:44Z",
+    "qualification_sha256": "5ac5df219dff45a2c8515733c303a5ec260449b6a4c05c12e9cdd92f7e6296e4",
+    "actual_source_qualification": "RATIFIED_KR_PAPER_DISPLAY_ONLY",
+}
 
 
 def _load_module(name: str, relative_path: str):
@@ -356,28 +370,59 @@ def run_current_ratified(
 
 
 def build_current_ratified_paper_consumption(
-    prior_date: str, current_date: str, *, source_commit: str, evaluation_at: str,
+    prior_date: str, current_date: str, *, source_commit: str,
+    expected_runtime_sha256: str, evaluation_at: str,
 ) -> dict:
     """Bind immutable Stage1 display bytes to the existing real P2-03 attempt.
 
     No provider request, legacy fallback, policy mutation, or pointer write.
+    The expected runtime digest is an independent caller-supplied trust pin,
+    never calculated from the bytes being admitted. A full commit identifies
+    where to read bytes; it does not independently approve those bytes.
     Missing Leadership remains a recorded missing input; the aggregate
     Stage1 leadership count cannot stand in for a per-sector observation.
     """
     if not isinstance(source_commit, str) or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
         raise RuntimeError("PAPER_SOURCE_COMMIT_MUST_BE_FULL_SHA")
 
-    def pinned_bytes(relative_path: str) -> bytes:
+    expected_runtime_sha256 = KCR._sha(
+        expected_runtime_sha256, "PAPER_RUNTIME_EXPECTED_SHA_INVALID",
+    )
+    if expected_runtime_sha256 != REVIEWED_PAPER_RUNTIME_RELEASE["sha256"]:
+        raise KCR.KoreaCapitalRotationError("PAPER_RUNTIME_EXPECTED_SHA_NOT_REVIEWED")
+    publication_commit = REVIEWED_PAPER_RUNTIME_RELEASE["publication_commit"]
+    ancestry = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", publication_commit, source_commit],
+        cwd=ROOT, capture_output=True,
+    )
+    if ancestry.returncode != 0:
+        raise RuntimeError("PAPER_RUNTIME_SOURCE_NOT_DESCENDANT_OF_REVIEWED_PUBLICATION")
+    if KCR._timestamp(evaluation_at, "PAPER_CONSUMPTION_TIME_INVALID") < KCR._timestamp(
+        REVIEWED_PAPER_RUNTIME_RELEASE["publication_merged_at"], "PAPER_PUBLICATION_TIME_INVALID",
+    ):
+        raise RuntimeError("PAPER_RUNTIME_REVIEWED_PUBLICATION_NOT_YET_AVAILABLE")
+
+    def pinned_bytes(relative_path: str, commit: str = source_commit) -> bytes:
         try:
             return subprocess.run(
-                ["git", "show", f"{source_commit}:{relative_path}"],
+                ["git", "show", f"{commit}:{relative_path}"],
                 cwd=ROOT, check=True, capture_output=True,
             ).stdout
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(f"PAPER_PINNED_SOURCE_UNAVAILABLE:{relative_path}") from exc
 
-    runtime_path = "data/latest_kr_paper_runtime_decision.json"
+    runtime_path = REVIEWED_PAPER_RUNTIME_RELEASE["path"]
+    approved_bytes = pinned_bytes(runtime_path, publication_commit)
+    if hashlib.sha256(approved_bytes).hexdigest() != REVIEWED_PAPER_RUNTIME_RELEASE["sha256"]:
+        raise RuntimeError("PAPER_RUNTIME_REVIEWED_PUBLICATION_RECEIPT_MISMATCH")
     runtime_bytes = pinned_bytes(runtime_path)
+    if hashlib.sha256(runtime_bytes).hexdigest() != expected_runtime_sha256:
+        raise KCR.KoreaCapitalRotationError("PAPER_RUNTIME_SOURCE_SHA_MISMATCH")
+    runtime = json.loads(runtime_bytes)
+    if any(runtime.get(key) != REVIEWED_PAPER_RUNTIME_RELEASE[key] for key in (
+        "code_revision", "evaluation_at", "qualification_sha256", "actual_source_qualification",
+    )):
+        raise RuntimeError("PAPER_RUNTIME_REVIEWED_PUBLICATION_BINDING_MISMATCH")
     # The existing ratified producer reads local inputs. Check those bytes
     # against the same immutable source before attributing their lineage.
     paths = [
@@ -419,12 +464,13 @@ def build_current_ratified_paper_consumption(
             raise RuntimeError(f"PAPER_SOURCE_CHANGED_DURING_CONSUMPTION:{source_file['path']}")
     receipt = KCR.consume_paper_runtime_context(
         runtime_bytes,
-        expected_runtime_sha256=hashlib.sha256(runtime_bytes).hexdigest(),
+        expected_runtime_sha256=expected_runtime_sha256,
         source_commit=source_commit, evaluation_at=evaluation_at,
         prior_date=prior_date, current_date=current_date,
         rotation_policy=policy, rotation_packet=packet, rotation_error=error,
     )
     receipt["lineage"]["rotation_inputs_source_commit"] = source_commit
+    receipt["lineage"]["reviewed_runtime_release"] = dict(REVIEWED_PAPER_RUNTIME_RELEASE)
     receipt["lineage"]["rotation_source_files"] = source_files
     receipt["lineage"]["consumer_code_sha256"] = {
         path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
@@ -440,10 +486,11 @@ def build_current_ratified_paper_consumption(
 
 def run_current_ratified_paper_consumption(
     prior_date: str, current_date: str, consumer_out: Path, *,
-    source_commit: str, evaluation_at: str,
+    source_commit: str, expected_runtime_sha256: str, evaluation_at: str,
 ) -> dict:
     receipt = build_current_ratified_paper_consumption(
-        prior_date, current_date, source_commit=source_commit, evaluation_at=evaluation_at,
+        prior_date, current_date, source_commit=source_commit,
+        expected_runtime_sha256=expected_runtime_sha256, evaluation_at=evaluation_at,
     )
     output_path = write_external_ratified_packet(consumer_out, receipt)
     persisted = json.loads(output_path.read_bytes())
@@ -508,18 +555,24 @@ def main() -> int:
         ),
     )
     parser.add_argument("--paper-runtime-source-commit", help="Immutable commit containing canonical Stage1 display and current P2 inputs.")
+    parser.add_argument("--expected-paper-runtime-sha256", help="Required independent reviewed SHA-256 of the canonical runtime bytes; do not derive it from the input being admitted.")
     parser.add_argument("--paper-consumer-out", type=Path, help="External read-only consumption receipt; never a packet/4 replacement.")
     parser.add_argument("--evaluation-at", help="Timezone-aware consumption time; source evaluation time is retained separately.")
     args = parser.parse_args()
-    paper_args = (args.paper_runtime_source_commit, args.paper_consumer_out, args.evaluation_at)
+    paper_args = (
+        args.paper_runtime_source_commit, args.expected_paper_runtime_sha256,
+        args.paper_consumer_out, args.evaluation_at,
+    )
     if any(value is not None for value in paper_args):
         if not all(value is not None for value in paper_args) or not args.current_ratified_policy:
-            parser.error("PAPER consumption requires --current-ratified-policy and all three PAPER arguments")
+            parser.error("PAPER consumption requires --current-ratified-policy and all four PAPER arguments, including --expected-paper-runtime-sha256")
         if args.commit_pointer or args.packet_out:
             parser.error("PAPER consumption cannot write the briefing pointer or substitute for --packet-out")
         result = run_current_ratified_paper_consumption(
             args.prior_date, args.current_date, args.paper_consumer_out,
-            source_commit=args.paper_runtime_source_commit, evaluation_at=args.evaluation_at,
+            source_commit=args.paper_runtime_source_commit,
+            expected_runtime_sha256=args.expected_paper_runtime_sha256,
+            evaluation_at=args.evaluation_at,
         )
         receipt = result["consumer_receipt"]
         print(json.dumps({
