@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
+"""Three-market evaluation coverage regression at a fixed 2026-09-13 instant.
+
+The report is built at generated_at 2026-09-13T07:20:00Z. The dated universe,
+snapshot and decision inputs below are immutable, but the bounded KR/US
+reviews and data/latest_free_market_data.json are rolling pointers that
+korea-market-signals.yml / free-market-data.yml rewrite later (after which
+the live copies are correctly US_REVIEW_FROM_FUTURE). Those three are pinned
+for the module to the frozen snapshot in test/rolling_pointer_snapshot.py.
+"""
 from __future__ import annotations
 
 import copy
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
@@ -14,6 +24,9 @@ SOURCE = ROOT / "discovery" / "three_market_evaluation_coverage.py"
 SPEC = importlib.util.spec_from_file_location("three_market_evaluation_coverage", SOURCE)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+if str(ROOT / "test") not in sys.path:
+    sys.path.insert(0, str(ROOT / "test"))
+import rolling_pointer_snapshot as SNAPSHOT  # noqa: E402
 
 KR_UNIVERSE = ROOT / "data/observations/krx_global_universe/2026-09-10/packet.json"
 KR_REVIEW = ROOT / "data/latest_korea_symbol_market_review.json"
@@ -30,6 +43,23 @@ CRYPTO_DECISION = ROOT / (
     "a841b4fd0fe492dd60a76fbfe877eb61b3bc28b569e0792be9a376b0341b37dd/"
     "packet.json"
 )
+
+
+_SNAPSHOT_TMP = None
+
+
+def setUpModule():
+    global _SNAPSHOT_TMP, KR_REVIEW, US_REVIEW, US_MARKET_DATA
+    # The report requires every source inside the repository (untracked, removed on teardown).
+    _SNAPSHOT_TMP = tempfile.TemporaryDirectory(dir=ROOT, prefix=".rolling-pointer-snapshot-")
+    snapshot = SNAPSHOT.materialize(Path(_SNAPSHOT_TMP.name))
+    KR_REVIEW = snapshot / "data/latest_korea_symbol_market_review.json"
+    US_REVIEW = snapshot / "data/latest_us_symbol_market_review.json"
+    US_MARKET_DATA = snapshot / "data/latest_free_market_data.json"
+
+
+def tearDownModule():
+    _SNAPSHOT_TMP.cleanup()
 
 
 def build(**overrides):
@@ -157,7 +187,8 @@ class NaturalCoverageTests(unittest.TestCase):
                 "other_listed_raw": (
                     "evidence/us_breadth/raw/2026-09-11/otherlisted.txt.gz"
                 ),
-                "partial_iex_market_data": "data/latest_free_market_data.json",
+                # the exact (pinned) market-data file the report read
+                "partial_iex_market_data": US_MARKET_DATA.resolve().relative_to(ROOT.resolve()).as_posix(),
                 "existing_evaluator_contract": (
                     "config/us_investable_registry_contract.json"
                 ),
