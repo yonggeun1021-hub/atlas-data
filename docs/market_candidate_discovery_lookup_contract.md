@@ -43,6 +43,12 @@ functions, the decision module's leadership lineage check). The newest packet
 is selected by the packet's internal date, and a directory name that
 disagrees with that date fails closed.
 
+`validate_report()` also rebuilds the report from those source packets and
+requires exact equality. Recomputing the report's self-hash after changing a
+count or classification therefore cannot turn altered output into valid
+evidence. A caller validating an older retained report must pass the same
+historical `inputs` paths used to build it.
+
 ## Market status (`build_report(...)["markets"][]`)
 
 ```

@@ -2225,7 +2225,7 @@ def lookup_symbol(market: str, symbol: str, *, generated_at: str, inputs: dict |
     return result
 
 
-def validate_report(report: dict) -> dict:
+def validate_report(report: dict, *, inputs: dict | None = None) -> dict:
     if not isinstance(report, dict) or report.get("schema_version") != SCHEMA_VERSION:
         _fail("REPORT_SCHEMA_INVALID")
     _validate_self_hash(report, "payload_sha256", "REPORT_PAYLOAD_SHA256_MISMATCH")
@@ -2234,11 +2234,27 @@ def validate_report(report: dict) -> dict:
         value is not False for key, value in authority.items() if key != "read_only"
     ):
         _fail("REPORT_AUTHORITY_INVALID")
-    for row in report.get("markets") or []:
+    markets = report.get("markets")
+    if not isinstance(markets, list) or not markets:
+        _fail("REPORT_MARKETS_INVALID")
+    market_names = []
+    for row in markets:
+        if not isinstance(row, dict) or row.get("market") not in MARKETS:
+            _fail("REPORT_MARKET_INVALID")
+        market_names.append(row["market"])
         for gap in row.get("gap_classification") or []:
             klass = gap.get("class")
             if klass not in GAP_CLASSES and not str(klass).startswith("UNCLASSIFIED_EXISTING_REASON:"):
                 _fail("REPORT_GAP_CLASS_INVALID", str(klass))
+    if len(set(market_names)) != len(market_names):
+        _fail("REPORT_MARKETS_INVALID")
+    expected = build_report(
+        generated_at=report.get("generated_at"),
+        inputs=inputs,
+        markets=tuple(market_names),
+    )
+    if report != expected:
+        _fail("REPORT_SOURCE_REDERIVATION_MISMATCH")
     return report
 
 

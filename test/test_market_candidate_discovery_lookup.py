@@ -387,8 +387,10 @@ class CurrentInputsTests(unittest.TestCase):
             MODULE.validate_report(tampered)
         tampered = copy.deepcopy(self.report)
         tampered["markets"][0]["population"]["count"] += 1
+        tampered.pop("payload_sha256")
+        tampered["payload_sha256"] = MODULE.payload_sha256(tampered)
         with self.assertRaises(MODULE.MarketCandidateDiscoveryLookupError):
-            MODULE.validate_report(tampered)
+            MODULE.validate_report(tampered, inputs=self.inputs)
 
 
 COVERAGE_ERROR_TYPES = (
