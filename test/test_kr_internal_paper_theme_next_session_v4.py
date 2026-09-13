@@ -788,5 +788,289 @@ class ModeTests(unittest.TestCase):
         self.assertIs(V4.APP.CI, V4.CI)
 
 
+class ForwardExecutionTtlTests(unittest.TestCase):
+    """The 600-second limit and evaluation-before-forward-execution ordering."""
+
+    def test_forward_execution_exactly_600_seconds_is_active(self):
+        result, _, _ = _synthetic_evaluate(
+            evaluation_at="2026-09-09T15:00:00+09:00", forward_at="2026-09-09T15:10:00+09:00"
+        )
+        self.assertEqual(result["status"], "ACTIVE_PREVIOUS_COMPLETED_SESSION_CONTEXT_INPUT")
+        self.assertEqual(result["execution_membership"]["decision_to_execution_seconds"], 600.0)
+        self.assertTrue(result["execution_membership"]["within_600_second_window"])
+
+    def test_forward_execution_601_seconds_is_unknown(self):
+        result, _, _ = _synthetic_evaluate(
+            evaluation_at="2026-09-09T15:00:00+09:00", forward_at="2026-09-09T15:10:01+09:00"
+        )
+        self.assertEqual(result["status"], "UNKNOWN_FORWARD_EXECUTION_ORDER_OR_600_SECOND_TTL")
+        self.assertTrue(result["execution_membership"]["forward_execution_active"])
+        self.assertEqual(result["execution_membership"]["decision_to_execution_seconds"], 601.0)
+        self.assertFalse(result["execution_membership"]["within_600_second_window"])
+        self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
+
+    def test_forward_execution_before_evaluation_is_unknown(self):
+        result, _, _ = _synthetic_evaluate(
+            evaluation_at="2026-09-09T15:00:00+09:00", forward_at="2026-09-09T14:59:59+09:00"
+        )
+        self.assertEqual(result["status"], "UNKNOWN_FORWARD_EXECUTION_ORDER_OR_600_SECOND_TTL")
+        self.assertTrue(result["execution_membership"]["forward_execution_active"])
+        self.assertIsNone(result["execution_membership"]["decision_to_execution_seconds"])
+        self.assertFalse(result["execution_membership"]["within_600_second_window"])
+        self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
+
+
+class IdentityMasterBoundaryTests(unittest.TestCase):
+    def test_named_master_dated_after_context_session_unknown(self):
+        """An available E-dated master named by the caller is never admitted as D-or-earlier."""
+        result, resolver, _ = _synthetic_evaluate(
+            older_packets=[(EXECUTION_DATE, "2026-09-09T00:00:00Z", "2026-09-09T00:05:00+00:00")],
+            identity_day=EXECUTION_DATE,
+        )
+        self.assertEqual(result["status"], "UNKNOWN_E_IDENTITY_MASTER_AS_OF_AFTER_CONTEXT_SESSION")
+        self.assertEqual(result["execution_identity_evidence"]["identity_master_as_of_date"], EXECUTION_DATE)
+        self.assertLessEqual(
+            _utc(result["execution_identity_evidence"]["identity_master_available_at"]),
+            _utc("2026-09-09T06:00:00Z"),
+        )
+        self.assertEqual(result["execution_identities"], [])
+        self.assertEqual(resolver.calls, [])
+        self.assertFalse(result["authority"]["previous_completed_session_context_input_authorized"])
+
+    def test_named_master_after_context_session_reason_direct(self):
+        evaluation = _utc("2026-09-09T06:00:00Z")
+        with _git_repo() as (repo, commit):
+            _write_json(repo, _published(CONTEXT_DATE), _master(CONTEXT_DATE, "2026-09-08T09:30:00Z"))
+            _write_json(repo, _published(EXECUTION_DATE), _master(EXECUTION_DATE, "2026-09-09T00:00:00Z"))
+            commit("synthetic D and E masters", "2026-09-09T00:05:00+00:00")
+            head = _head(repo)
+            _, evidence, reason = V4._identity_master_evidence(
+                repo / _published(EXECUTION_DATE), repo, head, evaluation, CONTEXT_DATE
+            )
+            self.assertEqual(reason, "E_IDENTITY_MASTER_AS_OF_AFTER_CONTEXT_SESSION")
+            self.assertEqual(evidence["identity_master_as_of_date"], EXECUTION_DATE)
+            _, _, control = V4._identity_master_evidence(
+                repo / _published(CONTEXT_DATE), repo, head, evaluation, CONTEXT_DATE
+            )
+            self.assertIsNone(control)
+
+    def test_identical_bytes_at_unpublished_path_not_latest(self):
+        """Same payload at a non-published path must not pass as the selected published master."""
+        evaluation = _utc("2026-09-09T06:00:00Z")
+        with _git_repo() as (repo, commit):
+            packet = _master(CONTEXT_DATE, "2026-09-08T09:30:00Z")
+            published = _write_json(repo, _published(CONTEXT_DATE), packet)
+            mirror = _write_json(repo, "mirror/krx_global_universe/packet.json", packet)
+            self.assertEqual(published.read_bytes(), mirror.read_bytes())
+            commit("synthetic published master and byte-identical mirror", "2026-09-08T10:00:00+00:00")
+            head = _head(repo)
+            selected, selection_reason = V4._select_latest_available_identity_master(
+                repo, head, evaluation, CONTEXT_DATE
+            )
+            self.assertIsNone(selection_reason)
+            self.assertEqual(selected["path"], _published(CONTEXT_DATE))
+            _, mirror_evidence, mirror_reason = V4._identity_master_evidence(
+                mirror, repo, head, evaluation, CONTEXT_DATE
+            )
+            self.assertEqual(mirror_evidence["identity_master_payload_sha256"], selected["payload_sha256"])
+            self.assertEqual(mirror_reason, "E_IDENTITY_MASTER_NOT_LATEST_AVAILABLE")
+            _, _, published_reason = V4._identity_master_evidence(
+                published, repo, head, evaluation, CONTEXT_DATE
+            )
+            self.assertIsNone(published_reason)
+
+
+class TargetRowKospiTests(unittest.TestCase):
+    def test_target_row_not_active_kospi_unknown(self):
+        def row_of(master, asset_id):
+            return next(row for row in master["asset_master"]["records"] if row["asset_id"] == asset_id)
+
+        def drop_row(master):
+            records = master["asset_master"]["records"]
+            records[:] = [row for row in records if row["asset_id"] != "KR:XKRX:005930"]
+
+        def kosdaq_only(master):
+            for membership in row_of(master, "KR:XKRX:000660")["active_memberships"]:
+                if membership["membership_type"] == "UNIVERSE":
+                    membership["membership_id"] = "KOSDAQ"
+
+        def no_active_memberships(master):
+            row_of(master, "KR:XKRX:000660")["active_memberships"] = []
+
+        def kospi_as_market_type(master):
+            for membership in row_of(master, "KR:XKRX:005930")["active_memberships"]:
+                if membership["membership_type"] == "UNIVERSE":
+                    membership["membership_type"] = "MARKET"
+
+        cases = {
+            "row_missing": (drop_row, "KR:XKRX:005930"),
+            "market": (lambda m: row_of(m, "KR:XKRX:000660").__setitem__("market", "USA"), "KR:XKRX:000660"),
+            "asset_class": (lambda m: row_of(m, "KR:XKRX:005930").__setitem__("asset_class", "ETF"), "KR:XKRX:005930"),
+            "primary_symbol": (
+                lambda m: row_of(m, "KR:XKRX:000660").__setitem__("primary_symbol", "000661"), "KR:XKRX:000660"),
+            "universe_kosdaq": (kosdaq_only, "KR:XKRX:000660"),
+            "no_active_memberships": (no_active_memberships, "KR:XKRX:000660"),
+            "kospi_not_universe_type": (kospi_as_market_type, "KR:XKRX:005930"),
+        }
+        head = _head(ROOT)
+        evaluation, execution = _utc("2026-09-09T06:00:00Z"), _utc("2026-09-09T06:05:00Z")
+        control = _master(CONTEXT_DATE, "2026-09-08T00:30:00Z")
+        with mock.patch.object(V4.CI, "resolve_instrument_identity", side_effect=RecordingResolver()):
+            _, _, _, control_reason, _ = V4._e_identities_by_listing_resolution(control, evaluation, execution, head)
+        self.assertIsNone(control_reason)
+        for label, (mutate, asset_id) in cases.items():
+            with self.subTest(case=label):
+                master = copy.deepcopy(control)
+                mutate(master)
+                resolver = RecordingResolver()
+                with mock.patch.object(V4.CI, "resolve_instrument_identity", side_effect=resolver):
+                    identities, receipts, available_at, reason, detail = V4._e_identities_by_listing_resolution(
+                        master, evaluation, execution, head,
+                    )
+                self.assertEqual(reason, "E_IDENTITY_TARGET_NOT_ACTIVE_KOSPI")
+                self.assertEqual(detail, asset_id)
+                self.assertEqual((identities, receipts, available_at), ([], [], None))
+                self.assertEqual(resolver.calls, [])
+
+
+class BaseModuleOriginTests(unittest.TestCase):
+    BASE_NAME = "kr_internal_paper_theme_next_session_v4_base_application"
+
+    def _load(self, *, spec_edit=None, module_edit=None):
+        original = importlib.util.spec_from_file_location
+
+        def hooked(name, *args, **kwargs):
+            spec = original(name, *args, **kwargs)
+            if name != self.BASE_NAME:
+                return spec
+            if spec_edit is not None:
+                return spec_edit(spec)
+            if module_edit is not None:
+                real_exec = spec.loader.exec_module
+
+                def exec_then_edit(module):
+                    real_exec(module)
+                    module_edit(module)
+
+                spec.loader.exec_module = exec_then_edit
+            return spec
+
+        with mock.patch.object(V4.importlib.util, "spec_from_file_location", side_effect=hooked):
+            return V4._load_base_application()
+
+    def test_unmodified_load_passes(self):
+        module = self._load()
+        self.assertEqual(module.ROOT, V4.ROOT)
+        self.assertIs(module.CI, V4.CI)
+        self.assertIs(module.TTA, V4.TTA)
+
+    def test_missing_spec_or_loader_raises(self):
+        def no_loader(spec):
+            spec.loader = None
+            return spec
+
+        for label, spec_edit in (("spec_none", lambda spec: None), ("loader_none", no_loader)):
+            with self.subTest(case=label):
+                with self.assertRaisesRegex(ValueError, "^V4_BASE_MODULE_ORIGIN_INVALID$"):
+                    self._load(spec_edit=spec_edit)
+
+    def test_module_origin_mismatch_raises(self):
+        elsewhere = Path(tempfile.gettempdir()) / "atlas-synthetic-other-checkout"
+        foreign_kcr = type(V4.CI)("rotation.korea_capital_rotation")
+        foreign_kcr.__file__ = str(elsewhere / "rotation" / "korea_capital_rotation.py")
+        cases = {
+            "root": {"module_edit": lambda m: setattr(m, "ROOT", elsewhere)},
+            "ci_object": {"module_edit": lambda m: setattr(m, "CI", type(V4.CI)("identity.canonical_identity"))},
+            "tta_object": {"module_edit": lambda m: setattr(
+                m, "TTA", type(V4.TTA)("rotation.theme_taxonomy_authority"))},
+            "base_file": {"module_edit": lambda m: setattr(
+                m, "__file__", str(elsewhere / "rotation" / "kr_internal_paper_theme_application.py"))},
+            "kcr_file": {"module_edit": lambda m: setattr(m, "KCR", foreign_kcr)},
+            "ci_file": {"file_patch": (V4.CI, elsewhere / "identity" / "canonical_identity.py")},
+            "tta_file": {"file_patch": (V4.TTA, elsewhere / "rotation" / "theme_taxonomy_authority.py")},
+        }
+        for label, case in cases.items():
+            with self.subTest(case=label), contextlib.ExitStack() as stack:
+                if "file_patch" in case:
+                    target, fake = case["file_patch"]
+                    stack.enter_context(mock.patch.object(target, "__file__", str(fake)))
+                with self.assertRaisesRegex(ValueError, "^V4_BASE_MODULE_ORIGIN_INVALID$") as caught:
+                    self._load(module_edit=case.get("module_edit"))
+                self.assertEqual(type(caught.exception).__name__, "ThemeApplicationError")
+
+
+class DecisionEvidenceBytesTests(unittest.TestCase):
+    """Amendment SHA and exact-committed-bytes branches in a synthetic trusted repo.
+
+    The synthetic repository borrows this checkout's object store through git
+    alternates only so the pinned base-profile commit is resolvable; its own
+    history contains just the synthetic commit below.
+    """
+
+    CONTRACT_REL = "config/kr_internal_paper_theme_next_session_contract_v4.json"
+    COMMITTED_AT = "2026-09-13T13:00:00+00:00"
+
+    def _resolve(self, *, committed=None, worktree=None):
+        contract = V4._expected_next_session_contract_v4()
+        relatives = (
+            self.CONTRACT_REL,
+            contract["base_profile"]["contract_path"],
+            contract["predecessor_contract"]["contract_path"],
+            contract["predecessor_decision_evidence"]["path"],
+            contract["decision_evidence"]["path"],
+        )
+        common = subprocess.check_output(["git", "rev-parse", "--git-common-dir"], cwd=ROOT, text=True).strip()
+        objects = (ROOT / common).resolve() / "objects"
+        with _git_repo() as (repo, commit):
+            alternates = repo / ".git" / "objects" / "info" / "alternates"
+            alternates.parent.mkdir(parents=True, exist_ok=True)
+            alternates.write_text(f"{objects}\n", encoding="utf-8")
+            for relative in relatives:
+                raw = (committed or {}).get(relative, (ROOT / relative).read_bytes())
+                if raw is None:
+                    continue
+                (repo / relative).parent.mkdir(parents=True, exist_ok=True)
+                (repo / relative).write_bytes(raw)
+            commit("synthetic v4 decision evidence", self.COMMITTED_AT)
+            for relative, raw in (worktree or {}).items():
+                (repo / relative).parent.mkdir(parents=True, exist_ok=True)
+                (repo / relative).write_bytes(raw)
+            return V4.resolve_next_session_decision_v4(_head(repo), repo / self.CONTRACT_REL)
+
+    def _amendment(self):
+        relative = V4._expected_next_session_contract_v4()["decision_evidence"]["path"]
+        return relative, (ROOT / relative).read_bytes()
+
+    def test_synthetic_repo_control_is_adopted(self):
+        result = self._resolve()
+        self.assertEqual(result["status"], "ADOPTED_EXACT_D_TO_E_SCOPE_V2")
+        self.assertEqual(result["amendment_evidence_first_seen_at"], "2026-09-13T13:00:00Z")
+        self.assertEqual(result["contract_first_seen_at"], "2026-09-13T13:00:00Z")
+
+    def test_amendment_sha_mismatch_raises(self):
+        relative, raw = self._amendment()
+        tampered = raw + b"\n"
+        self.assertEqual(json.loads(tampered), json.loads(raw))
+        with self.assertRaisesRegex(V4.ThemeApplicationError, "^NEXT_SESSION_AMENDMENT_EVIDENCE_SHA_MISMATCH$"):
+            self._resolve(committed={relative: tampered})
+
+    def test_amendment_not_exact_committed_bytes_raises(self):
+        relative, raw = self._amendment()
+        for label, committed in (
+            ("committed_bytes_differ", {relative: raw + b"\n"}),
+            ("absent_from_trusted_commit", {relative: None}),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaisesRegex(
+                    V4.ThemeApplicationError, "^NEXT_SESSION_AMENDMENT_EVIDENCE_NOT_EXACT_COMMITTED_BYTES$"
+                ):
+                    self._resolve(committed=committed, worktree={relative: raw})
+
+    def test_contract_not_exact_committed_bytes_raises(self):
+        raw = (ROOT / self.CONTRACT_REL).read_bytes()
+        with self.assertRaisesRegex(V4.ThemeApplicationError, "^NEXT_SESSION_CONTRACT_V4_NOT_EXACT_COMMITTED_BYTES$"):
+            self._resolve(committed={self.CONTRACT_REL: raw + b"\n"}, worktree={self.CONTRACT_REL: raw})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
