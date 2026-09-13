@@ -829,6 +829,8 @@ APPROVED_TESTS = [
     #   provider, advances strategy state, allocates capital, or issues orders.
     "test/test_paper_regime_runtime_adoption.py",
     "test/test_kr_paper_runtime.py",
+    "test/test_kr_paper_runtime_ratification_candidate.py",
+    "test/test_kr_information_system_runtime_bridge.py",
     "test/test_kr_internal_paper_theme_application.py",
     "test/test_us_paper_policy_binding.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — normalization replay-readiness
