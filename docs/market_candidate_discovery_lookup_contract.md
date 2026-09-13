@@ -16,6 +16,7 @@ threshold, ranking, or freshness window and grants no authority.
 | KR screening layer (optional) | `data/observations/krx_registry_evaluation_coverage/<date>/packet.json` | aggregate KIS-master screening counts; reported `NOT_AVAILABLE` when the packet is absent |
 | US population | `data/observations/us_global_universe/<date>/packet.json` | source attribute rows, `effective_interval`, `policy_status` |
 | US evaluation | `data/latest_us_symbol_market_review.json` (+ `data/latest_free_market_data.json`) | bounded review rows, IEX daily-bar coverage |
+| KR/US population-level symbol data | newest lookup-time-eligible session under `inputs.{kr,us}_population_observation_root` (`data/observations/{korea,us}_population_symbol_observation/<session>/`, `population_symbol_observation_packet/1`, PR #702) | `data_acquired.population_level_symbol_data`: population-wide `data_observation` / `evaluability` / `evaluation` status counts, read only through the packet's own `decision/population_symbol_observation.py::reverify()` (hash / schema / sidecar-consistency check); never rebuilt, never re-scored |
 | CRYPTO population | decision-bound `data/observations/upbit_tradeable_universe/<date>/packet.json` | market states / reasons, candle counts, turnover |
 | CRYPTO evaluation | latest `evidence/crypto_paper_decision/<date>/<hhmm>/<gen>/packet.json` | P5-08 criteria, P5-09 presence, funnel counts |
 | CRYPTO detail | latest `evidence/crypto_candidate_detail/...` (`crypto_candidate_detail_view/v1`) | per-market price / liquidity / trend / trigger facts, only when bound to the same decision generation |
@@ -70,6 +71,53 @@ population   -> data_acquired -> evaluated -> passed | held | excluded | unevalu
   `CRITERIA_UNKNOWN_NOT_A_NEGATIVE_RESULT` (CRYPTO when every evaluated
   market stayed UNKNOWN) and `EVALUATED_NO_CANDIDATE` (only when every
   criterion was known and failed).
+
+### KR/US `data_acquired.population_level_symbol_data`
+
+Adapts the newest **eligible** `population_symbol_observation_packet/1`
+session (PR #702) for the same market, selected under
+`default_inputs()`'s `{kr,us}_population_observation_root` -- never an
+ambient/global default, so `build_report(inputs=...)` and
+`validate_report(report, inputs=...)` stay reproducible from exactly the
+inputs they were given. When no eligible session has been retained yet,
+this stays the pre-existing placeholder: `count = 미집계`,
+`status = NOT_RETAINED_IN_PUBLIC_REPOSITORY` (`evidence` names
+`NO_ELIGIBLE_SESSION_ALL_FUTURE` specifically when sessions exist but every
+one is future-dated). Point-in-time boundary: a session dated after the
+report's own `generated_at` (lookup time), or whose own packet
+`generated_at` is after that instant, was not yet available at lookup time
+and is skipped when selecting the newest session -- it is never treated as
+a reason to report anything invalid. Once an eligible session is selected:
+
+* the packet is read only through its own `reverify()` (persisted-packet
+  hash, schema, authority, and `summary.json`-sidecar-consistency check);
+  this lookup never re-derives a row or recomputes a status from raw inputs;
+* `status = OBSERVATION_PACKET_INVALID` when *that* eligible session fails
+  its own `reverify()` (drift/tamper) -- an older, valid session is never
+  used as a silent fallback; the exact failure is reported instead of a
+  count;
+* `status = OBSERVED` when the packet's own `population` (its
+  `population_id` / `count` / `as_of`) matches the population this lookup is
+  already reporting for that market; `OBSERVED_POPULATION_MISMATCH` when it
+  disagrees, with both populations kept side by side in `population_match`
+  -- never silently substituted;
+* `count`, `data_observed_count`, `evaluable_count`, `evaluated_count`,
+  `evaluated_bounded_count`, `evaluated_without_full_inputs_count`,
+  `formal_candidate_count`, `not_evaluable_reason_counts` and
+  `entry_state_counts` are copied verbatim from the packet's own `summary`;
+  `generated_at` is the packet's own input-snapshot time (never this
+  report's lookup time -- see `generated_at_semantics`);
+* `session_recency` states a purely deterministic date relation between the
+  session's own `as_of_session_date` and the report's lookup date --
+  `CURRENT_SESSION` (same date) or `HISTORICAL` (earlier date; future is
+  already excluded by construction), plus `days_before_lookup_date`. No
+  freshness window, staleness policy, or threshold is invented here.
+
+This field never changes `evaluated`/`disposition`/`gap_classification` for
+the market: the bounded-review funnel this lookup already reconciles is
+unaffected. It only answers, separately, what the full population's own
+observation packet currently says about data/evaluability/evaluation
+coverage beyond the bounded-review subset.
 
 ### Gap classification
 
