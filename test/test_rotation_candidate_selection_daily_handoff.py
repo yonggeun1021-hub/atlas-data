@@ -1,13 +1,27 @@
 #!/usr/bin/env python3
+"""Stage 3 daily handoff regression on the retained 2026-09-12 AM packet.
+
+Revalidating that packet's ROTATION_DISCOVERY component rebuilds its DART
+observation packet from lineage.source_path / content_run_path, which are the
+rolling pointers data/latest_dart.json and data/latest_dart_content.json.
+Every later DART collect rewrites them (DART_SOURCE_FROM_FUTURE), so the DART
+source root is pinned for this module to the exact seal-time bytes: the
+content-addressed retained copies under
+data/observations/dart_structural_content_index/<source_date>/, selected and
+verified by the sha256 values the retained lineage itself records.
+"""
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +45,71 @@ DAILY_PATH = (
 )
 STAGE1_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
 STAGE2_PATH = ROOT / "data" / "latest_capital_flow_posture_reference.json"
+DART_INDEX_ROOT = ROOT / "data" / "observations" / "dart_structural_content_index"
+_PINNED = contextlib.ExitStack()
+
+
+def _retained_copy(source_date: str, prefix: str, sha256: str) -> bytes:
+    path = DART_INDEX_ROOT / source_date / f"{prefix}-{sha256[:16]}.json"
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != sha256:
+        raise AssertionError(f"retained DART copy is not the lineage bytes: {path}")
+    return raw
+
+
+def _dart_seal_root(dest: Path, daily: dict) -> Path:
+    """A DART source root holding exactly the bytes the retained lineage names."""
+    component = next(
+        row for row in daily["components"] if row["component_id"] == "ROTATION_DISCOVERY"
+    )
+    source_packet = component["packet"]["dart_observations"]["source_packet"]
+    lineage = source_packet["lineage"]
+    source_date = source_packet["source_date"]
+    dest = Path(dest).resolve()
+    (dest / "data").mkdir(parents=True)
+    (dest / lineage["source_path"]).write_bytes(
+        _retained_copy(source_date, "source", lineage["source_sha256"])
+    )
+    content_raw = _retained_copy(source_date, "content-run", lineage["content_run_sha256"])
+    (dest / lineage["content_run_path"]).write_bytes(content_raw)
+    for record in json.loads(content_raw)["records"]:
+        if record.get("content_status") != "OK":
+            continue
+        relative = Path("data") / "dart_content" / record["ticker"] / record["filing_identity"]["rcept_no"]
+        shutil.copytree(ROOT / relative, dest / relative)
+        expected = {key: value for key, value in record.items() if key != "publication_status"}
+        live = json.loads((dest / relative / "_manifest.json").read_text(encoding="utf-8"))
+        if live != expected:
+            # The raw cache manifest was re-captured later: use the retained
+            # seal-time manifest copy the content run actually recorded.
+            pattern = f"manifest-{record['ticker']}-{record['filing_identity']['rcept_no']}-*.json"
+            retained = [
+                path.read_bytes() for path in sorted((DART_INDEX_ROOT / source_date).glob(pattern))
+                if json.loads(path.read_text(encoding="utf-8")) == expected
+            ]
+            if not retained:
+                raise AssertionError(f"no retained seal-time manifest for {relative}")
+            (dest / relative / "_manifest.json").write_bytes(retained[0])
+    return dest
+
+
+def setUpModule():
+    seal_root = _dart_seal_root(Path(_PINNED.enter_context(tempfile.TemporaryDirectory())), read(DAILY_PATH))
+    stage3 = MODULE.STAGE3
+    briefing = stage3.BRIEFING
+    defaults = list(briefing.validate_briefing.__defaults__)
+    defaults[-1] = seal_root  # dart_root
+    _PINNED.enter_context(mock.patch.object(briefing.validate_briefing, "__defaults__", tuple(defaults)))
+    for function in (stage3.build_candidate_selection_input, stage3.validate_candidate_selection_input):
+        _PINNED.enter_context(mock.patch.object(
+            function, "__kwdefaults__", dict(function.__kwdefaults__, dart_root=seal_root)
+        ))
+    # Lineage paths are labelled relative to the DART module ROOT.
+    _PINNED.enter_context(mock.patch.object(briefing.DART_OBSERVATION, "ROOT", seal_root))
+
+
+def tearDownModule():
+    _PINNED.close()
 
 
 def read(path: Path) -> dict:

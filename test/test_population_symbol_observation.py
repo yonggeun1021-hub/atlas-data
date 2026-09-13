@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """KR/US full-population symbol observation packet regression.
 
-Runs on the real committed inputs into temporary output directories and
+Runs on real committed inputs into temporary output directories and
 checks: every population symbol appears exactly once with one status per
 axis, bounded review rows are byte-identical, missing inputs are reported
 (never estimated), no stage tag or promotion is produced, the generation id
 makes reruns idempotent, chunked resume reproduces the uninterrupted packet,
 tampering fails closed, and a fresh-process re-read succeeds.
+
+Inputs are pinned: the rolling pointers (stage_history.json,
+data/briefing/krx, latest market packets and bounded reviews) come from the
+frozen consistent snapshot in test/rolling_pointer_snapshot.py, and the
+dated universe packets / KRX capture are read in place under recorded hashes.
+The live pointers are rewritten by separately scheduled workflows hours
+apart, so the default inputs are not one snapshot for most of a weekday.
 """
 from __future__ import annotations
 
@@ -28,6 +35,9 @@ CORE = importlib.util.module_from_spec(SPEC)
 sys.modules["population_symbol_observation"] = CORE
 assert SPEC.loader is not None
 SPEC.loader.exec_module(CORE)
+if str(ROOT / "test") not in sys.path:
+    sys.path.insert(0, str(ROOT / "test"))
+import rolling_pointer_snapshot as SNAPSHOT  # noqa: E402
 
 
 def now_utc() -> str:
@@ -38,6 +48,14 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _json(path: Path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def pinned_inputs(market: str, snapshot_root: Path) -> dict:
+    return SNAPSHOT.kr_inputs(snapshot_root) if market == "KR" else SNAPSHOT.us_inputs(snapshot_root)
+
+
 class _MarketMixin:
     market = ""
     compress = False
@@ -45,10 +63,13 @@ class _MarketMixin:
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
+        cls.snapshot = SNAPSHOT.materialize(Path(cls.tmp.name) / "snapshot")
+        cls.inputs = pinned_inputs(cls.market, cls.snapshot)
         cls.out = Path(cls.tmp.name) / cls.market
         cls.lookup_at = now_utc()
-        cls.stage_sha_before = _sha(ROOT / "data" / "stage_history.json")
-        cls.result = CORE.build(cls.market, generated_at=cls.lookup_at, output_dir=cls.out, compress=cls.compress)
+        cls.stage_sha_before = _sha(cls.inputs["stage_history_path"])
+        cls.live_stage_sha_before = _sha(ROOT / "data" / "stage_history.json")
+        cls.result = CORE.build(cls.market, generated_at=cls.lookup_at, inputs=cls.inputs, output_dir=cls.out, compress=cls.compress)
         cls.packet = cls.result["packet"]
         cls.rows = {row["symbol"]: row for row in cls.packet["symbols"]}
 
@@ -85,7 +106,7 @@ class _MarketMixin:
         self.assertTrue(packet["reconciliation"]["bounded_rows_byte_identical_to_review"])
 
     def test_formal_candidates_come_only_from_existing_stage_tags_and_nothing_is_promoted(self):
-        stages = json.loads((ROOT / "data" / "stage_history.json").read_text(encoding="utf-8"))
+        stages = _json(self.inputs["stage_history_path"])
         latest = stages[sorted(stages)[-1]]
         tagged = {s for s, row in latest.items() if isinstance(row.get("stage"), str) and s in self.rows}
         formal = {s for s, row in self.rows.items() if row["formal_candidate"]["status"] == "PIPELINE_SUBJECT"}
@@ -94,11 +115,12 @@ class _MarketMixin:
             self.assertFalse(row["formal_candidate"]["promotion_by_this_packet"])
             self.assertEqual(row["formal_candidate"]["basis"], "notion_atlas_stage_tag_via_stage_history_only")
         # the run never touches the stage tags
-        self.assertEqual(_sha(ROOT / "data" / "stage_history.json"), self.stage_sha_before)
+        self.assertEqual(_sha(self.inputs["stage_history_path"]), self.stage_sha_before)
+        self.assertEqual(_sha(ROOT / "data" / "stage_history.json"), self.live_stage_sha_before)
         self.assertTrue(all(v is False for k, v in self.packet["authority"].items() if k != "observation_only"))
 
     def test_bounded_review_subjects_are_copied_not_recomputed(self):
-        bounded = json.loads((ROOT / "data" / f"latest_{'korea' if self.market == 'KR' else 'us'}_symbol_market_review.json").read_text(encoding="utf-8"))
+        bounded = _json(self.inputs["bounded_review_path"])
         for row in bounded["symbols"]:
             mine = self.rows[row["symbol"]]
             self.assertEqual(mine["evaluation"]["status"], "EVALUATED_BOUNDED")
@@ -111,7 +133,7 @@ class _MarketMixin:
         self.assertEqual(self.packet["generated_at_semantics"], "INPUT_SNAPSHOT_TIME_MAX_OF_SOURCE_TIMESTAMPS_NOT_WALL_CLOCK")
         self.assertLessEqual(self.packet["generated_at"], self.lookup_at)
         later = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        again = CORE.build(self.market, generated_at=later, output_dir=self.out, compress=self.compress)
+        again = CORE.build(self.market, generated_at=later, inputs=self.inputs, output_dir=self.out, compress=self.compress)
         self.assertEqual(again["persist"]["outcome"], "verified_existing")
         self.assertEqual(again["packet"], self.packet)
         self.assertEqual(again["resume"]["reused_chunks"], again["resume"]["planned_chunks"])
@@ -153,7 +175,7 @@ class KoreaPopulationTests(_MarketMixin, unittest.TestCase):
     market = "KR"
 
     def test_kr_session_only_rows_report_missing_sma20_and_flows_not_estimates(self):
-        watch_files = {p.stem for p in (ROOT / "data" / "briefing" / "krx").glob("*.json")}
+        watch_files = {p.stem for p in Path(self.inputs["watchlist_root"]).glob("*.json")}
         session_only = [row for s, row in self.rows.items() if s not in watch_files and row["data_observation"]["status"] == "DATA_OBSERVED"]
         self.assertTrue(session_only)
         for row in session_only:
@@ -171,9 +193,9 @@ class KoreaPopulationTests(_MarketMixin, unittest.TestCase):
         self.assertEqual(self.packet["summary"]["evaluated_without_full_inputs_count"], 0)
 
     def test_kr_watchlist_symbols_without_stage_are_evaluated_but_not_formal(self):
-        stages = json.loads((ROOT / "data" / "stage_history.json").read_text(encoding="utf-8"))
+        stages = _json(self.inputs["stage_history_path"])
         latest = stages[sorted(stages)[-1]]
-        watch_files = {p.stem for p in (ROOT / "data" / "briefing" / "krx").glob("*.json")}
+        watch_files = {p.stem for p in Path(self.inputs["watchlist_root"]).glob("*.json")}
         untagged = [s for s in watch_files if s in self.rows and latest.get(s, {}).get("stage") is None]
         self.assertTrue(untagged)
         for symbol in untagged:
@@ -188,12 +210,12 @@ class KoreaPopulationTests(_MarketMixin, unittest.TestCase):
     def test_kr_interrupted_run_resumes_to_the_identical_packet(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "KR"
-            first = CORE.build("KR", generated_at=self.lookup_at, output_dir=out, max_chunks=2)
+            first = CORE.build("KR", generated_at=self.lookup_at, inputs=self.inputs, output_dir=out, max_chunks=2)
             self.assertIsNone(first["packet"])
             self.assertFalse(first["resume"]["complete"])
             self.assertEqual(first["resume"]["built_chunks"], 2)
             self.assertTrue((out / "work" / "progress.json").is_file())
-            second = CORE.build("KR", generated_at=self.lookup_at, output_dir=out)
+            second = CORE.build("KR", generated_at=self.lookup_at, inputs=self.inputs, output_dir=out)
             self.assertTrue(second["resume"]["complete"])
             self.assertEqual(second["resume"]["reused_chunks"], 2)
             self.assertEqual(second["packet"], self.packet)
@@ -202,8 +224,7 @@ class KoreaPopulationTests(_MarketMixin, unittest.TestCase):
     def test_kr_row_build_failure_does_not_abort_the_run(self):
         adapter = CORE._adapter("KR")
         contract = CORE.load_contract()
-        inputs = adapter.default_inputs(ROOT)
-        ctx = adapter.load_context(inputs, generated_at=self.lookup_at, contract=contract)
+        ctx = adapter.load_context(self.inputs, generated_at=self.lookup_at, contract=contract)
         watch = next(s for s in ctx["watchlist"] if s not in ctx["bounded_rows"] and s in ctx["population_records"])
         original = adapter.KOREA_REVIEW._symbol_row
 
@@ -223,7 +244,7 @@ class KoreaPopulationTests(_MarketMixin, unittest.TestCase):
 
     def test_kr_input_change_yields_a_new_generation_not_a_drift_error(self):
         adapter = CORE._adapter("KR")
-        inputs = adapter.default_inputs(ROOT)
+        inputs = self.inputs
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "KR"
             base = CORE.build("KR", generated_at=self.lookup_at, inputs=inputs, output_dir=out)
@@ -254,6 +275,39 @@ class KoreaPopulationTests(_MarketMixin, unittest.TestCase):
             self.assertEqual(row["observation_status"], "EVALUABLE_SESSION_PRICE_ONLY")
             self.assertEqual(rebuilt["packet"]["summary"]["evaluated_count"], base["packet"]["summary"]["evaluated_count"] - 1)
 
+    def test_kr_bounded_review_reads_the_declared_watchlist_root(self):
+        # The bounded review must be built from inputs["watchlist_root"] (the
+        # files recorded in input_refs), not the module-default live
+        # data/briefing/krx: a marker that exists only in the declared copy
+        # must reach the reproduced review, and a committed review that lacks
+        # it must fail closed.
+        adapter = CORE._adapter("KR")
+        contract = CORE.load_contract()
+        review = adapter.KOREA_REVIEW
+        with tempfile.TemporaryDirectory() as tmp:
+            watch_root = Path(tmp) / "krx"
+            watch_root.mkdir()
+            for path in sorted(Path(self.inputs["watchlist_root"]).glob("*.json")):
+                (watch_root / path.name).write_bytes(path.read_bytes())
+            subject = review.load_contract()["supported_pipeline_subjects"][0]
+            marked = _json(watch_root / f"{subject}.json")
+            marked["declared_root_marker"] = "only-in-declared-watchlist-root"
+            (watch_root / f"{subject}.json").write_text(json.dumps(marked, ensure_ascii=False), encoding="utf-8")
+            stale = dict(self.inputs, watchlist_root=watch_root)
+            with self.assertRaises(CORE.PopulationSymbolObservationError) as caught:
+                adapter.load_context(stale, generated_at=self.lookup_at, contract=contract)
+            self.assertIn("KR_BOUNDED_REVIEW_NOT_REPRODUCIBLE", str(caught.exception))
+            rebuilt = review.build_review(
+                _json(self.inputs["market_signals_path"]), _json(self.inputs["stage_history_path"]), briefing_root=watch_root
+            )
+            review_path = Path(tmp) / "review.json"
+            review_path.write_text(json.dumps(rebuilt, ensure_ascii=False), encoding="utf-8")
+            ctx = adapter.load_context(dict(stale, bounded_review_path=review_path), generated_at=self.lookup_at, contract=contract)
+            self.assertEqual(
+                ctx["bounded"]["source"]["stage_snapshot"]["subjects"][subject]["declared_root_marker"],
+                "only-in-declared-watchlist-root",
+            )
+
 
 class UsPopulationTests(_MarketMixin, unittest.TestCase):
     market = "US"
@@ -268,7 +322,7 @@ class UsPopulationTests(_MarketMixin, unittest.TestCase):
             self.assertEqual(row["facts"]["registry_evaluation"], "NOT_RUN:REQUIRED_FACTS_MISSING")
             self.assertIn("liquidity", row["facts"]["registry_required_facts_missing"])
             self.assertIn("directory_attributes", row["data_observation"]["fields_present"])
-        stages = json.loads((ROOT / "data" / "stage_history.json").read_text(encoding="utf-8"))
+        stages = _json(self.inputs["stage_history_path"])
         latest = stages[sorted(stages)[-1]]
         configured = {row["symbol"] for row in self.packet["symbols"] if "PRICE_SOURCE_NOT_CONFIGURED" in row["evaluability"]["reasons"]}
         self.assertTrue(configured <= set(latest))
