@@ -339,9 +339,13 @@ def scan_reference_evidence(min_date: str, *, root: Path = ROOT, lineage_root: P
 
 
 def _warn(message: str) -> None:
-    """Visible GitHub Actions warning annotation (plain line elsewhere)."""
+    """Visible GitHub Actions warning annotation on stderr.
+
+    Stdout stays one parseable JSON document (the lineage workflow pipes it
+    into ``json.load``); Actions reads workflow commands from stderr too.
+    """
     text = str(message).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    print(f"::warning title=Rule lineage sidecar failed::{text}")
+    print(f"::warning title=Rule lineage sidecar failed::{text}", file=sys.stderr)
 
 
 def main(argv=None) -> int:

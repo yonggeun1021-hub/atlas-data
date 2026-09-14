@@ -5,7 +5,7 @@
 
 ## 한 줄 요약
 
-- **규칙 대장** `config/rule_registry_v1.json` (40줄): 사용자가 결정한 규칙 35줄(그중 2줄은 뒤 결정으로 대체된 `SUPERSEDED`)과, 확정 기록이 "이번에 정하지 않는다"고 적었다가 뒤에 결정된 항목 5줄(`RESOLVED`). 줄마다 원본 기록(바이트 그대로 복사본과 sha256), 효력 시각, 기계가 읽는 핵심 값, 결정 당시 근거 수준, 사전 등록 트리거, 성적표 유형, 최소 표본, 대체·보완 연결이 있습니다.
+- **규칙 대장** `config/rule_registry_v1.json` (41줄): 사용자가 결정한 규칙 36줄(그중 1줄은 뒤 결정으로 대체된 `SUPERSEDED`, 1줄은 일부만 대체)과, 확정 기록이 "이번에 정하지 않는다"고 적었다가 뒤에 결정된 항목 5줄(`RESOLVED`). 줄마다 원본 기록(바이트 그대로 복사본과 sha256), 효력 시각, 기계가 읽는 핵심 값, 결정 당시 근거 수준, 사전 등록 트리거, 성적표 유형, 최소 표본, 대체·보완 연결이 있습니다.
 - **판단 계보** `governance/rule_refs.py`: 판단 하나마다 "어떤 규칙이 적용·차단·크기·청산했는지"를 `rule_refs`로 남기는 형식과 검증기입니다.
 - **지금 연결한 곳**: 코인 PAPER 판단 스냅샷(종목별 신선도 관문, 종목별 유동성 하한 관문, 후보 상태)과 PAPER 시장 위험 참고값. **판단 패킷도, 생산자 코드도 1바이트도 바꾸지 않고**, 생산자가 패킷을 쓴 뒤 별도 단계가 옆에 계보 파일(사이드카)을 씁니다.
 
@@ -13,7 +13,7 @@
 
 ## 1. 규칙 대장
 
-### 1-A. 결정된 규칙 35줄
+### 1-A. 결정된 규칙 36줄
 
 효력 시각은 UTC입니다(한국 시각 − 9시간).
 
@@ -30,20 +30,20 @@
 | RULE.ROTATION.US.V1P | 1 | **잠정** | 2026-09-14 15:05 | 같은 기록 | 1년 백필 후 재연구 | entry | 미정 | 기록에 없음 | - |
 | RULE.ROTATION.KR.V1T | 1 | **임시** | 2026-09-14 15:05 | 같은 기록 | KRX 업종지수 이력 재검증까지 | entry | 미정 | 기록에 없음 | - |
 | RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1 | 1 | 확정 | 2026-09-14 15:05 | 같은 기록 | 없음(확정 대기) | gate | 미정 | 기록에 없음 | - |
-| RULE.ROTATION.RELEASE_HANDLING.V1 | 1 | **대체됨** | 2026-09-14 15:05 | 같은 기록 | 없음(확정 대기) | exit | 미정 | 기록에 없음 | → EXIT.RELEASE_FULL_SELL (보유분 처리) |
+| RULE.ROTATION.RELEASE_HANDLING.V1 | 1 | 확정 (일부 대체) | 2026-09-14 15:05 | 같은 기록 | 없음(확정 대기) | exit | 미정 | 기록에 없음 | 보유분 처리 부분만 → EXIT.RELEASE_FULL_SELL; 신규 매수 중단은 확정 유지 |
 | RULE.GOVERNANCE.EVIDENCE_GATED.V1 | 1 | 확정 | 2026-09-14 15:18 | 근거 기반 재조정 (4e08b945) | 없음(확정 대기) | governance | 미정 | 기록에 없음 | - |
 | RULE.ENTRY.PAPER_BASELINE_B.V1 | 1 | 확정 | 2026-09-14 22:10 | 진입 B안 기준선 (b2a905c4) | 없음(확정 대기) | entry | 미정 | 기준선, 우위 주장 아님 | - |
-| RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 | 1 | 확정 | 2026-09-14 22:22 | B2·B3·크기 조립 (6ffeb700) | 없음(확정 대기) | gate | 미정 | 기록에 없음 | - |
+| RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 | 1 | 확정 | 2026-09-14 22:22 | B2·B3·크기 조립 (6ffeb700, 시각 정정본) | 없음(확정 대기) | gate | 미정 | 기록에 없음 | 구현: universe/crypto_candidate_promotion.py (정정 전 해시로 묶음) |
 | RULE.KR.FIRST_CYCLE_CANARY_V0.V1 | 1 | 확정 | 2026-09-14 22:22 | 같은 기록 | 없음(확정 대기) | gate | 미정 | 기록에 없음 | - |
 | RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1 | 1 | **대체됨** | 2026-09-14 22:22 | 같은 기록 | 없음(확정 대기) | allocation | 미정 | 기록에 없음 | → V2 |
 | RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2 | 2 | 확정 | 2026-09-14 22:51 | 세션 크기 문구 정정 (9af25a3b) +1 | 없음(확정 대기) | allocation | 미정 | 기록에 없음 | 대체: V1 |
 | RULE.EXEC.DATA_FAILURE_PRIORITY.V1 | 1 | 확정 | 2026-09-14 22:52 | 데이터 장애 우선순위 C (3d07cbf1) | 없음(확정 대기) | gate | 미정 | 기록에 없음 | 보완: FRESHNESS.PER_MARKET (범위 축소) |
-| RULE.EXIT.RELEASE_FULL_SELL.V1 | 1 | **잠정** | 2026-09-14 22:57 | 청산 임시값 v1 (47276abe) +1 | 없음(확정 대기) | exit | 미정 | 연구 C등급, 수익 우위 없음 | 대체: ROTATION.RELEASE_HANDLING |
-| RULE.EXIT.CRYPTO_TIME_STOP_21D.V1 | 1 | **잠정** | 2026-09-14 22:57 | 같은 기록 | 없음(확정 대기) | exit | 미정 | 연구 C등급 | - |
+| RULE.EXIT.RELEASE_FULL_SELL.V1 | 1 | **잠정** | 2026-09-14 22:57 | 청산 임시값 v1 (47276abe) | 없음(확정 대기) | exit | 미정 | 연구 C등급(해제 청산은 방향만 지지) | 일부 대체: ROTATION.RELEASE_HANDLING의 보유분 처리; 해석됨: INTERPRETATION_OBSERVATION_GAP |
+| RULE.EXIT.CRYPTO_TIME_STOP_21D.V1 | 1 | **잠정** | 2026-09-14 22:57 | 같은 기록 | 없음(확정 대기) | exit | 미정 | 연구 C등급(하위 10% 개선, 수익 효과 0과 구별 안 됨) | - |
 | RULE.EXIT.SHADOW_CONTROLS.V1 | 1 | 확정 | 2026-09-14 22:57 | 같은 기록 | 없음(확정 대기) | exit | 미정 | 연구 C등급 | - |
-| RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1 | 1 | 확정 | 2026-09-14 22:57 | 같은 기록 | 없음(확정 대기) | allocation | 미정 | 연구 C등급 | - |
-| RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1 | 1 | 확정 | 2026-09-14 22:57 | 같은 기록 | 없음(확정 대기) | allocation | 미정 | 연구 C등급 | - |
-| RULE.RISK.NAV_DRAWDOWN_LIFT.V1 | 1 | 확정 | 2026-09-14 22:57 | 같은 기록 | 없음(확정 대기) | allocation | 미정 | 연구 C등급 | 보완: ALLOCATION.V2 (해제 조건) |
+| RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1 | 1 | 확정 | 2026-09-14 22:57 | 같은 기록 | 없음(확정 대기) | allocation | 미정 | 기록에 없음 | - |
+| RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1 | 1 | 확정 | 2026-09-14 22:57 | 같은 기록 | 없음(확정 대기) | allocation | 미정 | 기록에 없음 | - |
+| RULE.RISK.NAV_DRAWDOWN_LIFT.V1 | 1 | 확정 | 2026-09-14 22:57 | 같은 기록 | 없음(확정 대기) | allocation | 미정 | 기록에 없음 | 보완: ALLOCATION.V2 (해제 조건) |
 | RULE.EXEC.TIME_CONTRACT.V1 | 1 | 확정 | 2026-09-14 23:01 | 실행 계약 D1·D3·D5~D11 (10de02bf) | 없음(확정 대기) | gate | 미정 | 기록에 없음 | - |
 | RULE.EXEC.QUALITY_LAYERS.V1 | 1 | 확정 | 2026-09-14 23:01 | 같은 기록 | 없음(확정 대기) | gate | 미정 | 기록에 없음 | - |
 | RULE.EXEC.ALLOCATION_REDUCTION.V1 | 1 | 확정 | 2026-09-14 23:01 | 같은 기록 | 없음(확정 대기) | allocation | 미정 | 기록에 없음 | - |
@@ -53,7 +53,8 @@
 | RULE.EXEC.MONITORED_STOP_FILL_MODEL.V1 | 1 | 확정 | 2026-09-14 23:01 | 같은 기록 | 없음(확정 대기) | exit | 미정 | 기록에 없음 | - |
 | RULE.VALIDATION.MECHANICAL_ONLY.V1 | 1 | 확정 | 2026-09-14 23:01 | 같은 기록 | 없음(확정 대기) | governance | 미정 | 기록에 없음 | - |
 | RULE.SCORECARD.SINGLE_CONTRACT.V1 | 1 | 확정 | 2026-09-14 23:01 | 같은 기록 | 없음(확정 대기) | governance | 미정 | 기록에 없음 | - |
-| RULE.LIQUIDITY.US_SIP_SOURCE.V1 | 1 | 확정 | 2026-09-14 23:06 | 미국 유동성 SIP 출처 (66315067) | 없음(확정 대기) | liquidity | 미정 | 출처 접근 점검 | 보완: LIQUIDITY.KRUS (자료 출처 지정) |
+| RULE.LIQUIDITY.US_SIP_SOURCE.V1 | 1 | 확정 | 2026-09-14 23:06 | 미국 유동성 SIP 출처 (66315067) | 없음(확정 대기) | liquidity | 미정 | 출처 접근 점검(SPY/MSFT 0개 반환, 페이지 넘김 미구현) | 보완: LIQUIDITY.KRUS (자료 출처 지정) |
+| RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1 | 1 | 확정 | 2026-09-14 23:13 | 로테이션 해석: 관측 공백 (ed2ca92d) | 없음(확정 대기) | gate | 미정 | 기록에 없음 | 해석: ROTATION.CRYPTO/US/KR, EXIT.RELEASE_FULL_SELL |
 
 ### 1-B. 한때 미확정이었다가 결정된 항목 5줄 (`RESOLVED`, 값 없음)
 
@@ -71,7 +72,8 @@
 
 - **트리거 "없음(확정 대기)"**: 원본 기록에 재검토 조건이 적혀 있지 않다는 뜻입니다(`review_triggers: null`, `trigger_pending_user_confirmation: true`). CIO가 조건을 지어내지 않습니다.
 - **효력 시각**: 기록의 `ratified_at_utc`를 그대로 쓰거나, 기록이 한국 시각(`recorded_at_kst`)만 가진 경우 UTC로 바꿨습니다.
-- **기록 시각 정정**: CIO가 2026-09-15 여러 기록의 `recorded_at_kst`를 파일 생성 시각으로 바로잡았습니다(결정 내용은 같고 `correction_note`에 이전 파일 해시가 적혀 있음). 대장은 정정된 파일(새 해시)과 정정된 효력 시각을 씁니다. 뒤 기록이 정정 전 해시를 가리키는 경우(예: 세션 크기 정정 기록이 B2·B3 기록의 옛 해시 `0e2691e0…`를 가리킴), 검증기는 대상 기록의 `correction_note`에 적힌 이전 해시까지 같은 기록으로 인정합니다.
+- **기록 시각 정정**: CIO가 2026-09-15 여러 기록의 `recorded_at_kst`를 파일 생성 시각으로 바로잡았습니다(결정 내용은 같고 `correction_note`에 이전 파일 해시가 적혀 있음). 대장은 정정된 파일(새 해시)과 정정된 효력 시각을 씁니다. 뒤 기록이나 구현이 정정 전 해시를 가리키는 경우(예: 세션 크기 정정 기록과 `universe/crypto_candidate_promotion.py`가 B2·B3 기록의 옛 해시 `0e2691e0…`를 가리킴), 검증기는 **그 대상 기록 자신의 `correction_note`에 64자리 전체로 적힌** 이전 해시만 같은 기록으로 인정합니다(목록에 없는 해시·짧은 접두어는 거부).
+- **B2·B3 기록 파일 두 개**: main에 이미 들어간 정정 전 파일 `evidence/authority/paper_b2_b3_size_assembly_user_ratification_20260915.json`(0e2691e0)은 코인 후보 승격 구현이 고정해 쓰므로 그대로 두고, 정정본은 `…_20260915_recorded_at_corrected.json`(6ffeb700)으로 따로 두었습니다. 대장은 정정본을 원본으로 씁니다.
 - **최소 표본**: 기록에 수가 있는 규칙은 코인 로테이션(확정 사건 10건) 하나뿐입니다.
 - **REAL**: 모든 줄에 `modes.REAL`이 있습니다. 기록이 REAL 권한을 바꾸지 않았으므로 대부분 `NOT_AUTHORIZED`이고, 거버넌스 규칙만 "PAPER·REAL 거래 모두 성적표에 올린다"는 문구대로 `APPLIES`입니다.
 - **섹터 상태 이름**: 로테이션 공통 규칙과 진입 B안 규칙의 값은 구현 어휘 `STRONG_CONFIRMED` / `STRONG_HELD`로 통일했습니다. 인용 문구(`text`)는 기록 그대로입니다(예: "strong confirmed/held").
@@ -79,11 +81,13 @@
 ### 1-D. 대체와 보완
 
 - **세션 크기 V1 → V2**: 오전 문구는 글자 그대로 읽으면 세션 매수 합계 전체를 NAV 5%로 묶었습니다(CIO 작성 오류). V2는 "시장별 세션 매수 합계 ≤ 시장 몫 남은 여유 1/3"과 "종목별 누적 보유 ≤ NAV 5% 이면서 ≤ 평균 거래대금 1%"로 나눕니다. V1은 2026-09-14 22:22 ~ 22:51 UTC, V2는 그 뒤에 효력이 있습니다.
-- **강세 해제 처리 → 전량 매도**: 청산 임시값 기록이 로테이션 확정의 "보유분은 기존 손절·익절" 부분을 "첫 허용 체결 시각에 전량 매도"로 바꿨습니다. `RULE.ROTATION.RELEASE_HANDLING.V1`은 `SUPERSEDED`(22:57 UTC까지 효력)이고, 남는 "신규 매수 중단" 부분은 `RULE.EXIT.RELEASE_FULL_SELL.V1`의 `retained_new_buy_stop` 값이 로테이션 기록 문구를 가리켜 이어받습니다.
+- **강세 해제 처리 → 전량 매도 (일부 대체)**: 청산 임시값 기록이 로테이션 확정의 "보유분은 기존 손절·익절" 부분만 "첫 허용 체결 시각에 전량 매도"로 바꿨습니다. 그래서 `RULE.ROTATION.RELEASE_HANDLING.V1`은 **확정(RATIFIED) 그대로** 두고, 핵심 값 `held_positions`에만 `superseded_parts`(→ `RULE.EXIT.RELEASE_FULL_SELL.V1`, 22:57 UTC부터)를 달았습니다. `on_release_new_buys`(신규 매수 중단)는 로테이션 기록의 확정 상태로 계속 효력이 있습니다. 후속 규칙 쪽은 `supersedes_parts`로 같은 연결을 적고, 검증기가 양쪽 일치·대상 값 존재·기록 해시·효력 순서를 확인합니다. 값 하나의 효력은 `REG.part_in_force_at(row, key_parameter, 시각, 대장)`으로 봅니다.
+- **로테이션 해석 (관측 공백)**: `RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1`은 로테이션 3개 시장 규칙과 해제 전량 매도 규칙을 `INTERPRETS`로 연결합니다(값 변경 없음). 연속 확인은 허용 공백(코인 2 / 미국 4 / 한국 7일) 안의 연속 관측으로 세고, 데이터 공백으로 강세가 소멸하면 해제가 아니라 보유 유지·신규 매수 중단·"판정 공백" 표시입니다. 데이터 복귀 뒤 첫 판정이 상위권 밖이면 해제로 보고 매도합니다.
 - **보완(값은 바꾸지 않음)**:
   - `RULE.EXEC.DATA_FAILURE_PRIORITY.V1` → 코인 신선도 규칙의 STALE 보류를 "일반 청산"으로 좁힘(`NARROWS_SCOPE`). 신선도 규칙의 20초/3초 등 값은 그대로.
   - `RULE.RISK.NAV_DRAWDOWN_LIFT.V1` → 배분 v2의 낙폭 규칙 해제 조건을 채움(`FILLS_CONDITION`). 배분 숫자는 그대로.
-  - `RULE.LIQUIDITY.US_SIP_SOURCE.V1` → 한국·미국 유동성 규칙의 미국 자료 출처·대체 규칙을 정함(`SPECIFIES_DATA_SOURCE`). 기준값은 그대로.
+  - `RULE.LIQUIDITY.US_SIP_SOURCE.V1` → 한국·미국 유동성 규칙의 미국 자료 출처·대체 규칙을 정함(`SPECIFIES_DATA_SOURCE`). 기준값은 그대로. 근거 점검에서 SPY/MSFT가 0개를 반환했고 점검은 페이지 넘김을 따라가지 않았다는 한계를 `probe_limitation`에 적었습니다.
+- **청산 연구 C등급 표시 범위**: 청산 기록의 근거 문장은 청산에 관한 것이라 해제 전량 매도·21일 시간 손절·그림자 비교에만 붙였고, BTC/ETH 한도·계획손실 기록·NAV 낙폭 해제에는 붙이지 않았습니다(기록에 없음).
 - **해시로 묶지 못한 연결**: 실행 계약 D5의 "UNKNOWN 상한은 2회 연속 UNKNOWN부터"는 배분 v2의 UNKNOWN 처리 시점에 영향을 주지만, 실행 계약 기록이 배분 기록 해시를 적지 않아 `amends`로 묶지 않았습니다(값만 `RULE.EXEC.ALLOCATION_REDUCTION.V1`에 있음).
 
 원본 기록 복사: `evidence/authority/` 아래에 바이트 그대로 복사했습니다. 코인 런타임·코인 신선도·미국 달력 기록은 이미 같은 해시로 들어와 있어 그 파일을 가리킵니다. 공개 저장소에 올리기 전에 비밀값 형태가 없는지 확인했습니다.
@@ -92,7 +96,7 @@
 
 `python3 governance/rule_registry.py` → `PASS_RULE_REGISTRY_VALID`
 
-- ID 40개가 고정 목록과 정확히 같고 중복이 없어야 합니다.
+- ID 41개가 고정 목록과 정확히 같고 중복이 없어야 합니다.
 - 줄마다 사용자 확정 기록이 첫 번째 원본이어야 합니다. 원본 없는 규칙은 거부합니다.
 - 복사본의 sha256·바이트 길이가 대장과 같아야 합니다.
 - 기록 안의 ID가 대장과 같아야 하고, 기록 본문이 `rule_id`를 적고 있으면 줄 ID와 같아야 합니다.
@@ -164,7 +168,8 @@ BLOCK 이벤트는 차단한 규칙(`BLOCKED_BY`)을 적거나, 등록 규칙이
 ### 계보를 붙이지 못한 곳
 
 - **배분 v2 배수**: 공개 생산자가 계산하지 않습니다(참고값 `runtime_regime`은 모두 UNKNOWN). 없는 계산에 `SIZED_BY`를 붙이지 않았습니다.
-- **한국·미국 유동성 C3, 헤지, 청산, 실행 계약(D1~D11), 진입 B안, 세션 크기**: 이 기록들을 실행하는 공개 생산자가 아직 없습니다. 기존 `rotation/` 모듈도 2026-09-15 확정 기록 해시를 묶지 않습니다.
+- **한국·미국 유동성 C3, 헤지, 청산, 실행 계약(D1~D11), 세션 크기**: 이 기록들을 실행하는 공개 생산자가 아직 없습니다.
+- **main에 새로 들어온 구현(#751, #752)**: 로테이션 확인 층(`config/rotation_confirmation_policy_v1.json`, 로테이션 기록 c6f5dbbe에 묶임), 진입 기회 장부(`config/paper_entry_opportunity_ledger_v1.json`, 진입 B안 기록 b2a905c4), 코인 후보 승격 v3(`universe/crypto_candidate_promotion.py`, B2·B3 정정 전 해시)가 대장의 `implementation_bindings`로 연결됩니다. 이들에 대한 판단 계보 사이드카는 이번 PR 범위 밖입니다. 참고로 main의 로테이션 확인 층은 "해제 = 신규 매수 중단만(강제 매도 없음)"으로 구현돼 있어, 22:57 UTC부터의 `RULE.EXIT.RELEASE_FULL_SELL.V1`(보유분 전량 매도)과 로테이션 해석(관측 공백) 규칙은 아직 반영되지 않았습니다.
 - **ORDER / FILL / EXIT**: 형식은 있지만 PAPER 주문·체결은 비공개 런타임 소관입니다.
 - v1에서 실제 판단 계보가 쌓이는 규칙은 `RULE.CRYPTO.FRESHNESS.PER_MARKET.V1` 하나입니다.
 
@@ -176,7 +181,7 @@ BLOCK 이벤트는 차단한 규칙(`BLOCKED_BY`)을 적거나, 등록 규칙이
   - `decision/crypto_paper_decision_snapshot.py` → `test/test_crypto_axis_trade_bridge_explanation.py` PRODUCER_PINS
   - `regime/paper_regime_reference.py` → `evidence/authority/kr_information_system_runtime_qualification_candidate_20260913.json` `implementation_sha256`
   - `.github/workflows/paper-regime-reference.yml` → `config/regime_source_owner_registry_v2.json` `status_owner.workflow_sha256`
-- **머지 뒤 서버 쪽 조치 필요**: 저장소 밖 서버 디스패처가 `.github/workflows/upbit-realtime-capture.yml`을 **git blob sha로 고정**합니다. 이 PR은 그 파일에 계보 단계를 더하므로 머지 뒤 디스패처 설정의 blob 값을 바꿔야 합니다. 이 PR 최종 머리 기준 blob은 `git hash-object .github/workflows/upbit-realtime-capture.yml`로 다시 계산해 쓰십시오(이 문서 작성 시점 값 `94131f10b699a5a982a8919985a2e3d68e563a98`; 이전 머리 `ba2602cf…`는 더 이상 맞지 않음).
+- **머지 뒤 서버 쪽 조치 필요**: 저장소 밖 서버 디스패처가 `.github/workflows/upbit-realtime-capture.yml`을 **git blob sha로 고정**합니다. 이 PR은 그 파일에 계보 단계를 더하므로 머지 뒤 디스패처 설정의 blob 값을 바꿔야 합니다. 이 PR 최종 머리 기준 blob은 `git hash-object .github/workflows/upbit-realtime-capture.yml`로 다시 계산해 쓰십시오(main 병합 뒤 이 문서 작성 시점 값 `94131f10b699a5a982a8919985a2e3d68e563a98`; 이 PR의 첫 머리 때 값 `ba2602cf…`는 더 이상 맞지 않음).
 
 ## 6. 판단이 바뀌지 않았다는 증명
 

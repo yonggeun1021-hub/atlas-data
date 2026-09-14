@@ -58,12 +58,13 @@ ORIGINAL_RECORD_SHA256 = {
     "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
     "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json": "4e08b945238badfae5f28ad412aa1f7d01a85ea4a0c6e508554a29521877cbcc",
     "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915.json": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
-    "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json": "6ffeb7001662f32c" ,
-    "USER_RATIFICATION_PAPER_SESSION_SIZE_WORDING_CORRECTION_20260915.json": "9af25a3b210047aa",
-    "USER_RATIFICATION_PAPER_DATA_FAILURE_RISK_REDUCTION_PRIORITY_C_20260915.json": "3d07cbf1fbba35ca",
-    "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915.json": "47276abe432102c3",
-    "USER_RATIFICATION_PAPER_EXECUTION_CONTRACT_D1_D3_D5_D11_20260915.json": "10de02bf98fd4e57",
-    "USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_20260915.json": "6631506766c56793",
+    "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json": "6ffeb7001662f32c32125db054919f8213e0be9ec32a82ec6b7b8cbf6d5077a5",
+    "USER_RATIFICATION_PAPER_SESSION_SIZE_WORDING_CORRECTION_20260915.json": "9af25a3b210047aab033cf9398a0b254f269070925893407d2200805492ad9c4",
+    "USER_RATIFICATION_PAPER_DATA_FAILURE_RISK_REDUCTION_PRIORITY_C_20260915.json": "3d07cbf1fbba35caaed032b7d3d52cec78e804ad6b415ed7e240191b4f45d1f6",
+    "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915.json": "47276abe432102c33b208a5c3a5d10b30c3c30c79fcb809bb1283c97efb95619",
+    "USER_RATIFICATION_PAPER_EXECUTION_CONTRACT_D1_D3_D5_D11_20260915.json": "10de02bf98fd4e5776ed77c09daad36de914e03942675cbe960c121e5dbd668c",
+    "USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_20260915.json": "6631506766c56793087a9f38360050e28148a40b47871a77514417aef61d3ca2",
+    "USER_RATIFICATION_ROTATION_INTERPRETATION_OBSERVATION_GAP_20260915.json": "ed2ca92d9b9cfe6b2e912c686f874c62f664fe25b0b20814264a853366c2487a",
 }
 # Hashes recorded before the CIO timestamp corrections; the corrected files name
 # them in correction_note, so later records that cite them still resolve.
@@ -121,12 +122,14 @@ class CommittedRegistryTests(unittest.TestCase):
         registry = REG.load_registry()
         ids = [row["rule_id"] for row in registry["rules"]]
         self.assertEqual(sorted(ids), sorted(REG.REQUIRED_RULE_IDS))
-        self.assertEqual(len(ids), 40)
+        self.assertEqual(len(ids), 41)
         status = {row["rule_id"]: row["status"] for row in registry["rules"]}
         self.assertEqual({k for k, v in status.items() if v == "PENDING_USER_DECISION"}, PENDING_IDS)
         self.assertEqual({k for k, v in status.items() if v == "RESOLVED"}, UNDECIDED_IDS - PENDING_IDS)
-        self.assertEqual({k for k, v in status.items() if v == "SUPERSEDED"},
-                         {"RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1", "RULE.ROTATION.RELEASE_HANDLING.V1"})
+        self.assertEqual({k for k, v in status.items() if v == "SUPERSEDED"}, {"RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1"})
+        # Only the held-position part of release handling was replaced; the
+        # new-buy stop keeps the rotation record's RATIFIED status.
+        self.assertEqual(status["RULE.ROTATION.RELEASE_HANDLING.V1"], "RATIFIED")
         self.assertEqual({k for k, v in status.items() if v == "PROVISIONAL"},
                          {"RULE.ROTATION.US.V1P", "RULE.EXIT.RELEASE_FULL_SELL.V1", "RULE.EXIT.CRYPTO_TIME_STOP_21D.V1"})
         self.assertEqual({k for k, v in status.items() if v == "TEMPORARY"}, {"RULE.ROTATION.KR.V1T"})
@@ -140,7 +143,7 @@ class CommittedRegistryTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(raw).hexdigest(), source["sha256"])
                 seen[source["original_filename"]] = source["sha256"]
         for name, sha in ORIGINAL_RECORD_SHA256.items():
-            self.assertTrue(seen.get(name, "").startswith(sha), name)
+            self.assertEqual(seen.get(name), sha, name)
 
     def test_corrected_records_name_their_previous_hash(self):
         registry = _registry()
@@ -151,6 +154,14 @@ class CommittedRegistryTests(unittest.TestCase):
             self.assertIn(previous, REG.record_identities(raw, json.loads(raw)))
         rotation = _row(registry, "RULE.ROTATION.CRYPTO.V1")["source_records"][0]
         self.assertTrue(rotation["sha256"].startswith("c6f5dbbe"))
+        # An unlisted hash is not an identity, and neither is a hash prefix.
+        b2 = by_name["USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json"]
+        raw = (ROOT / b2["repo_path"]).read_bytes()
+        identities = REG.record_identities(raw, json.loads(raw))
+        self.assertEqual(identities, {b2["sha256"], PRE_CORRECTION_SHA256[b2["original_filename"]]})
+        self.assertNotIn(PRE_CORRECTION_SHA256["USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json"], identities)
+        self.assertEqual(REG.record_identities(b"{}", {"correction_note": "previous file sha256 " + "a" * 16}), {hashlib.sha256(b"{}").hexdigest()})
+        self.assertEqual(REG.record_identities(b"{}", {"correction_note": "previous file sha256 " + "b" * 65}), {hashlib.sha256(b"{}").hexdigest()})
 
     def test_effective_times_follow_corrected_records(self):
         registry = _registry()
@@ -163,6 +174,7 @@ class CommittedRegistryTests(unittest.TestCase):
             "RULE.EXIT.RELEASE_FULL_SELL.V1": "2026-09-14T22:57:00Z",
             "RULE.EXEC.TIME_CONTRACT.V1": "2026-09-14T23:01:00Z",
             "RULE.LIQUIDITY.US_SIP_SOURCE.V1": "2026-09-14T23:06:00Z",
+            "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1": "2026-09-14T23:13:00Z",
         }
         for rule_id, utc in expected.items():
             self.assertEqual(_row(registry, rule_id)["effective_from"]["utc"], utc, rule_id)
@@ -218,10 +230,18 @@ class CommittedRegistryTests(unittest.TestCase):
         self.assertFalse(REG.in_force_at(v2, "2026-09-14T22:50:59Z", registry))
         release = _row(registry, "RULE.ROTATION.RELEASE_HANDLING.V1")
         full_sell = _row(registry, "RULE.EXIT.RELEASE_FULL_SELL.V1")
-        self.assertEqual(release["superseded_by"]["rule_id"], full_sell["rule_id"])
-        self.assertEqual(full_sell["key_parameters"]["retained_new_buy_stop"]["value"], "STOP_NEW_BUYS_ON_RELEASE")
-        self.assertTrue(REG.in_force_at(release, "2026-09-14T22:56:59Z", registry))
-        self.assertFalse(REG.in_force_at(release, "2026-09-14T22:57:00Z", registry))
+        self.assertIsNone(release["superseded_by"])
+        self.assertEqual(release["superseded_parts"],
+                         [{"key_parameter": "held_positions", "superseded_by": {
+                             "rule_id": full_sell["rule_id"], "record_id": full_sell["source_records"][0]["record_id"],
+                             "sha256": full_sell["source_records"][0]["sha256"]}}])
+        self.assertEqual(full_sell["supersedes_parts"][0]["key_parameter"], "held_positions")
+        self.assertIsNone(full_sell["supersedes"])
+        self.assertTrue(REG.in_force_at(release, "2026-09-15T12:00:00Z", registry))
+        self.assertTrue(REG.part_in_force_at(release, "on_release_new_buys", "2026-09-15T12:00:00Z", registry))
+        self.assertTrue(REG.part_in_force_at(release, "held_positions", "2026-09-14T22:56:59Z", registry))
+        self.assertFalse(REG.part_in_force_at(release, "held_positions", "2026-09-14T22:57:00Z", registry))
+        self.assertEqual(release["key_parameters"]["on_release_new_buys"]["value"], "STOP_NEW_BUYS_ONLY")
         ctx = REFS.RegistryContext.load()
         self.assertEqual(REFS.make_rule_ref(ctx, v1["rule_id"], "SIZED_BY")["version"], 1)
 
@@ -235,6 +255,34 @@ class CommittedRegistryTests(unittest.TestCase):
         self.assertEqual(allocation["key_parameters"]["per_market_state_multiplier_of_base"]["value"]["NEUTRAL"], "0.70")
         self.assertEqual(_row(registry, "RULE.LIQUIDITY.KRUS.V1")["amended_by"][0]["rule_id"],
                          "RULE.LIQUIDITY.US_SIP_SOURCE.V1")
+        gap = _row(registry, "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1")
+        self.assertEqual({(a["rule_id"], a["relation"]) for a in gap["amends"]}, {
+            ("RULE.ROTATION.CRYPTO.V1", "INTERPRETS"), ("RULE.ROTATION.US.V1P", "INTERPRETS"),
+            ("RULE.ROTATION.KR.V1T", "INTERPRETS"), ("RULE.EXIT.RELEASE_FULL_SELL.V1", "INTERPRETS")})
+        self.assertEqual(gap["key_parameters"]["consecutive_unit"]["value"]["max_gap_days"], {"CRYPTO": 2, "US": 4, "KR": 7})
+
+    def test_review_note_values(self):
+        registry = _registry()
+        d6 = _row(registry, "RULE.EXEC.MULTI_MARKET_REALLOCATION.V1")["key_parameters"]["split"]
+        self.assertTrue(d6["text"].startswith("여러 시장이 추가 배분을 받을 수 있으면"))
+        self.assertEqual(d6["value"]["condition"], "MULTIPLE_MARKETS_ELIGIBLE_FOR_ADDITIONAL_ALLOCATION")
+        sip = _row(registry, "RULE.LIQUIDITY.US_SIP_SOURCE.V1")["key_parameters"]["probe_limitation"]
+        self.assertEqual(sip["value"], {"zero_bar_symbols": ["SPY", "MSFT"], "pagination_followed": False})
+        levels = {rid: _row(registry, rid)["evidence_level_at_decision"]["level"] for rid in (
+            "RULE.EXIT.RELEASE_FULL_SELL.V1", "RULE.EXIT.CRYPTO_TIME_STOP_21D.V1", "RULE.EXIT.SHADOW_CONTROLS.V1",
+            "RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1", "RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1", "RULE.RISK.NAV_DRAWDOWN_LIFT.V1")}
+        self.assertEqual(levels, {
+            "RULE.EXIT.RELEASE_FULL_SELL.V1": "STUDY_LEVEL_C_NO_RETURN_EDGE",
+            "RULE.EXIT.CRYPTO_TIME_STOP_21D.V1": "STUDY_LEVEL_C_NO_RETURN_EDGE",
+            "RULE.EXIT.SHADOW_CONTROLS.V1": "STUDY_LEVEL_C_NO_RETURN_EDGE",
+            "RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1": "NOT_STATED_IN_RECORD",
+            "RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1": "NOT_STATED_IN_RECORD",
+            "RULE.RISK.NAV_DRAWDOWN_LIFT.V1": "NOT_STATED_IN_RECORD",
+        })
+        b2 = _row(registry, "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1")
+        self.assertTrue(b2["source_records"][0]["repo_path"].endswith("_recorded_at_corrected.json"))
+        self.assertEqual({b["path"] for b in b2["implementation_bindings"]},
+                         {"universe/crypto_candidate_promotion.py", "config/crypto_candidate_promotion_contract_v3.json"})
 
     def test_sector_state_vocabulary_is_normalized(self):
         registry = _registry()
@@ -429,6 +477,37 @@ class RegistryTamperTests(TmpRootCase):
         _row(self.registry, "RULE.ALLOCATION.V2")["amended_by"] = None
         self.assertInvalid(self.registry, "AMENDS_AMENDED_BY_MISMATCH")
 
+    def test_successor_citing_an_unlisted_earlier_hash_is_rejected(self):
+        # Drop the previous-hash note from the corrected B2/B3 copy: size V2's
+        # record cites only that earlier hash, so supersession must fail.
+        b2_path = next(s["repo_path"] for row in self.registry["rules"] for s in row["source_records"]
+                       if s["original_filename"] == "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json")
+        path = self.root / b2_path
+        record = json.loads(path.read_bytes())
+        record["correction_note"] = "recorded_at_kst corrected; previous hash intentionally omitted"
+        raw = (json.dumps(record, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+        path.write_bytes(raw)
+        new_sha = hashlib.sha256(raw).hexdigest()
+        for row in self.registry["rules"]:
+            for source in row["source_records"]:
+                if source["repo_path"] == b2_path:
+                    source["sha256"], source["bytes"] = new_sha, len(raw)
+        _row(self.registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2")["supersedes"]["sha256"] = new_sha
+        # The promotion implementation binds only the earlier hash, so its
+        # binding claim fails first unless removed -- that is the same guard.
+        promotion = _row(self.registry, "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1")
+        self.assertInvalid(copy.deepcopy(self.registry), "BINDING_DOES_NOT_CONTAIN_RECORD_SHA")
+        promotion["implementation_bindings"] = []
+        self.assertInvalid(self.registry, "SUPERSEDES_NOT_NAMED_BY_PRIMARY_RECORD")
+
+    def test_partial_supersession_must_be_mirrored(self):
+        _row(self.registry, "RULE.ROTATION.RELEASE_HANDLING.V1")["superseded_parts"] = None
+        self.assertInvalid(self.registry, "SUPERSEDES_PARTS_MISMATCH")
+
+    def test_partial_supersession_parameter_must_exist(self):
+        _row(self.registry, "RULE.EXIT.RELEASE_FULL_SELL.V1")["supersedes_parts"][0]["key_parameter"] = "nope"
+        self.assertInvalid(self.registry, "PART_SUPERSEDED_PARAMETER_MISSING")
+
     def test_amendment_must_name_target_record(self):
         _row(self.registry, "RULE.EXEC.DATA_FAILURE_PRIORITY.V1")["amends"][0]["sha256"] = \
             _row(self.registry, "RULE.US.SESSION_CALENDAR.V1")["source_records"][0]["sha256"]
@@ -620,7 +699,8 @@ class CryptoDecisionLineageTests(unittest.TestCase):
                     self.assertEqual(LIN.main(["crypto-decision", "--packet", "missing.json",
                                                "--lineage-root", str(blocker)]), 0)
             self.assertIn("RULE_LINEAGE_EMIT_FAILED", err.getvalue())
-            self.assertIn("::warning title=Rule lineage sidecar failed::", out.getvalue())
+            self.assertIn("::warning title=Rule lineage sidecar failed::", err.getvalue())
+            self.assertEqual(json.loads(out.getvalue())["status"], "FAILED")  # stdout = one JSON document
         self.assertEqual((ROOT / relative).read_bytes(), raw)
         CPDS.validate_output(packet)
 
@@ -705,6 +785,21 @@ class PaperReferenceLineageTests(unittest.TestCase):
         self.assertIn("git add evidence/rule_lineage/paper_regime_reference", runs)
         self.assertNotIn("regime/paper_regime_reference.py", runs)
         self.assertNotIn("secrets.", json.dumps(workflow))
+
+    def test_scan_failure_keeps_stdout_parseable_for_the_workflow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            blocker = Path(tmp) / "blocked"
+            blocker.write_text("not a directory", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(LIN.main(["paper-reference-scan", "--min-date", "2026-09-14",
+                                           "--lineage-root", str(blocker)]), 0)
+        # Exactly what the workflow step runs on stdout.
+        summary = json.load(io.StringIO(out.getvalue()))["summary"]
+        self.assertGreater(summary.get("FAILED", 0), 0)
+        self.assertIn("::warning title=Rule lineage sidecar failed::", err.getvalue())
+        self.assertNotIn("::warning", out.getvalue())
+        workflow = (ROOT / ".github/workflows/rule-lineage-paper-reference.yml").read_text(encoding="utf-8")
+        self.assertIn('json.load(sys.stdin)["summary"]', workflow)
 
     def test_reference_scan_is_idempotent_and_skips_legacy(self):
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stderr(io.StringIO()) as err:

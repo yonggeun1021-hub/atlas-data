@@ -23,7 +23,8 @@ Every guarantee below is checked from committed bytes only (offline):
   whose own sha256 is pinned below, so a value drift under an unchanged quote
   fails;
 * versions are positive integers, monotone along each ``lineage_key`` in
-  effective order; ``supersedes`` / ``superseded_by`` / ``SUPERSEDED`` agree;
+  effective order; ``supersedes`` / ``superseded_by`` / ``SUPERSEDED`` agree,
+  and so do partial ``supersedes_parts`` / ``superseded_parts``;
   ``amends`` / ``amended_by`` agree; ``RESOLVED`` rows name decided resolvers;
 * a rule without pre-registered review triggers must say
   ``trigger_pending_user_confirmation: true``.
@@ -46,7 +47,7 @@ REGISTRY_PATH = ROOT / REGISTRY_RELATIVE_PATH
 PINS_RELATIVE_PATH = "config/rule_registry_v1_parsed_pins.json"
 # Changing any parsed quote/value requires changing the pin file *and* this
 # constant -- a deliberate two-place edit visible in review.
-PARSED_PINS_SHA256 = "98aa8cfd9e00894d51ff0e35adbc41f9efab062db8f2e57320dd8fc4c8d9890f"
+PARSED_PINS_SHA256 = "b6398408a8f4da8192d28e24331dee421e91465b85388ea2556a715da74e7847"
 SCHEMA_VERSION = "atlas_rule_registry/1"
 PINS_SCHEMA_VERSION = "atlas_rule_registry_parsed_pins/1"
 AUTHORITY_DIR = "evidence/authority/"
@@ -67,14 +68,14 @@ REQUIRED_RULE_IDS = (
     "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
     "RULE.ROTATION.RELEASE_HANDLING.V1",
     "RULE.GOVERNANCE.EVIDENCE_GATED.V1",
-    # Ratified 2026-09-15 07:10 / 07:40 KST.
+    # Ratified 2026-09-15 07:10 / 07:22 KST (recorded_at_kst as corrected by CIO).
     "RULE.ENTRY.PAPER_BASELINE_B.V1",
     "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
     "RULE.KR.FIRST_CYCLE_CANARY_V0.V1",
     "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
-    # User wording correction 2026-09-15 09:05 KST; V1 row kept as SUPERSEDED.
+    # User wording correction 2026-09-15 07:51 KST; V1 row kept as SUPERSEDED.
     "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2",
-    # Data-failure priority C (09:15 KST) and provisional exits (10:00 KST).
+    # Data-failure priority C (07:52 KST) and provisional exits (07:57 KST).
     "RULE.EXEC.DATA_FAILURE_PRIORITY.V1",
     "RULE.EXIT.RELEASE_FULL_SELL.V1",
     "RULE.EXIT.CRYPTO_TIME_STOP_21D.V1",
@@ -82,7 +83,7 @@ REQUIRED_RULE_IDS = (
     "RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1",
     "RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1",
     "RULE.RISK.NAV_DRAWDOWN_LIFT.V1",
-    # Execution contract D1/D3/D5-D11 (10:30 KST).
+    # Execution contract D1/D3/D5-D11 (08:01 KST).
     "RULE.EXEC.TIME_CONTRACT.V1",
     "RULE.EXEC.QUALITY_LAYERS.V1",
     "RULE.EXEC.ALLOCATION_REDUCTION.V1",
@@ -94,6 +95,8 @@ REQUIRED_RULE_IDS = (
     "RULE.SCORECARD.SINGLE_CONTRACT.V1",
     # US liquidity data source (08:06 KST); resolves the last pending row.
     "RULE.LIQUIDITY.US_SIP_SOURCE.V1",
+    # Rotation interpretation: observation-count confirmation and data gaps (08:13 KST).
+    "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1",
     # Items a ratification record explicitly left undecided.  They carry no
     # parameters and can never be cited in rule_refs; RESOLVED ones name the
     # ratified rows that later decided them.
@@ -126,7 +129,7 @@ MARKETS = ("US", "KR", "CRYPTO")
 MODES = ("PAPER", "REAL")
 MATCH_KINDS = ("EXACT", "PARSED_FROM_TEXT")
 EFFECTIVE_BASES = ("UTC_EXACT", "KST_MINUTE_TO_UTC")
-AMENDMENT_RELATIONS = ("NARROWS_SCOPE", "FILLS_CONDITION", "SPECIFIES_DATA_SOURCE")
+AMENDMENT_RELATIONS = ("NARROWS_SCOPE", "FILLS_CONDITION", "SPECIFIES_DATA_SOURCE", "INTERPRETS")
 EVIDENCE_LEVELS = (
     "INITIAL_DEFAULT_UNVALIDATED",
     "PROVISIONAL_FORWARD_ACCEPTANCE",
@@ -143,7 +146,7 @@ UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 KST_MINUTE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})\+09:00$")
 # A CIO timestamp correction keeps the decision and records the replaced file
 # hash in ``correction_note``; later records may still name that earlier hash.
-PREVIOUS_SHA_RE = re.compile(r"previous file sha256 ([0-9a-f]{64})")
+PREVIOUS_SHA_RE = re.compile(r"previous file sha256 ([0-9a-f]{64})(?![0-9a-f])")
 
 TOP_FIELDS = {
     "schema_version", "registry_id", "description", "scope_note",
@@ -154,7 +157,8 @@ ROW_FIELDS = {
     "source_records", "effective_from", "key_parameters",
     "evidence_level_at_decision", "review_triggers",
     "trigger_pending_user_confirmation", "scorecard_metric_family",
-    "minimum_sample", "supersedes", "superseded_by", "amends", "amended_by",
+    "minimum_sample", "supersedes", "superseded_by", "supersedes_parts", "superseded_parts",
+    "amends", "amended_by",
     "implementation_bindings", "pending_basis", "resolved_by",
 }
 SOURCE_FIELDS = {"role", "record_id", "repo_path", "original_filename", "sha256", "bytes"}
@@ -172,6 +176,8 @@ STATUS_SOURCE_FIELDS = {"source", "record_pointer", "record_value"}
 SUPERSEDES_FIELDS = {"rule_id", "record_id", "sha256", "in_registry"}
 SUPERSEDED_BY_FIELDS = {"rule_id", "record_id", "sha256"}
 AMENDS_FIELDS = POINTER_FIELDS | {"rule_id", "relation", "sha256"}
+SUPERSEDES_PART_FIELDS = {"rule_id", "key_parameter", "record_id", "sha256"}
+SUPERSEDED_PART_FIELDS = {"key_parameter", "superseded_by"}
 AMENDED_BY_FIELDS = {"rule_id", "sha256"}
 RESOLVED_BY_FIELDS = {"rule_id", "sha256"}
 BINDING_FIELDS = {"path", "binds_record_sha256"}
@@ -274,7 +280,8 @@ def record_identities(raw: bytes, record: dict) -> set:
     identities = {hashlib.sha256(raw).hexdigest()}
     note = record.get("correction_note") if isinstance(record, dict) else None
     if isinstance(note, str):
-        identities.update(PREVIOUS_SHA_RE.findall(note))
+        # Only full 64-hex hashes written in THIS record's own correction note.
+        identities.update(h for h in PREVIOUS_SHA_RE.findall(note) if SHA256_RE.fullmatch(h))
     return identities
 
 
@@ -397,6 +404,7 @@ def _validate_row(row: dict, root: Path) -> list:
         _fail("RULE_WITHOUT_SOURCE_RECORD", rule_id)
     records = []
     ratification_shas = set()
+    ratification_identities = set()
     for source in sources:
         _closed(source, SOURCE_FIELDS, "SOURCE_FIELDS_INVALID")
         if source["role"] not in SOURCE_ROLES:
@@ -424,6 +432,7 @@ def _validate_row(row: dict, root: Path) -> list:
             _fail("SOURCE_ORIGINAL_FILENAME_INVALID", rule_id)
         if source["role"] == "USER_RATIFICATION":
             ratification_shas.add(source["sha256"])
+            ratification_identities.update(record_identities(raw, record))
         records.append((source, raw, record))
     if sources[0]["role"] != "USER_RATIFICATION" or not ratification_shas:
         _fail("PRIMARY_USER_RATIFICATION_REQUIRED", rule_id)
@@ -551,7 +560,7 @@ def _validate_row(row: dict, root: Path) -> list:
         if type(binding["binds_record_sha256"]) is not bool:
             _fail("BINDING_FLAG_INVALID", rule_id)
         if binding["binds_record_sha256"] and not any(
-                sha.encode("ascii") in path.read_bytes() for sha in ratification_shas):
+                sha.encode("ascii") in path.read_bytes() for sha in ratification_identities):
             _fail("BINDING_DOES_NOT_CONTAIN_RECORD_SHA", f"{rule_id}:{binding['path']}")
     return documents
 
@@ -565,6 +574,7 @@ def _validate_undecided_row(row: dict, documents: list) -> None:
             or row["evidence_level_at_decision"] is not None or row["review_triggers"] is not None \
             or row["trigger_pending_user_confirmation"] is not True or row["minimum_sample"] is not None \
             or row["supersedes"] is not None or row["superseded_by"] is not None \
+            or row["supersedes_parts"] is not None or row["superseded_parts"] is not None \
             or row["amends"] is not None or row["amended_by"] is not None \
             or row["implementation_bindings"] != []:
         _fail("PENDING_ROW_MUST_CARRY_NO_DECISION", rule_id)
@@ -675,6 +685,48 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
         if pointer["record_id"] != primary["record_id"] or pointer["sha256"] != primary["sha256"]:
             _fail("SUPERSEDED_BY_RECORD_MISMATCH", row["rule_id"])
 
+    # Partial supersession: successor.supersedes_parts <-> target.superseded_parts.
+    forward_parts = set()
+    for row in rows:
+        items = row["supersedes_parts"]
+        if items is None:
+            continue
+        if not isinstance(items, list) or not items:
+            _fail("SUPERSEDES_PARTS_INVALID", row["rule_id"])
+        for item in items:
+            _closed(item, SUPERSEDES_PART_FIELDS, "SUPERSEDES_PARTS_INVALID")
+            target = by_id.get(item["rule_id"])
+            if target is None or not decided(item["rule_id"]) or target["status"] == SUPERSEDED_STATUS \
+                    or item["rule_id"] == row["rule_id"]:
+                _fail("PART_SUPERSEDED_RULE_INVALID", row["rule_id"])
+            if item["key_parameter"] not in target["key_parameters"]:
+                _fail("PART_SUPERSEDED_PARAMETER_MISSING", row["rule_id"])
+            primary = target["source_records"][0]
+            if item["sha256"] != primary["sha256"] or item["record_id"] != primary["record_id"]:
+                _fail("SUPERSEDES_PARTS_RECORD_MISMATCH", row["rule_id"])
+            if not _primary_names_any(root, row, _source_identities(root, primary)):
+                _fail("SUPERSEDES_PARTS_NOT_NAMED_BY_PRIMARY_RECORD", row["rule_id"])
+            if target["effective_from"]["utc"] >= row["effective_from"]["utc"]:
+                _fail("SUPERSEDES_PARTS_NOT_BACKWARD", row["rule_id"])
+            forward_parts.add((item["rule_id"], item["key_parameter"], row["rule_id"], row["source_records"][0]["sha256"]))
+    backward_parts = set()
+    for row in rows:
+        items = row["superseded_parts"]
+        if items is None:
+            continue
+        if row["status"] == SUPERSEDED_STATUS or not isinstance(items, list) or not items:
+            _fail("SUPERSEDED_PARTS_INVALID", row["rule_id"])
+        for item in items:
+            _closed(item, SUPERSEDED_PART_FIELDS, "SUPERSEDED_PARTS_INVALID")
+            pointer = _closed(item["superseded_by"], SUPERSEDED_BY_FIELDS, "SUPERSEDED_PARTS_INVALID")
+            successor = by_id.get(pointer["rule_id"])
+            if successor is None or pointer["sha256"] != successor["source_records"][0]["sha256"] \
+                    or pointer["record_id"] != successor["source_records"][0]["record_id"]:
+                _fail("SUPERSEDED_PARTS_RECORD_MISMATCH", row["rule_id"])
+            backward_parts.add((row["rule_id"], item["key_parameter"], pointer["rule_id"], pointer["sha256"]))
+    if forward_parts != backward_parts:
+        _fail("SUPERSEDES_PARTS_MISMATCH", str(sorted(forward_parts ^ backward_parts)))
+
     # amends (on the amending row) <-> amended_by (on the amended row).
     forward = set()
     for row in rows:
@@ -748,6 +800,17 @@ def in_force_at(row: dict, timestamp_utc: str, registry: dict) -> bool:
         return True
     successor = rule_index(registry)[pointer["rule_id"]]
     return timestamp_utc < successor["effective_from"]["utc"]
+
+
+def part_in_force_at(row: dict, key_parameter: str, timestamp_utc: str, registry: dict) -> bool:
+    """Whether one key parameter of a rule governed decisions at ``timestamp_utc``."""
+    if not in_force_at(row, timestamp_utc, registry) or key_parameter not in row["key_parameters"]:
+        return False
+    for item in row["superseded_parts"] or []:
+        if item["key_parameter"] == key_parameter:
+            successor = rule_index(registry)[item["superseded_by"]["rule_id"]]
+            return timestamp_utc < successor["effective_from"]["utc"]
+    return True
 
 
 def primary_record_sha256(row: dict) -> str:
