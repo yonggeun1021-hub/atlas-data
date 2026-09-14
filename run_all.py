@@ -1693,6 +1693,17 @@ APPROVED_TESTS = [
     #   Checks are not loosened: the sealed payloads still HOLD/PWC.
     #   Presentation only; no packet, status, action or authority change.
     "test/test_briefing_b5_renderer_alignment_20260914.py",
+    # ★ Weekend briefing evidence-date contract (scheduled_briefing_retrieval_authority/4,
+    #   CLAUDE_CIO 2026-09-14) — the ambiguous weekend line
+    #   latest_confirmed_evidence_date is replaced by source_evidence_kst_date,
+    #   krx_latest_confirmed_close_date and us_latest_verified_session_date,
+    #   re-derived by renderer, publisher (re-reads the latest_krx blob) and
+    #   consumer from the same hash-bound packet sources; UNKNOWN when unbound.
+    #   Real retained 09-12 AM rev-001·002 / 09-13 AM renders pass the pinned
+    #   B5-1 (sha256 fd98a204…, unmodified); sealed v3 payloads still HOLD;
+    #   retained v3 envelopes still validate under v3; v3 line rejected under v4.
+    #   No authority, status or packet change; scratch git repos only.
+    "test/test_briefing_weekend_evidence_date_contract_20260914.py",
     # ★ Daily Briefing same-day recovery — original natural schedule run만
     #   KST slot/date로 식별하고 briefing job 실패 시 최대 3회 안에서 재실행한다.
     #   성공한 briefing은 병렬 regression 결론과 분리해 다시 실행하지 않으며,
