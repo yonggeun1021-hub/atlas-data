@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "contract_id": "market_rotation_discovery/1",
+  "policy_version": "market_rotation_discovery_policy/v1",
+  "approval_status": "PARTIAL",
+  "effective_from": "2026-09-13",
+  "ratified_by": "USER_RATIFICATION_CANDIDATE_PIPELINE_REBUILD_20260913",
+  "markets_covered": ["CRYPTO"],
+  "not_yet_covered_markets": ["KR", "US"],
+  "upstream_contracts": {
+    "upbit_tradeable_universe": "upbit_tradeable_universe/1",
+    "crypto_leadership": "crypto_leadership_contract/v2",
+    "crypto_regime_refresh_status": "crypto_regime_refresh_status/1"
+  },
+  "t1_rank_metric_crypto": "relative_strength_vs_btc",
+  "t1_windows_crypto": ["pilot_7d", "primary_30d"],
+  "t1_max_rows_per_sector": null,
+  "rotation_selection_policy": {
+    "approval_status": "UNRATIFIED",
+    "bucket_policy": null,
+    "window_id": null,
+    "top_n": null,
+    "ranking_metric": null,
+    "source_universe": null,
+    "unknown_code_when_unratified": "NO_RATIFIED_ROTATION_SELECTION_POLICY",
+    "note": "Per CIO W5 diagnosis: bucket/window/top-N/ranking/source-universe fields are declared here so a future ratification can populate them without a contract-shape change. Until approval_status becomes RATIFIED, the builder must always report rotation_selection_status=UNKNOWN:<code> and leave rotation_selection/ranked empty -- no substitute ranking is ever produced."
+  },
+  "authority": {
+    "rotation_selection_authorized": false,
+    "ranking_authorized": false,
+    "trading_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false
+  }
+}

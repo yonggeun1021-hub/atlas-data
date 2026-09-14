@@ -970,6 +970,48 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(MODULE._discovery_case_facts(packet, {"CRYPTO"}, "BTC")["status"], "FEATURE_NOT_IMPLEMENTED")
         self.assertEqual(MODULE._discovery_case_facts(packet, {"US"}, "TSM")["status"], MODULE.NO_EVIDENCE)
 
+    def _rotation_discovery_packet(self, **overrides) -> dict:
+        packet = {
+            "schema_version": 1,
+            "contract_id": "market_rotation_discovery/1",
+            "market": "CRYPTO",
+            "snapshot_date": "2026-09-13",
+            "evaluation_as_of": "2026-09-13T23:59:59Z",
+            "rotation_selection_status": "UNKNOWN:NO_RATIFIED_ROTATION_SELECTION_POLICY",
+            "rotation_selection": [],
+            "ranked": [],
+            "counts": {"population_count": 282},
+        }
+        packet.update(overrides)
+        packet["payload_sha256"] = MODULE.payload_sha256(packet)
+        return packet
+
+    def test_load_market_rotation_discovery_returns_none_for_missing_path(self):
+        observed_at = dt.datetime(2026, 9, 13, 12, tzinfo=dt.timezone.utc)
+        self.assertIsNone(MODULE._load_market_rotation_discovery(None, observed_at))
+
+    def test_load_market_rotation_discovery_rejects_wrong_schema_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write(Path(tmp) / "packet.json", self._rotation_discovery_packet(schema_version=2))
+            with self.assertRaises(MODULE.MarketCandidateDiscoveryLookupError):
+                MODULE._load_market_rotation_discovery(path, dt.datetime(2026, 9, 13, 12, tzinfo=dt.timezone.utc))
+
+    def test_load_market_rotation_discovery_pit_filters_a_future_dated_packet(self):
+        """A T1 packet whose own evaluation_as_of is later than this
+        lookup's observed_at must be treated as not available, never read
+        as if it were current (independent review of PR #715)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write(Path(tmp) / "packet.json", self._rotation_discovery_packet(evaluation_as_of="2099-01-01T00:00:00Z"))
+            result = MODULE._load_market_rotation_discovery(path, dt.datetime(2026, 9, 13, 12, tzinfo=dt.timezone.utc))
+            self.assertIsNone(result)
+
+    def test_load_market_rotation_discovery_accepts_a_current_packet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write(Path(tmp) / "packet.json", self._rotation_discovery_packet())
+            result = MODULE._load_market_rotation_discovery(path, dt.datetime(2026, 9, 13, 23, 59, 59, tzinfo=dt.timezone.utc))
+            self.assertIsNotNone(result)
+            self.assertEqual(result["rotation_selection_status"], "UNKNOWN:NO_RATIFIED_ROTATION_SELECTION_POLICY")
+
 
 if __name__ == "__main__":
     unittest.main()
