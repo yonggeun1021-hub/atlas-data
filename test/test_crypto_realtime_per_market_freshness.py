@@ -7,9 +7,9 @@ and CIO companion decision CIO-CRYPTO-REALTIME-SUBSCRIPTION-LIQUIDITY-20260914:
 * thresholds stay 20s provider age / 3s transport delay;
 * a non-FRESH market caps only its own action state, FRESH markets are
   evaluated normally, the aggregate realtime status is display/telemetry only;
-* admitted markets below KRW 5B 24h traded value (daily universe capture) are
-  excluded from the realtime subscription and action set; unknown turnover is
-  excluded;
+* the realtime subscription and action set use the ratified P3-12 universe
+  liquidity floor (30-day average, per CIO addendum correcting a 24h metric);
+  unknown turnover is excluded; open PAPER position markets stay subscribed;
 * a held position in a non-FRESH market is HOLD (no PAPER exit execution) and
   raises an alert beyond a 30 minute engineering alert budget;
 * /1 packets generated before the ratification keep revalidating.
@@ -22,7 +22,6 @@ from __future__ import annotations
 import contextlib
 import copy
 import datetime as dt
-import gzip
 import hashlib
 import importlib.util
 import json
@@ -58,6 +57,10 @@ NATURAL_2314_GLOB = "evidence/crypto_paper_decision/2026-09-13/2314/*/packet.jso
 UNIVERSE_0913 = ROOT / "data/observations/upbit_tradeable_universe/2026-09-13/packet.json"
 REPLAY_AT = "2026-09-13T21:12:24Z"  # run_008 capture end + 1s
 MAJORS = ("KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-SUI", "KRW-XRP")
+OPEN_AT_REPLAY = MAJORS + ("KRW-LINK",)  # FRESH at run_008 capture + 1s
+STALE_AT_REPLAY = ("KRW-SHIB", "KRW-WLD")
+ALL_EIGHT = tuple(sorted(OPEN_AT_REPLAY + STALE_AT_REPLAY))
+ADDENDUM_PATH = ROOT / POLICY.ADDENDUM_RELATIVE_PATH
 
 
 def _natural_packet(pattern: str) -> dict:
@@ -127,19 +130,21 @@ def _actionable_upstream():
 
 def assert_per_market_invariants(test: unittest.TestCase, record: dict) -> None:
     rows = {row["market"]: row for row in record["candidates"]}
-    for market in MAJORS:
+    test.assertEqual(sorted(rows), list(ALL_EIGHT))
+    for market in ALL_EIGHT:
+        test.assertEqual(rows[market]["realtime_liquidity_floor"]["status"], POLICY.INCLUDED, market)
+    for market in OPEN_AT_REPLAY:
         test.assertEqual(rows[market]["realtime_freshness"]["status"], CPDS.FRESH, market)
         test.assertEqual(rows[market]["state"], "FOCUSED_REVIEW", market)
         test.assertFalse(rows[market]["freshness_capped"], market)
         test.assertIsNone(rows[market]["market_action_cap_reason"], market)
-    wld = rows["KRW-WLD"]
-    test.assertEqual(wld["realtime_freshness"]["status"], CPDS.STALE)
-    test.assertEqual(wld["state"], "WAIT")
-    test.assertEqual(wld["freshness_cap_reason"], "MARKET_REALTIME_FRESHNESS_NOT_FRESH:KRW-WLD:STALE")
-    for market in ("KRW-SHIB", "KRW-LINK"):
-        test.assertEqual(rows[market]["realtime_liquidity_floor"]["status"], POLICY.EXCLUDED, market)
+    for market in STALE_AT_REPLAY:
+        test.assertEqual(rows[market]["realtime_freshness"]["status"], CPDS.STALE, market)
         test.assertEqual(rows[market]["state"], "WAIT", market)
-        test.assertTrue(rows[market]["freshness_cap_reason"].startswith("REALTIME_LIQUIDITY_FLOOR_EXCLUDED:"), market)
+        test.assertEqual(
+            rows[market]["freshness_cap_reason"],
+            f"MARKET_REALTIME_FRESHNESS_NOT_FRESH:{market}:STALE",
+        )
 
 
 class RatificationBindingTests(unittest.TestCase):
@@ -155,12 +160,26 @@ class RatificationBindingTests(unittest.TestCase):
         self.assertEqual(record["ratification_id"], POLICY.RATIFICATION_ID)
         self.assertIn("NOT ratified", record["not_adopted"])
 
+    def test_cio_addendum_is_bound_alongside_the_ratification(self):
+        self.assertEqual(
+            hashlib.sha256(ADDENDUM_PATH.read_bytes()).hexdigest(),
+            "bc009c591cd6492c55471a499502381812d54a8f12e50e7334ec04c10a954e1f",
+        )
+        addendum = json.loads(ADDENDUM_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(addendum["ratification"]["sha256"], POLICY.RATIFICATION_RECORD_SHA256)
+        policy = POLICY.load_policy()
+        self.assertEqual(policy["companion_decision_correction"]["file_sha256"], POLICY.ADDENDUM_SHA256)
+        reference = POLICY.policy_reference(policy)
+        self.assertEqual(reference["companion_decision_addendum_sha256"], POLICY.ADDENDUM_SHA256)
+        self.assertEqual(reference["ratification_record_sha256"], POLICY.RATIFICATION_RECORD_SHA256)
+
     def test_tampered_record_or_policy_fails_closed(self):
         tmp = Path(tempfile.mkdtemp(prefix="per_market_policy_"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         for relative in (
             POLICY.RATIFICATION_RECORD_RELATIVE_PATH, POLICY.AMENDED_POLICY_RELATIVE_PATH,
             POLICY.UNIVERSE_POLICY_RELATIVE_PATH, POLICY.POLICY_RELATIVE_PATH,
+            POLICY.ADDENDUM_RELATIVE_PATH,
         ):
             (tmp / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, tmp / relative)
@@ -170,6 +189,11 @@ class RatificationBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(POLICY.CryptoRealtimePerMarketPolicyError, "RATIFICATION_RECORD_HASH_MISMATCH"):
             POLICY.load_policy(tmp / POLICY.POLICY_RELATIVE_PATH, root=tmp)
         shutil.copyfile(RECORD_PATH, record)
+        addendum = tmp / POLICY.ADDENDUM_RELATIVE_PATH
+        addendum.write_bytes(addendum.read_bytes().replace(b"30-day average", b"24h traded value"))
+        with self.assertRaisesRegex(POLICY.CryptoRealtimePerMarketPolicyError, "ADDENDUM_HASH_MISMATCH"):
+            POLICY.load_policy(tmp / POLICY.POLICY_RELATIVE_PATH, root=tmp)
+        shutil.copyfile(ADDENDUM_PATH, addendum)
         policy_path = tmp / POLICY.POLICY_RELATIVE_PATH
         value = json.loads(policy_path.read_text(encoding="utf-8"))
         value["stale_held_position"]["alert_after_stale_minutes"] = 60
@@ -186,7 +210,13 @@ class RatificationBindingTests(unittest.TestCase):
         self.assertEqual(amended["packet_sha256"], POLICY.AMENDED_POLICY_PACKET_SHA256)
         policy = POLICY.load_policy()
         self.assertIs(policy["amended_freshness_policy"]["thresholds_changed"], False)
-        self.assertEqual(policy["liquidity_floor"]["min_krw"], "5000000000")
+        # The floor references the ratified universe policy; no number is copied.
+        self.assertNotIn("min_krw", policy["liquidity_floor"])
+        self.assertNotIn("5000000000", json.dumps(policy["liquidity_floor"]))
+        definition = POLICY.load_universe_floor_definition()
+        universe_policy = json.loads((ROOT / POLICY.UNIVERSE_POLICY_RELATIVE_PATH).read_text(encoding="utf-8"))
+        self.assertEqual(str(definition["min_30d_avg_krw_turnover"]), universe_policy["min_30d_avg_krw_turnover"])
+        self.assertEqual(definition["turnover_lookback_finalized_days"], universe_policy["turnover_lookback_finalized_days"])
         self.assertEqual(policy["stale_held_position"]["alert_budget_kind"], "ENGINEERING_ALERT_BUDGET_NOT_POLICY")
 
 
@@ -230,8 +260,9 @@ class NaturalReplayTests(unittest.TestCase):
         record = _replay()
         self.assertEqual(record["schema_version"], V2)
         rows = {row["market"]: row for row in record["candidates"]}
-        for market in MAJORS:
+        for market in OPEN_AT_REPLAY:
             self.assertEqual(rows[market]["realtime_freshness"]["status"], CPDS.FRESH, market)
+        for market in ALL_EIGHT:
             self.assertEqual(rows[market]["realtime_liquidity_floor"]["status"], POLICY.INCLUDED, market)
         self.assertEqual(rows["KRW-SHIB"]["realtime_freshness"]["status"], CPDS.STALE)
         self.assertEqual(rows["KRW-WLD"]["realtime_freshness"]["status"], CPDS.STALE)
@@ -251,8 +282,8 @@ class NaturalReplayTests(unittest.TestCase):
             record = _replay()
         assert_per_market_invariants(self, record)
         block = record["realtime_per_market_freshness"]
-        self.assertEqual(block["action_open_markets"], sorted(MAJORS))
-        self.assertEqual(block["action_capped_markets"], ["KRW-LINK", "KRW-SHIB", "KRW-WLD"])
+        self.assertEqual(block["action_open_markets"], sorted(OPEN_AT_REPLAY))
+        self.assertEqual(block["action_capped_markets"], sorted(STALE_AT_REPLAY))
 
     def test_same_inputs_under_v1_cap_every_market_globally(self):
         with _actionable_upstream():
@@ -262,102 +293,78 @@ class NaturalReplayTests(unittest.TestCase):
             self.assertEqual(row["state"], "WAIT", row["market"])
             self.assertEqual(row["freshness_cap_reason"], "OVERALL_FRESHNESS_NOT_FRESH:STALE")
 
-    def test_liquidity_floor_on_natural_daily_capture(self):
+    def test_ratified_thirty_day_floor_on_natural_universe_keeps_all_eight(self):
         record = _replay()
         floor = record["realtime_per_market_freshness"]["liquidity_floor"]
+        self.assertEqual(floor["metric"], "RATIFIED_UNIVERSE_POLICY_30D_AVG_FINALIZED_DAILY_KRW_TURNOVER")
+        self.assertEqual(floor["definition_source"]["threshold_field"], "min_30d_avg_krw_turnover")
         self.assertEqual(floor["universe_snapshot_date"], "2026-09-13")
-        self.assertEqual(floor["included_markets"], sorted(MAJORS + ("KRW-WLD",)))
+        self.assertEqual(floor["included_markets"], list(ALL_EIGHT))
+        self.assertEqual(floor["excluded_markets"], [])
         self.assertEqual(
-            [(row["market"], row["reason"]) for row in floor["excluded_markets"]],
-            [("KRW-LINK", "TURNOVER_24H_BELOW_FLOOR"), ("KRW-SHIB", "TURNOVER_24H_BELOW_FLOOR")],
+            POLICY.evaluate_liquidity_floor(json.loads(UNIVERSE_0913.read_text(encoding="utf-8")))["markets"]["KRW-LINK"]["krw_30d_avg_turnover"],
+            "7593513888.50747663",
         )
-        self.assertEqual(floor["excluded_markets"][0]["krw_24h_traded_value"], "2871286494.942722")
-        self.assertIn(
-            "REALTIME_LIQUIDITY_FLOOR_EXCLUDED:KRW-SHIB:TURNOVER_24H_BELOW_FLOOR",
-            record["derivation_notes"],
-        )
+        self.assertFalse([note for note in record["derivation_notes"] if "LIQUIDITY_FLOOR_EXCLUDED" in note])
+        self.assertEqual(record["realtime_per_market_freshness"]["subscribed_outside_floor"], [])
 
-    def test_realtime_subscription_set_excludes_illiquid_markets(self):
-        subscription = POLICY.subscription_markets(UNIVERSE_0913)
-        self.assertEqual(subscription["markets"], sorted(MAJORS + ("KRW-WLD",)))
-        self.assertEqual([row["market"] for row in subscription["excluded"]], ["KRW-LINK", "KRW-SHIB"])
-        self.assertTrue(set(subscription["markets"]) <= set(
-            CAPTURE.GATE.eligible_markets_from_universe_packet(UNIVERSE_0913)
-        ))
+    def test_realtime_subscription_is_floor_plus_held_positions(self):
+        subscription = CAPTURE.resolve_eligible_subscription(UNIVERSE_0913, None)
+        self.assertEqual(subscription["markets"], list(ALL_EIGHT))
+        self.assertEqual(subscription["floor_excluded"], [])
+        held_doc = json.dumps({"schema_version": "crypto_paper_held_markets/1", "markets": ["KRW-ADA", "KRW-WLD"]})
+        with_held = CAPTURE.resolve_eligible_subscription(UNIVERSE_0913, held_doc)
+        self.assertEqual(with_held["markets"], sorted(ALL_EIGHT + ("KRW-ADA",)))
+        self.assertEqual(with_held["held_kept_subscribed"], [
+            {"market": "KRW-ADA", "reason": POLICY.HELD_KEEP_SUBSCRIBED},
+        ])
+        for bad in ('{"markets": ["KRW-ADA"]}', json.dumps({"schema_version": "crypto_paper_held_markets/1", "markets": ["KRW-ADA", "KRW-ADA"]})):
+            with self.assertRaises(CAPTURE.PER_MARKET.CryptoRealtimePerMarketPolicyError):
+                CAPTURE.resolve_eligible_subscription(UNIVERSE_0913, bad)
         source = (ROOT / ".github/scripts/upbit_realtime_capture.py").read_text(encoding="utf-8")
-        self.assertIn("PER_MARKET.subscription_markets(args.universe_packet)", source)
+        self.assertIn("resolve_eligible_subscription(", source)
+        workflow = (ROOT / ".github/workflows/upbit-realtime-capture.yml").read_text(encoding="utf-8")
+        self.assertIn("ATLAS_CRYPTO_PAPER_HELD_MARKETS_JSON: ${{ secrets.ATLAS_CRYPTO_PAPER_HELD_MARKETS_JSON }}", workflow)
 
 
-def _write_raw_snapshot(root: Path, rows, *, date="2026-09-20", available_at="2026-09-20T00:56:00Z") -> dict:
-    raw_dir = root / "evidence" / "crypto" / "upbit" / "raw" / date
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    body = json.dumps(rows).encode("utf-8")
-    (raw_dir / "upbit_ticker.json.gz").write_bytes(gzip.compress(body))
-    manifest = {
-        "auth_required": False, "vintage_date": date, "downloaded_at_utc": available_at,
-        "checksums": {"upbit_ticker.json.gz": hashlib.sha256(body).hexdigest()},
-    }
-    (raw_dir / "_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    markets = sorted({row["market"] for row in rows if isinstance(row, dict)} | {"KRW-GONE"})
+def _universe_record(rows, *, policy_version=None) -> dict:
+    definition = POLICY.load_universe_floor_definition()
     return {
-        "snapshot_date": date,
-        "raw_snapshot": {
-            "path": f"evidence/crypto/upbit/raw/{date}",
-            "manifest_sha256": hashlib.sha256((raw_dir / "_manifest.json").read_bytes()).hexdigest(),
-        },
+        "snapshot_date": "2026-09-20",
         "packet": {
-            "available_at": available_at,
-            "markets": [{"market": market, "state": "PAPER_ELIGIBLE"} for market in markets]
-            + [{"market": "KRW-POOL", "state": "OBSERVATION_POOL"}],
+            "policy_version": policy_version or definition["policy_version"],
+            "markets": [
+                {"market": market, "state": state, "trailing_30d_krw_turnover": aggregate}
+                for market, state, aggregate in rows
+            ],
         },
     }
 
 
 class LiquidityFloorUnitTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="per_market_floor_"))
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-
-    def test_boundary_and_fail_closed_unknown_turnover(self):
-        record = _write_raw_snapshot(self.tmp, [
-            {"market": "KRW-AT", "acc_trade_price_24h": 5000000000},
-            {"market": "KRW-BELOW", "acc_trade_price_24h": 4999999999.999999},
-            {"market": "KRW-NULL", "acc_trade_price_24h": None},
-            {"market": "KRW-TEXT", "acc_trade_price_24h": "9000000000"},
-            {"market": "KRW-NEG", "acc_trade_price_24h": -1},
-            {"market": "KRW-DUP", "acc_trade_price_24h": 9000000000},
-            {"market": "KRW-DUP", "acc_trade_price_24h": 9000000000},
+    def test_thirty_day_average_boundary_and_fail_closed_unknown(self):
+        record = _universe_record([
+            ("KRW-AT", "PAPER_ELIGIBLE", "150000000000"),          # avg exactly 5B
+            ("KRW-BELOW", "TRADEABLE_UNIVERSE", "149999999999.99"),
+            ("KRW-NULL", "PAPER_ELIGIBLE", None),
+            ("KRW-TEXT", "PAPER_ELIGIBLE", "lots"),
+            ("KRW-NEG", "PAPER_ELIGIBLE", "-1"),
+            ("KRW-NUM", "PAPER_ELIGIBLE", 150000000000),           # not the packet's string form
+            ("KRW-POOL", "OBSERVATION_POOL", "999999999999999"),
         ])
-        floor = POLICY.evaluate_liquidity_floor(record, root=self.tmp)["markets"]
-        self.assertEqual(floor["KRW-AT"]["status"], POLICY.INCLUDED)
-        self.assertEqual(floor["KRW-BELOW"], {
-            "status": POLICY.EXCLUDED, "reason": "TURNOVER_24H_BELOW_FLOOR",
-            "krw_24h_traded_value": "4999999999.999999",
-        })
-        for market, detail in (
-            ("KRW-NULL", "VALUE_INVALID"), ("KRW-TEXT", "VALUE_INVALID"),
-            ("KRW-NEG", "VALUE_INVALID"), ("KRW-DUP", "TICKER_ROW_DUPLICATE"),
-            ("KRW-GONE", "TICKER_ROW_MISSING"),
-        ):
+        floor = POLICY.evaluate_liquidity_floor(record)["markets"]
+        self.assertEqual(floor["KRW-AT"], {"status": POLICY.INCLUDED, "reason": None, "krw_30d_avg_turnover": "5000000000.00000000"})
+        self.assertEqual(floor["KRW-BELOW"]["status"], POLICY.EXCLUDED)
+        self.assertEqual(floor["KRW-BELOW"]["reason"], "TURNOVER_30D_AVG_BELOW_FLOOR")
+        for market in ("KRW-NULL", "KRW-TEXT", "KRW-NEG", "KRW-NUM"):
             self.assertEqual(floor[market]["status"], POLICY.EXCLUDED, market)
-            self.assertEqual(floor[market]["reason"], f"TURNOVER_24H_UNKNOWN:{detail}", market)
+            self.assertEqual(floor[market]["reason"], "TURNOVER_30D_AVG_UNKNOWN:AGGREGATE_INVALID", market)
         self.assertNotIn("KRW-POOL", floor)
 
-    def test_missing_raw_is_unknown_excluded_and_tamper_fails_closed(self):
-        record = _write_raw_snapshot(self.tmp, [{"market": "KRW-AT", "acc_trade_price_24h": 9e9}])
-        ticker = self.tmp / record["raw_snapshot"]["path"] / "upbit_ticker.json.gz"
-        ticker.write_bytes(gzip.compress(b'[{"market":"KRW-AT","acc_trade_price_24h":1}]'))
-        with self.assertRaisesRegex(POLICY.CryptoRealtimePerMarketPolicyError, "RAW_TICKER_HASH_MISMATCH"):
-            POLICY.evaluate_liquidity_floor(record, root=self.tmp)
-        ticker.unlink()
-        floor = POLICY.evaluate_liquidity_floor(record, root=self.tmp)["markets"]
-        self.assertEqual(floor["KRW-AT"]["reason"], "TURNOVER_24H_UNKNOWN:RAW_TICKER_MISSING")
-        record["raw_snapshot"]["manifest_sha256"] = "0" * 64
-        with self.assertRaisesRegex(POLICY.CryptoRealtimePerMarketPolicyError, "RAW_MANIFEST_HASH_MISMATCH"):
-            POLICY.evaluate_liquidity_floor(record, root=self.tmp)
-        del record["raw_snapshot"]
-        floor = POLICY.evaluate_liquidity_floor(record, root=self.tmp)["markets"]
-        self.assertEqual(floor["KRW-AT"]["reason"], "TURNOVER_24H_UNKNOWN:RAW_SNAPSHOT_REFERENCE_MISSING")
+    def test_universe_packet_from_another_policy_version_is_unknown(self):
+        record = _universe_record([("KRW-AT", "PAPER_ELIGIBLE", "900000000000")], policy_version="upbit_tradeable_universe_policy/v0")
+        row = POLICY.evaluate_liquidity_floor(record)["markets"]["KRW-AT"]
+        self.assertEqual((row["status"], row["reason"]), (POLICY.EXCLUDED, "TURNOVER_30D_AVG_UNKNOWN:UNIVERSE_POLICY_VERSION_MISMATCH"))
 
 
 class CapFunctionTests(unittest.TestCase):
@@ -428,9 +435,7 @@ class MutationProofTests(unittest.TestCase):
             assert_per_market_invariants(self, record)
 
     def test_including_unknown_turnover_is_detected(self):
-        tmp = Path(tempfile.mkdtemp(prefix="per_market_mutation_"))
-        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-        record = _write_raw_snapshot(tmp, [{"market": "KRW-AT", "acc_trade_price_24h": None}])
+        record = _universe_record([("KRW-AT", "PAPER_ELIGIBLE", None), ("KRW-OK", "PAPER_ELIGIBLE", "900000000000")])
         real_evaluate = POLICY.evaluate_liquidity_floor
 
         def include_unknown(*args, **kwargs):
@@ -444,12 +449,27 @@ class MutationProofTests(unittest.TestCase):
             return all(
                 row["status"] == POLICY.EXCLUDED
                 for row in block["markets"].values()
-                if row["krw_24h_traded_value"] is None
+                if row["krw_30d_avg_turnover"] is None
             )
 
-        self.assertTrue(unknown_is_excluded(real_evaluate(record, root=tmp)))
+        self.assertTrue(unknown_is_excluded(real_evaluate(record)))
         with mock.patch.object(POLICY, "evaluate_liquidity_floor", include_unknown):
-            self.assertFalse(unknown_is_excluded(POLICY.evaluate_liquidity_floor(record, root=tmp)))
+            self.assertFalse(unknown_is_excluded(POLICY.evaluate_liquidity_floor(record)))
+
+    def test_dropping_a_held_market_from_the_subscription_is_detected(self):
+        held_doc = json.dumps({"schema_version": "crypto_paper_held_markets/1", "markets": ["KRW-ADA"]})
+        real_subscription = POLICY.subscription_markets
+
+        def drop_held(*args, **kwargs):
+            result = real_subscription(*args, **kwargs)
+            result["markets"] = [market for market in result["markets"] if market != "KRW-ADA"]
+            result["held_kept_subscribed"] = []
+            return result
+
+        CAPTURE.resolve_eligible_subscription(UNIVERSE_0913, held_doc)
+        with mock.patch.object(CAPTURE.PER_MARKET, "subscription_markets", drop_held):
+            with self.assertRaisesRegex(CAPTURE.RealtimeCaptureError, "HELD_POSITION_MARKET_DROPPED_FROM_SUBSCRIPTION"):
+                CAPTURE.resolve_eligible_subscription(UNIVERSE_0913, held_doc)
 
     def test_unmutated_invariants_hold(self):
         assert_per_market_invariants(self, self._mutated_record())

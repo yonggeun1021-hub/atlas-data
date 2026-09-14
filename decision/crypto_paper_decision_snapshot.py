@@ -1565,7 +1565,7 @@ def build_snapshot(
         try:
             liquidity_floor = PER_MARKET.evaluate_liquidity_floor(
                 universe_entry["record"] if universe_entry else None,
-                root=ROOT, policy=per_market_policy,
+                policy=per_market_policy,
             )
         except PER_MARKET.CryptoRealtimePerMarketPolicyError as exc:
             raise CryptoPaperDecisionSnapshotError(
@@ -1596,7 +1596,7 @@ def build_snapshot(
         return {
             "status": PER_MARKET.EXCLUDED,
             "reason": f"{PER_MARKET.UNKNOWN_PREFIX}:MARKET_NOT_ADMITTED_IN_UNIVERSE",
-            "krw_24h_traded_value": None,
+            "krw_30d_avg_turnover": None,
         }
 
     candidates = []
@@ -1804,6 +1804,16 @@ def build_snapshot(
                 sorted(realtime_entry["record"]["run"]["markets"])
                 if realtime_entry is not None else []
             ),
+            # Subscribed markets outside the floor-included set: the public
+            # capture only adds those for open PAPER positions (addendum),
+            # which stay action-capped here and HOLD-gated on the exit path.
+            "subscribed_outside_floor": sorted(
+                set(realtime_entry["record"]["run"]["markets"] if realtime_entry is not None else [])
+                - {
+                    market for market, row in liquidity_floor["markets"].items()
+                    if row["status"] == PER_MARKET.INCLUDED
+                }
+            ),
             "markets": {
                 row["market"]: {
                     "realtime_status": row["realtime_freshness"]["status"],
@@ -1833,7 +1843,7 @@ def build_snapshot(
                     {
                         "market": market,
                         "reason": row["reason"],
-                        "krw_24h_traded_value": row["krw_24h_traded_value"],
+                        "krw_30d_avg_turnover": row["krw_30d_avg_turnover"],
                     }
                     for market, row in sorted(liquidity_floor["markets"].items())
                     if row["status"] != PER_MARKET.INCLUDED

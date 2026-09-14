@@ -68,10 +68,16 @@ jobs:
       # private endpoint. See config/upbit_realtime_gate_contract.json and
       # realtime/upbit_realtime_gate.py::PRIVATE_WS_TYPES_FORBIDDEN /
       # build_subscription_message (fails closed on any private channel).
+      # Subscription = admitted P3-12 markets passing the ratified 30-day
+      # average turnover floor, plus markets with an open PAPER position
+      # (CIO addendum 2026-09-14), which stay subscribed regardless of the
+      # floor. The optional secret carries market codes only
+      # (crypto_paper_held_markets/1); unset means no held markets.
       - name: Bounded-duration public WebSocket capture
         id: capture
         env:
           DURATION_SECONDS: ${{ github.event.inputs.duration_seconds || '240' }}
+          ATLAS_CRYPTO_PAPER_HELD_MARKETS_JSON: ${{ secrets.ATLAS_CRYPTO_PAPER_HELD_MARKETS_JSON }}
         run: |
           set -euo pipefail
           SNAPSHOT_DATE=$(date -u +%F)

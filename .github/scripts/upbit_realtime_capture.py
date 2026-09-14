@@ -643,6 +643,29 @@ def write_evidence_snapshot(evidence_root: Path, snapshot_date: dt.date, run_rec
     return target_file
 
 
+def resolve_eligible_subscription(universe_packet_path, held_markets_json) -> dict:
+    """P3_ELIGIBLE_UNIVERSE subscription set (fail-closed).
+
+    CIO-CRYPTO-REALTIME-SUBSCRIPTION-LIQUIDITY-20260914 as corrected by
+    CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914: admitted P3-12
+    markets must pass the ratified universe policy's 30-day average turnover
+    floor (unknown excluded); markets with an open PAPER position are always
+    kept subscribed regardless of the floor.
+    """
+    admitted = GATE.eligible_markets_from_universe_packet(universe_packet_path)
+    held_markets = PER_MARKET.parse_held_markets_document(held_markets_json)
+    subscription = PER_MARKET.subscription_markets(
+        universe_packet_path, held_markets=held_markets,
+    )
+    if not set(subscription["floor_included"]) <= set(admitted):
+        raise RealtimeCaptureError("LIQUIDITY_FLOOR_SUBSCRIPTION_OUTSIDE_ADMITTED_UNIVERSE")
+    if not set(held_markets) <= set(subscription["markets"]):
+        raise RealtimeCaptureError("HELD_POSITION_MARKET_DROPPED_FROM_SUBSCRIPTION")
+    if set(subscription["markets"]) != set(subscription["floor_included"]) | set(held_markets):
+        raise RealtimeCaptureError("SUBSCRIPTION_SET_NOT_FLOOR_PLUS_HELD")
+    return subscription
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence-root", type=Path, required=True)
@@ -653,6 +676,13 @@ def main(argv=None) -> int:
         type=Path,
         help="PUBLIC_TRANSPORT_VALIDATION_ONLY reference-market contract",
     )
+    parser.add_argument(
+        "--held-markets-json", default=None,
+        help=(
+            'crypto_paper_held_markets/1 document {"schema_version": ..., "markets": [...]} '
+            "(market codes only). Default: $ATLAS_CRYPTO_PAPER_HELD_MARKETS_JSON, else none."
+        ),
+    )
     parser.add_argument("--duration-seconds", type=float, default=None)
     parser.add_argument("--snapshot-date", type=dt.date.fromisoformat, default=None)
     args = parser.parse_args(argv)
@@ -660,21 +690,21 @@ def main(argv=None) -> int:
     contract = GATE.load_contract()
     duration = args.duration_seconds or contract["bounded_run_default_duration_seconds"]
     liquidity_excluded = []
+    held_kept = []
     if args.validation_anchor_contract is not None:
         anchor_contract = load_validation_anchor_contract(args.validation_anchor_contract)
         capture_mode = PUBLIC_VALIDATION_MODE
         markets = anchor_contract["markets"]
     else:
         capture_mode = ELIGIBLE_UNIVERSE_MODE
-        admitted = GATE.eligible_markets_from_universe_packet(args.universe_packet)
-        # CIO-CRYPTO-REALTIME-SUBSCRIPTION-LIQUIDITY-20260914: only admitted
-        # P3-12 markets whose daily-capture 24h KRW traded value meets the
-        # ratified KRW 5B floor are subscribed; unknown turnover is excluded.
-        subscription = PER_MARKET.subscription_markets(args.universe_packet)
+        subscription = resolve_eligible_subscription(
+            args.universe_packet,
+            args.held_markets_json if args.held_markets_json is not None
+            else os.environ.get("ATLAS_CRYPTO_PAPER_HELD_MARKETS_JSON"),
+        )
         markets = subscription["markets"]
-        if not set(markets) <= set(admitted):
-            raise RealtimeCaptureError("LIQUIDITY_FLOOR_SUBSCRIPTION_OUTSIDE_ADMITTED_UNIVERSE")
-        liquidity_excluded = subscription["excluded"]
+        liquidity_excluded = subscription["floor_excluded"]
+        held_kept = subscription["held_kept_subscribed"]
     validate_evidence_root(capture_mode, args.evidence_root)
     snapshot_date = args.snapshot_date or utc_now().date()
 
@@ -692,6 +722,7 @@ def main(argv=None) -> int:
         "capture_mode": capture_mode,
         "market_count": len(markets),
         "liquidity_floor_excluded_markets": liquidity_excluded,
+        "held_position_markets_kept_subscribed": held_kept,
         "overall_status": run_record["status"]["overall_status"],
         "accepted": run_record["status"]["counts"]["accepted"],
         "reconnect_count": run_record["status"]["reconnect_count"],

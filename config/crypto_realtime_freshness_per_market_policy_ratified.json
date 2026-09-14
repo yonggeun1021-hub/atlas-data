@@ -41,18 +41,19 @@
     ]
   },
   "liquidity_floor": {
-    "metric": "UPBIT_TICKER_ACC_TRADE_PRICE_24H_KRW",
-    "source": "P3-12 daily universe raw capture upbit_ticker.json.gz, bound through the universe record raw_snapshot manifest",
-    "min_krw": "5000000000",
-    "threshold_source": {
+    "metric": "RATIFIED_UNIVERSE_POLICY_30D_AVG_FINALIZED_DAILY_KRW_TURNOVER",
+    "definition_source": {
       "path": "config/upbit_tradeable_universe_policy.json",
-      "field": "min_30d_avg_krw_turnover"
+      "threshold_field": "min_30d_avg_krw_turnover",
+      "lookback_field": "turnover_lookback_finalized_days",
+      "input_row_field": "trailing_30d_krw_turnover"
     },
     "unknown_turnover_policy": "EXCLUDE_FAIL_CLOSED",
     "applies_to": [
       "REALTIME_SUBSCRIPTION",
       "PAPER_CANDIDATE_ACTION_STATE"
-    ]
+    ],
+    "held_position_markets": "ALWAYS_SUBSCRIBED_REGARDLESS_OF_FLOOR"
   },
   "stale_held_position": {
     "paper_exit_execution_while_not_fresh": false,
@@ -70,5 +71,11 @@
     "trading_authorized": false,
     "real_capital_authorized": false
   },
-  "packet_sha256": "4890b70b8a5ca70f7040d79d5ffe09c1efc7475964e134405232fc9094c8778d"
+  "companion_decision_correction": {
+    "addendum_id": "CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914",
+    "path": "evidence/authority/crypto_realtime_subscription_floor_metric_cio_addendum_20260914.json",
+    "file_sha256": "bc009c591cd6492c55471a499502381812d54a8f12e50e7334ec04c10a954e1f",
+    "corrects": "companion decision floor metric: the ratified universe policy 30-day average replaces the misstated 24h traded value"
+  },
+  "packet_sha256": "8883e22a4d88e760a45f3cbc3df06b4a7894a6052767bc0f7dcb3b93ee3ac1c6"
 }

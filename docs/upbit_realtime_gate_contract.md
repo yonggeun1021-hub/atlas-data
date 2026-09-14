@@ -187,10 +187,16 @@ pinned in `realtime/crypto_realtime_per_market_policy.py`). From
   UNKNOWN or MIXED_GENERATION market caps only its own actionable state, and
   `freshness_status.realtime` / `overall` stay recorded for display only;
 * universe and market-evidence freshness remain global caps;
-* admitted P3-12 markets whose daily universe raw capture 24h KRW traded value
-  (`acc_trade_price_24h`) is below KRW 5,000,000,000 are neither subscribed by
-  the bounded capture nor allowed an actionable state; unknown turnover is
-  excluded; every exclusion is recorded with its reason;
+* the realtime subscription and PAPER action set apply the ratified P3-12
+  liquidity floor exactly as `config/upbit_tradeable_universe_policy.json`
+  defines it (`trailing_30d_krw_turnover` / `turnover_lookback_finalized_days`
+  against `min_30d_avg_krw_turnover`); unknown turnover is excluded and every
+  exclusion is recorded with its reason. CIO addendum
+  `CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914` (sha256
+  `bc009c59…4e1f`, bound alongside the ratification) corrected an earlier 24h
+  metric and keeps markets with an open PAPER position subscribed regardless of
+  the floor (`--held-markets-json` / `ATLAS_CRYPTO_PAPER_HELD_MARKETS_JSON`,
+  market codes only);
 * `portfolio/crypto_paper_stale_hold.py` turns a /2 packet plus the private
   runtime's held-market list into per-market HOLD rows (no PAPER exit
   execution while not FRESH) and an alert beyond a 30-minute engineering
