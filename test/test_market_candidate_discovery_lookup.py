@@ -216,7 +216,31 @@ class CurrentInputsTests(unittest.TestCase):
         self.assertEqual(roles["three_market_coverage"]["payload_sha256"], receipt.get("payload_sha256"))
         self.assertEqual(roles["kr_symbol_review"]["contract"], "korea_symbol_market_review/1")
         self.assertEqual(roles["us_symbol_review"]["contract"], "us_symbol_market_review/1")
-        self.assertEqual(roles["crypto_decision"]["contract"], "crypto_paper_decision_snapshot_packet/1")
+        # The Crypto decision contract has grown per-market freshness
+        # versions since this test was written (/1 legacy, /2 and /3 --
+        # PRs #726/#727), and the natural upbit-realtime-capture job now
+        # commits /3 packets, so "latest committed" keeps moving forward.
+        # Pinning to one literal version here would make this test fail the
+        # moment a newer, still-accepted generation lands -- so the
+        # assertion is bound to the same accepted-version set the crypto
+        # funnel briefing contract declares
+        # (config/crypto_funnel_briefing_contract.json's
+        # ``source_schema_versions``), never to a single hardcoded string.
+        funnel_contract = json.loads(
+            (ROOT / "config" / "crypto_funnel_briefing_contract.json").read_text(encoding="utf-8")
+        )
+        accepted_crypto_decision_versions = funnel_contract["source_schema_versions"]
+        self.assertIn("crypto_paper_decision_snapshot_packet/1", accepted_crypto_decision_versions)
+        self.assertIn(roles["crypto_decision"]["contract"], accepted_crypto_decision_versions)
+        # The hash-linking itself is not weakened: the reused-contract role
+        # must still equal the exact ``schema_version`` of the decision
+        # packet this lookup actually resolved and loaded
+        # (``self.inputs["crypto_decision_path"]``), read fresh from disk
+        # here, never a value asserted independently of its source.
+        decision_record = json.loads(
+            Path(self.inputs["crypto_decision_path"]).read_text(encoding="utf-8")
+        )
+        self.assertEqual(roles["crypto_decision"]["contract"], decision_record["schema_version"])
         for ref in portal["reused_contracts"]:
             if "source" in ref:
                 self.assertRegex(ref["source"]["file_sha256"], r"^[0-9a-f]{64}$")
