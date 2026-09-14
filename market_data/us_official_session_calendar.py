@@ -12,6 +12,13 @@ a US date may be classified for INTERNAL_VIRTUAL_PAPER use. REAL is out of scope
    - a date in the official early-close statement is ``OPEN_EARLY_CLOSE``;
    - Saturday and Sunday are ``CLOSED``;
    - any other date of a published year is ``OPEN_REGULAR``.
+   The last two lines are the ratified ``official_capture.date_rule`` in
+   ``config/us_session_calendar_source_v1.json`` (the KRX mirror), and they
+   apply only inside a year the captured official page publishes. There, the
+   page's closure table and early-close statement are the complete official
+   list for that year, so a weekend or an unlisted weekday is read from that
+   official publication rather than inferred. No year outside the page's
+   published years is ever classified this way.
    The Nasdaq holiday schedule is a cross-check where it is available. Any
    disagreement, including with a supplied Alpaca market-calendar row, is
    ``UNKNOWN``.
@@ -22,9 +29,11 @@ a US date may be classified for INTERNAL_VIRTUAL_PAPER use. REAL is out of scope
    outside either capture window, it is ``UNKNOWN``. Early close is read from
    the Alpaca calendar close time and never inferred.
 
-``UNKNOWN`` is the registry's ``US_FINISHED_SESSION_UNKNOWN``. Nothing here
-derives a session from a weekday or a holiday rule. A weekday that no source
-attests stays ``UNKNOWN``.
+``UNKNOWN`` is the registry's ``US_FINISHED_SESSION_UNKNOWN``. Outside the
+ratified official-year date rule above, nothing here derives a session from a
+weekday or a holiday rule: in the two-source era, a weekday that no source
+attests stays ``UNKNOWN`` and a weekend is ``CLOSED`` only when neither source
+lists it.
 
 Network access exists only in ``http_capture``/``capture_page``. Tests inject a
 fake opener. Parsers and builders are pure functions over captured bytes.
@@ -511,8 +520,8 @@ def parse_nyse_page(raw: bytes) -> dict:
 
     Fails closed when the page is ambiguous. That covers zero or several
     year-header tables, an unparseable cell, a weekday that contradicts its
-    date, a weekend closure, too few closures per year, and an early close that
-    collides with a closure.
+    date, a weekend closure, too few closures per year, an early close that
+    collides with a closure, and a published year with zero early-close dates.
     """
     page = _page_text(raw)
     candidates = []
@@ -567,6 +576,12 @@ def parse_nyse_page(raw: bytes) -> dict:
             if day.weekday() >= 5 or day.isoformat() in closures:
                 fail("NYSE_EARLY_CLOSE_COLLIDES", day.isoformat())
             early[day.isoformat()] = "NYSE_EARLY_CLOSE_1PM_STATEMENT"
+    for year in years:
+        # Every NYSE year has at least one 1:00 p.m. early close (the day after
+        # Thanksgiving). A published year with none means the statement was not
+        # parsed, and a silent {} would turn those dates into OPEN_REGULAR.
+        if not any(key.startswith(f"{year}-") for key in early):
+            fail("NYSE_EARLY_CLOSE_YEAR_MISSING", str(year))
     return {
         "source_id": NYSE_SOURCE_ID,
         "published_years": years,

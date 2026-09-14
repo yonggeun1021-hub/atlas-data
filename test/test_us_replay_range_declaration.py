@@ -7,6 +7,7 @@ execution uses injected runners, clocks and sleeps.
 """
 from __future__ import annotations
 
+import argparse
 import contextlib
 import copy
 import datetime as dt
@@ -125,6 +126,29 @@ def resign(summary: dict) -> dict:
     summary.pop("summary_sha256", None)
     summary["summary_sha256"] = CAL.payload_sha256(summary)
     return summary
+
+
+def commit_pair(directory: Path, summary: dict, declaration: dict | None = None) -> Path:
+    """Write a declaration and its probe summary under the committed naming convention."""
+    directory.mkdir(parents=True, exist_ok=True)
+    declaration = DECL.declare(summary) if declaration is None else declaration
+    (directory / DECL.SUMMARY_FILE_NAME).write_bytes(CAL.canonical_bytes(summary))
+    path = directory / DECL.DECLARATION_FILE_NAME
+    path.write_bytes(CAL.canonical_bytes(declaration))
+    return path
+
+
+def parser_option_strings(parser: argparse.ArgumentParser) -> set[str]:
+    options: set[str] = set()
+    for action in parser._actions:
+        options.update(action.option_strings)
+        if isinstance(action, argparse._SubParsersAction):
+            for sub in action.choices.values():
+                options |= parser_option_strings(sub)
+    return options
+
+
+DATE_LIKE_OPTION = r"date|start|end|first|last|range|session|from|until|since|begin|skip|offset|limit"
 
 
 class TempDirCase(unittest.TestCase):
@@ -266,12 +290,18 @@ class DeclarationTest(TempDirCase):
     def test_cli_has_no_sub_range_arguments(self):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             DECL.main(["declare", "--summary", "x.json", "--out", "y.json", "--start", "2020-01-02"])
+        options = parser_option_strings(DECL.build_parser())
+        self.assertEqual(options, {"-h", "--help", "--summary", "--out", "--declaration"})
+        self.assertFalse([option for option in options if __import__("re").search(DATE_LIKE_OPTION, option)])
+
+    def test_rule_text_states_the_2018_clamp(self):
+        self.assertIn("2018-01-01", DECL.RULE_TEXT)
+        self.assertIn("clamped", DECL.RULE_TEXT)
 
     def test_load_declaration_checks_hash_status_and_rule(self):
         _, summary = probe(FakeWorld(), self.tmp)
         declaration = DECL.declare(summary)
-        path = self.tmp / "declaration.json"
-        path.write_bytes(CAL.canonical_bytes(declaration))
+        path = commit_pair(self.tmp / "pair", summary)
         self.assertEqual(DECL.load_declaration(path)["declaration_sha256"], declaration["declaration_sha256"])
 
         tampered = copy.deepcopy(declaration)
@@ -287,25 +317,72 @@ class DeclarationTest(TempDirCase):
         with self.assertRaisesRegex(DECL.DeclarationError, "DECLARATION_SESSIONS_INCONSISTENT"):
             DECL.load_declaration(path)
 
-        blocked = DECL.declare(probe(FakeWorld(drop_spy={"2025-05-06"}), self.tmp / "b")[1])
-        path.write_bytes(CAL.canonical_bytes(blocked))
+        blocked_summary = probe(FakeWorld(drop_spy={"2025-05-06"}), self.tmp / "b")[1]
+        path = commit_pair(self.tmp / "blocked", blocked_summary)
         with self.assertRaisesRegex(DECL.DeclarationError, "DECLARATION_NOT_DECLARED"):
+            DECL.load_declaration(path)
+
+    def test_consistent_resigned_sub_range_is_rejected(self):
+        # The reviewer's attack: cut the declared sessions to a sub-range, make
+        # every derived field consistent, re-sign. Only the rebuild catches it.
+        _, summary = probe(FakeWorld(), self.tmp)
+        declaration = DECL.declare(summary)
+        self.assertGreater(declaration["range"]["session_count"], 260)
+        forged = copy.deepcopy(declaration)
+        cut = forged["range"]["sessions"][200:260]
+        forged["range"].update({
+            "sessions": cut, "first_replay_date": cut[0], "last_replay_date": cut[-1],
+            "session_count": len(cut), "sessions_sha256": CAL.payload_sha256(cut),
+        })
+        forged.pop("declaration_sha256")
+        forged["declaration_sha256"] = CAL.payload_sha256(forged)
+        path = commit_pair(self.tmp / "forged", summary, forged)
+        with self.assertRaisesRegex(DECL.DeclarationError, "DECLARATION_DOES_NOT_REBUILD_FROM_COMMITTED_SUMMARY"):
+            DECL.load_declaration(path)
+        with self.assertRaisesRegex(DECL.DeclarationError, "DECLARATION_DOES_NOT_REBUILD_FROM_COMMITTED_SUMMARY"):
+            DECL.main(["verify", "--declaration", str(path)])
+        # The driver refuses it on every command, before any chunk is planned.
+        with self.assertRaisesRegex(DECL.DeclarationError, "DECLARATION_DOES_NOT_REBUILD_FROM_COMMITTED_SUMMARY"):
+            DRIVER.main(["plan", "--declaration", str(path)])
+
+    def test_declaration_needs_the_committed_summary_under_the_naming_convention(self):
+        _, summary = probe(FakeWorld(), self.tmp)
+        path = commit_pair(self.tmp / "pair", summary)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(DECL.main(["verify", "--declaration", str(path)]), 0)
+        self.assertIn("PASS_US_REPLAY_RANGE_DECLARATION_VERIFIED", out.getvalue())
+        renamed = self.tmp / "pair" / "declaration.json"
+        shutil.copyfile(path, renamed)
+        with self.assertRaisesRegex(DECL.DeclarationError, "DECLARATION_PATH_CONVENTION"):
+            DECL.load_declaration(renamed)
+        (self.tmp / "pair" / DECL.SUMMARY_FILE_NAME).unlink()
+        with self.assertRaisesRegex(DECL.DeclarationError, "DECLARATION_PROBE_SUMMARY_NOT_COMMITTED"):
+            DECL.load_declaration(path)
+        # A different (validly signed) summary next to the declaration also fails.
+        other = probe(FakeWorld(clock=BEFORE_CLOSE), self.tmp / "other")[1]
+        (self.tmp / "pair" / DECL.SUMMARY_FILE_NAME).write_bytes(CAL.canonical_bytes(other))
+        with self.assertRaisesRegex(DECL.DeclarationError, "DECLARATION_DOES_NOT_REBUILD_FROM_COMMITTED_SUMMARY"):
             DECL.load_declaration(path)
 
     def test_contract_drift_only_on_range_relevant_fields(self):
         _, summary = probe(FakeWorld(), self.tmp)
         declaration = DECL.declare(summary)
         root = self.tmp / "root"
-        for rel in ("config/free_market_data_contract.json", "config/us_session_calendar_source_v1.json"):
+        for rel in (
+            "config/free_market_data_contract.json", "config/us_session_calendar_source_v1.json",
+            "evidence/authority/us_session_calendar_source_user_ratification_20260914.json",
+            "config/regime_source_owner_registry_v2.json",
+        ):
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / rel, root / rel)
-        path = self.tmp / "declaration.json"
-        path.write_bytes(CAL.canonical_bytes(declaration))
+        path = commit_pair(self.tmp / "pair", summary, declaration)
         contract_path = root / "config/free_market_data_contract.json"
         contract = json.loads(contract_path.read_text())
         contract["alpaca"]["current_proxy_axes"]["approval_status"] = "SOME_LATER_RATIFICATION"
         contract_path.write_text(json.dumps(contract))
         with mock.patch.object(DECL, "ROOT", root):
+            # An unrelated contract change neither moves the range nor breaks
+            # the byte-identical rebuild.
             DECL.load_declaration(path)
             contract["alpaca"]["sector_reference_symbols"].append("XLZ")
             contract_path.write_text(json.dumps(contract))
@@ -391,18 +468,153 @@ class DriverTest(TempDirCase):
         self.run_driver(declaration, third, time_budget_seconds=10_000)
         self.assertEqual(third.calls, [])  # idempotent: nothing left to do
 
-    def test_pacing_sleep_is_applied_per_chunk(self):
-        _, _, sleeps = self.run_driver(stub_declaration(4), stub_runner(), time_budget_seconds=10_000)
-        self.assertEqual(len(sleeps), 1)
-        self.assertAlmostEqual(sleeps[0], DRIVER.pace_seconds(4, 1.0))
-        self.assertEqual(DRIVER.pace_seconds(40, 10.0), 230.0)
-        self.assertEqual(DRIVER.pace_seconds(40, 1000.0), 0.0)
+    def test_chunk_starts_are_spaced_by_the_window_from_chunk_start(self):
+        _, _, sleeps = self.run_driver(stub_declaration(10), stub_runner(), time_budget_seconds=10_000)
+        # Three chunks: no wait before the first; later waits are measured from
+        # the previous start (the fake clock advances 1s per reading).
+        self.assertEqual(len(sleeps), 2)
+        for wait in sleeps:
+            self.assertGreater(wait, 50)
+            self.assertLessEqual(wait, DRIVER.PACING_WINDOW_SECONDS)
+        self.assertEqual(DRIVER.start_wait_seconds(None, 5.0), 0.0)
+        self.assertEqual(DRIVER.start_wait_seconds(10.0, 25.0), 45.0)
+        self.assertEqual(DRIVER.start_wait_seconds(10.0, 200.0), 0.0)
+
+    def test_chunk_size_is_capped_at_half_of_each_per_minute_limit(self):
+        self.assertEqual(DRIVER.max_chunk_size(), 5)
+        self.assertEqual(DRIVER.DEFAULT_CHUNK_SIZE, 5)
+        self.assertLessEqual(5 * DRIVER.DEFAULT_ALPACA_REQUESTS_PER_DATE, DRIVER.DEFAULT_ALPACA_RPM / 2)
+        self.assertLessEqual(5 * DRIVER.DEFAULT_FRED_REQUESTS_PER_DATE, DRIVER.DEFAULT_FRED_RPM / 2)
+        self.assertEqual(DRIVER.max_chunk_size(alpaca_rpm=200, fred_rpm=120), 5)
+        self.assertEqual(DRIVER.max_chunk_size(fred_rpm=60), 5)
+        self.assertEqual(DRIVER.max_chunk_size(fred_rpm=48), 4)
+        with self.assertRaisesRegex(DRIVER.DriverError, "CHUNK_SIZE_INVALID"):
+            DRIVER.plan_chunks(stub_declaration(10)["range"]["sessions"], 6)
+        with self.assertRaisesRegex(DRIVER.DriverError, "CHUNK_SIZE_INVALID"):
+            DRIVER.run(stub_declaration(10), self.tmp / "work", chunk_size=40, runner=stub_runner(),
+                       validator=stub_validator, sleep=lambda _: None, log=lambda _: None)
+
+    def test_no_sixty_second_window_exceeds_either_limit_under_worst_case_bursts(self):
+        clock = {"now": 0.0}
+        events = []  # (time, provider, count)
+        durations = [0.0, 59.9, 0.2, 75.0, 3.0, 120.0, 0.0, 30.0, 59.999, 1.0]
+        attempts = {"n": 0}
+
+        def sleep(seconds):
+            self.assertGreaterEqual(seconds, 0)
+            clock["now"] += seconds
+
+        def runner(chunk, out_path, env):
+            index = attempts["n"]
+            attempts["n"] += 1
+            start = clock["now"]
+            clock["now"] += durations[index % len(durations)]
+            # The child is unpaced: adversarially burst every worst-case request
+            # at the start of one attempt and at the end of the next, so
+            # consecutive bursts sit as close together as the driver allows.
+            burst_at = start if index % 2 else clock["now"]
+            dates = len(chunk["dates"])
+            events.append((burst_at, "alpaca", dates * DRIVER.DEFAULT_ALPACA_REQUESTS_PER_DATE))
+            events.append((burst_at, "fred", dates * DRIVER.DEFAULT_FRED_REQUESTS_PER_DATE))
+            if index % 7 == 3:
+                return 1, "HTTP_ERROR:503"  # failed attempt still spent its requests
+            Path(out_path).write_text(json.dumps({
+                "schema_version": "stub", "requested_dates": chunk["dates"],
+                "records": [{"requested_date": day, "status": "FREE_AXES_OBSERVED"} for day in chunk["dates"]],
+            }))
+            return 0, ""
+
+        progress = DRIVER.run(
+            stub_declaration(83), self.tmp / "work", chunk_size=DRIVER.DEFAULT_CHUNK_SIZE, runner=runner,
+            validator=stub_validator, sleep=sleep, monotonic=lambda: clock["now"], env={},
+            log=lambda _: None, time_budget_seconds=10**9,
+        )
+        self.assertEqual(progress["complete_chunks"], progress["planned_chunks"])
+        self.assertGreater(attempts["n"], progress["planned_chunks"])  # retries happened
+        limits = {"alpaca": DRIVER.DEFAULT_ALPACA_RPM, "fred": DRIVER.DEFAULT_FRED_RPM}
+        for provider, limit in limits.items():
+            times = [(at, count) for at, name, count in events if name == provider]
+            worst = max(sum(count for other, count in times if at <= other < at + 60.0) for at, _ in times)
+            self.assertLessEqual(worst, limit, provider)
 
     def test_estimate_for_about_two_thousand_sessions(self):
         self.assertEqual(DRIVER.estimate(2000), {
-            "session_count": 2000, "chunks": 50, "alpaca_requests_upper_bound": 36000,
-            "fred_requests_upper_bound": 12000, "paced_minutes_lower_bound": 200.0,
+            "session_count": 2000, "chunk_size": 5, "chunks": 400, "alpaca_requests_upper_bound": 36000,
+            "fred_requests_upper_bound": 12000, "paced_minutes_lower_bound": 400.0,
+            "workflow_runs_lower_bound": 2,
         })
+
+    def test_driver_parser_accepts_no_date_or_range_option(self):
+        parser = DRIVER.build_parser()
+        options = parser_option_strings(parser)
+        self.assertEqual(options, {
+            "-h", "--help", "--declaration", "--work-dir", "--chunk-size", "--time-budget-minutes", "--summary-out",
+        })
+        self.assertFalse([option for option in options if __import__("re").search(DATE_LIKE_OPTION, option)])
+        positionals = [action for action in parser._actions if not action.option_strings and action.dest != "help"]
+        self.assertEqual([(action.dest, list(action.choices), action.nargs) for action in positionals],
+                         [("command", ["plan", "run", "finalize"], None)])
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            DRIVER.main(["plan", "--first-date", "2020-01-02"])
+
+    def test_nonzero_child_exit_never_promotes_its_output(self):
+        def runner(chunk, out_path, env):
+            Path(out_path).write_text(json.dumps({
+                "schema_version": "stub", "requested_dates": chunk["dates"],
+                "records": [{"requested_date": day, "status": "FREE_AXES_OBSERVED"} for day in chunk["dates"]],
+            }))
+            return 1, "crashed after writing"
+
+        progress, _, _ = self.run_driver(stub_declaration(4), runner, time_budget_seconds=10_000)
+        chunks_dir = self.tmp / "work" / "chunks"
+        chunk = DRIVER.plan_chunks(stub_declaration(4)["range"]["sessions"], 4)[0]
+        self.assertFalse((chunks_dir / chunk["file_name"]).exists())
+        self.assertFalse(DRIVER.meta_path(chunks_dir, chunk).exists())
+        self.assertEqual(list(chunks_dir.iterdir()), [])
+        self.assertEqual(progress["complete_chunks"], 0)
+        self.assertEqual(progress["failures_this_run"], [{"chunk": 1, "state": "ABSENT"}])
+
+    def test_chunks_from_different_replay_code_are_never_merged(self):
+        declaration = stub_declaration(10)
+        work = self.tmp / "work"
+        DRIVER.run(declaration, work, chunk_size=4, runner=stub_runner(), validator=stub_validator,
+                   sleep=lambda _: None, log=lambda _: None, env={}, time_budget_seconds=10**9,
+                   code_sha256="a" * 64)
+        chunks_dir = work / "chunks"
+        plan = DRIVER.plan_chunks(declaration["range"]["sessions"], 4)
+        for chunk in plan:
+            self.assertEqual(DRIVER.read_chunk_meta(chunks_dir, chunk)["replay_code_sha256"], "a" * 64)
+        evaluated = []
+        # Current code differs from the code that made every chunk: refused.
+        with self.assertRaisesRegex(DRIVER.DriverError, "CHUNK_CODE_HASH_MISMATCH"):
+            DRIVER.finalize(declaration, work, chunk_size=4, validator=stub_validator,
+                            evaluate=lambda *args: evaluated.append(args))
+        # One chunk re-labelled as made by other code: mixed hashes, refused.
+        meta_file = DRIVER.meta_path(chunks_dir, plan[1])
+        meta = json.loads(meta_file.read_text())
+        meta["replay_code_sha256"] = "b" * 64
+        meta_file.write_bytes(CAL.canonical_bytes(meta))
+        with self.assertRaisesRegex(DRIVER.DriverError, "CHUNK_CODE_HASH_MISMATCH"):
+            DRIVER.finalize(declaration, work, chunk_size=4, validator=stub_validator,
+                            evaluate=lambda *args: evaluated.append(args), code_sha256="a" * 64)
+        self.assertEqual(evaluated, [])
+        # Resuming under different code refuses to add chunks as well.
+        with self.assertRaisesRegex(DRIVER.DriverError, "CHUNK_CODE_HASH_MISMATCH"):
+            DRIVER.run(declaration, work, chunk_size=4, runner=stub_runner(), validator=stub_validator,
+                       sleep=lambda _: None, log=lambda _: None, env={}, code_sha256="a" * 64)
+
+    def test_chunk_file_without_a_matching_meta_is_not_complete(self):
+        declaration = stub_declaration(4)
+        self.run_driver(declaration, stub_runner(), time_budget_seconds=10_000)
+        chunks_dir = self.tmp / "work" / "chunks"
+        chunk = DRIVER.plan_chunks(declaration["range"]["sessions"], 4)[0]
+        self.assertEqual(DRIVER.chunk_state(chunk, chunks_dir, validator=stub_validator), "COMPLETE")
+        path = chunks_dir / chunk["file_name"]
+        path.write_text(path.read_text() + " ")  # file no longer matches its meta
+        self.assertEqual(DRIVER.chunk_state(chunk, chunks_dir, validator=stub_validator), "INVALID")
+        path.write_text(path.read_text()[:-1])
+        DRIVER.meta_path(chunks_dir, chunk).unlink()
+        self.assertEqual(DRIVER.chunk_state(chunk, chunks_dir, validator=stub_validator), "INVALID")
 
     def test_transport_failure_is_retried_then_stops_the_run(self):
         runner = stub_runner(record_text="HTTP_ERROR:429")
@@ -430,6 +642,7 @@ class DriverTest(TempDirCase):
         chunks_dir.mkdir(parents=True)
         chunk = DRIVER.plan_chunks(declaration["range"]["sessions"], 4)[0]
         (chunks_dir / chunk["file_name"]).write_text(json.dumps({"schema_version": "stub", "requested_dates": chunk["dates"], "records": []}))
+        DRIVER.write_chunk_meta(chunks_dir, chunk, "c" * 64)
         self.assertEqual(DRIVER.chunk_state(chunk, chunks_dir), "INVALID")
         self.assertEqual(DRIVER.chunk_state(chunk, chunks_dir, validator=stub_validator), "COMPLETE")
 

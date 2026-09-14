@@ -101,8 +101,19 @@ class PageParserTest(unittest.TestCase):
         self.assertEqual(parsed["closures"]["2026-04-03"], "Good Friday")
         self.assertEqual(parsed["closures"]["2027-12-24"], "Christmas Day")
         self.assertNotIn("2028-01-01", parsed["closures"])  # em dash cell: no closure listed
-        self.assertEqual(sorted(parsed["early_closes"]), ["2026-07-02", "2026-11-27", "2026-12-24"])
+        self.assertEqual(
+            sorted(parsed["early_closes"]),
+            ["2026-07-02", "2026-11-27", "2026-12-24", "2027-11-26", "2028-07-03", "2028-11-24"],
+        )
         self.assertEqual(len(parsed["closures"]), 29)
+
+    def test_nyse_published_year_without_early_close_fails_closed(self):
+        stripped = NYSE_HTML.replace(b"Friday, November 26, 2027, ", b"")
+        with self.assertRaisesRegex(CAL.UsSessionCalendarError, "NYSE_EARLY_CLOSE_YEAR_MISSING:2027"):
+            CAL.parse_nyse_page(stripped)
+        no_statement = NYSE_HTML.replace(b"1:00 p.m.", b"one o'clock")
+        with self.assertRaisesRegex(CAL.UsSessionCalendarError, "NYSE_EARLY_CLOSE_YEAR_MISSING:2026"):
+            CAL.parse_nyse_page(no_statement)
 
     def test_nyse_weekday_contradicting_date_fails(self):
         bad = NYSE_HTML.replace(b"Friday, April 3", b"Thursday, April 3")

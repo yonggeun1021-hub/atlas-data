@@ -5,7 +5,9 @@ name: US Regime Replay Range Probe
 # up to 9 Alpaca IEX daily-bar pages for the 15 replay symbols, and 3 FRED
 # ALFRED vintage-date lists. Bar responses stay on the runner (private/) and
 # are never uploaded; only public captures, the date/hash summary and the
-# candidate range declaration are uploaded. Nothing is committed.
+# candidate range declaration are uploaded. Nothing is committed here; the two
+# uploaded files are already named for the committed path convention
+# (evidence/us_regime_replay/probe_summary_v1.json and range_declaration_v1.json).
 
 on:
   workflow_dispatch:
@@ -56,11 +58,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/us-probe/upload"
           python3 regime/us_replay_coverage_probe.py analyze \
             --raw-dir "$RUNNER_TEMP/us-probe/raw" \
-            --out "$RUNNER_TEMP/us-probe/upload/probe_summary.json"
+            --out "$RUNNER_TEMP/us-probe/upload/probe_summary_v1.json"
           set +e
           python3 regime/us_replay_range_declaration.py declare \
-            --summary "$RUNNER_TEMP/us-probe/upload/probe_summary.json" \
-            --out "$RUNNER_TEMP/us-probe/upload/range_declaration_candidate.json"
+            --summary "$RUNNER_TEMP/us-probe/upload/probe_summary_v1.json" \
+            --out "$RUNNER_TEMP/us-probe/upload/range_declaration_v1.json"
           status=$?
           set -e
           cp -R "$RUNNER_TEMP/us-probe/raw/public" "$RUNNER_TEMP/us-probe/upload/public_captures"

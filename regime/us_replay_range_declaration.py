@@ -14,7 +14,9 @@ The rule, fixed here and written into every declaration as ``rule.text``:
    which all 15 symbols have an Alpaca IEX daily bar, i.e. the maximum
    per-symbol first-bar date. The second is the earliest date on which ALFRED
    vintages exist for VIXCLS, WRESBAL and TOTBKCR, i.e. the maximum per-series
-   first vintage date.
+   first vintage date. If that date falls before 2018-01-01, the first year in
+   the ratified calendar scope, counting starts at 2018-01-01 instead
+   (``data_start_effective``, reason ``RATIFIED_CALENDAR_SCOPE_STARTS_2018``).
 3. Sessions come only from ``market_data/us_official_session_calendar.py``
    under US-SESSION-CALENDAR-SOURCE-V1-20260914. There is no weekday inference.
 4. The warm-up is 61 sessions. The longest configured return window is 60
@@ -32,8 +34,17 @@ The rule, fixed here and written into every declaration as ``rule.text``:
 7. No caller argument can select a start, an end, or a sub-range.
 
 The declaration is deterministic. ``declared_at`` is the probe capture instant,
-not wall-clock time, and ``verify`` rebuilds it byte for byte from the same
-summary.
+not wall-clock time.
+
+Committed path convention: the probe summary (dates, counts and sha256 values
+only) is committed next to the declaration, as
+``evidence/us_regime_replay/probe_summary_v1.json`` beside
+``evidence/us_regime_replay/range_declaration_v1.json``. ``load_declaration``
+(which the replay driver uses for every command) and ``verify`` both rebuild
+the declaration with ``declare(summary)`` from that committed summary and
+require byte equality with the committed declaration. A hand-edited declaration
+is refused even when it is internally consistent and re-signed, for example a
+sub-range of the declared sessions with matching counts and hashes.
 """
 from __future__ import annotations
 
@@ -53,7 +64,10 @@ from regime import us_replay_coverage_probe as PROBE  # noqa: E402
 
 
 SCHEMA = "us_replay_range_declaration/1"
-DEFAULT_DECLARATION_PATH = ROOT / "evidence" / "us_regime_replay" / "range_declaration_v1.json"
+DECLARATION_FILE_NAME = "range_declaration_v1.json"
+SUMMARY_FILE_NAME = "probe_summary_v1.json"
+DEFAULT_DECLARATION_PATH = ROOT / "evidence" / "us_regime_replay" / DECLARATION_FILE_NAME
+DEFAULT_SUMMARY_PATH = ROOT / "evidence" / "us_regime_replay" / SUMMARY_FILE_NAME
 CONTRACT_REL = "config/free_market_data_contract.json"
 SOURCE_CONFIG_REL = "config/us_session_calendar_source_v1.json"
 STATUS_DECLARED = "DECLARED"
@@ -66,7 +80,8 @@ RULE_TEXT = (
     " capture instant]. data_start = max(max over the 15 replay symbols"
     " (free_market_data_contract alpaca.trend_symbols + sector_reference_symbols)"
     " of the first Alpaca IEX daily bar date, max over VIXCLS/WRESBAL/TOTBKCR of"
-    " the first ALFRED vintage date). Sessions come only from"
+    " the first ALFRED vintage date); a data_start before 2018-01-01 (the first"
+    " year of the ratified calendar scope) is clamped to 2018-01-01. Sessions come only from"
     " US-SESSION-CALENDAR-SOURCE-V1-20260914 (official NYSE capture for"
     " published years; Alpaca calendar AND IEX SPY bar for 2018+ earlier years;"
     " conflict or missing = US_FINISHED_SESSION_UNKNOWN; no weekday inference)."
@@ -260,7 +275,6 @@ def declare(summary: dict, *, root: Path = ROOT) -> dict:
         "alfred_vintagedates_raw_sha256": {series: value["raw_sha256"] for series, value in fred_block.items()},
         "free_market_data_contract": {
             "path": CONTRACT_REL,
-            "file_sha256_at_declaration": CAL.file_sha256(contract_path),
             "range_relevant_fields_sha256": CAL.payload_sha256(range_relevant_contract_fields(contract)),
         },
         "session_calendar_source": {"path": SOURCE_CONFIG_REL, "sha256": CAL.file_sha256(root / SOURCE_CONFIG_REL)},
@@ -310,11 +324,35 @@ def declare(summary: dict, *, root: Path = ROOT) -> dict:
     return declaration
 
 
+def summary_path_for(declaration_path: Path) -> Path:
+    """The committed probe summary that must sit next to a declaration."""
+    declaration_path = Path(declaration_path)
+    if declaration_path.name != DECLARATION_FILE_NAME:
+        fail("DECLARATION_PATH_CONVENTION", declaration_path.name)
+    return declaration_path.with_name(SUMMARY_FILE_NAME)
+
+
+def rebuild_matches(declaration_bytes: bytes, summary: dict, *, root: Path) -> dict:
+    """Rebuild the declaration from ``summary`` and require byte equality."""
+    rebuilt = declare(summary, root=root)
+    if CAL.canonical_bytes(rebuilt) != declaration_bytes:
+        fail("DECLARATION_DOES_NOT_REBUILD_FROM_COMMITTED_SUMMARY")
+    return rebuilt
+
+
 def load_declaration(path: Path) -> dict:
-    """Load and re-check a committed declaration (hash, status, rule constants)."""
+    """Load a committed declaration and prove it is ``declare(summary)``.
+
+    Checks, in order: the declaration hash, status and rule constants, the
+    session list's internal consistency, contract and calendar-source drift,
+    and finally a byte-identical rebuild from the probe summary committed next
+    to it (``summary_path_for``). The rebuild is what refuses a consistent
+    re-signed sub-range.
+    """
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        raw = Path(path).read_bytes()
+        value = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         fail("DECLARATION_UNREADABLE", str(path))
     if not isinstance(value, dict) or value.get("schema_version") != SCHEMA:
         fail("DECLARATION_SCHEMA_INVALID")
@@ -351,19 +389,37 @@ def load_declaration(path: Path) -> dict:
         fail("DECLARATION_INPUT_DRIFT", CONTRACT_REL)
     if CAL.file_sha256(ROOT / SOURCE_CONFIG_REL) != value["inputs"]["session_calendar_source"]["sha256"]:
         fail("DECLARATION_INPUT_DRIFT", SOURCE_CONFIG_REL)
+    summary_path = summary_path_for(path)
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        fail("DECLARATION_PROBE_SUMMARY_NOT_COMMITTED", summary_path.name)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        fail("DECLARATION_PROBE_SUMMARY_UNREADABLE", summary_path.name)
+    rebuild_matches(raw, summary, root=ROOT)
     return value
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="US replay range declaration (no sub-range arguments exist)")
     sub = parser.add_subparsers(dest="command", required=True)
     dec = sub.add_parser("declare")
     dec.add_argument("--summary", type=Path, required=True)
     dec.add_argument("--out", type=Path, required=True)
     ver = sub.add_parser("verify")
-    ver.add_argument("--summary", type=Path, required=True)
     ver.add_argument("--declaration", type=Path, default=DEFAULT_DECLARATION_PATH)
+    return parser
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "verify":
+        # verify takes no --summary: the summary is the one committed next to
+        # the declaration, so the pair cannot be mixed from different places.
+        load_declaration(args.declaration)
+        print(f"PASS_US_REPLAY_RANGE_DECLARATION_VERIFIED:{json.loads(args.declaration.read_text(encoding='utf-8'))['declaration_sha256']}")
+        return 0
     summary = json.loads(args.summary.read_text(encoding="utf-8"))
     declaration = declare(summary)
     if args.command == "declare":
@@ -378,13 +434,6 @@ def main(argv=None) -> int:
             "declaration_sha256": declaration["declaration_sha256"],
         }, sort_keys=True))
         return 0 if declaration["status"] == STATUS_DECLARED else 3
-    committed = args.declaration.read_bytes()
-    if committed != CAL.canonical_bytes(declaration):
-        print("FAIL: committed declaration does not rebuild byte-identically from the summary")
-        return 1
-    load_declaration(args.declaration)
-    print(f"PASS_US_REPLAY_RANGE_DECLARATION_VERIFIED:{declaration['declaration_sha256']}")
-    return 0
 
 
 if __name__ == "__main__":

@@ -1,9 +1,11 @@
 name: US Regime Historical Replay
 
 # US-DATA-1 U3 full replay. Manual only; the user approves each run.
-# Reads the committed range declaration (no date inputs exist), runs the
-# unmodified US population CLI in resumable chunks paced under Alpaca/FRED
-# per-minute limits, then evaluates evaluate_market_pit_acceptance("US", bundle)
+# Reads the committed range declaration (no date inputs exist) after proving it
+# rebuilds byte for byte from the committed probe summary, runs the unmodified
+# US population CLI in resumable chunks of at most 5 dates whose starts are at
+# least 60 seconds apart (no 60-second window can exceed the Alpaca/FRED
+# per-minute limits even if a chunk bursts), then evaluates evaluate_market_pit_acceptance("US", bundle)
 # only when every declared chunk is complete. Outputs live under RUNNER_TEMP
 # and are uploaded as artifacts; nothing is committed.
 
@@ -29,7 +31,8 @@ concurrency:
 
 env:
   DECLARATION: evidence/us_regime_replay/range_declaration_v1.json
-  CHUNK_SIZE: "40"
+  PROBE_SUMMARY: evidence/us_regime_replay/probe_summary_v1.json
+  CHUNK_SIZE: "5"
 
 jobs:
   replay:
@@ -47,9 +50,15 @@ jobs:
           python3 test/test_us_official_session_calendar.py
           python3 test/test_us_replay_range_declaration.py
           python3 test/test_us_historical_replay_population.py
-      - name: Require the committed declaration
+      - name: Require the committed declaration and probe summary
         run: |
           test -f "$DECLARATION" || { echo "STOP: $DECLARATION is not committed"; exit 2; }
+          test -f "$PROBE_SUMMARY" || { echo "STOP: $PROBE_SUMMARY is not committed"; exit 2; }
+      - name: Verify the declaration rebuilds from the committed probe summary
+        run: |
+          python3 regime/us_replay_range_declaration.py verify --declaration "$DECLARATION"
+      - name: Plan
+        run: |
           python3 regime/us_replay_range_driver.py plan --declaration "$DECLARATION" --chunk-size "$CHUNK_SIZE"
       - name: Download chunks from the resumed run
         if: inputs.resume_from_run_id != ''
