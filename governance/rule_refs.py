@@ -105,6 +105,9 @@ def make_rule_ref(context: RegistryContext, rule_id: str, role: str) -> dict:
         _fail("RULE_NOT_REGISTERED", str(rule_id))
     if role not in ROLES:
         _fail("ROLE_INVALID", str(role))
+    if not REGISTRY.is_decided(row):
+        # A not-decided item can be reported as a gap, never cited as applied.
+        _fail("RULE_NOT_DECIDED", rule_id)
     return {
         "rule_id": rule_id,
         "version": row["version"],

@@ -56,6 +56,12 @@ ORIGINAL_RECORD_SHA256 = {
     "USER_RATIFICATION_CRYPTO_BREADTH_TAXONOMY_ADDITIONS_20260914.json": "6ff7f4865db1dde6f61d40ada5c4971ef46f547f30bdab9f635415f0e6e8e931",
     "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
     "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json": "c3f1e78ca987760af205807f67e9b56e8e7bd0078cbb87ac566b49767a855f9b",
+    "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915.json": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+    "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json": "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5",
+}
+PENDING_IDS = {
+    "RULE.SIZE.PLANNED_LOSS_CAP.PENDING", "RULE.EXIT.PENDING", "RULE.EXECUTION.QUALITY_NUMBERS.PENDING",
+    "RULE.CRYPTO.BTC_ETH_NAME_CAP.PENDING", "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING",
 }
 SECRET_LIKE = re.compile(
     r"(ghp_[A-Za-z0-9]{20,}|github_pat_|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|"
@@ -101,14 +107,31 @@ class CommittedRegistryTests(unittest.TestCase):
         registry = REG.load_registry()
         ids = [row["rule_id"] for row in registry["rules"]]
         self.assertEqual(sorted(ids), sorted(REG.REQUIRED_RULE_IDS))
-        self.assertEqual(len(ids), 13)
+        self.assertEqual(len(ids), 22)
         status = {row["rule_id"]: row["status"] for row in registry["rules"]}
         self.assertEqual(status["RULE.ROTATION.US.V1P"], "PROVISIONAL")
         self.assertEqual(status["RULE.ROTATION.KR.V1T"], "TEMPORARY")
+        self.assertEqual({k for k, v in status.items() if v == "PENDING_USER_DECISION"}, PENDING_IDS)
         self.assertEqual(
             {k for k, v in status.items() if v == "RATIFIED"},
-            set(REG.REQUIRED_RULE_IDS) - {"RULE.ROTATION.US.V1P", "RULE.ROTATION.KR.V1T"},
+            set(REG.REQUIRED_RULE_IDS) - {"RULE.ROTATION.US.V1P", "RULE.ROTATION.KR.V1T"} - PENDING_IDS,
         )
+        for rule_id in ("RULE.ENTRY.PAPER_BASELINE_B.V1", "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
+                        "RULE.KR.FIRST_CYCLE_CANARY_V0.V1", "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1"):
+            self.assertEqual(status[rule_id], "RATIFIED")
+
+    def test_pending_rows_carry_no_decision_and_cannot_be_cited(self):
+        registry = _registry()
+        ctx = REFS.RegistryContext.load()
+        for rule_id in PENDING_IDS:
+            row = _row(registry, rule_id)
+            self.assertEqual((row["version"], row["key_parameters"], row["effective_from"]), (0, {}, None))
+            self.assertTrue(row["pending_basis"])
+            with self.assertRaises(REFS.RuleLineageError):
+                REFS.make_rule_ref(ctx, rule_id, "APPLIED")
+        size = _row(registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1")["key_parameters"]
+        self.assertEqual((size["per_name_nav_cap"]["value"], size["session_room_fraction"]["value"],
+                          size["avg_traded_value_fraction"]["value"]), ("0.05", "1/3", "0.01"))
 
     def test_source_records_are_byte_exact_copies_of_the_named_originals(self):
         registry = _registry()
@@ -134,8 +157,11 @@ class CommittedRegistryTests(unittest.TestCase):
 
     def test_triggers_only_where_records_state_them(self):
         registry = _registry()
-        pending = {row["rule_id"] for row in registry["rules"] if row["trigger_pending_user_confirmation"]}
+        pending = {row["rule_id"] for row in registry["rules"]
+                   if row["trigger_pending_user_confirmation"] and row["status"] != "PENDING_USER_DECISION"}
         self.assertEqual(pending, {
+            "RULE.ENTRY.PAPER_BASELINE_B.V1", "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
+            "RULE.KR.FIRST_CYCLE_CANARY_V0.V1", "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
             "RULE.ALLOCATION.V2", "RULE.LIQUIDITY.KRUS.V1", "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
             "RULE.US.SESSION_CALENDAR.V1", "RULE.CRYPTO.TAXONOMY.ADD_20260914",
             "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1", "RULE.ROTATION.RELEASE_HANDLING.V1",
@@ -234,6 +260,20 @@ class RegistryTamperTests(TmpRootCase):
     def test_binding_claim_must_hold(self):
         _row(self.registry, "RULE.US.SESSION_CALENDAR.V1")["implementation_bindings"][1]["binds_record_sha256"] = True
         self.assertInvalid(self.registry, "BINDING_DOES_NOT_CONTAIN_RECORD_SHA")
+
+    def test_pending_row_with_parameters_fails(self):
+        row = _row(self.registry, "RULE.EXIT.PENDING")
+        row["key_parameters"] = {"x": {"source": 0, "record_pointer": "/explicitly_not_decided/1",
+                                       "match": "PARSED_FROM_TEXT", "text": "exit rules", "value": "TP1"}}
+        self.assertInvalid(self.registry, "PENDING_ROW_MUST_CARRY_NO_DECISION")
+
+    def test_pending_basis_must_be_in_record(self):
+        _row(self.registry, "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING")["pending_basis"][0]["text"] = "US liquidity decided"
+        self.assertInvalid(self.registry, "PARAMETER_TEXT_NOT_IN_RECORD")
+
+    def test_record_named_rule_id_must_match(self):
+        _row(self.registry, "RULE.ENTRY.PAPER_BASELINE_B.V1")["key_parameters"]["record_rule_id"]["value"] = "RULE.ENTRY.X.V1"
+        self.assertInvalid(self.registry, "PARAMETER_NOT_EQUAL_TO_RECORD")
 
     def test_status_and_family_vocabulary(self):
         _row(self.registry, "RULE.ROTATION.US.V1P")["status"] = "CONFIRMED"

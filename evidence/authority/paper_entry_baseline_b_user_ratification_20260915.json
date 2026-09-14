@@ -1,0 +1,30 @@
+{
+ "schema": "user_ratification/1",
+ "id": "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915",
+ "recorded_by": "CLAUDE_CIO",
+ "recorded_at_kst": "2026-09-15T07:10+09:00",
+ "user_sentence_verbatim": "진입은 B안(시장 상태 허용 + 강세 확정·유지 섹터 + T2 통과 시 세션 예산으로 매수)을 PAPER 기준선으로 확정하고, EMA20·돌파·추격 조건은 모든 진입 기회에 기록만 하여 별도 평가한다. 이는 진입 우위의 확정이 아니다.",
+ "references": {
+  "blockers_v2": "outputs/CLAUDE_CIO_PAPER_CYCLE_DECISION_BLOCKERS_20260915_v2.md (entry option B)",
+  "external_review": "ChatGPT review relayed by user 2026-09-15 morning; CIO judgment accepted"
+ },
+ "decision": {
+  "status": "RATIFIED_AS_PAPER_BASELINE",
+  "entry_rule": "new buy allowed when (1) market state permits new buys under allocation v2 (UNKNOWN no new buys, STRESS 0), (2) the asset's sector/bucket is STRONG_CONFIRMED or STRONG_HELD under RULE.ROTATION.* , (3) T2 candidate conditions pass; buy within the session budget",
+  "record_only_features": [
+   "EMA20 position",
+   "breakout",
+   "chase / rise since signal",
+   "ATR distance"
+  ],
+  "opportunity_ledger": "record every eligible entry opportunity (bought or not) with features and fixed-horizon forward returns for separate evaluation",
+  "explicit_non_claim": "this is not a confirmation of entry edge/alpha"
+ },
+ "open_items_not_decided": [
+  "exit rules (exit study v2 pending)",
+  "session budget formula wording unification (execution contract canonical doc pending)",
+  "risk budget / planned loss cap",
+  "BTC/ETH per-name cap"
+ ],
+ "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1"
+}

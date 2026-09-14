@@ -5,13 +5,13 @@
 
 ## 한 줄 요약
 
-- **규칙 대장** `config/rule_registry_v1.json`: 사용자가 확정한 규칙 13개를 고정 ID로 적었습니다. 줄마다 원본 기록(바이트 그대로 복사본과 sha256), 효력 시각, 기계가 읽는 핵심 값, 결정 당시 근거 수준, 사전 등록 트리거, 성적표 유형, 최소 표본이 있습니다.
+- **규칙 대장** `config/rule_registry_v1.json`: 사용자가 확정한 규칙 17개와, 확정 기록이 "이번에 확정하지 않는다"고 명시한 항목 5개(`PENDING_USER_DECISION`)를 고정 ID로 적었습니다. 줄마다 원본 기록(바이트 그대로 복사본과 sha256), 효력 시각, 기계가 읽는 핵심 값, 결정 당시 근거 수준, 사전 등록 트리거, 성적표 유형, 최소 표본이 있습니다.
 - **판단 계보** `governance/rule_refs.py`: 판단 하나마다 "어떤 규칙이 적용·차단·크기·청산했는지"를 `rule_refs`로 남기는 형식과 검증기입니다.
 - **지금 연결한 곳**: 코인 PAPER 판단 스냅샷(종목별 신선도 관문, 종목별 유동성 하한 관문, 후보 상태)과 PAPER 시장 위험 참고값. 둘 다 **판단 패킷도, 생산자 코드도 1바이트도 바꾸지 않고**, 생산자가 패킷을 쓴 뒤 별도 단계가 옆에 계보 파일(사이드카)을 씁니다.
 
 규칙 대장은 권한이 아닙니다. 주문·자금·REAL 권한을 주지 않으며, 값의 권위는 언제나 원본 기록에 있습니다.
 
-## 1. 규칙 대장 13줄
+## 1. 규칙 대장 22줄
 
 | 규칙 ID | 버전 | 상태 | 효력 시각(UTC) | 원본 기록 (sha 앞 8자리, +보조 기록 수) | 사전 등록 트리거 | 성적표 유형 | 최소 표본 | 결정 당시 근거 |
 |---|---|---|---|---|---|---|---|---|
@@ -28,6 +28,22 @@
 | RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1 | 1 | 확정 | 2026-09-14 15:05 | 같은 기록 | 없음(사용자 확정 대기) | gate | 미정 | 기록에 없음 |
 | RULE.ROTATION.RELEASE_HANDLING.V1 | 1 | 확정 | 2026-09-14 15:05 | 같은 기록 | 없음(사용자 확정 대기) | exit | 미정 | 기록에 없음 |
 | RULE.GOVERNANCE.EVIDENCE_GATED.V1 | 1 | 확정 | 2026-09-14 15:40 | 근거 기반 재조정 (c3f1e78c) | 없음(사용자 확정 대기) | governance | 미정 | 기록에 없음 |
+| RULE.ENTRY.PAPER_BASELINE_B.V1 | 1 | 확정 | 2026-09-14 22:10 | 진입 B안 기준선 (b2a905c4) | 없음(사용자 확정 대기) | entry | 미정 | 기준선, 진입 우위 주장 아님 |
+| RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 | 1 | 확정 | 2026-09-14 22:40 | B2·B3·크기 조립 (0e2691e0) | 없음(사용자 확정 대기) | gate | 미정 | 기록에 없음 |
+| RULE.KR.FIRST_CYCLE_CANARY_V0.V1 | 1 | 확정 | 2026-09-14 22:40 | 같은 기록 | 없음(사용자 확정 대기) | gate | 미정 | 기록에 없음 |
+| RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1 | 1 | 확정 | 2026-09-14 22:40 | 같은 기록 | 없음(사용자 확정 대기) | allocation | 미정 | 기록에 없음 |
+
+### 확정하지 않은 항목 (`PENDING_USER_DECISION`, 값 없음)
+
+| 규칙 ID | 뜻 | 근거(기록의 미확정 목록) | 성적표 유형 |
+|---|---|---|---|
+| RULE.SIZE.PLANNED_LOSS_CAP.PENDING | 계획손실 한도 (0.25%/0.40%) | B2·B3·크기 조립 기록 + 진입 B안 기록 | allocation |
+| RULE.EXIT.PENDING | 청산 규칙 (청산 연구 v2 대기) | 두 기록 모두 | exit |
+| RULE.EXECUTION.QUALITY_NUMBERS.PENDING | 실행 품질 숫자 (시간 창, 스프레드, 호가 나이) | B2·B3·크기 조립 기록 | gate |
+| RULE.CRYPTO.BTC_ETH_NAME_CAP.PENDING | BTC/ETH 종목 한도 (B8) | 두 기록 모두 | allocation |
+| RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING | 미국 유동성 IEX 거래량 처리 (B4) | B2·B3·크기 조립 기록 | liquidity |
+
+이 줄들은 `version: 0`, `key_parameters: {}`, `effective_from: null`이고, `pending_basis`가 기록의 미확정 목록 문구를 글자 그대로 가리킵니다. 검증기는 값이 하나라도 들어가면 거부하고, `rule_refs`에 인용하면(`APPLIED` 등) `RULE_NOT_DECIDED`로 거부합니다. 성적표·포털은 이 줄을 "사용자 결정 대기"로 그대로 보여 주면 됩니다. 진입 B안 기록의 다른 미확정 항목 "세션 예산 문구 통일(실행 계약 정본 대기)"은 CIO 지시 목록에 없어 이번에 넣지 않았습니다.
 
 읽는 법:
 
@@ -42,7 +58,8 @@
 
 `python3 governance/rule_registry.py` → `PASS_RULE_REGISTRY_VALID`
 
-- ID 13개가 정확히 고정 목록과 같고 중복이 없어야 합니다.
+- ID 22개가 정확히 고정 목록과 같고 중복이 없어야 합니다.
+- 기록 본문이 `rule_id`를 적고 있으면(진입 B안 기록) 대장 줄의 ID와 같아야 합니다. B2·B3·크기 조립 기록의 결정별 `rule_id`는 핵심 값 `record_rule_id`로 묶었습니다.
 - 줄마다 사용자 확정 기록이 첫 번째 원본으로 있어야 합니다. 원본이 없는 규칙은 거부합니다.
 - 복사본의 sha256과 바이트 길이가 대장과 같아야 합니다. 1바이트만 달라도 거부합니다.
 - 기록 안의 ID(`ratification_id`/`addendum_id`/`id`)가 대장과 같아야 합니다.

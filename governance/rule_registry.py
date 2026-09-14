@@ -56,8 +56,23 @@ REQUIRED_RULE_IDS = (
     "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
     "RULE.ROTATION.RELEASE_HANDLING.V1",
     "RULE.GOVERNANCE.EVIDENCE_GATED.V1",
+    # Ratified 2026-09-15 07:10 / 07:40 KST.
+    "RULE.ENTRY.PAPER_BASELINE_B.V1",
+    "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
+    "RULE.KR.FIRST_CYCLE_CANARY_V0.V1",
+    "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
+    # Explicitly NOT decided by the user (named in a ratification record's
+    # not-decided list).  Registered so the scorecard/portal can show the gap;
+    # they carry no parameters and can never be cited in rule_refs.
+    "RULE.SIZE.PLANNED_LOSS_CAP.PENDING",
+    "RULE.EXIT.PENDING",
+    "RULE.EXECUTION.QUALITY_NUMBERS.PENDING",
+    "RULE.CRYPTO.BTC_ETH_NAME_CAP.PENDING",
+    "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING",
 )
-STATUSES = ("RATIFIED", "PROVISIONAL", "TEMPORARY")
+PENDING_STATUS = "PENDING_USER_DECISION"
+DECIDED_STATUSES = ("RATIFIED", "PROVISIONAL", "TEMPORARY")
+STATUSES = DECIDED_STATUSES + (PENDING_STATUS,)
 SCORECARD_FAMILIES = (
     "entry", "exit", "allocation", "hedge", "gate", "liquidity", "data-source", "governance",
 )
@@ -70,6 +85,7 @@ EVIDENCE_LEVELS = (
     "INITIAL_DEFAULT_UNVALIDATED",
     "PROVISIONAL_FORWARD_ACCEPTANCE",
     "ESTIMATE_ONLY",
+    "BASELINE_NO_EDGE_CLAIM",
     "NOT_STATED_IN_RECORD",
 )
 
@@ -87,7 +103,7 @@ ROW_FIELDS = {
     "source_records", "effective_from", "key_parameters",
     "evidence_level_at_decision", "review_triggers",
     "trigger_pending_user_confirmation", "scorecard_metric_family",
-    "minimum_sample", "supersedes", "implementation_bindings",
+    "minimum_sample", "supersedes", "implementation_bindings", "pending_basis",
 }
 SOURCE_FIELDS = {"role", "record_id", "repo_path", "original_filename", "sha256", "bytes"}
 # Every sourced item names a source record index, a JSON pointer into it and a
@@ -102,6 +118,7 @@ TRIGGER_FIELDS = POINTER_FIELDS | {"trigger_id", "condition"}
 SAMPLE_FIELDS = POINTER_FIELDS | {"value", "unit"}
 SUPERSEDES_FIELDS = {"rule_id", "record_id", "sha256", "in_registry"}
 BINDING_FIELDS = {"path", "binds_record_sha256"}
+PENDING_BASIS_FIELDS = POINTER_FIELDS
 
 
 class RuleRegistryError(ValueError):
@@ -196,7 +213,9 @@ def _validate_row(row: dict, root: Path) -> list:
     rule_id = row["rule_id"]
     if not isinstance(rule_id, str) or RULE_ID_RE.fullmatch(rule_id) is None:
         _fail("RULE_ID_INVALID", str(rule_id))
-    if type(row["version"]) is not int or row["version"] < 1:
+    pending_row = row.get("status") == PENDING_STATUS
+    if type(row["version"]) is not int or row["version"] < (0 if pending_row else 1) \
+            or (pending_row and row["version"] != 0):
         _fail("VERSION_INVALID", rule_id)
     if not isinstance(row["lineage_key"], str) or not rule_id.startswith(row["lineage_key"] + "."):
         _fail("LINEAGE_KEY_INVALID", rule_id)
@@ -252,6 +271,15 @@ def _validate_row(row: dict, root: Path) -> list:
                 sha.encode("ascii") in raw for sha in ratification_shas):
             _fail("ADDENDUM_NOT_BOUND_TO_RATIFICATION", f"{rule_id}:{source['repo_path']}")
     documents = [record for _s, _r, record in records]
+
+    if pending_row:
+        _validate_pending_row(row, documents)
+        return documents
+    if row["pending_basis"] is not None:
+        _fail("PENDING_BASIS_ONLY_FOR_PENDING_ROWS", rule_id)
+    named_rule = records[0][2].get("rule_id")
+    if named_rule is not None and named_rule != rule_id:
+        _fail("RECORD_NAMES_A_DIFFERENT_RULE_ID", rule_id)
 
     effective = _closed(row["effective_from"], EFFECTIVE_FIELDS, "EFFECTIVE_FIELDS_INVALID")
     _parse_utc(effective["utc"], "EFFECTIVE_UTC_INVALID")
@@ -339,6 +367,28 @@ def _validate_row(row: dict, root: Path) -> list:
     return documents
 
 
+def _validate_pending_row(row: dict, documents: list) -> None:
+    """A not-decided item: sourced, parameter-free, never effective."""
+    rule_id = row["rule_id"]
+    if not rule_id.endswith(".PENDING"):
+        _fail("PENDING_RULE_ID_MUST_END_WITH_PENDING", rule_id)
+    if row["key_parameters"] != {} or row["effective_from"] is not None \
+            or row["evidence_level_at_decision"] is not None or row["review_triggers"] is not None \
+            or row["trigger_pending_user_confirmation"] is not True or row["minimum_sample"] is not None \
+            or row["supersedes"] is not None or row["implementation_bindings"] != []:
+        _fail("PENDING_ROW_MUST_CARRY_NO_DECISION", rule_id)
+    if row["scorecard_metric_family"] not in SCORECARD_FAMILIES:
+        _fail("SCORECARD_FAMILY_INVALID", rule_id)
+    basis = row["pending_basis"]
+    if not isinstance(basis, list) or not basis:
+        _fail("PENDING_BASIS_REQUIRED", rule_id)
+    for index, item in enumerate(basis):
+        _closed(item, PENDING_BASIS_FIELDS, "PENDING_BASIS_FIELDS_INVALID")
+        if item["match"] != "PARSED_FROM_TEXT":
+            _fail("PENDING_BASIS_INVALID", rule_id)
+        _check_sourced(item, documents, rule_id, f"pending_basis.{index}", has_value=False)
+
+
 def _source_index(item: dict, documents: list, rule_id: str) -> int:
     source = item.get("source")
     if type(source) is not int or not 0 <= source < len(documents):
@@ -369,6 +419,8 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
     by_id = {row["rule_id"]: row for row in rows}
     lineages: dict = {}
     for row in rows:
+        if row["status"] == PENDING_STATUS:
+            continue
         lineages.setdefault(row["lineage_key"], []).append(row)
     for key, members in lineages.items():
         ordered = sorted(members, key=lambda r: (r["effective_from"]["utc"], r["version"]))
@@ -377,6 +429,8 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
             _fail("VERSIONS_NOT_MONOTONE", key)
     for row in rows:
         supersedes = row["supersedes"]
+        if supersedes is not None and by_id.get(supersedes.get("rule_id"), {}).get("status") == PENDING_STATUS:
+            _fail("SUPERSEDES_PENDING_RULE", row["rule_id"])
         if supersedes is None:
             continue
         if supersedes["in_registry"]:
@@ -406,6 +460,10 @@ def registry_sha256(path: Path = REGISTRY_PATH) -> str:
 
 def rule_index(registry: dict) -> dict:
     return {row["rule_id"]: row for row in registry["rules"]}
+
+
+def is_decided(row: dict) -> bool:
+    return row["status"] in DECIDED_STATUSES
 
 
 def primary_record_sha256(row: dict) -> str:
