@@ -26,6 +26,48 @@ observation checkout. The private request binds both the approved public-code
 commit and the exact observation commit plus its absolute host root so restart
 validation cannot silently switch either input.
 
+## Per-market realtime freshness (`crypto_paper_runtime_request/3`)
+
+User ratification `CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914`
+(record sha256 `043932a4…`) with CIO addenda
+`CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914` and
+`CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-20260914` changes
+only the application scope of the ratified realtime thresholds. For a
+per-market decision packet (`crypto_paper_decision_snapshot_packet/2` or `/3`):
+
+- A market's retained ticker or orderbook is usable only when **that market's**
+  ratified realtime status (`realtime_per_market_freshness.subscribed_market_realtime`
+  for `/3`, the candidate row for an issued `/2`) is `FRESH` and that market's
+  own `freshness_by_kind[kind]` is `FRESH`. The aggregate
+  `freshness_status.realtime` and the run's gate `overall_status` are
+  telemetry only. A market absent from the decision is `MISSING`.
+- A new PAPER intent is built only for a market with no
+  `market_action_cap_reason`, a liquidity floor of `INCLUDED` and `FRESH`
+  realtime. Capped markets are removed before the allocation check and listed
+  as `MARKET_ACTION_CAPPED:<market>:<reason>` blockers; other markets are
+  evaluated normally.
+- One market's missing or non-`FRESH` book becomes
+  `ENTRY_SNAPSHOT_UNAVAILABLE:<market>:<reason>` (or
+  `MATCH_SNAPSHOT_UNAVAILABLE`) and status `WAIT_MARKET_EVIDENCE_OR_CAP`; it
+  never aborts carried matches or other markets. Tampered, mis-hashed or
+  malformed evidence still fails the whole request closed.
+- `latest_mark_prices_by_market()` returns a mark only for markets with usable
+  ticker evidence and `UNKNOWN` (with the reason) for the rest.
+  `latest_mark_prices()` stays all-or-nothing because the P10-11 account view
+  needs a `FRESH` mark for every open position.
+- The request adds `decision_schema_version`, `freshness_mode`
+  (`PER_MARKET_RATIFIED` or `AGGREGATE_DECISION_V1`) and `market_status` (per
+  market: candidate, realtime and floor status, cap reason, entry state).
+
+A `/1` decision (generated before the ratification's effective instant) keeps
+the aggregate gate inside a `/3` request. An issued `crypto_paper_runtime_request/2`
+revalidates with its original derivation byte for byte, including its
+aggregate gate and whole-request abort.
+
+Held-position exits for a non-`FRESH` market are owned by the private runtime
+(`portfolio/crypto_paper_stale_hold.py`: per-market HOLD and the 30-minute
+engineering alert budget); this bridge never builds a SELL intent.
+
 ## Stage4 to Stage5 fixture connection
 
 This bridge is the selected Stage5 connection host because it already owns the
