@@ -237,6 +237,7 @@ class GateTest(unittest.TestCase):
 
     def test_adoption_gates(self):
         cases = {
+            "ADOPTION_IDENTITY_NOT_ACTIVE": lambda a: a.update(status="CIO_TECHNICAL_PROPOSED"),
             "ADOPTION_NOT_YET_EFFECTIVE": lambda a: a.update(effective_at_utc="2026-09-12T00:00:01Z"),
             "ADOPTION_AUTHORITY_ESCALATION": lambda a: a["authority"].update(order_authorized=True),
             "ADOPTION_BINDING_MISMATCH_IMPLEMENTATION_SHA256":
