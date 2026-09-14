@@ -51,6 +51,9 @@ per-market decision packet (`crypto_paper_decision_snapshot_packet/2` or `/3`):
   `MATCH_SNAPSHOT_UNAVAILABLE`) and status `WAIT_MARKET_EVIDENCE_OR_CAP`; it
   never aborts carried matches or other markets. Tampered, mis-hashed or
   malformed evidence still fails the whole request closed.
+- A carried order in a per-market decision matches only when that market's
+  ticker is also usable, because the resulting position must be marked `FRESH`
+  in the next account view (`MATCH_SNAPSHOT_UNAVAILABLE:<market>:REALTIME_TICKER_NOT_FRESH:<market>`).
 - `latest_mark_prices_by_market()` returns a mark only for markets with usable
   ticker evidence and `UNKNOWN` (with the reason) for the rest.
   `latest_mark_prices()` stays all-or-nothing because the P10-11 account view

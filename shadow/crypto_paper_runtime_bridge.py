@@ -1074,6 +1074,15 @@ def _derive_runtime_request(
                 open_orders_by_market.setdefault(order["market"], []).append(order)
         for market, orders in sorted(open_orders_by_market.items()):
             try:
+                if per_market:
+                    # A fill creates a position the P10-11 account view must
+                    # mark FRESH.  Under per-market freshness a market's ticker
+                    # channel can lag its book, so a match also requires this
+                    # market's usable ticker (the aggregate gate implied it).
+                    _latest_public_message(
+                        decision, market=market, kind="ticker",
+                        observation_root=source_root, per_market=True,
+                    )
                 snapshot = orderbook_snapshot(
                     decision, market=market, observation_root=source_root,
                     per_market=per_market,

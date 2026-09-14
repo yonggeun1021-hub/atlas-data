@@ -452,6 +452,22 @@ class PerMarketRequestTests(ModifiedRunFixture):
             carried = request_for(decision, account_state=account(["KRW-SOL"]))
         self.assertEqual([row["market"] for row in carried["match_snapshots"]], ["KRW-SOL"])
 
+    def test_carried_match_requires_the_markets_ticker_channel(self):
+        """A fill needs a FRESH mark next; a lagging ticker channel blocks the match."""
+        def sol_ticker_channel_stale(run):
+            for row in run["status"]["markets"]:
+                if row["market"] == "KRW-SOL":
+                    row["freshness_by_kind"]["ticker"]["status"] = "STALE"
+
+        entry = self.realtime_entry(sol_ticker_channel_stale)
+        with per_market_effective():
+            decision = replay(realtime_entry=entry)
+            self.assertEqual(BRIDGE.market_realtime_status(decision, "KRW-SOL")[0], DECISION.FRESH)
+            BRIDGE.orderbook_snapshot(decision, market="KRW-SOL")  # the book itself is usable
+            request = request_for(decision, account_state=account(["KRW-SOL", "KRW-XRP"]), with_config=False)
+        self.assertEqual([row["market"] for row in request["match_snapshots"]], ["KRW-XRP"])
+        self.assertIn("MATCH_SNAPSHOT_UNAVAILABLE:KRW-SOL:REALTIME_TICKER_NOT_FRESH:KRW-SOL", request["blockers"])
+
     def test_carried_orders_match_per_market(self):
         with per_market_effective():
             decision = replay()
