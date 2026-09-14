@@ -50,8 +50,10 @@
     },
     "unknown_turnover_policy": "EXCLUDE_FAIL_CLOSED",
     "applies_to": [
+      "REALTIME_SUBSCRIPTION",
       "PAPER_CANDIDATE_ACTION_STATE"
-    ]
+    ],
+    "held_position_markets": "ALWAYS_SUBSCRIBED_REGARDLESS_OF_FLOOR"
   },
   "stale_held_position": {
     "paper_exit_execution_while_not_fresh": false,
@@ -75,23 +77,5 @@
     "file_sha256": "bc009c591cd6492c55471a499502381812d54a8f12e50e7334ec04c10a954e1f",
     "corrects": "companion decision floor metric: the ratified universe policy 30-day average replaces the misstated 24h traded value"
   },
-  "subscription_scope_correction": {
-    "addendum_id": "CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-20260914",
-    "path": "evidence/authority/crypto_realtime_subscription_scope_cio_addendum_20260914.json",
-    "file_sha256": "25e69d5142e8e39d5e255ab31335147f81abde2bcdf5bcebf6efc595ec00cb7f",
-    "supersedes": "held-markets part of CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914"
-  },
-  "realtime_subscription": {
-    "scope": "ALL_ADMITTED_P3_12_MARKETS",
-    "admitted_states": [
-      "TRADEABLE_UNIVERSE",
-      "PAPER_ELIGIBLE"
-    ],
-    "independent_of_liquidity_floor": true,
-    "independent_of_holdings": true,
-    "held_markets_input": false,
-    "per_market_realtime_status_recorded_for": "EVERY_SUBSCRIBED_MARKET",
-    "held_market_leaving_admitted_universe": "PRIVATE_RUNTIME_UBUNTU_COLLECTOR"
-  },
-  "packet_sha256": "2ab2de7eec0e15fea70a55951b9cee79ca0f4f14d865e0f0c126eb79080746bd"
+  "packet_sha256": "8883e22a4d88e760a45f3cbc3df06b4a7894a6052767bc0f7dcb3b93ee3ac1c6"
 }

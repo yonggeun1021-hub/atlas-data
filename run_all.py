@@ -2356,10 +2356,11 @@ APPROVED_TESTS = [
     #   (option B) + CIO companion liquidity decision. Realtime freshness is
     #   judged per market with the unchanged 20s/3s thresholds; a non-FRESH
     #   market caps only its own action state (aggregate is display only);
-    #   the subscription/action set applies the ratified P3-12 30-day average
-    #   turnover floor (CIO addendum; unknown excluded), open PAPER position
-    #   markets stay subscribed, and held stale positions HOLD with a
-    #   30-minute engineering alert budget.
+    #   the action set applies the ratified P3-12 30-day average turnover
+    #   floor per market (CIO addendum; unknown excluded), the realtime
+    #   subscription is every admitted P3-12 market with no holdings input
+    #   (scope addendum), and held stale positions HOLD with a 30-minute
+    #   engineering alert budget.
     #   Decision packets /1 before the effective instant keep revalidating.
     "test/test_crypto_realtime_per_market_freshness.py",
     # ★ CIO item 3 (2026-08-29): CRYPTO_BREADTH real coverage-ratio

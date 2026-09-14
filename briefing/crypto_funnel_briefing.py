@@ -2,8 +2,8 @@
 """P8-16 Crypto funnel and PAPER-decision briefing read model.
 
 The sole input is one exact, fully revalidated P1/P3/P4/P5/P9
-``crypto_paper_decision_snapshot_packet/1`` or ``/2`` (per-market realtime
-freshness, 2026-09-14) generation.  This module does
+``crypto_paper_decision_snapshot_packet/1``, ``/2`` or ``/3`` (per-market
+realtime freshness, 2026-09-14) generation.  This module does
 not capture market data, calculate a factor, promote a candidate, authorize
 a PAPER order, or call any network/private/order endpoint.  It projects the
 already-derived facts into one JSON/API contract and one deterministic Korean
@@ -87,7 +87,8 @@ def _read_json(path: Path):
 
 
 LEGACY_CONTRACT_VERSION = "crypto_funnel_briefing_contract/1"
-CONTRACT_VERSION = "crypto_funnel_briefing_contract/2"
+CONTRACT_V2_VERSION = "crypto_funnel_briefing_contract/2"
+CONTRACT_VERSION = "crypto_funnel_briefing_contract/3"
 
 
 def _expected_legacy_contract() -> dict:
@@ -97,6 +98,24 @@ def _expected_legacy_contract() -> dict:
     contract["contract_version"] = LEGACY_CONTRACT_VERSION
     contract["source_schema_version"] = DECISION.LEGACY_OUTPUT_SCHEMA_VERSION
     return contract
+
+
+def _expected_v2_contract() -> dict:
+    """Frozen /2 contract (decision /1 and /2 only), for issued briefings."""
+    contract = _expected_contract()
+    contract["contract_version"] = CONTRACT_V2_VERSION
+    contract["source_schema_versions"] = [
+        DECISION.LEGACY_OUTPUT_SCHEMA_VERSION, DECISION.PER_MARKET_V2_OUTPUT_SCHEMA_VERSION,
+    ]
+    return contract
+
+
+def _frozen_contract_for(version) -> dict | None:
+    if version == LEGACY_CONTRACT_VERSION:
+        return _expected_legacy_contract()
+    if version == CONTRACT_V2_VERSION:
+        return _expected_v2_contract()
+    return None
 
 
 def _expected_contract() -> dict:
@@ -126,10 +145,8 @@ def _expected_contract() -> dict:
 
 def _validate_contract(value: dict) -> dict:
     expected = (
-        _expected_legacy_contract()
-        if isinstance(value, dict) and value.get("contract_version") == LEGACY_CONTRACT_VERSION
-        else _expected_contract()
-    )
+        _frozen_contract_for(value.get("contract_version")) if isinstance(value, dict) else None
+    ) or _expected_contract()
     if value != expected:
         raise CryptoFunnelBriefingError("CONTRACT_MISMATCH")
     return copy.deepcopy(value)
@@ -356,10 +373,8 @@ def validate_briefing(
 ) -> dict:
     if contract is None:
         contract = (
-            _expected_legacy_contract()
-            if isinstance(packet, dict) and packet.get("contract_version") == LEGACY_CONTRACT_VERSION
-            else load_contract()
-        )
+            _frozen_contract_for(packet.get("contract_version")) if isinstance(packet, dict) else None
+        ) or load_contract()
     else:
         contract = _validate_contract(contract)
     fields = {
