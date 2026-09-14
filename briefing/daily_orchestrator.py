@@ -4190,6 +4190,73 @@ def krx_session_context(packet: dict) -> dict | None:
     }
 
 
+WEEKEND_SESSION_CONTEXT_DATE_KEYS = (
+    "source_evidence_kst_date",
+    "krx_latest_confirmed_close_date",
+    "us_latest_verified_session_date",
+)
+
+
+def weekend_session_context_dates(packet: dict) -> dict[str, str]:
+    """The three market-scoped weekend context dates (retrieval authority v4).
+
+    * source_evidence_kst_date -- the single collected_for_kst_date shared by
+      every STEP0 read-model source (the collector run KST date), else UNKNOWN.
+    * krx_latest_confirmed_close_date -- data/latest_krx.json
+      decision_readiness.confirmed_through from the frozen presentation
+      reference, only while that reference is bound to the exact STEP0 krx
+      bytes (krx_session_context); else UNKNOWN.
+    * us_latest_verified_session_date -- FREE_MARKET_DATA
+      us_market_reference.as_of_session_date, only when that component is
+      READY; else UNKNOWN.
+
+    A value that is not a canonical date on or before the decision date is
+    UNKNOWN. Nothing falls back to another market's or component's date.
+    The scheduled briefing authority publisher and consumer re-derive the same
+    values from the hash-bound packet (.github/scripts/*_scheduled_briefing_authority.py).
+    """
+    decision_date = packet.get("decision_date")
+    by_id = {
+        row.get("component_id"): row
+        for row in packet.get("components", [])
+        if isinstance(row, dict)
+    }
+
+    def bounded(value) -> str:
+        date = _canonical_iso_date(value)
+        if date is None or not isinstance(decision_date, str) or date > decision_date:
+            return "UNKNOWN"
+        return date
+
+    step0_packet = (by_id.get("STEP0_READ_MODEL_HEALTH") or {}).get("packet") or {}
+    sources = step0_packet.get("sources") if isinstance(step0_packet, dict) else None
+    sources = sources if isinstance(sources, dict) else {}
+    observed = {
+        value.get("collected_for_kst_date")
+        for value in sources.values()
+        if isinstance(value, dict)
+    }
+    source_date = bounded(observed.pop()) if sources and len(observed) == 1 else "UNKNOWN"
+
+    krx_session = krx_session_context(packet) or {}
+    krx_confirmed = bounded(krx_session.get("latest_confirmed_close_date"))
+
+    us_row = by_id.get("FREE_MARKET_DATA") or {}
+    us_reference = (us_row.get("packet") or {}).get("us_market_reference") if isinstance(
+        us_row.get("packet"), dict
+    ) else None
+    us_session = (
+        bounded(us_reference.get("as_of_session_date"))
+        if us_row.get("status") == "READY" and isinstance(us_reference, dict)
+        else "UNKNOWN"
+    )
+    return {
+        "source_evidence_kst_date": source_date,
+        "krx_latest_confirmed_close_date": krx_confirmed,
+        "us_latest_verified_session_date": us_session,
+    }
+
+
 def paper_regime_context(packet: dict) -> dict | None:
     references = presentation_references(packet)
     if references is None:
@@ -5291,8 +5358,11 @@ def _format_component_detail(
                 f"available_at={packet.get('available_at')}"
             )
         elif cid == "US_BREADTH_MEMBERSHIP":
+            # B5-3 SENSOR_ROWS: the members= row carries its own
+            # snapshot_date= token; an absent source date is stated as
+            # UNKNOWN, never rendered as a bare None.
             lines.append(
-                f"    - snapshot_date={packet.get('snapshot_date')} "
+                f"    - snapshot_date={packet.get('snapshot_date') or 'UNKNOWN'} "
                 f"members={packet.get('member_count')}"
             )
         elif cid == "FREE_MARKET_DATA":
@@ -5314,8 +5384,9 @@ def _format_component_detail(
                 # date.  Keep its own date visible, but do not present an
                 # older close as if it described the current KST session.
                 lines.append(
-                    "    - US close values withheld: independent session evidence "
-                    f"is dated {us_session_date}, not {decision_date}"
+                    f"    - US close values withheld as {decision_date} closes: "
+                    f"independent session evidence is dated {us_session_date}, "
+                    f"not {decision_date}"
                 )
             else:
                 lines.append(
@@ -5325,8 +5396,13 @@ def _format_component_detail(
                         if bars else f"{packet.get('alpaca_status')}"
                     )
                 )
+            # B5-5 US_ETF_CLOSES: each trend ETF close is shown with its own
+            # session date (close= is the retained source value verbatim), so
+            # a dated close is never omitted and never read as a
+            # decision_date close.
+            lines.extend(_us_trend_etf_close_lines(market_reference, decision_date))
             lines.append(
-                f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
+                f"    - VIXCLS={vix.get('value')} as_of={vix.get('date') or 'UNKNOWN'}"
             )
             lines.append(f"    - scope: {packet.get('scope_warning')}")
         elif cid == "BTC_TREND":
@@ -5474,6 +5550,7 @@ def _format_component_detail(
                         f"{observation.get('subject_name')}: "
                         f"{observation.get('filing_title')} "
                         f"기준일(filing_date)={_date8_to_iso(observation.get('filing_date'))} "
+                        f"filing_date={_date8_to_iso(observation.get('filing_date'))} "
                         f"evidence={observation.get('evidence_status')} "
                         "action=null"
                     )
@@ -5527,8 +5604,9 @@ def _format_component_detail(
                 lines.append(
                     f"    - {observation.get('subject')}: "
                     f"{observation.get('release_title')} "
-                    f"published_at={observation.get('published_at')} "
-                    f"기준일(retrieved)={str(lineage.get('retrieved_at_utc') or packet.get('evidence_as_of') or 'UNKNOWN')[:10]}"
+                    f"published_at={observation.get('published_at') or 'UNKNOWN'} "
+                    f"기준일(retrieved)={str(lineage.get('retrieved_at_utc') or packet.get('evidence_as_of') or 'UNKNOWN')[:10]} "
+                    f"evidence_as_of={_row_date_token(packet.get('evidence_as_of'))}"
                 )
                 for item in observation.get("summary_items", []):
                     lines.append(
@@ -5634,7 +5712,7 @@ def _format_component_detail(
                     f"    - {subject}: opportunity_state={subject_row.get('opportunity_state')} "
                     f"shadow_action={subject_row.get('shadow_action')} "
                     f"comparison_label={subject_row.get('comparison_label')} "
-                    f"기준일={pilot_date} "
+                    f"기준일={pilot_date} pilot_decision_date={pilot_date} "
                     f"next_review_date={subject_row.get('next_review_date')}"
                 )
         elif cid == "DYNAMIC_CLOCK":
@@ -5737,7 +5815,13 @@ def _format_component_detail(
                         lines.append(
                             f"      - ... +{len(candidates) - _RENDER_CAP} more {tier_label} candidates "
                             f"(full list: this revision's packet.json, DYNAMIC_CLOCK "
-                            f"markets.{market}.{tier_key}; 기준일={dynamic_decision_date})"
+                            f"markets.{market}.{tier_key}; 기준일={dynamic_decision_date}"
+                            + (
+                                f"; 상세 목록 미갱신(기준일 {dynamic_decision_date})"
+                                if decision_date and dynamic_decision_date != decision_date
+                                else ""
+                            )
+                            + ")"
                         )
         elif cid == "SHADOW_ENTRY_REVIEW":
             summary = packet.get("summary", {})
@@ -5767,6 +5851,38 @@ def _format_component_detail(
         # the whole briefing render -- fall back to no detail line rather
         # than raising, the status/reason line above still stands.
         return []
+    return lines
+
+
+def _row_date_token(value) -> str:
+    """YYYY-MM-DD of a date or timestamp source value, else UNKNOWN."""
+    text = str(value or "")
+    return _canonical_iso_date(text[:10]) or "UNKNOWN"
+
+
+# B5-5 (atlas_b5_semantic_checklist/1): the PAPER reference label a candidate
+# regime line must carry together with its market and regime value.
+PAPER_REFERENCE_RUNTIME_LABEL = "런타임 미승인"
+
+
+def _us_trend_etf_close_lines(market_reference, decision_date: str | None) -> list[str]:
+    rows = market_reference.get("trend_etfs") if isinstance(market_reference, dict) else None
+    lines = []
+    for etf in rows if isinstance(rows, list) else []:
+        if not isinstance(etf, dict) or not etf.get("symbol"):
+            continue
+        close = etf.get("close")
+        session = etf.get("as_of_session_date") or "UNKNOWN"
+        lines.append(
+            f"    - US trend ETF {etf['symbol']}: "
+            f"close={'UNKNOWN' if close in (None, '') else close} "
+            f"as_of_session_date={session}"
+            + (
+                f" (세션 {session} 종가 · {decision_date} 종가로 재표기하지 않음)"
+                if decision_date and session != decision_date
+                else ""
+            )
+        )
     return lines
 
 
@@ -6059,7 +6175,8 @@ def _paper_regime_reference_lines(packet: dict) -> list[str]:
             f"score={market.get('score')} confidence={market.get('confidence')} "
             f"기준일={as_of or 'UNKNOWN'}{freshness} "
             f"coverage={market.get('coverage_ratio')} "
-            f"runtime_regime={market.get('runtime_regime')}"
+            f"runtime_regime={market.get('runtime_regime')}; "
+            f"{PAPER_REFERENCE_RUNTIME_LABEL}"
         )
     lines.append(
         f"  - source: `{reference.get('evidence_path')}` "
@@ -6084,35 +6201,24 @@ def render_markdown(packet: dict) -> str:
     lines.extend(_market_session_freshness_lines(packet, by_id))
     decision_day = dt.date.fromisoformat(packet["decision_date"])
     if packet["slot"] == "morning" and decision_day.weekday() >= 5:
-        step0 = by_id.get("STEP0_READ_MODEL_HEALTH") or {}
-        sources = ((step0.get("packet") or {}).get("sources") or {})
-        observed_dates = {
-            value.get("collected_for_kst_date")
-            for value in sources.values()
-            if isinstance(value, dict) and isinstance(value.get("collected_for_kst_date"), str)
-        }
-        latest_confirmed = observed_dates.pop() if len(observed_dates) == 1 else "UNKNOWN"
+        dates = weekend_session_context_dates(packet)
+        # scheduled_briefing_retrieval_authority/4 weekend contract lines.
+        # Each date is named for exactly what it is; the single ambiguous
+        # latest_confirmed_evidence_date line (v3) is no longer rendered.
         lines.extend([
             "## Weekend market session context",
             "- market_session: MARKET_CLOSED",
             "- new_session: NONE",
-            f"- latest_confirmed_evidence_date: {latest_confirmed}",
+            f"- source_evidence_kst_date: {dates['source_evidence_kst_date']}",
+            f"- krx_latest_confirmed_close_date: {dates['krx_latest_confirmed_close_date']}",
+            f"- us_latest_verified_session_date: {dates['us_latest_verified_session_date']}",
             "- latest_confirmed_evidence_relabelled_as_today: false",
+            "- source_evidence_kst_date_scope: STEP0 read-model collector run KST date, "
+            "not a market session date",
         ])
         krx_session = krx_session_context(packet)
         if krx_session is not None:
-            # The line above is the STEP0 collector run date, not a market
-            # session date; say so and name each market's own last session.
-            us_row = by_id.get("FREE_MARKET_DATA") or {}
-            us_session = (
-                ((us_row.get("packet") or {}).get("us_market_reference") or {}).get(
-                    "as_of_session_date"
-                )
-                or "UNKNOWN"
-            )
             lines.extend([
-                "- latest_confirmed_evidence_date_scope: STEP0 collector run KST date, "
-                "not a market session date",
                 "- krx_latest_completed_session_date: "
                 + (krx_session["latest_completed_session_date"] or "UNKNOWN")
                 + f" ({krx_session['latest_completed_session_status']}; "
@@ -6122,7 +6228,6 @@ def render_markdown(packet: dict) -> str:
                 + _KRX_SESSION_STATUS_GLOSS.get(krx_session["latest_completed_session_status"], "")
                 + " · 거래소 확정 종가 "
                 + (krx_session["latest_confirmed_close_date"] or "UNKNOWN"),
-                f"- us_latest_session_date: {us_session}",
             ])
         lines.append("")
     for index, section in enumerate(flow_first["sections"], start=1):

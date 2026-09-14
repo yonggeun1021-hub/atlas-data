@@ -24,6 +24,12 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 MARKET_RE = re.compile(r"^KRW-[A-Z0-9]{2,20}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+# Per-market mark view (design note docs/crypto_paper_per_market_account_marks.md):
+# a position whose market has no FRESH mark is valued UNKNOWN instead of making
+# the whole account view unbuildable.  The /1 view and its contract are unchanged.
+PER_MARKET_ACCOUNT_STATE_SCHEMA_VERSION = "crypto_paper_account_state/2"
+PER_MARKET_MARK_FRESHNESS = "PER_MARKET"
+MARK_STATUSES = ("FRESH", "UNKNOWN")
 
 
 class CryptoPaperSimulatorError(ValueError):
@@ -905,13 +911,28 @@ def expire_order(
 def _assemble_account_state(
     checked: dict, *, observed_at: str, mark_prices: dict[str, str],
     mark_freshness_status: str, mark_source_ref: str, mark_source_sha256: str,
-    contract: dict,
+    contract: dict, mark_status: dict[str, str] | None = None,
 ) -> dict:
+    per_market = mark_status is not None
     state = _replay(checked["events"], contract)
     observed = _utc(observed_at, "ACCOUNT_OBSERVED_AT_INVALID")
     if observed < _utc(state["last_event_at"], "LAST_EVENT_AT_INVALID"):
         raise CryptoPaperSimulatorError("ACCOUNT_VIEW_PRECEDES_LEDGER")
-    if mark_freshness_status != contract["account_mark_freshness_required"]:
+    if per_market:
+        if mark_freshness_status != PER_MARKET_MARK_FRESHNESS:
+            raise CryptoPaperSimulatorError("ACCOUNT_MARK_FRESHNESS_NOT_PER_MARKET")
+        held = sorted(market for market, position in state["positions"].items() if position["quantity"] != 0)
+        if (
+            not isinstance(mark_status, dict)
+            or sorted(mark_status) != held
+            or any(value not in MARK_STATUSES for value in mark_status.values())
+        ):
+            raise CryptoPaperSimulatorError("ACCOUNT_MARK_STATUS_INVALID")
+        if not isinstance(mark_prices, dict) or sorted(mark_prices) != sorted(
+            market for market, value in mark_status.items() if value == "FRESH"
+        ):
+            raise CryptoPaperSimulatorError("ACCOUNT_MARK_PRICES_STATUS_MISMATCH")
+    elif mark_freshness_status != contract["account_mark_freshness_required"]:
         raise CryptoPaperSimulatorError("ACCOUNT_MARK_NOT_FRESH")
     if not isinstance(mark_prices, dict):
         raise CryptoPaperSimulatorError("MARK_PRICES_INVALID")
@@ -920,10 +941,27 @@ def _assemble_account_state(
     position_value = Decimal("0")
     unrealized_total = Decimal("0")
     realized_total = Decimal("0")
+    valuation_unknown = False
     for market in sorted(state["positions"]):
         position = state["positions"][market]
         if position["quantity"] == 0:
             realized_total += position["realized_pnl"]
+            continue
+        if per_market and mark_status[market] == "UNKNOWN":
+            # No FRESH evidence: value UNKNOWN, never a stale or inferred price.
+            realized_total += position["realized_pnl"]
+            valuation_unknown = True
+            positions.append({
+                "market": market,
+                "quantity": _format_decimal(position["quantity"]),
+                "cost_basis": _format_decimal(position["cost_basis"]),
+                "average_cost": _format_decimal(position["cost_basis"] / position["quantity"]),
+                "mark_status": "UNKNOWN",
+                "mark_price": None,
+                "market_value": None,
+                "unrealized_pnl": None,
+                "realized_pnl": _format_decimal(position["realized_pnl"]),
+            })
             continue
         if market not in mark_prices:
             raise CryptoPaperSimulatorError(f"MARK_PRICE_MISSING:{market}")
@@ -934,7 +972,7 @@ def _assemble_account_state(
         position_value += market_value
         unrealized_total += unrealized
         realized_total += position["realized_pnl"]
-        positions.append({
+        row = {
             "market": market,
             "quantity": _format_decimal(position["quantity"]),
             "cost_basis": _format_decimal(position["cost_basis"]),
@@ -943,7 +981,10 @@ def _assemble_account_state(
             "market_value": _format_decimal(market_value),
             "unrealized_pnl": _format_decimal(unrealized),
             "realized_pnl": _format_decimal(position["realized_pnl"]),
-        })
+        }
+        if per_market:
+            row = {**row, "mark_status": "FRESH"}
+        positions.append(row)
     orders = []
     for order_id in sorted(state["orders"]):
         order = state["orders"][order_id]
@@ -962,15 +1003,19 @@ def _assemble_account_state(
             "market_regime_status": order["intent"]["market_regime_status"],
         })
     packet = {
-        "schema_version": contract["account_state_schema_version"],
+        "schema_version": (
+            PER_MARKET_ACCOUNT_STATE_SCHEMA_VERSION if per_market
+            else contract["account_state_schema_version"]
+        ),
         "contract_version": contract["contract_version"],
         "mode": contract["mode"],
         "ledger_id": checked["ledger_id"],
         "observed_at": observed_at,
         "cash": _format_decimal(state["cash"]),
-        "position_market_value": _format_decimal(position_value),
-        "total_nav": _format_decimal(state["cash"] + position_value),
-        "unrealized_pnl": _format_decimal(unrealized_total),
+        # Any UNKNOWN position makes these account totals UNKNOWN (null).
+        "position_market_value": None if valuation_unknown else _format_decimal(position_value),
+        "total_nav": None if valuation_unknown else _format_decimal(state["cash"] + position_value),
+        "unrealized_pnl": None if valuation_unknown else _format_decimal(unrealized_total),
         "realized_pnl": _format_decimal(realized_total),
         "positions": positions,
         "orders": orders,
@@ -1006,6 +1051,32 @@ def build_account_state(
     return validate_account_state(packet, contract)
 
 
+def build_account_state_per_market(
+    ledger: dict, *, observed_at: str, mark_prices: dict[str, str],
+    mark_status: dict[str, str], mark_source_ref: str, mark_source_sha256: str,
+    contract: dict | None = None,
+) -> dict:
+    """``crypto_paper_account_state/2``: each position carries its own mark status.
+
+    ``mark_status`` names every position market as FRESH (a mark price is then
+    required) or UNKNOWN (no price may be supplied; the position's value and
+    the account's position value, NAV and unrealized P&L are null).
+    """
+    contract = load_contract() if contract is None else _validate_contract(contract)
+    checked = validate_ledger(ledger, contract)
+    packet = _assemble_account_state(
+        checked,
+        observed_at=observed_at,
+        mark_prices=mark_prices,
+        mark_freshness_status=PER_MARKET_MARK_FRESHNESS,
+        mark_source_ref=mark_source_ref,
+        mark_source_sha256=mark_source_sha256,
+        contract=contract,
+        mark_status=copy.deepcopy(mark_status),
+    )
+    return validate_account_state(packet, contract)
+
+
 def validate_account_state(value: dict, contract: dict | None = None) -> dict:
     """Rebuild a persisted account view from its exact embedded ledger."""
     contract = load_contract() if contract is None else _validate_contract(contract)
@@ -1017,8 +1088,11 @@ def validate_account_state(value: dict, contract: dict | None = None) -> dict:
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise CryptoPaperSimulatorError("ACCOUNT_STATE_FIELDS_MISMATCH")
+    per_market = value.get("schema_version") == PER_MARKET_ACCOUNT_STATE_SCHEMA_VERSION if isinstance(value, dict) else False
     if (
-        value.get("schema_version") != contract["account_state_schema_version"]
+        value.get("schema_version") not in {
+            contract["account_state_schema_version"], PER_MARKET_ACCOUNT_STATE_SCHEMA_VERSION,
+        }
         or value.get("contract_version") != contract["contract_version"]
         or value.get("mode") != contract["mode"]
         or value.get("authority") != contract["authority"]
@@ -1037,6 +1111,15 @@ def validate_account_state(value: dict, contract: dict | None = None) -> dict:
     checked_ledger = validate_ledger(value.get("source_ledger"), contract)
     if source.get("ledger_sha256") != checked_ledger["packet_sha256"]:
         raise CryptoPaperSimulatorError("ACCOUNT_STATE_LEDGER_LINEAGE_MISMATCH")
+    mark_status = None
+    if per_market:
+        positions = value.get("positions")
+        if not isinstance(positions, list) or any(
+            not isinstance(row, dict) or "market" not in row or "mark_status" not in row
+            for row in positions
+        ):
+            raise CryptoPaperSimulatorError("ACCOUNT_STATE_POSITION_MARK_STATUS_MISSING")
+        mark_status = {row["market"]: row["mark_status"] for row in positions}
     expected = _assemble_account_state(
         checked_ledger,
         observed_at=value.get("observed_at"),
@@ -1045,6 +1128,7 @@ def validate_account_state(value: dict, contract: dict | None = None) -> dict:
         mark_source_ref=source.get("mark_source_ref"),
         mark_source_sha256=source.get("mark_source_sha256"),
         contract=contract,
+        mark_status=mark_status,
     )
     if value != expected:
         raise CryptoPaperSimulatorError("ACCOUNT_STATE_DERIVATION_MISMATCH")

@@ -1,0 +1,133 @@
+{
+  "schema_version": "kr_rotation_event_study_preregistration/1",
+  "study_id": "KR_ROTATION_20SESSION_EVENT_STUDY_V1",
+  "written_at_utc": "2026-09-14T15:12:00Z",
+  "written_by": "CLAUDE_CIO",
+  "data_state_at_writing": "NO_KRX_SECTOR_INDEX_HISTORY_FETCHED. No KRX request was made for this study. No event count, forward return, hit rate or coverage figure had been computed when this file was written. Only the ratified sector set, the endpoint contract and the calendar/weekday count of the default range were known.",
+  "purpose": "Re-verify the TEMPORARY Korea capital-rotation confirmation rules (user ratification 2026-09-15, KR column of D-3) on a 20-session relative-strength basis once official KRX sector index history exists. Verdicts are evidence only; they never change policy. Any rule change still needs a new user ratification.",
+  "references": {
+    "user_ratification": {
+      "record": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915 (CIO workspace outputs/, not in this repository)",
+      "sha256": "68ca157398e2396ccc56e24f59dbf74a623147a8f6db4a2a00747b59ca793bdf",
+      "kr_decision": "TEMPORARY until KRX sector index history is obtained and rules are re-verified on a 20-session strength basis"
+    },
+    "proposal": {
+      "record": "CLAUDE_CIO_CAPITAL_ROTATION_RULES_PROPOSAL_20260915.md section B (CIO workspace outputs/, not in this repository)",
+      "sha256": "f77f3c43471348d05bde59998f3bcbfc68b1da8f55ac832e553ad8ec8e9fe9b0"
+    },
+    "ratified_sector_policy": {
+      "path": "config/korea_capital_rotation_policy_ratified.json",
+      "sha256": "1e573bd049990c6856a0c3589791df116567ea01ae90bcae8d273c3d09edda33"
+    },
+    "source_endpoint_contract": {
+      "path": "config/korea_market_signals_contract.json",
+      "sha256": "e0e91bd51b17532a7a3c4dfc8648a94f54bf32ee0ab255d9cb9866fa96c557e4"
+    }
+  },
+  "universe": {
+    "scopes": [
+      {"scope": "KOSPI", "benchmark_identity": "KOSPI::코스피", "member_count": 24, "top_count": 3, "bottom_count": 3},
+      {"scope": "KOSDAQ", "benchmark_identity": "KOSDAQ::코스닥", "member_count": 22, "top_count": 3, "bottom_count": 3}
+    ],
+    "identity_matching": "EXACT_IDX_NM_WITHIN_OWN_MARKET_RESPONSE; identity = MARKET + '::' + IDX_NM; no alias, rename or fuzzy inference",
+    "ranking": "DESCENDING relative strength within benchmark scope; tie-break SERIES_IDENTITY_ASC"
+  },
+  "sessions": {
+    "session_rule": "A date is a session only when both the KOSPI and KOSDAQ index responses for that basDd are non-empty with BAS_DD equal to the request. Dates are never classified as sessions by weekday arithmetic.",
+    "calendar_cross_check": "Where an official KRX [01023] holiday capture exists for the year, a calendar CLOSED date with rows, or a calendar OPEN_REGULAR date with empty responses, is a DISAGREEMENT.",
+    "study_blocking_conditions": [
+      "backfill stopped (HTTP 401/403/429, response error code, schema/date violation, budget exhaustion, consecutive transient failures)",
+      "any request left BLOCKED after retries",
+      "any KOSPI/KOSDAQ or calendar/response session DISAGREEMENT",
+      "records payload hash does not match the backfill receipt"
+    ],
+    "blocked_result": "status BLOCKED, reason recorded, no candidate statistics emitted"
+  },
+  "coverage_rule": {
+    "window": "Per scope, the longest run of consecutive confirmed sessions ending at the last confirmed session in which the benchmark and every member have a numeric positive close. No forward fill.",
+    "minimum_window_sessions": 250,
+    "insufficient_result": "If either scope window is shorter than the minimum, the study status is INSUFFICIENT_EXACT_IDENTITY_COVERAGE and no candidate statistics are emitted. Identity first/last presence is still reported."
+  },
+  "definitions": {
+    "relative_strength": "RS_L(e,t) = ln(P_e,t / P_e,t-L) - ln(B_t / B_t-L), L = 20 primary; L = 1 only for the explicitly labelled current-temporary-basis comparison",
+    "buckets": "TOP = ranks 1..3, BOTTOM = last 3 ranks, MIDDLE = rest, within scope",
+    "execution": "signal known at close t, executed at close t+1",
+    "forward_excess": "FX_h(e,t) = ln(P_e,t+1+h / P_e,t+1) - mean over all members of the same scope of ln(P_x,t+1+h / P_x,t+1)",
+    "horizons_sessions": [5, 10, 20],
+    "main_horizon_sessions": 10,
+    "round_trip_cost": 0.003,
+    "stress_cost_multiplier": 2,
+    "baseline_hit_rate": "share of FX_h(e,t) > 0 over every member and every ranked t with an available forward return, pooled across scopes",
+    "hit": "FX_h > 0",
+    "non_overlapping_n": "greedy per sector in time order, events at least h sessions apart",
+    "recent_segment": "per scope, signal sessions with index >= T - main_horizon - 1 - 120 (about the last 120 signal sessions with an available main-horizon return)",
+    "halves": "per scope, signal index below / at-or-above the midpoint of the ranked range"
+  },
+  "candidates": [
+    {"id": "R1-k1_ENTER", "kind": "enter", "rule": "ENTER at t when TOP on 1 consecutive observation ending t and not TOP at t-1, while not held"},
+    {"id": "R1-k2_ENTER", "kind": "enter", "rule": "ENTER at t when TOP on 2 consecutive observations ending t and not TOP at t-2, while not held (ratified 2-consecutive confirmation)"},
+    {"id": "R1-k3_ENTER", "kind": "enter", "rule": "ENTER at t when TOP on 3 consecutive observations ending t and not TOP at t-3, while not held"},
+    {"id": "R1-k1_EXIT", "kind": "exit", "rule": "after R1-k1 ENTER: first t with BOTTOM, or non-TOP at t and t-1 with t-1 after entry"},
+    {"id": "R1-k2_EXIT", "kind": "exit", "rule": "after R1-k2 ENTER: first t with BOTTOM, or non-TOP at t and t-1 with t-1 after entry (ratified release rule)"},
+    {"id": "R1-k3_EXIT", "kind": "exit", "rule": "after R1-k3 ENTER: first t with BOTTOM, or non-TOP at t and t-1 with t-1 after entry"},
+    {"id": "R2_ENTER", "kind": "enter", "rule": "R1-k2 ENTER kept only if mean ACC_TRDVAL over last 5 sessions / mean over last 20 sessions >= 1.0 at t (index trading value; missing value drops the event and is counted)"},
+    {"id": "R3_WATCH", "kind": "enter", "rule": "MIDDLE or BOTTOM at t and rank improved by >= 3 places vs t-5, no WATCH for that sector in the previous 5 observations; display-only rule, tested as a buy signal"},
+    {"id": "R4_ENTER_LEADING", "kind": "enter", "rule": "RRG-style approximation: X = P_e / P_B, RSR = 100 * X / SMA_20(X), RSM = 100 * RSR_t / RSR_t-5; quadrant becomes LEADING (RSR>100 and RSM>100) from any other"},
+    {"id": "R4_WATCH_IMPROVING", "kind": "enter", "rule": "RRG-style: LAGGING -> IMPROVING (RSR<=100 and RSM>100)"},
+    {"id": "R4_WARN_WEAKENING", "kind": "exit", "rule": "RRG-style: LEADING -> WEAKENING (RSR>100 and RSM<=100)"},
+    {"id": "R4_EXIT_LAGGING", "kind": "exit", "rule": "RRG-style: quadrant becomes LAGGING (RSR<=100 and RSM<=100) from any other"},
+    {"id": "R5_DAILY_TOP3", "kind": "enter", "rule": "top-3 momentum baseline: every ranked t, each of the top 3 members by trailing 20-session log return within scope"},
+    {"id": "L1_R1-k2_ENTER", "kind": "enter", "rule": "comparison on the current temporary 1-session basis (L = 1): same as R1-k2_ENTER"},
+    {"id": "L1_R1-k2_EXIT", "kind": "exit", "rule": "comparison on the current temporary 1-session basis (L = 1): same as R1-k2_EXIT"}
+  ],
+  "descriptive_only": [
+    "R5_REBALANCE_20: every 20 sessions from t = 20 while t+21 < T, hold top 3 by trailing 20-session log return; per-rebalance mean FX_20 of the 3 picks (count, mean, hit share, mean without best, last 6 rebalances per scope, halves)",
+    "whipsaw share per k (EXIT within 5 observations of ENTER), median held observations for R1-k2",
+    "R3 WATCH -> R1-k2 ENTER within 10 observations conversion share",
+    "TOP-3 day-to-day persistence share for L = 20 and L = 1"
+  ],
+  "gates": {
+    "evaluated_at": "main horizon (10 sessions) only; other horizons reported without verdict",
+    "enter": {
+      "insufficient_if": "n < 80 or non_overlapping_n < 30",
+      "pass_requires_all": [
+        "mean - 2 * round_trip_cost > 0",
+        "hit_rate >= baseline_hit_rate + 0.05",
+        "mean without the single best event > 0",
+        "recent segment has at least 1 event and recent mean >= 0",
+        "both scope means > 0 and positive-mean sectors > half of sectors with n >= 3"
+      ],
+      "otherwise": "FAIL with the failing checks listed"
+    },
+    "exit": {
+      "insufficient_if": "n < 30",
+      "justified_requires_all": [
+        "mean < 0",
+        "mean without the single worst event < 0",
+        "recent segment has at least 1 event and recent mean < 0"
+      ],
+      "otherwise": "NOT_JUSTIFIED with the failing checks listed"
+    },
+    "ratified_structure_verdict": {
+      "SUPPORTED": "R1-k2_ENTER PASS and R1-k2_EXIT JUSTIFIED",
+      "ENTRY_ONLY_SUPPORTED": "R1-k2_ENTER PASS and R1-k2_EXIT not JUSTIFIED",
+      "RELEASE_ONLY_SUPPORTED": "R1-k2_EXIT JUSTIFIED and R1-k2_ENTER not PASS",
+      "INSUFFICIENT": "R1-k2_ENTER or R1-k2_EXIT INSUFFICIENT and neither of the above",
+      "NOT_SUPPORTED": "otherwise"
+    },
+    "multiple_testing_note": "Count of gated candidates and passes is reported; a single borderline pass among many tests can be chance."
+  },
+  "outputs": {
+    "public": "aggregate statistics, counts, verdicts, per-sector event counts and mean excess, identity coverage counts and first/last presence dates, request accounting, response SHA-256 manifest and input hashes",
+    "never_public": "index closes, trading values, per-day relative strength, ranks, quadrants, per-event dates or returns, raw responses"
+  },
+  "post_hoc_policy": "No parameter in this file changes after data is fetched. Any additional variant must be labelled POST_HOC in a separate document.",
+  "authority": {
+    "policy_change_authorized": false,
+    "rotation_state_ledger_write_authorized": false,
+    "candidate_authorized": false,
+    "order_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}

@@ -1,0 +1,79 @@
+name: US Regime Replay Range Probe
+
+# US-DATA-1 U3 probe. Manual only; the user approves each run.
+# Makes at most 15 HTTP requests: NYSE page, Nasdaq page, Alpaca calendar,
+# up to 9 Alpaca IEX daily-bar pages for the 15 replay symbols, and 3 FRED
+# ALFRED vintage-date lists. Bar responses stay on the runner (private/) and
+# are never uploaded; only public captures, the date/hash summary and the
+# candidate range declaration are uploaded. Nothing is committed here; the two
+# uploaded files are already named for the committed path convention
+# (evidence/us_regime_replay/probe_summary_v1.json and range_declaration_v1.json).
+
+on:
+  workflow_dispatch:
+    inputs:
+      alpaca_calendar_url:
+        description: "Alpaca market-calendar endpoint the market-data key belongs to"
+        required: true
+        type: choice
+        default: https://paper-api.alpaca.markets/v2/calendar
+        options:
+          - https://paper-api.alpaca.markets/v2/calendar
+          - https://api.alpaca.markets/v2/calendar
+
+permissions:
+  contents: read
+
+concurrency:
+  group: us-regime-replay-range-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline calendar, probe and declaration regression
+        run: |
+          python3 test/test_us_official_session_calendar.py
+          python3 test/test_us_replay_range_declaration.py
+      - name: Bounded capture (at most 15 requests)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
+          CALENDAR_URL: ${{ inputs.alpaca_calendar_url }}
+        run: |
+          python3 regime/us_replay_coverage_probe.py capture \
+            --out-dir "$RUNNER_TEMP/us-probe/raw" \
+            --calendar-url "$CALENDAR_URL"
+      - name: Offline analysis and candidate range declaration
+        run: |
+          mkdir -p "$RUNNER_TEMP/us-probe/upload"
+          python3 regime/us_replay_coverage_probe.py analyze \
+            --raw-dir "$RUNNER_TEMP/us-probe/raw" \
+            --out "$RUNNER_TEMP/us-probe/upload/probe_summary_v1.json"
+          set +e
+          python3 regime/us_replay_range_declaration.py declare \
+            --summary "$RUNNER_TEMP/us-probe/upload/probe_summary_v1.json" \
+            --out "$RUNNER_TEMP/us-probe/upload/range_declaration_v1.json"
+          status=$?
+          set -e
+          cp -R "$RUNNER_TEMP/us-probe/raw/public" "$RUNNER_TEMP/us-probe/upload/public_captures"
+          echo "declaration exit code: $status (0 = DECLARED, 3 = BLOCKED)"
+      - name: Upload public-safe probe output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: us-regime-replay-range-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/us-probe/upload
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Tracked output prohibition
+        run: git diff --exit-code && test -z "$(git status --porcelain)"
