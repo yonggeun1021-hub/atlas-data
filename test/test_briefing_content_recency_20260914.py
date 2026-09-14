@@ -251,17 +251,21 @@ class KrxSessionRecencyTests(unittest.TestCase):
             with self.subTest(decision_date=decision_date):
                 packet, _ = _with_references(decision_date, "morning")
                 rendered = ORCH.render_markdown(packet)
-                # Existing contract lines consumed by the scheduled authority
-                # publisher stay byte-identical.
+                # scheduled_briefing_retrieval_authority/4 weekend contract
+                # lines: the STEP0 collector date and each market's own date
+                # are named separately; the ambiguous v3 line is gone.
                 for line in (
                     "- market_session: MARKET_CLOSED",
                     "- new_session: NONE",
-                    "- latest_confirmed_evidence_date: 2026-09-11",
+                    "- source_evidence_kst_date: 2026-09-11",
+                    "- krx_latest_confirmed_close_date: 2026-09-10",
+                    "- us_latest_verified_session_date: 2026-09-11",
                     "- latest_confirmed_evidence_relabelled_as_today: false",
                 ):
-                    self.assertIn(line, rendered)
+                    self.assertIn(line + "\n", rendered)
+                self.assertNotIn("- latest_confirmed_evidence_date:", rendered)
                 self.assertIn(
-                    "- latest_confirmed_evidence_date_scope: STEP0 collector run KST date, "
+                    "- source_evidence_kst_date_scope: STEP0 read-model collector run KST date, "
                     "not a market session date",
                     rendered,
                 )
@@ -270,7 +274,6 @@ class KrxSessionRecencyTests(unittest.TestCase):
                     "(OBSERVED_UNCONFIRMED; confirmed close 2026-09-10)",
                     rendered,
                 )
-                self.assertIn("- us_latest_session_date: 2026-09-11", rendered)
                 # Korean glosses for the machine labels.
                 self.assertIn("- latest_confirmed_close_date: 2026-09-10; 거래소 확정 종가", rendered)
                 self.assertIn(
