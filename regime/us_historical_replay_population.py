@@ -188,6 +188,25 @@ UTC = dt.timezone.utc
 REPLAYED_AXES = ["TREND", "RISK_VOL", "LIQUIDITY"]
 EXCLUDED_AXES = ["BREADTH", "LEADERSHIP"]
 
+# CIO US-DATA-1/U1 (2026-09-14): ``breadth_axis_row``/``leadership_axis_row``
+# and their fetch ``replay_breadth_leadership_source`` below add BREADTH/
+# LEADERSHIP arithmetic to this module, byte-identical to
+# ``regime/paper_regime_reference.py::build_us`` and bounded by the same
+# per-date no-lookahead check every other fetch in this module carries. They
+# are exercised directly by ``test_us_historical_replay_population.py``'s
+# parity tests. They are **prepared, not yet wired**: ``REPLAYED_AXES``,
+# ``EXCLUDED_AXES``, ``exclusion_basis``, and ``replay_one_requested_date``
+# below are all unchanged, so every existing guarantee (BREADTH/LEADERSHIP
+# always UNKNOWN, 3/3 replay, 3/5 coverage) is unaffected. Moving them from
+# excluded to replayed requires the source contract's own ratification scope
+# (``config/free_market_data_contract.json``
+# ``alpaca.current_proxy_axes.approval_status``) to move past
+# ``RATIFIED_CURRENT_REFERENCE_ONLY`` -- the CIO plan's U2, a ratification
+# this module has no authority to make on its own. Wiring these functions
+# into the replay/validation pipeline is therefore a separate, later change
+# gated on that ratification landing, not a code gap in this one.
+PREPARED_NOT_WIRED_AXES = ["BREADTH", "LEADERSHIP"]
+
 # The exact provenance a record must carry, one entry per replayed axis, and the
 # exact per-series shape the FRED liquidity capture emits. Required key for key
 # by ``validate_population``: a re-hashed payload that *deletes* a response hash
@@ -498,6 +517,44 @@ def liquidity_axis_row(liquidity_rows: list[dict]) -> dict:
     )
 
 
+def breadth_axis_row(advance_fraction: object) -> dict:
+    """Line-for-line mirror of ``build_us``'s BREADTH row (14-ETF advance
+    fraction). Prepared, not yet wired -- see ``PREPARED_NOT_WIRED_AXES``.
+    The threshold literals are ``build_us``'s current policy-derived values,
+    hardcoded exactly like ``trend_axis_row``'s; a future policy change is
+    caught by the parity test, not silently re-derived here.
+    """
+    value = PRR.decimal(advance_fraction, "US_BREADTH_INVALID")
+    direction = PRR.ratio_direction(value, Decimal("0.55"), Decimal("0.45"))
+    return PRR.axis(
+        "BREADTH",
+        direction,
+        {"advance_fraction": str(value)},
+        f"대표 ETF 중 상승 비중은 {value * 100:.1f}%입니다.",
+    )
+
+
+def leadership_axis_row(ordered_groups: list[dict]) -> dict:
+    """Line-for-line mirror of ``build_us``'s LEADERSHIP row (12-group
+    20-session positive fraction). Prepared, not yet wired -- see
+    ``PREPARED_NOT_WIRED_AXES``.
+    """
+    if not isinstance(ordered_groups, list) or len(ordered_groups) != 12:
+        fail("US_LEADERSHIP_COVERAGE_INCOMPLETE")
+    positive_groups = sum(
+        PRR.decimal(row.get("return_pct"), "US_LEADERSHIP_INVALID") > 0
+        for row in ordered_groups
+    )
+    fraction = Decimal(positive_groups) / Decimal(len(ordered_groups))
+    direction = PRR.ratio_direction(fraction, Decimal("0.666667"), Decimal("0.333333"))
+    return PRR.axis(
+        "LEADERSHIP",
+        direction,
+        {"positive_groups": positive_groups, "total": 12},
+        f"대표 업종 12개 중 {positive_groups}개가 20거래일 기준 상승입니다.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Point-in-time source retrieval.
 #
@@ -693,6 +750,64 @@ def replay_trend_source(
         "axis_window_sessions": 20,
         "return_windows_sessions": windows,
         "trend_etfs": trend_etfs,
+        "raw_retention": RAW_RETENTION,
+        "response_sha256": FMD.sha256_bytes(raw),
+    }
+
+
+def replay_breadth_leadership_source(
+    alpaca_key: str, alpaca_secret: str, anchor: dt.date, *, getter, contract: dict,
+) -> dict:
+    """Rebuild the BREADTH/LEADERSHIP proxy-axis measurements available as of
+    ``anchor``. Prepared, not yet wired -- see ``PREPARED_NOT_WIRED_AXES``.
+
+    Reuses ``FMD.derive_us_market_reference`` unmodified: no BREADTH/
+    LEADERSHIP arithmetic is reimplemented here. That function needs bars for
+    the trend symbols *and* the sector-reference symbols to compute both
+    proxy axes (SPY is the LEADERSHIP benchmark, and BREADTH's 14 symbols
+    overlap both sets), so this fetches their union in one
+    ``fetch_alpaca_daily_bars`` call -- independent of, and not a
+    replacement for, ``replay_trend_source``'s own narrower 3-symbol fetch,
+    since wiring either into ``replay_one_requested_date`` is a separate,
+    later change.
+
+    Anchored and lookahead-checked exactly like ``replay_trend_source``:
+    ``end`` is pinned to the requested date's last instant, and any returned
+    bar dated after it fails this date closed rather than being used.
+    """
+    if not alpaca_key and not alpaca_secret:
+        fail("BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL")
+    if not alpaca_key or not alpaca_secret:
+        fail("BLOCKED_BY_INCOMPLETE_DEDICATED_MARKET_DATA_CREDENTIAL")
+    symbols = sorted(
+        set(contract["alpaca"]["trend_symbols"])
+        | set(contract["alpaca"]["sector_reference_symbols"])
+    )
+    anchor_end = dt.datetime.combine(anchor, dt.time(23, 59, 59), tzinfo=UTC)
+    raw, normalized = FMD.fetch_alpaca_daily_bars(
+        alpaca_key, alpaca_secret, symbols, anchor_end, getter=getter,
+    )
+    for row in normalized:
+        session = _calendar_date(str(row.get("opened_at", ""))[:10])
+        if session is None:
+            fail("US_PROXY_SESSION_DATE_INVALID")
+        if session > anchor:
+            fail("US_REPLAY_LOOKAHEAD_VIOLATION", "ALPACA_BAR")
+    reference = FMD.derive_us_market_reference(normalized, contract)
+    breadth = reference.get("proxy_axes", {}).get("BREADTH", {})
+    leadership = reference.get("proxy_axes", {}).get("LEADERSHIP", {})
+    if breadth.get("status") != "OBSERVED":
+        fail("US_BREADTH_NOT_OBSERVED")
+    if leadership.get("status") != "OBSERVED":
+        fail("US_LEADERSHIP_NOT_OBSERVED")
+    return {
+        "source_scope": contract["alpaca"]["source_scope"],
+        "feed": contract["alpaca"]["feed"],
+        "requested_end_date": anchor.isoformat(),
+        "reference_as_of_session_date": reference.get("as_of_session_date"),
+        "symbols": symbols,
+        "breadth_measurement": breadth["measurement"],
+        "leadership_measurement": leadership["measurement"],
         "raw_retention": RAW_RETENTION,
         "response_sha256": FMD.sha256_bytes(raw),
     }
