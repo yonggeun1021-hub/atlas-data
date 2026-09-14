@@ -1,0 +1,32 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "ratification_id": "US-SESSION-CALENDAR-SOURCE-V1-20260914",
+  "ratified_at_utc": "2026-09-14T08:25:00Z",
+  "ratified_by": "USER (explicit instruction: '미국 거래일 달력 출처 채택')",
+  "recommended_by": "CLAUDE_CIO",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "scope": "US session calendar for INTERNAL_VIRTUAL_PAPER historical PIT replay/acceptance and US PAPER runtime. REAL unchanged/prohibited.",
+  "amends": "config/regime_source_owner_registry_v2.json US.official_calendar source set for PAPER scope (weekday_inference_prohibited remains true).",
+  "sources": {
+    "official_capture": {
+      "source_id": "NYSE_HOLIDAYS_AND_TRADING_HOURS",
+      "url": "https://www.nyse.com/trade/hours-calendars",
+      "use": "years published on the official page: date-specific capture with raw sha256 (mirror KR official holiday capture); Nasdaq schedule page as cross-check where available"
+    },
+    "historical_two_source": {
+      "use": "years not on the official page (2018 onward to the first official year)",
+      "rule": "a date is a US regular session only when BOTH (a) Alpaca market calendar lists it and (b) SPY has an Alpaca IEX daily bar for that date; early-close flags from the Alpaca calendar recorded but not inferred",
+      "conflict_or_missing": "US_FINISHED_SESSION_UNKNOWN for that date"
+    }
+  },
+  "prohibitions": [
+    "no weekday/holiday-rule inference",
+    "no single-source historical session",
+    "no use for REAL"
+  ],
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

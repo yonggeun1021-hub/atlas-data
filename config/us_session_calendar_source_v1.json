@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_session_calendar_source/1",
+  "market": "US",
+  "ratification": {
+    "ratification_id": "US-SESSION-CALENDAR-SOURCE-V1-20260914",
+    "path": "evidence/authority/us_session_calendar_source_user_ratification_20260914.json",
+    "sha256": "50259dafb000c6027dd44193fa1f38d8b65e9e33661a909df54d34e9443f318e"
+  },
+  "registry_binding": {
+    "path": "config/regime_source_owner_registry_v2.json",
+    "sha256": "8dd2ad50f66e144aaca78ffc6a82615d814dee2b8f23f736cdbc85a56dba68bb",
+    "field": "markets.US.official_calendar",
+    "mode": "ADDITIVE_OVERLAY_REGISTRY_BYTES_UNCHANGED",
+    "reason": "The registry file is sha256-bound by config/crypto_paper_runtime_v1.json and config/kr_paper_runtime_ratification_candidate_v1.json (POLICY_BINDING_DRIFT on any byte change) and by config/kr_first_paper_experiment_application.json. The PAPER-scope source amendment is therefore recorded here, bound to the registry's exact bytes, the same separate-additional-ratification pattern config/paper_runtime_normalization_v1.json and config/regime_semantic_freshness_policy_v1.json use. The registry's own sources list, weekday_inference_prohibited=true and conflict_or_missing_result are unchanged and re-required by the loader."
+  },
+  "scope": "INTERNAL_VIRTUAL_PAPER_US_HISTORICAL_PIT_REPLAY_AND_US_PAPER_RUNTIME",
+  "real_authorized": false,
+  "weekday_inference_prohibited": true,
+  "timezone": "America/New_York",
+  "regular_session": {"open": "09:30", "close": "16:00", "early_close": "13:00"},
+  "official_capture": {
+    "source_id": "NYSE_HOLIDAYS_AND_TRADING_HOURS",
+    "url": "https://www.nyse.com/trade/hours-calendars",
+    "applies_to": "YEARS_PUBLISHED_IN_THE_CAPTURED_OFFICIAL_PAGE",
+    "raw_retention": "RAW_SHA256_BOUND",
+    "cross_check": {
+      "source_id": "NASDAQ_TRADING_SCHEDULE",
+      "url": "https://www.nasdaq.com/market-activity/stock-market-holiday-schedule",
+      "policy": "WHERE_AVAILABLE_DISAGREEMENT_IS_UNKNOWN"
+    },
+    "date_rule": "Mirror of market_data/krx_official_holiday_calendar.py: a date listed as an official closure is CLOSED; a date listed in the official early-close statement is OPEN_EARLY_CLOSE; Saturday/Sunday is CLOSED; any other date of a published year is OPEN_REGULAR. Any cross-check disagreement is UNKNOWN."
+  },
+  "historical_two_source": {
+    "first_year": 2018,
+    "applies_to": "YEARS_FROM_FIRST_YEAR_BEFORE_THE_FIRST_OFFICIALLY_PUBLISHED_YEAR",
+    "sources": [
+      {"source_id": "ALPACA_MARKET_CALENDAR", "url": "https://paper-api.alpaca.markets/v2/calendar", "allowed_urls": ["https://paper-api.alpaca.markets/v2/calendar", "https://api.alpaca.markets/v2/calendar"]},
+      {"source_id": "ALPACA_IEX_SPY_DAILY_BAR", "url": "https://data.alpaca.markets/v2/stocks/bars"}
+    ],
+    "rule": "A date is a US session only when BOTH the Alpaca market calendar lists it AND SPY has an Alpaca IEX daily bar for it. A date neither source lists is CLOSED. One-source-only is UNKNOWN. Early close is recorded from the Alpaca calendar close time (13:00) and never inferred. A date outside either capture window is UNKNOWN."
+  },
+  "conflict_or_missing_result": "US_FINISHED_SESSION_UNKNOWN",
+  "prohibitions": [
+    "NO_WEEKDAY_OR_HOLIDAY_RULE_INFERENCE",
+    "NO_SINGLE_SOURCE_HISTORICAL_SESSION",
+    "NO_REAL_USE"
+  ],
+  "authority": {
+    "market_calendar_observation_only": true,
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "order_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}
