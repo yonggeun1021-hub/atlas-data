@@ -2496,6 +2496,22 @@ APPROVED_TESTS = [
     #   evidence/daily_briefing validates; every retained /2 packet still
     #   fails by design. No import of the orchestrator; no authority change.
     "test/test_briefing_consumer_derivation_markers_20260914.py",
+    # ★ KR sector index history backfill + pre-registered 20-session rotation
+    #   event study (CLAUDE_CIO 2026-09-15; user ratification KR = TEMPORARY
+    #   until KRX sector index history is re-verified). Offline only: synthetic
+    #   KRX index responses through an in-memory opener exercise the request
+    #   budget (2 requests per requested weekday, hard caps), write-once
+    #   resume, fail-closed stops on HTTP 401/403/429 and KRX error codes,
+    #   response-decided sessions with official-calendar cross-checks, the
+    #   pinned pre-registration hash, R1-k/R2/R3/R4/R5 mechanics and gates,
+    #   and the aggregate-only public validator (no index values, no per-day
+    #   sequences). The workflow test pins workflow_dispatch-only, contents:
+    #   read, persist-credentials false, the KRX secret in one step env only,
+    #   runner-temp private records and a tracked-change prohibition. No
+    #   network call, no policy/ledger/order/trading authority.
+    "test/test_kr_sector_index_history_backfill.py",
+    "test/test_kr_rotation_event_study.py",
+    "test/test_kr_sector_history_study_workflow.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
