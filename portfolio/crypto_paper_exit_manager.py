@@ -347,7 +347,12 @@ def validate_exit_plan(value: dict, contract: dict | None = None) -> dict:
     ):
         raise CryptoPaperExitManagerError("PLAN_IDENTITY_INVALID")
     account = SIMULATOR.validate_account_state(value.get("source_entry_account"))
-    if account.get("schema_version") != contract["source_account_schema_version"]:
+    if account.get("schema_version") not in {
+        contract["source_account_schema_version"],
+        SIMULATOR.PER_MARKET_ACCOUNT_STATE_SCHEMA_VERSION,
+    }:
+        # Entry economics come from the filled order, never from marks, so a
+        # per-market account view (/2) is an equally exact plan source.
         raise CryptoPaperExitManagerError("PLAN_SOURCE_ACCOUNT_SCHEMA_INVALID")
     plan_id = _identifier(value.get("plan_id"), "PLAN_ID_INVALID")
     market = _market(value.get("market"))
@@ -593,7 +598,12 @@ def _assemble(plan: dict, account: dict, observation: dict, contract: dict) -> d
     if account["source"]["mark_source_sha256"] != observation["source_sha256"]:
         raise CryptoPaperExitManagerError("ACCOUNT_OBSERVATION_SOURCE_MISMATCH")
     position = _current_position(account, plan["market"])
-    if position is not None and position["mark_price"] != observation["current_price"]:
+    if position is not None and position.get("mark_status") == "UNKNOWN":
+        # A per-market account view has no mark for this market: only a
+        # non-FRESH observation (WAIT_STALE_EVIDENCE) may be evaluated.
+        if observation["freshness_status"] == "FRESH":
+            raise CryptoPaperExitManagerError("ACCOUNT_POSITION_MARK_UNKNOWN_FOR_FRESH_OBSERVATION")
+    elif position is not None and position["mark_price"] != observation["current_price"]:
         raise CryptoPaperExitManagerError("ACCOUNT_OBSERVATION_PRICE_MISMATCH")
     current = Decimal(observation["current_price"])
     prior_high = Decimal(observation["prior_high_watermark"])

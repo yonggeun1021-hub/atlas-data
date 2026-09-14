@@ -630,6 +630,8 @@ def paper_account_state_from_ledger(
     account_state: dict, *, open_position_risk: list[dict],
 ) -> dict:
     checked = SIMULATOR.validate_account_state(account_state)
+    if checked["total_nav"] is None:
+        raise CryptoPaperRuntimeBridgeError("PAPER_ACCOUNT_NAV_UNKNOWN")
     total_nav = Decimal(checked["total_nav"])
     if total_nav <= 0:
         raise CryptoPaperRuntimeBridgeError("PAPER_ACCOUNT_NAV_NOT_POSITIVE")
@@ -1038,6 +1040,11 @@ def _derive_runtime_request(
         SIMULATOR.validate_account_state(account_state)
         if account_state is not None else None
     )
+    if (
+        legacy_request and checked_account is not None
+        and checked_account["schema_version"] != SIMULATOR.load_contract()["account_state_schema_version"]
+    ):
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_ACCOUNT")
     normalized_risk = _normalize_open_position_risk(open_position_risk)
     normalized_keys = _normalize_known_idempotency_keys(known_idempotency_keys)
     missing = []
@@ -1114,10 +1121,18 @@ def _derive_runtime_request(
                     "order_ids": sorted(eligible_order_ids),
                     "snapshot": snapshot,
                 })
+    nav_unknown_markets = (
+        sorted(row["market"] for row in checked_account["positions"] if row.get("mark_status") == "UNKNOWN")
+        if checked_account is not None and checked_account["total_nav"] is None else []
+    )
     if promotion is None:
         blockers.append("PROMOTION_PACKET_UNAVAILABLE")
     elif missing:
         blockers.extend("RUNTIME_INPUT_MISSING:" + item for item in missing)
+    elif nav_unknown_markets:
+        # A per-market account view with an UNKNOWN-valued position has no
+        # NAV, so no new entry can be sized; carried matches still proceed.
+        blockers.append("PAPER_ACCOUNT_NAV_UNKNOWN:" + ",".join(nav_unknown_markets))
     else:
         paper_account = paper_account_state_from_ledger(
             checked_account, open_position_risk=normalized_risk or [],
@@ -1227,6 +1242,8 @@ def _derive_runtime_request(
         status = "WAIT_PROMOTION_UNAVAILABLE"
     elif missing:
         status = "WAIT_RUNTIME_INPUTS_MISSING"
+    elif nav_unknown_markets:
+        status = "WAIT_ACCOUNT_NAV_UNKNOWN"
     elif new_intent_allocation_blocked:
         status = "WAIT_ALLOCATION_POLICY"
     elif market_blocked:

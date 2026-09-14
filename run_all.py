@@ -2420,6 +2420,10 @@ APPROVED_TESTS = [
     #   its own blocker, never a whole-request abort; issued /2 requests keep
     #   rebuilding byte-identically. No order/exchange/REAL authority.
     "test/test_crypto_paper_runtime_bridge_per_market.py",
+    # ★ D1 per-market account marks (crypto_paper_account_state/2): a stale
+    #   held market is valued UNKNOWN instead of freezing FRESH markets'
+    #   exits; unknown NAV blocks new entries only. /1 unchanged.
+    "test/test_crypto_paper_per_market_account_marks.py",
     # ★ US-DATA-1 item 1 (CIO 2026-09-13): US-U1 investable-universe T1
     #   display generator -- deterministic ETF/Test-Issue/Financial-Status
     #   flag filter + a documented, unratified Security-Name common/ADS
