@@ -230,6 +230,37 @@ def rule_ref(policy: dict, rule_id: str, role: str) -> dict:
     }
 
 
+def entity_rule_refs(policy: dict, market: str, state: str) -> list:
+    """Per-entity lineage for the entry gate: which ratified rule admits or blocks it."""
+    roles = [(policy["markets"][market]["rule_id"], "APPLIED")]
+    if state in STRONG_STATES:
+        roles.append((policy["common"]["rule_id"], "APPLIED"))
+    else:
+        roles.append((policy["common"]["rule_id"], "BLOCKED_BY"))
+    if state == "STRONG_RELEASED":
+        roles.append((policy["release_handling"]["rule_id"], "BLOCKED_BY"))
+    return sorted((rule_ref(policy, rule_id, role) for rule_id, role in roles), key=lambda r: (r["rule_id"], r["role"]))
+
+
+def _entry_gate_view(policy: dict, market: str, flat: list) -> list:
+    return [
+        {
+            "scope_id": scope_id,
+            "entity_id": e["entity_id"],
+            "label": e["source_identity"],
+            "state": e["state"],
+            "decision_eligible": e["decision_eligible"],
+            "state_since_date": e["state_since_date"],
+            "observations_in_state": e["observations_in_state"],
+            "calendar_days_in_state": e["calendar_days_in_state"],
+            "release_new_buy_stop": e["release_new_buy_stop"],
+            "forced_exit": False,
+            "rule_refs": entity_rule_refs(policy, market, e["state"]),
+        }
+        for scope_id, e in flat
+    ]
+
+
 def market_rule_refs(policy: dict, market: str) -> list:
     refs = [
         rule_ref(policy, policy["markets"][market]["rule_id"], "APPLIED"),
@@ -612,6 +643,7 @@ def build_market_packets(policy: dict, market: str, observations: list, mapping:
             packet["scopes"] = []
             packet["summary"] = _summary([])
             packet["decision_view"] = _decision_view([])
+            packet["entry_gate_view"] = []
             packet["input_chain_sha256"] = payload_sha256(chain_inputs)
             packet["payload_sha256"] = payload_sha256(packet)
             packets.append(packet)
@@ -725,6 +757,7 @@ def build_market_packets(policy: dict, market: str, observations: list, mapping:
         flat = [(scope["scope_id"], entity) for scope in scopes_out for entity in scope["entities"]]
         packet["summary"] = _summary(flat)
         packet["decision_view"] = _decision_view(flat)
+        packet["entry_gate_view"] = _entry_gate_view(policy, market, flat)
         packet["input_chain_sha256"] = payload_sha256(chain_inputs)
         packet["payload_sha256"] = payload_sha256(packet)
         packets.append(packet)

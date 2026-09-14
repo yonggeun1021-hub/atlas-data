@@ -171,6 +171,22 @@ class StateMachineTests(unittest.TestCase):
         self.assertFalse(packets[1]["chain"]["reset"])
         self.assertEqual(states(packets[1])["XLK"], "STRONG_CONFIRMED")
 
+    def test_entry_gate_view_exposes_state_days_and_per_entity_rule_refs(self):
+        d = days("2026-09-01", 4)
+        order_bottom = ["XLB", "XLC", "XLE", "XLF", "XLI", "XLP", "XLRE", "XLU", "XLV", "XLY", "XLK"]
+        packets = self.build([us_obs(d[0], ["XLK"]), us_obs(d[1], ["XLK"]), us_obs(d[2], ["XLK"]), us_obs(d[3], order_bottom)])
+        gate = {row["entity_id"]: row for row in packets[2]["entry_gate_view"]}
+        self.assertEqual(set(gate), set(US))
+        xlk = gate["XLK"]
+        self.assertEqual((xlk["state"], xlk["decision_eligible"], xlk["observations_in_state"], xlk["state_since_date"]),
+                         ("STRONG_HELD", True, 2, d[1]))
+        self.assertEqual([(r["rule_id"], r["role"]) for r in xlk["rule_refs"]],
+                         [("RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1", "APPLIED"), ("RULE.ROTATION.US.V1P", "APPLIED")])
+        self.assertIn(("RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1", "BLOCKED_BY"), [(r["rule_id"], r["role"]) for r in gate["XLY"]["rule_refs"]])
+        released = {row["entity_id"]: row for row in packets[3]["entry_gate_view"]}["XLK"]
+        self.assertEqual((released["state"], released["release_new_buy_stop"], released["forced_exit"]), ("STRONG_RELEASED", True, False))
+        self.assertIn(("RULE.ROTATION.RELEASE_HANDLING.V1", "BLOCKED_BY"), [(r["rule_id"], r["role"]) for r in released["rule_refs"]])
+
     def test_unknown_observation_is_missing_not_inferred(self):
         packets = self.build([us_obs("2026-09-01", ["XLK"]), us_obs("2026-09-02", [], status="UNKNOWN"),
                               us_obs("2026-09-03", ["XLK"])])

@@ -2536,6 +2536,14 @@ APPROVED_TESTS = [
     #   membership C5 and ledger/ratification contracts are asserted unchanged.
     "test/test_rotation_confirmation.py",
     "test/test_rotation_confirmation_wiring.py",
+    # ★ PAPER entry opportunity ledger (RULE.ENTRY.PAPER_BASELINE_B.V1, user
+    #   ratification 2026-09-15 sha b2a905c4…): every STRONG_CONFIRMED/HELD
+    #   sector/bucket per day with point-in-time allocation v2 market-state
+    #   verdict, T2 PENDING, record-only EMA20/breakout/ATR features from
+    #   committed bars up to the session, null forward-return fields; final-day
+    #   rule, byte-deterministic, append-only; chained workflow has no cron and
+    #   no secret, and the sha-pinned source workflows stay untouched.
+    "test/test_rotation_opportunity_ledger.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
