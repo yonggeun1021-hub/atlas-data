@@ -7,6 +7,7 @@
     "RATIFIED",
     "PROVISIONAL",
     "TEMPORARY",
+    "SUPERSEDED",
     "PENDING_USER_DECISION"
   ],
   "scorecard_metric_families": [
@@ -176,6 +177,7 @@
         "sha256": "fa49a1a3908b735d91e9b36088688e3c3e9c46237a486ad358de45d6f5a3b7bd",
         "in_registry": false
       },
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -333,6 +335,7 @@
       "scorecard_metric_family": "hedge",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -462,6 +465,7 @@
       "scorecard_metric_family": "liquidity",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -626,6 +630,7 @@
       "scorecard_metric_family": "gate",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [
         {
           "path": "config/crypto_paper_runtime_v1.json",
@@ -766,6 +771,7 @@
       "scorecard_metric_family": "data-source",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [
         {
           "path": "realtime/crypto_realtime_per_market_policy.py",
@@ -864,6 +870,7 @@
       "scorecard_metric_family": "data-source",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [
         {
           "path": "config/us_session_calendar_source_v1.json",
@@ -983,6 +990,7 @@
       "scorecard_metric_family": "data-source",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [
         {
           "path": "config/crypto_breadth_exclusion_taxonomy.json",
@@ -1113,6 +1121,7 @@
         "text": "after 10 confirmed events"
       },
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -1230,6 +1239,7 @@
       "scorecard_metric_family": "entry",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -1330,6 +1340,7 @@
       "scorecard_metric_family": "entry",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -1424,6 +1435,7 @@
       "scorecard_metric_family": "gate",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -1503,6 +1515,7 @@
       "scorecard_metric_family": "exit",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -1619,6 +1632,7 @@
       "scorecard_metric_family": "governance",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -1742,6 +1756,7 @@
       "scorecard_metric_family": "entry",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -1819,6 +1834,7 @@
       "scorecard_metric_family": "gate",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -1917,6 +1933,7 @@
       "scorecard_metric_family": "gate",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -1924,8 +1941,8 @@
       "rule_id": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
       "version": 1,
       "lineage_key": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY",
-      "status": "RATIFIED",
-      "title_ko": "세션 매수 합계 = min(종목 NAV 5%, 시장 몫 남은 여유 1/3, 평균 거래대금 1%)",
+      "status": "SUPERSEDED",
+      "title_ko": "(대체됨) 세션 매수 합계 = min(종목 NAV 5%, 시장 몫 남은 여유 1/3, 평균 거래대금 1%)",
       "markets": [
         "US",
         "KR",
@@ -2042,6 +2059,167 @@
       "scorecard_metric_family": "allocation",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": {
+        "rule_id": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2",
+        "record_id": "USER_RATIFICATION_PAPER_SESSION_SIZE_WORDING_CORRECTION_20260915",
+        "sha256": "8c07a713343fd74580b2e82e6a053aac34d950aa9acb68e8f19bb2a780a17566"
+      },
+      "implementation_bindings": [],
+      "pending_basis": null
+    },
+    {
+      "rule_id": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2",
+      "version": 2,
+      "lineage_key": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY",
+      "status": "RATIFIED",
+      "title_ko": "세션 크기 정정: 시장별 세션 매수 합계 ≤ 시장 몫 남은 여유 1/3, 종목별 누적 보유 ≤ NAV 5% 이면서 ≤ 평균 거래대금 1%",
+      "markets": [
+        "US",
+        "KR",
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:RECORD_SCOPE_NOT_NARROWED",
+        "REAL": "NOT_AUTHORIZED:RECORD_NOT_CHANGED_REAL_ORDER_AUTHORITY"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_PAPER_SESSION_SIZE_WORDING_CORRECTION_20260915",
+          "repo_path": "evidence/authority/paper_session_size_wording_correction_user_ratification_20260915.json",
+          "original_filename": "USER_RATIFICATION_PAPER_SESSION_SIZE_WORDING_CORRECTION_20260915.json",
+          "sha256": "8c07a713343fd74580b2e82e6a053aac34d950aa9acb68e8f19bb2a780a17566",
+          "bytes": 1429
+        },
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915",
+          "repo_path": "evidence/authority/paper_b2_b3_size_assembly_user_ratification_20260915.json",
+          "original_filename": "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json",
+          "sha256": "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5",
+          "bytes": 2334
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_kst",
+        "utc": "2026-09-15T00:05:00Z",
+        "basis": "KST_MINUTE_TO_UTC"
+      },
+      "key_parameters": {
+        "record_rule_id": {
+          "source": 0,
+          "record_pointer": "/decision/rule_id",
+          "match": "EXACT",
+          "text": null,
+          "value": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2"
+        },
+        "supersedes_rule_version": {
+          "source": 0,
+          "record_pointer": "/decision/supersedes_rule_version",
+          "match": "EXACT",
+          "text": null,
+          "value": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1"
+        },
+        "amends_decision_key": {
+          "source": 0,
+          "record_pointer": "/amends/decision_key",
+          "match": "EXACT",
+          "text": null,
+          "value": "B1c"
+        },
+        "market_session_total": {
+          "source": 0,
+          "record_pointer": "/decision/market_session_total",
+          "match": "EXACT",
+          "text": null,
+          "value": "<= one-third of the market share's remaining room at session start"
+        },
+        "market_session_total_room_fraction": {
+          "source": 0,
+          "record_pointer": "/decision/market_session_total",
+          "match": "PARSED_FROM_TEXT",
+          "text": "<= one-third of the market share's remaining room at session start",
+          "value": {
+            "scope": "PER_MARKET_SESSION_TOTAL",
+            "fraction_of_remaining_market_share_room_at_session_start": "1/3"
+          }
+        },
+        "per_name_cumulative_holding": {
+          "source": 0,
+          "record_pointer": "/decision/per_name_cumulative_holding",
+          "match": "EXACT",
+          "text": null,
+          "value": "<= 5% NAV and <= 1% of the ratified average traded value (KR/US 20-session; crypto 30-day average)"
+        },
+        "per_name_cumulative_nav_cap": {
+          "source": 0,
+          "record_pointer": "/decision/per_name_cumulative_holding",
+          "match": "PARSED_FROM_TEXT",
+          "text": "<= 5% NAV",
+          "value": {
+            "scope": "PER_NAME_CUMULATIVE_HOLDING",
+            "max_nav": "0.05"
+          }
+        },
+        "per_name_cumulative_avg_traded_value_cap": {
+          "source": 0,
+          "record_pointer": "/decision/per_name_cumulative_holding",
+          "match": "PARSED_FROM_TEXT",
+          "text": "<= 1% of the ratified average traded value (KR/US 20-session; crypto 30-day average)",
+          "value": {
+            "scope": "PER_NAME_CUMULATIVE_HOLDING",
+            "max_fraction": "0.01",
+            "windows": {
+              "KR": "20_SESSIONS",
+              "US": "20_SESSIONS",
+              "CRYPTO": "30_DAYS"
+            }
+          }
+        },
+        "unchanged": {
+          "source": 0,
+          "record_pointer": "/decision/unchanged",
+          "match": "EXACT",
+          "text": null,
+          "value": "partial quantities, next-session top-ups, equal split across candidates, supersedes old US 1-name / crypto 3-name limits; B2 and B3 unchanged"
+        },
+        "allowances_from_v1_record": {
+          "source": 1,
+          "record_pointer": "/decisions/B1c/text",
+          "match": "PARSED_FROM_TEXT",
+          "text": "partial quantities, next-session top-ups and equal split across candidates allowed",
+          "value": [
+            "PARTIAL_QUANTITY",
+            "NEXT_SESSION_TOP_UP",
+            "EQUAL_SPLIT_ACROSS_CANDIDATES"
+          ]
+        },
+        "replaces_limits_from_v1_record": {
+          "source": 1,
+          "record_pointer": "/decisions/B1c/text",
+          "match": "PARSED_FROM_TEXT",
+          "text": "supersedes 2026-08-31 US 1-name/5% exposure and crypto 3-name limits",
+          "value": [
+            "US_1_NAME_5PCT_EXPOSURE_20260831",
+            "CRYPTO_3_NAME_LIMIT"
+          ]
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "allocation",
+      "minimum_sample": null,
+      "supersedes": {
+        "rule_id": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
+        "record_id": "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915",
+        "sha256": "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5",
+        "in_registry": true
+      },
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": null
     },
@@ -2086,6 +2264,7 @@
       "scorecard_metric_family": "allocation",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": [
         {
@@ -2143,6 +2322,7 @@
       "scorecard_metric_family": "exit",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": [
         {
@@ -2192,6 +2372,7 @@
       "scorecard_metric_family": "gate",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": [
         {
@@ -2241,6 +2422,7 @@
       "scorecard_metric_family": "allocation",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": [
         {
@@ -2288,6 +2470,7 @@
       "scorecard_metric_family": "liquidity",
       "minimum_sample": null,
       "supersedes": null,
+      "superseded_by": null,
       "implementation_bindings": [],
       "pending_basis": [
         {

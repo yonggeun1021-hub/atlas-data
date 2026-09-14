@@ -58,6 +58,7 @@ ORIGINAL_RECORD_SHA256 = {
     "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json": "c3f1e78ca987760af205807f67e9b56e8e7bd0078cbb87ac566b49767a855f9b",
     "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915.json": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
     "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json": "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5",
+    "USER_RATIFICATION_PAPER_SESSION_SIZE_WORDING_CORRECTION_20260915.json": "8c07a713343fd74580b2e82e6a053aac34d950aa9acb68e8f19bb2a780a17566",
 }
 PENDING_IDS = {
     "RULE.SIZE.PLANNED_LOSS_CAP.PENDING", "RULE.EXIT.PENDING", "RULE.EXECUTION.QUALITY_NUMBERS.PENDING",
@@ -107,18 +108,39 @@ class CommittedRegistryTests(unittest.TestCase):
         registry = REG.load_registry()
         ids = [row["rule_id"] for row in registry["rules"]]
         self.assertEqual(sorted(ids), sorted(REG.REQUIRED_RULE_IDS))
-        self.assertEqual(len(ids), 22)
+        self.assertEqual(len(ids), 23)
         status = {row["rule_id"]: row["status"] for row in registry["rules"]}
         self.assertEqual(status["RULE.ROTATION.US.V1P"], "PROVISIONAL")
         self.assertEqual(status["RULE.ROTATION.KR.V1T"], "TEMPORARY")
         self.assertEqual({k for k, v in status.items() if v == "PENDING_USER_DECISION"}, PENDING_IDS)
+        self.assertEqual(status["RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1"], "SUPERSEDED")
         self.assertEqual(
             {k for k, v in status.items() if v == "RATIFIED"},
-            set(REG.REQUIRED_RULE_IDS) - {"RULE.ROTATION.US.V1P", "RULE.ROTATION.KR.V1T"} - PENDING_IDS,
+            set(REG.REQUIRED_RULE_IDS) - {"RULE.ROTATION.US.V1P", "RULE.ROTATION.KR.V1T",
+                                          "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1"} - PENDING_IDS,
         )
         for rule_id in ("RULE.ENTRY.PAPER_BASELINE_B.V1", "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
-                        "RULE.KR.FIRST_CYCLE_CANARY_V0.V1", "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1"):
+                        "RULE.KR.FIRST_CYCLE_CANARY_V0.V1", "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2"):
             self.assertEqual(status[rule_id], "RATIFIED")
+
+    def test_session_size_v2_supersedes_v1(self):
+        registry = _registry()
+        v1 = _row(registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1")
+        v2 = _row(registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2")
+        self.assertEqual((v1["version"], v2["version"]), (1, 2))
+        self.assertEqual(v1["superseded_by"]["rule_id"], v2["rule_id"])
+        self.assertEqual(v1["superseded_by"]["sha256"], v2["source_records"][0]["sha256"])
+        self.assertEqual(v2["supersedes"]["rule_id"], v1["rule_id"])
+        self.assertTrue(v2["supersedes"]["in_registry"])
+        self.assertEqual(v2["key_parameters"]["per_name_cumulative_nav_cap"]["value"]["max_nav"], "0.05")
+        self.assertEqual(v2["key_parameters"]["market_session_total_room_fraction"]["value"][
+            "fraction_of_remaining_market_share_room_at_session_start"], "1/3")
+        self.assertTrue(REG.in_force_at(v1, "2026-09-14T23:00:00Z", registry))
+        self.assertFalse(REG.in_force_at(v1, "2026-09-15T00:05:00Z", registry))
+        self.assertTrue(REG.in_force_at(v2, "2026-09-15T00:05:00Z", registry))
+        self.assertFalse(REG.in_force_at(v2, "2026-09-15T00:04:59Z", registry))
+        ctx = REFS.RegistryContext.load()
+        self.assertEqual(REFS.make_rule_ref(ctx, v1["rule_id"], "SIZED_BY")["version"], 1)
 
     def test_pending_rows_carry_no_decision_and_cannot_be_cited(self):
         registry = _registry()
@@ -162,6 +184,7 @@ class CommittedRegistryTests(unittest.TestCase):
         self.assertEqual(pending, {
             "RULE.ENTRY.PAPER_BASELINE_B.V1", "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
             "RULE.KR.FIRST_CYCLE_CANARY_V0.V1", "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
+            "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2",
             "RULE.ALLOCATION.V2", "RULE.LIQUIDITY.KRUS.V1", "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
             "RULE.US.SESSION_CALENDAR.V1", "RULE.CRYPTO.TAXONOMY.ADD_20260914",
             "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1", "RULE.ROTATION.RELEASE_HANDLING.V1",
@@ -274,6 +297,18 @@ class RegistryTamperTests(TmpRootCase):
     def test_record_named_rule_id_must_match(self):
         _row(self.registry, "RULE.ENTRY.PAPER_BASELINE_B.V1")["key_parameters"]["record_rule_id"]["value"] = "RULE.ENTRY.X.V1"
         self.assertInvalid(self.registry, "PARAMETER_NOT_EQUAL_TO_RECORD")
+
+    def test_superseded_status_requires_matching_successor(self):
+        v1 = _row(self.registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1")
+        v1["status"] = "RATIFIED"
+        self.assertInvalid(self.registry, "SUPERSEDED_STATUS_POINTER_MISMATCH")
+        v1["status"] = "SUPERSEDED"
+        v1["superseded_by"]["sha256"] = "0" * 64
+        self.assertInvalid(self.registry, "SUPERSEDED_BY_RECORD_MISMATCH")
+
+    def test_successor_version_must_be_higher(self):
+        _row(self.registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2")["version"] = 1
+        self.assertInvalid(self.registry, "VERSIONS_NOT_MONOTONE")
 
     def test_status_and_family_vocabulary(self):
         _row(self.registry, "RULE.ROTATION.US.V1P")["status"] = "CONFIRMED"

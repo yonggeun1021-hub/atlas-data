@@ -61,6 +61,8 @@ REQUIRED_RULE_IDS = (
     "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
     "RULE.KR.FIRST_CYCLE_CANARY_V0.V1",
     "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
+    # User wording correction 2026-09-15 09:05 KST; V1 row kept as SUPERSEDED.
+    "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2",
     # Explicitly NOT decided by the user (named in a ratification record's
     # not-decided list).  Registered so the scorecard/portal can show the gap;
     # they carry no parameters and can never be cited in rule_refs.
@@ -71,7 +73,9 @@ REQUIRED_RULE_IDS = (
     "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING",
 )
 PENDING_STATUS = "PENDING_USER_DECISION"
-DECIDED_STATUSES = ("RATIFIED", "PROVISIONAL", "TEMPORARY")
+SUPERSEDED_STATUS = "SUPERSEDED"
+# SUPERSEDED stays decided: decisions made while it was in force keep citing it.
+DECIDED_STATUSES = ("RATIFIED", "PROVISIONAL", "TEMPORARY", SUPERSEDED_STATUS)
 STATUSES = DECIDED_STATUSES + (PENDING_STATUS,)
 SCORECARD_FAMILIES = (
     "entry", "exit", "allocation", "hedge", "gate", "liquidity", "data-source", "governance",
@@ -103,7 +107,7 @@ ROW_FIELDS = {
     "source_records", "effective_from", "key_parameters",
     "evidence_level_at_decision", "review_triggers",
     "trigger_pending_user_confirmation", "scorecard_metric_family",
-    "minimum_sample", "supersedes", "implementation_bindings", "pending_basis",
+    "minimum_sample", "supersedes", "superseded_by", "implementation_bindings", "pending_basis",
 }
 SOURCE_FIELDS = {"role", "record_id", "repo_path", "original_filename", "sha256", "bytes"}
 # Every sourced item names a source record index, a JSON pointer into it and a
@@ -117,6 +121,7 @@ EVIDENCE_FIELDS = POINTER_FIELDS | {"level"}
 TRIGGER_FIELDS = POINTER_FIELDS | {"trigger_id", "condition"}
 SAMPLE_FIELDS = POINTER_FIELDS | {"value", "unit"}
 SUPERSEDES_FIELDS = {"rule_id", "record_id", "sha256", "in_registry"}
+SUPERSEDED_BY_FIELDS = {"rule_id", "record_id", "sha256"}
 BINDING_FIELDS = {"path", "binds_record_sha256"}
 PENDING_BASIS_FIELDS = POINTER_FIELDS
 
@@ -375,7 +380,8 @@ def _validate_pending_row(row: dict, documents: list) -> None:
     if row["key_parameters"] != {} or row["effective_from"] is not None \
             or row["evidence_level_at_decision"] is not None or row["review_triggers"] is not None \
             or row["trigger_pending_user_confirmation"] is not True or row["minimum_sample"] is not None \
-            or row["supersedes"] is not None or row["implementation_bindings"] != []:
+            or row["supersedes"] is not None or row["superseded_by"] is not None \
+            or row["implementation_bindings"] != []:
         _fail("PENDING_ROW_MUST_CARRY_NO_DECISION", rule_id)
     if row["scorecard_metric_family"] not in SCORECARD_FAMILIES:
         _fail("SCORECARD_FAMILY_INVALID", rule_id)
@@ -442,6 +448,31 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
                 _fail("SUPERSEDES_NOT_BACKWARD", row["rule_id"])
         elif supersedes["rule_id"] in by_id:
             _fail("SUPERSEDES_IN_REGISTRY_FLAG_WRONG", row["rule_id"])
+    # SUPERSEDED <-> superseded_by <-> successor.supersedes must agree exactly.
+    for row in rows:
+        pointer = row["superseded_by"]
+        if (row["status"] == SUPERSEDED_STATUS) != (pointer is not None):
+            _fail("SUPERSEDED_STATUS_POINTER_MISMATCH", row["rule_id"])
+        if pointer is None:
+            continue
+        _closed(pointer, SUPERSEDED_BY_FIELDS, "SUPERSEDED_BY_INVALID")
+        successor = by_id.get(pointer["rule_id"])
+        if successor is None or successor["status"] in (PENDING_STATUS, SUPERSEDED_STATUS):
+            _fail("SUPERSEDED_BY_SUCCESSOR_INVALID", row["rule_id"])
+        back = successor["supersedes"] or {}
+        if back.get("rule_id") != row["rule_id"] or back.get("in_registry") is not True:
+            _fail("SUCCESSOR_DOES_NOT_SUPERSEDE", row["rule_id"])
+        primary = successor["source_records"][0]
+        if pointer["record_id"] != primary["record_id"] or pointer["sha256"] != primary["sha256"]:
+            _fail("SUPERSEDED_BY_RECORD_MISMATCH", row["rule_id"])
+    for row in rows:
+        back = row["supersedes"]
+        if back is not None and back["in_registry"]:
+            old = by_id[back["rule_id"]]
+            if old["status"] != SUPERSEDED_STATUS:
+                _fail("SUPERSEDED_RULE_NOT_MARKED", row["rule_id"])
+            if back["sha256"] != old["source_records"][0]["sha256"] or back["record_id"] != old["source_records"][0]["record_id"]:
+                _fail("SUPERSEDES_RECORD_MISMATCH", row["rule_id"])
     return copy.deepcopy(registry)
 
 
@@ -464,6 +495,20 @@ def rule_index(registry: dict) -> dict:
 
 def is_decided(row: dict) -> bool:
     return row["status"] in DECIDED_STATUSES
+
+
+def in_force_at(row: dict, timestamp_utc: str, registry: dict) -> bool:
+    """Whether a decided rule governed decisions at ``timestamp_utc``.
+
+    From its own effective instant until its successor's effective instant.
+    """
+    if not is_decided(row) or row["effective_from"] is None or timestamp_utc < row["effective_from"]["utc"]:
+        return False
+    pointer = row["superseded_by"]
+    if pointer is None:
+        return True
+    successor = rule_index(registry)[pointer["rule_id"]]
+    return timestamp_utc < successor["effective_from"]["utc"]
 
 
 def primary_record_sha256(row: dict) -> str:
