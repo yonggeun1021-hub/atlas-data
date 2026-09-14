@@ -2413,6 +2413,13 @@ APPROVED_TESTS = [
     #   User-ratified economic inputs have no defaults. No credentials,
     #   exchange endpoints, or REAL authority are introduced.
     "test/test_crypto_paper_runtime_bridge.py",
+    # ★ Per-market realtime freshness in the P10-11 bridge (user ratification
+    #   CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914 + CIO addenda):
+    #   request /3 judges each market by its own ratified freshness and floor
+    #   cap on natural 2026-09-13 bytes; a stale/capped/missing-book market is
+    #   its own blocker, never a whole-request abort; issued /2 requests keep
+    #   rebuilding byte-identically. No order/exchange/REAL authority.
+    "test/test_crypto_paper_runtime_bridge_per_market.py",
     # ★ US-DATA-1 item 1 (CIO 2026-09-13): US-U1 investable-universe T1
     #   display generator -- deterministic ETF/Test-Issue/Financial-Status
     #   flag filter + a documented, unratified Security-Name common/ADS
