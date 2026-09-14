@@ -1804,16 +1804,16 @@ def build_snapshot(
                 sorted(realtime_entry["record"]["run"]["markets"])
                 if realtime_entry is not None else []
             ),
-            # Subscribed markets outside the floor-included set: the public
-            # capture only adds those for open PAPER positions (addendum),
-            # which stay action-capped here and HOLD-gated on the exit path.
-            "subscribed_outside_floor": sorted(
-                set(realtime_entry["record"]["run"]["markets"] if realtime_entry is not None else [])
-                - {
-                    market for market, row in liquidity_floor["markets"].items()
-                    if row["status"] == PER_MARKET.INCLUDED
-                }
-            ),
+            # Ratified per-market realtime status for EVERY subscribed market
+            # (and every candidate), not only candidates, so a held position
+            # keeps exit freshness evidence (CIO subscription-scope addendum).
+            "subscribed_market_realtime": {
+                market: _market_realtime(market)
+                for market in sorted(
+                    set(realtime_entry["record"]["run"]["markets"] if realtime_entry is not None else [])
+                    | {row["market"] for row in candidates}
+                )
+            },
             "markets": {
                 row["market"]: {
                     "realtime_status": row["realtime_freshness"]["status"],

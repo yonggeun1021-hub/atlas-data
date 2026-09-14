@@ -1,0 +1,27 @@
+{
+  "schema_version": "atlas_cio_addendum/1",
+  "addendum_id": "CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-20260914",
+  "created_at_utc": "2026-09-14T02:40:00Z",
+  "by": "CLAUDE_CIO",
+  "supersedes_part_of": {
+    "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/CLAUDE_CIO_ADDENDUM_CRYPTO_SUBSCRIPTION_FLOOR_METRIC_20260914.json",
+    "sha256": "bc009c591cd6492c55471a499502381812d54a8f12e50e7334ec04c10a954e1f",
+    "part": "additional_cio_decision (held positions kept subscribed via held-markets input)"
+  },
+  "ratification": {
+    "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/USER_RATIFICATION_CRYPTO_REALTIME_FRESHNESS_PER_MARKET_20260914.json",
+    "sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4"
+  },
+  "reason": "Public repo: a held-markets input surfaces open PAPER positions in public Actions logs and decision packets; keeping it current would require a secrets-write token for the private runtime.",
+  "decision": [
+    "Realtime subscription = every admitted P3-12 market (TRADEABLE_UNIVERSE ∪ PAPER_ELIGIBLE), independent of the liquidity floor and of holdings. No held-markets input, secret, log field or subscribed_outside_floor field.",
+    "The ratified 30-day-average liquidity floor is applied in the decision as a per-market action cap (unchanged from addendum 1).",
+    "Record per-market realtime status for every subscribed market (not only candidates) so held markets retain exit freshness evidence.",
+    "A held market that leaves the admitted universe is covered by the private runtime/Ubuntu collector (private follow-up), never by public subscription changes."
+  ],
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

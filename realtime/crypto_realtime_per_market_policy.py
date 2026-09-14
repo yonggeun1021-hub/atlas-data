@@ -20,9 +20,13 @@ as corrected by addendum ``CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-2026091
 (bound by file hash below) applies the ratified P3-12 universe liquidity floor
 -- exactly as ``config/upbit_tradeable_universe_policy.json`` defines it: the
 30-finalized-day average KRW turnover against ``min_30d_avg_krw_turnover`` --
-to the realtime subscription and PAPER candidate action set.  Unknown turnover
-is excluded (fail-closed).  A market with an open PAPER position is always kept
-subscribed regardless of the floor so exits stay possible.
+to the PAPER candidate action set as a per-market cap.  Unknown turnover is
+excluded (fail-closed).  Addendum
+``CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-20260914`` (bound by
+file hash below) fixes the realtime subscription as every admitted P3-12
+market, independent of the floor and of holdings: this public repository has
+no held-markets input, and per-market realtime status is recorded for every
+subscribed market so held positions keep exit freshness evidence.
 
 This module is pure and offline: no network, no exchange/order endpoint, no
 wall-clock read, no repository write.  Every authority flag stays false.
@@ -41,7 +45,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_RELATIVE_PATH = "config/crypto_realtime_freshness_per_market_policy_ratified.json"
 POLICY_PATH = ROOT / POLICY_RELATIVE_PATH
-POLICY_SHA256 = "8883e22a4d88e760a45f3cbc3df06b4a7894a6052767bc0f7dcb3b93ee3ac1c6"
+POLICY_SHA256 = "2ab2de7eec0e15fea70a55951b9cee79ca0f4f14d865e0f0c126eb79080746bd"
 POLICY_ID = "CRYPTO_REALTIME_FRESHNESS_PER_MARKET_V1"
 RATIFICATION_ID = "CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914"
 COMPANION_DECISION_ID = "CIO-CRYPTO-REALTIME-SUBSCRIPTION-LIQUIDITY-20260914"
@@ -54,6 +58,11 @@ ADDENDUM_RELATIVE_PATH = (
     "evidence/authority/crypto_realtime_subscription_floor_metric_cio_addendum_20260914.json"
 )
 ADDENDUM_SHA256 = "bc009c591cd6492c55471a499502381812d54a8f12e50e7334ec04c10a954e1f"
+SCOPE_ADDENDUM_ID = "CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-20260914"
+SCOPE_ADDENDUM_RELATIVE_PATH = (
+    "evidence/authority/crypto_realtime_subscription_scope_cio_addendum_20260914.json"
+)
+SCOPE_ADDENDUM_SHA256 = "25e69d5142e8e39d5e255ab31335147f81abde2bcdf5bcebf6efc595ec00cb7f"
 EFFECTIVE_FROM_UTC = "2026-09-13T23:25:00Z"
 AMENDED_POLICY_RELATIVE_PATH = "config/upbit_realtime_freshness_policy_ratified.json"
 AMENDED_POLICY_PACKET_SHA256 = "7caecead701b47b21f0d2b1ecfd74c6bf63d9952a8493bca5f6c06d67b397f34"
@@ -65,7 +74,6 @@ INCLUDED = "INCLUDED"
 EXCLUDED = "EXCLUDED"
 BELOW_FLOOR = "TURNOVER_30D_AVG_BELOW_FLOOR"
 UNKNOWN_PREFIX = "TURNOVER_30D_AVG_UNKNOWN"
-HELD_KEEP_SUBSCRIBED = "HELD_POSITION_KEPT_SUBSCRIBED_REGARDLESS_OF_FLOOR"
 ADMITTED_UNIVERSE_STATES = ("TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MARKET_RE = re.compile(r"^KRW-[A-Z0-9]{1,20}$")
@@ -75,7 +83,8 @@ POLICY_FIELDS = {
     "schema_version", "policy_id", "approval_status", "ratification_id",
     "companion_decision_id", "ratified_by", "ratified_at_utc",
     "effective_from_utc", "effective_to_utc", "scope", "ratification_record",
-    "companion_decision_correction",
+    "companion_decision_correction", "subscription_scope_correction",
+    "realtime_subscription",
     "amended_freshness_policy", "per_market_freshness", "liquidity_floor",
     "stale_held_position", "regime_axes_use_realtime_ticker_freshness",
     "authority", "packet_sha256",
@@ -194,6 +203,37 @@ def load_policy(path: Path = POLICY_PATH, *, root: Path = ROOT) -> dict:
     ):
         _fail("ADDENDUM_CONTENT_MISMATCH")
 
+    scope = value["subscription_scope_correction"]
+    if (
+        not isinstance(scope, dict)
+        or scope.get("addendum_id") != SCOPE_ADDENDUM_ID
+        or scope.get("path") != SCOPE_ADDENDUM_RELATIVE_PATH
+        or scope.get("file_sha256") != SCOPE_ADDENDUM_SHA256
+    ):
+        _fail("SCOPE_ADDENDUM_BINDING_INVALID")
+    scope_path = Path(root) / SCOPE_ADDENDUM_RELATIVE_PATH
+    if _file_sha256(scope_path) != SCOPE_ADDENDUM_SHA256:
+        _fail("SCOPE_ADDENDUM_HASH_MISMATCH")
+    scope_record = _read_json(scope_path)
+    if (
+        not isinstance(scope_record, dict)
+        or scope_record.get("addendum_id") != SCOPE_ADDENDUM_ID
+        or (scope_record.get("ratification") or {}).get("sha256") != RATIFICATION_RECORD_SHA256
+        or (scope_record.get("supersedes_part_of") or {}).get("sha256") != ADDENDUM_SHA256
+        or any(item is not False for item in (scope_record.get("authority") or {"x": None}).values())
+    ):
+        _fail("SCOPE_ADDENDUM_CONTENT_MISMATCH")
+    if value["realtime_subscription"] != {
+        "scope": "ALL_ADMITTED_P3_12_MARKETS",
+        "admitted_states": list(ADMITTED_UNIVERSE_STATES),
+        "independent_of_liquidity_floor": True,
+        "independent_of_holdings": True,
+        "held_markets_input": False,
+        "per_market_realtime_status_recorded_for": "EVERY_SUBSCRIBED_MARKET",
+        "held_market_leaving_admitted_universe": "PRIVATE_RUNTIME_UBUNTU_COLLECTOR",
+    }:
+        _fail("REALTIME_SUBSCRIPTION_SCOPE_INVALID")
+
     amended = value["amended_freshness_policy"]
     amended_file = _read_json(Path(root) / AMENDED_POLICY_RELATIVE_PATH)
     if (
@@ -223,7 +263,8 @@ def load_policy(path: Path = POLICY_PATH, *, root: Path = ROOT) -> dict:
     if (
         floor.get("metric") != "RATIFIED_UNIVERSE_POLICY_30D_AVG_FINALIZED_DAILY_KRW_TURNOVER"
         or floor.get("unknown_turnover_policy") != "EXCLUDE_FAIL_CLOSED"
-        or floor.get("held_position_markets") != "ALWAYS_SUBSCRIBED_REGARDLESS_OF_FLOOR"
+        or floor.get("applies_to") != ["PAPER_CANDIDATE_ACTION_STATE"]
+        or "held_position_markets" in floor
         or source != {
             "path": UNIVERSE_POLICY_RELATIVE_PATH,
             "threshold_field": "min_30d_avg_krw_turnover",
@@ -288,6 +329,8 @@ def policy_reference(policy: dict) -> dict:
         "companion_decision_id": policy["companion_decision_id"],
         "companion_decision_addendum_id": policy["companion_decision_correction"]["addendum_id"],
         "companion_decision_addendum_sha256": policy["companion_decision_correction"]["file_sha256"],
+        "subscription_scope_addendum_id": policy["subscription_scope_correction"]["addendum_id"],
+        "subscription_scope_addendum_sha256": policy["subscription_scope_correction"]["file_sha256"],
         "effective_from_utc": policy["effective_from_utc"],
         "amended_freshness_policy_packet_sha256": policy["amended_freshness_policy"]["packet_sha256"],
     }
@@ -362,62 +405,6 @@ def evaluate_liquidity_floor(universe_record: dict | None, *, policy: dict | Non
             result[market] = {"status": EXCLUDED, "reason": BELOW_FLOOR, "krw_30d_avg_turnover": rendered}
     block["markets"] = result
     return block
-
-
-def _checked_held_markets(held_markets) -> list[str]:
-    if held_markets is None:
-        return []
-    if not isinstance(held_markets, (list, tuple)) or any(
-        not isinstance(market, str) or MARKET_RE.fullmatch(market) is None for market in held_markets
-    ):
-        _fail("HELD_MARKETS_INVALID")
-    if len(set(held_markets)) != len(held_markets):
-        _fail("HELD_MARKETS_DUPLICATE")
-    return sorted(held_markets)
-
-
-def subscription_markets(universe_packet_path, *, held_markets=None) -> dict:
-    """Realtime subscription set.
-
-    Admitted P3-12 markets passing the ratified floor, plus every market with
-    an open PAPER position -- those are always kept subscribed regardless of
-    the floor (addendum decision) so exits remain possible.
-    """
-    held = _checked_held_markets(held_markets)
-    floor = None
-    included: list[str] = []
-    excluded: list[dict] = []
-    if universe_packet_path is not None and Path(universe_packet_path).is_file():
-        record = _read_json(Path(universe_packet_path))
-        if not isinstance(record, dict) or not isinstance(record.get("packet"), dict):
-            _fail("UNIVERSE_RECORD_INVALID")
-        floor = evaluate_liquidity_floor(record)
-        included = sorted(market for market, row in floor["markets"].items() if row["status"] == INCLUDED)
-        excluded = [
-            {"market": market, "reason": row["reason"], "krw_30d_avg_turnover": row["krw_30d_avg_turnover"]}
-            for market, row in sorted(floor["markets"].items()) if row["status"] != INCLUDED
-        ]
-    kept = sorted(set(held) - set(included))
-    return {
-        "markets": sorted(set(included) | set(held)),
-        "floor_included": included,
-        "floor_excluded": excluded,
-        "held_kept_subscribed": [{"market": market, "reason": HELD_KEEP_SUBSCRIBED} for market in kept],
-        "floor": floor,
-    }
-
-
-def parse_held_markets_document(value) -> list[str]:
-    """``{"schema_version": "crypto_paper_held_markets/1", "markets": [...]}``.
-
-    Market codes only; quantities, prices and account values never enter.
-    """
-    if value is None or value == "":
-        return []
-    document = json.loads(value) if isinstance(value, str) else value
-    if not isinstance(document, dict) or set(document) != {"schema_version", "markets"} or document.get("schema_version") != "crypto_paper_held_markets/1":
-        _fail("HELD_MARKETS_DOCUMENT_INVALID")
-    return _checked_held_markets(document["markets"])
 
 
 # ---------------------------------------------------------------------------

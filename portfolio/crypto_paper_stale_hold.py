@@ -100,9 +100,13 @@ def _checked_decision(decision_packet: dict, *, revalidate: bool) -> dict:
     if not isinstance(claimed, str) or payload_sha256(unsigned) != claimed:
         raise CryptoPaperStaleHoldError("DECISION_PACKET_HASH_MISMATCH")
     rows = decision_packet.get("candidates")
+    subscribed = (decision_packet.get("realtime_per_market_freshness") or {}).get("subscribed_market_realtime")
     if not isinstance(rows, list) or any(
         not isinstance(row, dict) or not isinstance(row.get("realtime_freshness"), dict)
         for row in rows
+    ) or not isinstance(subscribed, dict) or any(
+        not isinstance(row, dict) or not isinstance(row.get("status"), str)
+        for row in subscribed.values()
     ):
         raise CryptoPaperStaleHoldError("DECISION_PACKET_PER_MARKET_FIELDS_MISSING")
     return copy.deepcopy(decision_packet)
@@ -154,19 +158,26 @@ def evaluate_stale_holds(
     held = _checked_held_markets(held_markets)
     prior = _checked_prior_state(prior_state, observed_at, policy_ref)
     candidates = {row["market"]: row for row in decision["candidates"]}
+    subscribed = decision["realtime_per_market_freshness"]["subscribed_market_realtime"]
 
     markets = []
     alerts = []
     for market in held:
         candidate = candidates.get(market)
-        if candidate is None:
+        # Exit freshness comes from the per-market realtime status recorded
+        # for every subscribed market, so a held market that is not (or no
+        # longer) a candidate still exits normally once its data is FRESH.
+        realtime = subscribed.get(market)
+        if realtime is None:
             realtime_status = DECISION.MISSING
-            realtime_reasons = ["HELD_MARKET_NOT_IN_DECISION_CANDIDATES"]
-            floor_status = None
+            realtime_reasons = ["HELD_MARKET_NOT_SUBSCRIBED_IN_PUBLIC_REALTIME_CAPTURE"]
         else:
-            realtime_status = candidate["realtime_freshness"]["status"]
-            realtime_reasons = list(candidate["realtime_freshness"].get("reasons") or [])
-            floor_status = (candidate.get("realtime_liquidity_floor") or {}).get("status")
+            realtime_status = realtime["status"]
+            realtime_reasons = list(realtime.get("reasons") or [])
+        floor_status = (
+            (candidate.get("realtime_liquidity_floor") or {}).get("status")
+            if candidate is not None else None
+        )
         if realtime_status == DECISION.FRESH:
             markets.append({
                 "market": market,

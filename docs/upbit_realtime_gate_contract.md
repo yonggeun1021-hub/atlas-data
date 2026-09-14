@@ -187,18 +187,22 @@ pinned in `realtime/crypto_realtime_per_market_policy.py`). From
   UNKNOWN or MIXED_GENERATION market caps only its own actionable state, and
   `freshness_status.realtime` / `overall` stay recorded for display only;
 * universe and market-evidence freshness remain global caps;
-* the realtime subscription and PAPER action set apply the ratified P3-12
-  liquidity floor exactly as `config/upbit_tradeable_universe_policy.json`
+* the PAPER action set applies the ratified P3-12 liquidity floor as a
+  per-market cap, exactly as `config/upbit_tradeable_universe_policy.json`
   defines it (`trailing_30d_krw_turnover` / `turnover_lookback_finalized_days`
   against `min_30d_avg_krw_turnover`); unknown turnover is excluded and every
   exclusion is recorded with its reason. CIO addendum
   `CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914` (sha256
-  `bc009c59…4e1f`, bound alongside the ratification) corrected an earlier 24h
-  metric and keeps markets with an open PAPER position subscribed regardless of
-  the floor (`--held-markets-json` / `ATLAS_CRYPTO_PAPER_HELD_MARKETS_JSON`,
-  market codes only);
+  `bc009c59…4e1f`) corrected an earlier 24h metric;
+* the realtime subscription is every admitted P3-12 market
+  (`TRADEABLE_UNIVERSE` and `PAPER_ELIGIBLE`), independent of the floor and of
+  holdings, with no holdings input in this public repository (CIO addendum
+  `CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-20260914`, sha256
+  `25e69d51…cb7f`); the decision records the ratified per-market realtime
+  status for every subscribed market in
+  `realtime_per_market_freshness.subscribed_market_realtime`;
 * `portfolio/crypto_paper_stale_hold.py` turns a /2 packet plus the private
-  runtime's held-market list into per-market HOLD rows (no PAPER exit
+  runtime's own held-market list (never published) into per-market HOLD rows (no PAPER exit
   execution while not FRESH) and an alert beyond a 30-minute engineering
   alert budget.
 
