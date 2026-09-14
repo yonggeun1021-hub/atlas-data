@@ -52,7 +52,9 @@ HOLD = _load("per_market_test_stale_hold", "portfolio/crypto_paper_stale_hold.py
 BRIEFING = _load("per_market_test_briefing", "briefing/crypto_funnel_briefing.py")
 
 V1 = CPDS.LEGACY_OUTPUT_SCHEMA_VERSION
-V2 = CPDS.PER_MARKET_OUTPUT_SCHEMA_VERSION
+VPM = CPDS.PER_MARKET_OUTPUT_SCHEMA_VERSION  # current per-market packet (/3)
+V2_ISSUED = CPDS.PER_MARKET_V2_OUTPUT_SCHEMA_VERSION  # PR #726 layout, revalidation only
+V2_ISSUED_REPLAY_PAYLOAD_SHA256 = "727021deec660e1b5c52e643a49eea5c22ba49a8c1c5e6fe91f4414dba05a53a"
 RECORD_PATH = ROOT / POLICY.RATIFICATION_RECORD_RELATIVE_PATH
 NATURAL_2112_GLOB = "evidence/crypto_paper_decision/2026-09-13/2112/*/packet.json"
 NATURAL_2314_GLOB = "evidence/crypto_paper_decision/2026-09-13/2314/*/packet.json"
@@ -95,7 +97,7 @@ def _entries_from(packet: dict) -> dict:
     }
 
 
-def _replay(schema_version=V2, generated_at=REPLAY_AT, realtime_date=None, **extra) -> dict:
+def _replay(schema_version=VPM, generated_at=REPLAY_AT, realtime_date=None, **extra) -> dict:
     packet = _natural_packet(NATURAL_2112_GLOB)
     entries = _entries_from(packet)
     if realtime_date is not None:
@@ -285,7 +287,7 @@ class ThresholdBoundaryTests(unittest.TestCase):
 class NaturalReplayTests(unittest.TestCase):
     def test_fresh_majors_are_open_while_thin_markets_are_capped_or_excluded(self):
         record = _replay()
-        self.assertEqual(record["schema_version"], V2)
+        self.assertEqual(record["schema_version"], VPM)
         rows = {row["market"]: row for row in record["candidates"]}
         for market in OPEN_AT_REPLAY:
             self.assertEqual(rows[market]["realtime_freshness"]["status"], CPDS.FRESH, market)
@@ -352,11 +354,16 @@ class NaturalReplayTests(unittest.TestCase):
         for relative in (
             ".github/scripts/upbit_realtime_capture.py",
             ".github/workflows/upbit-realtime-capture.yml",
-            "decision/crypto_paper_decision_snapshot.py",
         ):  # the stale-hold helper takes the private runtime's own list; nothing publishes it
             source = (ROOT / relative).read_text(encoding="utf-8")
             for token in HOLDINGS_INPUT_TOKENS:
                 self.assertFalse(token in source, f"{relative}:{token}")
+        decision_source = (ROOT / "decision/crypto_paper_decision_snapshot.py").read_text(encoding="utf-8")
+        for token in HOLDINGS_INPUT_TOKENS[:3]:
+            self.assertFalse(token in decision_source, token)
+        # The issued /2 field is reproduced only inside the /2 revalidation branch.
+        self.assertEqual(decision_source.count('"subscribed_outside_floor"'), 1)
+        self.assertNotIn("subscribed_outside_floor", _replay()["realtime_per_market_freshness"])
         policy_source = (ROOT / "realtime/crypto_realtime_per_market_policy.py").read_text(encoding="utf-8")
         self.assertIn('"held_markets_input": False', policy_source)
         for token in ("parse_held_markets", "subscription_markets", "subscribed_outside_floor", "HELD_MARKETS"):
@@ -580,7 +587,7 @@ class SchemaVersionAndRevalidationTests(unittest.TestCase):
         before = CPDS._parse_utc("2026-09-13T23:24:59Z", "t")
         at = CPDS._parse_utc("2026-09-13T23:25:00Z", "t")
         self.assertEqual(CPDS.schema_version_for(before), V1)
-        self.assertEqual(CPDS.schema_version_for(at), V2)
+        self.assertEqual(CPDS.schema_version_for(at), VPM)
         self.assertEqual(_replay(schema_version=None)["schema_version"], V1)
 
     def test_committed_v1_packets_still_revalidate(self):
@@ -623,12 +630,28 @@ class SchemaVersionAndRevalidationTests(unittest.TestCase):
     def test_v1_and_v2_of_same_inputs_never_share_a_generation(self):
         self.assertNotEqual(_replay(schema_version=V1)["generation_id"], _replay()["generation_id"])
 
-    def test_briefing_contract_accepts_both_decision_schemas(self):
+    def test_briefing_contract_accepts_every_decision_schema_and_freezes_issued_contracts(self):
         contract = BRIEFING.load_contract()
-        self.assertEqual(contract["contract_version"], "crypto_funnel_briefing_contract/2")
-        self.assertEqual(contract["source_schema_versions"], [V1, V2])
-        legacy = BRIEFING._expected_legacy_contract()
-        self.assertEqual(legacy["source_schema_version"], V1)
+        self.assertEqual(contract["contract_version"], "crypto_funnel_briefing_contract/3")
+        self.assertEqual(contract["source_schema_versions"], [V1, V2_ISSUED, VPM])
+        self.assertEqual(BRIEFING._expected_legacy_contract()["source_schema_version"], V1)
+        self.assertEqual(BRIEFING._expected_v2_contract()["source_schema_versions"], [V1, V2_ISSUED])
+
+    def test_issued_v2_layout_is_reproduced_byte_for_byte_and_revalidates(self):
+        record = _replay(schema_version=V2_ISSUED)
+        self.assertEqual(record["payload_sha256"], V2_ISSUED_REPLAY_PAYLOAD_SHA256)  # PR #726 (3e83f386) derivation
+        block = record["realtime_per_market_freshness"]
+        self.assertEqual(block["subscribed_outside_floor"], [])
+        self.assertNotIn("subscribed_market_realtime", block)
+        self.assertNotIn("subscription_scope_addendum_sha256", block["policy"])
+        self.assertEqual(block["policy"]["packet_sha256"], POLICY.PACKET_V2_POLICY_SHA256)
+        with mock.patch.object(POLICY, "is_effective", return_value=True):
+            self.assertEqual(CPDS.validate_output(copy.deepcopy(record)), record)
+        self.assertNotEqual(record["generation_id"], _replay()["generation_id"])
+        state = HOLD.evaluate_stale_holds(record, held_markets=["KRW-BTC", "KRW-WLD"], revalidate_decision=False)
+        self.assertEqual(
+            [row["exit_execution"] for row in state["markets"]], [HOLD.EVALUATE, HOLD.HOLD],
+        )
 
 
 def _hold_decision(realtime_by_market: dict, *, generated_at: str, subscribed_only: dict | None = None) -> dict:
@@ -636,7 +659,7 @@ def _hold_decision(realtime_by_market: dict, *, generated_at: str, subscribed_on
         return {"status": status, "reasons": [] if status == "FRESH" else ["PROVIDER_AGE_EXCEEDED"]}
 
     record = {
-        "schema_version": V2,
+        "schema_version": VPM,
         "generated_at": generated_at,
         "generation_id": "a" * 64,
         "candidates": [

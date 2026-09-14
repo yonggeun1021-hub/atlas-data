@@ -180,7 +180,9 @@ sha256 `043932a4…5ac4`) is bound by
 `config/crypto_realtime_freshness_per_market_policy_ratified.json` (self hash
 pinned in `realtime/crypto_realtime_per_market_policy.py`). From
 `2026-09-13T23:25:00Z` the decision producer writes
-`crypto_paper_decision_snapshot_packet/2`:
+`crypto_paper_decision_snapshot_packet/3` (packets `/2` issued by the earlier
+held-markets layout keep revalidating against their frozen policy file
+`config/crypto_realtime_freshness_per_market_policy_ratified_packet_v2_layout.json`):
 
 * each market's realtime freshness is the unchanged ratified P9-01 result for
   its own ticker (20s provider age / 3s transport delay); a STALE, MISSING,

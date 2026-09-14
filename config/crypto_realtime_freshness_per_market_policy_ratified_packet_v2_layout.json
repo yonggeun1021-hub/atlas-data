@@ -1,0 +1,81 @@
+{
+  "schema_version": "crypto_realtime_freshness_per_market_policy/1",
+  "policy_id": "CRYPTO_REALTIME_FRESHNESS_PER_MARKET_V1",
+  "approval_status": "RATIFIED",
+  "ratification_id": "CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914",
+  "companion_decision_id": "CIO-CRYPTO-REALTIME-SUBSCRIPTION-LIQUIDITY-20260914",
+  "ratified_by": "USER",
+  "ratified_at_utc": "2026-09-13T23:25:00Z",
+  "effective_from_utc": "2026-09-13T23:25:00Z",
+  "effective_to_utc": "9999-12-31T23:59:59Z",
+  "scope": "INTERNAL_VIRTUAL_PAPER",
+  "ratification_record": {
+    "path": "evidence/authority/crypto_realtime_freshness_per_market_user_ratification_20260914.json",
+    "file_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4"
+  },
+  "amended_freshness_policy": {
+    "path": "config/upbit_realtime_freshness_policy_ratified.json",
+    "policy_id": "P9_06_UPBIT_CRYPTO_PAPER_V1",
+    "packet_sha256": "7caecead701b47b21f0d2b1ecfd74c6bf63d9952a8493bca5f6c06d67b397f34",
+    "crypto_max_provider_age_seconds": 20,
+    "crypto_max_transport_delay_seconds": 3,
+    "thresholds_changed": false
+  },
+  "per_market_freshness": {
+    "judged_per_market": true,
+    "capping_statuses": [
+      "STALE",
+      "UNKNOWN",
+      "MISSING",
+      "MIXED_GENERATION"
+    ],
+    "capped_action_states": [
+      "FOCUSED_REVIEW",
+      "PAPER_BUY_ELIGIBLE"
+    ],
+    "capped_state": "WAIT",
+    "aggregate_realtime_status_role": "DISPLAY_TELEMETRY_ONLY_NOT_A_GLOBAL_BLOCKER",
+    "non_realtime_components_remain_global": [
+      "upbit_universe",
+      "market_evidence"
+    ]
+  },
+  "liquidity_floor": {
+    "metric": "RATIFIED_UNIVERSE_POLICY_30D_AVG_FINALIZED_DAILY_KRW_TURNOVER",
+    "definition_source": {
+      "path": "config/upbit_tradeable_universe_policy.json",
+      "threshold_field": "min_30d_avg_krw_turnover",
+      "lookback_field": "turnover_lookback_finalized_days",
+      "input_row_field": "trailing_30d_krw_turnover"
+    },
+    "unknown_turnover_policy": "EXCLUDE_FAIL_CLOSED",
+    "applies_to": [
+      "REALTIME_SUBSCRIPTION",
+      "PAPER_CANDIDATE_ACTION_STATE"
+    ],
+    "held_position_markets": "ALWAYS_SUBSCRIBED_REGARDLESS_OF_FLOOR"
+  },
+  "stale_held_position": {
+    "paper_exit_execution_while_not_fresh": false,
+    "hold_action": "HOLD",
+    "alert_after_stale_minutes": 30,
+    "alert_budget_kind": "ENGINEERING_ALERT_BUDGET_NOT_POLICY"
+  },
+  "regime_axes_use_realtime_ticker_freshness": false,
+  "authority": {
+    "real_order_authorized": false,
+    "exchange_order_authorized": false,
+    "paper_exit_execution_authorized": false,
+    "withdrawal_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  },
+  "companion_decision_correction": {
+    "addendum_id": "CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914",
+    "path": "evidence/authority/crypto_realtime_subscription_floor_metric_cio_addendum_20260914.json",
+    "file_sha256": "bc009c591cd6492c55471a499502381812d54a8f12e50e7334ec04c10a954e1f",
+    "corrects": "companion decision floor metric: the ratified universe policy 30-day average replaces the misstated 24h traded value"
+  },
+  "packet_sha256": "8883e22a4d88e760a45f3cbc3df06b4a7894a6052767bc0f7dcb3b93ee3ac1c6"
+}

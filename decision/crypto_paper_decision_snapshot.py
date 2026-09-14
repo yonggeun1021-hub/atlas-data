@@ -159,14 +159,19 @@ REALTIME_EVIDENCE_ROOT = ROOT / "evidence" / "crypto" / "upbit" / "realtime"
 LEADERSHIP_DATA_ROOT = ROOT / "data" / "observations" / "crypto_leadership"
 OUTPUT_ROOT = ROOT / "evidence" / "crypto_paper_decision"
 
-# /2 (2026-09-14): per-market realtime freshness + realtime liquidity floor
-# under user ratification CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914.
-# Packets generated before that ratification's effective instant keep the /1
-# global-cap derivation and continue to revalidate byte-for-byte.
+# /2 (2026-09-14, PR #726): per-market realtime freshness + realtime liquidity
+# floor under user ratification CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914.
+# /3 (CIO subscription-scope addendum): per-market realtime status recorded for
+# every subscribed market; the #726 ``subscribed_outside_floor`` field
+# is gone.  Packets generated before the ratification's effective instant keep
+# the /1 global-cap derivation; issued /2 packets keep their frozen policy and
+# layout.  Every issued packet continues to revalidate byte-for-byte.
 LEGACY_OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/1"
-PER_MARKET_OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/2"
+PER_MARKET_V2_OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/2"
+PER_MARKET_OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/3"
 OUTPUT_SCHEMA_VERSION = PER_MARKET_OUTPUT_SCHEMA_VERSION
-OUTPUT_SCHEMA_VERSIONS = (LEGACY_OUTPUT_SCHEMA_VERSION, PER_MARKET_OUTPUT_SCHEMA_VERSION)
+PER_MARKET_OUTPUT_SCHEMA_VERSIONS = (PER_MARKET_V2_OUTPUT_SCHEMA_VERSION, PER_MARKET_OUTPUT_SCHEMA_VERSION)
+OUTPUT_SCHEMA_VERSIONS = (LEGACY_OUTPUT_SCHEMA_VERSION,) + PER_MARKET_OUTPUT_SCHEMA_VERSIONS
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -1259,8 +1264,12 @@ def build_snapshot(
     schema_version = schema_version_for(generated_dt) if schema_version is None else schema_version
     if schema_version not in OUTPUT_SCHEMA_VERSIONS:
         raise CryptoPaperDecisionSnapshotError(f"OUTPUT_SCHEMA_VERSION_UNSUPPORTED:{schema_version}")
-    per_market_mode = schema_version == PER_MARKET_OUTPUT_SCHEMA_VERSION
-    per_market_policy = PER_MARKET.load_policy() if per_market_mode else None
+    per_market_mode = schema_version in PER_MARKET_OUTPUT_SCHEMA_VERSIONS
+    packet_v2_layout = schema_version == PER_MARKET_V2_OUTPUT_SCHEMA_VERSION
+    per_market_policy = (
+        (PER_MARKET.load_packet_v2_policy() if packet_v2_layout else PER_MARKET.load_policy())
+        if per_market_mode else None
+    )
     if not FULL_SHA_RE.fullmatch(source_commit):
         raise CryptoPaperDecisionSnapshotError(f"SOURCE_COMMIT_INVALID:{source_commit}")
     capture_date = generated_at[:10]
@@ -1794,7 +1803,10 @@ def build_snapshot(
     if per_market_mode:
         candidate_markets = [row["market"] for row in candidates]
         packet["realtime_per_market_freshness"] = {
-            "policy": PER_MARKET.policy_reference(per_market_policy),
+            "policy": (
+                PER_MARKET.packet_v2_policy_reference(per_market_policy)
+                if packet_v2_layout else PER_MARKET.policy_reference(per_market_policy)
+            ),
             "aggregate_realtime_status": realtime_status,
             "aggregate_realtime_status_role": per_market_policy["per_market_freshness"][
                 "aggregate_realtime_status_role"
@@ -1804,16 +1816,6 @@ def build_snapshot(
                 sorted(realtime_entry["record"]["run"]["markets"])
                 if realtime_entry is not None else []
             ),
-            # Ratified per-market realtime status for EVERY subscribed market
-            # (and every candidate), not only candidates, so a held position
-            # keeps exit freshness evidence (CIO subscription-scope addendum).
-            "subscribed_market_realtime": {
-                market: _market_realtime(market)
-                for market in sorted(
-                    set(realtime_entry["record"]["run"]["markets"] if realtime_entry is not None else [])
-                    | {row["market"] for row in candidates}
-                )
-            },
             "markets": {
                 row["market"]: {
                     "realtime_status": row["realtime_freshness"]["status"],
@@ -1851,6 +1853,26 @@ def build_snapshot(
             },
             "candidate_market_count": len(candidate_markets),
         }
+        subscribed_run_markets = set(
+            realtime_entry["record"]["run"]["markets"] if realtime_entry is not None else []
+        )
+        if packet_v2_layout:
+            # Issued /2 layout (PR #726), reproduced only for revalidation.
+            packet["realtime_per_market_freshness"]["subscribed_outside_floor"] = sorted(
+                subscribed_run_markets
+                - {
+                    market for market, row in liquidity_floor["markets"].items()
+                    if row["status"] == PER_MARKET.INCLUDED
+                }
+            )
+        else:
+            # Ratified per-market realtime status for EVERY subscribed market
+            # (and every candidate), not only candidates, so a held position
+            # keeps exit freshness evidence (CIO subscription-scope addendum).
+            packet["realtime_per_market_freshness"]["subscribed_market_realtime"] = {
+                market: _market_realtime(market)
+                for market in sorted(subscribed_run_markets | {row["market"] for row in candidates})
+            }
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
 
@@ -1892,7 +1914,7 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
     if not isinstance(packet, dict):
         raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
     packet_schema_version = packet.get("schema_version")
-    if packet_schema_version == PER_MARKET_OUTPUT_SCHEMA_VERSION:
+    if packet_schema_version in PER_MARKET_OUTPUT_SCHEMA_VERSIONS:
         if set(packet) != per_market_expected_keys:
             raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
         if not PER_MARKET.is_effective(_parse_utc(packet.get("generated_at"), "generated_at")):

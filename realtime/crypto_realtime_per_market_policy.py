@@ -64,6 +64,14 @@ SCOPE_ADDENDUM_RELATIVE_PATH = (
 )
 SCOPE_ADDENDUM_SHA256 = "25e69d5142e8e39d5e255ab31335147f81abde2bcdf5bcebf6efc595ec00cb7f"
 EFFECTIVE_FROM_UTC = "2026-09-13T23:25:00Z"
+# Frozen policy bytes that produced ``crypto_paper_decision_snapshot_packet/2``
+# (PR #726: held-markets subscription layout).  Kept only so issued /2 packets
+# keep revalidating; new packets use the current policy and packet /3.
+PACKET_V2_POLICY_RELATIVE_PATH = (
+    "config/crypto_realtime_freshness_per_market_policy_ratified_packet_v2_layout.json"
+)
+PACKET_V2_POLICY_SHA256 = "8883e22a4d88e760a45f3cbc3df06b4a7894a6052767bc0f7dcb3b93ee3ac1c6"
+PACKET_V2_POLICY_FILE_SHA256 = "f0471ed216c5374d21465d18c7bb47eb2e6ebbf75a71c26211482cdbacf04ce3"
 AMENDED_POLICY_RELATIVE_PATH = "config/upbit_realtime_freshness_policy_ratified.json"
 AMENDED_POLICY_PACKET_SHA256 = "7caecead701b47b21f0d2b1ecfd74c6bf63d9952a8493bca5f6c06d67b397f34"
 UNIVERSE_POLICY_RELATIVE_PATH = "config/upbit_tradeable_universe_policy.json"
@@ -286,6 +294,46 @@ def load_policy(path: Path = POLICY_PATH, *, root: Path = ROOT) -> dict:
     ):
         _fail("STALE_HELD_POSITION_RULE_INVALID")
     return copy.deepcopy(value)
+
+
+def load_packet_v2_policy(*, root: Path = ROOT) -> dict:
+    """Exact frozen policy for revalidating issued decision packets /2 only."""
+    path = Path(root) / PACKET_V2_POLICY_RELATIVE_PATH
+    if _file_sha256(path) != PACKET_V2_POLICY_FILE_SHA256:
+        _fail("PACKET_V2_POLICY_FILE_HASH_MISMATCH")
+    value = _read_json(path)
+    unsigned = copy.deepcopy(value)
+    if unsigned.pop("packet_sha256", None) != PACKET_V2_POLICY_SHA256 or payload_sha256(unsigned) != PACKET_V2_POLICY_SHA256:
+        _fail("PACKET_V2_POLICY_EXACT_HASH_MISMATCH")
+    if (
+        value.get("policy_id") != POLICY_ID
+        or value.get("effective_from_utc") != EFFECTIVE_FROM_UTC
+        or value.get("ratification_record") != {"path": RATIFICATION_RECORD_RELATIVE_PATH, "file_sha256": RATIFICATION_RECORD_SHA256}
+        or (value.get("companion_decision_correction") or {}).get("file_sha256") != ADDENDUM_SHA256
+        or _file_sha256(Path(root) / RATIFICATION_RECORD_RELATIVE_PATH) != RATIFICATION_RECORD_SHA256
+        or _file_sha256(Path(root) / ADDENDUM_RELATIVE_PATH) != ADDENDUM_SHA256
+        or any(item is not False for item in (value.get("authority") or {"x": None}).values())
+    ):
+        _fail("PACKET_V2_POLICY_BINDING_INVALID")
+    load_universe_floor_definition(root=root, policy=value)
+    return copy.deepcopy(value)
+
+
+def packet_v2_policy_reference(policy: dict) -> dict:
+    """The exact /2 packet policy block (original path and key set)."""
+    return {
+        "policy_id": policy["policy_id"],
+        "path": POLICY_RELATIVE_PATH,
+        "packet_sha256": policy["packet_sha256"],
+        "ratification_id": policy["ratification_id"],
+        "ratification_record_path": policy["ratification_record"]["path"],
+        "ratification_record_sha256": policy["ratification_record"]["file_sha256"],
+        "companion_decision_id": policy["companion_decision_id"],
+        "companion_decision_addendum_id": policy["companion_decision_correction"]["addendum_id"],
+        "companion_decision_addendum_sha256": policy["companion_decision_correction"]["file_sha256"],
+        "effective_from_utc": policy["effective_from_utc"],
+        "amended_freshness_policy_packet_sha256": policy["amended_freshness_policy"]["packet_sha256"],
+    }
 
 
 def load_universe_floor_definition(*, root: Path = ROOT, policy: dict | None = None) -> dict:
