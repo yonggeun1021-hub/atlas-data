@@ -352,3 +352,86 @@ Top-100 selection, coverage requirements, existing exclusions, all authority
 flags and fail-closed behavior remain unchanged. This is source coverage only;
 it does not authorize investment eligibility, Regime activation, candidate
 promotion or trading.
+
+
+### Ratified coverage additions (2026-09-14)
+
+User ratification `CRYPTO-BREADTH-TAXONOMY-ADDITIONS-20260914` (file SHA256
+`6ff7f4865db1dde6f61d40ada5c4971ef46f547f30bdab9f635415f0e6e8e931`) adds eight
+`eligible_crypto` records to the existing breadth source-coverage taxonomy.
+LSK is effective 2026-09-14. SUSHI, VSN, TRIA, ZORA, XTZ, KII and 0G are
+effective 2026-09-15. Each literal Kraken identity (enabled asset and online
+USD pair in the retained 2026-09-14 Kraken snapshot) was matched to an official
+Kraken source, and to official project documentation where retained. None is
+inferred from ticker text alone:
+
+- LSK is Lisk's token after the official ERC-20 migration. Kraken's
+  [Lisk migration notice](https://support.kraken.com/articles/notice-of-support-for-lisk-migration)
+  states Kraken supported the new ERC-20 LSK 1:1 and does not support Klayr.
+  Kraken's [Lisk asset page](https://www.kraken.com/prices/lisk) binds shortcode
+  `LSK`. [Lisk documentation](https://docs.lisk.com/guides/import-lsk) gives
+  the LSK token contract.
+- SUSHI is the SushiSwap governance token:
+  [Kraken](https://www.kraken.com/prices/sushi) (shortcode `SUSHI`) and
+  [Sushi tokenomics](https://docs.sushi.com/dao/tokenomics), Ethereum contract
+  `0x6B3595068778DD592e39A122f4f5a5cF09C90fE2`.
+- VSN is Vision, the Bitpanda Web3 ecosystem token:
+  [Kraken listing](https://blog.kraken.com/product/asset-listings/vsn-is-available-for-trading),
+  [Kraken asset page](https://www.kraken.com/prices/vision) (shortcode `VSN`)
+  and [Bitpanda](https://www.bitpanda.com/en/prices/vision-vsn).
+- TRIA is the Tria self-custodial neobank token, distinct from Trias (TRIAS):
+  [Kraken listing](https://blog.kraken.com/product/asset-listings/tria-is-available-for-trading),
+  [Kraken asset page](https://www.kraken.com/prices/tria) (shortcode `TRIA`)
+  and [Tria tokenomics](https://www.tria.so/en/blogs/tria-tokenomics).
+- ZORA is the Zora onchain media protocol token:
+  [Kraken](https://www.kraken.com/prices/zora) (shortcode `ZORA`) and
+  [Zora Coins documentation](https://docs.zora.co/coins).
+- XTZ is tez, the native Tezos token:
+  [Kraken](https://www.kraken.com/prices/tezos) (shortcode `XTZ`) and
+  [Tezos](https://tezos.com/).
+- KII is KiiChain's native gas and utility token:
+  [Kraken listing](https://blog.kraken.com/product/asset-listings/kii-is-available-for-trading),
+  [Kraken asset page](https://www.kraken.com/prices/kiichain) (shortcode `KII`)
+  and [KiiChain documentation](https://docs.kiiglobal.io/docs/learn/tokenomics/utility).
+- 0G is the 0G Chain native token:
+  [Kraken listing](https://blog.kraken.com/product/asset-listings/0g-is-available-for-trading),
+  [Kraken asset page](https://www.kraken.com/prices/0g) (shortcode `0G`) and
+  [0G chain documentation](https://docs.0g.ai/concepts/chain).
+
+The pages were captured on 2026-09-14 between 08:42Z and 08:49Z. Retained
+content SHA256 values are listed below. Kraken asset pages embed live prices,
+so a later capture of the same URL is expected to hash differently; the binding
+fields are the page's `field_crypto_shortcode`, name and description.
+
+| Source | SHA256 |
+|---|---|
+| Kraken Lisk migration notice | `8cb561b5229f32716ca528b745b21e3c3a7f6f0b0304656f093a58aa2fbefa1a` |
+| Kraken asset page lisk | `ee7d466e418b19ec78d90fd01748b3fc263f2b52480efe1cf5bf79448f288702` |
+| Lisk import-lsk guide | `4e272103d78fe15cc1fe4eae59b634b6d11a1c5630dd318c67fe7ec849227963` |
+| Kraken asset page sushi | `d5d91422274a37d94704ff8244e3cfcddcfaa4b0f174a6a40ac3ff65150179b0` |
+| Sushi tokenomics | `aa46eeb03537de181dff6fbe980bb03293c8b506ae9537bbd95b470e09cf5703` |
+| Kraken VSN listing | `e0f5e8cbc2a20c886c64dfdf7a696a306255a26d9278bb9ea24ac50860f104df` |
+| Kraken asset page vision | `f8b6848c178833837202d1973de71e95a998c866f7d62a0ceb1d048c2d4c3822` |
+| Bitpanda Vision (VSN) | `aed8db658cf9a46f6d61608265bd2b91fc35f052195f104d3e48695a2753f4cf` |
+| Kraken TRIA listing | `2cca4649aeb485380cb97db09af42e8740c0dd98b13dea6891fcbb1f72952f85` |
+| Kraken asset page tria | `1243a64a2972f49f4e0d443bfc793eddbf0ba751765d060fe3f16909f878eceb` |
+| Tria tokenomics | `3ee4a32b0093809c4df1c6d0dac9a548bbdc09f7ef194372d6923b94dd73f0d3` |
+| Kraken asset page zora | `d9307945fd32b1784d3191d677225b20af82a62820caa760c768e8c9e0f5a754` |
+| Zora Coins documentation | `8c663318d758ee7962c5370d8e3a29316f275b0892657b68c1dabeef2078e1e8` |
+| Kraken asset page tezos | `9f73dd0ffef64867b80b7decc33cc8d62a52540304609d5bdb6ead362e69186d` |
+| Tezos home | `068119ec39a402450a4cdf02577c85a2afbffb2345d831df77dcbdd23b166206` |
+| Kraken KII listing | `61e1a0a4e882233486789661b8e5a9e08d83f823b58188b97f4ff93783ca2835` |
+| Kraken asset page kiichain | `e99cdeeea2b88880976f0635f94e145c03a493e789cda913915e3bca1a6b1010` |
+| KiiChain tokenomics utility | `e98f6616f3cf4e4223f39f094ef1fee9b461160176493ab1ba6199dd09717932` |
+| Kraken 0G listing | `be8a9642efdea5da7757fd4d83f2b77cc6eaabbe511b8a72521d0afc67b94406` |
+| Kraken asset page 0g | `d38464b74042fc6c3b506f526bd61153da26c4807359b3232fdbf2781abd53a9` |
+| 0G chain documentation | `4e4583533af575fbd99c14cd30e91a883851d88a3b8e09f75ea72825799311fb` |
+
+Effective dates follow the ratification and are not backdated. Retained
+vintages 2026-09-08..2026-09-14 produce the same qualified members, status and
+reason as before. Vintage 2026-09-15 (as of 2026-09-14) is no longer blocked by
+LSK. Top-100 selection, the 30-day turnover rule, 90% observation coverage,
+existing exclusions, fail-closed `TAXONOMY_COVERAGE_UNKNOWN` behavior and all
+authority flags remain unchanged. LIGHTER is not part of this slice. This is
+source coverage only; it does not authorize investment eligibility, Regime
+activation, candidate promotion or trading.
