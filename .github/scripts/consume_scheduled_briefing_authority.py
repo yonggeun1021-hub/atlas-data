@@ -41,6 +41,19 @@ SCHEMA_V4 = "scheduled_briefing_retrieval_authority/4"
 SUPPORTED_SCHEMAS = (SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
 DATE_BINDING_SCHEMAS = (SCHEMA_V3, SCHEMA_V4)
 V3_AMBIGUOUS_WEEKEND_DATE_KEY = "latest_confirmed_evidence_date"
+# Optional daily_orchestrator delivery-packet derivation markers.  These are
+# additive fields the producer may stamp onto a packet; the consumer accepts
+# exactly these names with a plain-int value in the given set, and only when
+# the packet's contract_version is the one that introduced them
+# ("daily_orchestrator/6"). This set is hard-coded rather than imported from
+# the orchestrator so the consumer stays independent of the producer
+# checkout: a new marker or value must be added here deliberately.
+OPTIONAL_DELIVERY_PACKET_DERIVATION_MARKERS = {
+    "runtime_regime_readiness_version": {1, 2, 3},
+    "flow_replay_version": {1},
+    "crypto_derivation_version": {1},
+}
+DELIVERY_PACKET_DERIVATION_MARKER_CONTRACT_VERSION = "daily_orchestrator/6"
 
 
 class ScheduledConsumerError(RuntimeError):
@@ -623,7 +636,14 @@ def _validate_pinned_delivery_packet(packet: dict, expected_date: str, slot: str
         "component_status_counts", "components", "authority", "frozen_sources",
         "unresolved_boundaries", "packet_sha256",
     }
-    if not isinstance(packet, dict) or set(packet) != required:
+    if not isinstance(packet, dict):
+        fail("DELIVERY_PACKET_FIELDS_MISMATCH")
+    observed_fields = set(packet)
+    extra_fields = observed_fields - required
+    if (
+        not required <= observed_fields
+        or not extra_fields <= set(OPTIONAL_DELIVERY_PACKET_DERIVATION_MARKERS)
+    ):
         fail("DELIVERY_PACKET_FIELDS_MISMATCH")
     if (
         packet.get("schema_version") != 1
@@ -639,6 +659,16 @@ def _validate_pinned_delivery_packet(packet: dict, expected_date: str, slot: str
         fail("DELIVERY_PACKET_SCHEMA_UNSUPPORTED")
     if packet.get("slot") != slot or packet.get("decision_date") != expected_date:
         fail("DELIVERY_PACKET_IDENTITY_MISMATCH")
+    for marker_name in extra_fields:
+        marker_value = packet.get(marker_name)
+        if (
+            packet.get("contract_version")
+            != DELIVERY_PACKET_DERIVATION_MARKER_CONTRACT_VERSION
+            or type(marker_value) is not int
+            or marker_value
+            not in OPTIONAL_DELIVERY_PACKET_DERIVATION_MARKERS[marker_name]
+        ):
+            fail("DELIVERY_PACKET_DERIVATION_VERSION_INVALID", marker_name)
     digest = packet.get("packet_sha256")
     unsigned = dict(packet)
     unsigned.pop("packet_sha256", None)
