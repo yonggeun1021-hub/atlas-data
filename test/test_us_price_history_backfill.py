@@ -295,5 +295,240 @@ class RunLiveBackfillOfflineFixtureTests(unittest.TestCase):
                     )
 
 
+
+_LIVE_ENV = {"ALPACA_MARKET_DATA_API_KEY": "k-SENTINEL-KEY", "ALPACA_MARKET_DATA_API_SECRET": "s-SENTINEL-SECRET"}
+
+
+def _counting_getter(bars_by_symbol, calls, fail_on=None):
+    """Synthetic getter that records every (symbol) request; never touches urllib."""
+    def getter(url, headers=None, *_args, **_kwargs):
+        symbol = url.split("/stocks/", 1)[1].split("/", 1)[0]
+        calls.append(symbol)
+        if fail_on is not None and len(calls) == fail_on:
+            raise M.FMD.FreeMarketDataError("HTTP_ERROR:429")
+        return json.dumps({"bars": bars_by_symbol[symbol], "next_page_token": None}).encode()
+    return getter
+
+
+class LiveWriteOnceResumeTests(unittest.TestCase):
+    """2026-09-15 live-path hardening: write-once, resumable, bounded, no secret echo."""
+
+    anchor = dt.date(2026, 9, 14)
+    start = anchor - dt.timedelta(days=5)
+    contract = {"alpaca": {"symbols": ["QQQ", "SPY", "XLK"]}}
+    bars = {
+        "SPY": [_bar("2026-09-10"), _bar("2026-09-11")],
+        "QQQ": [_bar("2026-09-10", 200.0)],
+        "XLK": [_bar("2026-09-11", 50.0)],
+    }
+
+    def _run(self, out_dir, getter, **kwargs):
+        return M.run_live_backfill(
+            self.contract, self.start, self.anchor, out_dir,
+            getter=getter, sleep_fn=lambda _seconds: None, **kwargs,
+        )
+
+    def test_writes_raw_then_manifest_with_matching_hash_and_range(self):
+        calls = []
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            receipt = self._run(out, _counting_getter(self.bars, calls))
+            for symbol in ("QQQ", "SPY", "XLK"):
+                stem = M.unit_stem(symbol, self.anchor)
+                manifest = json.loads((out / f"{stem}{M.MANIFEST_SUFFIX}").read_text())
+                raw = (out / f"{stem}{M.RAW_SUFFIX}").read_bytes()
+                self.assertEqual(manifest["raw_sha256"], M.FMD.sha256_bytes(raw))
+                self.assertEqual(manifest["range_start_date"], self.start.isoformat())
+                self.assertEqual(manifest["range_end_date"], self.anchor.isoformat())
+                body = json.loads(raw)
+                self.assertEqual(set(body["responses"]), {symbol})
+        self.assertEqual(calls, ["QQQ", "SPY", "XLK"])
+        self.assertEqual(receipt["requests_made"], 3)
+        self.assertEqual(receipt["units_skipped_existing"], 0)
+
+    def test_rerun_skips_completed_units_without_any_request(self):
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            self._run(out, _counting_getter(self.bars, []))
+            before = {path.name: path.read_bytes() for path in out.iterdir()}
+            calls = []
+            receipt = self._run(out, _counting_getter(self.bars, calls))
+            after = {path.name: path.read_bytes() for path in out.iterdir()}
+        self.assertEqual(calls, [])
+        self.assertEqual(before, after)
+        self.assertEqual(receipt["requests_made"], 0)
+        self.assertEqual(receipt["units_skipped_existing"], 3)
+        self.assertEqual(receipt["row_counts_by_symbol"], {"QQQ": 1, "SPY": 2, "XLK": 1})
+
+    def test_interrupted_run_resumes_only_missing_units(self):
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            first_calls = []
+            with self.assertRaises(M.BackfillPlanError) as ctx:
+                self._run(out, _counting_getter(self.bars, first_calls, fail_on=2))
+            self.assertIn("US_PRICE_HISTORY_BACKFILL_FETCH_FAILED", str(ctx.exception))
+            self.assertEqual(len(list(out.glob(f"*{M.MANIFEST_SUFFIX}"))), 1)
+            calls = []
+            receipt = self._run(out, _counting_getter(self.bars, calls))
+        self.assertEqual(calls, ["SPY", "XLK"])
+        self.assertEqual(receipt["requests_made"], 2)
+        self.assertEqual(receipt["units_skipped_existing"], 1)
+        # total HTTP attempts across both invocations = units + 1 failed attempt
+        self.assertEqual(len(first_calls) + len(calls), 4)
+
+    def test_tampered_raw_fails_closed_on_resume(self):
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            self._run(out, _counting_getter(self.bars, []))
+            raw_path = out / f"{M.unit_stem('SPY', self.anchor)}{M.RAW_SUFFIX}"
+            raw_path.write_bytes(raw_path.read_bytes() + b" ")
+            calls = []
+            with self.assertRaises(M.BackfillPlanError) as ctx:
+                self._run(out, _counting_getter(self.bars, calls))
+        self.assertIn("US_PRICE_HISTORY_BACKFILL_RESUME_HASH_MISMATCH", str(ctx.exception))
+
+    def test_orphan_raw_with_conflicting_bytes_is_never_overwritten(self):
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            orphan = out / f"{M.unit_stem('QQQ', self.anchor)}{M.RAW_SUFFIX}"
+            orphan.write_bytes(b"{}")
+            with self.assertRaises(M.BackfillPlanError) as ctx:
+                self._run(out, _counting_getter(self.bars, []))
+            self.assertEqual(orphan.read_bytes(), b"{}")
+            self.assertFalse((out / f"{M.unit_stem('QQQ', self.anchor)}{M.MANIFEST_SUFFIX}").exists())
+        self.assertIn("US_PRICE_HISTORY_BACKFILL_RAW_CONFLICT", str(ctx.exception))
+
+    def test_orphan_raw_with_identical_bytes_is_idempotent(self):
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            self._run(out, _counting_getter(self.bars, []))
+            (out / f"{M.unit_stem('QQQ', self.anchor)}{M.MANIFEST_SUFFIX}").unlink()
+            calls = []
+            receipt = self._run(out, _counting_getter(self.bars, calls))
+            self.assertTrue((out / f"{M.unit_stem('QQQ', self.anchor)}{M.MANIFEST_SUFFIX}").exists())
+        self.assertEqual(calls, ["QQQ"])
+        self.assertEqual(receipt["units_skipped_existing"], 2)
+
+    def test_resume_with_a_different_range_fails_closed(self):
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            self._run(out, _counting_getter(self.bars, []))
+            with self.assertRaises(M.BackfillPlanError) as ctx:
+                M.run_live_backfill(
+                    self.contract, self.start - dt.timedelta(days=1), self.anchor, out,
+                    getter=_counting_getter(self.bars, []), sleep_fn=lambda _s: None,
+                )
+        self.assertIn("US_PRICE_HISTORY_BACKFILL_RESUME_RANGE_MISMATCH", str(ctx.exception))
+
+    def test_truncated_response_fails_closed(self):
+        def getter(url, headers=None):
+            return json.dumps({"bars": [_bar("2026-09-10")], "next_page_token": "abc"}).encode()
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(M.BackfillPlanError) as ctx:
+                self._run(Path(tmp) / "out", getter)
+        self.assertIn("US_PRICE_HISTORY_BACKFILL_RESPONSE_TRUNCATED", str(ctx.exception))
+
+    def test_credentials_never_reach_files_receipt_or_errors(self):
+        seen_headers = []
+
+        def getter(url, headers=None):
+            seen_headers.append(headers)
+            symbol = url.split("/stocks/", 1)[1].split("/", 1)[0]
+            if symbol == "XLK":
+                raise M.FMD.FreeMarketDataError("HTTP_ERROR:401")
+            return json.dumps({"bars": self.bars[symbol]}).encode()
+
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            with self.assertRaises(M.BackfillPlanError) as ctx:
+                self._run(out, getter)
+            blobs = [path.read_bytes() for path in out.iterdir()]
+        self.assertEqual(seen_headers[0]["APCA-API-KEY-ID"], _LIVE_ENV["ALPACA_MARKET_DATA_API_KEY"])
+        for secret in _LIVE_ENV.values():
+            self.assertNotIn(secret, str(ctx.exception))
+            for blob in blobs:
+                self.assertNotIn(secret.encode(), blob)
+        self.assertEqual(str(ctx.exception), f"US_PRICE_HISTORY_BACKFILL_FETCH_FAILED:{M.unit_stem('XLK', self.anchor)}:HTTP_ERROR:401")
+
+    def test_pacing_sleeps_between_requests_only(self):
+        sleeps = []
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            M.run_live_backfill(
+                self.contract, self.start, self.anchor, Path(tmp) / "out",
+                getter=_counting_getter(self.bars, []), sleep_fn=sleeps.append,
+                batch_size=2, request_pause_seconds=1.5, batch_pause_seconds=9.0,
+            )
+        self.assertEqual(sleeps, [1.5, 1.5, 9.0])
+
+
+class LiveScopeBoundTests(unittest.TestCase):
+    def test_approved_symbols_equal_the_contract_symbol_set(self):
+        self.assertEqual(tuple(M.backfill_symbols(_contract())), M.APPROVED_SYMBOLS)
+        self.assertEqual(len(M.APPROVED_SYMBOLS), 22)
+
+    def test_default_trailing_year_is_exactly_the_request_bound(self):
+        end = dt.date(2026, 9, 14)
+        _symbols, anchors, units = M.validate_live_scope(
+            _contract(), end - dt.timedelta(days=M.MAX_RANGE_DAYS), end,
+            window_days=M.DEFAULT_WINDOW_DAYS, request_pause_seconds=M.DEFAULT_REQUEST_PAUSE_SECONDS,
+            max_requests=M.MAX_LIVE_REQUESTS,
+        )
+        self.assertEqual(len(anchors), 3)
+        self.assertEqual(len(units), 66)
+        self.assertEqual(M.MAX_LIVE_REQUESTS, 66)
+
+    def _refused(self, code, contract=None, start=None, end=dt.date(2026, 9, 14), **overrides):
+        kwargs = dict(window_days=M.DEFAULT_WINDOW_DAYS, request_pause_seconds=M.DEFAULT_REQUEST_PAUSE_SECONDS,
+                      max_requests=M.MAX_LIVE_REQUESTS)
+        kwargs.update(overrides)
+        with self.assertRaises(M.BackfillPlanError) as ctx:
+            M.validate_live_scope(contract or _contract(), start or end - dt.timedelta(days=364), end, **kwargs)
+        self.assertEqual(str(ctx.exception), code)
+
+    def test_symbol_outside_approval_is_refused(self):
+        self._refused("US_PRICE_HISTORY_BACKFILL_SYMBOL_OUTSIDE_APPROVED_SCOPE", contract={"alpaca": {"symbols": ["SPY", "AAPL"]}})
+
+    def test_more_than_one_year_is_refused(self):
+        end = dt.date(2026, 9, 14)
+        self._refused("US_PRICE_HISTORY_BACKFILL_RANGE_EXCEEDS_APPROVED_YEAR", start=end - dt.timedelta(days=365), end=end)
+
+    def test_pacing_faster_than_floor_is_refused(self):
+        self._refused("US_PRICE_HISTORY_BACKFILL_PACING_TOO_FAST", request_pause_seconds=0.1)
+
+    def test_request_bound_cannot_be_raised(self):
+        self._refused("US_PRICE_HISTORY_BACKFILL_REQUEST_BOUND_INVALID", max_requests=67)
+
+    def test_plan_larger_than_bound_is_refused(self):
+        self._refused("US_PRICE_HISTORY_BACKFILL_REQUEST_BOUND_EXCEEDED", max_requests=65)
+
+    def test_shorter_window_that_would_add_requests_is_refused(self):
+        self._refused("US_PRICE_HISTORY_BACKFILL_REQUEST_BOUND_EXCEEDED", window_days=90)
+
+    def test_longer_window_than_fetch_lookback_is_refused(self):
+        self._refused("US_PRICE_HISTORY_BACKFILL_WINDOW_DAYS_INVALID", window_days=181)
+
+    def test_scope_is_checked_before_any_request_or_directory(self):
+        calls = []
+        with mock.patch.dict("os.environ", _LIVE_ENV, clear=False), tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            with self.assertRaises(M.BackfillPlanError):
+                M.run_live_backfill(
+                    {"alpaca": {"symbols": ["AAPL"]}}, dt.date(2026, 9, 1), dt.date(2026, 9, 14), out,
+                    getter=_counting_getter({}, calls), sleep_fn=lambda _s: None,
+                )
+            self.assertFalse(out.exists())
+        self.assertEqual(calls, [])
+
+    def test_require_live_exits_non_zero_without_credentials(self):
+        argv = ["us_price_history_backfill.py", "--end-date", "2026-09-14", "--live", "--require-live"]
+        with mock.patch("sys.argv", argv), mock.patch("builtins.print"), \
+                mock.patch.dict("os.environ", {}, clear=False):
+            import os as _os
+            _os.environ.pop("ALPACA_MARKET_DATA_API_KEY", None)
+            _os.environ.pop("ALPACA_MARKET_DATA_API_SECRET", None)
+            self.assertEqual(M.main(), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

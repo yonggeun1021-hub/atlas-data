@@ -2484,6 +2484,19 @@ APPROVED_TESTS = [
     #   repo) and asserted here. authority is false everywhere; no network
     #   call, no order/trading/capital authority anywhere in this file.
     "test/test_us_price_history_backfill.py",
+    # ★ US_BACKFILL user approval (USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_
+    #   20260915) + CLAUDE_CIO 2026-09-15: pre-registered US sector rotation
+    #   event study re-run on the 1-year Alpaca backfill. Backfill live path is
+    #   write-once/resumable and bounded (22 approved symbols, <=364 days,
+    #   <=66 requests, pacing floor). Study is a line-by-line port of the
+    #   pre-registered engine (hash-pinned document, frozen parameters/gates)
+    #   and emits aggregate-only statistics; the artifact schema rejects any
+    #   price/close/volume/bar/per-day return series. Workflow: dispatch only,
+    #   contents: read, secrets only in the backfill step env, vendor rows only
+    #   under RUNNER_TEMP, one aggregated JSON upload, nothing committed.
+    #   Offline synthetic fixtures only; no network call.
+    "test/test_us_sector_rotation_event_study.py",
+    "test/test_us_sector_rotation_backfill_study_workflow.py",
     # ★ P0-06 consumer derivation-marker acceptance (CLAUDE_CIO 2026-09-14):
     #   _validate_pinned_delivery_packet's closed top-level field set predated
     #   the additive daily_orchestrator/6 packet fields
