@@ -1151,6 +1151,10 @@ APPROVED_TESTS = [
     "test/test_crypto_paper_runtime.py",
     "test/test_crypto_kraken_btc_replay_diagnostic.py",
     "test/test_crypto_paper_runtime_publication.py",
+    # Scheduled crypto PAPER runtime producer (07:15Z/08:45Z, --check before
+    # commit, contents:write only) and the earlier stablecoin cutoff slots;
+    # captures after 07:00Z stay lookahead-rejected.
+    "test/test_crypto_paper_runtime_schedule.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
