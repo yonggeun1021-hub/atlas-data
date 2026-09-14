@@ -100,6 +100,20 @@ class AlpacaSipAccessProbeWorkflowTest(unittest.TestCase):
         self.assertEqual(len(upload), 1)
         self.assertTrue(str(upload[0]["with"]["path"]).startswith("${{ runner.temp }}/"))
 
+    def test_upload_does_not_run_unconditionally_but_the_final_guard_does(self):
+        # CIO review 2026-09-15: this probe uploads vendor data derived from
+        # a live credential into a public repo's artifact storage. Upload
+        # must NOT carry if: always() -- a failed schema re-check (or any
+        # earlier failed step) must stop the run before anything is
+        # uploaded. The final tracked-change guard is the opposite case: it
+        # must always run, even after an earlier failure, so a dirty
+        # checkout is still caught.
+        job_steps = steps(self.document)
+        upload = next(step for step in job_steps if str(step.get("uses", "")).startswith("actions/upload-artifact@"))
+        self.assertNotIn("if", upload)
+        guard = next(step for step in job_steps if step.get("name") == "Tracked output prohibition")
+        self.assertEqual(guard.get("if"), "always()")
+
     def test_request_budget_documented_as_six(self):
         self.assertIn("at most 6", self.text.lower())
 

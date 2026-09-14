@@ -59,7 +59,11 @@ jobs:
           print('schema check PASS: no forbidden per-day price/volume/close/vwap field found')
           "
       - name: Upload aggregate-only probe result
-        if: always()
+        # Deliberately NOT if: always() -- this uploads vendor data derived
+        # from a live credential into a public repo's artifact storage. If
+        # the schema re-check step above failed (or any earlier step did),
+        # the run must stop here and upload nothing, not upload whatever
+        # happens to be on disk anyway.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: alpaca-sip-access-probe-${{ github.run_id }}-${{ github.run_attempt }}
@@ -67,4 +71,5 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Tracked output prohibition
+        if: always()
         run: git diff --exit-code && test -z "$(git status --porcelain)"

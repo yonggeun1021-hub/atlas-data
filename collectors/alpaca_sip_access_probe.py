@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import statistics
 import sys
 import urllib.error
@@ -69,12 +70,29 @@ PREFERRED_SYMBOLS = ("SPY", "XLK", "AAPL")
 FALLBACK_SYMBOLS = ("SPY", "XLK", "MSFT")
 
 # Exact key names a per-day bar row (or this script's own raw capture) would
-# carry. None of these may appear anywhere in the aggregate artifact.
+# carry. None of these may appear anywhere in the aggregate artifact. This is
+# a defense-in-depth blocklist, NOT the primary guard -- a field simply
+# renamed around it (e.g. "sip_daily_volume_series") would slip past a
+# key-name check alone. The two STRUCTURAL rules below (a bare list of more
+# than a few numbers; a dict keyed by dates) are the primary guard, because
+# they reject the *shape* a per-day series necessarily has, independent of
+# what its key is called.
 FORBIDDEN_KEYS = {
     "o", "h", "l", "c", "v", "vw", "n", "t",
     "open", "high", "low", "close", "volume", "vwap", "trade_count",
     "bars", "raw_base64", "body", "response_body", "raw",
 }
+
+# A per-day series (SESSION_COUNT=10 sessions) is never this short; the
+# aggregate artifact's own longest legitimate lists (symbols, feeds, attempts)
+# are short lists of strings/dicts, not bare numbers. Any bare list of more
+# than this many plain numbers is therefore treated as a smuggled per-day
+# series regardless of what field name it is stored under.
+MAX_PLAIN_NUMERIC_LIST_LENGTH = 3
+
+# A per-day observation keyed by its own date (e.g. {"2026-09-08": ...}) is
+# rejected regardless of key name, independent of FORBIDDEN_KEYS.
+_DATE_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class ProbeError(ValueError):
@@ -366,13 +384,27 @@ def build_summary(
 
 
 def assert_no_forbidden_fields(value: object, path: str = "$") -> None:
-    """Fail closed if any per-day price/volume/close/vwap/bar key survived."""
+    """Fail closed if any per-day price/volume/close/vwap/bar shape survived.
+
+    Three independent checks, so a field simply renamed around the
+    key-name blocklist still fails closed:
+      1. FORBIDDEN_KEYS -- exact per-day bar field names (defense in depth).
+      2. Any dict keyed by a ``YYYY-MM-DD`` date, whatever it is called.
+      3. Any bare list of more than MAX_PLAIN_NUMERIC_LIST_LENGTH plain
+         numbers, whatever it is called -- the structural shape a per-day
+         price/volume/vwap series necessarily has.
+    """
     if isinstance(value, dict):
         for key, sub in value.items():
             if key in FORBIDDEN_KEYS:
                 fail("FORBIDDEN_FIELD_IN_ARTIFACT", f"{path}.{key}")
+            if isinstance(key, str) and _DATE_KEY_RE.match(key):
+                fail("FORBIDDEN_DATE_KEYED_MAP", f"{path}.{key}")
             assert_no_forbidden_fields(sub, f"{path}.{key}")
     elif isinstance(value, list):
+        numeric = [item for item in value if isinstance(item, (int, float)) and not isinstance(item, bool)]
+        if len(numeric) == len(value) and len(value) > MAX_PLAIN_NUMERIC_LIST_LENGTH:
+            fail("FORBIDDEN_NUMERIC_SERIES", f"{path} len={len(value)}")
         for index, item in enumerate(value):
             assert_no_forbidden_fields(item, f"{path}[{index}]")
 

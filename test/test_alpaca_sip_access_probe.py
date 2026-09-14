@@ -103,6 +103,14 @@ class SessionWindowTests(unittest.TestCase):
 
 
 class RequestBudgetTests(unittest.TestCase):
+    def test_request_budget_constant_is_exactly_six(self):
+        # CIO review 2026-09-15: pin the code constant directly, not only
+        # the YAML comment text that documents it (test_request_budget_
+        # documented_as_six in the workflow test checks the comment; this
+        # checks the actual value the budget is constructed with).
+        self.assertEqual(M.REQUEST_BUDGET, 6)
+        self.assertEqual(M.RequestBudget().limit, 6)
+
     def test_budget_exhausted_fails_closed(self):
         budget = M.RequestBudget(limit=2)
         budget.spend()
@@ -228,6 +236,26 @@ class SchemaRejectionTests(unittest.TestCase):
         summary = M.run_probe(CREDENTIALS, opener=opener, clock=lambda: NOW, contract={"alpaca": {"symbols": symbols}})
         M.assert_no_forbidden_fields(summary)  # run_probe already asserts this; re-check is idempotent
         self.assertNotIn("bars_by_symbol", json.dumps(summary))
+
+    def test_renamed_per_day_volume_series_is_still_rejected_by_shape(self):
+        # CIO review 2026-09-15: a key-name blocklist alone lets a renamed
+        # per-day series through. This field name is deliberately NOT in
+        # FORBIDDEN_KEYS -- it must still be rejected because it is a bare
+        # list of more than a handful of plain numbers.
+        with self.assertRaisesRegex(M.ProbeError, "FORBIDDEN_NUMERIC_SERIES"):
+            M.assert_no_forbidden_fields({
+                "per_symbol": {"SPY": {"sip_daily_volume_series": [100.0, 200.0, 150.0, 175.0, 300.0]}},
+            })
+
+    def test_short_numeric_list_at_or_below_the_threshold_is_allowed(self):
+        M.assert_no_forbidden_fields({"window": {"session_count_options": [5, 10, 20]}})
+
+    def test_date_keyed_map_is_rejected_regardless_of_its_key_name(self):
+        with self.assertRaisesRegex(M.ProbeError, "FORBIDDEN_DATE_KEYED_MAP"):
+            M.assert_no_forbidden_fields({"by_session": {"2026-09-08": 123456.0, "2026-09-09": 234567.0}})
+
+    def test_non_date_string_keys_are_not_mistaken_for_a_date_keyed_map(self):
+        M.assert_no_forbidden_fields({"per_symbol": {"SPY": {}, "XLK": {}, "MSFT": {}}})
 
 
 class AggregateArithmeticTests(unittest.TestCase):
