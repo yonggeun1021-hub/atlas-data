@@ -1301,6 +1301,13 @@ APPROVED_TESTS = [
     #   HNT/SKR resolve, SN8 stays UNKNOWN, qualified_members() stays
     #   TAXONOMY_COVERAGE_UNKNOWN because of SN8 -- no BREADTH PASS claimed.
     "test/test_crypto_breadth_hnt_skr_taxonomy_ratification.py",
+    # ★ 2026-09-14 user ratification CRYPTO-BREADTH-TAXONOMY-ADDITIONS-20260914:
+    #   LSK (effective 09-14) and SUSHI/VSN/TRIA/ZORA/XTZ/KII/0G (effective
+    #   09-15) eligible_crypto. No backfill; retained vintages 09-08..09-14
+    #   unchanged; in-memory projection of the committed 09-14 snapshot to
+    #   vintage 09-15 is no longer TAXONOMY_COVERAGE_UNKNOWN because of LSK.
+    #   ⛔ thresholds/fail-closed unchanged; no live Kraken, no date-dependent test.
+    "test/test_crypto_breadth_taxonomy_additions_20260914.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
@@ -2457,6 +2464,18 @@ APPROVED_TESTS = [
     #   t1_display_only=true, ratified=false on every row; no W2/W3/T2/T3
     #   authority and no trading/order/capital authority anywhere.
     "test/test_us_investable_universe_v1.py",
+    # ★ P0-06 consumer derivation-marker acceptance (CLAUDE_CIO 2026-09-14):
+    #   _validate_pinned_delivery_packet's closed top-level field set predated
+    #   the additive daily_orchestrator/6 packet fields
+    #   (runtime_regime_readiness_version, flow_replay_version,
+    #   crypto_derivation_version) and rejected every retained packet since
+    #   2026-09-06 AM with DELIVERY_PACKET_FIELDS_MISMATCH. The consumer now
+    #   allows exactly these three optional markers, each a plain int in its
+    #   hard-coded supported set and accepted only under contract_version
+    #   daily_orchestrator/6. Every retained /3-/6 packet.json under
+    #   evidence/daily_briefing validates; every retained /2 packet still
+    #   fails by design. No import of the orchestrator; no authority change.
+    "test/test_briefing_consumer_derivation_markers_20260914.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
