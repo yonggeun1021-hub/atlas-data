@@ -1,0 +1,89 @@
+name: Crypto PAPER Runtime Decision
+
+# CRYPTO_PAPER_RUNTIME_V1 (user ratification 2026-09-14): one finalized crypto
+# PAPER packet per UTC day at 07:00Z.  This workflow only rederives the decision
+# from already committed raw captures (BTC 00:20Z, breadth 00:40Z, stablecoin
+# before 07:00Z), verifies it byte-for-byte with --check, and commits the
+# display-only pointer plus an append-only evidence copy.  It calls no provider,
+# uses no secret beyond the default GITHUB_TOKEN, and opens no strategy,
+# capital, order, production, trading or REAL authority.  Captures that land
+# after 07:00Z stay lookahead-rejected by the runtime itself.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 7 * * *"   # 07:15Z primary, after the 07:00Z decision time
+    - cron: "45 8 * * *"   # 08:45Z retry if the primary slot was dropped
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-crypto-paper-runtime
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Build, verify and commit crypto PAPER runtime decision
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          EVALUATION_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LATEST="data/latest_crypto_paper_runtime_decision.json"
+          for attempt in 1 2 3; do
+            git fetch origin "$DEFAULT_BRANCH"
+            git reset --hard "origin/$DEFAULT_BRANCH"
+            # Contract tests run on every head that could publish, including a
+            # head reached after a push race.
+            python3 test/test_crypto_paper_runtime.py
+            python3 test/test_crypto_kraken_btc_replay_diagnostic.py
+            # code_revision is the exact commit whose code and evidence built it.
+            CODE_REVISION="$(git rev-parse HEAD)"
+            # A retry slot never republishes the same UTC day's verified decision.
+            if python3 -m regime.crypto_paper_runtime_publication \
+              --evaluation-at "$EVALUATION_AT" --code-revision "$CODE_REVISION" --output "$LATEST" \
+              --published-for-current-date; then
+              echo "decision for this UTC day already published and verified; nothing to do"
+              exit 0
+            fi
+            python3 -m regime.crypto_paper_runtime_publication \
+              --evaluation-at "$EVALUATION_AT" --code-revision "$CODE_REVISION" --output "$LATEST"
+            python3 -m regime.crypto_paper_runtime_publication \
+              --evaluation-at "$EVALUATION_AT" --code-revision "$CODE_REVISION" --output "$LATEST" --check
+            DECISION_DATE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["current_decision_date"] or "")' "$LATEST")"
+            if [ -z "$DECISION_DATE" ]; then
+              echo "STOP: publication has no current decision date" >&2
+              exit 1
+            fi
+            DIGEST="$(sha256sum "$LATEST" | cut -c1-64)"
+            EVIDENCE="evidence/regime/crypto_paper_runtime/$DECISION_DATE/$DIGEST.json"
+            if [ -e "$EVIDENCE" ] && ! cmp -s "$LATEST" "$EVIDENCE"; then
+              echo "STOP: append-only evidence conflict $EVIDENCE" >&2
+              exit 1
+            fi
+            mkdir -p "$(dirname "$EVIDENCE")"
+            cp "$LATEST" "$EVIDENCE"
+            git add "$LATEST" "$EVIDENCE"
+            if git diff --cached --quiet; then
+              echo "no change"
+              exit 0
+            fi
+            git commit -m "data: crypto PAPER runtime decision $DECISION_DATE"
+            if git push origin "HEAD:$DEFAULT_BRANCH"; then
+              exit 0
+            fi
+            echo "default branch moved; rebuilding from the new head (attempt $attempt)"
+          done
+          echo "STOP: could not publish after 3 attempts" >&2
+          exit 1

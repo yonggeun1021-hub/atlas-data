@@ -243,13 +243,39 @@ def build_decision(*, evaluation_at: str, code_revision: str, root: Path = ROOT)
     return copy.deepcopy(result)
 
 
+def published_for_current_date(output: Path, evaluation_at: str) -> bool:
+    """True when ``output`` already holds this UTC day's verified decision.
+
+    A retry slot must not republish the same finalized packet with a new
+    evaluation time.  The retained packet counts only if its decision date is
+    the date being evaluated and it still rederives byte-for-byte from its own
+    evaluation_at and code_revision; otherwise the caller rebuilds.
+    """
+    try:
+        raw = Path(output).read_bytes()
+        packet = json.loads(raw)
+        current = RUNTIME.current_decision_date(RUNTIME.instant(evaluation_at, "EVALUATION_TIME_INVALID"))
+        if not isinstance(packet, dict) or packet.get("current_decision_date") != current.isoformat():
+            return False
+        rebuilt = build_decision(evaluation_at=packet["evaluation_at"], code_revision=packet["code_revision"])
+    except (OSError, ValueError, KeyError, TypeError, RUNTIME.CryptoPaperRuntimeError):
+        return False
+    return RUNTIME.pretty_bytes(rebuilt) == raw
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--evaluation-at", required=True)
     parser.add_argument("--code-revision", required=True)
     parser.add_argument("--output", type=Path, default=OUTPUT_PATH)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--published-for-current-date", action="store_true",
+                        help="exit 0 if --output already holds this UTC day's verified decision, else 3")
     args = parser.parse_args(argv)
+    if args.published_for_current_date:
+        published = published_for_current_date(args.output, args.evaluation_at)
+        print(json.dumps({"output": str(args.output), "published_for_current_date": published}, sort_keys=True))
+        return 0 if published else 3
     expected = RUNTIME.pretty_bytes(
         build_decision(evaluation_at=args.evaluation_at, code_revision=args.code_revision)
     )

@@ -2,8 +2,12 @@ name: stablecoin-daily-capture
 
 on:
   schedule:
-    # 15:20/16:20/17:20 KST. 첫 complete UTC-date snapshot이 이기고,
+    # 14:50/15:20/16:20/17:20 KST. 첫 complete UTC-date snapshot이 이기고,
     # 뒤 슬롯은 provider 호출 전에 append-only guard에서 종료한다.
+    # CRYPTO_PAPER_RUNTIME_V1은 07:00Z에 finalized packet을 확정하므로
+    # 05:50Z primary와 06:20Z backup이 cutoff 전 여유를 만든다. 07:20Z/08:20Z
+    # 슬롯은 증거 보존용으로 남기며, 그 capture는 runtime에서 lookahead로 거부된다.
+    - cron: "50 5 * * *"
     - cron: "20 6 * * *"
     - cron: "20 7 * * *"
     - cron: "20 8 * * *"
@@ -34,6 +38,9 @@ jobs:
 
       - name: Capture raw snapshot (append-only)
         id: capture
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
           ROOT="$PWD"
@@ -108,6 +115,32 @@ jobs:
             --collector-version "stablecoin-capture/v2"
           python3 "$ROOT/.github/scripts/stablecoin_revision_contract.py" validate "$PWD"
 
+          # 이른 예약 슬롯에서 당일 UTC observation row가 아직 없으면 append-only
+          # 경로를 만들지 않고 종료한다. 뒤 슬롯이 같은 날짜를 다시 시도한다.
+          # 판정 자체가 실패하면 원문을 잃지 않도록 capture를 계속하고, 마지막
+          # 08:20Z 슬롯과 수동 실행은 항상 capture한다(07:00Z 이후 capture는
+          # runtime에서 lookahead로 거부된다).
+          CURRENT_ROW=$(python3 - "$ROOT/.github/scripts/stablecoin_net_issuance.py" "$PWD" <<'PY'
+          import importlib.util, sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("stablecoin_net_issuance", sys.argv[1])
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          packet = module.build_transform(Path(sys.argv[2]))
+          latest = max(row["observation_date"] for row in packet["rows"])
+          print("present" if latest == packet["lineage"]["vintage_date"] else "absent")
+          PY
+          ) || CURRENT_ROW="check_error"
+          if [ "$CURRENT_ROW" = "check_error" ]; then
+            echo "::warning::current-row check failed; capturing the snapshot anyway"
+          fi
+          if [ "$CURRENT_ROW" = "absent" ] && [ "${EVENT_NAME:-}" = "schedule" ] \
+            && [ "${EVENT_SCHEDULE:-}" != "20 8 * * *" ]; then
+            echo "당일 UTC observation row가 아직 없어 뒤 슬롯에서 다시 시도합니다."
+            echo "result=pending_current_observation" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           cd "$ROOT"
           mkdir -p "$(dirname "$DIR")"
           mv "$STAGING" "$DIR"
@@ -132,7 +165,7 @@ jobs:
         run: python3 .github/scripts/record_stablecoin_run.py
 
       - name: Populate P3-09 Crypto supply-demand raw features
-        if: ${{ steps.capture.outcome == 'success' }}
+        if: ${{ steps.capture.outcome == 'success' && steps.capture.outputs.result != 'pending_current_observation' }}
         env:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
         run: |
