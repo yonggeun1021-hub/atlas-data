@@ -2525,6 +2525,25 @@ APPROVED_TESTS = [
     "test/test_kr_sector_index_history_backfill.py",
     "test/test_kr_rotation_event_study.py",
     "test/test_kr_sector_history_study_workflow.py",
+    # ★ User-ratified capital rotation confirmation layer (CLAUDE_CIO 2026-09-15,
+    #   USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915 sha c6f5dbbe…):
+    #   policy bound to the ratification record sha; STRONG_CONFIRMED/HELD/
+    #   RELEASED/EMERGING_WATCH/NEUTRAL replayed from committed daily evidence
+    #   (US SPDR 20-session, KR 1-session TEMPORARY with the 20-session switch
+    #   refused, CRYPTO primary_30d); byte-deterministic, prefix-stable (no
+    #   lookahead), append-only packets; T1/T2 C5/new-buy wiring uses only
+    #   confirmed/held, release = new-buy stop only (no forced exit). Existing
+    #   membership C5 and ledger/ratification contracts are asserted unchanged.
+    "test/test_rotation_confirmation.py",
+    "test/test_rotation_confirmation_wiring.py",
+    # ★ PAPER entry opportunity ledger (RULE.ENTRY.PAPER_BASELINE_B.V1, user
+    #   ratification 2026-09-15 sha b2a905c4…): every STRONG_CONFIRMED/HELD
+    #   sector/bucket per day with point-in-time allocation v2 market-state
+    #   verdict, T2 PENDING, record-only EMA20/breakout/ATR features from
+    #   committed bars up to the session, null forward-return fields; final-day
+    #   rule, byte-deterministic, append-only; chained workflow has no cron and
+    #   no secret, and the sha-pinned source workflows stay untouched.
+    "test/test_rotation_opportunity_ledger.py",
     # ★ Alpaca historical SIP daily-bar access probe (user approval
     #   2026-09-15: "Alpaca 과거 SIP 데이터 접근 확인 테스트 승인"). Answers, once,
     #   on request: can the existing dedicated ALPACA_MARKET_DATA_API_KEY/
