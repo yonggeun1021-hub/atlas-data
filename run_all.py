@@ -2525,6 +2525,17 @@ APPROVED_TESTS = [
     "test/test_kr_sector_index_history_backfill.py",
     "test/test_kr_rotation_event_study.py",
     "test/test_kr_sector_history_study_workflow.py",
+    # ★ User-ratified capital rotation confirmation layer (CLAUDE_CIO 2026-09-15,
+    #   USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915 sha c6f5dbbe…):
+    #   policy bound to the ratification record sha; STRONG_CONFIRMED/HELD/
+    #   RELEASED/EMERGING_WATCH/NEUTRAL replayed from committed daily evidence
+    #   (US SPDR 20-session, KR 1-session TEMPORARY with the 20-session switch
+    #   refused, CRYPTO primary_30d); byte-deterministic, prefix-stable (no
+    #   lookahead), append-only packets; T1/T2 C5/new-buy wiring uses only
+    #   confirmed/held, release = new-buy stop only (no forced exit). Existing
+    #   membership C5 and ledger/ratification contracts are asserted unchanged.
+    "test/test_rotation_confirmation.py",
+    "test/test_rotation_confirmation_wiring.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

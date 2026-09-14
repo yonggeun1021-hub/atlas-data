@@ -352,6 +352,27 @@ jobs:
             --current-date "$CURRENT_DATE" \
             --verify-existing-only \
             --require-usable-seed
+      # RULE.ROTATION.KR.V1T / COMMON_T1T2_NEUTRAL.V1 / RELEASE_HANDLING.V1
+      # (user ratification 2026-09-15, config/rotation_confirmation_policy_v1.json):
+      # replay the committed 1-session Leadership context (TEMPORARY basis) into
+      # append-only rotation confirmation packets and the chapter 02 portal
+      # projection. Offline, no secret, own commit after the evidence above.
+      - name: Build and commit KR rotation confirmation (effective-date seed)
+        if: steps.existing_leadership.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git pull --rebase origin main
+          python3 rotation/rotation_confirmation.py build --market KR --write
+          git add evidence/rotation/confirmation/KR data/latest_rotation_confirmation_kr.json data/latest_rotation_confirmation_portal_ch02.json
+          if git diff --cached --quiet; then
+            echo "no rotation confirmation change -- nothing to commit"
+          else
+            git commit -m "data: rotation confirmation KR $(date -u +%Y-%m-%d) [run ${{ github.run_id }}]"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
 
   scheduled-observation-pair:
     needs: prepare-scheduled-observation-pair
@@ -476,4 +497,25 @@ jobs:
           else
             git commit -m "korea leadership live-fetch attempt $(date -u +%Y-%m-%d) [run ${{ github.run_id }}] [trigger=${{ github.event_name }}]"
             git push
+          fi
+      # RULE.ROTATION.KR.V1T / COMMON_T1T2_NEUTRAL.V1 / RELEASE_HANDLING.V1
+      # (user ratification 2026-09-15, config/rotation_confirmation_policy_v1.json):
+      # replay the committed 1-session Leadership context (TEMPORARY basis) into
+      # append-only rotation confirmation packets and the chapter 02 portal
+      # projection. Offline, no secret, own commit after the evidence above.
+      - name: Build and commit KR rotation confirmation
+        if: steps.existing_leadership.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git pull --rebase origin main
+          python3 rotation/rotation_confirmation.py build --market KR --write
+          git add evidence/rotation/confirmation/KR data/latest_rotation_confirmation_kr.json data/latest_rotation_confirmation_portal_ch02.json
+          if git diff --cached --quiet; then
+            echo "no rotation confirmation change -- nothing to commit"
+          else
+            git commit -m "data: rotation confirmation KR $(date -u +%Y-%m-%d) [run ${{ github.run_id }}]"
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi

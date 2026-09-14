@@ -191,15 +191,22 @@ class LeadershipLiveProofWorkflowTest(unittest.TestCase):
         # reuse check and the conditional fetch+commit -- so a fresh
         # attempt's evidence is preserved/committed before readiness is
         # ever distinguished, and a reused attempt is re-checked too.
+        # The ratified rotation confirmation build (2026-09-15) is appended
+        # after the readiness check and only replays committed evidence.
         self.assertEqual(
-            step_names[-4:],
+            step_names[-5:],
             [
                 "Reuse an exact committed effective-date Leadership observation",
                 "Korea Leadership effective-date real KRX index fetch attempt",
                 "Commit effective-date Korea Leadership evidence",
                 "Confirm effective-date Leadership seed usable-seed readiness",
+                "Build and commit KR rotation confirmation (effective-date seed)",
             ],
         )
+        confirmation = self.seed_steps["Build and commit KR rotation confirmation (effective-date seed)"]
+        self.assertEqual(confirmation["if"], "steps.existing_leadership.outputs.exists != 'true'")
+        self.assertNotIn("secrets.", confirmation["run"])
+        self.assertIn("rotation/rotation_confirmation.py build --market KR --write", confirmation["run"])
         readiness = self.seed_steps["Confirm effective-date Leadership seed usable-seed readiness"]
         # Never gated behind steps.existing_leadership.outputs.exists --
         # reused evidence is subject to this final check too.

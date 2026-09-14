@@ -292,6 +292,32 @@ jobs:
             git pull --rebase origin "$DEFAULT_BRANCH"
             git push origin "HEAD:$DEFAULT_BRANCH"
           fi
+      # RULE.ROTATION.CRYPTO.V1 / COMMON_T1T2_NEUTRAL.V1 / RELEASE_HANDLING.V1
+      # (user ratification 2026-09-15, config/rotation_confirmation_policy_v1.json):
+      # replay the committed crypto_leadership primary_30d packets into
+      # append-only rotation confirmation packets and the chapter 02 portal
+      # projection. Offline; its own commit after the leadership packet above
+      # is pushed, so a failure here never rolls back capture evidence.
+      - name: Build and commit Crypto rotation confirmation
+        if: >-
+          always() && steps.leadership_validation.outcome == 'success'
+        env:
+          TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          python3 rotation/rotation_confirmation.py build --market CRYPTO --write
+          git add evidence/rotation/confirmation/CRYPTO data/latest_rotation_confirmation_crypto.json data/latest_rotation_confirmation_portal_ch02.json
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "crypto rotation confirmation $(date -u +%Y-%m-%d) [${TRIGGER}]"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
       - name: Upload P1-CR-07 live replay evidence
         if: >-
           always() && (steps.capture.outputs.result == 'captured' ||
