@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -850,6 +851,155 @@ class UsWiredFiveAxisReplayTest(unittest.TestCase):
         record = self._replay(providers)
         MODULE._validate_record(
             record, ANCHOR, self.policy, self.excluded, self.replayed,
+        )
+
+
+# A real, committed Alpaca IEX daily-bars capture (not a FakeProviders
+# fixture) and the real committed BREADTH/LEADERSHIP measurement it was used
+# to produce, both already on ``main``. None of the synthetic fixtures above
+# can catch a 20-session off-by-one, a relative-vs-absolute return mixup, or
+# an accidental same-day-bar truncation, because they generate exactly the
+# bars the module expects; replaying real committed provider bytes and
+# comparing against the real committed output can.
+REAL_EVIDENCE_ANCHOR = "2026-09-11"
+REAL_EVIDENCE_RAW_PATH = (
+    ROOT / "evidence" / "free_market_data" / "raw" / REAL_EVIDENCE_ANCHOR
+    / "alpaca_iex_daily_bars.json.gz"
+)
+REAL_EVIDENCE_COMMITTED_PATH = ROOT / "data" / "latest_free_market_data.json"
+
+
+@unittest.skipUnless(
+    REAL_EVIDENCE_RAW_PATH.is_file() and REAL_EVIDENCE_COMMITTED_PATH.is_file(),
+    "real committed US evidence fixtures not present in this checkout",
+)
+class UsRealEvidenceReplayFidelityTest(unittest.TestCase):
+    """Replay a real committed Alpaca response and match the real committed
+    output -- the one test class no synthetic ``FakeProviders`` fixture can
+    substitute for.
+    """
+
+    def setUp(self):
+        self.policy = MODULE._load_candidate_policy()
+        self.contract = FMD.load_contract(FMD.CONTRACT_PATH)
+        identity = copy.deepcopy(MODULE._load_historical_pit_replay_identity())
+        identity["replay_population_wiring_activated"] = True
+        self.enterContext(
+            mock.patch.object(
+                MODULE, "_load_historical_pit_replay_identity", return_value=identity,
+            )
+        )
+        self.replayed = MODULE.authorized_axes(self.contract)
+        self.excluded = MODULE.exclusion_basis(self.contract)
+        raw = gzip.decompress(REAL_EVIDENCE_RAW_PATH.read_bytes())
+        self.responses = json.loads(raw)["responses"]
+        self.committed = json.loads(
+            REAL_EVIDENCE_COMMITTED_PATH.read_text(encoding="utf-8")
+        )
+        # No committed real FRED capture is used here -- only the real
+        # committed Alpaca bars are what this class is pinning. RISK_VOL/
+        # LIQUIDITY are served by the same synthetic FakeProviders fixture
+        # every other test in this file uses, so a full 5/5 record can be
+        # assembled without depending on the FRED capture's own point-in-time
+        # vintage matching this specific anchor date.
+        self._fred_fallback = FakeProviders()
+
+    def _real_evidence_provider(self, url, headers=None):
+        # Serves exactly the bars the real committed capture contains for
+        # each requested symbol -- no synthesis, no slicing by the query's
+        # own start/end (the retained capture already covers ~180 days
+        # ending on the anchor date, so the module's own point-in-time
+        # filtering inside ``_grouped_sessions`` governs what is used).
+        if urlparse(url).netloc != "data.alpaca.markets":
+            return self._fred_fallback(url, headers)
+        symbol = urlparse(url).path.split("/")[3]
+        body = self.responses[symbol]
+        return json.dumps({"bars": body["bars"], "symbol": symbol}).encode()
+
+    def test_replay_reproduces_the_committed_breadth_and_leadership_measurements(self):
+        record = MODULE.replay_one_requested_date(
+            CREDENTIALS, REAL_EVIDENCE_ANCHOR, getter=self._real_evidence_provider,
+            contract=self.contract, policy=self.policy, excluded=self.excluded,
+            replayed=self.replayed,
+        )
+        self.assertEqual(record["status"], "FREE_AXES_OBSERVED")
+        committed_proxy = self.committed["us_market_reference"]["proxy_axes"]
+
+        breadth_measurement = record["five_axis"]["axes"]["BREADTH"]["measurement"][
+            "breadth_measurement"
+        ]
+        leadership_measurement = record["five_axis"]["axes"]["LEADERSHIP"]["measurement"][
+            "leadership_measurement"
+        ]
+        # Byte-exact against the real committed production measurement --
+        # not merely "some plausible value".
+        self.assertEqual(breadth_measurement, committed_proxy["BREADTH"]["measurement"])
+        self.assertEqual(leadership_measurement, committed_proxy["LEADERSHIP"]["measurement"])
+
+        # TREND's session-return arithmetic must also match the committed
+        # values exactly, even though replay_trend_source's own richer shape
+        # (previous_session_date/earliest_session_date/available_session_count)
+        # legitimately differs from derive_us_market_reference's leaner
+        # ``trend`` list shape -- both have always described the same bars.
+        committed_trend = {
+            row["symbol"]: row for row in self.committed["us_market_reference"]["trend_etfs"]
+        }
+        replayed_trend_etfs = record["five_axis"]["axes"]["TREND"]["measurement"]["trend_etfs"]
+        for row in replayed_trend_etfs:
+            committed_row = committed_trend[row["symbol"]]
+            self.assertEqual(row["close"], committed_row["close"], row["symbol"])
+            self.assertEqual(row["returns"], committed_row["returns"], row["symbol"])
+            self.assertEqual(
+                row["as_of_session_date"], committed_row["as_of_session_date"], row["symbol"],
+            )
+
+        # Session alignment, enforced structurally by the unified fetch, and
+        # asserted explicitly: every date this record names equals the
+        # anchor exactly -- trend_etfs, the combined fetch's own
+        # reference_as_of_session_date, and every individual axis'
+        # measurement date all agree.
+        combined_measurement = record["five_axis"]["axes"]["TREND"]["measurement"]
+        self.assertEqual(record["effective_session_date"], REAL_EVIDENCE_ANCHOR)
+        self.assertEqual(combined_measurement["as_of_session_date"], REAL_EVIDENCE_ANCHOR)
+        self.assertEqual(
+            combined_measurement["reference_as_of_session_date"], REAL_EVIDENCE_ANCHOR,
+        )
+        for row in replayed_trend_etfs:
+            self.assertEqual(row["as_of_session_date"], REAL_EVIDENCE_ANCHOR, row["symbol"])
+        self.assertEqual(breadth_measurement["as_of_session_date"], REAL_EVIDENCE_ANCHOR)
+        for group in leadership_measurement["ordered_groups"]:
+            self.assertEqual(group["as_of_session_date"], REAL_EVIDENCE_ANCHOR, group["symbol"])
+
+        # And the genuine candidate result is a real classification, not a
+        # forced UNKNOWN, matching PRR.classify called directly.
+        candidate = record["candidate_normalized_result"]
+        expected_regime, expected_score, _ = PRR.classify(candidate["axes"], self.policy)
+        self.assertEqual(candidate["paper_reference"]["candidate_regime"], expected_regime)
+        self.assertEqual(candidate["paper_reference"]["score"], expected_score)
+
+    def test_missing_symbol_from_a_real_evidence_style_fetch_still_fails_breadth_closed(self):
+        # Same real bytes, minus one required breadth/sector symbol -- the
+        # provider genuinely answered for everything else, exactly the shape
+        # a real IEX coverage gap would take.
+        def provider(url, headers=None):
+            symbol = urlparse(url).path.split("/")[3]
+            if symbol == "XLK":
+                return json.dumps({"bars": [], "symbol": symbol}).encode()
+            return self._real_evidence_provider(url, headers)
+
+        record = MODULE.replay_one_requested_date(
+            CREDENTIALS, REAL_EVIDENCE_ANCHOR, getter=provider,
+            contract=self.contract, policy=self.policy, excluded=self.excluded,
+            replayed=self.replayed,
+        )
+        for name in ("TREND", "BREADTH", "LEADERSHIP"):
+            entry = record["five_axis"]["axes"][name]
+            self.assertEqual(entry["status"], "NOT_COMPUTABLE", name)
+            self.assertIn("US_BREADTH_NOT_OBSERVED", entry["reason"], name)
+        self.assertEqual(record["status"], "FREE_AXES_PARTIAL")
+        self.assertEqual(
+            record["candidate_normalized_result"]["paper_reference"]["candidate_regime"],
+            "UNKNOWN",
         )
 
 
