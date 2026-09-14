@@ -1022,6 +1022,22 @@ APPROVED_TESTS = [
     #   natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
+    # ★ U4 design draft — US PAPER runtime producer, mirroring the KR bridge
+    #   (regime/kr_paper_runtime.py, PR #696 pattern) structurally. Two real,
+    #   file/function-backed gates (US PIT acceptance via the unmodified
+    #   market_scoped_pit_acceptance.evaluate_market_pit_acceptance, and the
+    #   U5 adoption identity config/us_paper_runtime_adoption_v1.json, which
+    #   does not exist yet) both must be true before any aggregation runs; as
+    #   of this draft neither can be, because us_historical_replay_population
+    #   never computes BREADTH/LEADERSHIP. runtime_regime is written exactly
+    #   once, to the literal "UNKNOWN", and this module has no other code
+    #   path that reassigns it — proven even when both gates are mocked/
+    #   satisfied and a real STRESS paper_regime is computed underneath.
+    #   FRED vintage lookahead/supersession for VIX/WRESBAL/TOTBKCR reuses the
+    #   same ALFRED containment discipline as us_historical_replay_population
+    #   (reimplemented locally, not imported). Authority stays false
+    #   everywhere except the PAPER-calculation-only marker.
+    "test/test_us_paper_runtime.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay
     #   population/report (SHADOW backfill only, never NATURAL). Joins the KR
     #   5-axis and US free-axis replay populations over ONE caller-supplied set
