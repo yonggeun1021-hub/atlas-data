@@ -136,7 +136,30 @@ class WorkflowOrderingTests(unittest.TestCase):
             self.assertIn(key, telemetry["env"])
 
 
+    def test_telemetry_and_evidence_commit_steps_always_run(self):
+        steps = _steps()
+        for name in (
+            "Record P9-06 realtime scheduler telemetry",
+            "Commit append-only realtime evidence and run telemetry",
+        ):
+            matches = [s for s in steps if s.get("name") == name]
+            self.assertEqual(len(matches), 1, name)
+            self.assertEqual(matches[0].get("if"), "always()", name)
+        guard = _index(steps, "crypto_decision_capture_gap")
+        validation = _index(steps, "validation_capture")
+        telemetry = next(i for i, s in enumerate(steps) if s.get("name") == "Record P9-06 realtime scheduler telemetry")
+        commit = next(i for i, s in enumerate(steps) if s.get("name") == "Commit append-only realtime evidence and run telemetry")
+        self.assertLess(guard, telemetry)
+        self.assertLess(validation, telemetry)
+        self.assertLess(telemetry, commit)
+        self.assertEqual(commit, len(steps) - 1)
+
+
 class RatifiedPolicyUntouchedTests(unittest.TestCase):
+    def test_engineering_budget_is_pinned_to_exactly_five_seconds(self):
+        self.assertIs(type(GUARD.ENGINEERING_BUDGET_SECONDS), int)
+        self.assertEqual(GUARD.ENGINEERING_BUDGET_SECONDS, 5)
+
     def test_ratified_crypto_limits_are_unchanged(self):
         policy = json.loads(RATIFIED_POLICY_PATH.read_text(encoding="utf-8"))
         self.assertEqual(policy["policy_id"], "P9_06_UPBIT_CRYPTO_PAPER_V1")

@@ -553,8 +553,9 @@ class UniverseMissingTests(TempDirMixin, unittest.TestCase):
         })
         self.assertIn("UPBIT_UNIVERSE_PACKET_MISSING", record["derivation_notes"])
         self.assertIsNone(record["upbit_universe_snapshot_identity"]["payload_sha256"])
-        # Packet is still generated -- never a crash.
-        self.assertEqual(record["schema_version"], CPDS.OUTPUT_SCHEMA_VERSION)
+        # Packet is still generated -- never a crash.  The fixture instant
+        # predates the per-market ratification, so it is the /1 derivation.
+        self.assertEqual(record["schema_version"], CPDS.LEGACY_OUTPUT_SCHEMA_VERSION)
 
 
 class EmptyAndUnratifiedEvidenceTests(TempDirMixin, unittest.TestCase):

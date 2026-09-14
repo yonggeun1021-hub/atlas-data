@@ -159,7 +159,14 @@ REALTIME_EVIDENCE_ROOT = ROOT / "evidence" / "crypto" / "upbit" / "realtime"
 LEADERSHIP_DATA_ROOT = ROOT / "data" / "observations" / "crypto_leadership"
 OUTPUT_ROOT = ROOT / "evidence" / "crypto_paper_decision"
 
-OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/1"
+# /2 (2026-09-14): per-market realtime freshness + realtime liquidity floor
+# under user ratification CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914.
+# Packets generated before that ratification's effective instant keep the /1
+# global-cap derivation and continue to revalidate byte-for-byte.
+LEGACY_OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/1"
+PER_MARKET_OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/2"
+OUTPUT_SCHEMA_VERSION = PER_MARKET_OUTPUT_SCHEMA_VERSION
+OUTPUT_SCHEMA_VERSIONS = (LEGACY_OUTPUT_SCHEMA_VERSION, PER_MARKET_OUTPUT_SCHEMA_VERSION)
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -239,6 +246,17 @@ LIVE_COMPONENT_REGISTRY = _load(
     "crypto_paper_decision_snapshot_live_component_registry",
     "regime/crypto_live_component_registry.py",
 )
+PER_MARKET = _load(
+    "crypto_paper_decision_snapshot_realtime_per_market_policy",
+    "realtime/crypto_realtime_per_market_policy.py",
+)
+
+
+def schema_version_for(generated_dt: dt.datetime) -> str:
+    """/2 from the per-market ratification's effective instant, else /1."""
+    if PER_MARKET.is_effective(generated_dt):
+        return PER_MARKET_OUTPUT_SCHEMA_VERSION
+    return LEGACY_OUTPUT_SCHEMA_VERSION
 
 
 def canonical_json(value) -> str:
@@ -497,19 +515,69 @@ def _market_evidence_freshness(record: dict) -> tuple[str, str | None]:
 def _realtime_freshness(
     record: dict, *, observed_at: dt.datetime | None = None,
 ) -> tuple[str, str | None]:
+    status, reason, _per_market = _realtime_freshness_detail(
+        record, observed_at=observed_at,
+    )
+    return status, reason
+
+
+def _realtime_market_rows(results: list) -> dict:
+    """Per-market view of one ratified P9-01 result -- thresholds untouched."""
+    rows = {}
+    for row in results:
+        asset_id = row.get("asset_id") if isinstance(row, dict) else None
+        if not isinstance(asset_id, str) or not asset_id.startswith("CRYPTO.UPBIT."):
+            raise CryptoPaperDecisionSnapshotError(
+                "REALTIME_RATIFIED_POLICY_RESULT_ROWS_INVALID"
+            )
+        market = asset_id[len("CRYPTO.UPBIT."):]
+        if market in rows:
+            raise CryptoPaperDecisionSnapshotError(
+                f"REALTIME_RATIFIED_POLICY_RESULT_MARKET_DUPLICATE:{market}"
+            )
+        freshness = row.get("freshness_status")
+        stale_reasons = row.get("stale_reasons")
+        rows[market] = {
+            "status": freshness if freshness in {FRESH, STALE} else UNKNOWN,
+            "reasons": (
+                list(stale_reasons) if isinstance(stale_reasons, list)
+                else ["UPBIT_REALTIME_RATIFIED_POLICY_RESULT_UNKNOWN"]
+            ) if freshness != FRESH else [],
+            "provider_age_seconds": row.get("provider_age_seconds"),
+            "transport_delay_seconds": row.get("transport_delay_seconds"),
+        }
+    return rows
+
+
+def _realtime_freshness_detail(
+    record: dict, *, observed_at: dt.datetime | None = None,
+) -> tuple[str, str | None, dict]:
+    """Aggregate (v1-identical) plus per-market ratified realtime freshness.
+
+    The third element is ``{"default": {status, reason}, "markets": {...}}``:
+    ``markets`` holds each ticker market's own ratified result; ``default``
+    applies to a market with no evaluated ticker (MISSING once the batch was
+    evaluated, otherwise the batch-level status).
+    """
+    def _batch(status_value, reason_value):
+        return status_value, reason_value, {
+            "default": {"status": status_value, "reason": reason_value},
+            "markets": {},
+        }
+
     run = record["run"]
     status = run["status"]
     if not run["markets"] or not run["message_log"] or not status.get("markets"):
-        return MISSING, "UPBIT_REALTIME_OBSERVATIONS_EMPTY"
+        return _batch(MISSING, "UPBIT_REALTIME_OBSERVATIONS_EMPTY")
     if status.get("connection_state") != "CONNECTED":
-        return UNKNOWN, f"UPBIT_REALTIME_CONNECTION_NOT_CONNECTED:{status.get('connection_state')}"
+        return _batch(UNKNOWN, f"UPBIT_REALTIME_CONNECTION_NOT_CONNECTED:{status.get('connection_state')}")
     # P9-06 already evaluates every retained ticker with the exact-hash
     # RATIFIED P9-01 policy and stores that consumer result inside the run.
     # Rebuild that exact result here.  The older proposal loader is display
     # only and must never decide a production snapshot's freshness.
     binding = run.get("ratified_freshness_policy")
     if binding is None:
-        return UNKNOWN, "UPBIT_REALTIME_RATIFIED_POLICY_EVIDENCE_MISSING"
+        return _batch(UNKNOWN, "UPBIT_REALTIME_RATIFIED_POLICY_EVIDENCE_MISSING")
     if not isinstance(binding, dict) or set(binding) != {
         "path", "packet_sha256", "consumer_result",
     }:
@@ -560,7 +628,7 @@ def _realtime_freshness(
                 "REALTIME_RATIFIED_POLICY_INPUT_INVALID"
             ) from exc
     if not quote_rows:
-        return MISSING, "UPBIT_REALTIME_RATIFIED_POLICY_INPUT_NO_TICKER"
+        return _batch(MISSING, "UPBIT_REALTIME_RATIFIED_POLICY_INPUT_NO_TICKER")
     try:
         rebuilt = REALTIME_GATE.evaluate_with_ratified_freshness_policy(
             quote_rows,
@@ -607,20 +675,24 @@ def _realtime_freshness(
     if current.get("status") != "EVALUATED" or not isinstance(
         current.get("result"), dict
     ):
-        return UNKNOWN, (
+        return _batch(UNKNOWN, (
             current.get("reason") or "UPBIT_REALTIME_RATIFIED_POLICY_NOT_EVALUATED"
-        )
+        ))
     results = current["result"].get("results")
     if not isinstance(results, list) or len(results) != len(quote_rows):
         raise CryptoPaperDecisionSnapshotError(
             "REALTIME_RATIFIED_POLICY_RESULT_ROWS_INVALID"
         )
     statuses = [row.get("freshness_status") for row in results]
+    per_market = {
+        "default": {"status": MISSING, "reason": "UPBIT_REALTIME_MARKET_TICKER_MISSING"},
+        "markets": _realtime_market_rows(results),
+    }
     if any(item not in {FRESH, STALE} for item in statuses):
-        return UNKNOWN, "UPBIT_REALTIME_RATIFIED_POLICY_RESULT_UNKNOWN"
+        return UNKNOWN, "UPBIT_REALTIME_RATIFIED_POLICY_RESULT_UNKNOWN", per_market
     if STALE in statuses:
-        return STALE, "UPBIT_REALTIME_RATIFIED_POLICY_RESULT_STALE"
-    return FRESH, None
+        return STALE, "UPBIT_REALTIME_RATIFIED_POLICY_RESULT_STALE", per_market
+    return FRESH, None, per_market
 
 
 # ---------------------------------------------------------------------------
@@ -1177,8 +1249,18 @@ def build_snapshot(
     previous_entry: dict | None = None,
     component_rows: dict | None = None,
     started_at: str | None = None,
+    schema_version: str | None = None,
 ) -> dict:
     generated_dt = _parse_utc(generated_at, "generated_at")
+    # ``schema_version`` defaults to the ratified effective window.  An
+    # explicit value exists for pure replays/diagnostics only; populate()
+    # never passes one and validate_output() rejects a /2 packet dated before
+    # the per-market ratification became effective.
+    schema_version = schema_version_for(generated_dt) if schema_version is None else schema_version
+    if schema_version not in OUTPUT_SCHEMA_VERSIONS:
+        raise CryptoPaperDecisionSnapshotError(f"OUTPUT_SCHEMA_VERSION_UNSUPPORTED:{schema_version}")
+    per_market_mode = schema_version == PER_MARKET_OUTPUT_SCHEMA_VERSION
+    per_market_policy = PER_MARKET.load_policy() if per_market_mode else None
     if not FULL_SHA_RE.fullmatch(source_commit):
         raise CryptoPaperDecisionSnapshotError(f"SOURCE_COMMIT_INVALID:{source_commit}")
     capture_date = generated_at[:10]
@@ -1353,19 +1435,39 @@ def build_snapshot(
     if realtime_entry is None:
         realtime_status = MISSING
         notes.append("UPBIT_REALTIME_RUN_MISSING")
+        realtime_by_market = {
+            "default": {"status": MISSING, "reason": "UPBIT_REALTIME_RUN_MISSING"},
+            "markets": {},
+        }
     elif universe_date is not None and realtime_entry["date"] != universe_date:
         realtime_status = MIXED_GENERATION
         notes.append(
             f"UPBIT_REALTIME_RUN_DATE_MISMATCH:universe={universe_date}:realtime={realtime_entry['date']}"
         )
-    else:
-        realtime_status, realtime_reason = _realtime_freshness(
+        realtime_by_market = {
+            "default": {"status": MIXED_GENERATION, "reason": "UPBIT_REALTIME_RUN_DATE_MISMATCH"},
+            "markets": {},
+        }
+    elif per_market_mode:
+        realtime_status, realtime_reason, realtime_by_market = _realtime_freshness_detail(
             realtime_entry["record"], observed_at=generated_dt,
         )
         if realtime_reason:
             notes.append(realtime_reason)
+    else:
+        # /1: the unchanged aggregate-only derivation.
+        realtime_status, realtime_reason = _realtime_freshness(
+            realtime_entry["record"], observed_at=generated_dt,
+        )
+        realtime_by_market = None
+        if realtime_reason:
+            notes.append(realtime_reason)
 
     overall_freshness = _worst_freshness([universe_status, market_evidence_status, realtime_status])
+    # Per-market mode: universe and market evidence stay global; realtime is
+    # judged per market.  ``overall_freshness`` above is still recorded for
+    # display/telemetry but is not the per-market action cap.
+    non_realtime_freshness = _worst_freshness([universe_status, market_evidence_status])
 
     # -- P1-CR-07 leadership freshness -- kept as its own independent
     #    dimension, never folded into overall_freshness/cap_state_for_
@@ -1458,6 +1560,45 @@ def build_snapshot(
         {row["market"]: row for row in eligibility_packet["candidates"]} if eligibility_packet else {}
     )
 
+    liquidity_floor = None
+    if per_market_mode:
+        try:
+            liquidity_floor = PER_MARKET.evaluate_liquidity_floor(
+                universe_entry["record"] if universe_entry else None,
+                policy=per_market_policy,
+            )
+        except PER_MARKET.CryptoRealtimePerMarketPolicyError as exc:
+            raise CryptoPaperDecisionSnapshotError(
+                f"REALTIME_LIQUIDITY_FLOOR_INVALID:{exc}"
+            ) from exc
+        for market, floor_row in sorted(liquidity_floor["markets"].items()):
+            if floor_row["status"] != PER_MARKET.INCLUDED:
+                notes.append(
+                    f"REALTIME_LIQUIDITY_FLOOR_EXCLUDED:{market}:{floor_row['reason']}"
+                )
+
+    def _market_realtime(market: str) -> dict:
+        row = realtime_by_market["markets"].get(market)
+        if row is not None:
+            return copy.deepcopy(row)
+        default = realtime_by_market["default"]
+        return {
+            "status": default["status"],
+            "reasons": [default["reason"]] if default["reason"] else [],
+            "provider_age_seconds": None,
+            "transport_delay_seconds": None,
+        }
+
+    def _market_floor(market: str) -> dict:
+        row = (liquidity_floor or {}).get("markets", {}).get(market)
+        if row is not None:
+            return copy.deepcopy(row)
+        return {
+            "status": PER_MARKET.EXCLUDED,
+            "reason": f"{PER_MARKET.UNKNOWN_PREFIX}:MARKET_NOT_ADMITTED_IN_UNIVERSE",
+            "krw_30d_avg_turnover": None,
+        }
+
     candidates = []
     if promotion_packet is not None:
         for row in promotion_packet["candidates"]:
@@ -1469,12 +1610,25 @@ def build_snapshot(
             else:
                 effective_state = row["promotion_state"]
                 effective_reason = row["promotion_reason"]
-            capped = cap_state_for_freshness(effective_state, effective_reason, overall_freshness)
+            if per_market_mode:
+                market_realtime = _market_realtime(market)
+                market_floor = _market_floor(market)
+                capped = PER_MARKET.cap_state_for_market(
+                    effective_state, effective_reason,
+                    market=market,
+                    non_realtime_freshness=non_realtime_freshness,
+                    market_realtime_freshness=market_realtime["status"],
+                    liquidity_floor_status=market_floor["status"],
+                    liquidity_floor_reason=market_floor["reason"],
+                    actionable_states=_ACTIONABLE_STATES,
+                )
+            else:
+                capped = cap_state_for_freshness(effective_state, effective_reason, overall_freshness)
             effective_state = capped["state"]
             effective_reason = capped["reason"]
             freshness_capped = capped["capped"]
             freshness_cap_reason = capped["cap_reason"]
-            candidates.append({
+            candidate_row = {
                 "market": market,
                 "canonical_asset_id": row.get("canonical_asset_id"),
                 "p3_12_state": row.get("p3_12_state"),
@@ -1497,7 +1651,14 @@ def build_snapshot(
                     if elig_row is not None else None
                 ),
                 "authority": _authority_block(),
-            })
+            }
+            if per_market_mode:
+                candidate_row["realtime_freshness"] = market_realtime
+                candidate_row["realtime_liquidity_floor"] = market_floor
+                # The cap that would apply to THIS market's actionable
+                # states (None = this market may be evaluated normally).
+                candidate_row["market_action_cap_reason"] = capped["market_action_cap_reason"]
+            candidates.append(candidate_row)
 
     observation_pool_count = universe_packet["summary"]["observation_pool_count"] if universe_packet else 0
     tradeable_universe_count = (
@@ -1575,6 +1736,12 @@ def build_snapshot(
         generation_basis["regime_component_registry_payload_sha256"] = (
             component_registry["payload_sha256"]
         )
+    if per_market_mode:
+        # A /2 derivation of the same inputs is a distinct generation: bind
+        # the schema and the exact-hash per-market policy into the
+        # content-addressed identity so /1 and /2 never share a path.
+        generation_basis["schema_version"] = schema_version
+        generation_basis["realtime_per_market_policy_sha256"] = per_market_policy["packet_sha256"]
     generation_id = payload_sha256(generation_basis)
     if not SHA256_RE.fullmatch(generation_id):
         raise CryptoPaperDecisionSnapshotError("GENERATION_ID_INVALID")
@@ -1587,7 +1754,7 @@ def build_snapshot(
     _require_all_false(authority)
 
     packet = {
-        "schema_version": OUTPUT_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "generated_at": generated_at,
         "capture_date": capture_date,
         "capture_hhmm": capture_hhmm,
@@ -1624,6 +1791,66 @@ def build_snapshot(
         "previous_state_reference": previous_entry,
         "derivation_notes": notes,
     }
+    if per_market_mode:
+        candidate_markets = [row["market"] for row in candidates]
+        packet["realtime_per_market_freshness"] = {
+            "policy": PER_MARKET.policy_reference(per_market_policy),
+            "aggregate_realtime_status": realtime_status,
+            "aggregate_realtime_status_role": per_market_policy["per_market_freshness"][
+                "aggregate_realtime_status_role"
+            ],
+            "non_realtime_freshness": non_realtime_freshness,
+            "subscribed_markets": (
+                sorted(realtime_entry["record"]["run"]["markets"])
+                if realtime_entry is not None else []
+            ),
+            # Subscribed markets outside the floor-included set: the public
+            # capture only adds those for open PAPER positions (addendum),
+            # which stay action-capped here and HOLD-gated on the exit path.
+            "subscribed_outside_floor": sorted(
+                set(realtime_entry["record"]["run"]["markets"] if realtime_entry is not None else [])
+                - {
+                    market for market, row in liquidity_floor["markets"].items()
+                    if row["status"] == PER_MARKET.INCLUDED
+                }
+            ),
+            "markets": {
+                row["market"]: {
+                    "realtime_status": row["realtime_freshness"]["status"],
+                    "liquidity_floor_status": row["realtime_liquidity_floor"]["status"],
+                    "market_action_cap_reason": row["market_action_cap_reason"],
+                    "freshness_capped": row["freshness_capped"],
+                }
+                for row in candidates
+            },
+            "action_open_markets": sorted(
+                row["market"] for row in candidates
+                if row["market_action_cap_reason"] is None
+            ),
+            "action_capped_markets": sorted(
+                row["market"] for row in candidates
+                if row["market_action_cap_reason"] is not None
+            ),
+            "liquidity_floor": {
+                key: copy.deepcopy(value) for key, value in liquidity_floor.items()
+                if key != "markets"
+            } | {
+                "included_markets": sorted(
+                    market for market, row in liquidity_floor["markets"].items()
+                    if row["status"] == PER_MARKET.INCLUDED
+                ),
+                "excluded_markets": [
+                    {
+                        "market": market,
+                        "reason": row["reason"],
+                        "krw_30d_avg_turnover": row["krw_30d_avg_turnover"],
+                    }
+                    for market, row in sorted(liquidity_floor["markets"].items())
+                    if row["status"] != PER_MARKET.INCLUDED
+                ],
+            },
+            "candidate_market_count": len(candidate_markets),
+        }
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
 
@@ -1661,12 +1888,32 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
         "previous_state_reference", "derivation_notes", "payload_sha256",
     }
     legacy_expected_keys = expected_keys - TIME_BASIS_FIELDS
-    if not isinstance(packet, dict) or set(packet) not in {
+    per_market_expected_keys = expected_keys | {"realtime_per_market_freshness"}
+    if not isinstance(packet, dict):
+        raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
+    packet_schema_version = packet.get("schema_version")
+    if packet_schema_version == PER_MARKET_OUTPUT_SCHEMA_VERSION:
+        if set(packet) != per_market_expected_keys:
+            raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
+        if not PER_MARKET.is_effective(_parse_utc(packet.get("generated_at"), "generated_at")):
+            raise CryptoPaperDecisionSnapshotError(
+                "OUTPUT_SCHEMA_VERSION_NOT_EFFECTIVE_FOR_GENERATED_AT"
+            )
+        rows = packet.get("candidates")
+        if not isinstance(rows, list) or any(
+            not isinstance(row, dict)
+            or "realtime_freshness" not in row
+            or "realtime_liquidity_floor" not in row
+            or "market_action_cap_reason" not in row
+            for row in rows
+        ):
+            raise CryptoPaperDecisionSnapshotError("OUTPUT_PER_MARKET_CANDIDATE_FIELDS_MISSING")
+    elif set(packet) not in {
         frozenset(expected_keys), frozenset(legacy_expected_keys),
     }:
         raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
     is_legacy_packet = set(packet) == legacy_expected_keys
-    if packet.get("schema_version") != OUTPUT_SCHEMA_VERSION:
+    if packet_schema_version not in OUTPUT_SCHEMA_VERSIONS:
         raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_VERSION_MISMATCH")
     _validate_embedded_hash(packet, "payload_sha256", "crypto_paper_decision_snapshot")
     _require_all_false(packet.get("authority") or {})
@@ -1767,6 +2014,7 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
         previous_entry=packet["previous_state_reference"],
         component_rows=packet["source_components"],
         started_at=packet.get("started_at"),
+        schema_version=packet_schema_version,
     )
     if is_legacy_packet:
         rebuilt.pop("payload_sha256")
