@@ -1177,6 +1177,16 @@ APPROVED_TESTS = [
     # commit, contents:write only) and the earlier stablecoin cutoff slots;
     # captures after 07:00Z stay lookahead-rejected.
     "test/test_crypto_paper_runtime_schedule.py",
+    # U4 US PAPER runtime producer (CLAUDE_CIO US/crypto regime gap diagnosis
+    # 2026-09-14): common-v1 reuse over the committed free-market-data
+    # captures, SESSION_EXACT_MATCH for TREND/BREADTH/LEADERSHIP, FRED release
+    # and vintage-lookahead semantics for VIX/WRESBAL/TOTBKCR, expiry at the
+    # next official session close.  UNKNOWN with explicit reasons until an
+    # active US_PAPER_RUNTIME_ADOPTION_V1 binds a re-evaluated US PIT_ACCEPTED
+    # record and an official session calendar.  Scheduled 21:55Z/23:40Z
+    # Sun-Fri with --check before commit; authority stays closed.
+    "test/test_us_paper_runtime.py",
+    "test/test_us_paper_runtime_publication.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
