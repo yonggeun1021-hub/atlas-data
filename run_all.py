@@ -1292,6 +1292,9 @@ APPROVED_TESTS = [
     #   vintage 09-15 is no longer TAXONOMY_COVERAGE_UNKNOWN because of LSK.
     #   ⛔ thresholds/fail-closed unchanged; no live Kraken, no date-dependent test.
     "test/test_crypto_breadth_taxonomy_additions_20260914.py",
+    # ★ Conditional LIGHTER (same ratification): Kraken official asset page
+    #   identity confirmed; eligible_crypto effective 2026-09-16, no backfill.
+    "test/test_crypto_breadth_lighter_identity_20260914.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.

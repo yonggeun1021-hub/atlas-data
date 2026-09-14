@@ -142,7 +142,7 @@ class TaxonomyAdditionRecordsTest(unittest.TestCase):
 
     def test_unratified_assets_stay_fail_closed(self):
         self.assertEqual(self.policy["unknown_asset_policy"], "fail_closed_unknown")
-        for asset_id in ("LIGHTER", "SHAPE", "DGAI"):
+        for asset_id in ("SHAPE", "DGAI"):
             with self.subTest(asset_id=asset_id):
                 self.assertIsNone(CB.taxonomy_category(asset_id, dt.date(2099, 1, 1), self.policy))
 

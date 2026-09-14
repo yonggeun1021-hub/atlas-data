@@ -435,3 +435,37 @@ existing exclusions, fail-closed `TAXONOMY_COVERAGE_UNKNOWN` behavior and all
 authority flags remain unchanged. LIGHTER is not part of this slice. This is
 source coverage only; it does not authorize investment eligibility, Regime
 activation, candidate promotion or trading.
+
+
+### Conditional LIGHTER identity (2026-09-14)
+
+The same ratification made LIGHTER conditional on confirming the Kraken
+identity from an official Kraken source. That confirmation was made, so
+LIGHTER is `eligible_crypto` effective 2026-09-16.
+
+- Kraken's own [Lighter asset page](https://www.kraken.com/prices/lighter)
+  carries CMS asset metadata that fixes the binding:
+  - `field_crypto_shortcode` is `LIGHTER` and the name is `Lighter`.
+  - The trading link is `https://pro.kraken.com/app/trade/LIGHTER-usd`.
+  - `field_supported_kraken_asset` is `true`.
+  - The description says `$LIGHTER` is the native token of Lighter, a
+    decentralized perpetual futures exchange built as a zero-knowledge rollup
+    on Ethereum. It adds that the project calls the token the Lighter
+    Infrastructure Token.
+- The official [Lighter documentation](https://docs.lighter.xyz/about-lighter/lit-utility.md)
+  names the same Lighter Infrastructure Token, ticker LIT, as the native
+  infrastructure token of the Lighter ecosystem.
+- Kraken lists this asset under `LIGHTER`. The existing Kraken `LIT` record
+  is Litentry, a different asset, and is unchanged.
+- The retained 2026-09-14 Kraken snapshot shows asset `LIGHTER` enabled and
+  pair `LIGHTER/USD` online.
+
+The pages were captured on 2026-09-14 at 08:42Z and 08:45Z. Their retained
+content SHA256 values are:
+- Kraken asset page: `b8796f5c33db269628cab166c2473ad73a33a540d5b3700d1ab7f4c50c29836b`.
+  It embeds live prices, so a later capture will hash differently.
+- Lighter documentation: `4fca009e2d2671a9ecb7812c771496717eea1494891638ce0eebe8548c3b3d0c`.
+
+The Kraken blog listing URL returned 404 and is not used. The effective date is
+not backdated. Thresholds, fail-closed behavior and authority flags are
+unchanged. This is source coverage only.
