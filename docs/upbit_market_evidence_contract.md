@@ -70,6 +70,34 @@ partition the result into `finalized` vs `in_progress`. **A candle in
 `in_progress` is never usable as decision evidence** -- it simply does not
 appear in `finalized_candles` in the derived evidence packet.
 
+### Which instant is `as_of` (finalization lookahead fix, 2026-09-14)
+
+`as_of` must be an instant at which the candle rows were actually in hand
+-- never a later one. Capture v1/v2 had no per-fetch time, so population
+used the whole capture's completion time (`downloaded_at_utc`, ~60 s after
+the 15m candles are fetched). A candle still open when fetched was then
+recorded FINALIZED because the capture finished after its close boundary
+(retained 2026-09-05: capture 01:29:48-01:30:50; every market's 15m
+01:15-01:30 candle was recorded FINALIZED although no 15m response holds a
+01:30 candle and KRW-BTC's last trade in it is 01:29:45.585).
+
+Capture v3 (`upbit-microstructure-capture/v3`) records, per
+(timeframe, market) candle fetch, `candle_fetch_times` in the manifest:
+`request_started_at_utc` (successful attempt's request instant, ms, floored)
+and `response_received_at_utc` (ms, ceiled), both inside
+`[capture_started_at_utc, downloaded_at_utc]`. The builder
+(`build_candle_evidence(..., fetch_window=...)`) rejects as
+`FUTURE_DATED_CANDLE` only rows opening after `response_received_at`, then
+partitions with `is_candle_finalized(open, timeframe, request_started_at)`;
+a candle that opened while the request was in flight is IN_PROGRESS. The
+primitive itself is unchanged (its file is SHA-pinned by
+`config/intraday_risk_observation_preparation_contract.json`). Each v3 candle block carries
+`finalization_as_of` (the request instant). Freshness, gaps, thresholds and
+the output schema version are unchanged. v1/v2 manifests carry no fetch
+times; their issued packets re-derive byte-identically with the issued
+`as_of` and are never rewritten -- their exposure is pinned in
+`test/test_upbit_candle_finalization_fetch_time.py`.
+
 This primitive is deliberately standalone (no capture/network dependency)
 so that P9-06 (real-time WebSocket layer), P5-08, P5-09, and P8-16 can all
 import and depend on it directly without depending on this PR's REST

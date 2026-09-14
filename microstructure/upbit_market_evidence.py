@@ -195,9 +195,51 @@ def freshness_status(reference_time: dt.datetime | None, captured_at: dt.datetim
 def build_candle_evidence(
     market: str, timeframe: str, raw_candles: list, *,
     as_of: dt.datetime, captured_at: dt.datetime, max_staleness_seconds: int,
+    fetch_window: dict | None = None,
 ) -> dict:
+    """``as_of`` handed to the finalization primitive must be an instant at
+    which the candle rows were actually in hand -- never a later one.
+
+    ``fetch_window`` (capture v3+) carries this candle fetch's own
+    ``request_started_at``/``response_received_at``. Rows are validated and
+    rejected as future-dated against the response instant (the latest
+    instant they can describe), and FINALIZED/IN_PROGRESS is then judged
+    against the request instant (a lower bound on when Upbit served them) --
+    never the capture completion time, which let a candle still open when
+    fetched be recorded FINALIZED (P4-07 finalization lookahead,
+    2026-09-14). A candle that opened while the request was in flight is
+    IN_PROGRESS, not malformed.
+
+    ``None`` (legacy v1/v2 captures, which never recorded per-fetch time)
+    keeps the issued ``as_of`` judgement so already-committed packets
+    revalidate byte-identically. Freshness is unchanged either way: the
+    latest finalized close time aged against ``captured_at``.
+    """
+    finalization_as_of = as_of
+    future_bound = as_of
+    if fetch_window is not None:
+        finalization_as_of = _require_aware(fetch_window.get("request_started_at"), "FETCH_REQUEST_TIME_NAIVE")
+        future_bound = _require_aware(fetch_window.get("response_received_at"), "FETCH_RESPONSE_TIME_NAIVE")
+        if not (finalization_as_of <= future_bound <= _require_aware(captured_at, "CAPTURED_AT_NAIVE")):
+            raise MarketEvidenceError(f"CANDLE_FETCH_WINDOW_INVALID:{market}:{timeframe}")
     try:
-        classified = finalization.classify_candles(raw_candles, timeframe, as_of)
+        classified = finalization.classify_candles(raw_candles, timeframe, future_bound)
+        if fetch_window is not None:
+            entries = sorted(
+                classified["finalized"] + classified["in_progress"], key=lambda entry: entry["open_time"],
+            )
+            classified = dict(
+                classified,
+                as_of=finalization_as_of,
+                finalized=[
+                    entry for entry in entries
+                    if finalization.is_candle_finalized(entry["open_time"], timeframe, finalization_as_of)
+                ],
+                in_progress=[
+                    entry for entry in entries
+                    if not finalization.is_candle_finalized(entry["open_time"], timeframe, finalization_as_of)
+                ],
+            )
     except finalization.CandleFinalizationError as exc:
         raise MarketEvidenceError(f"CANDLE_MALFORMED:{market}:{timeframe}:{exc}") from exc
     finalized_rows = [
@@ -228,7 +270,7 @@ def build_candle_evidence(
         reasons.append("CANDLE_GAP")
     if fresh["status"] != FRESH:
         reasons.append(f"CANDLE_{fresh['status']}")
-    return {
+    evidence = {
         "market": market,
         "timeframe": timeframe,
         "finalized_candle_count": len(finalized_rows),
@@ -247,6 +289,14 @@ def build_candle_evidence(
         "fail_closed_reasons": reasons,
         "authority": dict(_EVIDENCE_AUTHORITY),
     }
+    if fetch_window is not None:
+        # The instant FINALIZED/IN_PROGRESS was judged at (millisecond
+        # precision, as recorded by capture v3). Absent on legacy packets,
+        # whose issued judgement instant is the packet ``as_of``.
+        evidence["finalization_as_of"] = (
+            finalization_as_of.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        )
+    return evidence
 
 
 # ---------------------------------------------------------------------------
@@ -390,12 +440,16 @@ def build_market_evidence_packet(
     market: str, *,
     candles_by_timeframe: dict, trades: list, orderbook_row: dict,
     as_of: dt.datetime, captured_at: dt.datetime, policy: dict,
+    candle_fetch_windows: dict | None = None,
 ) -> dict:
     """Aggregate one market's full P4-07 evidence: finalized candles across
     every configured timeframe, trade-tick evidence, and orderbook
     spread/depth/slippage evidence. Every required slice is validated
     independently -- a gap in one slice (e.g. missing orderbook for this
     market) fails only this packet, never any other market's packet.
+
+    ``candle_fetch_windows`` (``{timeframe: fetch_window}``, capture v3+)
+    must cover every timeframe when given; see ``build_candle_evidence``.
     """
     as_of = _require_aware(as_of, "AS_OF_NAIVE")
     captured_at = _require_aware(captured_at, "CAPTURED_AT_NAIVE")
@@ -403,6 +457,8 @@ def build_market_evidence_packet(
         raise MarketEvidenceError("CAPTURED_AT_BEFORE_AS_OF")
 
     max_staleness_by_timeframe = policy["max_staleness_seconds_by_timeframe"]
+    if candle_fetch_windows is not None and set(candle_fetch_windows) != set(finalization.TIMEFRAMES):
+        raise MarketEvidenceError(f"CANDLE_FETCH_WINDOWS_TIMEFRAMES_MISMATCH:{market}")
     candles = {}
     for timeframe in finalization.TIMEFRAMES:
         raw = candles_by_timeframe.get(timeframe)
@@ -411,6 +467,7 @@ def build_market_evidence_packet(
         candles[timeframe] = build_candle_evidence(
             market, timeframe, raw, as_of=as_of, captured_at=captured_at,
             max_staleness_seconds=max_staleness_by_timeframe[timeframe],
+            fetch_window=None if candle_fetch_windows is None else candle_fetch_windows[timeframe],
         )
 
     trades_evidence = build_trades_evidence(

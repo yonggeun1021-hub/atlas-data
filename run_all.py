@@ -288,6 +288,13 @@ APPROVED_TESTS = [
     #   KRW-BTC/ETH/XRP). Replays real retained 2026-09-13 provider bytes;
     #   issued v1 packets rebuild byte-identically. Builder/policy untouched.
     "test/test_upbit_microstructure_orderbook_second_precision.py",
+    # P4-07 candle-finalization lookahead fix (2026-09-14): capture v3 records
+    #   each candle fetch's request/response instant; finalization is judged
+    #   against the fetch request, never capture completion. Replays retained
+    #   2026-09-05 bytes (KRW-BTC 15m 01:15-01:30 no longer FINALIZED), exact
+    #   close boundary, mutation proofs; v1/v2 packets rebuild byte-identically
+    #   and their exposure (2026-09-05, 2026-09-14 15m) is pinned, not rewritten.
+    "test/test_upbit_candle_finalization_fetch_time.py",
     "test/test_upbit_market_evidence_microstructure.py",
     "test/test_upbit_p3_p4_exact_hash_consumer.py",
     # Expected governance WAIT is fail-closed and provider-call-free, but it

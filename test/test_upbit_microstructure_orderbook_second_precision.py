@@ -186,12 +186,24 @@ class CaptureV2ReplayTest(unittest.TestCase):
 
     def _capture(self, root: Path, completion: dt.datetime) -> Path:
         started = _parse_utc(self.manifest["capture_started_at_utc"]) + dt.timedelta(milliseconds=500)
-        instants = iter([started, completion])
+        # Capture v3 also reads the clock around every candle fetch: every
+        # instant up to the orderbook response is ``started``; the completion
+        # read after it is ``completion``.
+        state = {"now": started}
         markets = self.manifest["markets"]
+        replay = _replay_fetcher(self.retained, self.contract, markets)
+        orderbook_prefix = self.contract["orderbook_endpoint_template"].split("{", 1)[0]
+
+        def fetcher(url: str, timeout_seconds: int) -> bytes:
+            raw = replay(url, timeout_seconds)
+            if url.startswith(orderbook_prefix):
+                state["now"] = completion
+            return raw
+
         return CAP.capture_snapshot(
             root, markets=markets, snapshot_date=dt.date.fromisoformat(self.manifest["vintage_date"]),
-            contract=self.contract, fetcher=_replay_fetcher(self.retained, self.contract, markets),
-            sleeper=lambda seconds: None, clock=lambda: next(instants),
+            contract=self.contract, fetcher=fetcher,
+            sleeper=lambda seconds: None, clock=lambda: state["now"],
             snapshot_key=RETAINED_KEY, universe_lineage=self.manifest["universe_lineage"],
         )
 
@@ -204,7 +216,8 @@ class CaptureV2ReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = self._capture(Path(tmp), completion)
             manifest = CAP.validate_snapshot(target)
-            self.assertEqual(manifest["capture_version"], "upbit-microstructure-capture/v2")
+            # v3 (candle fetch times) keeps the v2 whole-second ceil.
+            self.assertEqual(manifest["capture_version"], CAP.CAPTURE_VERSION)
             # Provider bytes are byte-identical to the retained capture.
             self.assertEqual(manifest["checksums"], self.manifest["checksums"])
             self.assertEqual(manifest["capture_started_at_utc"], self.manifest["capture_started_at_utc"])
