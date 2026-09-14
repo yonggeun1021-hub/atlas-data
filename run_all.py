@@ -1285,6 +1285,13 @@ APPROVED_TESTS = [
     #   HNT/SKR resolve, SN8 stays UNKNOWN, qualified_members() stays
     #   TAXONOMY_COVERAGE_UNKNOWN because of SN8 -- no BREADTH PASS claimed.
     "test/test_crypto_breadth_hnt_skr_taxonomy_ratification.py",
+    # ★ 2026-09-14 user ratification CRYPTO-BREADTH-TAXONOMY-ADDITIONS-20260914:
+    #   LSK (effective 09-14) and SUSHI/VSN/TRIA/ZORA/XTZ/KII/0G (effective
+    #   09-15) eligible_crypto. No backfill; retained vintages 09-08..09-14
+    #   unchanged; in-memory projection of the committed 09-14 snapshot to
+    #   vintage 09-15 is no longer TAXONOMY_COVERAGE_UNKNOWN because of LSK.
+    #   ⛔ thresholds/fail-closed unchanged; no live Kraken, no date-dependent test.
+    "test/test_crypto_breadth_taxonomy_additions_20260914.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
