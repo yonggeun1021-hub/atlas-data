@@ -2451,6 +2451,18 @@ APPROVED_TESTS = [
     #   t1_display_only=true, ratified=false on every row; no W2/W3/T2/T3
     #   authority and no trading/order/capital authority anywhere.
     "test/test_us_investable_universe_v1.py",
+    # ★ P0-06 consumer derivation-marker acceptance (CLAUDE_CIO 2026-09-14):
+    #   _validate_pinned_delivery_packet's closed top-level field set predated
+    #   the additive daily_orchestrator/6 packet fields
+    #   (runtime_regime_readiness_version, flow_replay_version,
+    #   crypto_derivation_version) and rejected every retained packet since
+    #   2026-09-06 AM with DELIVERY_PACKET_FIELDS_MISMATCH. The consumer now
+    #   allows exactly these three optional markers, each a plain int in its
+    #   hard-coded supported set and accepted only under contract_version
+    #   daily_orchestrator/6. Every retained /3-/6 packet.json under
+    #   evidence/daily_briefing validates; every retained /2 packet still
+    #   fails by design. No import of the orchestrator; no authority change.
+    "test/test_briefing_consumer_derivation_markers_20260914.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
