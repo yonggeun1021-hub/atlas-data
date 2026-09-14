@@ -32,6 +32,7 @@ jobs:
         run: |
           python3 test/test_upbit_candle_finalization.py
           python3 test/test_upbit_microstructure_capture.py
+          python3 test/test_upbit_microstructure_orderbook_second_precision.py
           python3 test/test_upbit_market_evidence_microstructure.py
           python3 test/test_upbit_p3_p4_exact_hash_consumer.py
           python3 test/test_upbit_p4_expected_wait.py

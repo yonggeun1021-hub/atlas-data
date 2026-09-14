@@ -282,6 +282,12 @@ APPROVED_TESTS = [
     #   ⛔ decision/entry/action/order/production/trading 권한 없음 — evidence only.
     "test/test_upbit_candle_finalization.py",
     "test/test_upbit_microstructure_capture.py",
+    # P4-07 orderbook second-precision regression (2026-09-14): capture v2
+    #   rounds downloaded_at_utc UP to the whole second so ms-stamped orderbook
+    #   rows are never "after" capture (v1 truncation -> ORDERBOOK_UNKNOWN on
+    #   KRW-BTC/ETH/XRP). Replays real retained 2026-09-13 provider bytes;
+    #   issued v1 packets rebuild byte-identically. Builder/policy untouched.
+    "test/test_upbit_microstructure_orderbook_second_precision.py",
     "test/test_upbit_market_evidence_microstructure.py",
     "test/test_upbit_p3_p4_exact_hash_consumer.py",
     # Expected governance WAIT is fail-closed and provider-call-free, but it

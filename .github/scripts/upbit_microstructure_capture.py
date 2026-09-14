@@ -59,7 +59,10 @@ CONTRACT_PATH = ROOT / "config" / "upbit_market_evidence_contract.json"
 UTC = dt.timezone.utc
 USER_AGENT = "Project-Atlas-upbit-microstructure-capture/1.0"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-CAPTURE_VERSION = "upbit-microstructure-capture/v1"
+# v2 (2026-09-14): downloaded_at_utc is the completion instant rounded UP to
+# the whole second (see ceil_to_utc_second); v1 truncated it.  Layout is
+# unchanged and v1 snapshots keep validating and re-deriving byte-for-byte.
+CAPTURE_VERSION = "upbit-microstructure-capture/v2"
 MAX_MARKETS_PER_BATCH_CALL = 400
 SNAPSHOT_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-p3-[0-9a-f]{16}$")
 
@@ -78,6 +81,25 @@ def utc_now() -> dt.datetime:
 
 def iso_utc(value: dt.datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def ceil_to_utc_second(value: dt.datetime) -> dt.datetime:
+    """Round an aware instant UP to the next whole UTC second.
+
+    ``downloaded_at_utc`` is serialized at whole-second precision, but Upbit
+    stamps orderbook rows with millisecond ``timestamp`` values. Truncating
+    the completion instant (``iso_utc``'s ``timespec="seconds"``) produced a
+    recorded ``downloaded_at_utc`` up to 999 ms *earlier* than orderbook rows
+    that were already in hand, which P4-07's builder correctly rejects as an
+    impossible ordering (``ORDERBOOK_UNKNOWN``) -- every liquid market whose
+    book updated inside the final wall-clock second of the capture. Rounding
+    the completion instant up keeps it a true upper bound on every response
+    it covers; the start instant stays truncated (a true lower bound).
+    """
+    value = value.astimezone(UTC)
+    if value.microsecond:
+        value = value.replace(microsecond=0) + dt.timedelta(seconds=1)
+    return value
 
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
@@ -320,6 +342,9 @@ def capture_snapshot(
         completed_at = clock().astimezone(UTC)
         if completed_at < observed_start:
             fail("CAPTURE_CLOCK_REVERSED", f"start={observed_start} completed={completed_at}")
+        # Whole-second upper bound on the instant every response above was in
+        # hand -- see ceil_to_utc_second.
+        completed_at = ceil_to_utc_second(completed_at)
         (snapshot / "_downloaded_at.txt").write_text(iso_utc(completed_at) + "\n", encoding="utf-8")
         (snapshot / "_sha256.txt").write_text(
             "".join(f"{checksums[name]}  {name}\n" for name in sorted(checksums)), encoding="utf-8",
