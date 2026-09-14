@@ -2343,6 +2343,17 @@ APPROVED_TESTS = [
     #      same convention as test_capture_azure_fixture.py above so it is
     #      not silently hidden from the test-set comparison.
     "test/test_crypto_candidate_promotion.py",
+    # ★ P5-08 contract/3 (opt-in; contract/2 default stays byte-identical):
+    #   VOLUME_LIQUIDITY reads only the hash-bound RATIFIED P4-07 policy, and
+    #   REGIME consumes the CRYPTO_PAPER_RUNTIME_V1 decision mapped through
+    #   the PAPER-MARKET-ALLOCATION-V2 new-buy table (RISK_ON/NEUTRAL PASS,
+    #   RISK_OFF/STRESS FAIL, UNKNOWN/missing/not-current UNKNOWN). Tests
+    #   every regime state and the 2026-09-20 07:00Z transition day. State
+    #   rule RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 (user B2, record
+    #   hash-bound): only the six T2 required conditions block; TREND/
+    #   OVEREXTENSION record-only, RS score, P4-07 quality and material
+    #   blocker warnings. Rotation membership is not wired -> UNKNOWN.
+    "test/test_crypto_candidate_promotion_v3.py",
     "test/test_crypto_candidate_trend_metrics.py",
     "test/test_crypto_candidate_volume_metrics.py",
     # ★ P5-08 observation capability, deliberately unwired: the two
