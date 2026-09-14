@@ -19,7 +19,8 @@ is read anywhere: every date comes from the retained bytes.
 
 Rules exercised (staging controller/briefing_semantic_checks.py):
   * B5-3 COMPONENT_AS_OF_DATES -- TOKEN ``([A-Za-z_][A-Za-z0-9_]*)=([^\\s,]+)``;
-    FORWARD_ALPHA_REVIEW rows need decision_date=, ROTATION_DISCOVERY DART rows
+    FORWARD_ALPHA_REVIEW rows need pilot_decision_date= (the pilot evidence
+    date; the checklist reads decision_date/pilot_decision_date/as_of), ROTATION_DISCOVERY DART rows
     filing_date=, OFFICIAL_RELEASE_SUMMARY rows published_at= and
     evidence_as_of=, DYNAMIC_CLOCK KOREA rows price_observation_date=,
     US_BREADTH_MEMBERSHIP members= rows snapshot_date=, FREE_MARKET_DATA
@@ -72,22 +73,12 @@ PORTAL_NOT_PINNED = "KRX_FRESHNESS_LABEL:PORTAL_RENDER_NOT_PINNED:b5_portal_clos
 # format gap and none is a row that lacks a date:
 #   * B5-7 needs the atlas-portal close-card render pinned as a manifest input;
 #     atlas-data has no such blob, so the evaluator reports NOT_VERIFIABLE.
-#   * 2026-09-13 AM (Sunday-before-Monday weekend morning): the weekend
-#     context line "- latest_confirmed_evidence_date: 2026-09-11" is required
-#     verbatim by the scheduled briefing authority publisher/consumer
-#     (.github/scripts/{publish,consume}_scheduled_briefing_authority.py), and
-#     B5-1 UNSCOPED_CONFIRMED_EVIDENCE_DATE holds whenever KRX confirmed
-#     (2026-09-10) and the US session (2026-09-11) differ. Resolving it needs
-#     a contract decision on that line, not a renderer format change.
+# The 2026-09-13 AM B5-1 UNSCOPED_CONFIRMED_EVIDENCE_DATE HOLD documented by
+# PR #731 is resolved by scheduled_briefing_retrieval_authority/4, which
+# replaces the ambiguous weekend line with market-scoped lines
+# (test/test_briefing_weekend_evidence_date_contract_20260914.py).
 EXPECTED_NON_PASS = {
-    ("2026-09-13", "morning", 1): {
-        B5.SESSION_RECONCILIATION: (
-            HOLD,
-            "UNSCOPED_CONFIRMED_EVIDENCE_DATE:rendered=2026-09-11 is not market-scoped: "
-            "KRX confirmed=2026-09-10, US session=2026-09-11",
-        ),
-        B5.PORTAL_PARITY: (NV, PORTAL_NOT_PINNED),
-    },
+    ("2026-09-13", "morning", 1): {B5.PORTAL_PARITY: (NV, PORTAL_NOT_PINNED)},
     ("2026-09-14", "morning", 1): {B5.PORTAL_PARITY: (NV, PORTAL_NOT_PINNED)},
     ("2026-09-14", "morning", 2): {B5.PORTAL_PARITY: (NV, PORTAL_NOT_PINNED)},
 }
@@ -241,7 +232,8 @@ class AlignedRenderB5Tests(unittest.TestCase):
                     sources["b5_pilot_evidence_intake"]["body"].decode("utf-8"), re.M,
                 ).group(1)
                 for line in forward:
-                    self.assertEqual(B5.tokens(line)["decision_date"], pilot)
+                    self.assertEqual(B5.tokens(line)["pilot_decision_date"], pilot)
+                    self.assertNotIn("decision_date", B5.tokens(line))
 
                 records = json.loads(sources["b5_dart_content"]["body"])["records"]
                 dart = [line for line in components["ROTATION_DISCOVERY"] if re.match(r"^\s*- DART \d{6} ", line)]
@@ -267,7 +259,7 @@ class AlignedRenderB5Tests(unittest.TestCase):
                 self.assertEqual(B5.tokens(vix[0])["as_of"], fred["observation_date"])
 
                 dated = (
-                    [(f"FORWARD_ALPHA_REVIEW:{line.split(':')[0].strip()}", B5.tokens(line)["decision_date"]) for line in forward]
+                    [(f"FORWARD_ALPHA_REVIEW:{line.split(':')[0].strip()}", B5.tokens(line)["pilot_decision_date"]) for line in forward]
                     + [("DART", B5.tokens(line)["filing_date"]) for line in dart]
                     + [("OFFICIAL:published_at", tok["published_at"]), ("OFFICIAL:evidence_as_of", tok["evidence_as_of"])]
                     + [(f"DYNAMIC_CLOCK:{row['symbol']}", row["tokens"]["price_observation_date"]) for row in korea]
@@ -361,7 +353,7 @@ class ExplicitUnknownAndStalePointerTests(unittest.TestCase):
         cases = {
             "FORWARD_ALPHA_REVIEW": (
                 {"pilot_subjects": {"TSM": {"opportunity_state": "WAIT_FOR_PRICE"}}},
-                "decision_date=UNKNOWN",
+                "pilot_decision_date=UNKNOWN",
             ),
             "OFFICIAL_RELEASE_SUMMARY": (
                 {"subject": "SNDK", "observations": [{"subject": "SNDK", "release_title": "Results"}]},
@@ -385,7 +377,7 @@ class ExplicitUnknownAndStalePointerTests(unittest.TestCase):
         self.assertTrue(any("filing_date=UNKNOWN evidence=" in line for line in dart), dart)
         self.assertEqual(self._b5_3(dart, "ROTATION_DISCOVERY")["status"], PASS)
         # Removing the tokens is still a HOLD: the check itself is unchanged.
-        stripped = [re.sub(r" (decision_date|published_at|evidence_as_of|snapshot_date|as_of|filing_date)=\S+", "", line)
+        stripped = [re.sub(r" (pilot_decision_date|decision_date|published_at|evidence_as_of|snapshot_date|as_of|filing_date)=\S+", "", line)
                     for line in self._detail({"component_id": "FORWARD_ALPHA_REVIEW", "packet": cases["FORWARD_ALPHA_REVIEW"][0]})]
         self.assertEqual(self._b5_3(stripped, "FORWARD_ALPHA_REVIEW")["status"], HOLD)
 
