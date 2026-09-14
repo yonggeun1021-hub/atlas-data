@@ -1,0 +1,91 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "ratification_id": "PAPER-MARKET-ALLOCATION-V2-20260913",
+  "ratified_at_utc": "2026-09-13T14:58:00Z",
+  "ratified_by": "USER (explicit instruction: '시장별 배분안 채택')",
+  "recommended_by": "CLAUDE_CIO",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "supersedes": {
+    "ratification_id": "PAPER-AGGRESSIVE-POSTURE-V1-20260913",
+    "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/USER_RATIFICATION_PAPER_AGGRESSIVE_POSTURE_20260913.json",
+    "sha256": "fa49a1a3908b735d91e9b36088688e3c3e9c46237a486ad358de45d6f5a3b7bd",
+    "what": "portfolio-level single-regime table replaced by per-market allocation; per-name 5%, entry pace, confirmation, drawdown overrides retained"
+  },
+  "scope": "INTERNAL_VIRTUAL_PAPER_ONLY, KRW 200,000,000 Master Virtual Portfolio. REAL unchanged/prohibited.",
+  "minimum_participation_rule": "This allocation is the minimum participation level for PAPER; less participation requires explicit user ratification.",
+  "base_allocation_all_markets_risk_on": {
+    "US": "0.40",
+    "KR": "0.35",
+    "CRYPTO": "0.15",
+    "CASH": "0.10",
+    "total_invested": "0.90"
+  },
+  "market_max_allocation": {
+    "US": "0.50",
+    "KR": "0.45",
+    "CRYPTO": "0.20"
+  },
+  "per_market_state_multiplier_of_base": {
+    "RISK_ON": "1.00",
+    "NEUTRAL": "0.70",
+    "RISK_OFF": "0.25",
+    "STRESS": "0.00",
+    "UNKNOWN": "hold_current_up_to_0.50_no_new_buys"
+  },
+  "new_buys_by_market_state": {
+    "RISK_ON": "PERMIT",
+    "NEUTRAL": "PERMIT_SELECTIVE",
+    "RISK_OFF": "DENY",
+    "STRESS": "DENY",
+    "UNKNOWN": "DENY"
+  },
+  "reallocation_rule": "Capital released from markets below RISK_ON may be moved into RISK_ON markets up to each receiving market's max allocation; remainder stays cash. After Cross-Market Flow validation (>=40 observations), Flow decides priority among RISK_ON receivers.",
+  "retained_from_v1": {
+    "per_name_max_nav": "0.05",
+    "entry_pace": "one third of remaining room per session",
+    "regime_confirmation": "new buys stop on first defensive reading; RISK_OFF 2 sessions; STRESS 1 session; re-risking 2 sessions",
+    "drawdown_overrides": {
+      "minus_5pct": "one step more defensive",
+      "minus_10pct": "all markets RISK_OFF limits until CIO review"
+    }
+  },
+  "hedge": {
+    "current_canonical": "P6-07 (private config/three_market_hedge/policy.json): RISK_OFF hedge 25%-50% of held long exposure, 1x inverse KR 114800 / US SH, crypto cash only",
+    "pending_user_decision": "ACTIVE_INVERSE_HEDGE proposal (all-STRESS up to 30% NAV inverse; single-market STRESS up to 10%; 1x only; staged entry; exit on recovery; -5% position stop; 10-session max) — not ratified in this record"
+  },
+  "examples_nav": {
+    "all_risk_on": {
+      "US": "0.40",
+      "KR": "0.35",
+      "CRYPTO": "0.15",
+      "invested": "0.90"
+    },
+    "US_on_KR_neutral_crypto_off": {
+      "US": "0.50",
+      "KR": "0.245",
+      "CRYPTO": "0.0375",
+      "invested": "0.7825"
+    },
+    "all_neutral": {
+      "US": "0.28",
+      "KR": "0.245",
+      "CRYPTO": "0.105",
+      "invested": "0.63"
+    },
+    "all_risk_off": {
+      "US": "0.10",
+      "KR": "0.0875",
+      "CRYPTO": "0.0375",
+      "invested": "0.225"
+    },
+    "all_stress": {
+      "invested": "0.00"
+    }
+  },
+  "authority": {
+    "real_order": false,
+    "capital_transfer": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

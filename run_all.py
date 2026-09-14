@@ -2525,6 +2525,15 @@ APPROVED_TESTS = [
     "test/test_kr_sector_index_history_backfill.py",
     "test/test_kr_rotation_event_study.py",
     "test/test_kr_sector_history_study_workflow.py",
+    # ★ Rule registry v1 + decision lineage (CLAUDE_CIO 2026-09-15, user
+    #   ratification RULE-GOVERNANCE-EVIDENCE-GATED-ADJUSTMENT). Offline only:
+    #   config/rule_registry_v1.json validates against byte-exact authority
+    #   record copies (hash, ids, pointer-bound parameters/triggers, monotone
+    #   versions); rule_refs / rule_lineage_event/1 tamper checks; additive
+    #   sidecars for every committed crypto PAPER decision packet and PAPER
+    #   reference packet reproduce each decision verbatim, the producer hooks
+    #   never raise and the hooked packets still revalidate byte-for-byte.
+    "test/test_rule_registry_and_lineage.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

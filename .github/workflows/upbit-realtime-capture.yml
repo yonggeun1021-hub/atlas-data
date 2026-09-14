@@ -289,6 +289,17 @@ jobs:
               json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
           )
           PY
+      # Additive rule-lineage sidecar (config/rule_registry_v1.json ids) for the
+      # exact decision packet above, keyed by its payload_sha256. It reads that
+      # packet only, never edits it or the producer, and never exits non-zero
+      # for a lineage problem; continue-on-error keeps the evidence commit.
+      - name: Rule lineage sidecar for the Crypto PAPER decision packet (read-only)
+        id: crypto_rule_lineage
+        if: ${{ !cancelled() && steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED' }}
+        continue-on-error: true
+        env:
+          DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
+        run: python3 governance/rule_lineage_producers.py crypto-decision --packet "$DECISION_PATH"
       - name: Commit append-only realtime evidence and run telemetry
         if: always()
         env:
@@ -313,6 +324,8 @@ jobs:
           # new, separate evidence path; committed in the same run/commit as
           # the realtime evidence above, never reusing an existing path.
           git add evidence/crypto_paper_decision || true
+          # Additive rule-lineage sidecar of that decision packet.
+          git add evidence/rule_lineage/crypto_paper_decision || true
           # P5-10 read-only, per-symbol five-axis entry/exit policy bridge.
           # It contains no private position/account bytes and no authority.
           git add evidence/crypto_axis_trade_bridge || true

@@ -1,0 +1,1612 @@
+{
+  "schema_version": "atlas_rule_registry/1",
+  "registry_id": "ATLAS-RULE-REGISTRY-V1",
+  "description": "User-confirmed (확정) Atlas rules with byte-exact source records, machine-readable parameters and pre-registered review triggers. Validated by governance/rule_registry.py. Decision lineage (governance/rule_refs.py) names these ids.",
+  "scope_note": "Registry entries record what the user confirmed. They grant no order, capital, production or REAL authority; each row's modes field repeats the record's own scope. Parameters are transcriptions pinned to JSON pointers in the source record; the record, not this file, is the authority.",
+  "status_vocabulary": [
+    "RATIFIED",
+    "PROVISIONAL",
+    "TEMPORARY"
+  ],
+  "scorecard_metric_families": [
+    "entry",
+    "exit",
+    "allocation",
+    "hedge",
+    "gate",
+    "liquidity",
+    "data-source",
+    "governance"
+  ],
+  "rules": [
+    {
+      "rule_id": "RULE.ALLOCATION.V2",
+      "version": 2,
+      "lineage_key": "RULE.ALLOCATION",
+      "status": "RATIFIED",
+      "title_ko": "시장별 배분 v2 (모두 강세 90%: 미국 40 / 한국 35 / 코인 15, 시장 상태별 배수)",
+      "markets": [
+        "US",
+        "KR",
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER_ONLY",
+        "REAL": "NOT_AUTHORIZED:REAL_UNCHANGED_OR_PROHIBITED_BY_RECORD"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "PAPER-MARKET-ALLOCATION-V2-20260913",
+          "repo_path": "evidence/authority/paper_market_allocation_v2_user_ratification_20260913.json",
+          "original_filename": "USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json",
+          "sha256": "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8",
+          "bytes": 3502
+        },
+        {
+          "role": "CIO_ADDENDUM",
+          "record_id": "CIO-ADDENDUM-ALLOCATION-V2-HEDGE-20260914",
+          "repo_path": "evidence/authority/allocation_v2_hedge_cio_addendum_20260914.json",
+          "original_filename": "CLAUDE_CIO_ADDENDUM_ALLOCATION_V2_HEDGE_20260914.json",
+          "sha256": "e5fdda49179cc4a0848a7dac5c377d3428f8371e9046be22f952457776619ed8",
+          "bytes": 1790
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/ratified_at_utc",
+        "utc": "2026-09-13T14:58:00Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "base_allocation_all_markets_risk_on": {
+          "source": 0,
+          "record_pointer": "/base_allocation_all_markets_risk_on",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "US": "0.40",
+            "KR": "0.35",
+            "CRYPTO": "0.15",
+            "CASH": "0.10",
+            "total_invested": "0.90"
+          }
+        },
+        "market_max_allocation": {
+          "source": 0,
+          "record_pointer": "/market_max_allocation",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "US": "0.50",
+            "KR": "0.45",
+            "CRYPTO": "0.20"
+          }
+        },
+        "per_market_state_multiplier_of_base": {
+          "source": 0,
+          "record_pointer": "/per_market_state_multiplier_of_base",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "RISK_ON": "1.00",
+            "NEUTRAL": "0.70",
+            "RISK_OFF": "0.25",
+            "STRESS": "0.00",
+            "UNKNOWN": "hold_current_up_to_0.50_no_new_buys"
+          }
+        },
+        "new_buys_by_market_state": {
+          "source": 0,
+          "record_pointer": "/new_buys_by_market_state",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "RISK_ON": "PERMIT",
+            "NEUTRAL": "PERMIT_SELECTIVE",
+            "RISK_OFF": "DENY",
+            "STRESS": "DENY",
+            "UNKNOWN": "DENY"
+          }
+        },
+        "minimum_participation_rule": {
+          "source": 0,
+          "record_pointer": "/minimum_participation_rule",
+          "match": "EXACT",
+          "text": null,
+          "value": "This allocation is the minimum participation level for PAPER; less participation requires explicit user ratification."
+        },
+        "flow_priority_minimum_observations": {
+          "source": 0,
+          "record_pointer": "/reallocation_rule",
+          "match": "PARSED_FROM_TEXT",
+          "text": ">=40 observations",
+          "value": 40
+        },
+        "per_name_max_nav": {
+          "source": 0,
+          "record_pointer": "/retained_from_v1/per_name_max_nav",
+          "match": "EXACT",
+          "text": null,
+          "value": "0.05"
+        },
+        "entry_pace": {
+          "source": 0,
+          "record_pointer": "/retained_from_v1/entry_pace",
+          "match": "EXACT",
+          "text": null,
+          "value": "one third of remaining room per session"
+        },
+        "regime_confirmation": {
+          "source": 0,
+          "record_pointer": "/retained_from_v1/regime_confirmation",
+          "match": "EXACT",
+          "text": null,
+          "value": "new buys stop on first defensive reading; RISK_OFF 2 sessions; STRESS 1 session; re-risking 2 sessions"
+        },
+        "drawdown_overrides": {
+          "source": 0,
+          "record_pointer": "/retained_from_v1/drawdown_overrides",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "minus_5pct": "one step more defensive",
+            "minus_10pct": "all markets RISK_OFF limits until CIO review"
+          }
+        },
+        "hedge_field_superseded_read_hedge_rule": {
+          "source": 1,
+          "record_pointer": "/correction_1",
+          "match": "PARSED_FROM_TEXT",
+          "text": "Consumers must read hedge rules from the companion record",
+          "value": "RULE.HEDGE.INVERSE.V1"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "allocation",
+      "minimum_sample": null,
+      "supersedes": {
+        "rule_id": null,
+        "record_id": "PAPER-AGGRESSIVE-POSTURE-V1-20260913",
+        "sha256": "fa49a1a3908b735d91e9b36088688e3c3e9c46237a486ad358de45d6f5a3b7bd",
+        "in_registry": false
+      },
+      "implementation_bindings": []
+    },
+    {
+      "rule_id": "RULE.HEDGE.INVERSE.V1",
+      "version": 1,
+      "lineage_key": "RULE.HEDGE.INVERSE",
+      "status": "RATIFIED",
+      "title_ko": "적극 인버스 헤지 v1 (1배 인버스, 단계 익절, 반등 가드)",
+      "markets": [
+        "US",
+        "KR",
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER_ONLY",
+        "REAL": "NOT_AUTHORIZED:REAL_UNCHANGED_OR_PROHIBITED_BY_RECORD"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "PAPER-ACTIVE-INVERSE-HEDGE-V1-20260913",
+          "repo_path": "evidence/authority/paper_active_inverse_hedge_user_ratification_20260913.json",
+          "original_filename": "USER_RATIFICATION_PAPER_ACTIVE_INVERSE_HEDGE_20260913.json",
+          "sha256": "b24b38a34aa2ed34d98bf8ade6c1334268034e4e4d5718bac8450970ed5577f2",
+          "bytes": 3626
+        },
+        {
+          "role": "CIO_ADDENDUM",
+          "record_id": "CIO-ADDENDUM-ALLOCATION-V2-HEDGE-20260914",
+          "repo_path": "evidence/authority/allocation_v2_hedge_cio_addendum_20260914.json",
+          "original_filename": "CLAUDE_CIO_ADDENDUM_ALLOCATION_V2_HEDGE_20260914.json",
+          "sha256": "e5fdda49179cc4a0848a7dac5c377d3428f8371e9046be22f952457776619ed8",
+          "bytes": 1790
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/ratified_at_utc",
+        "utc": "2026-09-13T14:46:00Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "instruments": {
+          "source": 0,
+          "record_pointer": "/instruments",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "KR": "114800 KODEX Inverse (1x)",
+            "US": "SH (1x)",
+            "CRYPTO": "cash; BTC perp short <=5% NAV only as stage-2 option after event study and a known crypto regime",
+            "prohibited": "leveraged/2x inverse products"
+          }
+        },
+        "allocation_caps_nav": {
+          "source": 0,
+          "record_pointer": "/allocation_caps_nav",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "all_markets_STRESS": {
+              "KR": "0.15",
+              "US": "0.15",
+              "total": "0.30"
+            },
+            "single_market_STRESS": "<=0.10 in that market",
+            "RISK_OFF": "P6-07 held-long hedge only (25%-50% of held long exposure)",
+            "NEUTRAL_or_better": "0"
+          }
+        },
+        "entry": {
+          "source": 0,
+          "record_pointer": "/entry",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "trigger": "market STRESS confirmed 1 session (market regime KNOWN; UNKNOWN never triggers)",
+            "pace": "one third of the cap per session",
+            "no_chase": "skip a tranche when the inverse instrument already moved >= +3% from the prior session close"
+          }
+        },
+        "exit_staged_take_profit": {
+          "source": 0,
+          "record_pointer": "/exit_staged_take_profit",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "initial_stop": "position -4% from average entry -> exit that market's inverse",
+            "TP1": "position +3% -> sell 50% (first take-profit priority); move stop on remainder to breakeven",
+            "rebound_guard": "while in profit and before TP1: if underlying index rebounds >= +1.5% intraday/close (inverse <= -1.5% day), execute TP1 immediately",
+            "TP2": "position +6% -> sell 25% of original",
+            "runner": "last 25% trailing stop 3% from peak position value",
+            "regime_exits": "market back to RISK_OFF -> reduce remaining inverse by 50%; NEUTRAL or better -> exit all",
+            "time_stop": "10 sessions max holding; extension only if STRESS re-confirmed"
+          }
+        },
+        "re_entry": {
+          "source": 0,
+          "record_pointer": "/re_entry",
+          "match": "EXACT",
+          "text": null,
+          "value": "after TP1, if STRESS persists and underlying makes a new low, re-enter up to the sold quantity once per episode, within caps"
+        },
+        "all_markets_stress_interpretation": {
+          "source": 1,
+          "record_pointer": "/interpretation_2/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "The 30% tier (KR 114800 15% + US SH 15%) applies when BOTH equity markets with an inverse instrument (KR and US) are confirmed STRESS, regardless of crypto state, because crypto's hedge instrument is cash only. If only one of KR/US is confirmed STRESS, the single-market cap (<=10% in that market) applies. UNKNOWN in KR or US never triggers any inverse."
+        },
+        "tp1_position_gain": {
+          "source": 0,
+          "record_pointer": "/exit_staged_take_profit/TP1",
+          "match": "PARSED_FROM_TEXT",
+          "text": "position +3% -> sell 50%",
+          "value": {
+            "gain": "0.03",
+            "sell_fraction_of_original": "0.50"
+          }
+        },
+        "initial_stop_position_loss": {
+          "source": 0,
+          "record_pointer": "/exit_staged_take_profit/initial_stop",
+          "match": "PARSED_FROM_TEXT",
+          "text": "position -4% from average entry",
+          "value": "-0.04"
+        },
+        "time_stop_sessions": {
+          "source": 0,
+          "record_pointer": "/exit_staged_take_profit/time_stop",
+          "match": "PARSED_FROM_TEXT",
+          "text": "10 sessions max holding",
+          "value": 10
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "INITIAL_DEFAULT_UNVALIDATED",
+        "source": 0,
+        "record_pointer": "/validation/status",
+        "match": "PARSED_FROM_TEXT",
+        "text": "initial PAPER defaults"
+      },
+      "review_triggers": [
+        {
+          "trigger_id": "EVENT_STUDY_THEN_ONE_CONTROLLED_REVISION",
+          "condition": "KR/US STRESS 사건 연구(n, TP1 도달률 대 손절 선도달률, MFE/MAE, 비용 2배, 최근 대 전체 기간) 완료 후 파라미터 1회 통제 수정 허용",
+          "source": 0,
+          "record_pointer": "/validation/required",
+          "match": "PARSED_FROM_TEXT",
+          "text": "one controlled parameter revision allowed"
+        }
+      ],
+      "trigger_pending_user_confirmation": false,
+      "scorecard_metric_family": "hedge",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": []
+    },
+    {
+      "rule_id": "RULE.LIQUIDITY.KRUS.V1",
+      "version": 1,
+      "lineage_key": "RULE.LIQUIDITY.KRUS",
+      "status": "RATIFIED",
+      "title_ko": "한국·미국 T2 유동성 조건 C3 (20세션 평균 거래대금, 최저가, 1% 주문 상한)",
+      "markets": [
+        "KR",
+        "US"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER_ONLY",
+        "REAL": "NOT_AUTHORIZED:REAL_GETS_SEPARATE_STRICTER_LIMITS_LATER"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "PAPER-LIQUIDITY-KR-US-V1-20260914",
+          "repo_path": "evidence/authority/paper_liquidity_kr_us_user_ratification_20260914.json",
+          "original_filename": "USER_RATIFICATION_PAPER_LIQUIDITY_KR_US_20260914.json",
+          "sha256": "1e068439c4e43050072e38c7450dea38baccf701dab23e784467c9ce48ef40d6",
+          "bytes": 1796
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/ratified_at_utc",
+        "utc": "2026-09-13T15:35:00Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "kr_avg_traded_value_20_sessions_krw_min": {
+          "source": 0,
+          "record_pointer": "/KR/avg_traded_value_20_sessions_krw_min",
+          "match": "EXACT",
+          "text": null,
+          "value": "1000000000"
+        },
+        "kr_last_close_krw_min": {
+          "source": 0,
+          "record_pointer": "/KR/last_close_krw_min",
+          "match": "EXACT",
+          "text": null,
+          "value": "1000"
+        },
+        "kr_exclude": {
+          "source": 0,
+          "record_pointer": "/KR/exclude",
+          "match": "EXACT",
+          "text": null,
+          "value": [
+            "trading halted",
+            "administrative issue (관리종목)"
+          ]
+        },
+        "us_avg_dollar_volume_20_sessions_usd_min": {
+          "source": 0,
+          "record_pointer": "/US/avg_dollar_volume_20_sessions_usd_min",
+          "match": "EXACT",
+          "text": null,
+          "value": "10000000"
+        },
+        "us_last_close_usd_min": {
+          "source": 0,
+          "record_pointer": "/US/last_close_usd_min",
+          "match": "EXACT",
+          "text": null,
+          "value": "5"
+        },
+        "us_exclude": {
+          "source": 0,
+          "record_pointer": "/US/exclude",
+          "match": "EXACT",
+          "text": null,
+          "value": [
+            "OTC / non-exchange-listed"
+          ]
+        },
+        "window_sessions": {
+          "source": 0,
+          "record_pointer": "/KR/window",
+          "match": "PARSED_FROM_TEXT",
+          "text": "20 completed KRX sessions",
+          "value": 20
+        },
+        "insufficient_history": {
+          "source": 0,
+          "record_pointer": "/KR/window",
+          "match": "PARSED_FROM_TEXT",
+          "text": "fewer than 20 sessions of history -> NOT_EVALUATED (no T2)",
+          "value": "NOT_EVALUATED"
+        },
+        "fail_closed": {
+          "source": 0,
+          "record_pointer": "/fail_closed",
+          "match": "EXACT",
+          "text": null,
+          "value": "Missing price history, missing halt/admin/exchange flag, or stale data -> C3 UNKNOWN -> no T2."
+        },
+        "position_cap_fraction_of_20_session_avg_traded_value": {
+          "source": 0,
+          "record_pointer": "/position_cap_link",
+          "match": "PARSED_FROM_TEXT",
+          "text": "capped at 1% of its 20-session average traded value",
+          "value": "0.01"
+        },
+        "crypto_unchanged_clause": {
+          "source": 0,
+          "record_pointer": "/CRYPTO/unchanged",
+          "match": "EXACT",
+          "text": null,
+          "value": "previously ratified Upbit 24h traded value >= KRW 5,000,000,000"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "ESTIMATE_ONLY",
+        "source": 0,
+        "record_pointer": "/expected_pass_counts",
+        "match": "PARSED_FROM_TEXT",
+        "text": "estimate only"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "liquidity",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": []
+    },
+    {
+      "rule_id": "RULE.CRYPTO.RUNTIME.V1",
+      "version": 1,
+      "lineage_key": "RULE.CRYPTO.RUNTIME",
+      "status": "RATIFIED",
+      "title_ko": "코인 PAPER 시장판정 런타임 v1 (정규화, RISK_VOL 절대 규칙, 공통 v1 집계)",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER_ONLY",
+        "REAL": "NOT_AUTHORIZED:REAL_UNCHANGED_OR_PROHIBITED_BY_RECORD"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "CRYPTO-PAPER-RUNTIME-V1-20260914",
+          "repo_path": "evidence/authority/crypto_paper_runtime_v1_user_ratification_20260914.json",
+          "original_filename": "USER_RATIFICATION_CRYPTO_PAPER_RUNTIME_V1_20260914.json",
+          "sha256": "e2f9f69461088d52300258ab22f17d7f287bd7c2fd6efd1d49962b44f16fffe1",
+          "bytes": 3497
+        },
+        {
+          "role": "CIO_ADDENDUM",
+          "record_id": "CIO-ADDENDUM-CRYPTO-RUNTIME-V1-INTERPRETATIONS-20260914",
+          "repo_path": "evidence/authority/crypto_paper_runtime_v1_interpretations_cio_addendum_20260914.json",
+          "original_filename": "CLAUDE_CIO_ADDENDUM_CRYPTO_RUNTIME_V1_INTERPRETATIONS_20260914.json",
+          "sha256": "bcff879d8814fe0d457a802392c1bfdee4f85040c718e7ea5a404f06a3481122",
+          "bytes": 2155
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/ratified_at_utc",
+        "utc": "2026-09-13T17:00:00Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "normalization": {
+          "source": 0,
+          "record_pointer": "/normalization",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "source": "crypto_paper_descriptive_normalization.py:50-71 provisional values verbatim",
+            "TREND": {
+              "ABOVE_200DMA": 1,
+              "AT_200DMA": 0,
+              "BELOW_200DMA": -1
+            },
+            "BREADTH": "advance fraction >= 0.55 -> +1; <= 0.45 -> -1; else 0",
+            "LIQUIDITY": "stablecoin daily and weekly net issuance both > 0 -> +1; both < 0 -> -1; else 0",
+            "LEADERSHIP": "BROAD_ALT_LEADERSHIP +1; other defined codes 0; UNKNOWN code -> axis missing"
+          }
+        },
+        "risk_vol_inputs": {
+          "source": 0,
+          "record_pointer": "/RISK_VOL/inputs",
+          "match": "EXACT",
+          "text": null,
+          "value": "btc_risk/v1: vol = 30-return realized vol annualized over 365 days; dd = drawdown from 90-close high"
+        },
+        "risk_vol_rules_in_order": {
+          "source": 0,
+          "record_pointer": "/RISK_VOL/rules",
+          "match": "EXACT",
+          "text": null,
+          "value": [
+            "STRESS if dd <= -0.25, or (vol >= 0.90 and dd <= -0.10)",
+            "NEGATIVE (-1) if dd <= -0.15 or vol >= 0.70",
+            "POSITIVE (+1) if dd > -0.08 and vol < 0.45",
+            "otherwise NEUTRAL (0)"
+          ]
+        },
+        "aggregation": {
+          "source": 0,
+          "record_pointer": "/aggregation",
+          "match": "EXACT",
+          "text": null,
+          "value": "common-v1 unchanged: RISK_ON >= +3; RISK_OFF <= -3; STRESS overrides; ordinary transition 2 finalized packets; STRESS entry immediate; STRESS exit 2 non-stress readings and S > -3"
+        },
+        "finalized_packet": {
+          "source": 0,
+          "record_pointer": "/finalized_packet",
+          "match": "EXACT",
+          "text": null,
+          "value": "one per UTC day at 07:00Z after stablecoin capture; BTC and breadth observation date = previous completed UTC day; stablecoin same-UTC-day capture; any missing/invalid/stale axis -> immediate UNKNOWN, no carry"
+        },
+        "leadership_window": {
+          "source": 0,
+          "record_pointer": "/leadership_window",
+          "match": "EXACT",
+          "text": null,
+          "value": "pilot 7d official until primary 30d observed, then 30d automatically; any TAXONOMY_COVERAGE_UNKNOWN day -> axis missing"
+        },
+        "acceptance_minimum_consecutive_complete_utc_days": {
+          "source": 0,
+          "record_pointer": "/acceptance/keep",
+          "match": "PARSED_FROM_TEXT",
+          "text": "minimum 5 consecutive complete UTC days",
+          "value": 5
+        },
+        "chain_start_utc": {
+          "source": 1,
+          "record_pointer": "/accepted_interpretations/2",
+          "match": "PARSED_FROM_TEXT",
+          "text": "chain start 2026-09-14 07:00Z",
+          "value": "2026-09-14T07:00:00Z"
+        },
+        "accepted_interpretations": {
+          "source": 1,
+          "record_pointer": "/accepted_interpretations",
+          "match": "EXACT",
+          "text": null,
+          "value": [
+            "Kraken bulk gap 2024-03-31: 89 dependent days UNDEFINED, not filled; replay PASS stands (absence preserved, no range selection)",
+            "Crypto ratified_markets/runtime_authorized_regimes live in config/crypto_paper_runtime_v1.json (shared contracts unchanged to protect KR pins); consumer wiring is a required follow-up before crypto state affects allocation/hedge/portal",
+            "Breadth = previous completed UTC day; chain start 2026-09-14 07:00Z",
+            "Leadership: single official window using existing state logic; MIXED_WINDOW_LEADERSHIP cannot occur; ALT leader from daily-rebalanced equal weight (may differ from descriptive reference)",
+            "7d->30d switch is permanent (literal ratification); one TAXONOMY_COVERAGE_UNKNOWN day after switch blocks 30 days + 5-day re-acceptance",
+            "Acceptance is a rolling 5-consecutive-complete-day requirement; one incomplete day costs ~6 days UNKNOWN (fail-closed)"
+          ]
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "PROVISIONAL_FORWARD_ACCEPTANCE",
+        "source": 0,
+        "record_pointer": "/acceptance/label",
+        "match": "PARSED_FROM_TEXT",
+        "text": "PROVISIONAL_FORWARD_ACCEPTANCE"
+      },
+      "review_triggers": [
+        {
+          "trigger_id": "RISK_VOL_ONE_CONTROLLED_REVISION",
+          "condition": "Kraken 대량 과거자료 재생 사건 연구 후 RISK_VOL 1회 통제 수정 허용",
+          "source": 0,
+          "record_pointer": "/RISK_VOL/status",
+          "match": "PARSED_FROM_TEXT",
+          "text": "one controlled revision allowed after Kraken-bulk replay event study"
+        },
+        {
+          "trigger_id": "RE_REVIEW_ALL_FOUR_REGIMES_OBSERVED",
+          "condition": "자연 이력에 확정 상태 네 가지가 모두 나타나면 재검토",
+          "source": 0,
+          "record_pointer": "/acceptance/re_review",
+          "match": "PARSED_FROM_TEXT",
+          "text": "when natural history contains all four confirmed regimes"
+        },
+        {
+          "trigger_id": "AUTO_REVERT_UNKNOWN_ON_VALIDATOR_FAILURE",
+          "condition": "검증기 실패 시 즉시 UNKNOWN으로 자동 복귀",
+          "source": 0,
+          "record_pointer": "/acceptance/auto_revert",
+          "match": "PARSED_FROM_TEXT",
+          "text": "UNKNOWN on any validator failure"
+        }
+      ],
+      "trigger_pending_user_confirmation": false,
+      "scorecard_metric_family": "gate",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": [
+        {
+          "path": "config/crypto_paper_runtime_v1.json",
+          "binds_record_sha256": true
+        },
+        {
+          "path": "regime/crypto_paper_runtime.py",
+          "binds_record_sha256": true
+        }
+      ]
+    },
+    {
+      "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+      "version": 1,
+      "lineage_key": "RULE.CRYPTO.FRESHNESS.PER_MARKET",
+      "status": "RATIFIED",
+      "title_ko": "코인 실시간 신선도 종목별 판정 (+ 30일 평균 거래대금 하한 종목별 상한)",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER_ONLY",
+        "REAL": "NOT_AUTHORIZED:REAL_UNCHANGED_OR_PROHIBITED_BY_RECORD"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914",
+          "repo_path": "evidence/authority/crypto_realtime_freshness_per_market_user_ratification_20260914.json",
+          "original_filename": "USER_RATIFICATION_CRYPTO_REALTIME_FRESHNESS_PER_MARKET_20260914.json",
+          "sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "bytes": 2152
+        },
+        {
+          "role": "CIO_ADDENDUM",
+          "record_id": "CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914",
+          "repo_path": "evidence/authority/crypto_realtime_subscription_floor_metric_cio_addendum_20260914.json",
+          "original_filename": "CLAUDE_CIO_ADDENDUM_CRYPTO_SUBSCRIPTION_FLOOR_METRIC_20260914.json",
+          "sha256": "bc009c591cd6492c55471a499502381812d54a8f12e50e7334ec04c10a954e1f",
+          "bytes": 1309
+        },
+        {
+          "role": "CIO_ADDENDUM",
+          "record_id": "CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-20260914",
+          "repo_path": "evidence/authority/crypto_realtime_subscription_scope_cio_addendum_20260914.json",
+          "original_filename": "CLAUDE_CIO_ADDENDUM_CRYPTO_SUBSCRIPTION_SCOPE_20260914.json",
+          "sha256": "25e69d5142e8e39d5e255ab31335147f81abde2bcdf5bcebf6efc595ec00cb7f",
+          "bytes": 1777
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/ratified_at_utc",
+        "utc": "2026-09-13T23:25:00Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "per_market_freshness": {
+          "source": 0,
+          "record_pointer": "/rule/per_market_freshness",
+          "match": "EXACT",
+          "text": null,
+          "value": "Each market's realtime freshness is judged independently with the ratified thresholds."
+        },
+        "action_cap": {
+          "source": 0,
+          "record_pointer": "/rule/action_cap",
+          "match": "EXACT",
+          "text": null,
+          "value": "A STALE/MISSING/UNKNOWN market caps only that market's action state (no new PAPER entry for it). Other FRESH markets are evaluated normally."
+        },
+        "provider_age_seconds_max": {
+          "source": 0,
+          "record_pointer": "/amends",
+          "match": "PARSED_FROM_TEXT",
+          "text": "CRYPTO provider age 20s",
+          "value": 20
+        },
+        "transport_delay_seconds_max": {
+          "source": 0,
+          "record_pointer": "/amends",
+          "match": "PARSED_FROM_TEXT",
+          "text": "transport delay 3s",
+          "value": 3
+        },
+        "stale_held_position_alert_minutes": {
+          "source": 0,
+          "record_pointer": "/rule/exit_path",
+          "match": "PARSED_FROM_TEXT",
+          "text": "beyond 30 minutes (engineering alert budget, not a policy threshold)",
+          "value": 30
+        },
+        "aggregate_status_role": {
+          "source": 0,
+          "record_pointer": "/rule/aggregate_status",
+          "match": "PARSED_FROM_TEXT",
+          "text": "no longer blocks all candidates",
+          "value": "DISPLAY_TELEMETRY_ONLY"
+        },
+        "liquidity_floor_metric": {
+          "source": 1,
+          "record_pointer": "/correction",
+          "match": "PARSED_FROM_TEXT",
+          "text": "The ratified universe policy's KRW 5B floor is a 30-day average traded value",
+          "value": {
+            "metric": "KRW_30D_AVG_TRADED_VALUE",
+            "min_krw": "5000000000"
+          }
+        },
+        "liquidity_floor_unknown_turnover": {
+          "source": 1,
+          "record_pointer": "/correction",
+          "match": "PARSED_FROM_TEXT",
+          "text": "fail-closed if unknown",
+          "value": "EXCLUDE"
+        },
+        "subscription_scope": {
+          "source": 2,
+          "record_pointer": "/decision/0",
+          "match": "PARSED_FROM_TEXT",
+          "text": "independent of the liquidity floor and of holdings",
+          "value": "EVERY_ADMITTED_P3_12_MARKET"
+        },
+        "not_adopted": {
+          "source": 0,
+          "record_pointer": "/not_adopted",
+          "match": "EXACT",
+          "text": null,
+          "value": "Option A (use ticker message timestamp as provider time) and option C (orderbook liveness) are NOT ratified here."
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "data-source",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": [
+        {
+          "path": "realtime/crypto_realtime_per_market_policy.py",
+          "binds_record_sha256": true
+        },
+        {
+          "path": "config/crypto_realtime_freshness_per_market_policy_ratified.json",
+          "binds_record_sha256": true
+        },
+        {
+          "path": "decision/crypto_paper_decision_snapshot.py",
+          "binds_record_sha256": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RULE.US.SESSION_CALENDAR.V1",
+      "version": 1,
+      "lineage_key": "RULE.US.SESSION_CALENDAR",
+      "status": "RATIFIED",
+      "title_ko": "미국 거래일 달력 출처 (NYSE 공식 + 과거 2출처 일치)",
+      "markets": [
+        "US"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER_ONLY",
+        "REAL": "PROHIBITED_BY_RECORD"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "US-SESSION-CALENDAR-SOURCE-V1-20260914",
+          "repo_path": "evidence/authority/us_session_calendar_source_user_ratification_20260914.json",
+          "original_filename": "USER_RATIFICATION_US_SESSION_CALENDAR_SOURCE_20260914.json",
+          "sha256": "50259dafb000c6027dd44193fa1f38d8b65e9e33661a909df54d34e9443f318e",
+          "bytes": 1681
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/ratified_at_utc",
+        "utc": "2026-09-14T08:25:00Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "sources": {
+          "source": 0,
+          "record_pointer": "/sources",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "official_capture": {
+              "source_id": "NYSE_HOLIDAYS_AND_TRADING_HOURS",
+              "url": "https://www.nyse.com/trade/hours-calendars",
+              "use": "years published on the official page: date-specific capture with raw sha256 (mirror KR official holiday capture); Nasdaq schedule page as cross-check where available"
+            },
+            "historical_two_source": {
+              "use": "years not on the official page (2018 onward to the first official year)",
+              "rule": "a date is a US regular session only when BOTH (a) Alpaca market calendar lists it and (b) SPY has an Alpaca IEX daily bar for that date; early-close flags from the Alpaca calendar recorded but not inferred",
+              "conflict_or_missing": "US_FINISHED_SESSION_UNKNOWN for that date"
+            }
+          }
+        },
+        "prohibitions": {
+          "source": 0,
+          "record_pointer": "/prohibitions",
+          "match": "EXACT",
+          "text": null,
+          "value": [
+            "no weekday/holiday-rule inference",
+            "no single-source historical session",
+            "no use for REAL"
+          ]
+        },
+        "historical_first_year": {
+          "source": 0,
+          "record_pointer": "/sources/historical_two_source/use",
+          "match": "PARSED_FROM_TEXT",
+          "text": "2018 onward",
+          "value": 2018
+        },
+        "conflict_or_missing": {
+          "source": 0,
+          "record_pointer": "/sources/historical_two_source/conflict_or_missing",
+          "match": "EXACT",
+          "text": null,
+          "value": "US_FINISHED_SESSION_UNKNOWN for that date"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "data-source",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": [
+        {
+          "path": "config/us_session_calendar_source_v1.json",
+          "binds_record_sha256": true
+        },
+        {
+          "path": "market_data/us_official_session_calendar.py",
+          "binds_record_sha256": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RULE.CRYPTO.TAXONOMY.ADD_20260914",
+      "version": 1,
+      "lineage_key": "RULE.CRYPTO.TAXONOMY",
+      "status": "RATIFIED",
+      "title_ko": "코인 브레드스 분류 추가 8종 (+ 조건부 LIGHTER)",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER_ONLY",
+        "REAL": "NOT_AUTHORIZED:REAL_UNCHANGED_OR_PROHIBITED_BY_RECORD"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "CRYPTO-BREADTH-TAXONOMY-ADDITIONS-20260914",
+          "repo_path": "evidence/authority/crypto_breadth_taxonomy_additions_user_ratification_20260914.json",
+          "original_filename": "USER_RATIFICATION_CRYPTO_BREADTH_TAXONOMY_ADDITIONS_20260914.json",
+          "sha256": "6ff7f4865db1dde6f61d40ada5c4971ef46f547f30bdab9f635415f0e6e8e931",
+          "bytes": 2227
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/ratified_at_utc",
+        "utc": "2026-09-14T08:35:00Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "additions": {
+          "source": 0,
+          "record_pointer": "/additions",
+          "match": "EXACT",
+          "text": null,
+          "value": [
+            {
+              "asset": "LSK",
+              "classification": "eligible_crypto",
+              "effective_date": "2026-09-14",
+              "identity_note": "Lisk (LSK) as listed on Kraken; Klayr (KLY) is a distinct asset"
+            },
+            {
+              "asset": "SUSHI",
+              "classification": "eligible_crypto",
+              "effective_date": "2026-09-15"
+            },
+            {
+              "asset": "VSN",
+              "classification": "eligible_crypto",
+              "effective_date": "2026-09-15"
+            },
+            {
+              "asset": "TRIA",
+              "classification": "eligible_crypto",
+              "effective_date": "2026-09-15"
+            },
+            {
+              "asset": "ZORA",
+              "classification": "eligible_crypto",
+              "effective_date": "2026-09-15"
+            },
+            {
+              "asset": "XTZ",
+              "classification": "eligible_crypto",
+              "effective_date": "2026-09-15"
+            },
+            {
+              "asset": "KII",
+              "classification": "eligible_crypto",
+              "effective_date": "2026-09-15"
+            },
+            {
+              "asset": "0G",
+              "classification": "eligible_crypto",
+              "effective_date": "2026-09-15"
+            }
+          ]
+        },
+        "conditional": {
+          "source": 0,
+          "record_pointer": "/conditional",
+          "match": "EXACT",
+          "text": null,
+          "value": {
+            "asset": "LIGHTER",
+            "classification": "eligible_crypto",
+            "effective_date_latest": "2026-09-16",
+            "condition": "CIO confirms the Kraken LIGHTER asset identity (Lighter DEX token) from an official Kraken source before registering; if unconfirmed, do not register and report."
+          }
+        },
+        "not_changed": {
+          "source": 0,
+          "record_pointer": "/not_changed",
+          "match": "EXACT",
+          "text": null,
+          "value": "breadth thresholds, top-100 30-day turnover rule, fail-closed TAXONOMY_COVERAGE_UNKNOWN behavior"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "data-source",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": [
+        {
+          "path": "config/crypto_breadth_exclusion_taxonomy.json",
+          "binds_record_sha256": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RULE.ROTATION.CRYPTO.V1",
+      "version": 1,
+      "lineage_key": "RULE.ROTATION.CRYPTO",
+      "status": "RATIFIED",
+      "title_ko": "코인 자금 이동 판정 (BTC/ETH/ALT 30일 강도, 1위 2일 확정)",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:RECORD_SCOPE_NOT_NARROWED",
+        "REAL": "NOT_AUTHORIZED:RECORD_NOT_CHANGED_REAL_ORDER_AUTHORITY"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+          "repo_path": "evidence/authority/capital_rotation_rules_v1_user_ratification_20260915.json",
+          "original_filename": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json",
+          "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "bytes": 2963
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_kst",
+        "utc": "2026-09-14T15:05:00Z",
+        "basis": "KST_MINUTE_TO_UTC"
+      },
+      "key_parameters": {
+        "record_status": {
+          "source": 0,
+          "record_pointer": "/decisions/CRYPTO/status",
+          "match": "EXACT",
+          "text": null,
+          "value": "RATIFIED"
+        },
+        "rules_text": {
+          "source": 0,
+          "record_pointer": "/decisions/CRYPTO/rules",
+          "match": "EXACT",
+          "text": null,
+          "value": "D-3 crypto column: BTC/ETH/ALT vs BTC 30d strength; strong confirmed = rank 1 for 2 consecutive days; released = outside rank 1 for 2 consecutive days or rank 3 once; rising rank display-only; RRG-style lagging warning (N30/M7) display; forward review after 10 confirmed events, revert to display-only if 14d excess after 0.5% cost < 0"
+        },
+        "buckets": {
+          "source": 0,
+          "record_pointer": "/decisions/CRYPTO/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "BTC/ETH/ALT vs BTC 30d strength",
+          "value": {
+            "buckets": [
+              "BTC",
+              "ETH",
+              "ALT"
+            ],
+            "benchmark": "BTC",
+            "strength_lookback_days": 30
+          }
+        },
+        "strong_confirmation": {
+          "source": 0,
+          "record_pointer": "/decisions/CRYPTO/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "strong confirmed = rank 1 for 2 consecutive days",
+          "value": {
+            "rank": 1,
+            "consecutive_days": 2
+          }
+        },
+        "release": {
+          "source": 0,
+          "record_pointer": "/decisions/CRYPTO/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "released = outside rank 1 for 2 consecutive days or rank 3 once",
+          "value": {
+            "outside_rank_1_consecutive_days": 2,
+            "or_rank_3_once": true
+          }
+        },
+        "rising_rank_role": {
+          "source": 0,
+          "record_pointer": "/decisions/CRYPTO/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "rising rank display-only",
+          "value": "DISPLAY_ONLY"
+        },
+        "lagging_warning": {
+          "source": 0,
+          "record_pointer": "/decisions/CRYPTO/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "RRG-style lagging warning (N30/M7) display",
+          "value": {
+            "N": 30,
+            "M": 7,
+            "role": "DISPLAY_ONLY"
+          }
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": [
+        {
+          "trigger_id": "FORWARD_REVIEW_AFTER_10_CONFIRMED_EVENTS",
+          "condition": "확정 강세 사건 10건 후 전방 검토: 비용 0.5% 차감 14일 초과수익 < 0 이면 표시 전용으로 되돌림",
+          "source": 0,
+          "record_pointer": "/decisions/CRYPTO/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "forward review after 10 confirmed events, revert to display-only if 14d excess after 0.5% cost < 0"
+        }
+      ],
+      "trigger_pending_user_confirmation": false,
+      "scorecard_metric_family": "entry",
+      "minimum_sample": {
+        "value": 10,
+        "unit": "confirmed_strength_events",
+        "source": 0,
+        "record_pointer": "/decisions/CRYPTO/rules",
+        "match": "PARSED_FROM_TEXT",
+        "text": "after 10 confirmed events"
+      },
+      "supersedes": null,
+      "implementation_bindings": []
+    },
+    {
+      "rule_id": "RULE.ROTATION.US.V1P",
+      "version": 1,
+      "lineage_key": "RULE.ROTATION.US",
+      "status": "PROVISIONAL",
+      "title_ko": "미국 자금 이동 판정 (SPDR 11개 섹터 ETF 대 SPY 20세션, 잠정)",
+      "markets": [
+        "US"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:RECORD_SCOPE_NOT_NARROWED",
+        "REAL": "NOT_AUTHORIZED:RECORD_NOT_CHANGED_REAL_ORDER_AUTHORITY"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+          "repo_path": "evidence/authority/capital_rotation_rules_v1_user_ratification_20260915.json",
+          "original_filename": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json",
+          "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "bytes": 2963
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_kst",
+        "utc": "2026-09-14T15:05:00Z",
+        "basis": "KST_MINUTE_TO_UTC"
+      },
+      "key_parameters": {
+        "record_status": {
+          "source": 0,
+          "record_pointer": "/decisions/US/status",
+          "match": "EXACT",
+          "text": null,
+          "value": "PROVISIONAL"
+        },
+        "rules_text": {
+          "source": 0,
+          "record_pointer": "/decisions/US/rules",
+          "match": "EXACT",
+          "text": null,
+          "value": "D-3 US column: SPDR 11 sector ETFs vs SPY 20-session strength, top3/bottom3, confirm 2 consecutive top3, release 2 consecutive outside top3 or bottom3 once, rising display-only, evidence-insufficient label; re-study after 1y backfill"
+        },
+        "universe": {
+          "source": 0,
+          "record_pointer": "/decisions/US/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "SPDR 11 sector ETFs vs SPY 20-session strength",
+          "value": {
+            "universe": "SPDR_11_SECTOR_ETFS",
+            "benchmark": "SPY",
+            "strength_lookback_sessions": 20
+          }
+        },
+        "top_bottom_n": {
+          "source": 0,
+          "record_pointer": "/decisions/US/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "top3/bottom3",
+          "value": 3
+        },
+        "strong_confirmation": {
+          "source": 0,
+          "record_pointer": "/decisions/US/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "confirm 2 consecutive top3",
+          "value": {
+            "top_n": 3,
+            "consecutive_sessions": 2
+          }
+        },
+        "release": {
+          "source": 0,
+          "record_pointer": "/decisions/US/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "release 2 consecutive outside top3 or bottom3 once",
+          "value": {
+            "outside_top3_consecutive_sessions": 2,
+            "or_bottom3_once": true
+          }
+        },
+        "rising_role": {
+          "source": 0,
+          "record_pointer": "/decisions/US/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "rising display-only",
+          "value": "DISPLAY_ONLY"
+        },
+        "label": {
+          "source": 0,
+          "record_pointer": "/decisions/US/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "evidence-insufficient label",
+          "value": "EVIDENCE_INSUFFICIENT"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": [
+        {
+          "trigger_id": "RESTUDY_AFTER_1Y_BACKFILL",
+          "condition": "1년치 백필 후 재연구",
+          "source": 0,
+          "record_pointer": "/decisions/US/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "re-study after 1y backfill"
+        }
+      ],
+      "trigger_pending_user_confirmation": false,
+      "scorecard_metric_family": "entry",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": []
+    },
+    {
+      "rule_id": "RULE.ROTATION.KR.V1T",
+      "version": 1,
+      "lineage_key": "RULE.ROTATION.KR",
+      "status": "TEMPORARY",
+      "title_ko": "한국 자금 이동 판정 (확정 46개 섹터, 임시 적용)",
+      "markets": [
+        "KR"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:RECORD_SCOPE_NOT_NARROWED",
+        "REAL": "NOT_AUTHORIZED:RECORD_NOT_CHANGED_REAL_ORDER_AUTHORITY"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+          "repo_path": "evidence/authority/capital_rotation_rules_v1_user_ratification_20260915.json",
+          "original_filename": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json",
+          "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "bytes": 2963
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_kst",
+        "utc": "2026-09-14T15:05:00Z",
+        "basis": "KST_MINUTE_TO_UTC"
+      },
+      "key_parameters": {
+        "record_status": {
+          "source": 0,
+          "record_pointer": "/decisions/KR/status",
+          "match": "EXACT",
+          "text": null,
+          "value": "TEMPORARY"
+        },
+        "rules_text": {
+          "source": 0,
+          "record_pointer": "/decisions/KR/rules",
+          "match": "EXACT",
+          "text": null,
+          "value": "D-3 KR column applied temporarily (ratified 46 sectors, top3/bottom3, 2-consecutive confirmation, release rule, rising display-only) UNTIL KRX sector index history is obtained and rules are re-verified on a 20-session strength basis; KRX history collection requires separate approval"
+        },
+        "sector_count": {
+          "source": 0,
+          "record_pointer": "/decisions/KR/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "ratified 46 sectors",
+          "value": 46
+        },
+        "top_bottom_n": {
+          "source": 0,
+          "record_pointer": "/decisions/KR/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "top3/bottom3",
+          "value": 3
+        },
+        "strong_confirmation_consecutive": {
+          "source": 0,
+          "record_pointer": "/decisions/KR/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "2-consecutive confirmation",
+          "value": 2
+        },
+        "rising_role": {
+          "source": 0,
+          "record_pointer": "/decisions/KR/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "rising display-only",
+          "value": "DISPLAY_ONLY"
+        },
+        "krx_history_collection": {
+          "source": 0,
+          "record_pointer": "/decisions/KR/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "KRX history collection requires separate approval",
+          "value": "SEPARATE_APPROVAL_REQUIRED"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": [
+        {
+          "trigger_id": "EXPIRES_ON_KRX_HISTORY_REVERIFICATION",
+          "condition": "KRX 업종지수 과거 이력 확보 후 20세션 강도 기준으로 재검증할 때까지만 임시 적용",
+          "source": 0,
+          "record_pointer": "/decisions/KR/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "UNTIL KRX sector index history is obtained and rules are re-verified on a 20-session strength basis"
+        }
+      ],
+      "trigger_pending_user_confirmation": false,
+      "scorecard_metric_family": "entry",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": []
+    },
+    {
+      "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+      "version": 1,
+      "lineage_key": "RULE.ROTATION.COMMON_T1T2_NEUTRAL",
+      "status": "RATIFIED",
+      "title_ko": "강세 확정·보유 섹터만 T1 선정·T2 C5 연결, NEUTRAL 시장 신규 매수 제한",
+      "markets": [
+        "US",
+        "KR",
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:RECORD_SCOPE_NOT_NARROWED",
+        "REAL": "NOT_AUTHORIZED:RECORD_NOT_CHANGED_REAL_ORDER_AUTHORITY"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+          "repo_path": "evidence/authority/capital_rotation_rules_v1_user_ratification_20260915.json",
+          "original_filename": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json",
+          "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "bytes": 2963
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_kst",
+        "utc": "2026-09-14T15:05:00Z",
+        "basis": "KST_MINUTE_TO_UTC"
+      },
+      "key_parameters": {
+        "record_status": {
+          "source": 0,
+          "record_pointer": "/decisions/COMMON/status",
+          "match": "EXACT",
+          "text": null,
+          "value": "RATIFIED"
+        },
+        "rules_text": {
+          "source": 0,
+          "record_pointer": "/decisions/COMMON/rules",
+          "match": "EXACT",
+          "text": null,
+          "value": "D-2: only strong confirmed/held sectors feed T1 selection and T2 rotation condition (C5); in NEUTRAL market only strong confirmed/held sectors eligible for new buys; allocation v2 unchanged"
+        },
+        "t1_t2_feed": {
+          "source": 0,
+          "record_pointer": "/decisions/COMMON/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "only strong confirmed/held sectors feed T1 selection and T2 rotation condition (C5)",
+          "value": {
+            "eligible_sector_states": [
+              "STRONG_CONFIRMED",
+              "HELD"
+            ],
+            "feeds": [
+              "T1_SELECTION",
+              "T2_C5"
+            ]
+          }
+        },
+        "neutral_market_new_buys": {
+          "source": 0,
+          "record_pointer": "/decisions/COMMON/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "in NEUTRAL market only strong confirmed/held sectors eligible for new buys",
+          "value": {
+            "market_state": "NEUTRAL",
+            "eligible_sector_states": [
+              "STRONG_CONFIRMED",
+              "HELD"
+            ]
+          }
+        },
+        "allocation_v2_unchanged": {
+          "source": 0,
+          "record_pointer": "/decisions/COMMON/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "allocation v2 unchanged",
+          "value": true
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "gate",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": []
+    },
+    {
+      "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
+      "version": 1,
+      "lineage_key": "RULE.ROTATION.RELEASE_HANDLING",
+      "status": "RATIFIED",
+      "title_ko": "강세 해제 시 신규 매수만 중단, 보유분은 기존 손절·익절",
+      "markets": [
+        "US",
+        "KR",
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:RECORD_SCOPE_NOT_NARROWED",
+        "REAL": "NOT_AUTHORIZED:RECORD_NOT_CHANGED_REAL_ORDER_AUTHORITY"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+          "repo_path": "evidence/authority/capital_rotation_rules_v1_user_ratification_20260915.json",
+          "original_filename": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json",
+          "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "bytes": 2963
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_kst",
+        "utc": "2026-09-14T15:05:00Z",
+        "basis": "KST_MINUTE_TO_UTC"
+      },
+      "key_parameters": {
+        "record_status": {
+          "source": 0,
+          "record_pointer": "/decisions/RELEASE_HANDLING/status",
+          "match": "EXACT",
+          "text": null,
+          "value": "RATIFIED"
+        },
+        "rules_text": {
+          "source": 0,
+          "record_pointer": "/decisions/RELEASE_HANDLING/rules",
+          "match": "EXACT",
+          "text": null,
+          "value": "on strength release: stop new buys only; held positions follow existing stop-loss/take-profit rules (no forced liquidation)"
+        },
+        "on_release_new_buys": {
+          "source": 0,
+          "record_pointer": "/decisions/RELEASE_HANDLING/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "stop new buys only",
+          "value": "STOP_NEW_BUYS_ONLY"
+        },
+        "held_positions": {
+          "source": 0,
+          "record_pointer": "/decisions/RELEASE_HANDLING/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "held positions follow existing stop-loss/take-profit rules (no forced liquidation)",
+          "value": "FOLLOW_EXISTING_STOP_LOSS_TAKE_PROFIT_NO_FORCED_LIQUIDATION"
+        },
+        "user_sentence": {
+          "source": 0,
+          "record_pointer": "/user_sentences_verbatim/0",
+          "match": "PARSED_FROM_TEXT",
+          "text": "강세 해제 시 신규 매수만 중단하고 보유분은 기존 손절·익절 규칙을 따른다.",
+          "value": "VERBATIM"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "exit",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": []
+    },
+    {
+      "rule_id": "RULE.GOVERNANCE.EVIDENCE_GATED.V1",
+      "version": 1,
+      "lineage_key": "RULE.GOVERNANCE.EVIDENCE_GATED",
+      "status": "RATIFIED",
+      "title_ko": "근거 기반 재조정 거버넌스 (사전 등록 트리거, 최소 표본, 규칙 대장·성적표)",
+      "markets": [
+        "US",
+        "KR",
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:SCORECARD_OVER_PAPER_TRADES",
+        "REAL": "APPLIES:SCORECARD_OVER_REAL_TRADES_NO_REAL_AUTHORITY_CHANGE"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915",
+          "repo_path": "evidence/authority/rule_governance_evidence_gated_adjustment_user_ratification_20260915.json",
+          "original_filename": "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json",
+          "sha256": "c3f1e78ca987760af205807f67e9b56e8e7bd0078cbb87ac566b49767a855f9b",
+          "bytes": 1790
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_kst",
+        "utc": "2026-09-14T15:40:00Z",
+        "basis": "KST_MINUTE_TO_UTC"
+      },
+      "key_parameters": {
+        "replaces": {
+          "source": 0,
+          "record_pointer": "/decision/replaces",
+          "match": "EXACT",
+          "text": null,
+          "value": "성과 기반 변경 금지 (Rule Governance v1.0 / #18, 2026-08-02)"
+        },
+        "rules": {
+          "source": 0,
+          "record_pointer": "/decision/rules",
+          "match": "EXACT",
+          "text": null,
+          "value": [
+            "performance-based re-adjustment allowed only when the rule's pre-registered review trigger is met",
+            "add proposal reason #5: 규칙 성적표 기준 미달 (to Bug Fix / Clarification / New Evidence / Conflict Resolution)",
+            "judge only after the rule's minimum sample size",
+            "evaluate only on data after the rule's effective date",
+            "cooling-off period after a rule change before re-adjustment (period to be proposed and 확정)",
+            "process unchanged: CIO proposal with evidence -> user 확정 -> new version; no silent automatic change",
+            "maintain a registry of all 확정 rules and a per-rule scorecard across PAPER and REAL trades with badges 정상/관찰/재조정 검토/되돌림 권고"
+          ]
+        },
+        "readjust_only_on_preregistered_trigger": {
+          "source": 0,
+          "record_pointer": "/decision/rules/0",
+          "match": "PARSED_FROM_TEXT",
+          "text": "only when the rule's pre-registered review trigger is met",
+          "value": true
+        },
+        "judge_only_after_minimum_sample": {
+          "source": 0,
+          "record_pointer": "/decision/rules/2",
+          "match": "PARSED_FROM_TEXT",
+          "text": "judge only after the rule's minimum sample size",
+          "value": true
+        },
+        "evaluate_only_after_effective_date": {
+          "source": 0,
+          "record_pointer": "/decision/rules/3",
+          "match": "PARSED_FROM_TEXT",
+          "text": "evaluate only on data after the rule's effective date",
+          "value": true
+        },
+        "cooling_off_period": {
+          "source": 0,
+          "record_pointer": "/decision/rules/4",
+          "match": "PARSED_FROM_TEXT",
+          "text": "period to be proposed and 확정",
+          "value": "PENDING_USER_CONFIRMATION"
+        },
+        "scorecard_badges": {
+          "source": 0,
+          "record_pointer": "/decision/rules/6",
+          "match": "PARSED_FROM_TEXT",
+          "text": "정상/관찰/재조정 검토/되돌림 권고",
+          "value": [
+            "정상",
+            "관찰",
+            "재조정 검토",
+            "되돌림 권고"
+          ]
+        },
+        "scorecard_trade_scope": {
+          "source": 0,
+          "record_pointer": "/decision/rules/6",
+          "match": "PARSED_FROM_TEXT",
+          "text": "across PAPER and REAL trades",
+          "value": [
+            "PAPER",
+            "REAL"
+          ]
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "governance",
+      "minimum_sample": null,
+      "supersedes": null,
+      "implementation_bindings": []
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "ratification_id": "PAPER-LIQUIDITY-KR-US-V1-20260914",
+  "ratified_at_utc": "2026-09-13T15:35:00Z",
+  "ratified_by": "USER (explicit instruction: '유동성 기준 선택' in reply to CIO proposal '유동성 기준 채택')",
+  "recommended_by": "CLAUDE_CIO",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "scope": "T2 PAPER candidate condition C3 (liquidity) for KR and US. INTERNAL_VIRTUAL_PAPER_ONLY. REAL gets separate stricter limits later.",
+  "basis": "Per-name max 5% of KRW 200,000,000 = about KRW 10,000,000; position must not exceed 1% of 20-session average traded value.",
+  "KR": {
+    "avg_traded_value_20_sessions_krw_min": "1000000000",
+    "last_close_krw_min": "1000",
+    "exclude": [
+      "trading halted",
+      "administrative issue (관리종목)"
+    ],
+    "window": "20 completed KRX sessions; fewer than 20 sessions of history -> NOT_EVALUATED (no T2)"
+  },
+  "US": {
+    "avg_dollar_volume_20_sessions_usd_min": "10000000",
+    "last_close_usd_min": "5",
+    "exclude": [
+      "OTC / non-exchange-listed"
+    ],
+    "window": "20 completed US sessions; fewer than 20 -> NOT_EVALUATED (no T2)"
+  },
+  "CRYPTO": {
+    "unchanged": "previously ratified Upbit 24h traded value >= KRW 5,000,000,000"
+  },
+  "fail_closed": "Missing price history, missing halt/admin/exchange flag, or stale data -> C3 UNKNOWN -> no T2.",
+  "position_cap_link": "PAPER order size for a name is additionally capped at 1% of its 20-session average traded value.",
+  "expected_pass_counts": "estimate only (KR ~1,000, US ~2,000); to be measured once TKT-2 price history lands",
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

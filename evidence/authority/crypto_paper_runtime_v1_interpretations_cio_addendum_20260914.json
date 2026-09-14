@@ -1,0 +1,35 @@
+{
+  "schema_version": "atlas_cio_addendum/1",
+  "addendum_id": "CIO-ADDENDUM-CRYPTO-RUNTIME-V1-INTERPRETATIONS-20260914",
+  "created_at_utc": "2026-09-13T18:40:00Z",
+  "by": "CLAUDE_CIO",
+  "ratification": {
+    "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/USER_RATIFICATION_CRYPTO_PAPER_RUNTIME_V1_20260914.json",
+    "sha256": "e2f9f69461088d52300258ab22f17d7f287bd7c2fd6efd1d49962b44f16fffe1"
+  },
+  "accepted_interpretations": [
+    "Kraken bulk gap 2024-03-31: 89 dependent days UNDEFINED, not filled; replay PASS stands (absence preserved, no range selection)",
+    "Crypto ratified_markets/runtime_authorized_regimes live in config/crypto_paper_runtime_v1.json (shared contracts unchanged to protect KR pins); consumer wiring is a required follow-up before crypto state affects allocation/hedge/portal",
+    "Breadth = previous completed UTC day; chain start 2026-09-14 07:00Z",
+    "Leadership: single official window using existing state logic; MIXED_WINDOW_LEADERSHIP cannot occur; ALT leader from daily-rebalanced equal weight (may differ from descriptive reference)",
+    "7d->30d switch is permanent (literal ratification); one TAXONOMY_COVERAGE_UNKNOWN day after switch blocks 30 days + 5-day re-acceptance",
+    "Acceptance is a rolling 5-consecutive-complete-day requirement; one incomplete day costs ~6 days UNKNOWN (fail-closed)"
+  ],
+  "finding_for_user": {
+    "RISK_VOL_distribution_2019_2026": {
+      "STRESS": 619,
+      "NEGATIVE": 799,
+      "NEUTRAL": 833,
+      "POSITIVE": 382,
+      "UNDEFINED": 89
+    },
+    "confirmed_STRESS_share_diagnostic": "~26% of defined days with missing axes neutral-filled (48% if negative-filled); by year STRESS share 2019 36%, 2020 13%, 2021 38%, 2022 55%, 2023 0%, 2024 0%, 2025 14%",
+    "implication": "under allocation v2 crypto sleeve would be 0% roughly a quarter of the time",
+    "cio_next": "event study of forward BTC returns/drawdowns after RISK_VOL STRESS entries (35 episodes) before proposing the one allowed controlled revision; no numbers changed now"
+  },
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}
