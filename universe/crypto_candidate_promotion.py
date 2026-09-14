@@ -65,6 +65,28 @@ for the full table -- this is the short version):
                       must never do.
   MATERIAL_BLOCKER    FAIL when Upbit caution is active; otherwise UNKNOWN
                       because security/network-outage coverage is missing.
+
+The rows above describe contract/2, which stays the default and
+byte-identical (published decision packets are re-derived by a pinned
+runtime). Contract/3 is opt-in (``build_promotion_packet(...,
+contract_version=3, crypto_runtime_decision=...)``) and changes exactly two
+rows, both bound by hash in ``config/crypto_candidate_promotion_contract_v3.json``:
+
+  REGIME             read from the user-ratified CRYPTO_PAPER_RUNTIME_V1
+                      decision (``regime/crypto_paper_runtime.py``) in force
+                      at the reference instant and mapped through the
+                      PAPER-MARKET-ALLOCATION-V2 new-buy table: RISK_ON and
+                      NEUTRAL (selective) PASS, RISK_OFF and STRESS FAIL,
+                      UNKNOWN / missing / not-current UNKNOWN (no carry).
+                      A KNOWN value never raises.
+  VOLUME_LIQUIDITY   read from the RATIFIED P4-07 policy only (hash-bound;
+                      the proposal file is never read). Ratified thresholds
+                      met on PASS evidence -> PASS; any breach or non-PASS
+                      evidence -> UNKNOWN (P4-07 fail_closed_unknown); an
+                      absent/invalid ratified policy -> UNKNOWN.
+
+TREND, RELATIVE_STRENGTH, OVEREXTENSION and MATERIAL_BLOCKER are unchanged in
+contract/3 and still await user ratification of the candidate rule set.
 --------------------------------------------------------------------------
 """
 from __future__ import annotations
@@ -104,9 +126,50 @@ REGIME_OUTPUT_CONTRACT = _load("crypto_candidate_promotion_regime_output_contrac
 CRYPTO_LEADERSHIP = _load("crypto_candidate_promotion_leadership", ".github/scripts/crypto_leadership.py")
 MARKET_EVIDENCE = _load("crypto_candidate_promotion_market_evidence", "microstructure/upbit_market_evidence.py")
 
+# Loaded only on the opt-in contract/3 path, so the default contract/2 import
+# graph (and every byte it produces) is exactly what it was.
+_CRYPTO_RUNTIME_MODULE = None
+
+
+def _crypto_runtime():
+    global _CRYPTO_RUNTIME_MODULE
+    if _CRYPTO_RUNTIME_MODULE is None:
+        _CRYPTO_RUNTIME_MODULE = _load(
+            "crypto_candidate_promotion_crypto_paper_runtime", "regime/crypto_paper_runtime.py",
+        )
+    return _CRYPTO_RUNTIME_MODULE
+
 
 CONTRACT_PATH = ROOT / "config" / "crypto_candidate_promotion_contract.json"
 OUTPUT_SCHEMA_VERSION = "crypto_candidate_promotion_packet/2"
+
+# Opt-in contract/3 (ratified P4-07 reader + CRYPTO_PAPER_RUNTIME_V1 regime).
+CONTRACT_V3_PATH = ROOT / "config" / "crypto_candidate_promotion_contract_v3.json"
+CONTRACT_V3_SHA256 = "8e7cca83d13a792f2e300e993eb77a48ce079817d701af1b3dc1026732b79fd8"
+OUTPUT_SCHEMA_VERSION_V3 = "crypto_candidate_promotion_packet/3"
+CONTRACT_VERSIONS = (2, 3)
+
+# PAPER-MARKET-ALLOCATION-V2-20260913 (record sha256 345801ab...) crypto rows,
+# verbatim: (criterion status, new_buys_by_market_state,
+# per_market_state_multiplier_of_base, UNKNOWN hold-current cap). The v3
+# contract file must carry exactly these; the code never follows a changed
+# number silently.
+ALLOCATION_V2_RATIFICATION_ID = "PAPER-MARKET-ALLOCATION-V2-20260913"
+ALLOCATION_V2_RECORD_SHA256 = "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8"
+REGIME_GATE_V3 = {
+    "RISK_ON": ("PASS", "PERMIT", "1.00", None),
+    "NEUTRAL": ("PASS", "PERMIT_SELECTIVE", "0.70", None),
+    "RISK_OFF": ("FAIL", "DENY", "0.25", None),
+    "STRESS": ("FAIL", "DENY", "0.00", None),
+    "UNKNOWN": ("UNKNOWN", "DENY", None, "0.50"),
+}
+CRYPTO_RUNTIME_DECISION_KEYS = frozenset({
+    "schema_version", "market", "evaluation_at", "code_revision", "policy_identity",
+    "policy_sha256", "scope", "evidence_class", "current_decision_date", "decision_at",
+    "decision_status", "paper_regime", "runtime_regime", "direction", "confidence",
+    "runtime_decision_available", "acceptance", "current_observation", "chain",
+    "aggregation", "reasons", "caveats", "authority", "decision_id",
+})
 
 STATE_WATCH = "WATCH"
 STATE_FOCUSED_REVIEW = "FOCUSED_REVIEW"
@@ -178,6 +241,75 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
             raise CryptoCandidatePromotionError(f"CONTRACT_AUTHORITY_NOT_FALSE:{key}")
     if set(value.get("authority", {})) != set(_ROW_AUTHORITY):
         raise CryptoCandidatePromotionError("CONTRACT_FIELD_MISMATCH:authority_keys")
+    return copy.deepcopy(value)
+
+
+def load_contract_v3(path: Path = CONTRACT_V3_PATH) -> dict:
+    """Load the hash-pinned opt-in contract/3 and prove every binding it names."""
+    try:
+        raw = Path(path).read_bytes()
+    except OSError as exc:
+        raise CryptoCandidatePromotionError(f"CONTRACT_V3_READ_FAILED:{exc}") from exc
+    if hashlib.sha256(raw).hexdigest() != CONTRACT_V3_SHA256:
+        raise CryptoCandidatePromotionError("CONTRACT_V3_HASH_MISMATCH")
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CryptoCandidatePromotionError(f"CONTRACT_V3_JSON_INVALID:{exc}") from exc
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != 3
+        or value.get("contract_version") != "crypto_candidate_promotion_contract/3"
+    ):
+        raise CryptoCandidatePromotionError("CONTRACT_V3_FIELD_MISMATCH:contract_version")
+    if tuple(value.get("criteria", [])) != CRITERIA:
+        raise CryptoCandidatePromotionError("CONTRACT_V3_FIELD_MISMATCH:criteria")
+    if tuple(value.get("criterion_statuses", [])) != CRITERION_STATUSES:
+        raise CryptoCandidatePromotionError("CONTRACT_V3_FIELD_MISMATCH:criterion_statuses")
+    if tuple(value.get("promotion_states", [])) != PROMOTION_STATES:
+        raise CryptoCandidatePromotionError("CONTRACT_V3_FIELD_MISMATCH:promotion_states")
+    authority = value.get("authority", {})
+    if set(authority) != set(_ROW_AUTHORITY) or any(item is not False for item in authority.values()):
+        raise CryptoCandidatePromotionError("CONTRACT_V3_AUTHORITY_NOT_FALSE")
+    gate = value.get("regime_gate") or {}
+    expected_states = {
+        state: {
+            "criterion_status": status,
+            "new_buys": new_buys,
+            "state_multiplier_of_base": multiplier,
+            "hold_current_max_multiplier_of_base": hold_cap,
+        }
+        for state, (status, new_buys, multiplier, hold_cap) in REGIME_GATE_V3.items()
+    }
+    if (
+        gate.get("market") != "CRYPTO"
+        or gate.get("source_ratification_id") != ALLOCATION_V2_RATIFICATION_ID
+        or gate.get("source_record_sha256") != ALLOCATION_V2_RECORD_SHA256
+        or gate.get("states") != expected_states
+    ):
+        raise CryptoCandidatePromotionError("CONTRACT_V3_REGIME_GATE_NOT_RATIFIED")
+    runtime = _crypto_runtime()
+    source = value.get("regime_source") or {}
+    if (
+        source.get("decision_schema_version") != runtime.SCHEMA_VERSION
+        or source.get("policy_sha256") != runtime.POLICY_SHA256
+        or source.get("ratification_identity") != runtime.RATIFICATION_IDENTITY
+        or source.get("ratification_record_sha256") != runtime.RATIFICATION_RECORD_SHA256
+    ):
+        raise CryptoCandidatePromotionError("CONTRACT_V3_REGIME_SOURCE_BINDING_MISMATCH")
+    evidence_policy = value.get("market_evidence_policy") or {}
+    try:
+        evidence_contract = MARKET_EVIDENCE.load_contract()
+    except MARKET_EVIDENCE.MarketEvidenceError as exc:
+        raise CryptoCandidatePromotionError(f"CONTRACT_V3_MARKET_EVIDENCE_CONTRACT_INVALID:{exc}") from exc
+    if (
+        evidence_policy.get("path") != "config/upbit_market_evidence_policy_ratified.json"
+        or evidence_policy.get("proposal_policy_read") is not False
+        or evidence_policy.get("policy_id") != evidence_contract.get("ratified_policy_id")
+        or evidence_policy.get("policy_version") != evidence_contract.get("ratified_policy_version")
+        or evidence_policy.get("packet_sha256") != evidence_contract.get("ratified_policy_sha256")
+    ):
+        raise CryptoCandidatePromotionError("CONTRACT_V3_MARKET_EVIDENCE_POLICY_BINDING_MISMATCH")
     return copy.deepcopy(value)
 
 
@@ -320,7 +452,21 @@ def _validate_universe_packet(packet: dict, evaluation_as_of: str) -> dict:
     return copy.deepcopy(packet)
 
 
-def _validate_market_evidence_packet(packet: dict, market: str, evaluation_as_of: str) -> dict:
+_LEGACY_POLICY_RESOLUTION = object()
+
+
+def _validate_market_evidence_packet(
+    packet: dict, market: str, evaluation_as_of: str, *,
+    ratified_policy=_LEGACY_POLICY_RESOLUTION,
+) -> dict:
+    """Validate one P4-07 packet at the consumer boundary.
+
+    ``ratified_policy`` is contract/3 only: the already hash-bound ratified
+    policy (or ``None`` when it is absent/invalid). On that path the proposal
+    policy file is never read; a packet that cannot be pinned to the ratified
+    policy stays structurally validated and its VOLUME_LIQUIDITY criterion is
+    UNKNOWN. The default keeps the contract/2 resolution unchanged.
+    """
     expected_keys = {
         "schema_version", "market", "as_of", "captured_at", "policy_version",
         "policy_ratified", "candles", "trades", "orderbook", "authority", "payload_sha256",
@@ -337,18 +483,32 @@ def _validate_market_evidence_packet(packet: dict, market: str, evaluation_as_of
     # packet fail closed as a status mismatch.  Loading the ratified path here
     # also preserves its exact-hash/contract-pin validation; a packet cannot
     # self-assert ratification and bypass that check.
-    if packet["policy_ratified"] is True:
-        policy = MARKET_EVIDENCE.load_ratified_policy()
-    elif packet["policy_ratified"] is False:
-        policy = MARKET_EVIDENCE.load_policy()
+    if ratified_policy is _LEGACY_POLICY_RESOLUTION:
+        if packet["policy_ratified"] is True:
+            policy = MARKET_EVIDENCE.load_ratified_policy()
+        elif packet["policy_ratified"] is False:
+            policy = MARKET_EVIDENCE.load_policy()
+        else:
+            raise CryptoCandidatePromotionError(
+                f"MARKET_EVIDENCE_POLICY_STATUS_MISMATCH:{market}"
+            )
+        if packet["policy_version"] != policy.get("policy_version"):
+            raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_POLICY_PIN_MISMATCH:{market}")
+        if packet["policy_ratified"] is not (policy.get("approval_status") == "RATIFIED"):
+            raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_POLICY_STATUS_MISMATCH:{market}")
     else:
-        raise CryptoCandidatePromotionError(
-            f"MARKET_EVIDENCE_POLICY_STATUS_MISMATCH:{market}"
-        )
-    if packet["policy_version"] != policy.get("policy_version"):
-        raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_POLICY_PIN_MISMATCH:{market}")
-    if packet["policy_ratified"] is not (policy.get("approval_status") == "RATIFIED"):
-        raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_POLICY_STATUS_MISMATCH:{market}")
+        if packet["policy_ratified"] not in (True, False):
+            raise CryptoCandidatePromotionError(
+                f"MARKET_EVIDENCE_POLICY_STATUS_MISMATCH:{market}"
+            )
+        if not isinstance(packet["policy_version"], str) or not packet["policy_version"]:
+            raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_POLICY_PIN_MISMATCH:{market}")
+        if (
+            packet["policy_ratified"] is True
+            and ratified_policy is not None
+            and packet["policy_version"] != ratified_policy.get("policy_version")
+        ):
+            raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_POLICY_PIN_MISMATCH:{market}")
     as_of = _parse_utc(packet["as_of"], f"market_evidence.{market}.as_of")
     captured_at = _parse_utc(packet["captured_at"], f"market_evidence.{market}.captured_at")
     evaluation_end = dt.datetime.combine(_parse_date(evaluation_as_of, "evaluation_as_of"), dt.time.max, tzinfo=dt.timezone.utc)
@@ -560,6 +720,263 @@ def evaluate_volume_liquidity(market: str, market_evidence_packet: dict | None) 
     )
 
 
+def load_ratified_market_evidence_policy(contract_v3: dict) -> tuple[dict | None, str | None]:
+    """Contract/3 P4-07 reader: the ratified policy only, bound by hash.
+
+    Returns ``(policy, None)`` or ``(None, reason)``. Absence or any
+    validation failure is a named UNKNOWN reason, never a fallback to the
+    proposal file and never an exception that aborts the whole packet.
+    """
+    try:
+        policy = MARKET_EVIDENCE.load_ratified_policy()
+    except MARKET_EVIDENCE.MarketEvidenceError as exc:
+        return None, "P4_07_RATIFIED_POLICY_UNAVAILABLE:" + str(exc).split(":", 1)[0]
+    binding = contract_v3["market_evidence_policy"]
+    if (
+        policy.get("packet_sha256") != binding["packet_sha256"]
+        or policy.get("policy_id") != binding["policy_id"]
+        or policy.get("policy_version") != binding["policy_version"]
+    ):
+        return None, "P4_07_RATIFIED_POLICY_UNAVAILABLE:CONTRACT_V3_BINDING_MISMATCH"
+    return copy.deepcopy(policy), None
+
+
+def _decimal_or_none(value) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return number if number.is_finite() else None
+
+
+def evaluate_volume_liquidity_ratified(
+    market: str,
+    market_evidence_packet: dict | None,
+    *,
+    ratified_policy: dict | None,
+    policy_unavailable_reason: str | None,
+) -> dict:
+    """Contract/3 VOLUME_LIQUIDITY over the ratified P4-07 thresholds.
+
+    PASS only when the packet is bound to the ratified policy, captured
+    inside its effective window, and every ratified threshold is met on PASS
+    evidence. A breach or non-PASS evidence keeps P4-07's own
+    ``fail_closed_unknown`` meaning (UNKNOWN with reasons), never FAIL.
+    """
+    if market_evidence_packet is None:
+        return _criterion("UNKNOWN", "MARKET_EVIDENCE_PACKET_MISSING")
+    if market_evidence_packet.get("market") != market:
+        raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_PACKET_MARKET_MISMATCH:{market}")
+    candles = market_evidence_packet.get("candles") or {}
+    price_family_present = bool((candles.get("1d") or {}).get("finalized_candle_count")) and bool(
+        (candles.get("4h") or {}).get("finalized_candle_count")
+    )
+    orderbook = market_evidence_packet.get("orderbook") or {}
+    trades = market_evidence_packet.get("trades") or {}
+    liquidity_family_present = orderbook.get("best_bid") is not None and orderbook.get("best_ask") is not None
+    volume_family_present = bool(trades.get("trade_count"))
+    families = {
+        "price_family_present": price_family_present,
+        "liquidity_family_present": liquidity_family_present,
+        "volume_family_present": volume_family_present,
+    }
+    if not (price_family_present and liquidity_family_present and volume_family_present):
+        return _criterion("UNKNOWN", "EVIDENCE_FAMILY_INCOMPLETE", **families)
+    if ratified_policy is None:
+        return _criterion(
+            "UNKNOWN", policy_unavailable_reason or "P4_07_RATIFIED_POLICY_UNAVAILABLE", **families,
+        )
+    policy_sha256 = ratified_policy.get("packet_sha256")
+    if market_evidence_packet.get("policy_ratified") is not True:
+        return _criterion(
+            "UNKNOWN", "MARKET_EVIDENCE_PACKET_NOT_BOUND_TO_RATIFIED_POLICY",
+            policy_packet_sha256=policy_sha256, **families,
+        )
+    captured_at = _parse_utc(market_evidence_packet.get("captured_at"), f"market_evidence.{market}.captured_at")
+    effective_from = _parse_utc(ratified_policy.get("effective_from_utc"), "p4_07.effective_from_utc")
+    effective_to = _parse_utc(ratified_policy.get("effective_to_utc"), "p4_07.effective_to_utc")
+    if not effective_from <= captured_at <= effective_to:
+        return _criterion(
+            "UNKNOWN", "MARKET_EVIDENCE_CAPTURED_OUTSIDE_RATIFIED_POLICY_WINDOW",
+            policy_packet_sha256=policy_sha256, **families,
+        )
+
+    reasons = []
+    for timeframe in ("1d", "4h"):
+        evidence = candles.get(timeframe) or {}
+        if evidence.get("evidence_status") != "PASS":
+            reasons.extend(
+                f"{timeframe}:{reason}" for reason in (evidence.get("fail_closed_reasons") or ["EVIDENCE_NOT_PASS"])
+            )
+    if trades.get("evidence_status") != "PASS":
+        reasons.extend(f"TRADES:{reason}" for reason in (trades.get("fail_closed_reasons") or ["EVIDENCE_NOT_PASS"]))
+    orderbook_status = (orderbook.get("freshness") or {}).get("status")
+    if orderbook_status != "FRESH":
+        reasons.append(f"ORDERBOOK_{orderbook_status}")
+    depth_levels = ratified_policy["orderbook_depth_levels"]
+    if ((orderbook.get("depth") or {}).get("levels_available") or 0) < depth_levels:
+        reasons.append("ORDERBOOK_DEPTH_LEVELS_PARTIAL")
+    notional = _decimal_or_none(orderbook.get("slippage_estimate_notional_krw"))
+    if notional is None or notional != Decimal(str(ratified_policy["paper_slippage_estimate_notional_krw"])):
+        reasons.append("SLIPPAGE_NOTIONAL_NOT_RATIFIED")
+    max_spread = Decimal(str(ratified_policy["max_spread_bps_normal"]))
+    max_slippage = Decimal(str(ratified_policy["max_slippage_bps_normal"]))
+    spread_bps = _decimal_or_none(orderbook.get("spread_bps"))
+    slippage_bps = _decimal_or_none(orderbook.get("slippage_bps"))
+    if spread_bps is None:
+        reasons.append("SPREAD_NOT_COMPUTABLE")
+    elif spread_bps > max_spread:
+        reasons.append("SPREAD_ABOVE_RATIFIED_MAX")
+    if slippage_bps is None:
+        reasons.append("SLIPPAGE_NOT_COMPUTABLE")
+    elif slippage_bps > max_slippage:
+        reasons.append("SLIPPAGE_ABOVE_RATIFIED_MAX")
+
+    measured = {
+        "spread_bps": orderbook.get("spread_bps"),
+        "slippage_bps": orderbook.get("slippage_bps"),
+        "slippage_estimate_notional_krw": orderbook.get("slippage_estimate_notional_krw"),
+        "max_spread_bps_normal": str(ratified_policy["max_spread_bps_normal"]),
+        "max_slippage_bps_normal": str(ratified_policy["max_slippage_bps_normal"]),
+        "policy_packet_sha256": policy_sha256,
+    }
+    if reasons:
+        return _criterion(
+            "UNKNOWN", "P4_07_RATIFIED_EVIDENCE_NOT_PASSED",
+            ratified_evidence_reasons=sorted(set(reasons)), **measured, **families,
+        )
+    return _criterion("PASS", "P4_07_RATIFIED_THRESHOLDS_MET", **measured, **families)
+
+
+def _validate_crypto_runtime_decision(decision: object, contract_v3: dict) -> dict:
+    """Integrity boundary for a CRYPTO_PAPER_RUNTIME_V1 decision packet.
+
+    Checks schema, exact key set, content-addressed ``decision_id``, the
+    hash-bound ratified policy identity, authority, and that a KNOWN regime is
+    only ever a fully accepted, classified decision. Full rederivation needs
+    the day records and stays the publisher's job
+    (``regime/crypto_paper_runtime_publication.py``).
+    """
+    runtime = _crypto_runtime()
+    if not isinstance(decision, dict) or set(decision) != CRYPTO_RUNTIME_DECISION_KEYS:
+        raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_DECISION_SCHEMA_MISMATCH")
+    unsigned = {key: value for key, value in decision.items() if key != "decision_id"}
+    if decision["decision_id"] != "crypto-paper-regime:" + runtime.payload_sha256(unsigned):
+        raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_DECISION_ID_MISMATCH")
+    source = contract_v3["regime_source"]
+    if (
+        decision["schema_version"] != source["decision_schema_version"]
+        or decision["market"] != "CRYPTO"
+        or decision["policy_identity"] != source["ratification_identity"]
+        or decision["policy_sha256"] != source["policy_sha256"]
+        or decision["scope"] != "CRYPTO_INTERNAL_VIRTUAL_PAPER_ONLY"
+    ):
+        raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_DECISION_IDENTITY_MISMATCH")
+    evaluation_at = _parse_utc(decision["evaluation_at"], "crypto_runtime.evaluation_at")
+    regime = decision["runtime_regime"]
+    if regime not in REGIME_GATE_V3:
+        raise CryptoCandidatePromotionError(f"CRYPTO_RUNTIME_REGIME_VALUE_INVALID:{regime}")
+    authority = decision["authority"]
+    known = regime != "UNKNOWN"
+    if (
+        not isinstance(authority, dict)
+        or set(authority) != set(runtime.AUTHORITY_CLOSED)
+        or authority.get("paper_runtime_display_authorized") is not known
+        or any(value is not False for key, value in authority.items() if key != "paper_runtime_display_authorized")
+    ):
+        raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_DECISION_AUTHORITY_INVALID")
+    decision_date = decision["current_decision_date"]
+    if decision_date is not None:
+        expected_date = runtime.current_decision_date(evaluation_at)
+        if (
+            decision_date != expected_date.isoformat()
+            or decision["decision_at"] != runtime.utc_text(runtime.decision_at_for(expected_date))
+        ):
+            raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_DECISION_DATE_INCONSISTENT")
+    if known:
+        acceptance = decision["acceptance"] or {}
+        aggregation = decision["aggregation"] or {}
+        if not (
+            decision["decision_status"] == "PAPER_RUNTIME_CLASSIFIED"
+            and decision["paper_regime"] == regime
+            and decision["runtime_decision_available"] is True
+            and decision["reasons"] == []
+            and decision["evidence_class"] == runtime.LIVE_NATURAL
+            and decision_date is not None
+            and acceptance.get("status") == runtime.ACCEPTED
+            and aggregation.get("final_regime") == regime
+        ):
+            raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_KNOWN_DECISION_INCONSISTENT")
+    elif not (
+        decision["runtime_decision_available"] is False
+        and decision["paper_regime"] == "UNKNOWN"
+        and decision["confidence"] is None
+    ):
+        raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_UNKNOWN_DECISION_INCONSISTENT")
+    return copy.deepcopy(decision)
+
+
+def _regime_gate_criterion(effective_regime: str, reason: str, **extra) -> dict:
+    status, new_buys, multiplier, hold_cap = REGIME_GATE_V3[effective_regime]
+    return _criterion(
+        status, reason,
+        effective_regime=effective_regime,
+        new_buys=new_buys,
+        state_multiplier_of_base=multiplier,
+        hold_current_max_multiplier_of_base=hold_cap,
+        gate_source_ratification_id=ALLOCATION_V2_RATIFICATION_ID,
+        **extra,
+    )
+
+
+def evaluate_crypto_runtime_regime(runtime_decision: dict | None, *, reference_at: str) -> dict:
+    """Contract/3 REGIME: the CRYPTO_PAPER_RUNTIME_V1 decision in force at
+    ``reference_at`` mapped through the allocation-v2 new-buy table.
+
+    ``runtime_decision`` must already have passed
+    ``_validate_crypto_runtime_decision``. Every KNOWN value maps; nothing
+    here raises for a valid KNOWN regime. A decision computed after
+    ``reference_at`` is lookahead and raises. A decision for an earlier UTC
+    decision date is not carried: UNKNOWN.
+    """
+    reference = _parse_utc(reference_at, "regime.reference_at")
+    runtime = _crypto_runtime()
+    expected_date = runtime.current_decision_date(reference).isoformat()
+    if runtime_decision is None:
+        return _regime_gate_criterion(
+            "UNKNOWN", "CRYPTO_RUNTIME_DECISION_MISSING",
+            source_runtime_regime=None, runtime_decision_id=None,
+            runtime_decision_date=None, expected_decision_date=expected_date, runtime_reasons=[],
+        )
+    if _parse_utc(runtime_decision["evaluation_at"], "crypto_runtime.evaluation_at") > reference:
+        raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_DECISION_LOOKAHEAD")
+    source_regime = runtime_decision["runtime_regime"]
+    lineage = {
+        "source_runtime_regime": source_regime,
+        "runtime_decision_id": runtime_decision["decision_id"],
+        "runtime_decision_date": runtime_decision["current_decision_date"],
+        "expected_decision_date": expected_date,
+    }
+    if runtime_decision["current_decision_date"] != expected_date:
+        return _regime_gate_criterion(
+            "UNKNOWN",
+            f"CRYPTO_RUNTIME_DECISION_NOT_CURRENT:{runtime_decision['current_decision_date']}",
+            runtime_reasons=list(runtime_decision["reasons"]), **lineage,
+        )
+    if source_regime != "UNKNOWN" and source_regime not in runtime.load_runtime_authorized_regimes():
+        return _regime_gate_criterion(
+            "UNKNOWN", "CRYPTO_RUNTIME_POLICY_UNAVAILABLE",
+            runtime_reasons=list(runtime_decision["reasons"]), **lineage,
+        )
+    new_buys = REGIME_GATE_V3[source_regime][1]
+    return _regime_gate_criterion(
+        source_regime, f"CRYPTO_RUNTIME_REGIME:{source_regime}:NEW_BUYS_{new_buys}",
+        runtime_reasons=list(runtime_decision["reasons"]), **lineage,
+    )
+
+
 def evaluate_overextension() -> dict:
     """See module docstring's OVEREXTENSION row: no mechanical or ratified
     definition of "과열·급등 추격" exists anywhere in this repository.
@@ -634,6 +1051,10 @@ def evaluate_candidate(
         market_evidence_packet=market_evidence_packet,
         leadership_output=leadership_output,
     )
+    return _candidate_row(universe_row, criteria)
+
+
+def _candidate_row(universe_row: dict, criteria: dict) -> dict:
     state, reason = aggregate_state(criteria)
     return {
         "market": universe_row["market"],
@@ -646,6 +1067,36 @@ def evaluate_candidate(
     }
 
 
+def evaluate_candidate_v3(
+    universe_row: dict,
+    *,
+    regime_criterion: dict,
+    market_evidence_packet: dict | None,
+    leadership_output: dict | None,
+    ratified_policy: dict | None,
+    policy_unavailable_reason: str | None,
+) -> dict:
+    """Contract/3 row: REGIME and VOLUME_LIQUIDITY replaced, the other six
+    evaluators reused unchanged."""
+    market = universe_row["market"]
+    criteria = {
+        "IDENTITY": evaluate_identity(universe_row),
+        "TRADABILITY": evaluate_tradability(universe_row),
+        "REGIME": copy.deepcopy(regime_criterion),
+        "TREND": evaluate_trend(market, market_evidence_packet),
+        "RELATIVE_STRENGTH": evaluate_relative_strength(
+            universe_row.get("candidate_canonical_asset_id"), leadership_output
+        ),
+        "VOLUME_LIQUIDITY": evaluate_volume_liquidity_ratified(
+            market, market_evidence_packet,
+            ratified_policy=ratified_policy, policy_unavailable_reason=policy_unavailable_reason,
+        ),
+        "OVEREXTENSION": evaluate_overextension(),
+        "MATERIAL_BLOCKER": evaluate_material_blocker(universe_row),
+    }
+    return _candidate_row(universe_row, criteria)
+
+
 def build_promotion_packet(
     universe_packet: dict,
     regime_payload: dict,
@@ -653,12 +1104,28 @@ def build_promotion_packet(
     leadership_output: dict | None,
     *,
     evaluation_as_of: str,
+    contract_version: int = 2,
+    crypto_runtime_decision: dict | None = None,
 ) -> dict:
     """Pure derivation over four already-built, already-timestamped
     upstream evidence packets. Deterministic: the same inputs always
     produce byte-identical output (no wall-clock or random value is read
     inside this function).
+
+    ``contract_version=2`` (default) is the unchanged
+    ``crypto_candidate_promotion_packet/2`` derivation. ``contract_version=3``
+    additionally consumes ``crypto_runtime_decision`` (a
+    ``crypto_paper_runtime_decision/1`` packet or ``None``) for REGIME,
+    reads VOLUME_LIQUIDITY from the ratified P4-07 policy only, and emits
+    ``crypto_candidate_promotion_packet/3``. The regime reference instant is
+    the validated P1-CR-08 envelope's ``generated_at``.
     """
+    if contract_version not in CONTRACT_VERSIONS or type(contract_version) is not int:
+        raise CryptoCandidatePromotionError(f"CONTRACT_VERSION_UNSUPPORTED:{contract_version!r}")
+    v3 = contract_version == 3
+    if not v3 and crypto_runtime_decision is not None:
+        raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_DECISION_REQUIRES_CONTRACT_V3")
+    contract_v3 = load_contract_v3() if v3 else None
     _parse_date(evaluation_as_of, "evaluation_as_of")
     universe_packet = _validate_universe_packet(universe_packet, evaluation_as_of)
     try:
@@ -683,10 +1150,26 @@ def build_promotion_packet(
     universe_markets = {row["market"] for row in universe_packet["markets"]}
     if any(not isinstance(market, str) or market not in universe_markets for market in market_evidence_by_market):
         raise CryptoCandidatePromotionError("MARKET_EVIDENCE_OUT_OF_UNIVERSE")
-    normalized_market_evidence = {
-        market: _validate_market_evidence_packet(packet, market, evaluation_as_of)
-        for market, packet in sorted(market_evidence_by_market.items())
-    }
+    if v3:
+        ratified_policy, policy_unavailable_reason = load_ratified_market_evidence_policy(contract_v3)
+        normalized_market_evidence = {
+            market: _validate_market_evidence_packet(
+                packet, market, evaluation_as_of, ratified_policy=ratified_policy,
+            )
+            for market, packet in sorted(market_evidence_by_market.items())
+        }
+        normalized_runtime = (
+            _validate_crypto_runtime_decision(crypto_runtime_decision, contract_v3)
+            if crypto_runtime_decision is not None else None
+        )
+        regime_criterion = evaluate_crypto_runtime_regime(
+            normalized_runtime, reference_at=regime_payload["generated_at"],
+        )
+    else:
+        normalized_market_evidence = {
+            market: _validate_market_evidence_packet(packet, market, evaluation_as_of)
+            for market, packet in sorted(market_evidence_by_market.items())
+        }
     normalized_leadership = (
         _validate_leadership_output(leadership_output, evaluation_as_of)
         if leadership_output is not None else None
@@ -696,30 +1179,45 @@ def build_promotion_packet(
     for row in universe_packet.get("markets", []):
         if row.get("state") not in (UPBIT_UNIVERSE.STATE_TRADEABLE_UNIVERSE, UPBIT_UNIVERSE.STATE_PAPER_ELIGIBLE):
             continue
-        rows.append(
-            evaluate_candidate(
-                row,
-                regime_payload=regime_payload,
-                market_evidence_packet=normalized_market_evidence.get(row["market"]),
-                leadership_output=normalized_leadership,
+        if v3:
+            rows.append(
+                evaluate_candidate_v3(
+                    row,
+                    regime_criterion=regime_criterion,
+                    market_evidence_packet=normalized_market_evidence.get(row["market"]),
+                    leadership_output=normalized_leadership,
+                    ratified_policy=ratified_policy,
+                    policy_unavailable_reason=policy_unavailable_reason,
+                )
             )
-        )
+        else:
+            rows.append(
+                evaluate_candidate(
+                    row,
+                    regime_payload=regime_payload,
+                    market_evidence_packet=normalized_market_evidence.get(row["market"]),
+                    leadership_output=normalized_leadership,
+                )
+            )
 
+    source_packets = {
+        "universe": copy.deepcopy(universe_packet),
+        "regime": copy.deepcopy(regime_payload),
+        "market_evidence_by_market": copy.deepcopy(normalized_market_evidence),
+        "leadership": copy.deepcopy(normalized_leadership),
+    }
+    if v3:
+        source_packets["crypto_runtime_decision"] = copy.deepcopy(normalized_runtime)
     packet = {
-        "schema_version": OUTPUT_SCHEMA_VERSION,
-        "contract_version": load_contract()["contract_version"],
+        "schema_version": OUTPUT_SCHEMA_VERSION_V3 if v3 else OUTPUT_SCHEMA_VERSION,
+        "contract_version": (contract_v3 if v3 else load_contract())["contract_version"],
         "evaluation_as_of": evaluation_as_of,
         "universe_snapshot_date": universe_packet.get("snapshot_date"),
         "universe_manifest_sha256": universe_packet.get("manifest_sha256"),
         "regime_contract_version": regime_payload.get("contract_version"),
         "regime_generated_at": regime_payload.get("generated_at"),
         "leadership_as_of_date": (leadership_output or {}).get("as_of_date"),
-        "source_packets": {
-            "universe": copy.deepcopy(universe_packet),
-            "regime": copy.deepcopy(regime_payload),
-            "market_evidence_by_market": copy.deepcopy(normalized_market_evidence),
-            "leadership": copy.deepcopy(normalized_leadership),
-        },
+        "source_packets": source_packets,
         "candidates": rows,
         "summary": {
             "candidate_count": len(rows),
@@ -747,24 +1245,36 @@ def validate_output(packet: dict) -> dict:
     }
     if not isinstance(packet, dict) or set(packet) != expected_keys:
         raise CryptoCandidatePromotionError("OUTPUT_SCHEMA_MISMATCH")
-    if packet.get("schema_version") != OUTPUT_SCHEMA_VERSION:
+    schema_version = packet.get("schema_version")
+    if schema_version == OUTPUT_SCHEMA_VERSION:
+        contract_version = 2
+        contract = load_contract()
+    elif schema_version == OUTPUT_SCHEMA_VERSION_V3:
+        contract_version = 3
+        contract = load_contract_v3()
+    else:
         raise CryptoCandidatePromotionError("OUTPUT_SCHEMA_VERSION_MISMATCH")
-    contract = load_contract()
     if packet.get("contract_version") != contract["contract_version"]:
         raise CryptoCandidatePromotionError("OUTPUT_CONTRACT_VERSION_MISMATCH")
     _validate_payload_hash(packet, "promotion_output")
     _require_false_authority(packet.get("authority"), _ROW_AUTHORITY, "promotion_output")
     sources = packet.get("source_packets")
-    if not isinstance(sources, dict) or set(sources) != {
-        "universe", "regime", "market_evidence_by_market", "leadership"
-    }:
+    expected_sources = {"universe", "regime", "market_evidence_by_market", "leadership"}
+    if contract_version == 3:
+        expected_sources.add("crypto_runtime_decision")
+    if not isinstance(sources, dict) or set(sources) != expected_sources:
         raise CryptoCandidatePromotionError("OUTPUT_SOURCE_PACKETS_INVALID")
+    extra = (
+        {"contract_version": 3, "crypto_runtime_decision": sources["crypto_runtime_decision"]}
+        if contract_version == 3 else {}
+    )
     rebuilt = build_promotion_packet(
         sources["universe"],
         sources["regime"],
         sources["market_evidence_by_market"],
         sources["leadership"],
         evaluation_as_of=packet["evaluation_as_of"],
+        **extra,
     )
     if canonical_json(rebuilt) != canonical_json(packet):
         raise CryptoCandidatePromotionError("OUTPUT_DERIVATION_MISMATCH")

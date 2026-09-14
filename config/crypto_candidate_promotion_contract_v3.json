@@ -1,0 +1,68 @@
+{
+  "schema_version": 3,
+  "contract_version": "crypto_candidate_promotion_contract/3",
+  "activation": "OPT_IN_ONLY: crypto_candidate_promotion_packet/2 (contract/2) stays the default and byte-identical; a caller must request contract 3 explicitly",
+  "input_states": ["TRADEABLE_UNIVERSE", "PAPER_ELIGIBLE"],
+  "criteria": [
+    "IDENTITY",
+    "TRADABILITY",
+    "REGIME",
+    "TREND",
+    "RELATIVE_STRENGTH",
+    "VOLUME_LIQUIDITY",
+    "OVEREXTENSION",
+    "MATERIAL_BLOCKER"
+  ],
+  "criterion_statuses": ["PASS", "FAIL", "UNKNOWN"],
+  "promotion_states": ["WATCH", "FOCUSED_REVIEW", "BLOCKED"],
+  "leadership_reference_window_id": "primary_30d",
+  "regime_source": {
+    "module": "regime/crypto_paper_runtime.py",
+    "decision_schema_version": "crypto_paper_runtime_decision/1",
+    "policy_path": "config/crypto_paper_runtime_v1.json",
+    "policy_sha256": "6a4f643d66bde2b418f951b47aed2dbd75b89938a171d812f9c3925d1c0935f9",
+    "ratification_identity": "CRYPTO-PAPER-RUNTIME-V1-20260914",
+    "ratification_record_sha256": "e2f9f69461088d52300258ab22f17d7f287bd7c2fd6efd1d49962b44f16fffe1",
+    "applicable_decision_rule": "the runtime decision whose current_decision_date equals the UTC decision date in force at the promotion reference instant (07:00Z boundary); an older decision is UNKNOWN with no carry; a decision evaluated after the reference instant is rejected as lookahead"
+  },
+  "regime_gate": {
+    "market": "CRYPTO",
+    "source_ratification_id": "PAPER-MARKET-ALLOCATION-V2-20260913",
+    "source_record_sha256": "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8",
+    "source_fields": ["new_buys_by_market_state", "per_market_state_multiplier_of_base"],
+    "states": {
+      "RISK_ON": {"criterion_status": "PASS", "new_buys": "PERMIT", "state_multiplier_of_base": "1.00", "hold_current_max_multiplier_of_base": null},
+      "NEUTRAL": {"criterion_status": "PASS", "new_buys": "PERMIT_SELECTIVE", "state_multiplier_of_base": "0.70", "hold_current_max_multiplier_of_base": null},
+      "RISK_OFF": {"criterion_status": "FAIL", "new_buys": "DENY", "state_multiplier_of_base": "0.25", "hold_current_max_multiplier_of_base": null},
+      "STRESS": {"criterion_status": "FAIL", "new_buys": "DENY", "state_multiplier_of_base": "0.00", "hold_current_max_multiplier_of_base": null},
+      "UNKNOWN": {"criterion_status": "UNKNOWN", "new_buys": "DENY", "state_multiplier_of_base": null, "hold_current_max_multiplier_of_base": "0.50"}
+    },
+    "note": "Multipliers are carried as lineage for downstream sizing only; P5-08 opens no sizing, buy, order or capital authority."
+  },
+  "market_evidence_policy": {
+    "path": "config/upbit_market_evidence_policy_ratified.json",
+    "policy_id": "P4_07_UPBIT_PUBLIC_MARKET_EVIDENCE_PAPER_V1",
+    "policy_version": "upbit_market_evidence_policy/v1",
+    "packet_sha256": "26d921e4b98f91010b4397d6642c1dc6021d06ef134977cc80a94692e6e1df5e",
+    "proposal_policy_read": false,
+    "unavailable_or_invalid": "VOLUME_LIQUIDITY UNKNOWN (fail closed), never PASS",
+    "pass_rule": "packet bound to the ratified policy; 1d and 4h candle evidence PASS; trade evidence PASS; orderbook FRESH with full ratified depth, ratified slippage notional, spread_bps <= max_spread_bps_normal and slippage_bps <= max_slippage_bps_normal recomputed from the packet numbers",
+    "breach": "UNKNOWN with named reasons (P4-07 fail_closed_unknown semantics); never FAIL"
+  },
+  "unchanged_gates_pending_user_b2": [
+    "TREND:NO_RATIFIED_CANDIDATE_TREND_RULE",
+    "RELATIVE_STRENGTH:PEER_RELATIVE_STRENGTH_UNRATIFIED|BTC_SELF_REFERENCE_RULE_UNRATIFIED",
+    "OVEREXTENSION:NO_RATIFIED_OVEREXTENSION_THRESHOLD",
+    "MATERIAL_BLOCKER:SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING"
+  ],
+  "authority": {
+    "investable_eligible": false,
+    "paper_eligible": false,
+    "focused_review_authorized": false,
+    "entry_authorized": false,
+    "stage_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "order_authorized": false
+  }
+}

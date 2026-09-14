@@ -96,3 +96,29 @@ packets and `evaluation_as_of` produce byte-identical output. Kraken's
 cross-exchange label is display-only and cannot affect criteria or state.
 The module adds no capture job, network request, private endpoint, order,
 withdrawal, Production, Trading, or REAL path.
+
+## Contract/3 (opt-in): ratified P4-07 reader and Crypto regime wiring
+
+`crypto_candidate_promotion_contract/3`
+(`config/crypto_candidate_promotion_contract_v3.json`, sha256-pinned in
+code) is requested explicitly with
+`build_promotion_packet(..., contract_version=3, crypto_runtime_decision=...)`
+and emits `crypto_candidate_promotion_packet/3`, whose `source_packets` also
+embed the consumed `crypto_paper_runtime_decision/1` packet (or `null`).
+Contract/2 remains the default. Its output is byte-identical to the
+pre-contract/3 code, because published Crypto PAPER decision packets are
+re-derived byte-for-byte by the pinned private runtime. No production caller
+requests contract/3 yet.
+
+Contract/3 changes exactly two criteria:
+
+| Criterion | Contract/3 interpretation |
+|---|---|
+| `REGIME` | The user-ratified `CRYPTO_PAPER_RUNTIME_V1` decision in force at the P1-CR-08 envelope's `generated_at` (07:00Z UTC decision boundary). It is mapped through `PAPER-MARKET-ALLOCATION-V2-20260913` (record sha256 `345801ab…`). `RISK_ON` gives PASS with new buys `PERMIT` and multiplier 1.00. `NEUTRAL` gives PASS with `PERMIT_SELECTIVE` and 0.70. `RISK_OFF` gives FAIL with `DENY` and 0.25. `STRESS` gives FAIL with `DENY` and 0.00. `UNKNOWN` gives UNKNOWN with `DENY` and holdings capped at 0.50. A missing decision is UNKNOWN. So is a decision for an earlier UTC decision date (no carry) and a decision whose ratified policy fails local validation. A decision evaluated after the reference instant is rejected as lookahead. A tampered `decision_id`, identity, authority, or a KNOWN regime on a non-accepted decision is rejected. A valid KNOWN value never raises. |
+| `VOLUME_LIQUIDITY` | Reads only `config/upbit_market_evidence_policy_ratified.json`, bound by `packet_sha256` through the P4-07 contract. The proposal file is never read on this path. PASS requires three things. The packet must be bound to the ratified policy and captured inside its effective window. The 1d/4h candle and trade evidence must be PASS. The orderbook must be FRESH with full ratified depth and the ratified slippage notional, and spread/slippage recomputed from the packet numbers must be within `max_spread_bps_normal`/`max_slippage_bps_normal`. Any breach or non-PASS evidence is UNKNOWN with named reasons, following P4-07 `fail_closed_unknown`; it is never FAIL. An absent or invalid ratified policy is UNKNOWN. |
+
+`TREND`, `RELATIVE_STRENGTH`, `OVEREXTENSION` and `MATERIAL_BLOCKER` are the
+same evaluators as contract/2. They await user ratification of the candidate
+rule set, so contract/3 still cannot produce a genuine `FOCUSED_REVIEW` row.
+The multipliers are lineage for later sizing only. Every authority field
+stays false.
