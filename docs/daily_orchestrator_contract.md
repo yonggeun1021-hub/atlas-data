@@ -519,6 +519,32 @@ one-session moves from retained KRX Information Data System index responses
 (hash-checked against their capture manifest) and reports
 `NOT_VERIFIABLE_RAW_NOT_RETAINED` for sessions without retained bytes.
 
+### B5 semantic checklist formats (2026-09-14)
+
+The renderer emits the formats `atlas_b5_semantic_checklist/1` (staging
+controller `briefing_semantic_checks.py`) reads, so a correct briefing is not
+held for a format gap. The checks themselves are unchanged.
+
+- B5-3 row date tokens (`key=YYYY-MM-DD`, or an explicit `key=UNKNOWN` only
+  when the source has no date): Forward Alpha rows `decision_date=`, DART rows
+  `filing_date=`, official release rows `published_at=` and `evidence_as_of=`,
+  Dynamic Clock rows `price_observation_date=`, US breadth `snapshot_date=`,
+  `VIXCLS=` with `as_of=`. The Korean `기준일` glosses from 2026-09-14 stay.
+- B5-5: every PAPER reference market line ends with `; 런타임 미승인`, so the
+  market, the candidate regime, `PAPER 참고` and `런타임 미승인` share one line.
+  `FREE_MARKET_DATA` lists each `us_market_reference.trend_etfs` row as
+  `US trend ETF <symbol>: close=<source value verbatim> as_of_session_date=<date>`;
+  when that session is not the decision date the line says it is not a
+  decision-date close, and the IEX summary line reads
+  `US close values withheld as <decision_date> closes`.
+- B5-4: the Dynamic Clock overflow pointer names this revision's packet; when
+  the Dynamic Clock decision date differs from the briefing date it carries
+  `상세 목록 미갱신(기준일 YYYY-MM-DD)`.
+
+Rendering never changes a packet, so sealed packets revalidate exactly as
+before. `test/test_briefing_b5_renderer_alignment_20260914.py` runs a pinned
+copy of the checks on real retained 2026-09-13/14 morning renders.
+
 ## Storage is not delivery
 
 Committing `evidence/daily_briefing/...` to `main` is *storage*, not proof
