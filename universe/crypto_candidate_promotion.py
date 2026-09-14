@@ -69,8 +69,8 @@ for the full table -- this is the short version):
 The rows above describe contract/2, which stays the default and
 byte-identical (published decision packets are re-derived by a pinned
 runtime). Contract/3 is opt-in (``build_promotion_packet(...,
-contract_version=3, crypto_runtime_decision=...)``) and changes exactly two
-rows, both bound by hash in ``config/crypto_candidate_promotion_contract_v3.json``:
+contract_version=3, crypto_runtime_decision=...)``). It changes exactly two
+criterion evaluators and the state rule, all bound by hash in ``config/crypto_candidate_promotion_contract_v3.json``:
 
   REGIME             read from the user-ratified CRYPTO_PAPER_RUNTIME_V1
                       decision (``regime/crypto_paper_runtime.py``) in force
@@ -85,8 +85,16 @@ rows, both bound by hash in ``config/crypto_candidate_promotion_contract_v3.json
                       evidence -> UNKNOWN (P4-07 fail_closed_unknown); an
                       absent/invalid ratified policy -> UNKNOWN.
 
-TREND, RELATIVE_STRENGTH, OVEREXTENSION and MATERIAL_BLOCKER are unchanged in
-contract/3 and still await user ratification of the candidate rule set.
+The other six evaluators are unchanged. The contract/3 state rule is
+RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 (user ratification B2, record
+bound by hash). Promotion blocks only on the six T2 minimum conditions:
+T2_IDENTITY, T2_POPULATION_MEMBERSHIP, T2_LIQUIDITY (ratified Upbit 30-day
+average KRW turnover via P3-12), T2_PRICE_DATA (latest completed UTC day),
+T2_ROTATION_MEMBERSHIP (not wired yet, so UNKNOWN) and
+T2_REGIME_PERMITS_NEW_BUYS. TREND and OVEREXTENSION are record-only
+entry-stage features (RULE.ENTRY.PAPER_BASELINE_B.V1). RELATIVE_STRENGTH is a
+score, VOLUME_LIQUIDITY is a quality warning, and MATERIAL_BLOCKER is a
+warning. All of them are emitted as ``warnings`` and never change the state.
 --------------------------------------------------------------------------
 """
 from __future__ import annotations
@@ -145,7 +153,7 @@ OUTPUT_SCHEMA_VERSION = "crypto_candidate_promotion_packet/2"
 
 # Opt-in contract/3 (ratified P4-07 reader + CRYPTO_PAPER_RUNTIME_V1 regime).
 CONTRACT_V3_PATH = ROOT / "config" / "crypto_candidate_promotion_contract_v3.json"
-CONTRACT_V3_SHA256 = "8e7cca83d13a792f2e300e993eb77a48ce079817d701af1b3dc1026732b79fd8"
+CONTRACT_V3_SHA256 = "cc5e372be3f2b9cb2419824c92820ea0a78947a01000cb278f76f2ff75fe91e2"
 OUTPUT_SCHEMA_VERSION_V3 = "crypto_candidate_promotion_packet/3"
 CONTRACT_VERSIONS = (2, 3)
 
@@ -163,6 +171,41 @@ REGIME_GATE_V3 = {
     "STRESS": ("FAIL", "DENY", "0.00", None),
     "UNKNOWN": ("UNKNOWN", "DENY", None, "0.50"),
 }
+# RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 (user ratification
+# USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915, decision B2): promotion
+# blocks only on the six T2 minimum conditions of CANDIDATE-PIPELINE-REBUILD-
+# 20260913; every other criterion is a score/warning, and TREND/OVEREXTENSION
+# are record-only entry-stage features (RULE.ENTRY.PAPER_BASELINE_B.V1).
+T2_RULE_ID = "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1"
+T2_RULE_RECORD_SHA256 = "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5"
+T2_DEFINITION_RECORD_SHA256 = "6870b4572fe46901e9e2ce14e07e01d89c54ba2860ab42a0087f16a4c4703625"
+ENTRY_BASELINE_RULE_ID = "RULE.ENTRY.PAPER_BASELINE_B.V1"
+ENTRY_BASELINE_RECORD_SHA256 = "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f"
+CRYPTO_RUNTIME_RULE_ID = "RULE.CRYPTO.RUNTIME.V1"
+ALLOCATION_V2_RULE_ID = "RULE.ALLOCATION.V2"
+ROTATION_T2_RULE_ID = "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1"
+ROTATION_RECORD_SHA256 = "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
+RULE_SOURCES_V3 = {
+    T2_RULE_ID: T2_RULE_RECORD_SHA256,
+    ENTRY_BASELINE_RULE_ID: ENTRY_BASELINE_RECORD_SHA256,
+    CRYPTO_RUNTIME_RULE_ID: "e2f9f69461088d52300258ab22f17d7f287bd7c2fd6efd1d49962b44f16fffe1",
+    ALLOCATION_V2_RULE_ID: ALLOCATION_V2_RECORD_SHA256,
+    ROTATION_T2_RULE_ID: ROTATION_RECORD_SHA256,
+}
+RULE_VERSIONS_V3 = {ALLOCATION_V2_RULE_ID: 2}
+T2_REQUIRED_CONDITIONS = (
+    "T2_IDENTITY", "T2_POPULATION_MEMBERSHIP", "T2_LIQUIDITY",
+    "T2_PRICE_DATA", "T2_ROTATION_MEMBERSHIP", "T2_REGIME_PERMITS_NEW_BUYS",
+)
+NON_BLOCKING_CRITERIA_V3 = {
+    "TREND": "RECORD_ONLY_ENTRY_STAGE",
+    "OVEREXTENSION": "RECORD_ONLY_ENTRY_STAGE",
+    "RELATIVE_STRENGTH": "SCORE",
+    "VOLUME_LIQUIDITY": "QUALITY_WARNING",
+    "MATERIAL_BLOCKER": "WARNING",
+}
+ROTATION_NOT_WIRED_REASON = "CRYPTO_ROTATION_CONFIRMATION_NOT_WIRED"
+
 CRYPTO_RUNTIME_DECISION_KEYS = frozenset({
     "schema_version", "market", "evaluation_at", "code_revision", "policy_identity",
     "policy_sha256", "scope", "evidence_class", "current_decision_date", "decision_at",
@@ -310,6 +353,40 @@ def load_contract_v3(path: Path = CONTRACT_V3_PATH) -> dict:
         or evidence_policy.get("packet_sha256") != evidence_contract.get("ratified_policy_sha256")
     ):
         raise CryptoCandidatePromotionError("CONTRACT_V3_MARKET_EVIDENCE_POLICY_BINDING_MISMATCH")
+    rule = value.get("promotion_rule") or {}
+    records = (
+        (rule.get("source_record") or {}, T2_RULE_RECORD_SHA256),
+        (rule.get("t2_definition_record") or {}, T2_DEFINITION_RECORD_SHA256),
+        (rule.get("entry_baseline_record") or {}, ENTRY_BASELINE_RECORD_SHA256),
+    )
+    if (
+        rule.get("rule_id") != T2_RULE_ID
+        or rule.get("version") != 1
+        or tuple(rule.get("blocking_conditions") or ()) != T2_REQUIRED_CONDITIONS
+        or rule.get("non_blocking_criteria") != NON_BLOCKING_CRITERIA_V3
+        or value.get("rule_sources") != RULE_SOURCES_V3
+        or any(record.get("sha256") != expected for record, expected in records)
+    ):
+        raise CryptoCandidatePromotionError("CONTRACT_V3_PROMOTION_RULE_NOT_RATIFIED")
+    loaded = []
+    for record, expected in records:
+        repo_path = record.get("repo_path")
+        if not isinstance(repo_path, str) or not repo_path.startswith("evidence/authority/"):
+            raise CryptoCandidatePromotionError("CONTRACT_V3_RATIFICATION_RECORD_PATH_INVALID")
+        try:
+            record_raw = (ROOT / repo_path).read_bytes()
+        except OSError as exc:
+            raise CryptoCandidatePromotionError(f"CONTRACT_V3_RATIFICATION_RECORD_MISSING:{repo_path}") from exc
+        if hashlib.sha256(record_raw).hexdigest() != expected:
+            raise CryptoCandidatePromotionError(f"CONTRACT_V3_RATIFICATION_RECORD_HASH_MISMATCH:{repo_path}")
+        loaded.append(json.loads(record_raw.decode("utf-8")))
+    b2_record, definition_record, _entry_record = loaded
+    b2 = (b2_record.get("decisions") or {}).get("B2") or {}
+    if b2.get("rule_id") != T2_RULE_ID or b2.get("status") != "RATIFIED":
+        raise CryptoCandidatePromotionError("CONTRACT_V3_B2_RECORD_SCOPE_INVALID")
+    conditions = (definition_record.get("ratified") or {}).get("t2_minimum_conditions") or []
+    if len(conditions) != len(T2_REQUIRED_CONDITIONS):
+        raise CryptoCandidatePromotionError("CONTRACT_V3_T2_DEFINITION_MISMATCH")
     return copy.deepcopy(value)
 
 
@@ -977,6 +1054,97 @@ def evaluate_crypto_runtime_regime(runtime_decision: dict | None, *, reference_a
     )
 
 
+def evaluate_t2_population_membership(universe_row: dict, *, snapshot_date: str) -> dict:
+    """In-scope row of the already-validated P3-12 population packet whose
+    evaluation date equals this promotion's (``_validate_universe_packet``)."""
+    state = universe_row.get("state")
+    if state not in (UPBIT_UNIVERSE.STATE_TRADEABLE_UNIVERSE, UPBIT_UNIVERSE.STATE_PAPER_ELIGIBLE):
+        raise CryptoCandidatePromotionError(f"UNIVERSE_ROW_OUT_OF_SCOPE:{state}")
+    return _criterion("PASS", f"P3_12_POPULATION_SNAPSHOT:{snapshot_date}", p3_12_state=state)
+
+
+def evaluate_t2_liquidity(universe_row: dict) -> dict:
+    """The ratified Upbit liquidity threshold is P3-12's
+    ``min_30d_avg_krw_turnover``; an in-scope P3-12 row has already passed it
+    on complete 30-day history. The threshold is re-reported for lineage."""
+    policy = UPBIT_UNIVERSE.load_policy()
+    lineage = {
+        "min_30d_avg_krw_turnover": str(policy["min_30d_avg_krw_turnover"]),
+        "universe_policy_version": policy.get("policy_version"),
+        "trailing_30d_krw_turnover": universe_row.get("trailing_30d_krw_turnover"),
+    }
+    if _decimal_or_none(universe_row.get("trailing_30d_krw_turnover")) is None:
+        return _criterion("UNKNOWN", "TRAILING_30D_KRW_TURNOVER_MISSING", **lineage)
+    return _criterion("PASS", "UPBIT_RATIFIED_MIN_30D_AVG_KRW_TURNOVER_MET_VIA_P3_12", **lineage)
+
+
+def evaluate_t2_price_data(market: str, market_evidence_packet: dict | None, *, reference_at: str) -> dict:
+    """Finalized 1d candle for the latest completed UTC day, available no
+    later than the reference instant. Absent evidence is UNKNOWN."""
+    reference = _parse_utc(reference_at, "t2_price.reference_at")
+    expected_close = dt.datetime.combine(reference.date(), dt.time(0, 0), tzinfo=dt.timezone.utc)
+    expected_text = expected_close.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if market_evidence_packet is None:
+        return _criterion("UNKNOWN", "MARKET_EVIDENCE_PACKET_MISSING", expected_latest_close_time=expected_text)
+    if market_evidence_packet.get("market") != market:
+        raise CryptoCandidatePromotionError(f"MARKET_EVIDENCE_PACKET_MARKET_MISMATCH:{market}")
+    daily = (market_evidence_packet.get("candles") or {}).get("1d") or {}
+    closes = sorted(
+        row.get("close_time") for row in daily.get("finalized_candles") or []
+        if isinstance(row, dict) and isinstance(row.get("close_time"), str)
+    )
+    lineage = {
+        "expected_latest_close_time": expected_text,
+        "latest_finalized_close_time": closes[-1] if closes else None,
+    }
+    if expected_text not in closes:
+        return _criterion("UNKNOWN", "PRICE_LATEST_COMPLETED_SESSION_MISSING", **lineage)
+    available_at = daily.get("available_at") or market_evidence_packet.get("captured_at")
+    if _parse_utc(available_at, f"market_evidence.{market}.1d.available_at") > reference:
+        return _criterion("UNKNOWN", "PRICE_AVAILABLE_AFTER_REFERENCE", **lineage)
+    return _criterion("PASS", "PRICE_LATEST_COMPLETED_SESSION_PRESENT", **lineage)
+
+
+def rotation_bucket(canonical_asset_id: str | None) -> str | None:
+    if canonical_asset_id is None:
+        return None
+    return canonical_asset_id if canonical_asset_id in ("BTC", "ETH") else "ALT"
+
+
+def evaluate_t2_rotation_membership(canonical_asset_id: str | None) -> dict:
+    """RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1 C5. No ratified confirmation
+    state source is wired into P5-08 yet, so this required condition is
+    UNKNOWN (fail closed) -- never inferred from the leadership ranking."""
+    return _criterion(
+        "UNKNOWN", ROTATION_NOT_WIRED_REASON,
+        rotation_bucket=rotation_bucket(canonical_asset_id),
+        required_states=["STRONG_CONFIRMED", "STRONG_HELD"],
+    )
+
+
+def aggregate_t2_state(t2_conditions: dict) -> tuple[str, str]:
+    """Contract/3 state rule: only the six T2 required conditions decide."""
+    if set(t2_conditions) != set(T2_REQUIRED_CONDITIONS):
+        raise CryptoCandidatePromotionError(f"T2_CONDITION_SET_INVALID:{sorted(t2_conditions)}")
+    failed = sorted(name for name, result in t2_conditions.items() if result["status"] == "FAIL")
+    if failed:
+        return STATE_BLOCKED, "T2_REQUIRED_FAILED:" + ",".join(failed)
+    unknown = sorted(name for name, result in t2_conditions.items() if result["status"] == "UNKNOWN")
+    if unknown:
+        return STATE_WATCH, "T2_REQUIRED_UNKNOWN:" + ",".join(unknown)
+    return STATE_FOCUSED_REVIEW, "T2_REQUIRED_ALL_PASSED"
+
+
+def _rule_ref(rule_id: str, role: str) -> dict:
+    return {
+        "rule_id": rule_id,
+        "version": RULE_VERSIONS_V3.get(rule_id, 1),
+        "registry_sha256": None,
+        "source_record_sha256": RULE_SOURCES_V3[rule_id],
+        "role": role,
+    }
+
+
 def evaluate_overextension() -> dict:
     """See module docstring's OVEREXTENSION row: no mechanical or ratified
     definition of "과열·급등 추격" exists anywhere in this repository.
@@ -1075,18 +1243,24 @@ def evaluate_candidate_v3(
     leadership_output: dict | None,
     ratified_policy: dict | None,
     policy_unavailable_reason: str | None,
+    snapshot_date: str,
+    reference_at: str,
 ) -> dict:
-    """Contract/3 row: REGIME and VOLUME_LIQUIDITY replaced, the other six
-    evaluators reused unchanged."""
+    """Contract/3 row under RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1.
+
+    The state comes only from the six T2 required conditions. The eight
+    contract/2-named criteria are still emitted for lineage (REGIME and
+    VOLUME_LIQUIDITY with the contract/3 evaluators); the five non-blocking
+    ones surface as warnings and never change the state.
+    """
     market = universe_row["market"]
+    canonical_asset_id = universe_row.get("candidate_canonical_asset_id")
     criteria = {
         "IDENTITY": evaluate_identity(universe_row),
         "TRADABILITY": evaluate_tradability(universe_row),
         "REGIME": copy.deepcopy(regime_criterion),
         "TREND": evaluate_trend(market, market_evidence_packet),
-        "RELATIVE_STRENGTH": evaluate_relative_strength(
-            universe_row.get("candidate_canonical_asset_id"), leadership_output
-        ),
+        "RELATIVE_STRENGTH": evaluate_relative_strength(canonical_asset_id, leadership_output),
         "VOLUME_LIQUIDITY": evaluate_volume_liquidity_ratified(
             market, market_evidence_packet,
             ratified_policy=ratified_policy, policy_unavailable_reason=policy_unavailable_reason,
@@ -1094,7 +1268,44 @@ def evaluate_candidate_v3(
         "OVEREXTENSION": evaluate_overextension(),
         "MATERIAL_BLOCKER": evaluate_material_blocker(universe_row),
     }
-    return _candidate_row(universe_row, criteria)
+    t2 = {
+        "T2_IDENTITY": copy.deepcopy(criteria["IDENTITY"]),
+        "T2_POPULATION_MEMBERSHIP": evaluate_t2_population_membership(universe_row, snapshot_date=snapshot_date),
+        "T2_LIQUIDITY": evaluate_t2_liquidity(universe_row),
+        "T2_PRICE_DATA": evaluate_t2_price_data(market, market_evidence_packet, reference_at=reference_at),
+        "T2_ROTATION_MEMBERSHIP": evaluate_t2_rotation_membership(canonical_asset_id),
+        "T2_REGIME_PERMITS_NEW_BUYS": copy.deepcopy(regime_criterion),
+    }
+    state, reason = aggregate_t2_state(t2)
+    warnings = sorted(
+        f"{name}:{role}:{criteria[name]['status']}:{criteria[name]['reason']}"
+        for name, role in NON_BLOCKING_CRITERIA_V3.items() if criteria[name]["status"] != "PASS"
+    )
+    regime_role = "BLOCKED_BY" if t2["T2_REGIME_PERMITS_NEW_BUYS"]["status"] == "FAIL" else "APPLIED"
+    rule_refs = sorted(
+        [
+            _rule_ref(T2_RULE_ID, "BLOCKED_BY" if state == STATE_BLOCKED else "APPLIED"),
+            _rule_ref(ENTRY_BASELINE_RULE_ID, "APPLIED"),
+            _rule_ref(CRYPTO_RUNTIME_RULE_ID, regime_role),
+            _rule_ref(ALLOCATION_V2_RULE_ID, regime_role),
+        ],
+        key=lambda item: (item["rule_id"], item["role"]),
+    )
+    return {
+        "market": market,
+        "canonical_asset_id": canonical_asset_id,
+        "p3_12_state": universe_row["state"],
+        "t2_required_conditions": t2,
+        "criteria": criteria,
+        "warnings": warnings,
+        "promotion_state": state,
+        "promotion_reason": reason,
+        "rule_refs": rule_refs,
+        "unapplied_rules": [
+            {"rule_id": ROTATION_T2_RULE_ID, "reason_code": ROTATION_NOT_WIRED_REASON},
+        ],
+        "authority": dict(_ROW_AUTHORITY),
+    }
 
 
 def build_promotion_packet(
@@ -1188,6 +1399,8 @@ def build_promotion_packet(
                     leadership_output=normalized_leadership,
                     ratified_policy=ratified_policy,
                     policy_unavailable_reason=policy_unavailable_reason,
+                    snapshot_date=universe_packet["snapshot_date"],
+                    reference_at=regime_payload["generated_at"],
                 )
             )
         else:

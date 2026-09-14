@@ -285,7 +285,7 @@ class RegimeStateWiringTests(_RatifiedUniverseMixin, unittest.TestCase):
                     self.assertEqual(row["promotion_state"], row_state)
                     self.assertTrue(all(v is False for v in row["authority"].values()))
                     if row_state == "BLOCKED":
-                        self.assertEqual(row["promotion_reason"], "CRITERIA_FAILED:REGIME")
+                        self.assertEqual(row["promotion_reason"], "T2_REQUIRED_FAILED:T2_REGIME_PERMITS_NEW_BUYS")
                     self.assertNotEqual(row["promotion_state"], "FOCUSED_REVIEW")
 
     def test_stress_multiplier_is_zero_and_unknown_opens_no_new_buys(self):
@@ -520,14 +520,14 @@ class UnchangedGatesTests(_RatifiedUniverseMixin, unittest.TestCase):
         self.assertEqual(btc["OVEREXTENSION"]["reason"], "NO_RATIFIED_OVEREXTENSION_THRESHOLD")
         self.assertEqual(btc["MATERIAL_BLOCKER"]["reason"], "SECURITY_AND_NETWORK_OUTAGE_COVERAGE_MISSING")
 
-    def test_known_regime_and_ratified_liquidity_still_cannot_reach_focused_review(self):
+    def test_known_regime_still_cannot_reach_focused_review_without_rotation_source(self):
         for state in ("RISK_ON", "NEUTRAL"):
             with self.subTest(state=state):
                 packet = self.build(runtime=runtime_decision(state))
                 self.assertEqual(packet["summary"]["focused_review_count"], 0)
                 self.assertEqual(
                     packet["candidates"][0]["promotion_reason"],
-                    "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,RELATIVE_STRENGTH,TREND",
+                    "T2_REQUIRED_UNKNOWN:T2_ROTATION_MEMBERSHIP",
                 )
 
     def test_contract_2_default_is_unchanged(self):
@@ -553,6 +553,181 @@ class UnchangedGatesTests(_RatifiedUniverseMixin, unittest.TestCase):
                 source = (ROOT / relative).read_text(encoding="utf-8")
                 self.assertNotIn("contract_version=3", source)
                 self.assertNotIn("crypto_runtime_decision", source)
+
+
+# ---------------------------------------------------------------------------
+# RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 (user-ratified B2)
+# ---------------------------------------------------------------------------
+
+def _pass(reason="TEST"):
+    return {"status": "PASS", "reason": reason}
+
+
+class T2RuleContractTests(unittest.TestCase):
+    def test_rule_is_bound_to_committed_ratification_records(self):
+        rule = PROMO.load_contract_v3()["promotion_rule"]
+        self.assertEqual(rule["rule_id"], "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1")
+        for key, expected in (
+            ("source_record", "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5"),
+            ("t2_definition_record", "6870b4572fe46901e9e2ce14e07e01d89c54ba2860ab42a0087f16a4c4703625"),
+            ("entry_baseline_record", "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f"),
+        ):
+            with self.subTest(record=key):
+                raw = (ROOT / rule[key]["repo_path"]).read_bytes()
+                self.assertEqual(hashlib.sha256(raw).hexdigest(), expected)
+        b2 = json.loads((ROOT / rule["source_record"]["repo_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(b2["decisions"]["B2"]["status"], "RATIFIED")
+        definition = json.loads((ROOT / rule["t2_definition_record"]["repo_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(len(definition["ratified"]["t2_minimum_conditions"]), 6)
+
+    def test_missing_or_altered_ratification_record_fails_closed(self):
+        real_read_bytes = Path.read_bytes
+
+        def altered(path):
+            raw = real_read_bytes(path)
+            return raw + b" " if path.name == "paper_b2_b3_size_assembly_user_ratification_20260915.json" else raw
+
+        with mock.patch.object(Path, "read_bytes", altered):
+            with self.assertRaisesRegex(PROMO.CryptoCandidatePromotionError,
+                                        "CONTRACT_V3_RATIFICATION_RECORD_HASH_MISMATCH"):
+                PROMO.load_contract_v3()
+
+    def test_state_rule_uses_only_the_six_required_conditions(self):
+        t2 = {name: _pass() for name in PROMO.T2_REQUIRED_CONDITIONS}
+        self.assertEqual(PROMO.aggregate_t2_state(t2), ("FOCUSED_REVIEW", "T2_REQUIRED_ALL_PASSED"))
+        unknown = dict(t2, T2_PRICE_DATA={"status": "UNKNOWN", "reason": "X"})
+        self.assertEqual(PROMO.aggregate_t2_state(unknown)[0], "WATCH")
+        failed = dict(unknown, T2_REGIME_PERMITS_NEW_BUYS={"status": "FAIL", "reason": "X"})
+        self.assertEqual(PROMO.aggregate_t2_state(failed),
+                         ("BLOCKED", "T2_REQUIRED_FAILED:T2_REGIME_PERMITS_NEW_BUYS"))
+        with self.assertRaises(PROMO.CryptoCandidatePromotionError):
+            PROMO.aggregate_t2_state(dict(t2, TREND=_pass()))
+        self.assertEqual(set(PROMO.NON_BLOCKING_CRITERIA_V3),
+                         {"TREND", "OVEREXTENSION", "RELATIVE_STRENGTH", "VOLUME_LIQUIDITY", "MATERIAL_BLOCKER"})
+
+
+class T2RuleBehaviourTests(_RatifiedUniverseMixin, unittest.TestCase):
+    def _rotation_confirmed(self):
+        return mock.patch.object(
+            PROMO, "evaluate_t2_rotation_membership",
+            side_effect=lambda asset: {"status": "PASS", "reason": "TEST_ROTATION_STRONG_CONFIRMED"},
+        )
+
+    def test_non_blocking_criteria_never_block_when_all_six_pass(self):
+        rs_negative = {
+            "market": "CRYPTO", "as_of_date": DAY,
+            "windows": [{"window_id": "primary_30d", "role": "PRIMARY", "status": "OBSERVED_UNCLASSIFIED",
+                         "unknown_reason": None, "partial_window_assets": [],
+                         "asset_relative_strength": [{"canonical_asset_id": "ETH",
+                                                      "relative_strength_vs_btc": "-0.05"}]}],
+        }
+        rows = [universe_row(), universe_row(ALT_MARKET, "ETH", caution_any=True)]
+        evidence = {"KRW-BTC": market_evidence(), ALT_MARKET: market_evidence(ALT_MARKET, bid=900, ask=1100)}
+        with self._rotation_confirmed(), mock.patch.object(
+            PROMO, "_validate_leadership_output", side_effect=lambda output, as_of: copy.deepcopy(output),
+        ):
+            packet = self.build(runtime=runtime_decision("RISK_ON"), rows=rows, evidence=evidence,
+                                leadership=rs_negative)
+        eth = packet["candidates"][1]
+        self.assertEqual(eth["criteria"]["MATERIAL_BLOCKER"]["status"], "FAIL")
+        self.assertEqual(eth["criteria"]["RELATIVE_STRENGTH"]["status"], "FAIL")
+        self.assertEqual(eth["criteria"]["VOLUME_LIQUIDITY"]["status"], "UNKNOWN")
+        self.assertEqual(eth["criteria"]["TREND"]["status"], "UNKNOWN")
+        self.assertEqual(eth["promotion_state"], "FOCUSED_REVIEW")
+        self.assertIn("MATERIAL_BLOCKER:WARNING:FAIL:UPBIT_MARKET_EVENT_CAUTION_ACTIVE", eth["warnings"])
+        self.assertIn("TREND:RECORD_ONLY_ENTRY_STAGE:UNKNOWN:NO_RATIFIED_CANDIDATE_TREND_RULE", eth["warnings"])
+        self.assertTrue(all(value is False for value in eth["authority"].values()))
+        self.assertEqual(packet["candidates"][0]["promotion_state"], "FOCUSED_REVIEW")
+
+    def test_missing_required_inputs_fail_closed(self):
+        with self._rotation_confirmed():
+            no_runtime = self.build(runtime=None)["candidates"][0]
+            no_evidence = self.build(runtime=runtime_decision("RISK_ON"), evidence={})["candidates"][0]
+        self.assertEqual(no_runtime["promotion_state"], "WATCH")
+        self.assertEqual(no_runtime["promotion_reason"], "T2_REQUIRED_UNKNOWN:T2_REGIME_PERMITS_NEW_BUYS")
+        self.assertEqual(no_evidence["promotion_state"], "WATCH")
+        self.assertEqual(no_evidence["t2_required_conditions"]["T2_PRICE_DATA"]["reason"],
+                         "MARKET_EVIDENCE_PACKET_MISSING")
+        rotation = self.build(runtime=runtime_decision("RISK_ON"))["candidates"][0]
+        self.assertEqual(rotation["t2_required_conditions"]["T2_ROTATION_MEMBERSHIP"]["reason"],
+                         "CRYPTO_ROTATION_CONFIRMATION_NOT_WIRED")
+        self.assertEqual(rotation["unapplied_rules"], [
+            {"rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1", "reason_code": "CRYPTO_ROTATION_CONFIRMATION_NOT_WIRED"},
+        ])
+
+    def test_price_data_requires_latest_completed_utc_day(self):
+        stale = market_evidence(captured="2026-09-19T07:05:00Z")
+        criterion = PROMO.evaluate_t2_price_data("KRW-BTC", stale, reference_at="2026-09-20T07:40:00Z")
+        self.assertEqual(criterion["status"], "UNKNOWN")
+        self.assertEqual(criterion["reason"], "PRICE_LATEST_COMPLETED_SESSION_MISSING")
+        fresh = market_evidence()
+        self.assertEqual(
+            PROMO.evaluate_t2_price_data("KRW-BTC", fresh, reference_at="2026-09-20T07:40:00Z")["status"], "PASS",
+        )
+        self.assertEqual(
+            PROMO.evaluate_t2_price_data("KRW-BTC", fresh, reference_at="2026-09-20T07:01:00Z")["reason"],
+            "PRICE_AVAILABLE_AFTER_REFERENCE",
+        )
+
+    def test_rule_refs_are_additive_and_name_the_blocking_rule(self):
+        blocked = self.build(runtime=runtime_decision("STRESS"))["candidates"][0]
+        refs = {(ref["rule_id"], ref["role"]) for ref in blocked["rule_refs"]}
+        self.assertEqual(refs, {
+            ("RULE.ALLOCATION.V2", "BLOCKED_BY"),
+            ("RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1", "BLOCKED_BY"),
+            ("RULE.CRYPTO.RUNTIME.V1", "BLOCKED_BY"),
+            ("RULE.ENTRY.PAPER_BASELINE_B.V1", "APPLIED"),
+        })
+        for ref in blocked["rule_refs"]:
+            self.assertEqual(set(ref), {"rule_id", "version", "registry_sha256", "source_record_sha256", "role"})
+            self.assertEqual(ref["source_record_sha256"], PROMO.RULE_SOURCES_V3[ref["rule_id"]])
+        watch = self.build(runtime=runtime_decision("RISK_ON"))["candidates"][0]
+        self.assertTrue(all(ref["role"] == "APPLIED" for ref in watch["rule_refs"]))
+
+
+class T2CurrentEvidenceTests(unittest.TestCase):
+    """Facts on the committed 2026-09-14/2113 decision inputs (retained,
+    append-only evidence): contract/2 and contract/3 states per candidate."""
+
+    DECISION = "evidence/crypto_paper_decision/2026-09-14/2113/340453e260e4cb5247e9f64eb73e036d77662f7c239b1bfd4394d44f705cf85e/packet.json"
+    RUNTIME = "evidence/regime/crypto_paper_runtime/2026-09-14/40e533d35f66e22adb1157d31d88a7694ed70d9812f299e943e949acafb4993a.json"
+
+    def test_current_candidates_state_and_reason_changes(self):
+        path = ROOT / self.DECISION
+        if not path.exists():
+            self.skipTest("retained decision evidence not present in this checkout")
+        decision_module = _load("crypto_candidate_promotion_v3_decision", "decision/crypto_paper_decision_snapshot.py")
+        promotion = decision_module.PROMOTION
+        captured = []
+        real_build = promotion.build_promotion_packet
+
+        def spy(*args, **kwargs):
+            captured.append((args, kwargs))
+            return real_build(*args, **kwargs)
+
+        with mock.patch.object(promotion, "build_promotion_packet", side_effect=spy):
+            decision_module.validate_output(json.loads(path.read_text(encoding="utf-8")))
+        args, kwargs = captured[-1]
+        v2 = real_build(*args, **kwargs)
+        runtime = json.loads((ROOT / self.RUNTIME).read_text(encoding="utf-8"))
+        v3 = real_build(*args, **kwargs, contract_version=3, crypto_runtime_decision=runtime)
+        self.assertEqual(promotion.validate_output(v3), v3)
+        markets = ["KRW-BTC", "KRW-ETH", "KRW-LINK", "KRW-SHIB", "KRW-SOL", "KRW-SUI", "KRW-WLD", "KRW-XRP"]
+        self.assertEqual([row["market"] for row in v3["candidates"]], markets)
+        for row2, row3 in zip(v2["candidates"], v3["candidates"]):
+            with self.subTest(market=row3["market"]):
+                self.assertEqual(row2["promotion_state"], "WATCH")
+                self.assertEqual(
+                    row2["promotion_reason"],
+                    "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+                )
+                self.assertEqual(row3["promotion_state"], "WATCH")
+                self.assertEqual(row3["promotion_reason"],
+                                 "T2_REQUIRED_UNKNOWN:T2_REGIME_PERMITS_NEW_BUYS,T2_ROTATION_MEMBERSHIP")
+                t2 = row3["t2_required_conditions"]
+                for name in ("T2_IDENTITY", "T2_POPULATION_MEMBERSHIP", "T2_LIQUIDITY", "T2_PRICE_DATA"):
+                    self.assertEqual(t2[name]["status"], "PASS")
+                self.assertEqual(row3["criteria"]["VOLUME_LIQUIDITY"]["status"], "PASS")
 
 
 if __name__ == "__main__":
