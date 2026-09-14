@@ -41,6 +41,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
@@ -727,6 +728,168 @@ class CIOA4Step2GitHelperMemoizationTests(_GitRepoMixin, unittest.TestCase):
         ok, reason = ci.verify_document_matches_source(authority)
         self.assertFalse(ok)
         self.assertEqual(reason, "WORKING_TREE_DIRTY")
+
+
+class GitHelperCacheSemanticsTests(_GitRepoMixin, unittest.TestCase):
+    """2026-09-14 tightening of the git helper memoization: only full
+    immutable object ids are cached, failures are never cached, HEAD/dirty
+    checks always run live, the caches are bounded, and
+    `clear_git_caches()` empties them."""
+
+    AUTH_REL = "config/canonical_security_identity.json"
+
+    def setUp(self):
+        super().setUp()
+        ci.clear_git_caches()
+        self.addCleanup(ci.clear_git_caches)
+
+    def _committed_authority(self, issuer_id="ISSUER-CACHE-SEM", commit_iso="2026-01-02T00:00:00Z"):
+        issuer = self.ratify(make_issuer(issuer_id), ci.LAYER_ISSUER)
+        return self.build(issuers=[issuer], commit_iso=commit_iso)
+
+    def test_cache_hit_returns_identical_bytes_without_a_subprocess(self):
+        self._committed_authority()
+        commit = self.repo.head_commit()
+        root = self.repo.root.resolve()
+        first = ci._git_show_bytes(root, commit, self.AUTH_REL)
+        self.assertIsNotNone(first)
+        self.assertEqual(first, (self.repo.root / self.AUTH_REL).read_bytes())
+        with mock.patch.object(ci.subprocess, "run", side_effect=AssertionError("cache miss")):
+            second = ci._git_show_bytes(root, commit, self.AUTH_REL)
+        self.assertEqual(second, first)
+
+    def test_new_commit_changes_head_and_misses_every_head_keyed_entry(self):
+        authority = self._committed_authority()
+        head_before = self.repo.head_commit()
+        self.assertEqual(ci.verify_document_matches_source(authority), (True, None))
+        history_before = ci._git_history_commits(Path(authority["_source_path"]))
+
+        issuer_2 = self.ratify(make_issuer("ISSUER-CACHE-SEM-2"), ci.LAYER_ISSUER)
+        authority_2 = self.build(issuers=[authority["issuers"][0], issuer_2], commit_iso="2026-01-03T00:00:00Z")
+        head_after = self.repo.head_commit()
+        self.assertNotEqual(head_before, head_after)
+
+        # New HEAD: the document check must read the NEW blob (a stale hit
+        # on the old HEAD's bytes would report DISK_COMMIT_MISMATCH) ...
+        self.assertEqual(ci.verify_document_matches_source(authority_2), (True, None))
+        # ... and the old in-memory document no longer matches disk.
+        self.assertEqual(ci.verify_document_matches_source(authority), (False, "MEMORY_DISK_MISMATCH"))
+        history_after = ci._git_history_commits(Path(authority_2["_source_path"]))
+        self.assertEqual(history_after[-1][0], head_after)
+        self.assertEqual(len(history_after), len(history_before) + 1)
+
+    def test_dirty_worktree_detected_with_every_cache_warm(self):
+        authority = self._committed_authority()
+        path = Path(authority["_source_path"])
+        self.assertEqual(ci.verify_document_matches_source(authority), (True, None))
+        ci._git_history_commits(path)
+        self.assertGreater(len(ci._GIT_SHOW_BYTES_CACHE), 0)
+        self.assertGreater(len(ci._GIT_HISTORY_COMMITS_CACHE), 0)
+        self.assertGreater(len(ci._GIT_REPO_ROOT_CACHE), 0)
+
+        # Whitespace-only disk edit: memory==disk canonically and HEAD is
+        # unchanged, so only the live `git status --porcelain` catches it.
+        self.repo.write_dirty(self.AUTH_REL, path.read_bytes() + b"\n")
+        self.assertEqual(ci.verify_document_matches_source(authority), (False, "WORKING_TREE_DIRTY"))
+
+    def test_symbolic_and_abbreviated_refs_are_never_cached(self):
+        self._committed_authority()
+        root = self.repo.root.resolve()
+        full = self.repo.head_commit()
+        branch = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=root,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        for ref in ("HEAD", branch, full[:12], "HEAD~0"):
+            self.assertEqual(ci._git_show_bytes(root, ref, self.AUTH_REL),
+                             (root / self.AUTH_REL).read_bytes(), ref)
+        self.assertEqual(len(ci._GIT_SHOW_BYTES_CACHE), 0)
+
+        # A symbolic ref keeps following HEAD live after a new commit.
+        bytes_before = ci._git_show_bytes(root, "HEAD", self.AUTH_REL)
+        issuer_2 = self.ratify(make_issuer("ISSUER-CACHE-SEM-REF"), ci.LAYER_ISSUER)
+        self.build(issuers=[issuer_2], commit_iso="2026-01-03T00:00:00Z")
+        for ref in ("HEAD", branch):
+            bytes_after = ci._git_show_bytes(root, ref, self.AUTH_REL)
+            self.assertNotEqual(bytes_before, bytes_after)
+            self.assertIn(b"ISSUER-CACHE-SEM-REF", bytes_after)
+        self.assertEqual(len(ci._GIT_SHOW_BYTES_CACHE), 0)
+
+    def test_git_failures_are_never_cached(self):
+        self._committed_authority()
+        root = self.repo.root.resolve()
+        commit = self.repo.head_commit()
+        self.assertIsNone(ci._git_show_bytes(root, commit, "config/does_not_exist.json"))
+        self.assertIsNone(ci._git_show_bytes(root, "0" * 40, self.AUTH_REL))
+        self.assertEqual(len(ci._GIT_SHOW_BYTES_CACHE), 0)
+
+        # Transient failure on the first call, success on the retry.
+        real_run = subprocess.run
+        calls = {"n": 0}
+
+        def flaky(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise subprocess.CalledProcessError(128, args[0])
+            return real_run(*args, **kwargs)
+
+        with mock.patch.object(ci.subprocess, "run", side_effect=flaky):
+            self.assertIsNone(ci._git_show_bytes(root, commit, self.AUTH_REL))
+        self.assertEqual(len(ci._GIT_SHOW_BYTES_CACHE), 0)
+        self.assertIsNotNone(ci._git_show_bytes(root, commit, self.AUTH_REL))
+
+        # A directory that is not (yet) inside a repo is not cached as None.
+        plain = self.tmp_path / "later_repo"
+        (plain / "config").mkdir(parents=True)
+        target = plain / "config" / "x.json"
+        self.assertIsNone(ci._git_repo_root(target))
+        GitAuthorityRepo(plain)
+        self.assertEqual(ci._git_repo_root(target), plain.resolve())
+
+        # A failing `git log` is not cached as an empty history.
+        path = self.repo.root / self.AUTH_REL
+        with mock.patch.object(ci, "_git_head_commit", return_value=commit), \
+                mock.patch.object(ci.subprocess, "run",
+                                  side_effect=subprocess.CalledProcessError(128, ["git"])):
+            self.assertEqual(ci._git_history_commits(path), [])
+        self.assertEqual(len(ci._GIT_HISTORY_COMMITS_CACHE), 0)
+        self.assertTrue(ci._git_history_commits(path))
+
+    def test_repo_root_hit_is_revalidated_when_a_nested_repo_appears(self):
+        self._committed_authority()
+        nested_dir = self.repo.root / "nested" / "config"
+        nested_dir.mkdir(parents=True)
+        target = nested_dir / "x.json"
+        self.assertEqual(ci._git_repo_root(target), self.repo.root.resolve())
+        GitAuthorityRepo(self.repo.root / "nested")
+        self.assertEqual(ci._git_repo_root(target), (self.repo.root / "nested").resolve())
+
+    def test_caches_are_bounded_and_clearable(self):
+        self._committed_authority()
+        root = self.repo.root.resolve()
+        commit = self.repo.head_commit()
+        evidence_rel = next(
+            p.relative_to(root).as_posix()
+            for p in (root / "evidence/identity_foundation/approval_records").iterdir()
+        )
+        with mock.patch.object(ci._GIT_SHOW_BYTES_CACHE, "max_entries", 1):
+            self.assertIsNotNone(ci._git_show_bytes(root, commit, self.AUTH_REL))
+            self.assertIsNotNone(ci._git_show_bytes(root, commit, evidence_rel))
+            self.assertEqual(len(ci._GIT_SHOW_BYTES_CACHE), 1)
+
+        cache = ci._BoundedLRUCache(max_entries=10, max_bytes=5)
+        cache.put("a", b"abc")
+        cache.put("b", b"def")
+        self.assertNotIn("a", cache)
+        self.assertEqual(cache.get("b"), b"def")
+        cache.put("huge", b"x" * 6)
+        self.assertNotIn("huge", cache)
+
+        ci._git_history_commits(root / self.AUTH_REL)
+        self.assertGreater(len(ci._GIT_HISTORY_COMMITS_CACHE), 0)
+        self.assertGreater(len(ci._GIT_REPO_ROOT_CACHE), 0)
+        ci.clear_git_caches()
+        self.assertEqual(len(ci._GIT_SHOW_BYTES_CACHE), 0)
+        self.assertEqual(len(ci._GIT_HISTORY_COMMITS_CACHE), 0)
+        self.assertEqual(len(ci._GIT_REPO_ROOT_CACHE), 0)
 
 
 class Defect4DocumentLevelValidationTests(unittest.TestCase):
