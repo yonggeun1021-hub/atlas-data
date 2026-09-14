@@ -2343,6 +2343,17 @@ APPROVED_TESTS = [
     #      same convention as test_capture_azure_fixture.py above so it is
     #      not silently hidden from the test-set comparison.
     "test/test_crypto_candidate_promotion.py",
+    # ★ P5-08 contract/3 (opt-in; contract/2 default stays byte-identical):
+    #   VOLUME_LIQUIDITY reads only the hash-bound RATIFIED P4-07 policy, and
+    #   REGIME consumes the CRYPTO_PAPER_RUNTIME_V1 decision mapped through
+    #   the PAPER-MARKET-ALLOCATION-V2 new-buy table (RISK_ON/NEUTRAL PASS,
+    #   RISK_OFF/STRESS FAIL, UNKNOWN/missing/not-current UNKNOWN). Tests
+    #   every regime state and the 2026-09-20 07:00Z transition day. State
+    #   rule RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 (user B2, record
+    #   hash-bound): only the six T2 required conditions block; TREND/
+    #   OVEREXTENSION record-only, RS score, P4-07 quality and material
+    #   blocker warnings. Rotation membership is not wired -> UNKNOWN.
+    "test/test_crypto_candidate_promotion_v3.py",
     "test/test_crypto_candidate_trend_metrics.py",
     "test/test_crypto_candidate_volume_metrics.py",
     # ★ P5-08 observation capability, deliberately unwired: the two
@@ -2525,14 +2536,60 @@ APPROVED_TESTS = [
     "test/test_kr_sector_index_history_backfill.py",
     "test/test_kr_rotation_event_study.py",
     "test/test_kr_sector_history_study_workflow.py",
+    # ★ User-ratified capital rotation confirmation layer (CLAUDE_CIO 2026-09-15,
+    #   USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915 sha c6f5dbbe…):
+    #   policy bound to the ratification record sha; STRONG_CONFIRMED/HELD/
+    #   RELEASED/EMERGING_WATCH/NEUTRAL replayed from committed daily evidence
+    #   (US SPDR 20-session, KR 1-session TEMPORARY with the 20-session switch
+    #   refused, CRYPTO primary_30d); byte-deterministic, prefix-stable (no
+    #   lookahead), append-only packets; T1/T2 C5/new-buy wiring uses only
+    #   confirmed/held, release = new-buy stop only (no forced exit). Existing
+    #   membership C5 and ledger/ratification contracts are asserted unchanged.
+    "test/test_rotation_confirmation.py",
+    "test/test_rotation_confirmation_wiring.py",
+    # ★ PAPER entry opportunity ledger (RULE.ENTRY.PAPER_BASELINE_B.V1, user
+    #   ratification 2026-09-15 sha b2a905c4…): every STRONG_CONFIRMED/HELD
+    #   sector/bucket per day with point-in-time allocation v2 market-state
+    #   verdict, T2 PENDING, record-only EMA20/breakout/ATR features from
+    #   committed bars up to the session, null forward-return fields; final-day
+    #   rule, byte-deterministic, append-only; chained workflow has no cron and
+    #   no secret, and the sha-pinned source workflows stay untouched.
+    "test/test_rotation_opportunity_ledger.py",
+    # ★ Alpaca historical SIP daily-bar access probe (user approval
+    #   2026-09-15: "Alpaca 과거 SIP 데이터 접근 확인 테스트 승인"). Answers, once,
+    #   on request: can the existing dedicated ALPACA_MARKET_DATA_API_KEY/
+    #   ALPACA_MARKET_DATA_API_SECRET credential read HISTORICAL SIP daily
+    #   bars (feed=sip) outside the real-time SIP embargo, and how does SIP
+    #   daily volume compare with IEX daily volume over the same window?
+    #   Bounded to at most 6 requests to /v2/stocks/bars (multi-symbol):
+    #   once with feed=sip and once with feed=iex over the SAME fixed
+    #   10-session window ending >=2 days before the run, each with at most
+    #   one retry on a transient (network/429/5xx) failure only -- a
+    #   definitive 401/403 is never retried. Symbols are 3 approved
+    #   config/free_market_data_contract.json alpaca.symbols (SPY/XLK/AAPL
+    #   preferred; SPY/XLK/MSFT fallback since AAPL is not currently
+    #   approved). Output is aggregate-only: per-request status/error
+    #   class, whether SIP returned bars, bar counts, the SIP/IEX
+    #   volume ratio and the (vwap*volume)/(close*volume) notional-ratio
+    #   per symbol (median across the shared session window) -- never a
+    #   per-day price/close/volume/vwap value. assert_no_forbidden_fields
+    #   checks that mechanically before anything is written, and the
+    #   workflow re-checks the written file the same way before upload.
+    #   Workflow: dispatch only, contents: read, persist-credentials
+    #   false, secrets in exactly one step env, aggregate JSON only under
+    #   RUNNER_TEMP, nothing committed, tracked-change guard. Offline
+    #   fixture/fake-HTTP-layer regression only; no network call from
+    #   tests.
+    "test/test_alpaca_sip_access_probe.py",
+    "test/test_alpaca_sip_access_probe_workflow.py",
     # ★ Rule registry v1 + decision lineage (CLAUDE_CIO 2026-09-15, user
     #   ratification RULE-GOVERNANCE-EVIDENCE-GATED-ADJUSTMENT). Offline only:
     #   config/rule_registry_v1.json validates against byte-exact authority
     #   record copies (hash, ids, pointer-bound parameters/triggers, monotone
     #   versions); rule_refs / rule_lineage_event/1 tamper checks; additive
     #   sidecars for every committed crypto PAPER decision packet and PAPER
-    #   reference packet reproduce each decision verbatim, the producer hooks
-    #   never raise and the hooked packets still revalidate byte-for-byte.
+    #   reference packet reproduce each decision verbatim, lineage steps
+    #   never raise and the packets still revalidate byte-for-byte.
     "test/test_rule_registry_and_lineage.py",
 ]
 

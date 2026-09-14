@@ -1,16 +1,16 @@
 {
   "generation": {
-    "generation_basis_at_utc": "2026-09-13T21:01:02+00:00",
+    "generation_basis_at_utc": "2026-09-14T23:33:25+00:00",
     "generation_contract_version": 1,
-    "generation_id": "3f31299245f41992894c27df74a484a645f312dfb26a8b67712443f02413b3a2"
+    "generation_id": "b2f99a707398c4a89340f88da15478d5453e98c3f69b7c70a2cc6d8457bd5849"
   },
   "market": "DART",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-09-13T21:00:54+00:00",
-    "collected_for_kst_date": "2026-09-14",
+    "collected_at_utc": "2026-09-14T23:33:17+00:00",
+    "collected_for_kst_date": "2026-09-15",
     "source_file": "data/latest_dart.json",
-    "source_sha256": "a4f240aca395bc685fa0f7bfb3360f8c8955e2df98de0339662e7d7e4cf6cd91"
+    "source_sha256": "cdb26a208fb19dabd5ed77748dd110212324090482d6f0392ec4e34ed940281c"
   },
   "stock": {
     "atlas_stage": "Candidate",
@@ -19,10 +19,63 @@
     "db_state": null,
     "in_notion": true,
     "name": "효성중공업",
-    "relevant": [],
-    "relevant_count": 0,
+    "relevant": [
+      {
+        "body_capture_status": "OK",
+        "body_captured": true,
+        "content": {
+          "action": "NO_CHANGE",
+          "capture_policy": "required",
+          "content_status": "OK",
+          "discovery_status": "OK",
+          "documents": [
+            {
+              "cache_name": "member-001-1a77afc78654d209.gz",
+              "content_bytes": 14541,
+              "content_sha256": "1a77afc78654d209420eff764f6d6a936d6215209f197f15fb35ef35fd1ae936",
+              "member_name": "20260914800537.xml",
+              "normalized_text_chars": 2166,
+              "normalized_text_sha256": "f558c8b9cf3d1164780b22885bb5f9c0a78ec1bf1da9666e5dbcecd787b1fdbf",
+              "offset_basis": "normalized_visible_text",
+              "text_status": "OK"
+            }
+          ],
+          "evidence_status": "PENDING",
+          "extracted": [],
+          "extractor_version": "dart_filing_content/1-no-items-ratified",
+          "filing_classification": "MATERIAL_RELEVANT_TITLE",
+          "interpretation_status": "UNDETERMINED",
+          "operation": "captured",
+          "publication_status": "OK",
+          "raw_cache_policy": "permanent",
+          "reasons": [
+            "ITEM_EXTRACTION_POLICY_UNRATIFIED"
+          ],
+          "retrieved_at_utc": "2026-09-14T23:33:36Z",
+          "rule_impact": "NONE",
+          "source": {
+            "collected_for_kst_date": "2026-09-15",
+            "observed_at_utc": "2026-09-14T23:33:36Z",
+            "run_status": "OK",
+            "source_file": "data/latest_dart_content.json",
+            "source_sha256": "6725faae444262026631455e85bd9841558a483c297ef55f7edc74a6a3c5c2b0"
+          },
+          "source_archive": {
+            "content_bytes": 2702,
+            "content_sha256": "586774a958efc4a442bebff746a5b35f3cc9cd3df41bfc378b3eddf2e6aef56a",
+            "rcept_no": "20260914800537",
+            "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260914800537"
+          }
+        },
+        "date": "20260914",
+        "rcept_no": "20260914800537",
+        "title": "[기재정정]단일판매ㆍ공급계약체결              ",
+        "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260914800537"
+      }
+    ],
+    "relevant_count": 1,
     "status": "ok",
-    "total_count": 0
+    "total_count": 1
   },
   "symbol": "298040"
 }

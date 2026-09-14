@@ -1,0 +1,72 @@
+name: Rotation Confirmation and Opportunity Ledger
+
+# User ratification 2026-09-15 (config/rotation_confirmation_policy_v1.json,
+# config/paper_entry_opportunity_ledger_v1.json).
+#
+# No new cron. The source evidence is produced by existing workflows whose
+# files are sha-pinned elsewhere (regime source-owner registry / Stage1 tuple),
+# so this build is chained with workflow_run instead of editing them:
+#   US     <- Atlas Free Market Data Evidence
+#   CRYPTO <- P1-CR-06 Crypto Breadth Daily Capture
+#   KR     <- Korea Leadership Live Proof
+#   market state for the opportunity ledger <- PAPER Market Risk Reference
+# The job is offline (no secret, no network call besides git), replays
+# committed evidence only, and commits append-only packets. A replay that
+# differs from an already committed packet fails closed.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Atlas Free Market Data Evidence
+      - P1-CR-06 Crypto Breadth Daily Capture
+      - Korea Leadership Live Proof
+      - PAPER Market Risk Reference
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-rotation-confirmation
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Rotation confirmation and opportunity ledger regression
+        run: |
+          python3 test/test_rotation_confirmation.py
+          python3 test/test_rotation_opportunity_ledger.py
+      - name: Build and commit append-only packets
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          python3 rotation/rotation_confirmation.py build --market US --market KR --market CRYPTO --write
+          python3 rotation/rotation_opportunity_ledger.py build --write
+          python3 rotation/rotation_confirmation.py verify
+          python3 rotation/rotation_opportunity_ledger.py verify
+          git add evidence/rotation/confirmation evidence/rotation/opportunity_ledger \
+            data/latest_rotation_confirmation_us.json data/latest_rotation_confirmation_kr.json \
+            data/latest_rotation_confirmation_crypto.json data/latest_rotation_confirmation_portal_ch02.json \
+            data/latest_rotation_opportunity_ledger_us.json data/latest_rotation_opportunity_ledger_kr.json \
+            data/latest_rotation_opportunity_ledger_crypto.json
+          if git diff --staged --quiet; then
+            echo "no rotation confirmation change"
+            exit 0
+          fi
+          git commit -m "data: rotation confirmation and opportunity ledger $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push origin HEAD:main

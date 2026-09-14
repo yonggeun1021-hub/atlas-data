@@ -1,0 +1,175 @@
+{
+  "as_of_date": "2026-08-21",
+  "authority": {
+    "allocation_change_authorized": false,
+    "entry_edge_claimed": false,
+    "order_authorized": false,
+    "real_trading_authorized": false
+  },
+  "confirmation": {
+    "observation_status": "OBSERVED",
+    "path": "evidence/rotation/confirmation/KR/2026-08-21/packet.json",
+    "payload_sha256": "368db5a9fa9d9d2e2403512d2f110426d07466b481188f7df8e8a9e233eceba5",
+    "unknown_reason": null
+  },
+  "counts": {
+    "blocked_by_market_state": 2,
+    "eligible_pending_t2": 0,
+    "opportunities": 2
+  },
+  "entry_rule": {
+    "explicit_non_claim": "NOT_A_CONFIRMATION_OF_ENTRY_EDGE",
+    "record_id": "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915",
+    "repo_path": "evidence/authority/paper_entry_baseline_b_user_ratification_20260915.json",
+    "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+    "sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+    "status": "RATIFIED_AS_PAPER_BASELINE"
+  },
+  "evidence_phase": "PRE_DECISION_EFFECTIVE_REPLAY",
+  "market": "KR",
+  "market_state": {
+    "candidate_regime": "UNKNOWN",
+    "classification_status": null,
+    "new_buy_verdict": "DENY",
+    "reason": "NO_PAPER_REFERENCE_FOR_AS_OF",
+    "runtime_regime": null,
+    "source": null,
+    "status": "UNKNOWN"
+  },
+  "market_state_pending_definitions": [
+    "REGIME_CONFIRMATION_SESSIONS_NOT_APPLIED_RAW_CANDIDATE_REGIME_RECORDED",
+    "PAPER_REFERENCE_IS_DIAGNOSTIC_NOT_RUNTIME_REGIME"
+  ],
+  "opportunities": [
+    {
+      "calendar_days_in_state": 3,
+      "eligibility": "BLOCKED_BY_MARKET_STATE",
+      "entity_id": "KOSDAQ.SECTOR.21",
+      "forward_tracking": {
+        "bought": null,
+        "entry_reference_price": null,
+        "excess_forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "excess_return_baseline_status": "PENDING_DEFINITION",
+        "filled_by": "LATER_SCORECARD_JOB",
+        "forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "horizon_unit": "SESSIONS",
+        "status": "NOT_YET_FILLED"
+      },
+      "instrument_candidates_status": "PENDING_INSTRUMENT_LEVEL_T1_T2_OUTPUT",
+      "label": "KOSDAQ::통신",
+      "market": "KR",
+      "market_state_new_buy": "DENY",
+      "observations_in_state": 3,
+      "opportunity_id": "dbc164db30df4d62f9f3223384a6fc5c227d18794c1d47d6de903aa2d3710f5e",
+      "record_only_features": {
+        "reason": "SECTOR_INDEX_CLOSES_NOT_RETAINED_IN_PUBLIC_EVIDENCE",
+        "status": "UNKNOWN"
+      },
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+          "source_record_sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "sector_state": "STRONG_HELD",
+      "signal_as_of_date": "2026-08-21",
+      "state_since_date": "2026-08-19",
+      "t2": {
+        "reason": "T2_CANDIDATE_OUTPUT_NOT_IN_REPOSITORY",
+        "status": "PENDING"
+      }
+    },
+    {
+      "calendar_days_in_state": 3,
+      "eligibility": "BLOCKED_BY_MARKET_STATE",
+      "entity_id": "KOSDAQ.SECTOR.08",
+      "forward_tracking": {
+        "bought": null,
+        "entry_reference_price": null,
+        "excess_forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "excess_return_baseline_status": "PENDING_DEFINITION",
+        "filled_by": "LATER_SCORECARD_JOB",
+        "forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "horizon_unit": "SESSIONS",
+        "status": "NOT_YET_FILLED"
+      },
+      "instrument_candidates_status": "PENDING_INSTRUMENT_LEVEL_T1_T2_OUTPUT",
+      "label": "KOSDAQ::섬유·의류",
+      "market": "KR",
+      "market_state_new_buy": "DENY",
+      "observations_in_state": 3,
+      "opportunity_id": "151483ce45ef9065eb98041fccedc134a839542177f8d4c41532d5adac6d343c",
+      "record_only_features": {
+        "reason": "SECTOR_INDEX_CLOSES_NOT_RETAINED_IN_PUBLIC_EVIDENCE",
+        "status": "UNKNOWN"
+      },
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+          "source_record_sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "sector_state": "STRONG_HELD",
+      "signal_as_of_date": "2026-08-21",
+      "state_since_date": "2026-08-19",
+      "t2": {
+        "reason": "T2_CANDIDATE_OUTPUT_NOT_IN_REPOSITORY",
+        "status": "PENDING"
+      }
+    }
+  ],
+  "payload_sha256": "a3b37265f32397995c77378242605930ef9e97132b554300219631d55b23bc92",
+  "schema_version": "paper_entry_opportunity_ledger_day/1"
+}

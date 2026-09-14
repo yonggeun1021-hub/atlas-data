@@ -1,0 +1,3011 @@
+{
+  "as_of_date": "2026-08-19",
+  "authority": {
+    "allocation_change_authorized": false,
+    "forced_liquidation_authorized": false,
+    "order_authorized": false,
+    "real_trading_authorized": false,
+    "secret_access_authorized": false
+  },
+  "chain": {
+    "chain_start_date": "2026-08-10",
+    "last_observed_as_of_date": "2026-08-19",
+    "observation_index": 6,
+    "previous_observation_date": "2026-08-18",
+    "reset": false
+  },
+  "decision_view": {
+    "emerging_watch_display_only": [
+      {
+        "entity_id": "KOSDAQ.SECTOR.15",
+        "scope_id": "KOSDAQ::코스닥"
+      },
+      {
+        "entity_id": "KOSDAQ.SECTOR.17",
+        "scope_id": "KOSDAQ::코스닥"
+      },
+      {
+        "entity_id": "KOSDAQ.SECTOR.19",
+        "scope_id": "KOSDAQ::코스닥"
+      },
+      {
+        "entity_id": "KOSDAQ.SECTOR.04",
+        "scope_id": "KOSDAQ::코스닥"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.21",
+        "scope_id": "KOSPI::코스피"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.10",
+        "scope_id": "KOSPI::코스피"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.14",
+        "scope_id": "KOSPI::코스피"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.08",
+        "scope_id": "KOSPI::코스피"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.24",
+        "scope_id": "KOSPI::코스피"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.09",
+        "scope_id": "KOSPI::코스피"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.11",
+        "scope_id": "KOSPI::코스피"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.03",
+        "scope_id": "KOSPI::코스피"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.12",
+        "scope_id": "KOSPI::코스피"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.05",
+        "scope_id": "KOSPI::코스피"
+      }
+    ],
+    "forced_exit": [],
+    "release_new_buy_stop": [
+      {
+        "entity_id": "KOSPI.SECTOR.06",
+        "scope_id": "KOSPI::코스피"
+      }
+    ],
+    "t1_selection": [
+      {
+        "entity_id": "KOSDAQ.SECTOR.08",
+        "scope_id": "KOSDAQ::코스닥",
+        "state": "STRONG_CONFIRMED"
+      },
+      {
+        "entity_id": "KOSDAQ.SECTOR.21",
+        "scope_id": "KOSDAQ::코스닥",
+        "state": "STRONG_CONFIRMED"
+      },
+      {
+        "entity_id": "KOSPI.SECTOR.23",
+        "scope_id": "KOSPI::코스피",
+        "state": "STRONG_HELD"
+      }
+    ]
+  },
+  "decisions_effective_from": "2026-09-15",
+  "entry_gate_view": [
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": true,
+      "entity_id": "KOSDAQ.SECTOR.08",
+      "forced_exit": false,
+      "label": "KOSDAQ::섬유·의류",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "STRONG_CONFIRMED",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": true,
+      "entity_id": "KOSDAQ.SECTOR.21",
+      "forced_exit": false,
+      "label": "KOSDAQ::통신",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "STRONG_CONFIRMED",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.09",
+      "forced_exit": false,
+      "label": "KOSDAQ::오락·문화",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.12",
+      "forced_exit": false,
+      "label": "KOSDAQ::유통",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.10",
+      "forced_exit": false,
+      "label": "KOSDAQ::운송·창고",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.15",
+      "forced_exit": false,
+      "label": "KOSDAQ::일반서비스",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.02",
+      "forced_exit": false,
+      "label": "KOSDAQ::건설",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.17",
+      "forced_exit": false,
+      "label": "KOSDAQ::제약",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.01",
+      "forced_exit": false,
+      "label": "KOSDAQ::IT 서비스",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.22",
+      "forced_exit": false,
+      "label": "KOSDAQ::화학",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.07",
+      "forced_exit": false,
+      "label": "KOSDAQ::비금속",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.06",
+      "forced_exit": false,
+      "label": "KOSDAQ::기타제조",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 2,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.19",
+      "forced_exit": false,
+      "label": "KOSDAQ::종이·목재",
+      "observations_in_state": 2,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-18"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.18",
+      "forced_exit": false,
+      "label": "KOSDAQ::제조",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.16",
+      "forced_exit": false,
+      "label": "KOSDAQ::전기전자",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.04",
+      "forced_exit": false,
+      "label": "KOSDAQ::금융",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.05",
+      "forced_exit": false,
+      "label": "KOSDAQ::기계·장비",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.13",
+      "forced_exit": false,
+      "label": "KOSDAQ::음식료·담배",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.03",
+      "forced_exit": false,
+      "label": "KOSDAQ::금속",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.11",
+      "forced_exit": false,
+      "label": "KOSDAQ::운송장비·부품",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.20",
+      "forced_exit": false,
+      "label": "KOSDAQ::출판·매체복제",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSDAQ.SECTOR.14",
+      "forced_exit": false,
+      "label": "KOSDAQ::의료·정밀기기",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.02",
+      "forced_exit": false,
+      "label": "KOSPI::건설",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.19",
+      "forced_exit": false,
+      "label": "KOSPI::제약",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.16",
+      "forced_exit": false,
+      "label": "KOSPI::일반서비스",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 2,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.21",
+      "forced_exit": false,
+      "label": "KOSPI::종이·목재",
+      "observations_in_state": 2,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-18"
+    },
+    {
+      "calendar_days_in_state": 2,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.10",
+      "forced_exit": false,
+      "label": "KOSPI::오락·문화",
+      "observations_in_state": 2,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-18"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.07",
+      "forced_exit": false,
+      "label": "KOSPI::부동산",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 2,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.14",
+      "forced_exit": false,
+      "label": "KOSPI::음식료·담배",
+      "observations_in_state": 2,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-18"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.08",
+      "forced_exit": false,
+      "label": "KOSPI::비금속",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.24",
+      "forced_exit": false,
+      "label": "KOSPI::화학",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 2,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.09",
+      "forced_exit": false,
+      "label": "KOSPI::섬유·의류",
+      "observations_in_state": 2,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-18"
+    },
+    {
+      "calendar_days_in_state": 2,
+      "decision_eligible": true,
+      "entity_id": "KOSPI.SECTOR.23",
+      "forced_exit": false,
+      "label": "KOSPI::통신",
+      "observations_in_state": 2,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "STRONG_HELD",
+      "state_since_date": "2026-08-18"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.11",
+      "forced_exit": false,
+      "label": "KOSPI::운송·창고",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.03",
+      "forced_exit": false,
+      "label": "KOSPI::금속",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.12",
+      "forced_exit": false,
+      "label": "KOSPI::운송장비·부품",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.05",
+      "forced_exit": false,
+      "label": "KOSPI::기계·장비",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "EMERGING_WATCH",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.01",
+      "forced_exit": false,
+      "label": "KOSPI::IT 서비스",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.15",
+      "forced_exit": false,
+      "label": "KOSPI::의료·정밀기기",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.17",
+      "forced_exit": false,
+      "label": "KOSPI::전기·가스",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.13",
+      "forced_exit": false,
+      "label": "KOSPI::유통",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 10,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.22",
+      "forced_exit": false,
+      "label": "KOSPI::증권",
+      "observations_in_state": 7,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-10"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.04",
+      "forced_exit": false,
+      "label": "KOSPI::금융",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.06",
+      "forced_exit": false,
+      "label": "KOSPI::보험",
+      "observations_in_state": 1,
+      "release_new_buy_stop": true,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "STRONG_RELEASED",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.20",
+      "forced_exit": false,
+      "label": "KOSPI::제조",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    },
+    {
+      "calendar_days_in_state": 1,
+      "decision_eligible": false,
+      "entity_id": "KOSPI.SECTOR.18",
+      "forced_exit": false,
+      "label": "KOSPI::전기전자",
+      "observations_in_state": 1,
+      "release_new_buy_stop": false,
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.KR.V1T",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "KOSPI::코스피",
+      "state": "NEUTRAL",
+      "state_since_date": "2026-08-19"
+    }
+  ],
+  "evidence_badge_ko": "관찰 시작·잠정",
+  "evidence_phase": "PRE_DECISION_EFFECTIVE_REPLAY",
+  "input_chain_sha256": "aa922802484f11061a96f348eccafe5195c76c9a2c619d7a646473f92884f149",
+  "market": "KR",
+  "maximum_observation_gap_days": 7,
+  "observation": {
+    "sources": [
+      {
+        "path": "data/observations/korea_leadership_context/2026-08-19/packet.json",
+        "payload_sha256": "76378cc23ae83e0577f8e26004fac27c5e271f42aba0a5adca6eab66ac1a6cca"
+      }
+    ],
+    "status": "OBSERVED",
+    "unknown_reason": null
+  },
+  "payload_sha256": "202208777c821ff942960110fb9a3f5afc4414043dddbcaaba4e1e66d81382d0",
+  "pending_definitions": [
+    "TWENTY_SESSION_BASIS_MEANING_CLARIFICATION_PENDING_USER_RATIFICATION",
+    "KR_DAILY_LEADERSHIP_CONTEXT_NOT_COMMITTED_BY_SCHEDULED_PAIR_PATH"
+  ],
+  "policy": {
+    "policy_id": "ROTATION_CONFIRMATION.USER_RATIFIED.V1",
+    "policy_sha256": "0bf2af4b63171c2bc7dda2cbcfde0b7023bba4a63d4ef10d4ed5361a223885d8",
+    "ratification_record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+    "ratification_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
+  },
+  "ratification_status": "TEMPORARY",
+  "rule_id": "RULE.ROTATION.KR.V1T",
+  "rule_refs": [
+    {
+      "registry_sha256": null,
+      "role": "APPLIED",
+      "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+      "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+      "version": 1
+    },
+    {
+      "registry_sha256": null,
+      "role": "APPLIED",
+      "rule_id": "RULE.ROTATION.KR.V1T",
+      "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+      "version": 1
+    },
+    {
+      "registry_sha256": null,
+      "role": "APPLIED",
+      "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
+      "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+      "version": 1
+    }
+  ],
+  "schema_version": "rotation_confirmation_packet/1",
+  "scopes": [
+    {
+      "entities": [
+        {
+          "bucket": "TOP",
+          "calendar_days_in_state": 1,
+          "decision_eligible": true,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 8,
+            "rank_improvement": 7
+          },
+          "entity_id": "KOSDAQ.SECTOR.08",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "TOP_TO_TOP",
+          "ledger_p2_state": "STRONG",
+          "non_top_streak": 0,
+          "observations_in_state": 1,
+          "prior_bucket": "TOP",
+          "rank": 1,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::섬유·의류",
+          "state": "STRONG_CONFIRMED",
+          "state_since_date": "2026-08-19",
+          "strength": "0.025816894029",
+          "strong_confirmed_on": "2026-08-19",
+          "strong_lapsed_by_gap": false,
+          "top_streak": 2
+        },
+        {
+          "bucket": "TOP",
+          "calendar_days_in_state": 1,
+          "decision_eligible": true,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 13,
+            "rank_improvement": 11
+          },
+          "entity_id": "KOSDAQ.SECTOR.21",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "TOP_TO_TOP",
+          "ledger_p2_state": "STRONG",
+          "non_top_streak": 0,
+          "observations_in_state": 1,
+          "prior_bucket": "TOP",
+          "rank": 2,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::통신",
+          "state": "STRONG_CONFIRMED",
+          "state_since_date": "2026-08-19",
+          "strength": "0.020413828977",
+          "strong_confirmed_on": "2026-08-19",
+          "strong_lapsed_by_gap": false,
+          "top_streak": 2
+        },
+        {
+          "bucket": "TOP",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 16,
+            "rank_improvement": 13
+          },
+          "entity_id": "KOSDAQ.SECTOR.09",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_TOP",
+          "ledger_p2_state": "STRONG",
+          "non_top_streak": 0,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 3,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::오락·문화",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "0.019739035194",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 1
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 2,
+            "rank_improvement": -2
+          },
+          "entity_id": "KOSDAQ.SECTOR.12",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": "2026-08-14",
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 4,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 4,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::유통",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "0.015538056991",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 3,
+            "rank_improvement": -2
+          },
+          "entity_id": "KOSDAQ.SECTOR.10",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 2,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 5,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::운송·창고",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "0.014747387622",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 22,
+            "rank_improvement": 16
+          },
+          "entity_id": "KOSDAQ.SECTOR.15",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "BOTTOM_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 6,
+          "observations_in_state": 1,
+          "prior_bucket": "BOTTOM",
+          "rank": 6,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::일반서비스",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-19",
+          "strength": "0.013057544903",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 5,
+            "rank_improvement": -2
+          },
+          "entity_id": "KOSDAQ.SECTOR.02",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 3,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 7,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::건설",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "0.008265484851",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 15,
+            "rank_improvement": 7
+          },
+          "entity_id": "KOSDAQ.SECTOR.17",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 8,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::제약",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-19",
+          "strength": "0.004846987345",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 6,
+            "rank_improvement": -3
+          },
+          "entity_id": "KOSDAQ.SECTOR.01",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 9,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::IT 서비스",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "0.002785877672",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 4,
+            "rank_improvement": -6
+          },
+          "entity_id": "KOSDAQ.SECTOR.22",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 10,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::화학",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "-0.000498078868",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 12,
+            "rank_improvement": 1
+          },
+          "entity_id": "KOSDAQ.SECTOR.07",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 2,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 11,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::비금속",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "-0.00252904453",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 10,
+            "rank_improvement": -2
+          },
+          "entity_id": "KOSDAQ.SECTOR.06",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 12,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::기타제조",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "-0.002625030332",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 2,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 20,
+            "rank_improvement": 7
+          },
+          "entity_id": "KOSDAQ.SECTOR.19",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 2,
+          "prior_bucket": "MIDDLE",
+          "rank": 13,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::종이·목재",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-18",
+          "strength": "-0.003014422338",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 11,
+            "rank_improvement": -3
+          },
+          "entity_id": "KOSDAQ.SECTOR.18",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 14,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::제조",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "-0.003888690141",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 17,
+            "rank_improvement": 2
+          },
+          "entity_id": "KOSDAQ.SECTOR.16",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 15,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::전기전자",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "-0.004344996489",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 21,
+            "rank_improvement": 5
+          },
+          "entity_id": "KOSDAQ.SECTOR.04",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "BOTTOM_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 3,
+          "observations_in_state": 1,
+          "prior_bucket": "BOTTOM",
+          "rank": 16,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::금융",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-19",
+          "strength": "-0.005228010299",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 1,
+            "rank_improvement": -16
+          },
+          "entity_id": "KOSDAQ.SECTOR.05",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": "2026-08-18",
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 3,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 17,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::기계·장비",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "-0.006355989675",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 14,
+            "rank_improvement": -4
+          },
+          "entity_id": "KOSDAQ.SECTOR.13",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 18,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::음식료·담배",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "-0.007224796596",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 18,
+            "rank_improvement": -1
+          },
+          "entity_id": "KOSDAQ.SECTOR.03",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "BOTTOM_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 7,
+          "prior_bucket": "BOTTOM",
+          "rank": 19,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::금속",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "-0.00873002691",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "BOTTOM",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 19,
+            "rank_improvement": -1
+          },
+          "entity_id": "KOSDAQ.SECTOR.11",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_BOTTOM",
+          "ledger_p2_state": "WEAKENING",
+          "non_top_streak": 2,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 20,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::운송장비·부품",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "-0.010989531423",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "BOTTOM",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 9,
+            "rank_improvement": -12
+          },
+          "entity_id": "KOSDAQ.SECTOR.20",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "TOP_TO_BOTTOM",
+          "ledger_p2_state": "WEAKENING",
+          "non_top_streak": 1,
+          "observations_in_state": 7,
+          "prior_bucket": "TOP",
+          "rank": 21,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::출판·매체복제",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "-0.014665089396",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "BOTTOM",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 7,
+            "rank_improvement": -15
+          },
+          "entity_id": "KOSDAQ.SECTOR.14",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_BOTTOM",
+          "ledger_p2_state": "WEAKENING",
+          "non_top_streak": 7,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 22,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSDAQ::의료·정밀기기",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "-0.014958021746",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        }
+      ],
+      "scope_id": "KOSDAQ::코스닥"
+    },
+    {
+      "entities": [
+        {
+          "bucket": "TOP",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 8,
+            "rank_improvement": 7
+          },
+          "entity_id": "KOSPI.SECTOR.02",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_TOP",
+          "ledger_p2_state": "STRONG",
+          "non_top_streak": 0,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 1,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::건설",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "0.08114348351",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 1
+        },
+        {
+          "bucket": "TOP",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 1,
+            "rank_improvement": -1
+          },
+          "entity_id": "KOSPI.SECTOR.19",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_TOP",
+          "ledger_p2_state": "STRONG",
+          "non_top_streak": 0,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 2,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::제약",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "0.061742367731",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 1
+        },
+        {
+          "bucket": "TOP",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 11,
+            "rank_improvement": 8
+          },
+          "entity_id": "KOSPI.SECTOR.16",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_TOP",
+          "ledger_p2_state": "STRONG",
+          "non_top_streak": 0,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 3,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::일반서비스",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "0.061077982595",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 1
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 2,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 12,
+            "rank_improvement": 8
+          },
+          "entity_id": "KOSPI.SECTOR.21",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 2,
+          "prior_bucket": "MIDDLE",
+          "rank": 4,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::종이·목재",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-18",
+          "strength": "0.057589698559",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 2,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 20,
+            "rank_improvement": 15
+          },
+          "entity_id": "KOSPI.SECTOR.10",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 2,
+          "prior_bucket": "MIDDLE",
+          "rank": 5,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::오락·문화",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-18",
+          "strength": "0.056069707831",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 5,
+            "rank_improvement": -1
+          },
+          "entity_id": "KOSPI.SECTOR.07",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 6,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::부동산",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "0.052789442523",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 2,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 22,
+            "rank_improvement": 15
+          },
+          "entity_id": "KOSPI.SECTOR.14",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 2,
+          "prior_bucket": "MIDDLE",
+          "rank": 7,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::음식료·담배",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-18",
+          "strength": "0.051841623174",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 13,
+            "rank_improvement": 5
+          },
+          "entity_id": "KOSPI.SECTOR.08",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 8,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::비금속",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-19",
+          "strength": "0.048018207074",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 15,
+            "rank_improvement": 6
+          },
+          "entity_id": "KOSPI.SECTOR.24",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 9,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::화학",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-19",
+          "strength": "0.045605257094",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 2,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 14,
+            "rank_improvement": 4
+          },
+          "entity_id": "KOSPI.SECTOR.09",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 2,
+          "prior_bucket": "MIDDLE",
+          "rank": 10,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::섬유·의류",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-18",
+          "strength": "0.039712835417",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 2,
+          "decision_eligible": true,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 7,
+            "rank_improvement": -4
+          },
+          "entity_id": "KOSPI.SECTOR.23",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "TOP_TO_MIDDLE",
+          "ledger_p2_state": "WEAKENING",
+          "non_top_streak": 1,
+          "observations_in_state": 2,
+          "prior_bucket": "TOP",
+          "rank": 11,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::통신",
+          "state": "STRONG_HELD",
+          "state_since_date": "2026-08-18",
+          "strength": "0.038568342544",
+          "strong_confirmed_on": "2026-08-18",
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 16,
+            "rank_improvement": 4
+          },
+          "entity_id": "KOSPI.SECTOR.11",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "TOP_TO_MIDDLE",
+          "ledger_p2_state": "WEAKENING",
+          "non_top_streak": 1,
+          "observations_in_state": 1,
+          "prior_bucket": "TOP",
+          "rank": 12,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::운송·창고",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-19",
+          "strength": "0.036046136115",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 23,
+            "rank_improvement": 10
+          },
+          "entity_id": "KOSPI.SECTOR.03",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 6,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 13,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::금속",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-19",
+          "strength": "0.035277426545",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 24,
+            "rank_improvement": 10
+          },
+          "entity_id": "KOSPI.SECTOR.12",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 2,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 14,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::운송장비·부품",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-19",
+          "strength": "0.035101428048",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": true,
+            "lookback_observations": 5,
+            "lookback_rank": 21,
+            "rank_improvement": 6
+          },
+          "entity_id": "KOSPI.SECTOR.05",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "BOTTOM_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 4,
+          "observations_in_state": 1,
+          "prior_bucket": "BOTTOM",
+          "rank": 15,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::기계·장비",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-08-19",
+          "strength": "0.032753598344",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 2,
+            "rank_improvement": -14
+          },
+          "entity_id": "KOSPI.SECTOR.01",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "BOTTOM_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 3,
+          "observations_in_state": 7,
+          "prior_bucket": "BOTTOM",
+          "rank": 16,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::IT 서비스",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "0.032734077997",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 4,
+            "rank_improvement": -13
+          },
+          "entity_id": "KOSPI.SECTOR.15",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 6,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 17,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::의료·정밀기기",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "0.019750749548",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 19,
+            "rank_improvement": 1
+          },
+          "entity_id": "KOSPI.SECTOR.17",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 7,
+          "prior_bucket": "MIDDLE",
+          "rank": 18,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::전기·가스",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "0.016105982678",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 9,
+            "rank_improvement": -10
+          },
+          "entity_id": "KOSPI.SECTOR.13",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 19,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::유통",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "0.01437054299",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 10,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 18,
+            "rank_improvement": -2
+          },
+          "entity_id": "KOSPI.SECTOR.22",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "BOTTOM_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 7,
+          "prior_bucket": "BOTTOM",
+          "rank": 20,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::증권",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-10",
+          "strength": "0.012773885499",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "MIDDLE",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 17,
+            "rank_improvement": -4
+          },
+          "entity_id": "KOSPI.SECTOR.04",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": null,
+          "ledger_bucket_transition": "MIDDLE_TO_MIDDLE",
+          "ledger_p2_state": "EMERGING",
+          "non_top_streak": 7,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 21,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::금융",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "0.010501983629",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "BOTTOM",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 3,
+            "rank_improvement": -19
+          },
+          "entity_id": "KOSPI.SECTOR.06",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": "2026-08-19",
+          "ledger_bucket_transition": "TOP_TO_BOTTOM",
+          "ledger_p2_state": "WEAKENING",
+          "non_top_streak": 1,
+          "observations_in_state": 1,
+          "prior_bucket": "TOP",
+          "rank": 22,
+          "release_new_buy_stop": true,
+          "source_identity": "KOSPI::보험",
+          "state": "STRONG_RELEASED",
+          "state_since_date": "2026-08-19",
+          "strength": "-0.000950975693",
+          "strong_confirmed_on": "2026-08-18",
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "BOTTOM",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 10,
+            "rank_improvement": -13
+          },
+          "entity_id": "KOSPI.SECTOR.20",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": "2026-08-18",
+          "ledger_bucket_transition": "MIDDLE_TO_BOTTOM",
+          "ledger_p2_state": "WEAKENING",
+          "non_top_streak": 3,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 23,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::제조",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "-0.005874345819",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        },
+        {
+          "bucket": "BOTTOM",
+          "calendar_days_in_state": 1,
+          "decision_eligible": false,
+          "emerging_watch": {
+            "condition_met": false,
+            "lookback_observations": 5,
+            "lookback_rank": 6,
+            "rank_improvement": -18
+          },
+          "entity_id": "KOSPI.SECTOR.18",
+          "forced_exit": false,
+          "lagging": null,
+          "last_release_on": "2026-08-18",
+          "ledger_bucket_transition": "MIDDLE_TO_BOTTOM",
+          "ledger_p2_state": "WEAKENING",
+          "non_top_streak": 3,
+          "observations_in_state": 1,
+          "prior_bucket": "MIDDLE",
+          "rank": 24,
+          "release_new_buy_stop": false,
+          "source_identity": "KOSPI::전기전자",
+          "state": "NEUTRAL",
+          "state_since_date": "2026-08-19",
+          "strength": "-0.019936688358",
+          "strong_confirmed_on": null,
+          "strong_lapsed_by_gap": false,
+          "top_streak": 0
+        }
+      ],
+      "scope_id": "KOSPI::코스피"
+    }
+  ],
+  "strength_basis": {
+    "active": "ONE_SESSION_RATIFIED_TEMPORARY",
+    "lookback_sessions": 1,
+    "twenty_session_basis": {
+      "enabled": false,
+      "lookback_sessions": 20,
+      "status": "NOT_ENABLED_PENDING_KRX_SECTOR_HISTORY_AND_REVERIFICATION_RATIFICATION"
+    }
+  },
+  "summary": {
+    "by_state": {
+      "EMERGING_WATCH": [
+        {
+          "entity_id": "KOSDAQ.SECTOR.15",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.17",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.19",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.04",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.21",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.10",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.14",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.08",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.24",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.09",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.11",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.03",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.12",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.05",
+          "scope_id": "KOSPI::코스피"
+        }
+      ],
+      "NEUTRAL": [
+        {
+          "entity_id": "KOSDAQ.SECTOR.09",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.12",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.10",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.02",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.01",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.22",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.07",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.06",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.18",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.16",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.05",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.13",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.03",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.11",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.20",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.14",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.02",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.19",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.16",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.07",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.01",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.15",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.17",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.13",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.22",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.04",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.20",
+          "scope_id": "KOSPI::코스피"
+        },
+        {
+          "entity_id": "KOSPI.SECTOR.18",
+          "scope_id": "KOSPI::코스피"
+        }
+      ],
+      "STRONG_CONFIRMED": [
+        {
+          "entity_id": "KOSDAQ.SECTOR.08",
+          "scope_id": "KOSDAQ::코스닥"
+        },
+        {
+          "entity_id": "KOSDAQ.SECTOR.21",
+          "scope_id": "KOSDAQ::코스닥"
+        }
+      ],
+      "STRONG_HELD": [
+        {
+          "entity_id": "KOSPI.SECTOR.23",
+          "scope_id": "KOSPI::코스피"
+        }
+      ],
+      "STRONG_RELEASED": [
+        {
+          "entity_id": "KOSPI.SECTOR.06",
+          "scope_id": "KOSPI::코스피"
+        }
+      ]
+    },
+    "counts": {
+      "EMERGING_WATCH": 14,
+      "NEUTRAL": 28,
+      "STRONG_CONFIRMED": 2,
+      "STRONG_HELD": 1,
+      "STRONG_RELEASED": 1
+    }
+  }
+}
