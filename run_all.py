@@ -2544,6 +2544,33 @@ APPROVED_TESTS = [
     #   rule, byte-deterministic, append-only; chained workflow has no cron and
     #   no secret, and the sha-pinned source workflows stay untouched.
     "test/test_rotation_opportunity_ledger.py",
+    # ★ Alpaca historical SIP daily-bar access probe (user approval
+    #   2026-09-15: "Alpaca 과거 SIP 데이터 접근 확인 테스트 승인"). Answers, once,
+    #   on request: can the existing dedicated ALPACA_MARKET_DATA_API_KEY/
+    #   ALPACA_MARKET_DATA_API_SECRET credential read HISTORICAL SIP daily
+    #   bars (feed=sip) outside the real-time SIP embargo, and how does SIP
+    #   daily volume compare with IEX daily volume over the same window?
+    #   Bounded to at most 6 requests to /v2/stocks/bars (multi-symbol):
+    #   once with feed=sip and once with feed=iex over the SAME fixed
+    #   10-session window ending >=2 days before the run, each with at most
+    #   one retry on a transient (network/429/5xx) failure only -- a
+    #   definitive 401/403 is never retried. Symbols are 3 approved
+    #   config/free_market_data_contract.json alpaca.symbols (SPY/XLK/AAPL
+    #   preferred; SPY/XLK/MSFT fallback since AAPL is not currently
+    #   approved). Output is aggregate-only: per-request status/error
+    #   class, whether SIP returned bars, bar counts, the SIP/IEX
+    #   volume ratio and the (vwap*volume)/(close*volume) notional-ratio
+    #   per symbol (median across the shared session window) -- never a
+    #   per-day price/close/volume/vwap value. assert_no_forbidden_fields
+    #   checks that mechanically before anything is written, and the
+    #   workflow re-checks the written file the same way before upload.
+    #   Workflow: dispatch only, contents: read, persist-credentials
+    #   false, secrets in exactly one step env, aggregate JSON only under
+    #   RUNNER_TEMP, nothing committed, tracked-change guard. Offline
+    #   fixture/fake-HTTP-layer regression only; no network call from
+    #   tests.
+    "test/test_alpaca_sip_access_probe.py",
+    "test/test_alpaca_sip_access_probe_workflow.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
