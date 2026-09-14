@@ -1016,6 +1016,12 @@ def _derive_runtime_request(
         decision, expected_source_commit=expected_source_commit,
         observation_root=source_root,
     )
+    if legacy_request and decision["schema_version"] != DECISION.LEGACY_OUTPUT_SCHEMA_VERSION:
+        # No /2 request was ever issued for a per-market decision (the runtime
+        # pin that emitted /2 could not read /2 or /3 decisions).  Accepting one
+        # would let a relabelled request downgrade a per-market decision to the
+        # aggregate gate, so it fails closed.
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_DECISION")
     # A /2 request is replayed exactly as issued: aggregate freshness gate and a
     # whole-request abort on an unusable entry orderbook.  A /3 request judges
     # each market by its own ratified freshness when the decision carries it.
@@ -1087,7 +1093,13 @@ def _derive_runtime_request(
                     decision, market=market, observation_root=source_root,
                     per_market=per_market,
                 )
-            except CryptoPaperRuntimeBridgeError as exc:
+            except (
+                CryptoPaperRuntimeBridgeError if legacy_request
+                else MarketEvidenceUnavailableError
+            ) as exc:
+                # /3: only unavailable evidence is this market's blocker;
+                # tampered or malformed evidence aborts the whole request.
+                # /2 keeps its issued catch-all for byte-identical replay.
                 blockers.append(f"MATCH_SNAPSHOT_UNAVAILABLE:{market}:{exc}")
                 continue
             captured = _parse_utc(snapshot["captured_at"], "ORDERBOOK_CAPTURED_AT_INVALID")

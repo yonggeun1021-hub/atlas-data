@@ -72,8 +72,10 @@ OBSERVATION_COMMIT = "c" * 40
 # ``source_inputs.observation_root`` blanked because it is a host path.
 LEGACY_V2_GOLDEN = {
     "v1_decision_open_btc_order": "078f32271dc292b008d0cb1e476aa4073c84eb88f841abd2cbe20b25765aaa07",
-    "v3_decision_open_btc_order": "d835f993c1f597a5f4c7c500d660f88ca8f97d53141b39e51a047ec8e695a857",
 }
+# The pre-change bridge could also emit a /2 request over a /3 decision
+# (normalized sha256 d835f993...); no such request was issued by the private
+# runtime pin, and accepting one is a per-market -> aggregate downgrade.
 
 
 def natural_packet() -> dict:
@@ -412,8 +414,8 @@ class PerMarketRequestTests(ModifiedRunFixture):
             self.assertIn(
                 "MATCH_SNAPSHOT_UNAVAILABLE:KRW-ETH:REALTIME_ORDERBOOK_MISSING:KRW-ETH", carried["blockers"],
             )
-            # The issued /2 derivation still aborts on the same inputs.
-            with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError, "DECISION_REALTIME_FRESHNESS_NOT_RATIFIED_FRESH"):
+            # A /2 request can never be derived from a per-market decision.
+            with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError, "RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_DECISION"):
                 BRIDGE._derive_runtime_request(
                     decision, expected_source_commit=decision["source_commit"],
                     account_state=account(), open_position_risk=[], runtime_config=config(),
@@ -511,7 +513,6 @@ class LegacyCompatibilityTests(unittest.TestCase):
     def test_issued_v2_requests_rebuild_byte_identically_and_revalidate(self):
         scenarios = {
             "v1_decision_open_btc_order": (natural_packet, contextlib.nullcontext),
-            "v3_decision_open_btc_order": (replay, per_market_effective),
         }
         for name, (decision_factory, context) in scenarios.items():
             with self.subTest(name), context():
@@ -531,6 +532,60 @@ class LegacyCompatibilityTests(unittest.TestCase):
                 forged["packet_sha256"] = BRIDGE.payload_sha256({k: v for k, v in forged.items() if k != "packet_sha256"})
                 with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError, "DERIVATION_MISMATCH"):
                     BRIDGE.validate_runtime_request(forged)
+
+
+    def test_legacy_request_over_a_per_market_decision_is_rejected(self):
+        with per_market_effective():
+            decision = replay()
+            with self.assertRaisesRegex(
+                BRIDGE.CryptoPaperRuntimeBridgeError, "RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_DECISION",
+            ):
+                BRIDGE._derive_runtime_request(
+                    decision, expected_source_commit=decision["source_commit"],
+                    public_code_commit_sha=CODE_COMMIT, observation_commit_sha=OBSERVATION_COMMIT,
+                    account_state=account(["KRW-BTC"]), open_position_risk=[], runtime_config=None,
+                    request_schema_version=BRIDGE.LEGACY_REQUEST_SCHEMA_VERSION,
+                )
+            # A /3 request relabelled /2 (legacy field set, rehashed) is rejected too.
+            request = request_for(decision, account_state=account(["KRW-BTC"]), with_config=False)
+            forged = {k: v for k, v in request.items() if k in BRIDGE.LEGACY_REQUEST_FIELDS}
+            forged["schema_version"] = BRIDGE.LEGACY_REQUEST_SCHEMA_VERSION
+            forged["packet_sha256"] = BRIDGE.payload_sha256({k: v for k, v in forged.items() if k != "packet_sha256"})
+            with self.assertRaisesRegex(
+                BRIDGE.CryptoPaperRuntimeBridgeError, "RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_DECISION",
+            ):
+                BRIDGE.validate_runtime_request(forged)
+
+
+class PerMarketTamperAbortTests(ModifiedRunFixture):
+    """Tampered per-market evidence aborts; only unavailable evidence is a blocker."""
+
+    def tampered(self, key):
+        def mutate(run):
+            run["latest_public_messages"][key]["source_sha256"] = "0" * 64
+        return self.realtime_entry(mutate)
+
+    def test_tampered_ticker_aborts_marks(self):
+        entry = self.tampered("ticker|-|KRW-ETH")
+        with per_market_effective():
+            decision = replay(realtime_entry=entry)
+            self.assertEqual(BRIDGE.market_realtime_status(decision, "KRW-ETH")[0], DECISION.FRESH)
+            with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError, "REALTIME_TICKER_SHA_MISMATCH:KRW-ETH"):
+                BRIDGE.latest_mark_prices_by_market(decision, ["KRW-BTC", "KRW-ETH"])
+
+    def test_tampered_orderbook_aborts_entry_request(self):
+        entry = self.tampered("orderbook|-|KRW-ETH")
+        with per_market_effective(), actionable_upstream(["KRW-ETH"]):
+            decision = replay(realtime_entry=entry)
+            with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError, "REALTIME_ORDERBOOK_SHA_MISMATCH:KRW-ETH"):
+                request_for(decision)
+
+    def test_tampered_orderbook_aborts_carried_match_request(self):
+        entry = self.tampered("orderbook|-|KRW-ETH")
+        with per_market_effective():
+            decision = replay(realtime_entry=entry)
+            with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError, "REALTIME_ORDERBOOK_SHA_MISMATCH:KRW-ETH"):
+                request_for(decision, account_state=account(["KRW-BTC", "KRW-ETH"]), with_config=False)
 
 
 class MutationProofTests(ModifiedRunFixture):
