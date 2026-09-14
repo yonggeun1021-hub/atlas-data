@@ -832,6 +832,53 @@ def replay_trend_source(
     }
 
 
+PROXY_MIXED_SESSION_GENERATION = "US_PROXY_MIXED_SESSION_GENERATION"
+
+
+def _assert_proxy_session_alignment(measurement: object, label: str) -> None:
+    """Every session date a combined TREND/BREADTH/LEADERSHIP measurement names
+    must be the one effective session it claims.
+
+    The union fetch makes the *trend* session single by construction, but not
+    the proxy groups: ``FMD.derive_us_market_reference`` stamps LEADERSHIP's
+    top-level ``as_of_session_date`` from the trend ETFs alone, while each
+    ``ordered_groups`` row carries its own symbol's last bar. A sector ETF that
+    is in LEADERSHIP but not in BREADTH (SMH) whose latest bar is missing
+    therefore still produced an ``OBSERVED`` LEADERSHIP axis mixing that
+    symbol's previous session into the effective one. Mirrors
+    ``regime/us_paper_runtime.py::_session_axis``'s ``_MIXED_SESSION_GENERATION``
+    check: the builder applies it right after the combined fetch and the
+    record validator re-applies it to the stored measurement, so neither a
+    replay nor a re-signed record can carry a mixed session generation.
+    """
+    if not isinstance(measurement, dict):
+        fail(PROXY_MIXED_SESSION_GENERATION, label)
+    effective = measurement.get("as_of_session_date")
+    if _calendar_date(effective) is None:
+        fail(PROXY_MIXED_SESSION_GENERATION, label)
+    breadth = measurement.get("breadth_measurement")
+    leadership = measurement.get("leadership_measurement")
+    trend_rows = measurement.get("trend_etfs")
+    if not isinstance(breadth, dict) or not isinstance(leadership, dict):
+        fail(PROXY_MIXED_SESSION_GENERATION, label)
+    breadth_rows = breadth.get("observations")
+    leadership_rows = leadership.get("ordered_groups")
+    for rows in (trend_rows, breadth_rows, leadership_rows):
+        if not isinstance(rows, list) or not rows or not all(
+            isinstance(row, dict) for row in rows
+        ):
+            fail(PROXY_MIXED_SESSION_GENERATION, label)
+    dates = {
+        measurement.get("reference_as_of_session_date"),
+        breadth.get("as_of_session_date"),
+        leadership.get("as_of_session_date"),
+    }
+    for rows in (trend_rows, breadth_rows, leadership_rows):
+        dates |= {row.get("as_of_session_date") for row in rows}
+    if dates != {effective}:
+        fail(PROXY_MIXED_SESSION_GENERATION, label)
+
+
 def replay_breadth_leadership_source(
     alpaca_key: str, alpaca_secret: str, anchor: dt.date, *, getter, contract: dict,
 ) -> dict:
@@ -884,7 +931,7 @@ def replay_breadth_leadership_source(
         fail("US_BREADTH_NOT_OBSERVED")
     if leadership.get("status") != "OBSERVED":
         fail("US_LEADERSHIP_NOT_OBSERVED")
-    return {
+    measurement = {
         "source_scope": contract["alpaca"]["source_scope"],
         "feed": contract["alpaca"]["feed"],
         "timeframe": "1Day",
@@ -902,6 +949,11 @@ def replay_breadth_leadership_source(
         "raw_retention": RAW_RETENTION,
         "response_sha256": FMD.sha256_bytes(raw),
     }
+    # Fail closed before any axis row is built: the breadth session, the
+    # reference session, and every leadership group's own session must all be
+    # the effective session, not merely the trend ETFs'.
+    _assert_proxy_session_alignment(measurement, "BREADTH_LEADERSHIP")
+    return measurement
 
 
 def replay_risk_vol_source(
@@ -1068,16 +1120,31 @@ def _load_historical_pit_replay_identity() -> dict | None:
     change its sha256 and break that pin. A missing or unreadable file is
     treated exactly like an absent identity always was: the pre-U1 narrow
     default, never an error that could abort an otherwise-unrelated replay.
+
+    Only a genuinely *absent* file is that default. A file that is present but
+    unreadable, not UTF-8, not JSON, or not a JSON object is a corrupted claim,
+    not an absence, and fails closed exactly like a present-but-mis-hashed one:
+    treating it as absent would let a truncated or garbled identity silently
+    re-narrow scope instead of surfacing.
     """
+    path = HISTORICAL_PIT_REPLAY_IDENTITY_PATH
     try:
-        raw = HISTORICAL_PIT_REPLAY_IDENTITY_PATH.read_text(encoding="utf-8")
-    except OSError:
+        raw = path.read_bytes()
+    except FileNotFoundError:
         return None
+    except OSError as exc:
+        raise ReplayPopulationError(
+            f"HISTORICAL_PIT_REPLAY_IDENTITY_INVALID:{path}:UNREADABLE"
+        ) from exc
     try:
-        value = json.loads(raw)
-    except json.JSONDecodeError:
-        return None
-    return value if isinstance(value, dict) else None
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReplayPopulationError(
+            f"HISTORICAL_PIT_REPLAY_IDENTITY_INVALID:{path}:MALFORMED_JSON"
+        ) from exc
+    if not isinstance(value, dict):
+        fail("HISTORICAL_PIT_REPLAY_IDENTITY_INVALID", f"{path}:NOT_AN_OBJECT")
+    return value
 
 
 def authorized_axes(contract: dict) -> list[str]:
@@ -2333,6 +2400,18 @@ def _validate_measurement_source_dates(
         label = f"{requested_date}:{name}"
         if any(date > anchor for date in _measurement_dates(measurement, label)):
             fail("US_REPLAY_LOOKAHEAD_VIOLATION", label)
+        if name in ("BREADTH", "LEADERSHIP"):
+            # Re-applied, not trusted: the same session-generation check the
+            # builder runs right after the combined fetch.
+            _assert_proxy_session_alignment(measurement, label)
+            trend = axes.get("TREND")
+            trend_measurement = trend.get("measurement") if isinstance(trend, dict) else None
+            if "TREND" in observed and (
+                not isinstance(trend_measurement, dict)
+                or trend_measurement.get("as_of_session_date")
+                != measurement.get("as_of_session_date")
+            ):
+                fail(PROXY_MIXED_SESSION_GENERATION, label)
 
 
 # Each observed axis's row is rebuilt by the *same* helper that produced it, so

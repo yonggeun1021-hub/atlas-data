@@ -663,6 +663,60 @@ class UsHistoricalPitReplayIdentityTest(unittest.TestCase):
                 MODULE.authorized_axes(self.contract), ["TREND", "RISK_VOL", "LIQUIDITY"],
             )
 
+    def _identity_file(self, content: bytes | None):
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        path = directory / "us_historical_pit_replay_identity_v1.json"
+        if content is not None:
+            path.write_bytes(content)
+        self.enterContext(
+            mock.patch.object(MODULE, "HISTORICAL_PIT_REPLAY_IDENTITY_PATH", path)
+        )
+        return path
+
+    def test_a_truly_absent_identity_file_on_disk_is_the_narrow_default(self):
+        self._identity_file(None)
+        self.assertIsNone(MODULE._load_historical_pit_replay_identity())
+        self.assertEqual(
+            MODULE.authorized_axes(self.contract), ["TREND", "RISK_VOL", "LIQUIDITY"],
+        )
+
+    def test_a_present_but_malformed_identity_file_fails_closed_not_absent(self):
+        # A truncated/garbled identity is a corrupted claim, not an absence:
+        # silently re-narrowing scope would hide it.
+        real = MODULE.HISTORICAL_PIT_REPLAY_IDENTITY_PATH.read_bytes()
+        for label, content in (
+            ("truncated_json", real[: len(real) // 2]),
+            ("empty_file", b""),
+            ("not_utf8", b"\xff\xfe{}"),
+            ("json_array", b"[]"),
+            ("json_null", b"null"),
+        ):
+            with self.subTest(label):
+                with mock.patch.object(
+                    MODULE, "HISTORICAL_PIT_REPLAY_IDENTITY_PATH",
+                    Path(self.enterContext(tempfile.TemporaryDirectory())) / "identity.json",
+                ) as path:
+                    path.write_bytes(content)
+                    with self.assertRaisesRegex(
+                        MODULE.ReplayPopulationError, "HISTORICAL_PIT_REPLAY_IDENTITY_INVALID",
+                    ):
+                        MODULE._load_historical_pit_replay_identity()
+                    with self.assertRaisesRegex(
+                        MODULE.ReplayPopulationError, "HISTORICAL_PIT_REPLAY_IDENTITY_INVALID",
+                    ):
+                        MODULE.authorized_axes(self.contract)
+
+    def test_the_real_identity_file_bytes_still_load_through_the_disk_path(self):
+        path = self._identity_file(MODULE.HISTORICAL_PIT_REPLAY_IDENTITY_PATH.read_bytes())
+        self.assertTrue(path.is_file())
+        self.assertIs(
+            MODULE._load_historical_pit_replay_identity()["replay_population_wiring_activated"],
+            False,
+        )
+        self.assertEqual(
+            MODULE.authorized_axes(self.contract), ["TREND", "RISK_VOL", "LIQUIDITY"],
+        )
+
     def test_breadth_authorized_flipping_still_fails_closed_with_no_identity(self):
         # The original pre-U1 guarantee, preserved: us_breadth_authorized is
         # never itself the gate, so a contract that flips it without a
@@ -866,7 +920,19 @@ REAL_EVIDENCE_RAW_PATH = (
     ROOT / "evidence" / "free_market_data" / "raw" / REAL_EVIDENCE_ANCHOR
     / "alpaca_iex_daily_bars.json.gz"
 )
-REAL_EVIDENCE_COMMITTED_PATH = ROOT / "data" / "latest_free_market_data.json"
+# The content-addressed derived packet the 2026-09-11 capture published --
+# never the rolling ``data/latest_free_market_data.json``, which the daily
+# free-market capture overwrites and would silently change what this compares
+# against. ``setUp`` re-verifies both the packet's own signature and that it is
+# the packet derived from exactly the raw daily-bars file replayed here.
+REAL_EVIDENCE_COMMITTED_PATH = (
+    ROOT / "evidence" / "free_market_data" / "derived" / REAL_EVIDENCE_ANCHOR
+    / "56c6b9829014ea66c02987b349ea3a3743267d9d73f73fdced6c93d4e802d01a"
+    / "manifest.json"
+)
+REAL_EVIDENCE_PACKET_SHA256 = (
+    "6cf3eeda4e856a56c0bc2ff3ad85dd5b250fb791c294c7a5c288918e0e5dfc71"
+)
 
 
 @unittest.skipUnless(
@@ -895,6 +961,15 @@ class UsRealEvidenceReplayFidelityTest(unittest.TestCase):
         self.responses = json.loads(raw)["responses"]
         self.committed = json.loads(
             REAL_EVIDENCE_COMMITTED_PATH.read_text(encoding="utf-8")
+        )
+        unsigned = {k: v for k, v in self.committed.items() if k != "packet_sha256"}
+        self.assertEqual(self.committed["packet_sha256"], REAL_EVIDENCE_PACKET_SHA256)
+        self.assertEqual(
+            FMD.sha256_bytes(FMD.canonical_bytes(unsigned)), REAL_EVIDENCE_PACKET_SHA256,
+        )
+        self.assertEqual(self.committed["alpaca"]["daily_raw_sha256"], FMD.sha256_bytes(raw))
+        self.assertEqual(
+            self.committed["us_market_reference"]["as_of_session_date"], REAL_EVIDENCE_ANCHOR,
         )
         # No committed real FRED capture is used here -- only the real
         # committed Alpaca bars are what this class is pinning. RISK_VOL/
@@ -976,6 +1051,157 @@ class UsRealEvidenceReplayFidelityTest(unittest.TestCase):
         expected_regime, expected_score, _ = PRR.classify(candidate["axes"], self.policy)
         self.assertEqual(candidate["paper_reference"]["candidate_regime"], expected_regime)
         self.assertEqual(candidate["paper_reference"]["score"], expected_score)
+
+    def _provider_dropping_last_bar(self, dropped_symbol):
+        def provider(url, headers=None):
+            if urlparse(url).netloc != "data.alpaca.markets":
+                return self._fred_fallback(url, headers)
+            symbol = urlparse(url).path.split("/")[3]
+            bars = list(self.responses[symbol]["bars"])
+            if symbol == dropped_symbol:
+                bars = bars[:-1]
+            return json.dumps({"bars": bars, "symbol": symbol}).encode()
+        return provider
+
+    def test_real_bars_with_smh_last_bar_dropped_fail_closed_in_the_builder(self):
+        # SMH is a LEADERSHIP group but not a BREADTH symbol: before the
+        # session-generation check this still produced a 5/5 OBSERVED record
+        # whose LEADERSHIP mixed SMH's previous session into 2026-09-11.
+        contract_proxy = self.contract["alpaca"]["current_proxy_axes"]
+        self.assertIn("SMH", contract_proxy["leadership_symbols"])
+        self.assertNotIn("SMH", contract_proxy["breadth_symbols"])
+        record = MODULE.replay_one_requested_date(
+            CREDENTIALS, REAL_EVIDENCE_ANCHOR,
+            getter=self._provider_dropping_last_bar("SMH"),
+            contract=self.contract, policy=self.policy, excluded=self.excluded,
+            replayed=self.replayed,
+        )
+        for name in ("TREND", "BREADTH", "LEADERSHIP"):
+            entry = record["five_axis"]["axes"][name]
+            self.assertEqual(entry["status"], "NOT_COMPUTABLE", name)
+            self.assertIn(MODULE.PROXY_MIXED_SESSION_GENERATION, entry["reason"], name)
+            self.assertIsNone(entry["measurement"], name)
+        self.assertEqual(record["status"], "FREE_AXES_PARTIAL")
+        candidate = record["candidate_normalized_result"]
+        self.assertEqual(candidate["paper_reference"]["candidate_regime"], "UNKNOWN")
+        self.assertEqual(candidate["runtime_regime"], "UNKNOWN")
+        # And the builder's own population is still a valid one.
+        with mock.patch.object(FMD, "_get", side_effect=AssertionError("network")):
+            population = MODULE.build_population(
+                CREDENTIALS, [REAL_EVIDENCE_ANCHOR],
+                getter=self._provider_dropping_last_bar("SMH"),
+            )
+        MODULE.validate_population(copy.deepcopy(population))
+
+    def test_real_bars_with_smh_last_bar_dropped_fail_closed_in_the_validator(self):
+        # The reviewer's exact probe: a mixed-generation record that reached
+        # 5/5 OBSERVED (here produced by disabling only the builder-side
+        # check) must be refused by validate_population, not accepted.
+        with mock.patch.object(MODULE, "_assert_proxy_session_alignment"):
+            population = MODULE.build_population(
+                CREDENTIALS, [REAL_EVIDENCE_ANCHOR],
+                getter=self._provider_dropping_last_bar("SMH"),
+            )
+        record = population["records"][0]
+        self.assertEqual(record["status"], "FREE_AXES_OBSERVED")
+        groups = record["five_axis"]["axes"]["LEADERSHIP"]["measurement"][
+            "leadership_measurement"
+        ]["ordered_groups"]
+        smh = [row for row in groups if row["symbol"] == "SMH"][0]
+        self.assertLess(smh["as_of_session_date"], REAL_EVIDENCE_ANCHOR)
+        with self.assertRaisesRegex(
+            MODULE.ReplayPopulationError, MODULE.PROXY_MIXED_SESSION_GENERATION,
+        ):
+            MODULE.validate_population(copy.deepcopy(population))
+        with self.assertRaisesRegex(
+            MODULE.ReplayPopulationError, MODULE.PROXY_MIXED_SESSION_GENERATION,
+        ):
+            MODULE._validate_record(
+                record, REAL_EVIDENCE_ANCHOR, self.policy, self.excluded, self.replayed,
+            )
+
+    def test_the_validator_refuses_each_misaligned_session_field(self):
+        population = MODULE.build_population(
+            CREDENTIALS, [REAL_EVIDENCE_ANCHOR], getter=self._real_evidence_provider,
+        )
+        MODULE.validate_population(copy.deepcopy(population))
+        earlier = "2026-09-10"
+
+        def breadth_date(m):
+            m["breadth_measurement"]["as_of_session_date"] = earlier
+
+        def reference_date(m):
+            m["reference_as_of_session_date"] = earlier
+
+        def group_date(m):
+            m["leadership_measurement"]["ordered_groups"][-1]["as_of_session_date"] = earlier
+
+        def breadth_row_date(m):
+            m["breadth_measurement"]["observations"][0]["as_of_session_date"] = earlier
+
+        for label, mutate in (
+            ("breadth", breadth_date), ("reference", reference_date),
+            ("leadership_group", group_date), ("breadth_observation", breadth_row_date),
+        ):
+            with self.subTest(label):
+                record = copy.deepcopy(population["records"][0])
+                for name in ("BREADTH", "LEADERSHIP"):
+                    mutate(record["five_axis"]["axes"][name]["measurement"])
+                with self.assertRaisesRegex(
+                    MODULE.ReplayPopulationError, MODULE.PROXY_MIXED_SESSION_GENERATION,
+                ):
+                    MODULE._validate_measurement_source_dates(
+                        record["five_axis"]["axes"], list(PRR.AXES), REAL_EVIDENCE_ANCHOR,
+                    )
+
+    def _provider_keeping_last_bars(self, count):
+        def provider(url, headers=None):
+            if urlparse(url).netloc != "data.alpaca.markets":
+                return self._fred_fallback(url, headers)
+            symbol = urlparse(url).path.split("/")[3]
+            bars = [
+                bar for bar in self.responses[symbol]["bars"]
+                if bar["t"][:10] <= REAL_EVIDENCE_ANCHOR
+            ][-count:]
+            self.assertEqual(len(bars), count, symbol)
+            return json.dumps({"bars": bars, "symbol": symbol}).encode()
+        return provider
+
+    def test_sixty_one_real_bars_observe_and_sixty_are_not_computable(self):
+        # The longest return window is 60 sessions, which needs 61 closes:
+        # pinned on both sides of the boundary with the real committed bars.
+        self.assertEqual(max(self.contract["alpaca"]["return_windows_sessions"]), 60)
+        observed = MODULE.replay_one_requested_date(
+            CREDENTIALS, REAL_EVIDENCE_ANCHOR, getter=self._provider_keeping_last_bars(61),
+            contract=self.contract, policy=self.policy, excluded=self.excluded,
+            replayed=self.replayed,
+        )
+        self.assertEqual(observed["status"], "FREE_AXES_OBSERVED")
+        for name in PRR.AXES:
+            self.assertEqual(observed["five_axis"]["axes"][name]["status"], "OBSERVED", name)
+        for row in observed["five_axis"]["axes"]["TREND"]["measurement"]["trend_etfs"]:
+            self.assertEqual(row["available_session_count"], 61, row["symbol"])
+        MODULE._validate_record(
+            observed, REAL_EVIDENCE_ANCHOR, self.policy, self.excluded, self.replayed,
+        )
+
+        short = MODULE.replay_one_requested_date(
+            CREDENTIALS, REAL_EVIDENCE_ANCHOR, getter=self._provider_keeping_last_bars(60),
+            contract=self.contract, policy=self.policy, excluded=self.excluded,
+            replayed=self.replayed,
+        )
+        self.assertEqual(short["status"], "FREE_AXES_PARTIAL")
+        for name in ("TREND", "BREADTH", "LEADERSHIP"):
+            entry = short["five_axis"]["axes"][name]
+            self.assertEqual(entry["status"], "NOT_COMPUTABLE", name)
+            self.assertIn("US_TREND_HISTORY_INSUFFICIENT", entry["reason"], name)
+        self.assertEqual(
+            short["candidate_normalized_result"]["paper_reference"]["candidate_regime"],
+            "UNKNOWN",
+        )
+        MODULE._validate_record(
+            short, REAL_EVIDENCE_ANCHOR, self.policy, self.excluded, self.replayed,
+        )
 
     def test_missing_symbol_from_a_real_evidence_style_fetch_still_fails_breadth_closed(self):
         # Same real bytes, minus one required breadth/sector symbol -- the
