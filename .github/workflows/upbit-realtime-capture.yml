@@ -292,11 +292,13 @@ jobs:
       # Additive rule-lineage sidecar (config/rule_registry_v1.json ids) for the
       # exact decision packet above, keyed by its payload_sha256. It reads that
       # packet only, never edits it or the producer, and never exits non-zero
-      # for a lineage problem; continue-on-error keeps the evidence commit.
+      # for a lineage problem (a failure prints a ::warning:: annotation);
+      # continue-on-error and the timeout keep the evidence commit.
       - name: Rule lineage sidecar for the Crypto PAPER decision packet (read-only)
         id: crypto_rule_lineage
         if: ${{ !cancelled() && steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED' }}
         continue-on-error: true
+        timeout-minutes: 5
         env:
           DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
         run: python3 governance/rule_lineage_producers.py crypto-decision --packet "$DECISION_PATH"

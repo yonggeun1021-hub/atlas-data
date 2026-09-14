@@ -43,7 +43,8 @@ def _load(name: str, relative: str):
 CPDS = _load("rule_lineage_test_crypto_snapshot", "decision/crypto_paper_decision_snapshot.py")
 PRR = _load("rule_lineage_test_paper_reference", "regime/paper_regime_reference.py")
 
-# Hashes of the CIO workspace originals named in the implementation order.
+# Hashes of the CIO workspace originals (current bytes, after CIO timestamp
+# corrections where a correction_note says so).
 ORIGINAL_RECORD_SHA256 = {
     "USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json": "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8",
     "USER_RATIFICATION_PAPER_ACTIVE_INVERSE_HEDGE_20260913.json": "b24b38a34aa2ed34d98bf8ade6c1334268034e4e4d5718bac8450970ed5577f2",
@@ -55,12 +56,23 @@ ORIGINAL_RECORD_SHA256 = {
     "USER_RATIFICATION_US_SESSION_CALENDAR_SOURCE_20260914.json": "50259dafb000c6027dd44193fa1f38d8b65e9e33661a909df54d34e9443f318e",
     "USER_RATIFICATION_CRYPTO_BREADTH_TAXONOMY_ADDITIONS_20260914.json": "6ff7f4865db1dde6f61d40ada5c4971ef46f547f30bdab9f635415f0e6e8e931",
     "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
-    "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json": "c3f1e78ca987760af205807f67e9b56e8e7bd0078cbb87ac566b49767a855f9b",
+    "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json": "4e08b945238badfae5f28ad412aa1f7d01a85ea4a0c6e508554a29521877cbcc",
     "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915.json": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
-    "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json": "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5",
-    "USER_RATIFICATION_PAPER_SESSION_SIZE_WORDING_CORRECTION_20260915.json": "8c07a713343fd74580b2e82e6a053aac34d950aa9acb68e8f19bb2a780a17566",
+    "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json": "6ffeb7001662f32c" ,
+    "USER_RATIFICATION_PAPER_SESSION_SIZE_WORDING_CORRECTION_20260915.json": "9af25a3b210047aa",
+    "USER_RATIFICATION_PAPER_DATA_FAILURE_RISK_REDUCTION_PRIORITY_C_20260915.json": "3d07cbf1fbba35ca",
+    "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915.json": "47276abe432102c3",
+    "USER_RATIFICATION_PAPER_EXECUTION_CONTRACT_D1_D3_D5_D11_20260915.json": "10de02bf98fd4e57",
+    "USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_20260915.json": "6631506766c56793",
 }
-PENDING_IDS = {
+# Hashes recorded before the CIO timestamp corrections; the corrected files name
+# them in correction_note, so later records that cite them still resolve.
+PRE_CORRECTION_SHA256 = {
+    "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915.json": "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5",
+    "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json": "c3f1e78ca987760af205807f67e9b56e8e7bd0078cbb87ac566b49767a855f9b",
+}
+PENDING_IDS = set()  # the SIP source ratification resolved the last one
+UNDECIDED_IDS = {
     "RULE.SIZE.PLANNED_LOSS_CAP.PENDING", "RULE.EXIT.PENDING", "RULE.EXECUTION.QUALITY_NUMBERS.PENDING",
     "RULE.CRYPTO.BTC_ETH_NAME_CAP.PENDING", "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING",
 }
@@ -80,7 +92,7 @@ def _row(registry: dict, rule_id: str) -> dict:
 
 
 class TmpRootCase(unittest.TestCase):
-    """A minimal root holding the registry's source records and bindings."""
+    """A minimal root holding the registry's source records, bindings and pins."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -88,6 +100,7 @@ class TmpRootCase(unittest.TestCase):
         registry = _registry()
         paths = {s["repo_path"] for row in registry["rules"] for s in row["source_records"]}
         paths |= {b["path"] for row in registry["rules"] for b in row["implementation_bindings"]}
+        paths.add(REG.PINS_RELATIVE_PATH)
         for relative in paths:
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -108,52 +121,15 @@ class CommittedRegistryTests(unittest.TestCase):
         registry = REG.load_registry()
         ids = [row["rule_id"] for row in registry["rules"]]
         self.assertEqual(sorted(ids), sorted(REG.REQUIRED_RULE_IDS))
-        self.assertEqual(len(ids), 23)
+        self.assertEqual(len(ids), 40)
         status = {row["rule_id"]: row["status"] for row in registry["rules"]}
-        self.assertEqual(status["RULE.ROTATION.US.V1P"], "PROVISIONAL")
-        self.assertEqual(status["RULE.ROTATION.KR.V1T"], "TEMPORARY")
         self.assertEqual({k for k, v in status.items() if v == "PENDING_USER_DECISION"}, PENDING_IDS)
-        self.assertEqual(status["RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1"], "SUPERSEDED")
-        self.assertEqual(
-            {k for k, v in status.items() if v == "RATIFIED"},
-            set(REG.REQUIRED_RULE_IDS) - {"RULE.ROTATION.US.V1P", "RULE.ROTATION.KR.V1T",
-                                          "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1"} - PENDING_IDS,
-        )
-        for rule_id in ("RULE.ENTRY.PAPER_BASELINE_B.V1", "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
-                        "RULE.KR.FIRST_CYCLE_CANARY_V0.V1", "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2"):
-            self.assertEqual(status[rule_id], "RATIFIED")
-
-    def test_session_size_v2_supersedes_v1(self):
-        registry = _registry()
-        v1 = _row(registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1")
-        v2 = _row(registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2")
-        self.assertEqual((v1["version"], v2["version"]), (1, 2))
-        self.assertEqual(v1["superseded_by"]["rule_id"], v2["rule_id"])
-        self.assertEqual(v1["superseded_by"]["sha256"], v2["source_records"][0]["sha256"])
-        self.assertEqual(v2["supersedes"]["rule_id"], v1["rule_id"])
-        self.assertTrue(v2["supersedes"]["in_registry"])
-        self.assertEqual(v2["key_parameters"]["per_name_cumulative_nav_cap"]["value"]["max_nav"], "0.05")
-        self.assertEqual(v2["key_parameters"]["market_session_total_room_fraction"]["value"][
-            "fraction_of_remaining_market_share_room_at_session_start"], "1/3")
-        self.assertTrue(REG.in_force_at(v1, "2026-09-14T23:00:00Z", registry))
-        self.assertFalse(REG.in_force_at(v1, "2026-09-15T00:05:00Z", registry))
-        self.assertTrue(REG.in_force_at(v2, "2026-09-15T00:05:00Z", registry))
-        self.assertFalse(REG.in_force_at(v2, "2026-09-15T00:04:59Z", registry))
-        ctx = REFS.RegistryContext.load()
-        self.assertEqual(REFS.make_rule_ref(ctx, v1["rule_id"], "SIZED_BY")["version"], 1)
-
-    def test_pending_rows_carry_no_decision_and_cannot_be_cited(self):
-        registry = _registry()
-        ctx = REFS.RegistryContext.load()
-        for rule_id in PENDING_IDS:
-            row = _row(registry, rule_id)
-            self.assertEqual((row["version"], row["key_parameters"], row["effective_from"]), (0, {}, None))
-            self.assertTrue(row["pending_basis"])
-            with self.assertRaises(REFS.RuleLineageError):
-                REFS.make_rule_ref(ctx, rule_id, "APPLIED")
-        size = _row(registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1")["key_parameters"]
-        self.assertEqual((size["per_name_nav_cap"]["value"], size["session_room_fraction"]["value"],
-                          size["avg_traded_value_fraction"]["value"]), ("0.05", "1/3", "0.01"))
+        self.assertEqual({k for k, v in status.items() if v == "RESOLVED"}, UNDECIDED_IDS - PENDING_IDS)
+        self.assertEqual({k for k, v in status.items() if v == "SUPERSEDED"},
+                         {"RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1", "RULE.ROTATION.RELEASE_HANDLING.V1"})
+        self.assertEqual({k for k, v in status.items() if v == "PROVISIONAL"},
+                         {"RULE.ROTATION.US.V1P", "RULE.EXIT.RELEASE_FULL_SELL.V1", "RULE.EXIT.CRYPTO_TIME_STOP_21D.V1"})
+        self.assertEqual({k for k, v in status.items() if v == "TEMPORARY"}, {"RULE.ROTATION.KR.V1T"})
 
     def test_source_records_are_byte_exact_copies_of_the_named_originals(self):
         registry = _registry()
@@ -164,12 +140,32 @@ class CommittedRegistryTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(raw).hexdigest(), source["sha256"])
                 seen[source["original_filename"]] = source["sha256"]
         for name, sha in ORIGINAL_RECORD_SHA256.items():
-            self.assertEqual(seen.get(name), sha, name)
+            self.assertTrue(seen.get(name, "").startswith(sha), name)
 
-    def test_rotation_record_is_the_timestamp_corrected_version(self):
-        rotation = _row(_registry(), "RULE.ROTATION.CRYPTO.V1")["source_records"][0]
+    def test_corrected_records_name_their_previous_hash(self):
+        registry = _registry()
+        by_name = {s["original_filename"]: s for row in registry["rules"] for s in row["source_records"]}
+        for name, previous in PRE_CORRECTION_SHA256.items():
+            source = by_name[name]
+            raw = (ROOT / source["repo_path"]).read_bytes()
+            self.assertIn(previous, REG.record_identities(raw, json.loads(raw)))
+        rotation = _row(registry, "RULE.ROTATION.CRYPTO.V1")["source_records"][0]
         self.assertTrue(rotation["sha256"].startswith("c6f5dbbe"))
-        self.assertNotIn("68ca157398e2", rotation["sha256"])
+
+    def test_effective_times_follow_corrected_records(self):
+        registry = _registry()
+        expected = {
+            "RULE.GOVERNANCE.EVIDENCE_GATED.V1": "2026-09-14T15:18:00Z",
+            "RULE.ENTRY.PAPER_BASELINE_B.V1": "2026-09-14T22:10:00Z",
+            "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1": "2026-09-14T22:22:00Z",
+            "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2": "2026-09-14T22:51:00Z",
+            "RULE.EXEC.DATA_FAILURE_PRIORITY.V1": "2026-09-14T22:52:00Z",
+            "RULE.EXIT.RELEASE_FULL_SELL.V1": "2026-09-14T22:57:00Z",
+            "RULE.EXEC.TIME_CONTRACT.V1": "2026-09-14T23:01:00Z",
+            "RULE.LIQUIDITY.US_SIP_SOURCE.V1": "2026-09-14T23:06:00Z",
+        }
+        for rule_id, utc in expected.items():
+            self.assertEqual(_row(registry, rule_id)["effective_from"]["utc"], utc, rule_id)
 
     def test_copied_authority_records_contain_no_secret_like_values(self):
         for row in _registry()["rules"]:
@@ -179,24 +175,80 @@ class CommittedRegistryTests(unittest.TestCase):
 
     def test_triggers_only_where_records_state_them(self):
         registry = _registry()
-        pending = {row["rule_id"] for row in registry["rules"]
-                   if row["trigger_pending_user_confirmation"] and row["status"] != "PENDING_USER_DECISION"}
-        self.assertEqual(pending, {
-            "RULE.ENTRY.PAPER_BASELINE_B.V1", "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
-            "RULE.KR.FIRST_CYCLE_CANARY_V0.V1", "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
-            "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2",
-            "RULE.ALLOCATION.V2", "RULE.LIQUIDITY.KRUS.V1", "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
-            "RULE.US.SESSION_CALENDAR.V1", "RULE.CRYPTO.TAXONOMY.ADD_20260914",
-            "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1", "RULE.ROTATION.RELEASE_HANDLING.V1",
-            "RULE.GOVERNANCE.EVIDENCE_GATED.V1",
+        with_triggers = {row["rule_id"] for row in registry["rules"] if row["review_triggers"]}
+        self.assertEqual(with_triggers, {
+            "RULE.HEDGE.INVERSE.V1", "RULE.CRYPTO.RUNTIME.V1", "RULE.ROTATION.CRYPTO.V1",
+            "RULE.ROTATION.US.V1P", "RULE.ROTATION.KR.V1T",
         })
         for row in registry["rules"]:
             self.assertEqual(row["review_triggers"] is None, row["trigger_pending_user_confirmation"])
-        sample = _row(registry, "RULE.ROTATION.CRYPTO.V1")["minimum_sample"]
-        self.assertEqual(sample["value"], 10)
-        others = [row["rule_id"] for row in registry["rules"]
-                  if row["minimum_sample"] is not None and row["rule_id"] != "RULE.ROTATION.CRYPTO.V1"]
-        self.assertEqual(others, [])
+        samples = {row["rule_id"]: row["minimum_sample"]["value"] for row in registry["rules"] if row["minimum_sample"]}
+        self.assertEqual(samples, {"RULE.ROTATION.CRYPTO.V1": 10})
+
+    def test_undecided_rows_carry_no_decision_and_cannot_be_cited(self):
+        registry = _registry()
+        ctx = REFS.RegistryContext.load()
+        for rule_id in UNDECIDED_IDS:
+            row = _row(registry, rule_id)
+            self.assertEqual((row["version"], row["key_parameters"], row["effective_from"]), (0, {}, None))
+            self.assertTrue(row["pending_basis"])
+            with self.assertRaises(REFS.RuleLineageError):
+                REFS.make_rule_ref(ctx, rule_id, "APPLIED")
+        resolvers = {row["rule_id"]: sorted(r["rule_id"] for r in row["resolved_by"])
+                     for row in registry["rules"] if row["status"] == "RESOLVED"}
+        self.assertEqual(resolvers, {
+            "RULE.SIZE.PLANNED_LOSS_CAP.PENDING": ["RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1"],
+            "RULE.EXIT.PENDING": ["RULE.EXIT.CRYPTO_TIME_STOP_21D.V1", "RULE.EXIT.RELEASE_FULL_SELL.V1",
+                                  "RULE.EXIT.SHADOW_CONTROLS.V1"],
+            "RULE.CRYPTO.BTC_ETH_NAME_CAP.PENDING": ["RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1"],
+            "RULE.EXECUTION.QUALITY_NUMBERS.PENDING": ["RULE.EXEC.QUALITY_LAYERS.V1", "RULE.EXEC.TIME_CONTRACT.V1"],
+            "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING": ["RULE.LIQUIDITY.US_SIP_SOURCE.V1"],
+        })
+
+    def test_supersession_windows(self):
+        registry = _registry()
+        v1 = _row(registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1")
+        v2 = _row(registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2")
+        self.assertEqual((v1["version"], v2["version"]), (1, 2))
+        self.assertEqual(v1["superseded_by"]["sha256"], v2["source_records"][0]["sha256"])
+        self.assertEqual(v2["supersedes"]["sha256"], v1["source_records"][0]["sha256"])
+        self.assertTrue(REG.in_force_at(v1, "2026-09-14T22:22:00Z", registry))
+        self.assertFalse(REG.in_force_at(v1, "2026-09-14T22:51:00Z", registry))
+        self.assertTrue(REG.in_force_at(v2, "2026-09-14T22:51:00Z", registry))
+        self.assertFalse(REG.in_force_at(v2, "2026-09-14T22:50:59Z", registry))
+        release = _row(registry, "RULE.ROTATION.RELEASE_HANDLING.V1")
+        full_sell = _row(registry, "RULE.EXIT.RELEASE_FULL_SELL.V1")
+        self.assertEqual(release["superseded_by"]["rule_id"], full_sell["rule_id"])
+        self.assertEqual(full_sell["key_parameters"]["retained_new_buy_stop"]["value"], "STOP_NEW_BUYS_ON_RELEASE")
+        self.assertTrue(REG.in_force_at(release, "2026-09-14T22:56:59Z", registry))
+        self.assertFalse(REG.in_force_at(release, "2026-09-14T22:57:00Z", registry))
+        ctx = REFS.RegistryContext.load()
+        self.assertEqual(REFS.make_rule_ref(ctx, v1["rule_id"], "SIZED_BY")["version"], 1)
+
+    def test_amendment_links_do_not_change_amended_parameters(self):
+        registry = _registry()
+        freshness = _row(registry, "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1")
+        self.assertEqual(freshness["amended_by"][0]["rule_id"], "RULE.EXEC.DATA_FAILURE_PRIORITY.V1")
+        self.assertEqual(freshness["key_parameters"]["provider_age_seconds_max"]["value"], 20)
+        allocation = _row(registry, "RULE.ALLOCATION.V2")
+        self.assertEqual(allocation["amended_by"][0]["rule_id"], "RULE.RISK.NAV_DRAWDOWN_LIFT.V1")
+        self.assertEqual(allocation["key_parameters"]["per_market_state_multiplier_of_base"]["value"]["NEUTRAL"], "0.70")
+        self.assertEqual(_row(registry, "RULE.LIQUIDITY.KRUS.V1")["amended_by"][0]["rule_id"],
+                         "RULE.LIQUIDITY.US_SIP_SOURCE.V1")
+
+    def test_sector_state_vocabulary_is_normalized(self):
+        registry = _registry()
+        common = _row(registry, "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1")["key_parameters"]
+        entry = _row(registry, "RULE.ENTRY.PAPER_BASELINE_B.V1")["key_parameters"]
+        self.assertEqual(common["t1_t2_feed"]["value"]["eligible_sector_states"], ["STRONG_CONFIRMED", "STRONG_HELD"])
+        self.assertEqual(common["neutral_market_new_buys"]["value"]["eligible_sector_states"], ["STRONG_CONFIRMED", "STRONG_HELD"])
+        self.assertEqual(entry["sector_gate"]["value"], ["STRONG_CONFIRMED", "STRONG_HELD"])
+        self.assertIn("strong confirmed/held", common["t1_t2_feed"]["text"])
+
+    def test_pin_file_covers_every_parsed_item(self):
+        pins = json.loads((ROOT / REG.PINS_RELATIVE_PATH).read_text(encoding="utf-8"))
+        self.assertEqual(pins, REG.build_parsed_pins(_registry()))
+        self.assertEqual(hashlib.sha256((ROOT / REG.PINS_RELATIVE_PATH).read_bytes()).hexdigest(), REG.PARSED_PINS_SHA256)
 
     def test_kst_minute_effective_conversion(self):
         self.assertEqual(REG.kst_minute_to_utc("2026-09-15T00:05+09:00"), "2026-09-14T15:05:00Z")
@@ -213,6 +265,51 @@ class RegistryTamperTests(TmpRootCase):
     def test_baseline_valid_in_tmp_root(self):
         REG.validate_registry(self.registry, self.root)
 
+    # --- parsed value drift under an unchanged quote (reviewer mutations) ---
+    def test_hedge_time_stop_value_drift_with_same_quote_fails(self):
+        item = _row(self.registry, "RULE.HEDGE.INVERSE.V1")["key_parameters"]["time_stop_sessions"]
+        self.assertEqual((item["text"], item["value"]), ("10 sessions max holding", 10))
+        item["value"] = 12
+        self.assertInvalid(self.registry, "PARSED_VALUE_PIN_MISMATCH")
+
+    def test_freshness_provider_age_value_drift_with_same_quote_fails(self):
+        item = _row(self.registry, "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1")["key_parameters"]["provider_age_seconds_max"]
+        self.assertEqual(item["value"], 20)
+        item["value"] = 60
+        self.assertInvalid(self.registry, "PARSED_VALUE_PIN_MISMATCH")
+
+    def test_trigger_condition_rewrite_fails(self):
+        trigger = _row(self.registry, "RULE.ROTATION.CRYPTO.V1")["review_triggers"][0]
+        trigger["condition"] = "확정 사건 5건 후 검토"
+        self.assertInvalid(self.registry, "PARSED_VALUE_PIN_MISMATCH")
+
+    def test_minimum_sample_drift_fails(self):
+        _row(self.registry, "RULE.ROTATION.CRYPTO.V1")["minimum_sample"]["value"] = 5
+        self.assertInvalid(self.registry, "PARSED_VALUE_PIN_MISMATCH")
+
+    def test_pin_file_edit_without_constant_fails(self):
+        path = self.root / REG.PINS_RELATIVE_PATH
+        pins = json.loads(path.read_text(encoding="utf-8"))
+        item = _row(self.registry, "RULE.HEDGE.INVERSE.V1")["key_parameters"]["time_stop_sessions"]
+        item["value"] = 12
+        pins["pins"]["RULE.HEDGE.INVERSE.V1#key_parameters.time_stop_sessions"] = REG.payload_sha256(item)
+        path.write_text(json.dumps(pins, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        self.assertInvalid(self.registry, "PARSED_PINS_FILE_HASH_MISMATCH")
+
+    # --- status cross-check against the record ---
+    def test_row_status_must_match_record_status(self):
+        _row(self.registry, "RULE.EXIT.RELEASE_FULL_SELL.V1")["status"] = "RATIFIED"
+        self.assertInvalid(self.registry, "ROW_STATUS_DISAGREES_WITH_RECORD")
+
+    def test_record_named_status_requires_status_source(self):
+        _row(self.registry, "RULE.EXIT.SHADOW_CONTROLS.V1")["status_source"] = None
+        self.assertInvalid(self.registry, "STATUS_SOURCE_REQUIRED")
+
+    def test_rotation_status_source_value_must_match(self):
+        _row(self.registry, "RULE.ROTATION.US.V1P")["status_source"]["record_value"] = "RATIFIED"
+        self.assertInvalid(self.registry, "STATUS_SOURCE_VALUE_MISMATCH")
+
+    # --- records and ids ---
     def test_record_byte_change_fails(self):
         path = self.root / _row(self.registry, "RULE.ALLOCATION.V2")["source_records"][0]["repo_path"]
         path.write_bytes(path.read_bytes().replace(b'"0.40"', b'"0.41"', 1))
@@ -276,7 +373,7 @@ class RegistryTamperTests(TmpRootCase):
         row["source_records"].append(copy.deepcopy(_row(self.registry, "RULE.CRYPTO.RUNTIME.V1")["source_records"][1]))
         self.assertInvalid(self.registry, "ADDENDUM_NOT_BOUND_TO_RATIFICATION")
 
-    def test_supersedes_hash_must_be_named_by_primary_record(self):
+    def test_out_of_registry_supersedes_hash_must_be_named_by_primary_record(self):
         _row(self.registry, "RULE.ALLOCATION.V2")["supersedes"]["sha256"] = "0" * 64
         self.assertInvalid(self.registry, "SUPERSEDES_NOT_NAMED_BY_PRIMARY_RECORD")
 
@@ -284,15 +381,33 @@ class RegistryTamperTests(TmpRootCase):
         _row(self.registry, "RULE.US.SESSION_CALENDAR.V1")["implementation_bindings"][1]["binds_record_sha256"] = True
         self.assertInvalid(self.registry, "BINDING_DOES_NOT_CONTAIN_RECORD_SHA")
 
-    def test_pending_row_with_parameters_fails(self):
-        row = _row(self.registry, "RULE.EXIT.PENDING")
-        row["key_parameters"] = {"x": {"source": 0, "record_pointer": "/explicitly_not_decided/1",
-                                       "match": "PARSED_FROM_TEXT", "text": "exit rules", "value": "TP1"}}
+    def test_status_vocabulary(self):
+        _row(self.registry, "RULE.ROTATION.US.V1P")["status"] = "CONFIRMED"
+        self.assertInvalid(self.registry, "STATUS_INVALID")
+
+    # --- undecided / supersession / amendment integrity ---
+    def test_undecided_row_with_parameters_fails(self):
+        row = _row(self.registry, "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING")
+        row["key_parameters"] = {"x": {"source": 0, "record_pointer": "/explicitly_not_decided/4",
+                                       "match": "PARSED_FROM_TEXT", "text": "US liquidity", "value": "SIP"}}
         self.assertInvalid(self.registry, "PENDING_ROW_MUST_CARRY_NO_DECISION")
 
     def test_pending_basis_must_be_in_record(self):
         _row(self.registry, "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING")["pending_basis"][0]["text"] = "US liquidity decided"
         self.assertInvalid(self.registry, "PARAMETER_TEXT_NOT_IN_RECORD")
+
+    def test_pending_status_cannot_keep_a_resolver(self):
+        _row(self.registry, "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING")["status"] = "PENDING_USER_DECISION"
+        self.assertInvalid(self.registry, "PENDING_ROW_HAS_RESOLVER")
+
+    def test_resolved_row_needs_decided_resolver(self):
+        row = _row(self.registry, "RULE.EXIT.PENDING")
+        row["resolved_by"] = None
+        self.assertInvalid(self.registry, "RESOLVED_ROW_REQUIRES_RESOLVER")
+
+    def test_resolver_hash_must_match(self):
+        _row(self.registry, "RULE.CRYPTO.BTC_ETH_NAME_CAP.PENDING")["resolved_by"][0]["sha256"] = "0" * 64
+        self.assertInvalid(self.registry, "RESOLVER_RECORD_MISMATCH")
 
     def test_record_named_rule_id_must_match(self):
         _row(self.registry, "RULE.ENTRY.PAPER_BASELINE_B.V1")["key_parameters"]["record_rule_id"]["value"] = "RULE.ENTRY.X.V1"
@@ -301,7 +416,7 @@ class RegistryTamperTests(TmpRootCase):
     def test_superseded_status_requires_matching_successor(self):
         v1 = _row(self.registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1")
         v1["status"] = "RATIFIED"
-        self.assertInvalid(self.registry, "SUPERSEDED_STATUS_POINTER_MISMATCH")
+        self.assertInvalid(self.registry, "SUPERSEDED_RULE_NOT_MARKED")
         v1["status"] = "SUPERSEDED"
         v1["superseded_by"]["sha256"] = "0" * 64
         self.assertInvalid(self.registry, "SUPERSEDED_BY_RECORD_MISMATCH")
@@ -310,9 +425,14 @@ class RegistryTamperTests(TmpRootCase):
         _row(self.registry, "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2")["version"] = 1
         self.assertInvalid(self.registry, "VERSIONS_NOT_MONOTONE")
 
-    def test_status_and_family_vocabulary(self):
-        _row(self.registry, "RULE.ROTATION.US.V1P")["status"] = "CONFIRMED"
-        self.assertInvalid(self.registry, "STATUS_INVALID")
+    def test_amended_by_must_mirror_amends(self):
+        _row(self.registry, "RULE.ALLOCATION.V2")["amended_by"] = None
+        self.assertInvalid(self.registry, "AMENDS_AMENDED_BY_MISMATCH")
+
+    def test_amendment_must_name_target_record(self):
+        _row(self.registry, "RULE.EXEC.DATA_FAILURE_PRIORITY.V1")["amends"][0]["sha256"] = \
+            _row(self.registry, "RULE.US.SESSION_CALENDAR.V1")["source_records"][0]["sha256"]
+        self.assertInvalid(self.registry, "AMENDED_RECORD_NOT_A_SOURCE_OF_TARGET")
 
 
 class RuleRefsTests(unittest.TestCase):
@@ -480,7 +600,8 @@ class CryptoDecisionLineageTests(unittest.TestCase):
             lineage_root = Path(tmp) / "rule_lineage"
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(LIN.main(["crypto-decision", "--packet", relative, "--lineage-root", str(lineage_root)]), 0)
-            expected = lineage_root / "crypto_paper_decision/2026-09-14/2113" / (packet["payload_sha256"] + ".json")
+            expected = (lineage_root / "crypto_paper_decision/2026-09-14/2113" / packet["payload_sha256"]
+                        / f"registry-{self.ctx.sha256}.json")
             REFS.validate_sidecar(json.loads(expected.read_text(encoding="utf-8")), self.ctx)
             again = LIN.run_cli("crypto-decision", ROOT / relative, lineage_root=lineage_root)
             self.assertEqual(again["status"], "verified_existing")
@@ -495,10 +616,11 @@ class CryptoDecisionLineageTests(unittest.TestCase):
                 blocker = Path(tmp) / "blocked"
                 blocker.write_text("not a directory", encoding="utf-8")
                 self.assertEqual(LIN.run_cli("crypto-decision", ROOT / relative, lineage_root=blocker)["status"], "FAILED")
-                with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stdout(io.StringIO()) as out:
                     self.assertEqual(LIN.main(["crypto-decision", "--packet", "missing.json",
                                                "--lineage-root", str(blocker)]), 0)
             self.assertIn("RULE_LINEAGE_EMIT_FAILED", err.getvalue())
+            self.assertIn("::warning title=Rule lineage sidecar failed::", out.getvalue())
         self.assertEqual((ROOT / relative).read_bytes(), raw)
         CPDS.validate_output(packet)
 
@@ -520,6 +642,7 @@ class CryptoDecisionLineageTests(unittest.TestCase):
         self.assertLess(ids.index("crypto_paper_decision"), lineage)
         self.assertLess(ids.index("validation_capture"), lineage)
         self.assertTrue(steps[lineage]["continue-on-error"])
+        self.assertEqual(steps[lineage]["timeout-minutes"], 5)
         self.assertIn("crypto-decision --packet \"$DECISION_PATH\"", steps[lineage]["run"])
         self.assertEqual(steps[lineage]["env"]["DECISION_PATH"], "${{ steps.crypto_paper_decision.outputs.path }}")
         self.assertEqual(steps[lineage + 1]["name"], "Commit append-only realtime evidence and run telemetry")
@@ -555,6 +678,7 @@ class PaperReferenceLineageTests(unittest.TestCase):
                                  lineage_root=Path(tmp))
             self.assertEqual(result["status"], "written")
             self.assertTrue(Path(result["path"]).is_relative_to(Path(tmp) / "paper_regime_reference"))
+            self.assertEqual(Path(result["path"]).name, f"registry-{self.ctx.sha256}.json")
             with contextlib.redirect_stderr(io.StringIO()):
                 changed = Path(tmp) / "latest.json"
                 changed.write_bytes(raw.replace(b'"generated_at"', b'"generated_at" ', 1))

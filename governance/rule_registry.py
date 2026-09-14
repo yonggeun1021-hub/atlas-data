@@ -12,13 +12,19 @@ Every guarantee below is checked from committed bytes only (offline):
 * every rule has at least one ``USER_RATIFICATION`` source record, copied
   byte-exact under ``evidence/authority/`` (sha256 and byte length match);
 * every CIO addendum names (by sha256) a user ratification of the same rule;
-* the record id inside each source record matches the registry row;
+* the record id inside each source record matches the registry row, and a
+  record that names a rule id or a status for the row must agree with it;
 * every machine-readable parameter, effective instant, evidence level, review
-  trigger and minimum sample points into the source record with a JSON pointer
-  and is either equal to the record value (``EXACT``) or a verbatim substring
-  of it (``PARSED_FROM_TEXT``) -- no parameter without a source;
+  trigger, minimum sample, amendment and pending basis points into the source
+  record with a JSON pointer and is either equal to the record value
+  (``EXACT``) or a verbatim substring of it (``PARSED_FROM_TEXT``);
+* every ``PARSED_FROM_TEXT`` item (quote *and* its transcribed value /
+  condition) is pinned by digest in ``config/rule_registry_v1_parsed_pins.json``
+  whose own sha256 is pinned below, so a value drift under an unchanged quote
+  fails;
 * versions are positive integers, monotone along each ``lineage_key`` in
-  effective order, and a registry-internal ``supersedes`` points backwards;
+  effective order; ``supersedes`` / ``superseded_by`` / ``SUPERSEDED`` agree;
+  ``amends`` / ``amended_by`` agree; ``RESOLVED`` rows name decided resolvers;
 * a rule without pre-registered review triggers must say
   ``trigger_pending_user_confirmation: true``.
 """
@@ -37,11 +43,16 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_RELATIVE_PATH = "config/rule_registry_v1.json"
 REGISTRY_PATH = ROOT / REGISTRY_RELATIVE_PATH
+PINS_RELATIVE_PATH = "config/rule_registry_v1_parsed_pins.json"
+# Changing any parsed quote/value requires changing the pin file *and* this
+# constant -- a deliberate two-place edit visible in review.
+PARSED_PINS_SHA256 = "98aa8cfd9e00894d51ff0e35adbc41f9efab062db8f2e57320dd8fc4c8d9890f"
 SCHEMA_VERSION = "atlas_rule_registry/1"
+PINS_SCHEMA_VERSION = "atlas_rule_registry_parsed_pins/1"
 AUTHORITY_DIR = "evidence/authority/"
 
-# Fixed by CLAUDE_CIO for v1.  Adding/removing a rule is a registry version
-# change, never a silent edit.
+# Fixed by CLAUDE_CIO for v1.  Adding/removing a rule is a registry change in
+# the same review, never a silent edit.
 REQUIRED_RULE_IDS = (
     "RULE.ALLOCATION.V2",
     "RULE.HEDGE.INVERSE.V1",
@@ -63,9 +74,29 @@ REQUIRED_RULE_IDS = (
     "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
     # User wording correction 2026-09-15 09:05 KST; V1 row kept as SUPERSEDED.
     "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2",
-    # Explicitly NOT decided by the user (named in a ratification record's
-    # not-decided list).  Registered so the scorecard/portal can show the gap;
-    # they carry no parameters and can never be cited in rule_refs.
+    # Data-failure priority C (09:15 KST) and provisional exits (10:00 KST).
+    "RULE.EXEC.DATA_FAILURE_PRIORITY.V1",
+    "RULE.EXIT.RELEASE_FULL_SELL.V1",
+    "RULE.EXIT.CRYPTO_TIME_STOP_21D.V1",
+    "RULE.EXIT.SHADOW_CONTROLS.V1",
+    "RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1",
+    "RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1",
+    "RULE.RISK.NAV_DRAWDOWN_LIFT.V1",
+    # Execution contract D1/D3/D5-D11 (10:30 KST).
+    "RULE.EXEC.TIME_CONTRACT.V1",
+    "RULE.EXEC.QUALITY_LAYERS.V1",
+    "RULE.EXEC.ALLOCATION_REDUCTION.V1",
+    "RULE.EXEC.MULTI_MARKET_REALLOCATION.V1",
+    "RULE.EXEC.REENTRY.V1",
+    "RULE.EXEC.TOPUP_POSITION_LEVEL.V1",
+    "RULE.EXEC.MONITORED_STOP_FILL_MODEL.V1",
+    "RULE.VALIDATION.MECHANICAL_ONLY.V1",
+    "RULE.SCORECARD.SINGLE_CONTRACT.V1",
+    # US liquidity data source (08:06 KST); resolves the last pending row.
+    "RULE.LIQUIDITY.US_SIP_SOURCE.V1",
+    # Items a ratification record explicitly left undecided.  They carry no
+    # parameters and can never be cited in rule_refs; RESOLVED ones name the
+    # ratified rows that later decided them.
     "RULE.SIZE.PLANNED_LOSS_CAP.PENDING",
     "RULE.EXIT.PENDING",
     "RULE.EXECUTION.QUALITY_NUMBERS.PENDING",
@@ -73,10 +104,20 @@ REQUIRED_RULE_IDS = (
     "RULE.US.LIQUIDITY_IEX_TREATMENT.PENDING",
 )
 PENDING_STATUS = "PENDING_USER_DECISION"
+RESOLVED_STATUS = "RESOLVED"
 SUPERSEDED_STATUS = "SUPERSEDED"
 # SUPERSEDED stays decided: decisions made while it was in force keep citing it.
 DECIDED_STATUSES = ("RATIFIED", "PROVISIONAL", "TEMPORARY", SUPERSEDED_STATUS)
-STATUSES = DECIDED_STATUSES + (PENDING_STATUS,)
+UNDECIDED_STATUSES = (PENDING_STATUS, RESOLVED_STATUS)
+STATUSES = DECIDED_STATUSES + UNDECIDED_STATUSES
+# Record status vocabulary -> registry status the row may carry (a SUPERSEDED
+# row may carry any decided record status).
+RECORD_STATUS_TO_ROW = {
+    "RATIFIED": "RATIFIED",
+    "RATIFIED_AS_PAPER_BASELINE": "RATIFIED",
+    "PROVISIONAL": "PROVISIONAL",
+    "TEMPORARY": "TEMPORARY",
+}
 SCORECARD_FAMILIES = (
     "entry", "exit", "allocation", "hedge", "gate", "liquidity", "data-source", "governance",
 )
@@ -85,11 +126,14 @@ MARKETS = ("US", "KR", "CRYPTO")
 MODES = ("PAPER", "REAL")
 MATCH_KINDS = ("EXACT", "PARSED_FROM_TEXT")
 EFFECTIVE_BASES = ("UTC_EXACT", "KST_MINUTE_TO_UTC")
+AMENDMENT_RELATIONS = ("NARROWS_SCOPE", "FILLS_CONDITION", "SPECIFIES_DATA_SOURCE")
 EVIDENCE_LEVELS = (
     "INITIAL_DEFAULT_UNVALIDATED",
     "PROVISIONAL_FORWARD_ACCEPTANCE",
     "ESTIMATE_ONLY",
     "BASELINE_NO_EDGE_CLAIM",
+    "STUDY_LEVEL_C_NO_RETURN_EDGE",
+    "SOURCE_ACCESS_PROBE",
     "NOT_STATED_IN_RECORD",
 )
 
@@ -97,31 +141,39 @@ RULE_ID_RE = re.compile(r"^RULE\.[A-Z0-9_]+(\.[A-Z0-9_]+)+$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 KST_MINUTE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})\+09:00$")
+# A CIO timestamp correction keeps the decision and records the replaced file
+# hash in ``correction_note``; later records may still name that earlier hash.
+PREVIOUS_SHA_RE = re.compile(r"previous file sha256 ([0-9a-f]{64})")
 
 TOP_FIELDS = {
     "schema_version", "registry_id", "description", "scope_note",
     "status_vocabulary", "scorecard_metric_families", "rules",
 }
 ROW_FIELDS = {
-    "rule_id", "version", "lineage_key", "status", "title_ko", "markets", "modes",
+    "rule_id", "version", "lineage_key", "status", "status_source", "title_ko", "markets", "modes",
     "source_records", "effective_from", "key_parameters",
     "evidence_level_at_decision", "review_triggers",
     "trigger_pending_user_confirmation", "scorecard_metric_family",
-    "minimum_sample", "supersedes", "superseded_by", "implementation_bindings", "pending_basis",
+    "minimum_sample", "supersedes", "superseded_by", "amends", "amended_by",
+    "implementation_bindings", "pending_basis", "resolved_by",
 }
 SOURCE_FIELDS = {"role", "record_id", "repo_path", "original_filename", "sha256", "bytes"}
 # Every sourced item names a source record index, a JSON pointer into it and a
 # match kind.  EXACT: ``value`` equals the record value and ``text`` is null.
 # PARSED_FROM_TEXT: ``text`` is a verbatim substring of the record string and
-# ``value`` is its machine-readable transcription.
+# ``value`` (or condition/level/unit) is its pinned machine-readable reading.
 POINTER_FIELDS = {"source", "record_pointer", "match", "text"}
 PARAM_FIELDS = POINTER_FIELDS | {"value"}
 EFFECTIVE_FIELDS = {"source", "record_pointer", "utc", "basis"}
 EVIDENCE_FIELDS = POINTER_FIELDS | {"level"}
 TRIGGER_FIELDS = POINTER_FIELDS | {"trigger_id", "condition"}
 SAMPLE_FIELDS = POINTER_FIELDS | {"value", "unit"}
+STATUS_SOURCE_FIELDS = {"source", "record_pointer", "record_value"}
 SUPERSEDES_FIELDS = {"rule_id", "record_id", "sha256", "in_registry"}
 SUPERSEDED_BY_FIELDS = {"rule_id", "record_id", "sha256"}
+AMENDS_FIELDS = POINTER_FIELDS | {"rule_id", "relation", "sha256"}
+AMENDED_BY_FIELDS = {"rule_id", "sha256"}
+RESOLVED_BY_FIELDS = {"rule_id", "sha256"}
 BINDING_FIELDS = {"path", "binds_record_sha256"}
 PENDING_BASIS_FIELDS = POINTER_FIELDS
 
@@ -169,6 +221,10 @@ def resolve_pointer(document, pointer: str):
     return node
 
 
+def _escape(token: str) -> str:
+    return token.replace("~", "~0").replace("/", "~1")
+
+
 def _closed(value, fields: set, code: str) -> dict:
     if not isinstance(value, dict) or set(value) != fields:
         _fail(code, str(sorted(value) if isinstance(value, dict) else type(value).__name__))
@@ -213,19 +269,117 @@ def kst_minute_to_utc(value: str) -> str:
     return (local - dt.timedelta(hours=9)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def record_identities(raw: bytes, record: dict) -> set:
+    """Current file sha256 plus earlier hashes named by its correction_note."""
+    identities = {hashlib.sha256(raw).hexdigest()}
+    note = record.get("correction_note") if isinstance(record, dict) else None
+    if isinstance(note, str):
+        identities.update(PREVIOUS_SHA_RE.findall(note))
+    return identities
+
+
+def _source_identities(root: Path, source: dict) -> set:
+    path = Path(root) / source["repo_path"]
+    raw = path.read_bytes()
+    return record_identities(raw, json.loads(raw.decode("utf-8")))
+
+
+def _named_status_pointers(record: dict, rule_id: str) -> list:
+    """Pointers to ``status`` fields of record nodes that name ``rule_id``."""
+    found = []
+
+    def walk(node, pointer):
+        if isinstance(node, dict):
+            if pointer and node.get("rule_id") == rule_id and "status" in node:
+                found.append(f"{pointer}/status")
+            for key, child in node.items():
+                child_pointer = f"{pointer}/{_escape(key)}"
+                if key == rule_id and isinstance(child, dict) and "status" in child:
+                    found.append(f"{child_pointer}/status")
+                walk(child, child_pointer)
+        elif isinstance(node, list):
+            for index, child in enumerate(node):
+                walk(child, f"{pointer}/{index}")
+
+    walk(record, "")
+    return sorted(set(found))
+
+
+def parsed_items(registry: dict) -> dict:
+    """Every PARSED_FROM_TEXT item keyed ``<rule_id>#<location>``."""
+    items = {}
+    for row in registry.get("rules") or []:
+        if not isinstance(row, dict):
+            continue
+        rule_id = row.get("rule_id")
+        groups = []
+        for name, item in (row.get("key_parameters") or {}).items():
+            groups.append((f"key_parameters.{name}", item))
+        evidence = row.get("evidence_level_at_decision")
+        if isinstance(evidence, dict) and "match" in evidence:
+            groups.append(("evidence_level_at_decision", evidence))
+        for item in row.get("review_triggers") or []:
+            groups.append((f"review_triggers.{item.get('trigger_id') if isinstance(item, dict) else None}", item))
+        if isinstance(row.get("minimum_sample"), dict):
+            groups.append(("minimum_sample", row["minimum_sample"]))
+        for index, item in enumerate(row.get("pending_basis") or []):
+            groups.append((f"pending_basis.{index}", item))
+        for item in row.get("amends") or []:
+            groups.append((f"amends.{item.get('rule_id') if isinstance(item, dict) else None}", item))
+        for location, item in groups:
+            if isinstance(item, dict) and item.get("match") == "PARSED_FROM_TEXT":
+                items[f"{rule_id}#{location}"] = item
+    return items
+
+
+def build_parsed_pins(registry: dict) -> dict:
+    return {
+        "schema_version": PINS_SCHEMA_VERSION,
+        "note": (
+            "sha256 of the canonical JSON of each PARSED_FROM_TEXT item (quote plus its transcribed "
+            "value, condition, level, unit or relation). Regenerate only together with a reviewed "
+            "registry change and update PARSED_PINS_SHA256 in governance/rule_registry.py."
+        ),
+        "pins": {key: payload_sha256(item) for key, item in sorted(parsed_items(registry).items())},
+    }
+
+
+def _validate_parsed_pins(registry: dict, root: Path) -> None:
+    path = Path(root) / PINS_RELATIVE_PATH
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise RuleRegistryError(f"PARSED_PINS_MISSING:{path}") from exc
+    if hashlib.sha256(raw).hexdigest() != PARSED_PINS_SHA256:
+        _fail("PARSED_PINS_FILE_HASH_MISMATCH")
+    try:
+        pins = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuleRegistryError("PARSED_PINS_INVALID_JSON") from exc
+    if not isinstance(pins, dict) or pins.get("schema_version") != PINS_SCHEMA_VERSION \
+            or not isinstance(pins.get("pins"), dict):
+        _fail("PARSED_PINS_SCHEMA_INVALID")
+    items = parsed_items(registry)
+    if set(items) != set(pins["pins"]):
+        _fail("PARSED_PINS_KEY_SET_MISMATCH", str(sorted(set(items) ^ set(pins["pins"]))))
+    for key, item in sorted(items.items()):
+        if payload_sha256(item) != pins["pins"][key]:
+            _fail("PARSED_VALUE_PIN_MISMATCH", key)
+
+
 def _validate_row(row: dict, root: Path) -> list:
     _closed(row, ROW_FIELDS, "ROW_FIELDS_INVALID")
     rule_id = row["rule_id"]
     if not isinstance(rule_id, str) or RULE_ID_RE.fullmatch(rule_id) is None:
         _fail("RULE_ID_INVALID", str(rule_id))
-    pending_row = row.get("status") == PENDING_STATUS
-    if type(row["version"]) is not int or row["version"] < (0 if pending_row else 1) \
-            or (pending_row and row["version"] != 0):
+    if row["status"] not in STATUSES:
+        _fail("STATUS_INVALID", rule_id)
+    undecided = row["status"] in UNDECIDED_STATUSES
+    if type(row["version"]) is not int or (undecided and row["version"] != 0) \
+            or (not undecided and row["version"] < 1):
         _fail("VERSION_INVALID", rule_id)
     if not isinstance(row["lineage_key"], str) or not rule_id.startswith(row["lineage_key"] + "."):
         _fail("LINEAGE_KEY_INVALID", rule_id)
-    if row["status"] not in STATUSES:
-        _fail("STATUS_INVALID", rule_id)
     if not isinstance(row["title_ko"], str) or not row["title_ko"]:
         _fail("TITLE_INVALID", rule_id)
     if not isinstance(row["markets"], list) or not row["markets"] or any(m not in MARKETS for m in row["markets"]) \
@@ -235,13 +389,15 @@ def _validate_row(row: dict, root: Path) -> list:
     if not isinstance(modes, dict) or set(modes) != set(MODES) or any(
             not isinstance(v, str) or not v for v in modes.values()):
         _fail("MODES_INVALID", rule_id)
+    if row["scorecard_metric_family"] not in SCORECARD_FAMILIES:
+        _fail("SCORECARD_FAMILY_INVALID", rule_id)
 
     sources = row["source_records"]
     if not isinstance(sources, list) or not sources:
         _fail("RULE_WITHOUT_SOURCE_RECORD", rule_id)
     records = []
     ratification_shas = set()
-    for index, source in enumerate(sources):
+    for source in sources:
         _closed(source, SOURCE_FIELDS, "SOURCE_FIELDS_INVALID")
         if source["role"] not in SOURCE_ROLES:
             _fail("SOURCE_ROLE_INVALID", rule_id)
@@ -277,14 +433,31 @@ def _validate_row(row: dict, root: Path) -> list:
             _fail("ADDENDUM_NOT_BOUND_TO_RATIFICATION", f"{rule_id}:{source['repo_path']}")
     documents = [record for _s, _r, record in records]
 
-    if pending_row:
-        _validate_pending_row(row, documents)
+    if undecided:
+        _validate_undecided_row(row, documents)
         return documents
-    if row["pending_basis"] is not None:
-        _fail("PENDING_BASIS_ONLY_FOR_PENDING_ROWS", rule_id)
-    named_rule = records[0][2].get("rule_id")
+    if row["pending_basis"] is not None or row["resolved_by"] is not None:
+        _fail("PENDING_FIELDS_ONLY_FOR_UNDECIDED_ROWS", rule_id)
+    named_rule = documents[0].get("rule_id")
     if named_rule is not None and named_rule != rule_id:
         _fail("RECORD_NAMES_A_DIFFERENT_RULE_ID", rule_id)
+
+    # Row status must agree with any status the primary record gives this rule.
+    status_source = row["status_source"]
+    named_pointers = _named_status_pointers(documents[0], rule_id)
+    if status_source is None:
+        if named_pointers:
+            _fail("STATUS_SOURCE_REQUIRED", f"{rule_id}:{named_pointers}")
+    else:
+        _closed(status_source, STATUS_SOURCE_FIELDS, "STATUS_SOURCE_INVALID")
+        index = _source_index(status_source, documents, rule_id)
+        if named_pointers and (index != 0 or status_source["record_pointer"] not in named_pointers):
+            _fail("STATUS_SOURCE_POINTER_MISMATCH", rule_id)
+        record_value = resolve_pointer(documents[index], status_source["record_pointer"])
+        if record_value != status_source["record_value"] or record_value not in RECORD_STATUS_TO_ROW:
+            _fail("STATUS_SOURCE_VALUE_MISMATCH", rule_id)
+        if row["status"] != SUPERSEDED_STATUS and RECORD_STATUS_TO_ROW[record_value] != row["status"]:
+            _fail("ROW_STATUS_DISAGREES_WITH_RECORD", f"{rule_id}:{record_value}")
 
     effective = _closed(row["effective_from"], EFFECTIVE_FIELDS, "EFFECTIVE_FIELDS_INVALID")
     _parse_utc(effective["utc"], "EFFECTIVE_UTC_INVALID")
@@ -310,6 +483,8 @@ def _validate_row(row: dict, root: Path) -> list:
             _fail("EVIDENCE_LEVEL_INVALID", rule_id)
     else:
         _closed(evidence, EVIDENCE_FIELDS, "EVIDENCE_LEVEL_INVALID")
+        if evidence["match"] != "PARSED_FROM_TEXT":
+            _fail("EVIDENCE_LEVEL_INVALID", rule_id)
         _check_sourced(evidence, documents, rule_id, "evidence_level_at_decision", has_value=False)
 
     triggers = row["review_triggers"]
@@ -328,12 +503,9 @@ def _validate_row(row: dict, root: Path) -> list:
             if not isinstance(item["trigger_id"], str) or item["trigger_id"] in seen:
                 _fail("TRIGGER_ID_INVALID", rule_id)
             seen.add(item["trigger_id"])
-            if not isinstance(item["condition"], str) or not item["condition"]:
+            if not isinstance(item["condition"], str) or not item["condition"] or item["match"] != "PARSED_FROM_TEXT":
                 _fail("TRIGGER_CONDITION_INVALID", rule_id)
             _check_sourced(item, documents, rule_id, f"review_triggers.{item['trigger_id']}", has_value=False)
-
-    if row["scorecard_metric_family"] not in SCORECARD_FAMILIES:
-        _fail("SCORECARD_FAMILY_INVALID", rule_id)
 
     sample = row["minimum_sample"]
     if sample is not None:
@@ -352,9 +524,21 @@ def _validate_row(row: dict, root: Path) -> list:
             _fail("SUPERSEDES_INVALID", rule_id)
         if supersedes["in_registry"] is (supersedes["rule_id"] is None):
             _fail("SUPERSEDES_RULE_ID_INVALID", rule_id)
-        # The superseded record must be named by hash inside the primary record.
-        if supersedes["sha256"].encode("ascii") not in records[0][1]:
+        # Out-of-registry predecessors must be named by hash inside the primary
+        # record; in-registry ones are checked against their identities below.
+        if not supersedes["in_registry"] and supersedes["sha256"].encode("ascii") not in records[0][1]:
             _fail("SUPERSEDES_NOT_NAMED_BY_PRIMARY_RECORD", rule_id)
+
+    amends = row["amends"]
+    if amends is not None:
+        if not isinstance(amends, list) or not amends:
+            _fail("AMENDS_INVALID", rule_id)
+        for item in amends:
+            _closed(item, AMENDS_FIELDS, "AMENDS_FIELDS_INVALID")
+            if item["relation"] not in AMENDMENT_RELATIONS or item["match"] != "PARSED_FROM_TEXT" \
+                    or not isinstance(item["sha256"], str) or SHA256_RE.fullmatch(item["sha256"]) is None:
+                _fail("AMENDS_INVALID", rule_id)
+            _check_sourced(item, documents, rule_id, f"amends.{item['rule_id']}", has_value=False)
 
     bindings = row["implementation_bindings"]
     if not isinstance(bindings, list):
@@ -372,19 +556,18 @@ def _validate_row(row: dict, root: Path) -> list:
     return documents
 
 
-def _validate_pending_row(row: dict, documents: list) -> None:
+def _validate_undecided_row(row: dict, documents: list) -> None:
     """A not-decided item: sourced, parameter-free, never effective."""
     rule_id = row["rule_id"]
     if not rule_id.endswith(".PENDING"):
         _fail("PENDING_RULE_ID_MUST_END_WITH_PENDING", rule_id)
-    if row["key_parameters"] != {} or row["effective_from"] is not None \
+    if row["key_parameters"] != {} or row["effective_from"] is not None or row["status_source"] is not None \
             or row["evidence_level_at_decision"] is not None or row["review_triggers"] is not None \
             or row["trigger_pending_user_confirmation"] is not True or row["minimum_sample"] is not None \
             or row["supersedes"] is not None or row["superseded_by"] is not None \
+            or row["amends"] is not None or row["amended_by"] is not None \
             or row["implementation_bindings"] != []:
         _fail("PENDING_ROW_MUST_CARRY_NO_DECISION", rule_id)
-    if row["scorecard_metric_family"] not in SCORECARD_FAMILIES:
-        _fail("SCORECARD_FAMILY_INVALID", rule_id)
     basis = row["pending_basis"]
     if not isinstance(basis, list) or not basis:
         _fail("PENDING_BASIS_REQUIRED", rule_id)
@@ -393,6 +576,15 @@ def _validate_pending_row(row: dict, documents: list) -> None:
         if item["match"] != "PARSED_FROM_TEXT":
             _fail("PENDING_BASIS_INVALID", rule_id)
         _check_sourced(item, documents, rule_id, f"pending_basis.{index}", has_value=False)
+    resolved_by = row["resolved_by"]
+    if row["status"] == PENDING_STATUS:
+        if resolved_by is not None:
+            _fail("PENDING_ROW_HAS_RESOLVER", rule_id)
+    elif not isinstance(resolved_by, list) or not resolved_by:
+        _fail("RESOLVED_ROW_REQUIRES_RESOLVER", rule_id)
+    else:
+        for item in resolved_by:
+            _closed(item, RESOLVED_BY_FIELDS, "RESOLVED_BY_FIELDS_INVALID")
 
 
 def _source_index(item: dict, documents: list, rule_id: str) -> int:
@@ -402,8 +594,13 @@ def _source_index(item: dict, documents: list, rule_id: str) -> int:
     return source
 
 
+def _primary_names_any(root: Path, row: dict, identities: set) -> bool:
+    raw = (Path(root) / row["source_records"][0]["repo_path"]).read_bytes()
+    return any(identity.encode("ascii") in raw for identity in identities)
+
+
 def validate_registry(registry: dict, root: Path = ROOT) -> dict:
-    """Validate a parsed registry against committed records under ``root``."""
+    """Validate a parsed registry against committed records and pins under ``root``."""
     _closed(registry, TOP_FIELDS, "REGISTRY_FIELDS_INVALID")
     if registry["schema_version"] != SCHEMA_VERSION:
         _fail("REGISTRY_SCHEMA_INVALID")
@@ -423,31 +620,43 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
         _validate_row(row, root)
 
     by_id = {row["rule_id"]: row for row in rows}
+
+    def decided(rule_id):
+        row = by_id.get(rule_id)
+        return row is not None and row["status"] in DECIDED_STATUSES
+
     lineages: dict = {}
     for row in rows:
-        if row["status"] == PENDING_STATUS:
-            continue
-        lineages.setdefault(row["lineage_key"], []).append(row)
+        if row["status"] in DECIDED_STATUSES:
+            lineages.setdefault(row["lineage_key"], []).append(row)
     for key, members in lineages.items():
         ordered = sorted(members, key=lambda r: (r["effective_from"]["utc"], r["version"]))
         versions = [r["version"] for r in ordered]
         if len(set(versions)) != len(versions) or versions != sorted(versions):
             _fail("VERSIONS_NOT_MONOTONE", key)
+
     for row in rows:
         supersedes = row["supersedes"]
-        if supersedes is not None and by_id.get(supersedes.get("rule_id"), {}).get("status") == PENDING_STATUS:
-            _fail("SUPERSEDES_PENDING_RULE", row["rule_id"])
         if supersedes is None:
             continue
-        if supersedes["in_registry"]:
-            old = by_id.get(supersedes["rule_id"])
-            if old is None:
-                _fail("SUPERSEDED_RULE_MISSING", row["rule_id"])
-            if old["lineage_key"] != row["lineage_key"] or old["version"] >= row["version"] \
-                    or old["effective_from"]["utc"] >= row["effective_from"]["utc"]:
-                _fail("SUPERSEDES_NOT_BACKWARD", row["rule_id"])
-        elif supersedes["rule_id"] in by_id:
-            _fail("SUPERSEDES_IN_REGISTRY_FLAG_WRONG", row["rule_id"])
+        if not supersedes["in_registry"]:
+            if supersedes["rule_id"] in by_id:
+                _fail("SUPERSEDES_IN_REGISTRY_FLAG_WRONG", row["rule_id"])
+            continue
+        old = by_id.get(supersedes["rule_id"])
+        if old is None or not decided(old["rule_id"]) or old["rule_id"] == row["rule_id"]:
+            _fail("SUPERSEDED_RULE_INVALID", row["rule_id"])
+        if old["effective_from"]["utc"] >= row["effective_from"]["utc"]:
+            _fail("SUPERSEDES_NOT_BACKWARD", row["rule_id"])
+        if old["lineage_key"] == row["lineage_key"] and old["version"] >= row["version"]:
+            _fail("SUPERSEDES_NOT_BACKWARD", row["rule_id"])
+        if old["status"] != SUPERSEDED_STATUS:
+            _fail("SUPERSEDED_RULE_NOT_MARKED", row["rule_id"])
+        primary = old["source_records"][0]
+        if supersedes["sha256"] != primary["sha256"] or supersedes["record_id"] != primary["record_id"]:
+            _fail("SUPERSEDES_RECORD_MISMATCH", row["rule_id"])
+        if not _primary_names_any(root, row, _source_identities(root, primary)):
+            _fail("SUPERSEDES_NOT_NAMED_BY_PRIMARY_RECORD", row["rule_id"])
     # SUPERSEDED <-> superseded_by <-> successor.supersedes must agree exactly.
     for row in rows:
         pointer = row["superseded_by"]
@@ -457,7 +666,7 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
             continue
         _closed(pointer, SUPERSEDED_BY_FIELDS, "SUPERSEDED_BY_INVALID")
         successor = by_id.get(pointer["rule_id"])
-        if successor is None or successor["status"] in (PENDING_STATUS, SUPERSEDED_STATUS):
+        if successor is None or successor["status"] not in DECIDED_STATUSES or successor["status"] == SUPERSEDED_STATUS:
             _fail("SUPERSEDED_BY_SUCCESSOR_INVALID", row["rule_id"])
         back = successor["supersedes"] or {}
         if back.get("rule_id") != row["rule_id"] or back.get("in_registry") is not True:
@@ -465,14 +674,44 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
         primary = successor["source_records"][0]
         if pointer["record_id"] != primary["record_id"] or pointer["sha256"] != primary["sha256"]:
             _fail("SUPERSEDED_BY_RECORD_MISMATCH", row["rule_id"])
+
+    # amends (on the amending row) <-> amended_by (on the amended row).
+    forward = set()
     for row in rows:
-        back = row["supersedes"]
-        if back is not None and back["in_registry"]:
-            old = by_id[back["rule_id"]]
-            if old["status"] != SUPERSEDED_STATUS:
-                _fail("SUPERSEDED_RULE_NOT_MARKED", row["rule_id"])
-            if back["sha256"] != old["source_records"][0]["sha256"] or back["record_id"] != old["source_records"][0]["record_id"]:
-                _fail("SUPERSEDES_RECORD_MISMATCH", row["rule_id"])
+        for item in row["amends"] or []:
+            target = by_id.get(item["rule_id"])
+            if target is None or not decided(item["rule_id"]) or item["rule_id"] == row["rule_id"]:
+                _fail("AMENDED_RULE_INVALID", row["rule_id"])
+            target_source = next((s for s in target["source_records"] if s["sha256"] == item["sha256"]), None)
+            if target_source is None:
+                _fail("AMENDED_RECORD_NOT_A_SOURCE_OF_TARGET", row["rule_id"])
+            if not _primary_names_any(root, row, _source_identities(root, target_source)):
+                _fail("AMENDED_RECORD_NOT_NAMED_BY_PRIMARY_RECORD", row["rule_id"])
+            if target["effective_from"]["utc"] >= row["effective_from"]["utc"]:
+                _fail("AMENDS_NOT_BACKWARD", row["rule_id"])
+            forward.add((item["rule_id"], row["rule_id"], row["source_records"][0]["sha256"]))
+    backward = set()
+    for row in rows:
+        amended_by = row["amended_by"]
+        if amended_by is None:
+            continue
+        if not isinstance(amended_by, list) or not amended_by:
+            _fail("AMENDED_BY_INVALID", row["rule_id"])
+        for item in amended_by:
+            _closed(item, AMENDED_BY_FIELDS, "AMENDED_BY_INVALID")
+            backward.add((row["rule_id"], item["rule_id"], item["sha256"]))
+    if forward != backward:
+        _fail("AMENDS_AMENDED_BY_MISMATCH", str(sorted(forward ^ backward)))
+
+    for row in rows:
+        for item in row["resolved_by"] or []:
+            resolver = by_id.get(item["rule_id"])
+            if resolver is None or resolver["status"] not in DECIDED_STATUSES:
+                _fail("RESOLVER_NOT_DECIDED", row["rule_id"])
+            if item["sha256"] != resolver["source_records"][0]["sha256"]:
+                _fail("RESOLVER_RECORD_MISMATCH", row["rule_id"])
+    # Last: structural errors above report their own codes first.
+    _validate_parsed_pins(registry, root)
     return copy.deepcopy(registry)
 
 

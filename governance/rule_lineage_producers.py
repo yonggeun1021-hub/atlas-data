@@ -105,10 +105,12 @@ def crypto_decision_packet_path(packet: dict) -> str:
     )
 
 
-def crypto_decision_sidecar_path(lineage_root: Path, packet: dict) -> Path:
+def crypto_decision_sidecar_path(lineage_root: Path, packet: dict, registry_sha256: str) -> Path:
+    # Keyed by packet *and* registry identity: a registry change adds a new
+    # sidecar next to the old one instead of an append-only conflict.
     return (
         Path(lineage_root) / "crypto_paper_decision" / packet["capture_date"]
-        / packet["capture_hhmm"] / f"{packet['payload_sha256']}.json"
+        / packet["capture_hhmm"] / packet["payload_sha256"] / f"registry-{registry_sha256}.json"
     )
 
 
@@ -205,10 +207,10 @@ def reference_packet_path(packet: dict) -> str:
     )
 
 
-def reference_sidecar_path(lineage_root: Path, packet: dict) -> Path:
+def reference_sidecar_path(lineage_root: Path, packet: dict, registry_sha256: str) -> Path:
     return (
         Path(lineage_root) / "paper_regime_reference" / reference_evidence_date(packet)
-        / f"{packet['payload_sha256']}.json"
+        / packet["payload_sha256"] / f"registry-{registry_sha256}.json"
     )
 
 
@@ -253,7 +255,7 @@ def _emit(build, path_for, packet: dict, lineage_root: Path, context) -> dict:
         verify_embedded_payload_sha256(packet)
         context = context or REFS.RegistryContext.load()
         sidecar = build(packet, context)
-        path = path_for(lineage_root, packet)
+        path = path_for(lineage_root, packet, context.sha256)
         outcome = REFS.write_sidecar_append_only(path, sidecar)
         return {"status": outcome, "path": str(path), "payload_sha256": sidecar["payload_sha256"],
                 "event_count": len(sidecar["events"])}
@@ -336,6 +338,12 @@ def scan_reference_evidence(min_date: str, *, root: Path = ROOT, lineage_root: P
     return results
 
 
+def _warn(message: str) -> None:
+    """Visible GitHub Actions warning annotation (plain line elsewhere)."""
+    text = str(message).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::warning title=Rule lineage sidecar failed::{text}")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Emit additive rule-lineage sidecars for producer packets.")
     parser.add_argument("kind", choices=["crypto-decision", "paper-reference", "paper-reference-scan"])
@@ -351,11 +359,15 @@ def main(argv=None) -> int:
         for result in results:
             summary[result["status"]] = summary.get(result["status"], 0) + 1
         print(json.dumps({"summary": summary, "results": results}, ensure_ascii=False, sort_keys=True))
+        if summary.get("FAILED"):
+            _warn(f"{summary['FAILED']} PAPER reference sidecar(s) failed; see RULE_LINEAGE_EMIT_FAILED lines")
         return 0
     if args.packet is None:
         parser.error(f"{args.kind} requires --packet")
     result = run_cli(args.kind, args.packet, lineage_root=args.lineage_root)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    if result.get("status") == "FAILED":
+        _warn(result.get("error") or "RULE_LINEAGE_EMIT_FAILED")
     return 0
 
 
