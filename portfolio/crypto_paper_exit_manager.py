@@ -65,6 +65,11 @@ def _expected_contract() -> dict:
         "output_schema_version": "crypto_paper_exit_decision/1",
         "source_account_schema_version": "crypto_paper_account_state/1",
         "source_account_contract_version": "crypto_paper_simulator/1",
+        "per_market_source_account_schema_version": "crypto_paper_account_state/2",
+        "unknown_mark_position_policy": (
+            "UNKNOWN_MARK_POSITION_ACCEPTS_ONLY_NON_FRESH_OBSERVATION_"
+            "WAIT_STALE_EVIDENCE_HIGH_WATERMARK_NOT_ADVANCED"
+        ),
         "mode": "PAPER_LAB_ONLY",
         "priority_categories": [
             "HARD_EXIT", "SECURITY_LIQUIDITY", "RISK_REGIME", "TREND",
@@ -140,6 +145,16 @@ def _validate_contract(value: dict) -> dict:
         if value.get(key) != expected_value:
             raise CryptoPaperExitManagerError(f"CONTRACT_FIELD_MISMATCH:{key}")
     return copy.deepcopy(value)
+
+
+def _source_account_schema_versions(contract: dict) -> set[str]:
+    """Account views an exit plan or evaluation may consume (/1 or per-market /2)."""
+    if contract["per_market_source_account_schema_version"] != SIMULATOR.PER_MARKET_ACCOUNT_STATE_SCHEMA_VERSION:
+        raise CryptoPaperExitManagerError("CONTRACT_PER_MARKET_ACCOUNT_SCHEMA_SIMULATOR_MISMATCH")
+    return {
+        contract["source_account_schema_version"],
+        contract["per_market_source_account_schema_version"],
+    }
 
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
@@ -347,10 +362,7 @@ def validate_exit_plan(value: dict, contract: dict | None = None) -> dict:
     ):
         raise CryptoPaperExitManagerError("PLAN_IDENTITY_INVALID")
     account = SIMULATOR.validate_account_state(value.get("source_entry_account"))
-    if account.get("schema_version") not in {
-        contract["source_account_schema_version"],
-        SIMULATOR.PER_MARKET_ACCOUNT_STATE_SCHEMA_VERSION,
-    }:
+    if account.get("schema_version") not in _source_account_schema_versions(contract):
         # Entry economics come from the filled order, never from marks, so a
         # per-market account view (/2) is an equally exact plan source.
         raise CryptoPaperExitManagerError("PLAN_SOURCE_ACCOUNT_SCHEMA_INVALID")
@@ -597,8 +609,11 @@ def _assemble(plan: dict, account: dict, observation: dict, contract: dict) -> d
         raise CryptoPaperExitManagerError("OBSERVATION_PRECEDES_PLAN")
     if account["source"]["mark_source_sha256"] != observation["source_sha256"]:
         raise CryptoPaperExitManagerError("ACCOUNT_OBSERVATION_SOURCE_MISMATCH")
+    if account.get("schema_version") not in _source_account_schema_versions(contract):
+        raise CryptoPaperExitManagerError("CURRENT_ACCOUNT_SCHEMA_INVALID")
     position = _current_position(account, plan["market"])
-    if position is not None and position.get("mark_status") == "UNKNOWN":
+    mark_unknown = position is not None and position.get("mark_status") == "UNKNOWN"
+    if mark_unknown:
         # A per-market account view has no mark for this market: only a
         # non-FRESH observation (WAIT_STALE_EVIDENCE) may be evaluated.
         if observation["freshness_status"] == "FRESH":
@@ -609,7 +624,9 @@ def _assemble(plan: dict, account: dict, observation: dict, contract: dict) -> d
     prior_high = Decimal(observation["prior_high_watermark"])
     if prior_high < Decimal(plan["entry_price"]):
         raise CryptoPaperExitManagerError("PRIOR_HIGH_WATERMARK_BELOW_ENTRY")
-    next_high = max(prior_high, current)
+    # An UNKNOWN-marked position only ever reaches WAIT_STALE_EVIDENCE on a
+    # non-FRESH observation, so that price must not advance the watermark.
+    next_high = prior_high if mark_unknown else max(prior_high, current)
 
     status = "NO_TRIGGER_HOLD"
     action = "HOLD"

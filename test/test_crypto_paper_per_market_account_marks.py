@@ -179,6 +179,83 @@ class ExitManagerPerMarketTests(unittest.TestCase):
         self.assertEqual(waited["status"], "WAIT_STALE_EVIDENCE")
         self.assertIsNone(waited["paper_order_identity_candidate"])
 
+    def test_unknown_market_stale_price_never_advances_the_high_watermark(self):
+        ledger = held_ledger()
+        account = per_market_account(ledger)
+        plan = self.plan(ledger, "KRW-WLD")
+        for freshness in ("STALE", "UNKNOWN"):
+            with self.subTest(freshness=freshness):
+                waited = MANAGER.evaluate_exit(plan, account, self.observation("KRW-WLD", "1000", freshness))
+                self.assertEqual(waited["status"], "WAIT_STALE_EVIDENCE")
+                self.assertEqual(waited["prior_high_watermark"], "100")
+                self.assertEqual(waited["next_high_watermark"], "100")
+                self.assertEqual(MANAGER.validate_output(waited), waited)
+                forged = copy.deepcopy(waited)
+                forged["next_high_watermark"] = "1000"
+                forged.pop("packet_sha256")
+                forged["packet_sha256"] = MANAGER.payload_sha256(forged)
+                with self.assertRaisesRegex(MANAGER.CryptoPaperExitManagerError, "OUTPUT_DERIVATION_MISMATCH"):
+                    MANAGER.validate_output(forged)
+        # A FRESH-marked market in the same /2 view still advances with its mark.
+        fresh = per_market_account(ledger, btc="120")
+        advanced = MANAGER.evaluate_exit(self.plan(ledger, "KRW-BTC"), fresh, self.observation("KRW-BTC", "120", "FRESH"))
+        self.assertEqual(advanced["next_high_watermark"], "120")
+
+    def test_contract_names_both_account_views_and_the_unknown_mark_policy(self):
+        contract = MANAGER.load_contract()
+        self.assertEqual(contract["source_account_schema_version"], "crypto_paper_account_state/1")
+        self.assertEqual(contract["per_market_source_account_schema_version"], V2)
+        self.assertEqual(
+            contract["unknown_mark_position_policy"],
+            "UNKNOWN_MARK_POSITION_ACCEPTS_ONLY_NON_FRESH_OBSERVATION_WAIT_STALE_EVIDENCE_HIGH_WATERMARK_NOT_ADVANCED",
+        )
+        drifted = copy.deepcopy(contract)
+        drifted["per_market_source_account_schema_version"] = "crypto_paper_account_state/3"
+        with self.assertRaisesRegex(MANAGER.CryptoPaperExitManagerError, "CONTRACT_FIELD_MISMATCH"):
+            MANAGER._validate_contract(drifted)
+
+
+class BridgeLegacyRequestAccountTests(unittest.TestCase):
+    def test_legacy_v2_request_rejects_a_per_market_v2_account(self):
+        decision = PM.natural_packet()
+        ledger = held_ledger()
+        for name, account in (("unknown", per_market_account(ledger)), ("all_fresh", per_market_account(ledger, wld="110"))):
+            with self.subTest(account=name):
+                self.assertEqual(account["schema_version"], V2)
+                with self.assertRaisesRegex(
+                    BRIDGE.CryptoPaperRuntimeBridgeError, "RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_ACCOUNT",
+                ):
+                    BRIDGE._derive_runtime_request(
+                        decision, expected_source_commit=decision["source_commit"],
+                        public_code_commit_sha=PM.CODE_COMMIT, observation_commit_sha=PM.OBSERVATION_COMMIT,
+                        account_state=account, open_position_risk=[], runtime_config=None,
+                        request_schema_version=BRIDGE.LEGACY_REQUEST_SCHEMA_VERSION,
+                    )
+        # A /3 request over the same /2 account is still derivable.
+        request = BRIDGE._derive_runtime_request(
+            decision, expected_source_commit=decision["source_commit"],
+            public_code_commit_sha=PM.CODE_COMMIT, observation_commit_sha=PM.OBSERVATION_COMMIT,
+            account_state=per_market_account(ledger), open_position_risk=[], runtime_config=None,
+        )
+        self.assertEqual(request["schema_version"], BRIDGE.REQUEST_SCHEMA_VERSION)
+
+    def test_issued_legacy_request_with_a_swapped_in_v2_account_fails_closed(self):
+        decision = PM.natural_packet()
+        legacy = BRIDGE._derive_runtime_request(
+            decision, expected_source_commit=decision["source_commit"],
+            public_code_commit_sha=PM.CODE_COMMIT, observation_commit_sha=PM.OBSERVATION_COMMIT,
+            account_state=PM.account(["KRW-BTC"]), open_position_risk=[], runtime_config=None,
+            request_schema_version=BRIDGE.LEGACY_REQUEST_SCHEMA_VERSION,
+        )
+        self.assertEqual(BRIDGE.validate_runtime_request(legacy), legacy)
+        forged = copy.deepcopy(legacy)
+        forged["source_inputs"]["account_state"] = per_market_account(held_ledger(), wld="110")
+        forged["packet_sha256"] = BRIDGE.payload_sha256({k: v for k, v in forged.items() if k != "packet_sha256"})
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError, "RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_ACCOUNT",
+        ):
+            BRIDGE.validate_runtime_request(forged)
+
 
 class BridgePerMarketAccountTests(PM.ModifiedRunFixture):
     def test_unknown_valued_position_blocks_entries_but_not_carried_matches(self):

@@ -20,8 +20,23 @@ after seeing MFE/MAE and without sending an Upbit order.
 - `crypto_paper_exit_observation/1` carries a current price, the prior (not
   hindsight-updated) high watermark, freshness, and explicit security,
   liquidity, risk-budget, Regime, trend, and kill-switch statuses.
-- The current `crypto_paper_account_state/1` embeds and revalidates the exact
-  current simulator ledger. This is the only position/order state consumed.
+- The current account view embeds and revalidates the exact current simulator
+  ledger. This is the only position/order state consumed. The contract names
+  two accepted views: `crypto_paper_account_state/1`
+  (`source_account_schema_version`, one account-level FRESH mark) and the
+  per-market `crypto_paper_account_state/2`
+  (`per_market_source_account_schema_version`). Either view may also be the
+  plan's entry account, because entry quantity and price come from the filled
+  BUY order, not from marks.
+- In a `/2` view a position whose market has no FRESH mark has
+  `mark_status: UNKNOWN` and null mark, value and unrealized P&L
+  (`unknown_mark_position_policy`). For that market the evaluation accepts only
+  a non-FRESH observation and returns `WAIT_STALE_EVIDENCE`. The observation's
+  price does not advance the high watermark: `next_high_watermark` equals
+  `prior_high_watermark`. A FRESH observation against an UNKNOWN mark fails
+  closed with `ACCOUNT_POSITION_MARK_UNKNOWN_FOR_FRESH_OBSERVATION`. A FRESH
+  position in a `/2` view is evaluated exactly as in `/1`, and `/1` decisions
+  are unchanged. Design note: `docs/crypto_paper_per_market_account_marks.md`.
 
 ### Semantic contract
 
