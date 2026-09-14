@@ -65,7 +65,12 @@ per-market decision packet (`crypto_paper_decision_snapshot_packet/2` or `/3`):
 A `/1` decision (generated before the ratification's effective instant) keeps
 the aggregate gate inside a `/3` request. An issued `crypto_paper_runtime_request/2`
 revalidates with its original derivation byte for byte, including its
-aggregate gate and whole-request abort.
+aggregate gate and whole-request abort, but only over a `/1` decision: a `/2`
+request over a per-market decision is rejected
+(`RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_DECISION`) so a relabelled request
+cannot downgrade per-market freshness to the aggregate gate. In a `/3` request,
+only unavailable evidence becomes a mark, entry or match blocker; tampered or
+malformed evidence (hash, identity, future-dated, value) aborts the request.
 
 Held-position exits for a non-`FRESH` market are owned by the private runtime
 (`portfolio/crypto_paper_stale_hold.py`: per-market HOLD and the 30-minute
