@@ -191,6 +191,15 @@ APPROVED_TESTS = [
     #   date. No second provider call, raw response, price field, investability,
     #   Stage, Production, or trading authority is introduced.
     "test/test_korea_global_universe_populate.py",
+    # ★ TKT-3 (W2) — KR security <-> sector membership, security_sector_membership/1.
+    #   KIS master sector codes + KIS idxcode -> the 46 ratified P2-03 sector
+    #   theme_ids (binding payload sha pinned). CIO D1-D5: KIS_ONLY single-source
+    #   (T2 C5 only, T3 keeps BOTH_MUST_AGREE), exactly two ratified aliases,
+    #   deepest-level ACTIVE <= 1 with a derived parent_view, one-publication
+    #   PENDING_CHANGE, no-code stocks UNMAPPED, no retroactive rows.
+    #   ⛔ synthetic masters + temp output only; no fetch, no per-stock public output,
+    #   no candidate/order/capital authority.
+    "test/test_security_sector_membership.py",
     # ★ P3-04 — ratified Crypto breadth selection → Global Asset Master adapter.
     #   exact append-only Kraken snapshot/manifest/policy/taxonomy/identity lineage와
     #   full target observation을 요구해 breadth source-coverage membership만 만든다.
