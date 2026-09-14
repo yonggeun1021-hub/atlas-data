@@ -5291,8 +5291,11 @@ def _format_component_detail(
                 f"available_at={packet.get('available_at')}"
             )
         elif cid == "US_BREADTH_MEMBERSHIP":
+            # B5-3 SENSOR_ROWS: the members= row carries its own
+            # snapshot_date= token; an absent source date is stated as
+            # UNKNOWN, never rendered as a bare None.
             lines.append(
-                f"    - snapshot_date={packet.get('snapshot_date')} "
+                f"    - snapshot_date={packet.get('snapshot_date') or 'UNKNOWN'} "
                 f"members={packet.get('member_count')}"
             )
         elif cid == "FREE_MARKET_DATA":
@@ -5314,8 +5317,9 @@ def _format_component_detail(
                 # date.  Keep its own date visible, but do not present an
                 # older close as if it described the current KST session.
                 lines.append(
-                    "    - US close values withheld: independent session evidence "
-                    f"is dated {us_session_date}, not {decision_date}"
+                    f"    - US close values withheld as {decision_date} closes: "
+                    f"independent session evidence is dated {us_session_date}, "
+                    f"not {decision_date}"
                 )
             else:
                 lines.append(
@@ -5325,8 +5329,13 @@ def _format_component_detail(
                         if bars else f"{packet.get('alpaca_status')}"
                     )
                 )
+            # B5-5 US_ETF_CLOSES: each trend ETF close is shown with its own
+            # session date (close= is the retained source value verbatim), so
+            # a dated close is never omitted and never read as a
+            # decision_date close.
+            lines.extend(_us_trend_etf_close_lines(market_reference, decision_date))
             lines.append(
-                f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
+                f"    - VIXCLS={vix.get('value')} as_of={vix.get('date') or 'UNKNOWN'}"
             )
             lines.append(f"    - scope: {packet.get('scope_warning')}")
         elif cid == "BTC_TREND":
@@ -5474,6 +5483,7 @@ def _format_component_detail(
                         f"{observation.get('subject_name')}: "
                         f"{observation.get('filing_title')} "
                         f"기준일(filing_date)={_date8_to_iso(observation.get('filing_date'))} "
+                        f"filing_date={_date8_to_iso(observation.get('filing_date'))} "
                         f"evidence={observation.get('evidence_status')} "
                         "action=null"
                     )
@@ -5527,8 +5537,9 @@ def _format_component_detail(
                 lines.append(
                     f"    - {observation.get('subject')}: "
                     f"{observation.get('release_title')} "
-                    f"published_at={observation.get('published_at')} "
-                    f"기준일(retrieved)={str(lineage.get('retrieved_at_utc') or packet.get('evidence_as_of') or 'UNKNOWN')[:10]}"
+                    f"published_at={observation.get('published_at') or 'UNKNOWN'} "
+                    f"기준일(retrieved)={str(lineage.get('retrieved_at_utc') or packet.get('evidence_as_of') or 'UNKNOWN')[:10]} "
+                    f"evidence_as_of={_row_date_token(packet.get('evidence_as_of'))}"
                 )
                 for item in observation.get("summary_items", []):
                     lines.append(
@@ -5634,7 +5645,7 @@ def _format_component_detail(
                     f"    - {subject}: opportunity_state={subject_row.get('opportunity_state')} "
                     f"shadow_action={subject_row.get('shadow_action')} "
                     f"comparison_label={subject_row.get('comparison_label')} "
-                    f"기준일={pilot_date} "
+                    f"기준일={pilot_date} decision_date={pilot_date} "
                     f"next_review_date={subject_row.get('next_review_date')}"
                 )
         elif cid == "DYNAMIC_CLOCK":
@@ -5737,7 +5748,13 @@ def _format_component_detail(
                         lines.append(
                             f"      - ... +{len(candidates) - _RENDER_CAP} more {tier_label} candidates "
                             f"(full list: this revision's packet.json, DYNAMIC_CLOCK "
-                            f"markets.{market}.{tier_key}; 기준일={dynamic_decision_date})"
+                            f"markets.{market}.{tier_key}; 기준일={dynamic_decision_date}"
+                            + (
+                                f"; 상세 목록 미갱신(기준일 {dynamic_decision_date})"
+                                if decision_date and dynamic_decision_date != decision_date
+                                else ""
+                            )
+                            + ")"
                         )
         elif cid == "SHADOW_ENTRY_REVIEW":
             summary = packet.get("summary", {})
@@ -5767,6 +5784,38 @@ def _format_component_detail(
         # the whole briefing render -- fall back to no detail line rather
         # than raising, the status/reason line above still stands.
         return []
+    return lines
+
+
+def _row_date_token(value) -> str:
+    """YYYY-MM-DD of a date or timestamp source value, else UNKNOWN."""
+    text = str(value or "")
+    return _canonical_iso_date(text[:10]) or "UNKNOWN"
+
+
+# B5-5 (atlas_b5_semantic_checklist/1): the PAPER reference label a candidate
+# regime line must carry together with its market and regime value.
+PAPER_REFERENCE_RUNTIME_LABEL = "런타임 미승인"
+
+
+def _us_trend_etf_close_lines(market_reference, decision_date: str | None) -> list[str]:
+    rows = market_reference.get("trend_etfs") if isinstance(market_reference, dict) else None
+    lines = []
+    for etf in rows if isinstance(rows, list) else []:
+        if not isinstance(etf, dict) or not etf.get("symbol"):
+            continue
+        close = etf.get("close")
+        session = etf.get("as_of_session_date") or "UNKNOWN"
+        lines.append(
+            f"    - US trend ETF {etf['symbol']}: "
+            f"close={'UNKNOWN' if close in (None, '') else close} "
+            f"as_of_session_date={session}"
+            + (
+                f" (세션 {session} 종가 · {decision_date} 종가로 재표기하지 않음)"
+                if decision_date and session != decision_date
+                else ""
+            )
+        )
     return lines
 
 
@@ -6059,7 +6108,8 @@ def _paper_regime_reference_lines(packet: dict) -> list[str]:
             f"score={market.get('score')} confidence={market.get('confidence')} "
             f"기준일={as_of or 'UNKNOWN'}{freshness} "
             f"coverage={market.get('coverage_ratio')} "
-            f"runtime_regime={market.get('runtime_regime')}"
+            f"runtime_regime={market.get('runtime_regime')}; "
+            f"{PAPER_REFERENCE_RUNTIME_LABEL}"
         )
     lines.append(
         f"  - source: `{reference.get('evidence_path')}` "

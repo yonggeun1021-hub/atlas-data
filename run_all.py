@@ -1684,6 +1684,15 @@ APPROVED_TESTS = [
     #   recomputed from retained raw index bytes. Presentation only; no status,
     #   aggregate, action, order, Production or trading authority changes.
     "test/test_briefing_content_recency_20260914.py",
+    # ★ Briefing renderer ↔ B5 semantic checklist alignment (S8 section 6,
+    #   CLAUDE_CIO 2026-09-14) — pinned copy of the staging
+    #   briefing_semantic_checks.py (sha256 fd98a204…) runs on real retained
+    #   09-13 AM / 09-14 AM rev-001·002 renders with seal-commit inputs.
+    #   Row date tokens (decision_date/filing_date/evidence_as_of/…), PAPER
+    #   "런타임 미승인" label, dated trend ETF closes, stale-pointer label.
+    #   Checks are not loosened: the sealed payloads still HOLD/PWC.
+    #   Presentation only; no packet, status, action or authority change.
+    "test/test_briefing_b5_renderer_alignment_20260914.py",
     # ★ Daily Briefing same-day recovery — original natural schedule run만
     #   KST slot/date로 식별하고 briefing job 실패 시 최대 3회 안에서 재실행한다.
     #   성공한 briefing은 병렬 regression 결론과 분리해 다시 실행하지 않으며,
