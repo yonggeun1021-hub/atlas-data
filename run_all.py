@@ -1022,6 +1022,22 @@ APPROVED_TESTS = [
     #   natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
+    # ★ US-DATA-1 U3 (CIO 2026-09-14) + user ratification
+    #   US-SESSION-CALENDAR-SOURCE-V1-20260914. US session calendar: official
+    #   NYSE capture for published years (Nasdaq cross-check where available),
+    #   Alpaca calendar AND IEX SPY bar for 2018+ earlier years, conflict/missing
+    #   = US_FINISHED_SESSION_UNKNOWN, no weekday inference. The registry bytes
+    #   stay hash-bound; the amendment is an overlay config. Offline fixtures only.
+    "test/test_us_official_session_calendar.py",
+    #   Rule-fixed US replay range declared before any run: 15 replay symbols,
+    #   61-session warm-up, latest completed session, whole-range fail-closed
+    #   truncation, no sub-range arguments; bounded (<=15 request) probe capture
+    #   with no secret or price retention; resumable/idempotent chunk driver that
+    #   evaluates US PIT acceptance only on the complete declared range.
+    "test/test_us_replay_range_declaration.py",
+    #   Probe + full replay workflows: workflow_dispatch only, least privilege,
+    #   secrets only in step env, artifacts under RUNNER_TEMP, nothing committed.
+    "test/test_us_regime_replay_workflows.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay
     #   population/report (SHADOW backfill only, never NATURAL). Joins the KR
     #   5-axis and US free-axis replay populations over ONE caller-supplied set
