@@ -31,16 +31,6 @@
       "coverage_requirement": "ALL_CONFIGURED_SYMBOLS_PRESENT",
       "scope": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE"
     },
-    "historical_pit_replay_identity": {
-      "status": "US_ETF_PROXY_HISTORICAL_PIT_SCOPE_V1",
-      "decision_record": {
-        "decision_id": "CIO-REGIME-PATH-AND-REDESIGN-START-20260914",
-        "sha256": "47819e1078f3ec8450e6c4aadfa31233ee5784ebe102904034f2c22fc1cdbaa6",
-        "note": "sha256 of the external CIO decision record (outside this repository checkout) that adopted US_ETF_PROXY_HISTORICAL_PIT_SCOPE_V1 -- regime/us_historical_replay_population.py hash-binds against this value so a re-signed/forged identity fails closed."
-      },
-      "replay_population_wiring_activated": false,
-      "note": "Sibling of current_proxy_axes, deliberately NOT nested inside it, so collectors/free_market_data.py's exact-equality current_proxy_axes validator (and approval_status, which stays RATIFIED_CURRENT_REFERENCE_ONLY) is untouched. Presence records the CIO's U2 ADOPTED decision and hash-binds it, but replay_population_wiring_activated stays false: flipping it true widens regime/us_historical_replay_population.py from 3-axis (TREND/RISK_VOL/LIQUIDITY) to 5-axis (adding BREADTH/LEADERSHIP) replay for every existing and future historical-replay population, which needs its own deliberate, reviewed follow-up rather than landing silently inside this wiring change."
-    },
     "feed": "iex",
     "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
     "credential_scope": "DEDICATED_MARKET_DATA_ONLY",

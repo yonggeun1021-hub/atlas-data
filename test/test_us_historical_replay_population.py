@@ -575,124 +575,144 @@ class _MissingSymbolProviders(FakeProviders):
 class UsHistoricalPitReplayIdentityTest(unittest.TestCase):
     """CIO plan U2 (2026-09-13/14, decision record
     ``CIO-REGIME-PATH-AND-REDESIGN-START-20260914``): the hash-bound identity
-    that widens this replay from 3-axis to 5-axis. ``authority.us_breadth_
-    authorized`` is never the gate -- these tests pin that it stays exactly
-    ``False`` under every widened/narrowed contract shape below -- and the
-    real on-disk contract's own ``replay_population_wiring_activated`` stays
-    ``False``, so ``UsFreeAxisReplayScopeTest``/``UsBreadthLeadershipPrepared
-    NotWiredTest`` above keep holding unchanged against it.
+    that widens this replay from 3-axis to 5-axis. It lives in its own file
+    (``config/us_historical_pit_replay_identity_v1.json``), deliberately not
+    a field inside ``config/free_market_data_contract.json`` -- that
+    contract's exact bytes are pinned by
+    ``config/regime_source_owner_registry_v2.json``
+    (``regime/decision_authority.py``'s source-owner registry) as an
+    unrelated governance anchor, so editing it at all would change its
+    sha256 and break that pin. ``authority.us_breadth_authorized`` is never
+    the gate -- these tests pin that it stays exactly ``False`` under every
+    widened/narrowed identity below -- and the real on-disk identity file's
+    own ``replay_population_wiring_activated`` stays ``False``, so
+    ``UsFreeAxisReplayScopeTest``/``UsBreadthLeadershipPreparedNotWiredTest``
+    above keep holding unchanged against it.
     """
 
     def setUp(self):
         self.contract = FMD.load_contract(FMD.CONTRACT_PATH)
+        self.identity = MODULE._load_historical_pit_replay_identity()
 
-    def _widened_active_contract(self):
-        widened = copy.deepcopy(self.contract)
-        widened["alpaca"]["historical_pit_replay_identity"][
-            "replay_population_wiring_activated"
-        ] = True
-        return widened
+    def _active_identity(self):
+        active = copy.deepcopy(self.identity)
+        active["replay_population_wiring_activated"] = True
+        return active
 
-    def test_real_contract_carries_the_identity_but_stays_inactive_and_narrow(self):
-        identity = self.contract["alpaca"]["historical_pit_replay_identity"]
-        self.assertEqual(identity["status"], MODULE.RATIFIED_HISTORICAL_PIT_REPLAY_STATUS)
+    def test_real_identity_file_is_present_but_inactive_and_narrow(self):
+        self.assertIsNotNone(self.identity)
         self.assertEqual(
-            identity["decision_record"]["decision_id"],
+            self.identity["status"], MODULE.RATIFIED_HISTORICAL_PIT_REPLAY_STATUS,
+        )
+        self.assertEqual(
+            self.identity["decision_record"]["decision_id"],
             MODULE.RATIFIED_HISTORICAL_PIT_REPLAY_DECISION_ID,
         )
         self.assertEqual(
-            identity["decision_record"]["sha256"],
+            self.identity["decision_record"]["sha256"],
             MODULE.RATIFIED_HISTORICAL_PIT_REPLAY_DECISION_SHA256,
         )
-        self.assertIs(identity["replay_population_wiring_activated"], False)
+        self.assertIs(self.identity["replay_population_wiring_activated"], False)
         self.assertEqual(
             MODULE.authorized_axes(self.contract), ["TREND", "RISK_VOL", "LIQUIDITY"],
         )
         self.assertEqual(sorted(MODULE.exclusion_basis(self.contract)), ["BREADTH", "LEADERSHIP"])
 
     def test_activating_the_identity_widens_to_all_five_axes(self):
-        widened = self._widened_active_contract()
-        self.assertEqual(MODULE.authorized_axes(widened), list(PRR.AXES))
-        self.assertEqual(MODULE.exclusion_basis(widened), {})
+        with mock.patch.object(
+            MODULE, "_load_historical_pit_replay_identity",
+            return_value=self._active_identity(),
+        ):
+            self.assertEqual(MODULE.authorized_axes(self.contract), list(PRR.AXES))
+            self.assertEqual(MODULE.exclusion_basis(self.contract), {})
 
     def test_a_wrong_decision_sha256_fails_closed(self):
-        widened = self._widened_active_contract()
-        widened["alpaca"]["historical_pit_replay_identity"]["decision_record"]["sha256"] = (
-            "0" * 64
-        )
-        with self.assertRaises(MODULE.ReplayPopulationError):
-            MODULE.authorized_axes(widened)
+        bad = self._active_identity()
+        bad["decision_record"]["sha256"] = "0" * 64
+        with mock.patch.object(MODULE, "_load_historical_pit_replay_identity", return_value=bad):
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.authorized_axes(self.contract)
 
     def test_a_wrong_decision_id_fails_closed(self):
-        widened = self._widened_active_contract()
-        widened["alpaca"]["historical_pit_replay_identity"]["decision_record"][
-            "decision_id"
-        ] = "SOME-OTHER-DECISION"
-        with self.assertRaises(MODULE.ReplayPopulationError):
-            MODULE.authorized_axes(widened)
+        bad = self._active_identity()
+        bad["decision_record"]["decision_id"] = "SOME-OTHER-DECISION"
+        with mock.patch.object(MODULE, "_load_historical_pit_replay_identity", return_value=bad):
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.authorized_axes(self.contract)
 
     def test_a_wrong_status_string_fails_closed(self):
-        widened = self._widened_active_contract()
-        widened["alpaca"]["historical_pit_replay_identity"]["status"] = "SOMETHING_ELSE"
-        with self.assertRaises(MODULE.ReplayPopulationError):
-            MODULE.authorized_axes(widened)
+        bad = self._active_identity()
+        bad["status"] = "SOMETHING_ELSE"
+        with mock.patch.object(MODULE, "_load_historical_pit_replay_identity", return_value=bad):
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.authorized_axes(self.contract)
 
     def test_a_non_boolean_activation_flag_fails_closed(self):
-        widened = self._widened_active_contract()
-        widened["alpaca"]["historical_pit_replay_identity"][
-            "replay_population_wiring_activated"
-        ] = "true"
-        with self.assertRaises(MODULE.ReplayPopulationError):
-            MODULE.authorized_axes(widened)
+        bad = self._active_identity()
+        bad["replay_population_wiring_activated"] = "true"
+        with mock.patch.object(MODULE, "_load_historical_pit_replay_identity", return_value=bad):
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.authorized_axes(self.contract)
 
-    def test_a_missing_identity_is_treated_as_the_pre_u1_narrow_default(self):
-        narrow = copy.deepcopy(self.contract)
-        del narrow["alpaca"]["historical_pit_replay_identity"]
-        self.assertEqual(MODULE.authorized_axes(narrow), ["TREND", "RISK_VOL", "LIQUIDITY"])
+    def test_a_missing_identity_file_is_treated_as_the_pre_u1_narrow_default(self):
+        with mock.patch.object(
+            MODULE, "_load_historical_pit_replay_identity", return_value=None,
+        ):
+            self.assertEqual(
+                MODULE.authorized_axes(self.contract), ["TREND", "RISK_VOL", "LIQUIDITY"],
+            )
 
     def test_breadth_authorized_flipping_still_fails_closed_with_no_identity(self):
         # The original pre-U1 guarantee, preserved: us_breadth_authorized is
         # never itself the gate, so a contract that flips it without a
         # matching identity is still an unrecognized, fail-closed state.
-        narrow = copy.deepcopy(self.contract)
-        del narrow["alpaca"]["historical_pit_replay_identity"]
-        narrow["authority"]["us_breadth_authorized"] = True
-        with self.assertRaises(MODULE.ReplayPopulationError):
-            MODULE.authorized_axes(narrow)
+        narrow_contract = copy.deepcopy(self.contract)
+        narrow_contract["authority"]["us_breadth_authorized"] = True
+        with mock.patch.object(
+            MODULE, "_load_historical_pit_replay_identity", return_value=None,
+        ):
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.authorized_axes(narrow_contract)
 
     def test_breadth_authorized_flipping_still_fails_closed_when_activated(self):
-        widened = self._widened_active_contract()
-        widened["authority"]["us_breadth_authorized"] = True
-        with self.assertRaises(MODULE.ReplayPopulationError):
-            MODULE.authorized_axes(widened)
+        widened_contract = copy.deepcopy(self.contract)
+        widened_contract["authority"]["us_breadth_authorized"] = True
+        with mock.patch.object(
+            MODULE, "_load_historical_pit_replay_identity",
+            return_value=self._active_identity(),
+        ):
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.authorized_axes(widened_contract)
 
 
 class UsWiredFiveAxisReplayTest(unittest.TestCase):
-    """U1 wiring, stacked on U2's hash-bound identity mechanism: once a
-    contract activates ``historical_pit_replay_identity``, BREADTH/LEADERSHIP
-    are actually attempted -- through the exact same
-    ``replay_one_requested_date`` entry point ``build_population`` calls --
-    and a genuine 5/5 result is allowed to classify. The real on-disk
-    contract stays inactive (see ``UsHistoricalPitReplayIdentityTest``), so
-    every test here builds its own widened+activated contract dict rather
-    than touching ``config/free_market_data_contract.json``.
+    """U1 wiring, stacked on U2's hash-bound identity mechanism: once the
+    dedicated identity file activates, BREADTH/LEADERSHIP are actually
+    attempted -- through the exact same ``replay_one_requested_date`` entry
+    point ``build_population`` calls -- and a genuine 5/5 result is allowed
+    to classify. The real on-disk identity file stays inactive (see
+    ``UsHistoricalPitReplayIdentityTest``), so every test here patches
+    ``MODULE._load_historical_pit_replay_identity`` to a widened+activated
+    identity rather than touching any file on disk.
     """
 
     def setUp(self):
         self.policy = MODULE._load_candidate_policy()
         self.contract = FMD.load_contract(FMD.CONTRACT_PATH)
-        widened = copy.deepcopy(self.contract)
-        widened["alpaca"]["historical_pit_replay_identity"][
-            "replay_population_wiring_activated"
-        ] = True
-        self.widened = widened
-        self.replayed = MODULE.authorized_axes(widened)
-        self.excluded = MODULE.exclusion_basis(widened)
+        identity = copy.deepcopy(MODULE._load_historical_pit_replay_identity())
+        identity["replay_population_wiring_activated"] = True
+        self.enterContext(
+            mock.patch.object(
+                MODULE, "_load_historical_pit_replay_identity", return_value=identity,
+            )
+        )
+        self.replayed = MODULE.authorized_axes(self.contract)
+        self.excluded = MODULE.exclusion_basis(self.contract)
 
     def _replay(self, providers, requested_date=ANCHOR, credentials=None):
         return MODULE.replay_one_requested_date(
             credentials or CREDENTIALS, requested_date, getter=providers,
-            contract=self.widened, policy=self.policy, excluded=self.excluded,
+            contract=self.contract, policy=self.policy, excluded=self.excluded,
             replayed=self.replayed,
         )
 

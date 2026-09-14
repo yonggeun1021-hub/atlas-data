@@ -197,20 +197,23 @@ EXCLUDED_AXES = ["BREADTH", "LEADERSHIP"]
 # runtime truth. ``PREPARED_NOT_WIRED_AXES`` is kept for the module's own
 # history/tests; it no longer describes the code path (see
 # ``authorized_axes`` below), which now actually attempts BREADTH/LEADERSHIP
-# once a pinned contract's ``alpaca.historical_pit_replay_identity`` says so.
+# once ``HISTORICAL_PIT_REPLAY_IDENTITY_PATH`` says so.
 PREPARED_NOT_WIRED_AXES = ["BREADTH", "LEADERSHIP"]
 
 # CIO plan U2 (2026-09-13/14): the ratified identity that widens the source
-# contract's scope from current-reference-only to PAPER PIT replay. Landing
-# this identity on ``config/free_market_data_contract.json`` is a CIO
-# technical decision (``CIO-REGIME-PATH-AND-REDESIGN-START-20260914``,
-# ``US`` -> ``U2_identity``) this module never makes on its own -- it only
-# recognizes the identity once the contract carries it, hash-bound to that
-# decision record so a re-signed contract cannot claim the identity by merely
-# restating the status string. ``authority.us_breadth_authorized`` is
-# deliberately NOT the gate: it stays ``false`` permanently because other
-# contract consumers depend on it staying false, so authorization here is
-# keyed entirely off ``alpaca.historical_pit_replay_identity`` instead.
+# scope from current-reference-only to PAPER PIT replay. Landing this
+# identity is a CIO technical decision
+# (``CIO-REGIME-PATH-AND-REDESIGN-START-20260914``, ``US`` -> ``U2_identity``)
+# this module never makes on its own -- it only recognizes the identity once
+# ``config/us_historical_pit_replay_identity_v1.json`` (a dedicated file, not
+# a field inside ``config/free_market_data_contract.json`` -- see
+# ``_load_historical_pit_replay_identity``'s docstring for why) carries it,
+# hash-bound to that decision record so a re-signed file cannot claim the
+# identity by merely restating the status string. ``authority.
+# us_breadth_authorized`` is deliberately NOT the gate: it stays ``false``
+# permanently because other contract consumers depend on it staying false, so
+# authorization here is keyed entirely off that dedicated identity file
+# instead.
 RATIFIED_HISTORICAL_PIT_REPLAY_STATUS = "US_ETF_PROXY_HISTORICAL_PIT_SCOPE_V1"
 RATIFIED_HISTORICAL_PIT_REPLAY_DECISION_ID = (
     "CIO-REGIME-PATH-AND-REDESIGN-START-20260914"
@@ -1049,8 +1052,36 @@ def replay_liquidity_source(
 # ---------------------------------------------------------------------------
 
 
+HISTORICAL_PIT_REPLAY_IDENTITY_PATH = (
+    ROOT / "config" / "us_historical_pit_replay_identity_v1.json"
+)
+
+
+def _load_historical_pit_replay_identity() -> dict | None:
+    """The dedicated identity file, or ``None`` if it is absent/unreadable.
+
+    Deliberately its own file rather than a field inside
+    ``config/free_market_data_contract.json``: that contract's exact bytes
+    are pinned elsewhere (``config/regime_source_owner_registry_v2.json``,
+    read by ``regime/decision_authority.py``) as an unrelated governance
+    anchor, so editing the contract at all -- even an additive key -- would
+    change its sha256 and break that pin. A missing or unreadable file is
+    treated exactly like an absent identity always was: the pre-U1 narrow
+    default, never an error that could abort an otherwise-unrelated replay.
+    """
+    try:
+        raw = HISTORICAL_PIT_REPLAY_IDENTITY_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def authorized_axes(contract: dict) -> list[str]:
-    """Which of ``PRR.AXES`` this contract currently authorizes for replay.
+    """Which of ``PRR.AXES`` this contract/identity currently authorizes.
 
     Fails closed on any ``approval_status`` or ``us_breadth_authorized`` this
     module does not explicitly recognize -- widening scope is a ratification
@@ -1059,11 +1090,11 @@ def authorized_axes(contract: dict) -> list[str]:
     scope (it stays ``false`` permanently; other contract consumers depend on
     that), only a sanity check that it has not drifted from the value every
     other state here assumes. Widening is instead keyed entirely off
-    ``alpaca.historical_pit_replay_identity``: absent, it is simply the
-    pre-U1 contract shape (3-axis, unauthorized); present but not shaped or
-    hash-bound exactly as the ratified decision record fails closed (a forged
-    or malformed claim); present, correctly hash-bound, and explicitly
-    activated is the only state that authorizes all five axes.
+    ``HISTORICAL_PIT_REPLAY_IDENTITY_PATH``: absent, it is simply the pre-U1
+    default (3-axis, unauthorized); present but not shaped or hash-bound
+    exactly as the ratified decision record fails closed (a forged or
+    malformed claim); present, correctly hash-bound, and explicitly activated
+    is the only state that authorizes all five axes.
     """
     proxy = contract["alpaca"]["current_proxy_axes"]
     approval_status = proxy.get("approval_status")
@@ -1072,17 +1103,17 @@ def authorized_axes(contract: dict) -> list[str]:
         fail("EXCLUSION_BASIS_CHANGED", "alpaca.current_proxy_axes.approval_status")
     if breadth_authorized is not False:
         fail("EXCLUSION_BASIS_CHANGED", "authority.us_breadth_authorized")
-    if not _historical_pit_replay_activated(contract):
+    if not _historical_pit_replay_activated():
         return list(REPLAYED_AXES)
     return list(PRR.AXES)
 
 
-def _historical_pit_replay_activated(contract: dict) -> bool:
-    """Whether ``alpaca.historical_pit_replay_identity`` actually widens scope.
+def _historical_pit_replay_activated() -> bool:
+    """Whether the dedicated identity file actually widens scope.
 
-    Three outcomes, not two: absent entirely (the pre-U1 contract shape,
-    quietly narrow -- every historical population built before this field
-    existed is exactly this case); present but malformed, wrongly shaped, or
+    Three outcomes, not two: absent entirely (the pre-U1 default, quietly
+    narrow -- every historical population built before this file existed is
+    exactly this case); present but malformed, wrongly shaped, or
     hash-mismatched against the ratified decision record (a forged or
     corrupted claim, failed closed rather than silently treated as absent);
     present, correctly hash-bound, and its own
@@ -1091,14 +1122,9 @@ def _historical_pit_replay_activated(contract: dict) -> bool:
     the CIO's ratified identity does not by itself flip every historical
     population from 3-axis to 5-axis replay).
     """
-    identity = contract["alpaca"].get("historical_pit_replay_identity")
+    identity = _load_historical_pit_replay_identity()
     if identity is None:
         return False
-    if not isinstance(identity, dict):
-        fail(
-            "HISTORICAL_PIT_REPLAY_IDENTITY_INVALID",
-            "alpaca.historical_pit_replay_identity",
-        )
     decision = identity.get("decision_record")
     if (
         identity.get("status") != RATIFIED_HISTORICAL_PIT_REPLAY_STATUS
@@ -1108,14 +1134,13 @@ def _historical_pit_replay_activated(contract: dict) -> bool:
     ):
         fail(
             "HISTORICAL_PIT_REPLAY_IDENTITY_INVALID",
-            "alpaca.historical_pit_replay_identity",
+            str(HISTORICAL_PIT_REPLAY_IDENTITY_PATH),
         )
     activated = identity.get("replay_population_wiring_activated")
     if activated is not True and activated is not False:
         fail(
             "HISTORICAL_PIT_REPLAY_IDENTITY_INVALID",
-            "alpaca.historical_pit_replay_identity"
-            ".replay_population_wiring_activated",
+            "replay_population_wiring_activated",
         )
     return activated
 
