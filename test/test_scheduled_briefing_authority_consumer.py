@@ -50,7 +50,12 @@ def dump(path: Path, value) -> None:
 
 
 class ConsumerFixture:
-    def __init__(self, decision_date: str = DATE, source_date: str | None = None):
+    def __init__(
+        self,
+        decision_date: str = DATE,
+        source_date: str | None = None,
+        schema_version: str | None = None,
+    ):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.date = decision_date
@@ -65,6 +70,12 @@ class ConsumerFixture:
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes((ROOT / relative).read_bytes())
+        contract_path = self.root / "config/scheduled_briefing_retrieval_contract.json"
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        if schema_version is not None:
+            contract["schema_version"] = schema_version
+            dump(contract_path, contract)
+        self.schema_version = contract["schema_version"]
         generation = {"generation_id": GENERATION, "generation_contract_version": 1}
         dump(self.root / "data/briefing/step0_status.json", {
             "schema_version": 2, "expected_kst_date": self.source_date, "generation": generation,
@@ -162,12 +173,24 @@ class ConsumerFixture:
         briefing.parent.mkdir(parents=True, exist_ok=True)
         briefing_text = "# verified briefing\n"
         if self.date in {"2026-08-29", "2026-08-30"}:
-            briefing_text += (
-                "- market_session: MARKET_CLOSED\n"
-                "- new_session: NONE\n"
-                f"- latest_confirmed_evidence_date: {self.source_date}\n"
-                "- latest_confirmed_evidence_relabelled_as_today: false\n"
-            )
+            if self.schema_version == CONSUMER.SCHEMA_V3:
+                briefing_text += (
+                    "- market_session: MARKET_CLOSED\n"
+                    "- new_session: NONE\n"
+                    f"- latest_confirmed_evidence_date: {self.source_date}\n"
+                    "- latest_confirmed_evidence_relabelled_as_today: false\n"
+                )
+            else:
+                # No KRX presentation reference / FREE_MARKET_DATA row in this
+                # synthetic packet: both market-scoped dates are UNKNOWN.
+                briefing_text += (
+                    "- market_session: MARKET_CLOSED\n"
+                    "- new_session: NONE\n"
+                    f"- source_evidence_kst_date: {self.source_date}\n"
+                    "- krx_latest_confirmed_close_date: UNKNOWN\n"
+                    "- us_latest_verified_session_date: UNKNOWN\n"
+                    "- latest_confirmed_evidence_relabelled_as_today: false\n"
+                )
         briefing.write_text(briefing_text, encoding="utf-8")
         rel = lambda path: path.relative_to(self.root).as_posix()
         sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
@@ -508,6 +531,30 @@ class ScheduledBriefingAuthorityConsumerTests(unittest.TestCase):
                 "2026-08-28",
             )
             self.assertIn("data/briefing/krx/005930.json", raw)
+        finally:
+            fixture.close()
+
+    def test_weekend_consumer_keeps_v3_envelopes_on_v3_rules(self):
+        fixture = ConsumerFixture("2026-08-29", "2026-08-28", CONSUMER.SCHEMA_V3)
+        try:
+            contract = CONSUMER._load_contract(ROOT / "config/scheduled_briefing_retrieval_contract.json")
+            self.assertEqual(contract["schema_version"], CONSUMER.SCHEMA_V4)
+            _, envelope = CONSUMER.consume(
+                fixture.date, "morning", {"krx": ["005930"]},
+                contract=contract, get=fixture.get, nonce_factory=lambda: "v3",
+            )
+            self.assertEqual(envelope["schema_version"], CONSUMER.SCHEMA_V3)
+            # The same v3 bytes relabelled as a v4 envelope carry the ambiguous line.
+            relabelled = copy.deepcopy(fixture.envelope)
+            relabelled["schema_version"] = CONSUMER.SCHEMA_V4
+            fixture._install_envelope(1, relabelled)
+            with self.assertRaisesRegex(
+                CONSUMER.ScheduledConsumerError, "WEEKEND_BRIEFING_AMBIGUOUS_EVIDENCE_DATE_LINE"
+            ):
+                CONSUMER.consume(
+                    fixture.date, "morning", {"krx": ["005930"]},
+                    contract=contract, get=fixture.get, nonce_factory=lambda: "relabel",
+                )
         finally:
             fixture.close()
 

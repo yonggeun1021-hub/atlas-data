@@ -72,7 +72,7 @@ KST evening briefing; only `slot` differs.
 3. Require the bootstrap's date and slot to match the requested values,
    `stale_detection=PASS`, a full lowercase commit SHA, one 64-character
    generation ID, and every investment/trading authority flag to remain false.
-   Schema v3 normally binds `source_evidence_kst_date` to the decision date.
+   Schemas v3 and v4 normally bind `source_evidence_kst_date` to the decision date.
    The only exception is a Saturday/Sunday `morning` round, which may bind
    exactly the previous Friday and must declare
    `MARKET_CLOSED_NO_NEW_SESSION_LATEST_CONFIRMED_EVIDENCE`. This is an exact
@@ -82,7 +82,19 @@ KST evening briefing; only `slot` differs.
    `source_evidence_kst_date` and the same generation ID across every consumed
    artifact. Weekend delivery bytes must explicitly state market closure, no
    new session, the previous-Friday evidence date, and that it was not
-   relabelled as the decision date.
+   relabelled as the decision date. The required lines depend on the
+   envelope's own schema version (never on the reader's):
+   - v3 (historical sealed slots): `- latest_confirmed_evidence_date: <source_evidence_kst_date>`.
+   - v4: `- source_evidence_kst_date: <date>`,
+     `- krx_latest_confirmed_close_date: <date|UNKNOWN>` and
+     `- us_latest_verified_session_date: <date|UNKNOWN>`, each exactly once as a
+     whole line. The KRX value must equal the packet's frozen
+     `data/latest_krx.json` `confirmed_through` reference bound to the STEP0
+     krx sha256 (the publisher also re-reads that git blob); the US value must
+     equal a READY `FREE_MARKET_DATA` `us_market_reference.as_of_session_date`;
+     otherwise `UNKNOWN`. A v4 briefing that still carries the v3
+     `latest_confirmed_evidence_date` line is rejected
+     (`WEEKEND_BRIEFING_AMBIGUOUS_EVIDENCE_DATE_LINE`).
 5. If any step fails, report `RETRIEVAL_AUTHORITY_UNAVAILABLE` and do not make
    a new investment judgment from stale or floating data.
 
