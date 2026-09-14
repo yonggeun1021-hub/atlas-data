@@ -54,6 +54,18 @@ Alpaca): this repo (`atlas-data`) is PUBLIC. `run_live_backfill` refuses
 per-symbol bar row inside this repository's working tree; `--out-dir` must
 resolve outside it. No per-symbol US price row is committed by this change.
 
+Live-path guarantees (2026-09-15, user approval US_BACKFILL):
+  - bounded: symbols must be a subset of the frozen 22 `APPROVED_SYMBOLS`,
+    `end - start <= 364` days, at most `MAX_LIVE_REQUESTS` (66) HTTP requests
+    per invocation (failed attempts count), request pause >= 0.5s;
+  - write-once: each (symbol, anchor) unit writes `<stem>.raw.json` then its
+    completion marker `<stem>.manifest.json`; an existing path with different
+    bytes fails closed (`collectors/free_market_data.py::_write_once` rule);
+  - resumable: a unit whose manifest exists and whose raw hash matches is
+    skipped without a request; a manifest/raw hash mismatch fails closed;
+  - a response carrying `next_page_token` (truncated window) fails closed;
+  - credentials only travel in request headers; errors carry codes only.
+
 Default mode is DRY RUN: `build_plan`/`main()` compute and print the request
 plan (batch structure, request count, pacing estimate) and make ZERO network
 calls. Real execution additionally requires `--live` AND both
@@ -94,6 +106,20 @@ DEFAULT_WINDOW_DAYS = 180  # fetch_alpaca_daily_bars 고정 lookback과 동일
 DEFAULT_BATCH_SIZE = 4
 DEFAULT_REQUEST_PAUSE_SECONDS = 3.0
 DEFAULT_BATCH_PAUSE_SECONDS = 15.0
+
+# 사용자 승인(USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915, US_BACKFILL):
+# 승인된 22개 종목, 1년치, 요청 약 66회. live 경로는 이 범위를 넘으면 요청 전에 거부한다.
+APPROVED_SYMBOLS = (
+    "ANET", "CRDO", "IWM", "MSFT", "MU", "NVDA", "QQQ", "SMH", "SNDK", "SPY", "TSM",
+    "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY",
+)
+MAX_RANGE_DAYS = 364  # end_date - start_date; 양끝 포함 365일
+MAX_LIVE_REQUESTS = 66  # 22 종목 x 3 앵커
+# Alpaca 무료(Basic) 시장데이터 한도는 분당 200회로 알려져 있다(이 변경에서 재검증하지
+# 않음). 요청 사이 최소 0.5초면 분당 120회 이하다. 기본 pacing(3초 + 4회마다 15초)은 훨씬 느리다.
+MIN_LIVE_REQUEST_PAUSE_SECONDS = 0.5
+RAW_SUFFIX = ".raw.json"
+MANIFEST_SUFFIX = ".manifest.json"
 
 
 class BackfillPlanError(ValueError):
@@ -245,6 +271,88 @@ def _require_out_dir_outside_repo(out_dir: Path) -> Path:
     raise BackfillPlanError("US_PRICE_HISTORY_BACKFILL_OUT_DIR_INSIDE_PUBLIC_REPO")
 
 
+def unit_stem(symbol: str, anchor: dt.date) -> str:
+    return f"{symbol}_{anchor.isoformat()}"
+
+
+def _write_once(path: Path, data: bytes, code: str) -> None:
+    """`collectors/free_market_data.py::_write_once`와 같은 불변 게시 규칙.
+
+    같은 바이트의 재게시는 no-op(멱등)이고, 같은 주소에 다른 바이트가 오면
+    덮어쓰지 않고 즉시 실패한다.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        if not path.is_file() or path.read_bytes() != data:
+            raise BackfillPlanError(code)
+        return
+    FMD._atomic_write(path, data)
+
+
+def completed_unit_manifest(
+    out_dir: Path, symbol: str, anchor: dt.date, start_date: dt.date, end_date: dt.date,
+) -> dict | None:
+    """이미 끝난 요청 단위면 manifest를, 아니면 None을 돌려준다.
+
+    manifest가 완료 표지다(raw를 먼저 쓰고 manifest를 나중에 쓴다). manifest가
+    있는데 raw가 없거나 해시가 다르면 조용히 재요청하지 않고 실패한다.
+    manifest 없이 raw만 남은 단위는 미완료로 보고 재요청하며, 그때 받은 바이트가
+    남은 raw와 다르면 `_write_once`가 충돌로 실패시킨다.
+    """
+    stem = unit_stem(symbol, anchor)
+    manifest_path = out_dir / f"{stem}{MANIFEST_SUFFIX}"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BackfillPlanError(f"US_PRICE_HISTORY_BACKFILL_MANIFEST_INVALID:{stem}") from exc
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("symbol") != symbol
+        or manifest.get("anchor_date") != anchor.isoformat()
+        or manifest.get("raw_file") != f"{stem}{RAW_SUFFIX}"
+        or manifest.get("projection_version") != SCHEMA_VERSION
+    ):
+        raise BackfillPlanError(f"US_PRICE_HISTORY_BACKFILL_MANIFEST_INVALID:{stem}")
+    if (start_date.isoformat(), end_date.isoformat()) != (manifest.get("range_start_date"), manifest.get("range_end_date")):
+        # 같은 out_dir를 다른 기간으로 재사용하면 섞이지 않게 거부한다.
+        raise BackfillPlanError(f"US_PRICE_HISTORY_BACKFILL_RESUME_RANGE_MISMATCH:{stem}")
+    raw_path = out_dir / manifest["raw_file"]
+    if not raw_path.is_file() or FMD.sha256_bytes(raw_path.read_bytes()) != manifest.get("raw_sha256"):
+        raise BackfillPlanError(f"US_PRICE_HISTORY_BACKFILL_RESUME_HASH_MISMATCH:{stem}")
+    return manifest
+
+
+def validate_live_scope(
+    contract: dict,
+    start_date: dt.date,
+    end_date: dt.date,
+    *,
+    window_days: int,
+    request_pause_seconds: float,
+    max_requests: int,
+) -> tuple[list[str], list[dt.date], list[tuple[str, dt.date]]]:
+    """승인 범위(22개 종목, 1년, 요청 66회, 무료 한도 안 pacing) 밖이면 요청 전에 거부."""
+    symbols = backfill_symbols(contract)
+    if not set(symbols) <= set(APPROVED_SYMBOLS):
+        raise BackfillPlanError("US_PRICE_HISTORY_BACKFILL_SYMBOL_OUTSIDE_APPROVED_SCOPE")
+    if (end_date - start_date).days > MAX_RANGE_DAYS:
+        raise BackfillPlanError("US_PRICE_HISTORY_BACKFILL_RANGE_EXCEEDS_APPROVED_YEAR")
+    if window_days <= 0 or window_days > DEFAULT_WINDOW_DAYS:
+        # fetch_alpaca_daily_bars의 고정 lookback보다 긴 간격은 커버리지 구멍을 만든다.
+        raise BackfillPlanError("US_PRICE_HISTORY_BACKFILL_WINDOW_DAYS_INVALID")
+    if request_pause_seconds < MIN_LIVE_REQUEST_PAUSE_SECONDS:
+        raise BackfillPlanError("US_PRICE_HISTORY_BACKFILL_PACING_TOO_FAST")
+    if max_requests <= 0 or max_requests > MAX_LIVE_REQUESTS:
+        raise BackfillPlanError("US_PRICE_HISTORY_BACKFILL_REQUEST_BOUND_INVALID")
+    anchors = compute_backfill_anchors(start_date, end_date, window_days)
+    units = build_request_units(symbols, anchors)
+    if len(units) > max_requests:
+        raise BackfillPlanError("US_PRICE_HISTORY_BACKFILL_REQUEST_BOUND_EXCEEDED")
+    return symbols, anchors, units
+
+
 def run_live_backfill(
     contract: dict,
     start_date: dt.date,
@@ -255,74 +363,109 @@ def run_live_backfill(
     batch_size: int = DEFAULT_BATCH_SIZE,
     request_pause_seconds: float = DEFAULT_REQUEST_PAUSE_SECONDS,
     batch_pause_seconds: float = DEFAULT_BATCH_PAUSE_SECONDS,
+    max_requests: int = MAX_LIVE_REQUESTS,
     getter=None,
     sleep_fn=time.sleep,
 ) -> dict:
-    """실제 Alpaca 호출을 수행한다.
+    """실제 Alpaca 호출을 수행한다 (write-once, 재개 가능, 요청 수 상한).
 
-    이 함수를 작성한 에이전트를 포함해 이 변경의 CI/리뷰 어떤 단계에서도
-    호출되지 않는다 -- `--live` 플래그와 두 dedicated market-data 자격
-    증명이 모두 있어야 진입한다. 종목별 가격 행은 `out_dir` 아래에만
-    쓰고 `out_dir`는 반드시 이 public repo 밖을 가리켜야 한다
-    (`_require_out_dir_outside_repo`). 반환되는 receipt는 개수·해시만
-    담아 public 커밋에 안전하다.
+    `--live` 플래그와 두 dedicated market-data 자격 증명이 모두 있어야 진입한다.
+    요청 단위(symbol, anchor)마다 원본 응답을 `<stem>.raw.json`에, 완료 표지인
+    `<stem>.manifest.json`을 그다음에 write-once로 쓴다. 이미 완료된 단위는
+    요청하지 않고 건너뛴다(재실행 = 남은 단위만 요청). 모든 파일은 `out_dir`
+    아래에만 쓰고 `out_dir`는 반드시 이 public repo 밖이어야 한다. 반환되는
+    receipt는 개수·해시만 담는다(가격 행 없음). 자격 증명은 요청 헤더로만
+    전달되고 manifest/receipt/예외 메시지 어디에도 들어가지 않는다.
     """
     key, secret = _require_live_credentials()
     resolved_out = _require_out_dir_outside_repo(out_dir)
+    if batch_size <= 0:
+        raise BackfillPlanError("US_PRICE_HISTORY_BACKFILL_BATCH_SIZE_INVALID")
+    symbols, _anchors, units = validate_live_scope(
+        contract, start_date, end_date,
+        window_days=window_days, request_pause_seconds=request_pause_seconds,
+        max_requests=max_requests,
+    )
     resolved_out.mkdir(parents=True, exist_ok=True)
-    symbols = backfill_symbols(contract)
-    anchors = compute_backfill_anchors(start_date, end_date, window_days)
-    units = build_request_units(symbols, anchors)
-    batches = build_batches(units, batch_size)
     getter_fn = getter or FMD._get
     attempts: list[dict] = []
     row_counts: dict[str, int] = {}
-    for batch_index, batch in enumerate(batches):
-        for symbol, anchor in batch:
-            anchor_end = dt.datetime.combine(anchor, dt.time(23, 59, 59), tzinfo=UTC)
-            requested_at = dt.datetime.now(UTC).replace(microsecond=0)
+    requests_made = 0
+    units_skipped = 0
+    for symbol, anchor in units:
+        stem = unit_stem(symbol, anchor)
+        existing = completed_unit_manifest(resolved_out, symbol, anchor, start_date, end_date)
+        if existing is not None:
+            units_skipped += 1
+            row_counts[symbol] = row_counts.get(symbol, 0) + int(existing["row_count"])
+            attempts.append({"symbol": symbol, "anchor_date": anchor.isoformat(),
+                             "row_count": int(existing["row_count"]), "status": "SKIPPED_EXISTING"})
+            continue
+        if requests_made >= max_requests:
+            raise BackfillPlanError("US_PRICE_HISTORY_BACKFILL_REQUEST_BUDGET_EXHAUSTED")
+        if requests_made > 0:
+            sleep_fn(request_pause_seconds)
+            if requests_made % batch_size == 0:
+                sleep_fn(batch_pause_seconds)
+        anchor_end = dt.datetime.combine(anchor, dt.time(23, 59, 59), tzinfo=UTC)
+        requested_at = dt.datetime.now(UTC).replace(microsecond=0)
+        requests_made += 1
+        try:
             raw, normalized = FMD.fetch_alpaca_daily_bars(
                 key, secret, [symbol], anchor_end, getter=getter_fn,
             )
-            kept = []
-            for row in normalized:
-                session_text = str(row.get("opened_at", ""))[:10]
-                try:
-                    session = dt.date.fromisoformat(session_text)
-                except ValueError as exc:
-                    raise BackfillPlanError(
-                        f"US_PRICE_HISTORY_BACKFILL_SESSION_DATE_INVALID:{symbol}"
-                    ) from exc
-                # regime/us_historical_replay_population.py::replay_trend_source와
-                # 동일한 규율: 앵커보다 늦은 bar는 조용히 자르지 않고 즉시 실패한다.
-                if session > anchor:
-                    raise BackfillPlanError(
-                        f"US_PRICE_HISTORY_BACKFILL_LOOKAHEAD_VIOLATION:{symbol}:{anchor.isoformat()}"
-                    )
-                if session < start_date or session > end_date:
-                    continue
-                kept.append(row)
-            row_counts[symbol] = row_counts.get(symbol, 0) + len(kept)
-            manifest = {
-                "market": "US",
-                "symbol": symbol,
-                "anchor_date": anchor.isoformat(),
-                "endpoint": f"https://data.alpaca.markets/v2/stocks/{symbol}/bars",
-                "requested_at_utc": requested_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "retrieved_at_utc": dt.datetime.now(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "row_count": len(kept),
-                "raw_sha256": FMD.sha256_bytes(raw),
-                "projection_version": SCHEMA_VERSION,
-                "pit_class": "HISTORICAL_BACKFILL",
-                "authority": dict(AUTHORITY),
-            }
-            (resolved_out / f"{symbol}_{anchor.isoformat()}.manifest.json").write_text(
-                json.dumps(manifest, sort_keys=True, indent=2)
-            )
-            attempts.append({"symbol": symbol, "anchor_date": anchor.isoformat(), "row_count": len(kept)})
-            sleep_fn(request_pause_seconds)
-        if batch_index < len(batches) - 1:
-            sleep_fn(batch_pause_seconds)
+        except FMD.FreeMarketDataError as exc:
+            # FMD 오류 코드는 URL/헤더를 담지 않는다. 코드만 옮긴다.
+            raise BackfillPlanError(f"US_PRICE_HISTORY_BACKFILL_FETCH_FAILED:{stem}:{exc}") from None
+        response = json.loads(raw)["responses"][symbol]
+        if response.get("next_page_token"):
+            # 180일 창은 limit=240 안에 들어가야 한다. 잘린 응답은 구멍이다.
+            raise BackfillPlanError(f"US_PRICE_HISTORY_BACKFILL_RESPONSE_TRUNCATED:{stem}")
+        kept = 0
+        for row in normalized:
+            session_text = str(row.get("opened_at", ""))[:10]
+            try:
+                session = dt.date.fromisoformat(session_text)
+            except ValueError as exc:
+                raise BackfillPlanError(
+                    f"US_PRICE_HISTORY_BACKFILL_SESSION_DATE_INVALID:{symbol}"
+                ) from exc
+            # regime/us_historical_replay_population.py::replay_trend_source와
+            # 동일한 규율: 앵커보다 늦은 bar는 조용히 자르지 않고 즉시 실패한다.
+            if session > anchor:
+                raise BackfillPlanError(
+                    f"US_PRICE_HISTORY_BACKFILL_LOOKAHEAD_VIOLATION:{symbol}:{anchor.isoformat()}"
+                )
+            if start_date <= session <= end_date:
+                kept += 1
+        raw_name = f"{stem}{RAW_SUFFIX}"
+        _write_once(resolved_out / raw_name, raw, "US_PRICE_HISTORY_BACKFILL_RAW_CONFLICT")
+        manifest = {
+            "market": "US",
+            "symbol": symbol,
+            "anchor_date": anchor.isoformat(),
+            "endpoint": f"https://data.alpaca.markets/v2/stocks/{symbol}/bars",
+            "feed": "iex",
+            "adjustment": "raw",
+            "requested_at_utc": requested_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "retrieved_at_utc": dt.datetime.now(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "row_count": kept,
+            "response_bar_count": len(normalized),
+            "raw_file": raw_name,
+            "range_start_date": start_date.isoformat(),
+            "range_end_date": end_date.isoformat(),
+            "raw_sha256": FMD.sha256_bytes(raw),
+            "projection_version": SCHEMA_VERSION,
+            "pit_class": "HISTORICAL_BACKFILL",
+            "authority": dict(AUTHORITY),
+        }
+        _write_once(
+            resolved_out / f"{stem}{MANIFEST_SUFFIX}",
+            json.dumps(manifest, sort_keys=True, indent=2).encode(),
+            "US_PRICE_HISTORY_BACKFILL_MANIFEST_CONFLICT",
+        )
+        row_counts[symbol] = row_counts.get(symbol, 0) + kept
+        attempts.append({"symbol": symbol, "anchor_date": anchor.isoformat(), "row_count": kept, "status": "FETCHED"})
     receipt = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "pit_class": "HISTORICAL_BACKFILL",
@@ -330,6 +473,9 @@ def run_live_backfill(
         "end_date": end_date.isoformat(),
         "symbol_count": len(symbols),
         "total_requests": len(units),
+        "requests_made": requests_made,
+        "units_skipped_existing": units_skipped,
+        "max_requests": max_requests,
         "total_row_count": sum(row_counts.values()),
         "row_counts_by_symbol": row_counts,
         "attempts": attempts,
@@ -354,10 +500,15 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--request-pause-seconds", type=float, default=DEFAULT_REQUEST_PAUSE_SECONDS)
     parser.add_argument("--batch-pause-seconds", type=float, default=DEFAULT_BATCH_PAUSE_SECONDS)
+    parser.add_argument("--max-requests", type=int, default=MAX_LIVE_REQUESTS)
     parser.add_argument(
         "--live", action="store_true",
         help="실제로 실행한다. ALPACA_MARKET_DATA_API_KEY/SECRET이 둘 다 있어야 한다. "
              "기본은 네트워크 호출 0건의 dry-run(계획만 출력)이다.",
+    )
+    parser.add_argument(
+        "--require-live", action="store_true",
+        help="--live인데 자격 증명이 없으면 dry-run으로 넘어가지 않고 exit 2로 실패한다 (workflow 전용).",
     )
     parser.add_argument("--out-dir", type=Path, default=None, help="--live 전용. 반드시 이 repo 밖을 가리켜야 한다.")
     parser.add_argument("--contract", type=Path, default=CONTRACT_PATH)
@@ -365,7 +516,7 @@ def main() -> int:
 
     contract = load_contract(args.contract)
     end_date = _parse_date(args.end_date) if args.end_date else dt.datetime.now(UTC).date()
-    start_date = _parse_date(args.start_date) if args.start_date else end_date - dt.timedelta(days=364)
+    start_date = _parse_date(args.start_date) if args.start_date else end_date - dt.timedelta(days=MAX_RANGE_DAYS)
 
     key = os.getenv("ALPACA_MARKET_DATA_API_KEY", "").strip()
     secret = os.getenv("ALPACA_MARKET_DATA_API_SECRET", "").strip()
@@ -386,16 +537,21 @@ def main() -> int:
                 else "US_PRICE_HISTORY_BACKFILL_BLOCKED_BY_INCOMPLETE_CREDENTIAL"
             )
         print(json.dumps(plan, sort_keys=True, indent=2))
-        return 0
+        return 2 if args.require_live else 0
 
     if args.out_dir is None:
         raise SystemExit("US_PRICE_HISTORY_BACKFILL_OUT_DIR_REQUIRED_FOR_LIVE_MODE")
-    receipt = run_live_backfill(
-        contract, start_date, end_date, args.out_dir,
-        window_days=args.window_days, batch_size=args.batch_size,
-        request_pause_seconds=args.request_pause_seconds,
-        batch_pause_seconds=args.batch_pause_seconds,
-    )
+    try:
+        receipt = run_live_backfill(
+            contract, start_date, end_date, args.out_dir,
+            window_days=args.window_days, batch_size=args.batch_size,
+            request_pause_seconds=args.request_pause_seconds,
+            batch_pause_seconds=args.batch_pause_seconds,
+            max_requests=args.max_requests,
+        )
+    except BackfillPlanError as exc:
+        print(json.dumps({"mode": "LIVE", "status": "FAILED", "error": str(exc)}, sort_keys=True))
+        return 1
     receipt["mode"] = "LIVE"
     print(json.dumps(receipt, sort_keys=True, indent=2))
     return 0
