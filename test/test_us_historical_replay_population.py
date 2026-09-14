@@ -406,6 +406,153 @@ class UsFreeAxisRuleParityTest(unittest.TestCase):
         self.assertIn("Billions of Dollars", MODULE.FMD.FRED_LIQUIDITY_UNITS)
 
 
+# The full trend ∪ sector-reference symbol set `replay_breadth_leadership_source`
+# fetches -- 15 symbols, matching config/free_market_data_contract.json exactly.
+PROXY_SYMBOLS = sorted({
+    "SPY", "QQQ", "IWM",
+    "XLK", "XLF", "XLE", "XLI", "XLV", "XLY", "XLP", "XLB", "XLU", "XLRE", "XLC", "SMH",
+})
+
+
+def _leadership_slopes(positive_count: int) -> dict:
+    """SPY flat; the first `positive_count` sector-reference symbols outperform
+    it over the 20-session window, the rest underperform -- giving a known
+    positive_groups count for leadership_axis_row's boundary to land on."""
+    slopes = {"SPY": "0", "QQQ": "0", "IWM": "0"}
+    sector_symbols = sorted({
+        "XLK", "XLF", "XLE", "XLI", "XLV", "XLY", "XLP", "XLB", "XLU", "XLRE", "XLC", "SMH",
+    })
+    for index, symbol in enumerate(sector_symbols):
+        slopes[symbol] = "1" if index < positive_count else "-1"
+    return slopes
+
+
+class UsBreadthLeadershipPreparedNotWiredTest(unittest.TestCase):
+    """U1 (CIO US-DATA-1, 2026-09-14): BREADTH/LEADERSHIP arithmetic and its
+    fetch are added and parity-tested, but not wired into the replay
+    pipeline -- U2 (the ratification widening
+    ``alpaca.current_proxy_axes.approval_status`` past
+    ``RATIFIED_CURRENT_REFERENCE_ONLY``) is a separate CIO decision this
+    module still has no authority to make on its own. Every guarantee
+    ``UsFreeAxisReplayScopeTest`` already asserts (BREADTH/LEADERSHIP always
+    UNKNOWN, 3/3 replay, 3/5 coverage) must therefore keep holding unchanged.
+    """
+
+    def setUp(self):
+        self.policy = MODULE._load_candidate_policy()
+        self.contract = FMD.load_contract(FMD.CONTRACT_PATH)
+
+    def _built_rows(self, packet):
+        return {row["axis"]: row for row in PRR.build_us(packet, self.policy)["axes"]}
+
+    def test_not_wired_replayed_and_excluded_axes_unchanged(self):
+        self.assertEqual(MODULE.REPLAYED_AXES, ["TREND", "RISK_VOL", "LIQUIDITY"])
+        self.assertEqual(MODULE.EXCLUDED_AXES, ["BREADTH", "LEADERSHIP"])
+        self.assertEqual(MODULE.PREPARED_NOT_WIRED_AXES, ["BREADTH", "LEADERSHIP"])
+
+    def test_breadth_rows_match_build_us_at_every_threshold_boundary(self):
+        for advance_fraction in (
+            "0", "0.4499", "0.45", "0.4501", "0.5", "0.5499", "0.55", "0.5501", "1",
+        ):
+            with self.subTest(advance_fraction=advance_fraction):
+                packet = full_us_packet(("1.5", "2.5", "3.5"), "17.5", ("1", "1"))
+                packet["us_market_reference"]["proxy_axes"]["BREADTH"]["measurement"][
+                    "advance_fraction"
+                ] = advance_fraction
+                self.assertEqual(
+                    MODULE.breadth_axis_row(advance_fraction),
+                    self._built_rows(packet)["BREADTH"],
+                )
+
+    def test_leadership_rows_match_build_us_for_every_positive_count(self):
+        for positive_count in range(0, 13):
+            with self.subTest(positive_count=positive_count):
+                groups = [
+                    {"return_pct": "1" if index < positive_count else "-1"}
+                    for index in range(12)
+                ]
+                packet = full_us_packet(("1.5", "2.5", "3.5"), "17.5", ("1", "1"))
+                packet["us_market_reference"]["proxy_axes"]["LEADERSHIP"]["measurement"][
+                    "ordered_groups"
+                ] = groups
+                self.assertEqual(
+                    MODULE.leadership_axis_row(groups),
+                    self._built_rows(packet)["LEADERSHIP"],
+                )
+
+    def test_leadership_rejects_incomplete_group_coverage(self):
+        with self.assertRaises(MODULE.ReplayPopulationError):
+            MODULE.leadership_axis_row([{"return_pct": "1"}] * 11)
+
+    def test_fetch_reuses_derive_us_market_reference_and_matches_build_us(self):
+        slopes = _leadership_slopes(9)
+        providers = FakeProviders(slopes=slopes)
+        source = MODULE.replay_breadth_leadership_source(
+            "KEY", "SECRET", dt.date.fromisoformat(ANCHOR),
+            getter=providers, contract=self.contract,
+        )
+        self.assertEqual(source["symbols"], PROXY_SYMBOLS)
+        self.assertEqual(source["requested_end_date"], ANCHOR)
+
+        breadth_row = MODULE.breadth_axis_row(
+            source["breadth_measurement"]["advance_fraction"]
+        )
+        leadership_row = MODULE.leadership_axis_row(
+            source["leadership_measurement"]["ordered_groups"]
+        )
+        packet = full_us_packet(("1.5", "2.5", "3.5"), "17.5", ("1", "1"))
+        packet["us_market_reference"]["proxy_axes"]["BREADTH"]["measurement"][
+            "advance_fraction"
+        ] = source["breadth_measurement"]["advance_fraction"]
+        packet["us_market_reference"]["proxy_axes"]["LEADERSHIP"]["measurement"][
+            "ordered_groups"
+        ] = source["leadership_measurement"]["ordered_groups"]
+        expected = self._built_rows(packet)
+        self.assertEqual(breadth_row, expected["BREADTH"])
+        self.assertEqual(leadership_row, expected["LEADERSHIP"])
+        # 9 of 12 (0.75, above the 0.666667 positive_min) have a positive
+        # 20-session return -> POSITIVE.
+        self.assertEqual(leadership_row["direction"], "POSITIVE")
+
+    def test_fetch_no_lookahead_rejects_a_future_dated_bar(self):
+        providers = FakeProviders(slopes=_leadership_slopes(6), leak_future_bar=True)
+        with self.assertRaisesRegex(MODULE.ReplayPopulationError, "US_REPLAY_LOOKAHEAD_VIOLATION"):
+            MODULE.replay_breadth_leadership_source(
+                "KEY", "SECRET", dt.date.fromisoformat(ANCHOR),
+                getter=providers, contract=self.contract,
+            )
+
+    def test_fetch_pins_end_to_the_requested_date_for_every_symbol(self):
+        providers = FakeProviders(slopes=_leadership_slopes(6))
+        MODULE.replay_breadth_leadership_source(
+            "KEY", "SECRET", dt.date.fromisoformat(ANCHOR),
+            getter=providers, contract=self.contract,
+        )
+        alpaca = [q for path, q in providers.calls if "/v2/stocks/" in path]
+        self.assertEqual(len(alpaca), len(PROXY_SYMBOLS))
+        for query in alpaca:
+            self.assertTrue(query["end"][0].startswith(ANCHOR))
+            self.assertEqual(query["feed"], ["iex"])
+            self.assertEqual(query["adjustment"], ["raw"])
+
+    def test_fetch_blocked_without_credentials(self):
+        with self.assertRaises(MODULE.ReplayPopulationError):
+            MODULE.replay_breadth_leadership_source(
+                "", "", dt.date.fromisoformat(ANCHOR),
+                getter=FakeProviders(slopes=_leadership_slopes(6)), contract=self.contract,
+            )
+
+    def test_not_wired_replay_output_still_excludes_both_axes(self):
+        """Calling build_population must not be affected by these new
+        functions existing -- BREADTH/LEADERSHIP stay UNKNOWN end to end."""
+        population = build([ANCHOR], FakeProviders(slopes=_leadership_slopes(6)))
+        record = population["records"][0]
+        for name in ("BREADTH", "LEADERSHIP"):
+            entry = record["five_axis"]["axes"][name]
+            self.assertEqual(entry["status"], "UNKNOWN", name)
+            self.assertIsNone(entry["measurement"], name)
+
+
 class UsFreeAxisPointInTimeTest(unittest.TestCase):
     def test_every_request_is_pinned_to_the_requested_date(self):
         providers = FakeProviders()

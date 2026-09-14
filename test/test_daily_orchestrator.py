@@ -2631,16 +2631,19 @@ class DailyOrchestratorTest(unittest.TestCase):
         rendered = MODULE.render_markdown(packet)
         self.assertIn("- market_session: MARKET_CLOSED", rendered)
         self.assertIn("- new_session: NONE", rendered)
-        latest_line = next(
-            line for line in rendered.splitlines()
-            if line.startswith("- latest_confirmed_evidence_date: ")
-        )
-        latest_confirmed = latest_line.partition(": ")[2]
-        # Rolling committed inputs may be newer than this historical
-        # generated_at.  In that case the temporal boundary must disclose
-        # UNKNOWN, never relabel future/current evidence as the weekend date.
-        if latest_confirmed != "UNKNOWN":
-            self.assertLess(latest_confirmed, "2026-08-29")
+        self.assertNotIn("- latest_confirmed_evidence_date:", rendered)
+        for key in MODULE.WEEKEND_SESSION_CONTEXT_DATE_KEYS:
+            keyed = [
+                line for line in rendered.splitlines()
+                if line.startswith(f"- {key}: ")
+            ]
+            self.assertEqual(len(keyed), 1, key)
+            value = keyed[0].partition(": ")[2]
+            # Rolling committed inputs may be newer than this historical
+            # generated_at.  In that case the temporal boundary must disclose
+            # UNKNOWN, never relabel future/current evidence as the weekend date.
+            if value != "UNKNOWN":
+                self.assertLess(value, "2026-08-29")
         self.assertIn(
             "- latest_confirmed_evidence_relabelled_as_today: false", rendered
         )
