@@ -46,7 +46,7 @@ from regime import regime_semantic_freshness as SEMANTIC
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_RELATIVE = "config/us_paper_runtime_contract_v1.json"
-CONTRACT_SHA256 = "99e30a0f7e00fd1c90d1aeceb58c67906785438ad2646c3c0010fd98acc67871"
+CONTRACT_SHA256 = "bad715c8a960b6aa7a5618b22e5ccefc580f38599e2c3f532f7e182c700812d3"
 ADOPTION_RELATIVE = "config/us_paper_runtime_adoption_v1.json"
 TEMPLATE_RELATIVE = "config/us_paper_runtime_adoption_v1.TEMPLATE.json"
 PIT_STATUS_RELATIVE = "data/latest_market_scoped_pit_acceptance.json"
@@ -79,6 +79,8 @@ IMPLEMENTATION_PATHS = (
     "regime/paper_regime_reference.py",
     "regime/regime_semantic_freshness.py",
     "regime/market_scoped_pit_acceptance.py",
+    "regime/us_historical_replay_population.py",
+    "config/us_historical_pit_replay_identity_v1.json",
     "collectors/free_market_data.py",
     "collectors/fred_vix_provenance.py",
 )
@@ -282,8 +284,26 @@ def verify_ratified_bindings() -> dict:
     }
 
 
+# The historical-replay identity file is introduced by the U1 wiring change
+# (PR #739), which may land before or after this producer.  Its *absence* is a
+# real, semantically meaningful state (the population module then replays the
+# narrow 3-axis scope), so it is bound explicitly as ABSENT rather than
+# skipped: an adoption bound while it was absent stops matching the moment the
+# file appears, and vice versa.  Every other implementation path must exist.
+IMPLEMENTATION_OPTIONAL_PATHS = frozenset({"config/us_historical_pit_replay_identity_v1.json"})
+IMPLEMENTATION_PATH_ABSENT = "ABSENT"
+
+
 def implementation_sha256() -> dict:
-    return {path: sha256((ROOT / path).read_bytes()) for path in IMPLEMENTATION_PATHS}
+    bound = {}
+    for path in IMPLEMENTATION_PATHS:
+        try:
+            bound[path] = sha256((ROOT / path).read_bytes())
+        except FileNotFoundError:
+            if path not in IMPLEMENTATION_OPTIONAL_PATHS:
+                raise
+            bound[path] = IMPLEMENTATION_PATH_ABSENT
+    return bound
 
 
 # ---------------------------------------------------------------------------

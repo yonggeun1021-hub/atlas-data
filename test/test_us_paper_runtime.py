@@ -66,11 +66,20 @@ def calendar() -> dict:
             "coverage_start": "2026-08-03", "coverage_end": "2026-10-30", "sessions": sessions}
 
 
+# The acceptance module's own record-status vocabulary, never a literal here:
+# before PR #739 it accepts only a bare "OBSERVED" for every market; #739 adds
+# POPULATION_RECORD_STATUS_OBSERVED (US -> "FREE_AXES_OBSERVED", the literal
+# regime.us_historical_replay_population really publishes).  Following the
+# constant keeps this fixture valid on either base.
+US_POPULATION_RECORD_STATUS_OBSERVED = getattr(
+    PIT, "POPULATION_RECORD_STATUS_OBSERVED", {"US": "OBSERVED"})["US"]
+
+
 def bundle(history=HISTORY) -> dict:
     records = []
     for date, overrides, default in history:
         records.append({
-            "status": "OBSERVED", "evidence_class": PIT.POPULATION_EVIDENCE_CLASS,
+            "status": US_POPULATION_RECORD_STATUS_OBSERVED, "evidence_class": PIT.POPULATION_EVIDENCE_CLASS,
             "effective_session_date": date, "no_lookahead_attestation": {"fixture": True},
             "candidate_normalized_result": {"axes": [
                 {"axis": axis, "direction": overrides.get(axis, default)} for axis in RUNTIME.AXES]},
@@ -421,6 +430,59 @@ class FreshnessTest(unittest.TestCase):
         future = copy.deepcopy(self.records)
         future["2026-09-11"]["observed_at_utc"] = "2026-09-12T00:00:01Z"
         self.assertIn("SESSION_SOURCE_LOOKAHEAD", self.run_with(future)["reasons"])
+
+    def test_capture_at_or_after_session_window_end_is_rejected_by_the_runtime(self):
+        # The publication selector already filters by window, so this proves
+        # the runtime's own end-of-window check independently: the 2026-09-10
+        # session window closes at the 2026-09-11 close (20:00Z).
+        def moved(observed_at):
+            edited = copy.deepcopy(self.records)
+            row = edited["2026-09-10"]
+            row["observed_at_utc"] = observed_at
+            row["vix_evidence"]["captured_at_utc"] = observed_at
+            row["reference_input"]["fred_liquidity"]["captured_at_utc"] = observed_at
+            return self.run_with(edited)
+
+        for observed_at in ("2026-09-11T20:00:00Z", "2026-09-11T21:00:00Z"):
+            with self.subTest(observed_at=observed_at):
+                packet = moved(observed_at)
+                step = [row for row in packet["chain"] if row["session_date"] == "2026-09-10"][0]
+                self.assertIn("SESSION_SOURCE_OUTSIDE_SESSION_WINDOW", json.dumps(step))
+                self.assertEqual(packet["runtime_regime"], "UNKNOWN")
+        inside = moved("2026-09-11T19:59:59Z")
+        step = [row for row in inside["chain"] if row["session_date"] == "2026-09-10"][0]
+        self.assertNotIn("SESSION_SOURCE_OUTSIDE_SESSION_WINDOW", json.dumps(step))
+
+    def test_mixed_session_generation_inside_a_session_axis_is_unknown(self):
+        reference_path = ("reference_input", "us_market_reference")
+
+        def trend_row(reference):
+            reference["trend_etfs"][-1]["as_of_session_date"] = "2026-09-10"
+
+        def breadth_row(reference):
+            reference["proxy_axes"]["BREADTH"]["measurement"]["observations"][0]["as_of_session_date"] = "2026-09-10"
+
+        def breadth_top(reference):
+            reference["proxy_axes"]["BREADTH"]["measurement"]["as_of_session_date"] = "2026-09-10"
+
+        def leadership_group(reference):
+            groups = reference["proxy_axes"]["LEADERSHIP"]["measurement"]["ordered_groups"]
+            smh = [row for row in groups if row["symbol"] == "SMH"][0]
+            smh["as_of_session_date"] = "2026-09-10"
+
+        cases = {"TREND": trend_row, "BREADTH": breadth_row, "BREADTH ": breadth_top,
+                 "LEADERSHIP": leadership_group}
+        for axis, edit in cases.items():
+            with self.subTest(axis=axis):
+                edited = copy.deepcopy(self.records)
+                reference = edited["2026-09-11"]
+                for key in reference_path:
+                    reference = reference[key]
+                edit(reference)
+                packet = self.run_with(edited)
+                self.assertEqual(packet["runtime_regime"], "UNKNOWN")
+                self.assertIn(f"{axis.strip()}_MIXED_SESSION_GENERATION", packet["reasons"])
+                self.assertIn("CURRENT_SESSION_OBSERVATION_INCOMPLETE", packet["reasons"])
 
     def test_stale_or_missing_axis_is_immediate_unknown_without_carry(self):
         missing = copy.deepcopy(self.records)

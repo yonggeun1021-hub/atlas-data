@@ -161,6 +161,66 @@ class PublicationTest(unittest.TestCase):
                                                                        self.fixture.root))
 
 
+    def test_retry_republishes_when_the_key_is_unchanged_but_the_basis_changed(self):
+        # Two committed captures on 2026-09-13 (07:17Z and 21:42Z): a decision
+        # published at 08:00Z and a retry at 23:40Z share the publication key,
+        # so only the basis comparison can tell that the source advanced.
+        target = self.fixture.root / "decision.json"
+        first = self.build("2026-09-13T08:00:00Z")
+        target.write_bytes(RUNTIME.pretty_bytes(first))
+        later = self.build("2026-09-13T23:40:00Z")
+        self.assertEqual(RUNTIME.publication_key(first), RUNTIME.publication_key(later))
+        self.assertNotEqual(first["basis_sha256"], later["basis_sha256"])
+        real_build = PUBLICATION.build_decision
+        with mock.patch.object(PUBLICATION, "build_decision",
+                               side_effect=lambda **kw: real_build(**kw, evidence_root=ROOT)):
+            self.assertTrue(PUBLICATION.published_for_current_session(target, "2026-09-13T09:00:00Z",
+                                                                      self.fixture.root))
+            self.assertFalse(PUBLICATION.published_for_current_session(target, "2026-09-13T23:40:00Z",
+                                                                       self.fixture.root))
+
+
+class ImplementationBindingTest(unittest.TestCase):
+    def test_replay_population_and_identity_are_bound_implementation_paths(self):
+        contract = json.loads((ROOT / RUNTIME.CONTRACT_RELATIVE).read_bytes())
+        paths = contract["adoption_identity"]["implementation_paths"]
+        self.assertEqual(paths, list(RUNTIME.IMPLEMENTATION_PATHS))
+        for path in ("regime/us_historical_replay_population.py",
+                     "config/us_historical_pit_replay_identity_v1.json"):
+            self.assertIn(path, paths)
+        self.assertEqual(RUNTIME.load_contract()["adoption_identity"]["implementation_paths"], paths)
+        bound = RUNTIME.implementation_sha256()
+        self.assertEqual(sorted(bound), sorted(paths))
+        for path, digest in bound.items():
+            if (ROOT / path).is_file():
+                self.assertEqual(digest, RUNTIME.sha256((ROOT / path).read_bytes()), path)
+            else:
+                self.assertIn(path, RUNTIME.IMPLEMENTATION_OPTIONAL_PATHS)
+                self.assertEqual(digest, RUNTIME.IMPLEMENTATION_PATH_ABSENT)
+
+    def test_only_the_optional_identity_may_be_absent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(RUNTIME, "ROOT", Path(directory)):
+                with self.assertRaises(FileNotFoundError):
+                    RUNTIME.implementation_sha256()
+            fake = Path(directory)
+            for path in RUNTIME.IMPLEMENTATION_PATHS:
+                if path in RUNTIME.IMPLEMENTATION_OPTIONAL_PATHS:
+                    continue
+                (fake / path).parent.mkdir(parents=True, exist_ok=True)
+                (fake / path).write_bytes(b"x")
+            with mock.patch.object(RUNTIME, "ROOT", fake):
+                absent = RUNTIME.implementation_sha256()
+                identity = fake / "config/us_historical_pit_replay_identity_v1.json"
+                identity.parent.mkdir(parents=True, exist_ok=True)
+                identity.write_bytes(b"{}")
+                present = RUNTIME.implementation_sha256()
+            key = "config/us_historical_pit_replay_identity_v1.json"
+            self.assertEqual(absent[key], RUNTIME.IMPLEMENTATION_PATH_ABSENT)
+            self.assertEqual(present[key], RUNTIME.sha256(b"{}"))
+            self.assertNotEqual(absent, present)
+
+
 class ScheduleTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
