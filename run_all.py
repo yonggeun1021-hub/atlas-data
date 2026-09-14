@@ -2430,6 +2430,19 @@ APPROVED_TESTS = [
     #   t1_display_only=true, ratified=false on every row; no W2/W3/T2/T3
     #   authority and no trading/order/capital authority anywhere.
     "test/test_us_investable_universe_v1.py",
+    # ★ US-DATA-1 item 2 (CIO 2026-09-13): US price-history backfill request
+    #   planner (`collectors/us_price_history_backfill.py`). Reuses
+    #   `fetch_alpaca_daily_bars` unmodified, chaining its fixed 180-day
+    #   lookback into PIT-anchored HISTORICAL_BACKFILL windows (regime/
+    #   us_historical_replay_population.py::replay_trend_source lookahead
+    #   discipline). Pure-logic coverage: anchor chaining, batching,
+    #   configurable pacing estimate, dry-run plan shape (zero network
+    #   calls by default), and the live path exercised only through a
+    #   synthetic in-memory getter that never touches urllib. Public repo
+    #   boundary is enforced in code (`--out-dir` must resolve outside this
+    #   repo) and asserted here. authority is false everywhere; no network
+    #   call, no order/trading/capital authority anywhere in this file.
+    "test/test_us_price_history_backfill.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
