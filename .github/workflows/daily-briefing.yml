@@ -64,10 +64,15 @@ jobs:
     needs: briefing
     if: always()
     runs-on: [self-hosted, Linux, X64, atlas-data]
-    # The provenance-heavy identity checks repeatedly walk full git history.
-    # They complete well inside this bound on the isolated runner, but can
-    # exceed the former GitHub-hosted 15-minute budget on a cold checkout.
-    timeout-minutes: 30
+    # Measured 2026-09-14 (local macOS, serial, load < 10): the three files
+    # below take ~15.2 min (test_daily_orchestrator.py alone 896 s / 153
+    # tests). Identity git-history walks are no longer the cost (~2.3k of
+    # 13.2k git subprocesses, all memoized); ~65% of each fresh build_packet
+    # is the Dynamic Clock crypto scan (replay/trigger_engine window scan).
+    # On this runner the previous 30-minute bound was exceeded on every run
+    # since 2026-09-06, so 60 minutes. The job holds the sole self-hosted
+    # runner (and the atlas-daily-briefing concurrency group) while it runs.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

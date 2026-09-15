@@ -205,8 +205,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -618,53 +620,151 @@ def _parse_git_committer_iso(value: str) -> datetime:
 
 
 # ---------------------------------------------------------------------------
-# CIO-A4 step 2 (2026-09-13): exact-key memoization for the three git
-# subprocess helpers below. Each identity row a review candidate carries
-# re-derives its own `verified_row_first_seen_at`/`verified_evidence_
+# Exact-key memoization for the git subprocess helpers below (CIO-A4 step 2,
+# 2026-09-13; tightened 2026-09-14). Each identity row a review candidate
+# carries re-derives its own `verified_row_first_seen_at`/`verified_evidence_
 # first_seen_at` by walking real git history, so a review queue of N
-# candidates previously re-ran the SAME `git rev-parse --show-toplevel`,
+# candidates would otherwise re-run the SAME `git rev-parse --show-toplevel`,
 # `git log --follow`, and `git show` calls for the SAME repo/path/commit N
-# times. None of these three caches ever holds a `git status` (dirty-tree)
-# result -- that check lives inline in verify_document_matches_source and
-# is intentionally never memoized, since a dirty working tree can appear
-# between two calls within the same process.
+# times.
 #
-# Keys are deliberately narrower than "just enough to be correct": beyond
-# the CIO-directed (HEAD, path) / (commit, path) dimensions, the history
-# and show caches also key on repo_root. This never causes an incorrect
-# hit (it can only turn a would-be hit into an extra, harmless miss) and
-# specifically protects a test suite that builds many short-lived
-# synthetic git repos, where two different repos could otherwise
-# coincidentally share both a commit hash and a relative path.
-_GIT_REPO_ROOT_CACHE: dict[Path, Path | None] = {}
-_GIT_HISTORY_COMMITS_CACHE: dict[tuple[Path, str, str], list[tuple[str, str, str]]] = {}
-_GIT_SHOW_BYTES_CACHE: dict[tuple[Path, str, str], bytes | None] = {}
+# Semantics contract -- a cache hit must return exactly what a fresh
+# subprocess would have returned for the same key:
+#   * `_git_show_bytes` is cached ONLY when `commit_hash` is a full
+#     40/64-hex object id. The bytes of `<object id>:<path>` are
+#     content-addressed and can never change. Symbolic refs (`HEAD`,
+#     branches, tags, `HEAD~1`, abbreviated SHAs) always run live.
+#   * `_git_history_commits` is keyed by (repo root, the full HEAD SHA read
+#     live on EVERY call, repo-relative path, exact `git log` argv). The
+#     output of `git log <args> -- <path>` is a pure function of the commit
+#     graph reachable from that HEAD object id.
+#   * `_git_repo_root` is keyed by the realpath of the directory plus the
+#     git-discovery environment variables, and a hit is re-validated
+#     against the filesystem (root still has `.git`, no nearer `.git` was
+#     created in between) before it is returned.
+#   * Failures (non-zero git exit, git missing, unreadable output) are NEVER
+#     cached: the caller sees the same fail-closed None/[] it always did,
+#     and the next call retries live.
+#   * Dirty/working-tree checks (`git status --porcelain`) and HEAD
+#     resolution (`git rev-parse HEAD`) are never cached anywhere.
+#   * Every cache is LRU-bounded; `clear_git_caches()` empties all of them.
+# ---------------------------------------------------------------------------
+
+_FULL_IMMUTABLE_SHA_RE = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
+_GIT_HISTORY_LOG_ARGS: tuple[str, ...] = ("log", "--follow", "--format=%H|%cI")
+_GIT_DISCOVERY_ENV_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM")
+
+
+class _BoundedLRUCache:
+    """Small LRU map bounded by entry count and (optionally) total payload
+    bytes. Never stores a failure: callers only `put` successful results."""
+
+    def __init__(self, max_entries: int, max_bytes: int | None = None):
+        self.max_entries = max_entries
+        self.max_bytes = max_bytes
+        self._data: OrderedDict = OrderedDict()
+        self._bytes = 0
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __contains__(self, key) -> bool:
+        return key in self._data
+
+    def get(self, key, default=None):
+        if key not in self._data:
+            return default
+        self._data.move_to_end(key)
+        return self._data[key]
+
+    def put(self, key, value) -> None:
+        if self.max_bytes is not None and isinstance(value, bytes) and len(value) > self.max_bytes:
+            return  # larger than the whole budget: serve live, never cache
+        if key in self._data:
+            self._drop(key)
+        self._data[key] = value
+        if isinstance(value, bytes):
+            self._bytes += len(value)
+        while len(self._data) > self.max_entries or (
+            self.max_bytes is not None and self._bytes > self.max_bytes
+        ):
+            self._drop(next(iter(self._data)))
+
+    def pop(self, key) -> None:
+        if key in self._data:
+            self._drop(key)
+
+    def _drop(self, key) -> None:
+        value = self._data.pop(key)
+        if isinstance(value, bytes):
+            self._bytes -= len(value)
+
+    def clear(self) -> None:
+        self._data.clear()
+        self._bytes = 0
+
+
+_GIT_REPO_ROOT_CACHE = _BoundedLRUCache(max_entries=1024)
+_GIT_HISTORY_COMMITS_CACHE = _BoundedLRUCache(max_entries=1024)
+_GIT_SHOW_BYTES_CACHE = _BoundedLRUCache(max_entries=4096, max_bytes=64 * 1024 * 1024)
+
+
+def clear_git_caches() -> None:
+    """Drops every memoized git result (repo roots, histories, blobs)."""
+    _GIT_REPO_ROOT_CACHE.clear()
+    _GIT_HISTORY_COMMITS_CACHE.clear()
+    _GIT_SHOW_BYTES_CACHE.clear()
+
+
+def _cached_repo_root_still_valid(directory: str, root: Path) -> bool:
+    """Cheap filesystem re-validation of a cached `--show-toplevel` answer:
+    the root must still carry a `.git` entry and no directory between
+    `directory` and `root` may have gained its own `.git` (a nested repo
+    created after the answer was cached would change discovery)."""
+    if not (root / ".git").exists():
+        return False
+    current = Path(directory)
+    if current != root and root not in current.parents:
+        return False
+    while current != root:
+        if (current / ".git").exists():
+            return False
+        current = current.parent
+    return True
 
 
 def _git_repo_root(path: Path) -> Path | None:
-    key = path.parent
-    if key in _GIT_REPO_ROOT_CACHE:
-        return _GIT_REPO_ROOT_CACHE[key]
+    directory = os.path.realpath(path.parent)
+    key = (directory, tuple(os.environ.get(name) for name in _GIT_DISCOVERY_ENV_VARS))
+    cached = _GIT_REPO_ROOT_CACHE.get(key)
+    if cached is not None:
+        if _cached_repo_root_still_valid(directory, cached):
+            return cached
+        _GIT_REPO_ROOT_CACHE.pop(key)
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             cwd=path.parent, capture_output=True, text=True, check=True,
         ).stdout.strip()
+        if not out:
+            return None
         result = Path(out).resolve()
     except Exception:
-        result = None
-    _GIT_REPO_ROOT_CACHE[key] = result
+        return None  # failure: never cached
+    _GIT_REPO_ROOT_CACHE.put(key, result)
     return result
 
 
 def _git_head_commit(repo_root: Path) -> str | None:
+    """Always live -- HEAD is a mutable ref and is never memoized."""
     try:
-        return subprocess.run(
+        head = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             cwd=repo_root, capture_output=True, text=True, check=True,
         ).stdout.strip()
     except Exception:
         return None
+    return head or None
 
 
 def _git_history_commits(path: Path) -> list[tuple[str, str, str]]:
@@ -673,10 +773,11 @@ def _git_history_commits(path: Path) -> list[tuple[str, str, str]]:
     (rev 3 fix -- previously only the basename was used, which breaks for
     any real file nested under a directory like `config/`).
 
-    Memoized by (repo_root, HEAD commit, repo-relative path): a fresh
-    `git rev-parse HEAD` is always read before the cache is consulted, so
-    a commit made to the repo between two calls is a guaranteed miss --
-    the cache can never observe a stale HEAD as fresh."""
+    Memoized by (repo_root, HEAD commit, repo-relative path, exact log
+    args): a fresh `git rev-parse HEAD` is always read before the cache is
+    consulted, so a commit made to the repo between two calls is a
+    guaranteed miss. A HEAD that is not a full immutable object id, or a
+    failing `git log`, is served live and never cached."""
     repo_root = _git_repo_root(path)
     if repo_root is None:
         return []
@@ -688,17 +789,19 @@ def _git_history_commits(path: Path) -> list[tuple[str, str, str]]:
     head = _git_head_commit(repo_root)
     if head is None:
         return []
-    key = (repo_root, head, rel_posix)
-    if key in _GIT_HISTORY_COMMITS_CACHE:
-        return _GIT_HISTORY_COMMITS_CACHE[key]
+    cacheable = bool(_FULL_IMMUTABLE_SHA_RE.match(head))
+    key = (repo_root, head, rel_posix, _GIT_HISTORY_LOG_ARGS)
+    if cacheable:
+        cached = _GIT_HISTORY_COMMITS_CACHE.get(key)
+        if cached is not None:
+            return list(cached)
     try:
         log = subprocess.run(
-            ["git", "log", "--follow", "--format=%H|%cI", "--", rel_posix],
+            ["git", *_GIT_HISTORY_LOG_ARGS, "--", rel_posix],
             cwd=repo_root, capture_output=True, text=True, check=True,
         ).stdout.strip()
     except Exception:
-        _GIT_HISTORY_COMMITS_CACHE[key] = []
-        return []
+        return []  # failure: never cached
     commits = []
     if log:
         for line in log.splitlines():
@@ -707,18 +810,23 @@ def _git_history_commits(path: Path) -> list[tuple[str, str, str]]:
             h, iso = line.split("|", 1)
             commits.append((h, iso, rel_posix))
     result = list(reversed(commits))  # oldest first
-    _GIT_HISTORY_COMMITS_CACHE[key] = result
+    if cacheable:
+        _GIT_HISTORY_COMMITS_CACHE.put(key, tuple(result))
     return result
 
 
 def _git_show_bytes(repo_root: Path, commit_hash: str, rel_posix_path: str) -> bytes | None:
-    """Memoized by (repo_root, commit_hash, rel_posix_path). `commit_hash`
-    is always a resolved commit object id at every call site in this
-    module (never a mutable ref like a branch name or HEAD), so the same
-    key can never legitimately resolve to different bytes."""
-    key = (repo_root, commit_hash, rel_posix_path)
-    if key in _GIT_SHOW_BYTES_CACHE:
-        return _GIT_SHOW_BYTES_CACHE[key]
+    """`git show <commit_hash>:<rel_posix_path>` bytes, or None on any git
+    failure. Memoized by (resolved repo_root, commit_hash, path) ONLY when
+    `commit_hash` is a full immutable object id; any other rev expression
+    runs live every time. Failures are never cached."""
+    cacheable = isinstance(commit_hash, str) and bool(_FULL_IMMUTABLE_SHA_RE.match(commit_hash))
+    key = None
+    if cacheable:
+        key = (Path(os.path.realpath(repo_root)), commit_hash, rel_posix_path)
+        cached = _GIT_SHOW_BYTES_CACHE.get(key)
+        if cached is not None:
+            return cached
     try:
         r = subprocess.run(
             ["git", "show", f"{commit_hash}:{rel_posix_path}"],
@@ -726,8 +834,9 @@ def _git_show_bytes(repo_root: Path, commit_hash: str, rel_posix_path: str) -> b
         )
         result = r.stdout
     except Exception:
-        result = None
-    _GIT_SHOW_BYTES_CACHE[key] = result
+        return None  # failure: never cached
+    if cacheable:
+        _GIT_SHOW_BYTES_CACHE.put(key, result)
     return result
 
 
@@ -993,9 +1102,6 @@ def verify_document_matches_source(doc: dict, trusted_commit: str | None = None)
         # canonically hash the same.
         return False, "DISK_COMMIT_MISMATCH"
     return True, None
-
-
-_FULL_IMMUTABLE_SHA_RE = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
 
 
 def _is_pinned_immutable_commit(repo_root: Path, candidate: str) -> bool:
