@@ -24,7 +24,7 @@ Ratified inputs (numbers resolved from ``config/rule_registry_v1.json`` via
 
 * RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1 (P5, record 2a94be2b...): KR
   inverse hedge stays off; KR STRESS reduction validated by fixed-input replay
-  only (a KR STRESS input outside FIXED_INPUT_REPLAY is rejected).
+  only (a KR STRESS input outside FIXED_INPUT_REPLAY fails closed for KR only).
 
 CIO interpretations (config ``cio_interpretations``): D5-b split = half then
 the rest (build plan section 9 note 1); inverse hedge instruments are not
@@ -66,6 +66,8 @@ RULE_DD = "RULE.RISK.NAV_DRAWDOWN_LIFT.V1"
 RULE_D4 = "RULE.EXEC.DATA_FAILURE_PRIORITY.V1"
 RULE_KR_HEDGE = "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1"
 EVIDENCE_MODES = ("NATURAL", "FIXED_INPUT_REPLAY")
+FAIL_CLOSED = "FAIL_CLOSED"
+KR_STRESS_FAIL_CLOSED_FLAG = "KR_STRESS_CONDITION_UNRATIFIED_FIXED_INPUT_REPLAY_ONLY"
 
 
 def _state_multiplier(core, state: str) -> Fraction:
@@ -224,14 +226,19 @@ def effective_market_state(core, confirmed_state: str, drawdown_stage: str, stre
     }
 
 
-def _require_kr_stress_mode(core, market: str, state: str, evidence_mode: str) -> None:
-    """RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1 (P5): no KR STRESS outside fixture replay."""
+def _kr_stress_fail_closed(core, market: str, state: str, evidence_mode: str) -> bool:
+    """RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1 (P5): KR STRESS only in fixture replay.
+
+    Outside FIXED_INPUT_REPLAY a KR STRESS input fails closed for KR only
+    (no new buy, no cap, no reduction); US and crypto proceed.
+    """
     if evidence_mode not in EVIDENCE_MODES:
         CORE.fail("EVIDENCE_MODE_INVALID", str(evidence_mode))
-    if market == "KR" and state == "STRESS" and evidence_mode != "FIXED_INPUT_REPLAY":
-        if core.param("kr_stress_reduction_validation") != "FIXED_INPUT_REPLAY_ONLY":
-            CORE.fail("KR_STRESS_INTERIM_RULE_UNEXPECTED")
-        CORE.fail("KR_STRESS_CONDITION_UNRATIFIED_FIXED_INPUT_REPLAY_ONLY")
+    if market != "KR" or state != "STRESS" or evidence_mode == "FIXED_INPUT_REPLAY":
+        return False
+    if core.param("kr_stress_reduction_validation") != "FIXED_INPUT_REPLAY_ONLY":
+        CORE.fail("KR_STRESS_INTERIM_RULE_UNEXPECTED")
+    return True
 
 
 def allocation_envelope(
@@ -242,15 +249,20 @@ def allocation_envelope(
     CORE.require_utc(decision_at_utc, "decision_at_utc")
     if set(market_states) != set(CORE.MARKETS) or set(unknown_streaks) != set(CORE.MARKETS):
         CORE.fail("ENVELOPE_MARKETS_INCOMPLETE")
-    for m in CORE.MARKETS:
-        _require_kr_stress_mode(core, m, market_states[m], evidence_mode)
     if cross_market_flow_validated not in (True, False):
         CORE.fail("FLOW_VALIDATION_FLAG_INVALID")
     base = {m: CORE.frac(core.param("base_allocation")[m]) for m in CORE.MARKETS}
     maximum = {m: CORE.frac(core.param("market_max_allocation")[m]) for m in CORE.MARKETS}
-    effective = {m: effective_market_state(core, market_states[m], drawdown_stage, unknown_streaks[m])
-                 for m in CORE.MARKETS}
+    effective = {}
     flags = set()
+    for m in CORE.MARKETS:
+        if _kr_stress_fail_closed(core, m, market_states[m], evidence_mode):
+            effective[m] = {"confirmed_state": market_states[m], "effective_state": FAIL_CLOSED,
+                            "cap_multiplier": None, "new_buys": core.param("new_buys_by_state")["STRESS"],
+                            "flags": [KR_STRESS_FAIL_CLOSED_FLAG]}
+            flags.add(KR_STRESS_FAIL_CLOSED_FLAG)
+        else:
+            effective[m] = effective_market_state(core, market_states[m], drawdown_stage, unknown_streaks[m])
     released = Fraction(0)
     for m in CORE.MARKETS:
         eff = effective[m]
@@ -321,8 +333,10 @@ def allocation_envelope(
     return CORE.sign(record, "record_sha256")
 
 
-def validate_envelope(core, record: dict) -> dict:
+def validate_envelope(record: dict, *, root=CORE.ROOT) -> dict:
+    """Re-derive under the registry snapshot and config the record names."""
     CORE.verify_signed(record, "record_sha256", "ENVELOPE_SHA_MISMATCH")
+    core = CORE.load_core_for_record(record, root)
     rebuilt = allocation_envelope(core, decision_at_utc=record["decision_at_utc"], **record["inputs"])
     if rebuilt != record:
         CORE.fail("ENVELOPE_NOT_REDERIVABLE")
@@ -333,16 +347,21 @@ def validate_envelope(core, record: dict) -> dict:
 # Reductions (D5) with D4 execution status
 # ---------------------------------------------------------------------------
 
-def _tiers(holdings: list) -> list:
-    """D5-d order: released -> ranked (worst rank first, ties together) -> rest."""
+def _tiers(core, holdings: list) -> list:
+    """D5-d order: released -> ranked (worst rank first, ties together) -> rest.
+
+    The tier kinds are the registry ``reduction_order`` (checked at core load
+    against config ``reduction.tier_order``).
+    """
+    released_kind, rank_kind, rest_kind = core.interpretations["reduction"]["tier_order"]
     released = [h for h in holdings if h["strength_state"] == "RELEASED"]
     ranked = [h for h in holdings if h["strength_state"] != "RELEASED" and h["rank"] is not None]
     rest = [h for h in holdings if h["strength_state"] != "RELEASED" and h["rank"] is None]
-    tiers = [("STRENGTH_RELEASED", released)] if released else []
+    tiers = [(released_kind, released)] if released else []
     for rank in sorted({h["rank"] for h in ranked}, reverse=True):
-        tiers.append((f"LOWER_RANK:{rank}", [h for h in ranked if h["rank"] == rank]))
+        tiers.append((f"{rank_kind}:{rank}", [h for h in ranked if h["rank"] == rank]))
     if rest:
-        tiers.append(("PRO_RATA", rest))
+        tiers.append((rest_kind, rest))
     return tiers
 
 
@@ -362,7 +381,7 @@ def reduction_plan(
     CORE.require_utc(decision_at_utc, "decision_at_utc")
     if trigger not in TRIGGERS:
         CORE.fail("REDUCTION_TRIGGER_INVALID", str(trigger))
-    _require_kr_stress_mode(core, market, "STRESS" if trigger == "STRESS" else "", evidence_mode)
+    kr_fail_closed = _kr_stress_fail_closed(core, market, "STRESS" if trigger == "STRESS" else "", evidence_mode)
     market_blocked = market_blocked or {}
     cap = CORE.frac(cap_krw, "cap_krw")
     holdings = []
@@ -389,7 +408,10 @@ def reduction_plan(
     amount = None
     status = "PLANNED"
     obligation = excess > 0 or trigger == "STRESS"
-    if trigger == "PRICE_DRIFT_NO_STATE_CHANGE":
+    if kr_fail_closed:
+        amount, status, obligation = None, FAIL_CLOSED, False
+        flags.append(KR_STRESS_FAIL_CLOSED_FLAG)
+    elif trigger == "PRICE_DRIFT_NO_STATE_CHANGE":
         if core.param("price_drift_over_cap") != "NO_SELL":
             CORE.fail("PRICE_DRIFT_RULE_UNEXPECTED")
         amount, status, obligation = Fraction(0), "NO_SELL_PRICE_DRIFT", False
@@ -430,7 +452,7 @@ def reduction_plan(
     risk_kind = TRIGGER_RISK_KIND.get(trigger)
     if amount is not None and amount > 0:
         needed = amount
-        for tier_name, members in _tiers(holdings):
+        for tier_name, members in _tiers(core, holdings):
             if needed <= 0:
                 break
             tier_total = sum(h["value"] for h in members)

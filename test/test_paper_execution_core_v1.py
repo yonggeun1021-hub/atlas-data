@@ -7,9 +7,12 @@ records (never restated) or recomputed independently in the test.
 from __future__ import annotations
 
 import copy
+import gzip
+import hashlib
 from fractions import Fraction
 import itertools
 import json
+import shutil
 from pathlib import Path
 import sys
 import tempfile
@@ -97,14 +100,31 @@ class ConfigTraceTests(unittest.TestCase):
                 CORE.load_core(Path(tmp))
 
     def test_no_numeric_literals_restating_ratified_numbers(self):
+        # No integer other than 0/1 and no decimal or ratio string at all: ratified
+        # numbers such as 2, 3, 5, 10, 14, 20, 21, 30 must come from the registry.
         for rel in CORE_FILES:
             with open(ROOT / rel, "rb") as handle:
                 for tok in tokenize.tokenize(handle.readline):
                     if tok.type == tokenize.NUMBER:
-                        self.assertNotIn(".", tok.string, f"{rel}:{tok.start}")
-                        self.assertLessEqual(int(tok.string), 64, f"{rel}:{tok.start}")
+                        self.assertIn(tok.string, ("0", "1"), f"{rel}:{tok.start}")
                     if tok.type == tokenize.STRING:
-                        self.assertNotRegex(tok.string, r"^[\"']-?\d+(\.\d+|/\d+)[\"']$", f"{rel}:{tok.start}")
+                        self.assertNotRegex(tok.string, r"^[\"']-?\d+(\.\d+|/\d+)?[\"']$", f"{rel}:{tok.start}")
+
+    def test_reduction_tier_order_bound_to_registry(self):
+        self.assertEqual(self.core.interpretations["reduction"]["tier_order"], self.core.param("reduction_order"))
+        config = copy.deepcopy(self.core.config)
+        config["cio_interpretations"]["reduction"]["tier_order"] = ["LOWER_RANK", "STRENGTH_RELEASED", "PRO_RATA"]
+        with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "CONFIG_REDUCTION_ORDER_DIFFERS_FROM_REGISTRY"):
+            CORE._validate_config(config, self.core.context)
+
+    def test_registry_snapshots_committed(self):
+        current = REG.registry_sha256()
+        path = ROOT / CORE.snapshot_relative_path(current)
+        self.assertTrue(path.is_file(), "commit the registry snapshot: CORE.write_registry_snapshot()")
+        self.assertEqual(gzip.decompress(path.read_bytes()), (ROOT / REG.REGISTRY_RELATIVE_PATH).read_bytes())
+        for snapshot in (ROOT / CORE.SNAPSHOT_DIR).glob("rule_registry_v1-*"):
+            digest = hashlib.sha256(gzip.decompress(snapshot.read_bytes())).hexdigest()
+            self.assertEqual(snapshot.name, f"rule_registry_v1-{digest}.json.gz")
 
     def test_rule_refs_are_registry_exact_and_in_force(self):
         env = all_on(self.core)
@@ -216,13 +236,20 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_kr_stress_only_in_fixture_replay_and_kr_hedge_off(self):
         states = {"US": "RISK_ON", "KR": "STRESS", "CRYPTO": "RISK_ON"}
-        with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "KR_STRESS_CONDITION_UNRATIFIED_FIXED_INPUT_REPLAY_ONLY"):
-            envelope(self.core, states)
+        natural = envelope(self.core, states)
+        kr = natural["markets"]["KR"]
+        self.assertEqual((kr["effective_state"], kr["cap_fraction"], kr["new_buys"]), ("FAIL_CLOSED", None, "DENY"))
+        self.assertIn("KR_STRESS_CONDITION_UNRATIFIED_FIXED_INPUT_REPLAY_ONLY", natural["flags"])
+        base = ALLOC["base_allocation_all_markets_risk_on"]
+        self.assertEqual(F(natural["markets"]["US"]["cap_fraction"]), F(base["US"]))
+        self.assertEqual(F(natural["markets"]["CRYPTO"]["cap_fraction"]), F(base["CRYPTO"]))
+        self.assertEqual(natural["reallocation_status"], "NONE")
         env = envelope(self.core, states, mode="FIXED_INPUT_REPLAY")
+        self.assertEqual(env["markets"]["KR"]["effective_state"], "STRESS")
         self.assertEqual(env["markets"]["KR"]["inverse_hedge"]["status"], "OFF")
         self.assertIn(("RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1", "BLOCKED_BY"),
                       {(r["rule_id"], r["role"]) for r in env["rule_refs"]})
-        self.assertEqual(ENV.validate_envelope(self.core, env), env)
+        self.assertEqual(ENV.validate_envelope(env), env)
 
 
 class DrawdownTests(unittest.TestCase):
@@ -292,8 +319,8 @@ class ReductionTests(unittest.TestCase):
         self.assertEqual(plan["open_buy_cancellations"][0]["action"], "CANCEL_BEFORE_REDUCTION")
         with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "STRESS_CAP_MUST_BE_ZERO"):
             self.plan("STRESS", "1", [lh("KRW-A", "60")])
-        with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "KR_STRESS_CONDITION_UNRATIFIED"):
-            self.plan("STRESS", "0", [lh("005930", "60")], market="KR")
+        closed = self.plan("STRESS", "0", [lh("005930", "60")], market="KR")
+        self.assertEqual((closed["status"], closed["lines"], closed["open_buy_cancellations"]), ("FAIL_CLOSED", [], []))
         self.assertEqual(self.plan("STRESS", "0", [lh("005930", "60")], market="KR",
                                    evidence_mode="FIXED_INPUT_REPLAY")["reduction_amount_krw"], "60")
 
@@ -423,26 +450,65 @@ class SessionBudgetTests(unittest.TestCase):
         self.assertEqual(F(lines["THIN"]["liquidity_room_krw"]), F(1000) * F(fx()["krw_per_usd"]))  # 1% of USD ADV in KRW
         self.assertEqual(lines["THIN"]["bound_by"], "LIQUIDITY_ROOM")
 
-    def test_fx_staleness_and_lookahead(self):
-        at = "2026-10-02T12:00:00Z"  # 11 weekdays after 2026-09-17
+    def test_fx_staleness_counts_from_publication_and_never_blocks(self):
+        at = "2026-10-05T12:00:00Z"  # 11 weekdays after the 2026-09-18 publication date
         env = ENV.allocation_envelope(self.core, decision_at_utc=at, market_states={"US": "RISK_ON", "KR": "RISK_ON", "CRYPTO": "RISK_ON"},
                                       unknown_streaks=dict(ZERO), drawdown_stage="NONE", cross_market_flow_validated=False,
                                       evidence_mode="NATURAL")
-        snap = snapshot(fx=fx(), holdings=[holding("US", "SPY", "1000")], as_of="2026-10-02T11:00:00Z")
-        stale = self.build(market="US", session_id="US-2026-10-02", candidates=[cand("SPY", window="20_SESSIONS")],
+        snap = snapshot(fx=fx(), holdings=[holding("US", "SPY", "1000")], as_of="2026-10-05T11:00:00Z")
+        stale = self.build(market="US", session_id="US-2026-10-05", candidates=[cand("SPY", window="20_SESSIONS")],
                            snap=snap, env=env, at=at)
         self.assertEqual(stale["nav0"]["fx"]["status"], "STALE")
         self.assertEqual(stale["nav0"]["fx"]["display_ko"], "NAV 일부 미검증")
-        self.assertIn("US_FX_STALE_NO_NEW_ALLOCATION", stale["reasons"])
-        self.assertEqual(stale["allocated_krw"], "0")
-        crypto = self.build(candidates=[cand("KRW-A")], snap=snap, env=env, at=at, session_id="CRYPTO-2026-10-02")
-        self.assertEqual(crypto["status"], "ALLOCATED")
-        self.assertIn("NAV_PARTIALLY_UNVERIFIED", crypto["nav0"]["flags"])
-        self.assertEqual(BUD.evaluate_fx(self.core, fx(), "2026-10-01T12:00:00Z")["status"], "VERIFIED")
+        self.assertEqual(stale["nav0"]["nav_verification"], "UNVERIFIED")
+        self.assertEqual(stale["status"], "ALLOCATED")  # display only, allocation unaffected
+        self.assertFalse(any("FX" in reason for reason in stale["reasons"]))
+        # Counted from publication (availability), not observation date.
+        self.assertEqual(BUD.evaluate_fx(self.core, fx(), "2026-10-02T12:00:00Z")["status"], "VERIFIED")
+        old_observation = fx(date="2026-09-01", published="2026-09-18T21:15:00Z")
+        self.assertEqual(BUD.evaluate_fx(self.core, old_observation, "2026-10-02T12:00:00Z")["business_days_since_publication"], 10)
+        self.assertEqual(self.core.interpretations["fx_conversion"]["staleness_clock_kind"], "CIO_INTERPRETATION_NOT_USER_RATIFIED")
         with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "FX_NOT_PUBLISHED_BEFORE_DECISION"):
             BUD.evaluate_fx(self.core, fx(published="2026-10-01T12:00:00Z"), "2026-10-01T12:00:00Z")
         with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "FX_SERIES_NOT_RATIFIED"):
             BUD.evaluate_fx(self.core, {**fx(), "series": "ECB:KRW"}, "2026-10-01T12:00:00Z")
+
+    def test_embedded_envelope_must_rederive_and_match_decision_time(self):
+        forged = copy.deepcopy(self.env)
+        forged["markets"]["CRYPTO"]["cap_fraction"] = "1"
+        with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "ENVELOPE_NOT_REDERIVABLE"):
+            self.build(candidates=[cand("KRW-A")], env=CORE.sign(forged, "record_sha256"))
+        old_at = "2026-09-16T07:30:00Z"
+        stale_env = ENV.allocation_envelope(self.core, decision_at_utc=old_at, market_states={"US": "RISK_ON", "KR": "RISK_ON", "CRYPTO": "RISK_ON"},
+                                            unknown_streaks=dict(ZERO), drawdown_stage="NONE",
+                                            cross_market_flow_validated=False, evidence_mode="NATURAL")
+        with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "ENVELOPE_DECISION_TIME_MISMATCH"):
+            self.build(candidates=[cand("KRW-A")], env=stale_env)
+
+    def test_replay_uses_registry_snapshot_after_rows_are_added(self):
+        rec = self.build(candidates=[cand("KRW-A")])
+        sha = rec["rule_refs"][0]["registry_sha256"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config").mkdir()
+            shutil.copy(ROOT / CORE.CONFIG_RELATIVE_PATH, root / CORE.CONFIG_RELATIVE_PATH)
+            registry = json.loads((ROOT / REG.REGISTRY_RELATIVE_PATH).read_text(encoding="utf-8"))
+            added = copy.deepcopy(registry["rules"][0])
+            added["rule_id"], added["lineage_key"] = "RULE.LATER.ADDED.V1", "RULE.LATER.ADDED"
+            registry["rules"].append(added)
+            (root / REG.REGISTRY_RELATIVE_PATH).write_text(json.dumps(registry, ensure_ascii=False, indent=2) + "\n")
+            with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "REGISTRY_SNAPSHOT_UNAVAILABLE"):
+                BUD.validate_session_budget_record(rec, root=root)
+            snapshot_path = root / CORE.snapshot_relative_path(sha)
+            snapshot_path.parent.mkdir(parents=True)
+            shutil.copy(ROOT / CORE.snapshot_relative_path(sha), snapshot_path)
+            self.assertEqual(BUD.validate_session_budget_record(rec, root=root), rec)
+            snapshot_path.write_bytes(gzip.compress(gzip.decompress(snapshot_path.read_bytes()) + b" "))
+            CORE._load_replay_cached.cache_clear()
+            with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "REGISTRY_SNAPSHOT_SHA_MISMATCH"):
+                BUD.validate_session_budget_record(rec, root=root)
+        with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "CONFIG_VERSION_UNAVAILABLE"):
+            BUD.validate_session_budget_record(CORE.sign(dict(rec, config_sha256="0" * 64), "record_sha256"))
 
     def test_state_denial_unverified_market_and_quantities(self):
         denied = self.build(candidates=[cand("KRW-A")], env=envelope(self.core, {"US": "RISK_ON", "KR": "RISK_ON", "CRYPTO": "RISK_OFF"}))
@@ -457,13 +523,13 @@ class SessionBudgetTests(unittest.TestCase):
         self.assertEqual(F(lines["KRW-BTC"]["quantity"]) % F("0.0001"), 0)
         self.assertIn("QUANTITY_ROUNDS_TO_ZERO_SKIPPED", lines["KRW-Z"]["reasons"])
         self.assertIn("RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1", {r["rule_id"] for r in qty["rule_refs"]})
-        self.assertEqual(BUD.validate_session_budget_record(self.core, qty), qty)
+        self.assertEqual(BUD.validate_session_budget_record(qty), qty)
         tampered = copy.deepcopy(qty)
         tampered["market_room"]["budget_krw"] = "99999999"
         with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "SHA_MISMATCH"):
-            BUD.validate_session_budget_record(self.core, tampered)
+            BUD.validate_session_budget_record(tampered)
         with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "NOT_REDERIVABLE"):
-            BUD.validate_session_budget_record(self.core, CORE.sign(tampered, "record_sha256"))
+            BUD.validate_session_budget_record(CORE.sign(tampered, "record_sha256"))
 
     def test_ledger_one_allocation_restart_reuse_and_consumption(self):
         ledger = BUD.SessionBudgetLedger(self.core)

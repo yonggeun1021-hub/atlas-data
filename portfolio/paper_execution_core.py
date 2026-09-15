@@ -19,6 +19,7 @@ from __future__ import annotations
 import copy
 from fractions import Fraction
 import functools
+import gzip
 import hashlib
 import json
 from pathlib import Path
@@ -37,7 +38,7 @@ from governance import rule_refs as REFS  # noqa: E402
 CONFIG_RELATIVE_PATH = "config/paper_execution_core_v1.json"
 CONFIG_SCHEMA_VERSION = "paper_execution_core/1"
 # Two-place edit on purpose: a config change must also change this pin.
-PINNED_CONFIG_SHA256 = "b405bdd68e79378edc6e23c9be1bfd9d9f0ae7b498b03d386041b781a76c7f7f"
+PINNED_CONFIG_SHA256 = "a2dc18b05c33f19fb162fe5aac9d7eaab6ae1e80bcc3ec7fb7788aaec3d0f903"
 PINNED_SOURCE_DOCUMENTS = {
     "execution_contract_canon": "7a26907f9c05935278ae9232e4de90bb0d23e39447a57c22f66484642a35127c",
     "build_plan": "11f3d3422378cc152ae2af555cfb62926e3fe6779f2de0125c1bd811ebf6412a",
@@ -122,19 +123,21 @@ def verify_signed(record: dict, field: str, code: str) -> None:
 class Core:
     """Validated config + registry context + resolved ratified parameters."""
 
-    def __init__(self, config: dict, config_sha256: str, context: REFS.RegistryContext):
+    def __init__(self, config: dict, config_sha256: str, context: REFS.RegistryContext, root: Path = ROOT):
+        self.root = Path(root)
         self.config = config
         self.config_sha256 = config_sha256
         self.context = context
         self.params = {}
         self.param_rules = {}
+        self.unavailable = {}
         for alias, ref in config["registry_parameters"].items():
             row = context.rules.get(ref["rule_id"])
-            if row is None or not REGISTRY.is_decided(row):
-                fail("CONFIG_RULE_NOT_DECIDED", ref["rule_id"])
-            item = row["key_parameters"].get(ref["key_parameter"])
+            item = None if row is None or not REGISTRY.is_decided(row) else row["key_parameters"].get(ref["key_parameter"])
             if item is None:
-                fail("CONFIG_KEY_PARAMETER_MISSING", f"{ref['rule_id']}:{ref['key_parameter']}")
+                # A replay registry snapshot may predate a row; fail only when used.
+                self.unavailable[alias] = f"{ref['rule_id']}:{ref['key_parameter']}"
+                continue
             self.params[alias] = copy.deepcopy(item["value"])
             self.param_rules[alias] = ref["rule_id"]
 
@@ -143,6 +146,8 @@ class Core:
         return self.config["cio_interpretations"]
 
     def param(self, alias: str):
+        if alias in self.unavailable:
+            fail("REGISTRY_PARAMETER_UNAVAILABLE", self.unavailable[alias])
         if alias not in self.params:
             fail("CONFIG_PARAMETER_UNKNOWN", alias)
         return copy.deepcopy(self.params[alias])
@@ -175,24 +180,97 @@ def _validate_config(config: dict, context: REFS.RegistryContext) -> None:
     authority = config["authority"]
     if any(value is not False for value in authority.values()):
         fail("CONFIG_AUTHORITY_MUST_BE_FALSE")
+    order_ref = config["registry_parameters"]["reduction_order"]
+    registry_order = context.rules[order_ref["rule_id"]]["key_parameters"][order_ref["key_parameter"]]["value"]
+    if config["cio_interpretations"]["reduction"]["tier_order"] != registry_order:
+        fail("CONFIG_REDUCTION_ORDER_DIFFERS_FROM_REGISTRY")
     ids = [item["id"] for item in config["not_defined"]]
     if len(ids) != len(set(ids)):
         fail("CONFIG_NOT_DEFINED_DUPLICATE")
 
 
-@functools.lru_cache(maxsize=4)
-def _load_cached(root_text: str, verify_pin: bool) -> Core:
-    root = Path(root_text)
-    path = root / CONFIG_RELATIVE_PATH
-    raw = path.read_bytes()
+def _read_config(root: Path, verify_pin: bool):
+    raw = (root / CONFIG_RELATIVE_PATH).read_bytes()
     sha = hashlib.sha256(raw).hexdigest()
     if verify_pin and sha != PINNED_CONFIG_SHA256:
         fail("CONFIG_SHA_PIN_MISMATCH", sha)
-    config = json.loads(raw.decode("utf-8"))
+    return json.loads(raw.decode("utf-8")), sha
+
+
+@functools.lru_cache(maxsize=None)
+def _load_cached(root_text: str, verify_pin: bool) -> Core:
+    root = Path(root_text)
+    config, sha = _read_config(root, verify_pin)
     context = REFS.RegistryContext.load(root / REGISTRY.REGISTRY_RELATIVE_PATH, root=root)
     _validate_config(config, context)
-    return Core(config, sha, context)
+    core = Core(config, sha, context, root)
+    if core.unavailable:
+        fail("CONFIG_KEY_PARAMETER_MISSING", str(sorted(core.unavailable.values())))
+    return core
 
 
 def load_core(root: Path = ROOT, *, verify_pin: bool = True) -> Core:
+    """Core for new decisions: the current, fully validated registry."""
     return _load_cached(str(Path(root).resolve()), verify_pin)
+
+
+# ---------------------------------------------------------------------------
+# Replay against the registry a record was written with
+# ---------------------------------------------------------------------------
+# Records name the registry by sha256 in every rule_refs entry.  Replay must
+# not depend on today's registry (rows get added), and git history is not
+# available in shallow CI checkouts, so the exact registry bytes are kept
+# (gzip, sha256 of the uncompressed JSON) in an append-only, content-addressed store.  Every registry change commits its
+# snapshot (``write_registry_snapshot``; a test fails if the current one is
+# missing).  A snapshot was validated when it was current; on replay its
+# bytes are only re-hashed, never re-validated against today's fixed id list.
+SNAPSHOT_DIR = "evidence/rule_registry_snapshots"
+
+
+def snapshot_relative_path(registry_sha256: str) -> str:
+    if not isinstance(registry_sha256, str) or SHA256_RE.fullmatch(registry_sha256) is None:
+        fail("REGISTRY_SHA_INVALID")
+    return f"{SNAPSHOT_DIR}/rule_registry_v1-{registry_sha256}.json.gz"
+
+
+def write_registry_snapshot(root: Path = ROOT) -> str:
+    raw = (Path(root) / REGISTRY.REGISTRY_RELATIVE_PATH).read_bytes()
+    REGISTRY.load_registry(Path(root) / REGISTRY.REGISTRY_RELATIVE_PATH, root=Path(root))
+    sha = hashlib.sha256(raw).hexdigest()
+    path = Path(root) / snapshot_relative_path(sha)
+    if path.exists():
+        if gzip.decompress(path.read_bytes()) != raw:
+            fail("REGISTRY_SNAPSHOT_APPEND_ONLY_CONFLICT", sha)
+        return sha
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # mtime=0 keeps the compressed bytes deterministic; the sha is of the JSON bytes.
+    path.write_bytes(gzip.compress(raw, mtime=0))
+    return sha
+
+
+@functools.lru_cache(maxsize=None)
+def _load_replay_cached(root_text: str, registry_sha256: str) -> Core:
+    root = Path(root_text)
+    config, sha = _read_config(root, True)
+    path = root / snapshot_relative_path(registry_sha256)
+    try:
+        raw = gzip.decompress(path.read_bytes())
+    except OSError:
+        fail("REGISTRY_SNAPSHOT_UNAVAILABLE", registry_sha256)
+    if hashlib.sha256(raw).hexdigest() != registry_sha256:
+        fail("REGISTRY_SNAPSHOT_SHA_MISMATCH", registry_sha256)
+    context = REFS.RegistryContext(json.loads(raw.decode("utf-8")), registry_sha256, REGISTRY.REGISTRY_RELATIVE_PATH)
+    return Core(config, sha, context, root)
+
+
+def load_core_for_record(record: dict, root: Path = ROOT) -> Core:
+    """Core bound to the registry snapshot and config version a record names."""
+    shas = {ref.get("registry_sha256") for ref in record.get("rule_refs") or [] if isinstance(ref, dict)}
+    if len(shas) != 1:
+        fail("RECORD_REGISTRY_SHA_AMBIGUOUS")
+    core = _load_replay_cached(str(Path(root).resolve()), shas.pop())
+    if record.get("config_sha256") != core.config_sha256:
+        # Behaviour changes ship with a new config pin; an older record is not
+        # silently re-derived under different rules.
+        fail("CONFIG_VERSION_UNAVAILABLE", str(record.get("config_sha256")))
+    return core

@@ -63,7 +63,8 @@
     "cooling_off_calendar_minimum": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "calendar_minimum"},
     "cooling_off_sample_condition": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "sample_condition"},
     "cooling_off_combine": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "combine"},
-    "cooling_off_not_blocked": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "not_blocked"}
+    "cooling_off_not_blocked": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "not_blocked"},
+    "recalculated_mark": {"rule_id": "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1", "key_parameter": "mark"}
   },
   "cio_interpretations": {
     "unknown_hold_cap_multiplier": {
@@ -94,7 +95,8 @@
       "formula": "VIRTUAL_CASH_PLUS_SUM_VERIFIED_VALUATIONS_ALL_MARKETS_AT_SESSION_START",
       "first_crypto_cycle_equivalence": "KRW 200,000,000 virtual capital + crypto ledger realized P&L + crypto unrealized P&L while KR/US hold nothing",
       "unverified_holding": "MARKET_OF_THAT_HOLDING_NO_NEW_ALLOCATION_OTHER_MARKETS_USE_LAST_VERIFIED_VALUE_AND_FLAG",
-      "source": "canon 2-2 (NAV0), canon 2-4 (NAV unknown), build plan 2-3 principle 4 and section 9 CIO note 3"
+      "source": "canon 2-2 (NAV0), canon 2-4 (NAV unknown), build plan 2-3 principle 4 and section 9 CIO note 3",
+      "unverified_holding_kind": "CIO_INTERPRETATION_NOT_USER_RATIFIED"
     },
     "available_cash": {
       "formula": "VIRTUAL_CASH_MINUS_ALL_OPEN_BUY_RESERVATIONS",
@@ -123,7 +125,8 @@
       "within_tier_split": "PRO_RATA",
       "lower_rank_tiering": "WORST_RANK_FIRST_TIES_PRO_RATA_UNRANKED_IN_FINAL_PRO_RATA_TIER",
       "unknown_cap_reduction_requires_verified_price": true,
-      "source": "canon 5-1, 5-2 (D5-e row), 5-3 D5-d row; RULE.EXEC.ALLOCATION_REDUCTION.V1 reduction_order"
+      "source": "canon 5-1, 5-2 (D5-e row), 5-3 D5-d row; RULE.EXEC.ALLOCATION_REDUCTION.V1 reduction_order; tier_order must equal registry reduction_order (checked at core load)",
+      "tier_order": ["STRENGTH_RELEASED", "LOWER_RANK", "PRO_RATA"]
     },
     "reallocation": {
       "released_capital": "BASE_TIMES_ONE_MINUS_MULTIPLIER_FOR_KNOWN_STATES_BELOW_RISK_ON",
@@ -138,7 +141,11 @@
       "unverified_observation": "NOT_USED_FOR_PEAK_OR_TRANSITIONS_FLAGGED",
       "minus_10_effect": "CAP_MULTIPLIER_AT_MOST_RISK_OFF_NEW_BUYS_DENIED_ALL_MARKETS",
       "minus_5_effect_ladder": ["RISK_ON", "NEUTRAL", "RISK_OFF"],
-      "source": "RULE.RISK.NAV_DRAWDOWN_LIFT.V1 (combined NAV, lift levels), RULE.ALLOCATION.V2 drawdown_overrides; build plan C19 and section 9 CIO note 5 (no peak reset: the ratified lift rule prevails over canon 5-2 'reset after CIO review'); 'within' read inclusively"
+      "source": "RULE.RISK.NAV_DRAWDOWN_LIFT.V1 (combined NAV, lift levels), RULE.ALLOCATION.V2 drawdown_overrides; build plan C19 and section 9 CIO note 5 (no peak reset: the ratified lift rule prevails over canon 5-2 'reset after CIO review'); 'within' read inclusively",
+      "unverified_observation_kind": "CIO_INTERPRETATION_NOT_USER_RATIFIED",
+      "unknown_stage": "DENY_ALL_NEW_BUYS",
+      "unknown_stage_kind": "CIO_INTERPRETATION_NOT_USER_RATIFIED",
+      "unknown_stage_source": "canon 2-4 (no allocation without a verified NAV); CIO interpretation, behavior kept per PR #758 review L2"
     },
     "reentry": {
       "same_packet_key": ["market", "decision_packet_id", "instrument"],
@@ -191,7 +198,8 @@
         "P18": {"evidence": "N", "path": "LEDGER_RECONCILIATION"}
       },
       "status_display_ko": {"validated": "기계 검증 완료", "in_progress": "기계 검증 진행", "natural_not_observed": "자연 미관찰", "performance_insufficient": "투자 성과 표본 부족"},
-      "source": "canon 8-1, 8-2 (P1-P18 evidence kinds), build plan section 10 G5/G6 (P1 natural only, no fixture substitution); RULE.VALIDATION.MECHANICAL_ONLY.V1"
+      "source": "canon 8-1, 8-2 (P1-P18 evidence kinds), build plan section 10 G5/G6 (P1 natural only, no fixture substitution); RULE.VALIDATION.MECHANICAL_ONLY.V1",
+      "performance_state_display_ko": {"INSUFFICIENT": "투자 성과 표본 부족", "CHECKPOINT_JUDGEMENT_AVAILABLE": "투자 성과는 성적표 점검 시점 판정 참조"}
     },
     "operational_safety": {
       "min_observed_sessions": 30,
@@ -218,20 +226,30 @@
       "source": "canon 9-2 items 1, 2 and 4; build plan C24 and section 10 G4"
     },
     "fx_conversion": {
-      "business_days": "WEEKDAYS_MON_FRI_AFTER_OBSERVATION_DATE_UP_TO_DECISION_DATE_HOLIDAYS_NOT_EXCLUDED",
-      "input": "CALLER_SUPPLIED_DEXKOUS_OBSERVATION_WITH_OBSERVATION_DATE_AND_PUBLISHED_AT",
-      "unverified_consequence": "US_MARKET_NO_NEW_ALLOCATION_AS_ANY_UNVERIFIED_HOLDING_VALUE",
-      "source": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 (P2); no FX collector in PR1 (coordinator note 2026-09-15). US federal holidays are not excluded, so the flag can only appear earlier, never later, than a holiday-aware count; canon 2-4 for the unverified-holding consequence"
+      "staleness_clock": "WEEKDAYS_MON_FRI_AFTER_LATEST_PUBLICATION_UTC_DATE_UP_TO_DECISION_UTC_DATE",
+      "staleness_clock_kind": "CIO_INTERPRETATION_NOT_USER_RATIFIED",
+      "input": "CALLER_SUPPLIED_LATEST_DEXKOUS_VALUE_PUBLISHED_BEFORE_DECISION_WITH_OBSERVATION_DATE_AND_PUBLISHED_AT",
+      "stale_consequence": "NAV_STATUS_UNVERIFIED_ON_RECORDS_AND_SCORECARD_ALLOCATION_UNAFFECTED",
+      "source": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 (P2 sentence only says display 'NAV 일부 미검증'); CIO decisions 2026-09-15 on PR #758 review items 2a (no allocation block) and 2b (count from publication/availability date); no FX collector in PR1"
     },
     "kr_stress_interim": {
       "kr_inverse_hedge": "OFF_UNTIL_KR_STRESS_CONDITION_CONFIRMED",
       "kr_stress_inputs_allowed_only_in": "FIXED_INPUT_REPLAY",
-      "source": "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1 (P5)"
+      "source": "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1 (P5); CIO decision 2026-09-15 PR #758 review item 2d",
+      "natural_kr_stress_input": "FAIL_CLOSED_KR_ONLY_US_AND_CRYPTO_PROCEED"
     },
     "cooling_off": {
       "rule_minimum_sample": "REGISTRY_ROW_MINIMUM_SAMPLE_NULL_IS_NOT_DEFINED_PROPOSAL_BLOCKED",
       "kr_us_trading_days": "CALLER_SUPPLIED_TRADING_DAYS_SINCE_EFFECTIVE_FROM_OFFICIAL_CALENDAR",
       "source": "RULE.GOVERNANCE.COOLING_OFF.V1 (P6), config/rule_registry_v1.json minimum_sample"
+    },
+    "replay": {
+      "registry": "APPEND_ONLY_CONTENT_ADDRESSED_SNAPSHOT_STORE",
+      "path": "evidence/rule_registry_snapshots/rule_registry_v1-<registry_sha256>.json.gz",
+      "missing_snapshot": "REGISTRY_SNAPSHOT_UNAVAILABLE",
+      "config_version_changed": "CONFIG_VERSION_UNAVAILABLE",
+      "why_not_git_history": "shallow CI checkouts do not carry the commits that held older registry bytes",
+      "source": "CIO decision 2026-09-15 PR #758 review M2"
     }
   },
   "not_defined": [
@@ -240,12 +258,6 @@
       "item": "the KR STRESS condition itself",
       "handling": "KR inverse hedge OFF; KR STRESS state accepted only in FIXED_INPUT_REPLAY evidence mode (RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1)",
       "pending": "user confirmation of a KR STRESS condition"
-    },
-    {
-      "id": "FX_COLLECTOR",
-      "item": "DEXKOUS collection path",
-      "handling": "FX observation is a caller input; no collector in PR1",
-      "pending": "separate collector PR"
     },
     {
       "id": "UNKNOWN_CAP_REDUCTION_PACE",
@@ -294,6 +306,18 @@
       "item": "D4 alternative independent price verification",
       "handling": "never accepted: RULE.EXEC.DATA_FAILURE_PRIORITY.V1 implementation_status ALTERNATIVE_PATH_NOT_YET_VERIFIED",
       "pending": "implementation and verification (PR4/PR5)"
+    },
+    {
+      "id": "RULE_MINIMUM_SAMPLE",
+      "item": "minimum sample for rules whose registry row has none",
+      "handling": "no fallback: the D11 record states no numeric minimum sample; the cooling-off gate reports MIN_SAMPLE_NOT_DEFINED and blocks performance-reason proposals",
+      "pending": "per-rule minimum sample confirmation"
+    },
+    {
+      "id": "FX_COLLECTOR",
+      "item": "DEXKOUS collection path",
+      "handling": "FX observation is a caller input; no collector in PR1",
+      "pending": "separate collector PR"
     }
   ],
   "authority": {

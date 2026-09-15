@@ -81,7 +81,7 @@
 ### 1-D. 대체와 보완
 
 - **세션 크기 V1 → V2**: 오전 문구는 글자 그대로 읽으면 세션 매수 합계 전체를 NAV 5%로 묶었습니다(CIO 작성 오류). V2는 "시장별 세션 매수 합계 ≤ 시장 몫 남은 여유 1/3"과 "종목별 누적 보유 ≤ NAV 5% 이면서 ≤ 평균 거래대금 1%"로 나눕니다. V1은 2026-09-14 22:22 ~ 22:51 UTC, V2는 그 뒤에 효력이 있습니다.
-- **강세 해제 처리 → 전량 매도 (일부 대체)**: 청산 임시값 기록이 로테이션 확정의 "보유분은 기존 손절·익절" 부분만 "첫 허용 체결 시각에 전량 매도"로 바꿨습니다. 그래서 `RULE.ROTATION.RELEASE_HANDLING.V1`은 **확정(RATIFIED) 그대로** 두고, 옛 보유분 문구를 담은 핵심 값 셋(`held_positions`, 기록 원문 `rules_text`, 사용자 문장 `user_sentence`)에 `superseded_parts`(→ `RULE.EXIT.RELEASE_FULL_SELL.V1`, 22:57 UTC부터)를 달았습니다. 그래서 그 뒤 시각에는 `part_in_force_at`이 옛 보유분 문구를 효력 있음으로 보고하지 않습니다. `on_release_new_buys`(신규 매수 중단)는 로테이션 기록의 확정 상태로 계속 효력이 있습니다. 후속 규칙 쪽은 `supersedes_parts`로 같은 연결을 적고, 검증기가 양쪽 일치·대상 값 존재·기록 해시·효력 순서를 확인합니다. 값 하나의 효력은 `REG.part_in_force_at(row, key_parameter, 시각, 대장)`으로 봅니다.
+- **강세 해제 처리 → 전량 매도 (일부 대체)**: 청산 임시값 기록이 로테이션 확정의 "보유분은 기존 손절·익절" 부분만 "첫 허용 체결 시각에 전량 매도"로 바꿨습니다. 그래서 `RULE.ROTATION.RELEASE_HANDLING.V1`은 **확정(RATIFIED) 그대로** 두고, 옛 보유분 문구를 담은 핵심 값 셋(`held_positions`, 기록 원문 `rules_text`, 사용자 문장 `user_sentence`)에 `superseded_parts`(→ `RULE.EXIT.RELEASE_FULL_SELL.V1`, 22:57 UTC부터)를 달았습니다. 그래서 그 뒤 시각에는 `part_in_force_at`이 옛 보유분 문구를 효력 있음으로 보고하지 않습니다. `on_release_new_buys`("신규 매수**만** 중단")도 ONLY 문구가 전량 매도로 일부 대체되었으므로 같은 시각부터 대체 표시하고, 신규 매수 중단 자체는 새 값 `on_release_new_buys_stop`("stop new buys")으로 로테이션 기록의 확정 상태 그대로 계속 효력이 있습니다. 후속 규칙 쪽은 `supersedes_parts`로 같은 연결을 적고, 검증기가 양쪽 일치·대상 값 존재·기록 해시·효력 순서를 확인합니다. 값 하나의 효력은 `REG.part_in_force_at(row, key_parameter, 시각, 대장)`으로 봅니다.
 - **로테이션 해석 (관측 공백)**: `RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1`은 로테이션 3개 시장 규칙과 해제 전량 매도 규칙을 `INTERPRETS`로 연결합니다(값 변경 없음). 연속 확인은 허용 공백(코인 2 / 미국 4 / 한국 7일) 안의 연속 관측으로 세고, 데이터 공백으로 강세가 소멸하면 해제가 아니라 보유 유지·신규 매수 중단·"판정 공백" 표시입니다. 데이터 복귀 뒤 첫 판정이 상위권 밖이면 해제로 보고 매도합니다.
 - **보완(값은 바꾸지 않음)**:
   - `RULE.EXEC.DATA_FAILURE_PRIORITY.V1` → 코인 신선도 규칙의 STALE 보류를 "일반 청산"으로 좁힘(`NARROWS_SCOPE`). 신선도 규칙의 20초/3초 등 값은 그대로.
@@ -111,6 +111,12 @@
 - `amends`와 `amended_by`가 양쪽에서 일치해야 하고, 보완 대상의 기록 해시가 보완 기록 본문에 있어야 합니다.
 - `RESOLVED` 줄의 `resolved_by`는 결정된 줄과 그 기록 해시를 가리켜야 합니다.
 - "구현이 이 기록을 해시로 묶고 있다"(`binds_record_sha256: true`)고 적었으면 그 파일에 실제로 해시가 있어야 합니다.
+
+### 1-E. 기록 재생용 대장 사본 (`evidence/rule_registry_snapshots/`)
+
+- 판단 기록은 `rule_refs`에 그때의 대장 sha256을 담습니다. 대장에 줄이 더해져도 옛 기록을 다시 계산할 수 있도록, 대장이 바뀔 때마다 그 바이트를 gzip으로 `rule_registry_v1-<sha256>.json.gz`에 추가 전용 저장합니다(sha256은 압축 전 JSON 바이트)(`portfolio/paper_execution_core.py` `write_registry_snapshot`).
+- git 기록이 아니라 저장소 사본을 쓰는 이유: CI는 얕은 체크아웃이라 옛 커밋이 없습니다.
+- 사본이 없으면 `REGISTRY_SNAPSHOT_UNAVAILABLE`, 바이트가 sha와 다르면 `REGISTRY_SNAPSHOT_SHA_MISMATCH`로 실패합니다(조용히 통과하지 않음). 현재 대장의 사본이 없으면 `test/test_paper_execution_core_v1.py`가 실패하므로 **대장을 바꾸는 PR은 사본도 함께 커밋해야 합니다.**
 
 ## 3. 판단 계보 형식 (`governance/rule_refs.py`)
 

@@ -47,7 +47,7 @@ REGISTRY_PATH = ROOT / REGISTRY_RELATIVE_PATH
 PINS_RELATIVE_PATH = "config/rule_registry_v1_parsed_pins.json"
 # Changing any parsed quote/value requires changing the pin file *and* this
 # constant -- a deliberate two-place edit visible in review.
-PARSED_PINS_SHA256 = "58aaf759268f9f63324618c65dff0c5e5edb1625d46c63493ede56b8d4457193"
+PARSED_PINS_SHA256 = "ebcd7cf32ddebfcd9932bceee7912ae3d2a190dda99632be09ee4ad6f89af320"
 SCHEMA_VERSION = "atlas_rule_registry/1"
 PINS_SCHEMA_VERSION = "atlas_rule_registry_parsed_pins/1"
 AUTHORITY_DIR = "evidence/authority/"

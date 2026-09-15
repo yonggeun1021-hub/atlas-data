@@ -1577,7 +1577,7 @@
       "version": 1,
       "lineage_key": "RULE.ROTATION.RELEASE_HANDLING",
       "status": "RATIFIED",
-      "title_ko": "강세 해제 시 신규 매수 중단 (보유분 처리 부분은 RULE.EXIT.RELEASE_FULL_SELL.V1로 대체)",
+      "title_ko": "강세 해제 시 신규 매수 중단 (보유분 처리와 '신규 매수만' 중단이라는 ONLY 문구는 RULE.EXIT.RELEASE_FULL_SELL.V1로 일부 대체)",
       "markets": [
         "US",
         "KR",
@@ -1625,6 +1625,13 @@
           "text": "stop new buys only",
           "value": "STOP_NEW_BUYS_ONLY"
         },
+        "on_release_new_buys_stop": {
+          "source": 0,
+          "record_pointer": "/decisions/RELEASE_HANDLING/rules",
+          "match": "PARSED_FROM_TEXT",
+          "text": "stop new buys",
+          "value": "STOP_NEW_BUYS"
+        },
         "held_positions": {
           "source": 0,
           "record_pointer": "/decisions/RELEASE_HANDLING/rules",
@@ -1669,6 +1676,14 @@
         },
         {
           "key_parameter": "user_sentence",
+          "superseded_by": {
+            "rule_id": "RULE.EXIT.RELEASE_FULL_SELL.V1",
+            "record_id": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915",
+            "sha256": "47276abe432102c33b208a5c3a5d10b30c3c30c79fcb809bb1283c97efb95619"
+          }
+        },
+        {
+          "key_parameter": "on_release_new_buys",
           "superseded_by": {
             "rule_id": "RULE.EXIT.RELEASE_FULL_SELL.V1",
             "record_id": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915",
@@ -3062,6 +3077,12 @@
         {
           "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
           "key_parameter": "user_sentence",
+          "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+          "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
+        },
+        {
+          "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
+          "key_parameter": "on_release_new_buys",
           "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
           "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
         }
