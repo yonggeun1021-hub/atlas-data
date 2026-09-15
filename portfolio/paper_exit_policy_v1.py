@@ -60,14 +60,15 @@ INTENT_SCHEMA_VERSION = "paper_exit_intent/1"
 INTENT_EVENT_SCHEMA_VERSION = "paper_exit_intent_event/1"
 EVALUATION_SCHEMA_VERSION = "paper_exit_evaluation/1"
 MARKETS = ("CRYPTO", "KR", "US")
-RULE_REF_VERSION = 1
-ROLES = ("APPLIED", "BLOCKED_BY", "EXITED_BY", "SUPERSEDED_BY")
+SUPERSESSION_RELATION = "SUPERSEDED_BY"
 
 PINNED_RECORD_SHA256 = {
     "exit_provisional_v1": "47276abe432102c33b208a5c3a5d10b30c3c30c79fcb809bb1283c97efb95619",
     "rotation_observation_gap": "ed2ca92d9b9cfe6b2e912c686f874c62f664fe25b0b20814264a853366c2487a",
     "execution_contract_d1_d11": "10de02bf98fd4e5776ed77c09daad36de914e03942675cbe960c121e5dbd668c",
     "data_failure_priority_c": "3d07cbf1fbba35caaed032b7d3d52cec78e804ad6b415ed7e240191b4f45d1f6",
+    "build_plan_p1_p6": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd",
+    "rotation_max_observation_gap": "d65f58c60eb7b78f5e8fa2e054497e17903cf290a517b5b9a246e0419b199903",
 }
 PINNED_ROTATION_POLICY_SHA256 = "0bf2af4b63171c2bc7dda2cbcfde0b7023bba4a63d4ef10d4ed5361a223885d8"
 
@@ -108,6 +109,9 @@ def _load_module(name: str, path: Path):
 
 
 RC = _load_module("atlas_rotation_confirmation_for_paper_exit_policy", ROOT / "rotation" / "rotation_confirmation.py")
+RR = _load_module("atlas_governance_rule_refs_for_paper_exit_policy", ROOT / "governance" / "rule_refs.py")
+REG = RR.REGISTRY
+ROLES = RR.ROLES
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +275,6 @@ def load_policy(root: Path = ROOT, path: Optional[Path] = None) -> dict:
         or f"{controls['DS5']['atr_multiple']}xATR disaster stop" not in shadow_text
         or "no disaster stop and no partial take-profit in defaults" not in shadow_text
         or set(controls) != {"1-B", "TS14", "PTP1", "DS5"}
-        or shadow["kr_us_units"]["status"] != "NOT_DEFINED"
         # exit study v2 pre-registration section 5 units (not in the record text itself)
         or (shadow["crypto_units"]["atr_period"], shadow["crypto_units"]["r_ref_atr_multiple"]) != (14, "3")
         or shadow["crypto_units"]["level_anchor"] != "FIRST_FILL_PRICE" or shadow["crypto_units"]["top_ups_change_levels"] is not False
@@ -313,6 +316,8 @@ def load_policy(root: Path = ROOT, path: Optional[Path] = None) -> dict:
         or f"US window {windows['US']['start']}-{windows['US']['end']} ET" not in new_numbers
         or windows["KR"]["timezone"] != "Asia/Seoul" or windows["US"]["timezone"] != "America/New_York"
         or windows["CRYPTO"]["decision_cycle_anchor"] != "07:00"
+        or windows["KR"]["end_exclusive"] is not True or windows["US"]["end_exclusive"] is not True
+        or (windows.get("window_basis") or {}).get("end_exclusive") != "CIO_INTERPRETATION_NOT_USER_TEXT"
         or "07:00Z" not in str(d1_record.get("user_sentence_verbatim"))
         or (d1_record.get("source_document") or {}).get("sha256") != canon["sha256"]
     ):
@@ -341,44 +346,118 @@ def load_policy(root: Path = ROOT, path: Optional[Path] = None) -> dict:
         _fail("SUPERSEDED_RELEASE_HANDLING_MISMATCH")
     gap_days = gap["maximum_observation_gap_days"]
     committed_gaps = {m: rotation_policy["markets"][m]["maximum_observation_gap_days"] for m in MARKETS}
+    max_gap_record = _record(root, config, "rotation_max_observation_gap")
+    max_gap_rules = [r for r in max_gap_record.get("rules") or [] if r.get("rule_id") == gap_days.get("rule_id")]
     if (
-        gap_days["kind"] != "IMPLEMENTATION_CONFIG_NOT_USER_STATED_NUMBER"
+        gap_days["kind"] != "USER_RATIFIED" or gap_days["record"] != "rotation_max_observation_gap"
+        or gap_days["rule_id"] != "RULE.ROTATION.MAX_OBSERVATION_GAP.V1" or gap_days["unit"] != "CALENDAR_DAYS"
+        or max_gap_record.get("status") != "RATIFIED" or len(max_gap_rules) != 1
         or not gap_days["read_from"].startswith(RC.POLICY_RELATIVE_PATH + "#")
-        or gap_days["cio_record_text"] != f"crypto {committed_gaps['CRYPTO']} / US {committed_gaps['US']} / KR {committed_gaps['KR']} days"
-        or gap_days["cio_record_text"] not in str(gap_decision.get("consecutive_confirmation"))
+        or gap_days["values"] != committed_gaps
+        or f"crypto {committed_gaps['CRYPTO']}, US {committed_gaps['US']}, KR {committed_gaps['KR']} calendar days" not in max_gap_rules[0]["decision"]
+        or "코인 2일, 미국 4일, 한국 7일(달력일)" not in str(max_gap_record.get("user_sentence_verbatim"))
         or gap["chain_break_handling"] != "ROTATION_CHAIN_RESET_BY_GAP_IS_GAP_STATE_NOT_RELEASE_RESOLVED_ON_FIRST_POST_GAP_JUDGMENT"
     ):
         _fail("OBSERVATION_GAP_LENGTH_SOURCE_MISMATCH")
+    units = shadow["kr_us_units"]
+    plan_record = _record(root, config, "build_plan_p1_p6")
+    unit_rules = [r for r in plan_record.get("rules") or [] if r.get("rule_id") == units.get("rule_id")]
+    unit_text = unit_rules[0]["decision"] if len(unit_rules) == 1 else ""
+    if (
+        units["status"] != "DEFINED" or units["record"] != "build_plan_p1_p6" or units["record_only"] is not True
+        or units["rule_id"] != "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1" or plan_record.get("status") != "RATIFIED"
+        or "1-B replaced by release-only" not in unit_text
+        or f"time stop {units['TS14']['trading_days']} trading days" not in unit_text
+        or f"partial take-profit {units['PTP1']['r_multiple']}R = {units['PTP1']['r_ref_atr_multiple']}x daily ATR{units['atr_period']}" not in unit_text
+        or f"disaster stop = {units['DS5']['atr_multiple']}x daily ATR{units['atr_period']}" not in unit_text
+        or "record-only" not in unit_text or "1-B reverts to its original definition" not in unit_text
+        or units["1-B"]["component"] != "RELEASE_ONLY_EQUALS_DEFAULT_RELEASE_SELL"
+        or (units["TS14"]["trading_days"], units["DS5"]["atr_multiple"], units["PTP1"]["r_multiple"], units["PTP1"]["r_ref_atr_multiple"])
+        != (controls["TS14"]["days"], controls["DS5"]["atr_multiple"], controls["PTP1"]["r_multiple"], shadow["crypto_units"]["r_ref_atr_multiple"])
+    ):
+        _fail("SHADOW_CONTROLS_KR_US_UNITS_RECORD_MISMATCH")
     lag = rotation_policy["markets"]["CRYPTO"]["lagging_warning"]
     if (lag["ratio_sma_days"], lag["momentum_lookback_days"], lag["excluded_entities"]) != (30, 7, ["BTC"]):
         _fail("ROTATION_LAGGING_DEFINITION_MISMATCH")
     if any(value is not False for value in config["authority"].values()):
         _fail("EXIT_POLICY_AUTHORITY_MUST_BE_FALSE")
-    return {"config": config, "rotation_policy": rotation_policy}
+    try:
+        registry = RR.RegistryContext.load(root / REG.REGISTRY_RELATIVE_PATH, root=root)
+    except (REG.RuleRegistryError, RR.RuleLineageError) as exc:
+        _fail("RULE_REGISTRY_INVALID", str(exc))
+    check_registry_bindings(config, registry)
+    return {"config": config, "rotation_policy": rotation_policy, "registry": registry}
+
+
+def check_registry_bindings(config: dict, registry) -> None:
+    """Every rule this layer cites must be a decided registry row whose primary
+    record sha is the record this config binds; the release supersession must
+    match the registry's partial supersession of RULE.ROTATION.RELEASE_HANDLING.V1."""
+    for key, rule in config["rules"].items():
+        row = registry.rules.get(rule["rule_id"])
+        if row is None or not REG.is_decided(row):
+            _fail("RULE_NOT_DECIDED_IN_REGISTRY", rule["rule_id"])
+        if REG.primary_record_sha256(row) != config["records"][rule["record"]]["sha256"]:
+            _fail("REGISTRY_RECORD_SHA_MISMATCH", rule["rule_id"])
+    release = config["rules"]["release_full_sell"]
+    target = registry.rules.get(release["supersedes"]["rule_id"])
+    parts = [] if target is None else (target.get("superseded_parts") or [])
+    matches = [
+        part for part in parts
+        if part["key_parameter"] == release["supersedes"]["registry_key_parameter"]
+        and part["superseded_by"]["rule_id"] == release["rule_id"]
+        and part["superseded_by"]["sha256"] == config["records"][release["record"]]["sha256"]
+    ]
+    if len(matches) != 1:
+        _fail("REGISTRY_SUPERSESSION_MISMATCH", release["supersedes"]["rule_id"])
 
 
 def rule_ref(policy: dict, rule_key: str, role: str) -> dict:
-    """Inline ``rule_refs`` entry (same closed field set as governance/rule_refs.py).
+    """Registry-exact ``rule_refs`` entry via governance/rule_refs.make_rule_ref.
 
-    TODO(rule-registry): switch to governance.rule_refs.make_rule_ref once the
-    registry is on main; ``registry_sha256`` stays null until then.
+    ``registry_sha256`` is the sha of the committed config/rule_registry_v1.json
+    bytes; version and source record sha come from the registry row.
     """
     if role not in ROLES:
         _fail("RULE_REF_ROLE_INVALID", role)
-    config = policy["config"]
-    rule = config["rules"][rule_key]
-    return {
-        "rule_id": rule["rule_id"],
-        "version": RULE_REF_VERSION,
-        "registry_sha256": None,
-        "source_record_sha256": config["records"][rule["record"]]["sha256"],
-        "role": role,
-    }
+    try:
+        return RR.make_rule_ref(policy["registry"], policy["config"]["rules"][rule_key]["rule_id"], role)
+    except RR.RuleLineageError as exc:
+        _fail("RULE_REF_INVALID", str(exc))
 
 
-def _sorted_refs(refs: list) -> list:
+def _sorted_refs(refs: list, policy: Optional[dict] = None) -> list:
     unique = {(r["rule_id"], r["role"]): r for r in refs}
-    return [unique[key] for key in sorted(unique)]
+    ordered = [unique[key] for key in sorted(unique)]
+    if policy is not None:
+        try:
+            return RR.validate_rule_refs(ordered, policy["registry"])
+        except RR.RuleLineageError as exc:
+            _fail("RULE_REFS_NOT_REGISTRY_EXACT", str(exc))
+    return ordered
+
+
+def supersession_block(policy: dict) -> dict:
+    """Registry partial supersession (``superseded_parts``) as a display relation.
+
+    ``SUPERSEDED_BY`` is not a ``rule_refs`` role in governance/rule_refs.py, so
+    the relation is carried here, taken from the registry row; if the library
+    later adds the role additively, ``overlay_held_position_action`` also emits it
+    as a rule_ref.
+    """
+    release = policy["config"]["rules"]["release_full_sell"]
+    target = policy["registry"].rules[release["supersedes"]["rule_id"]]
+    part = next(p for p in target["superseded_parts"]
+                if p["key_parameter"] == release["supersedes"]["registry_key_parameter"])
+    return {
+        "relation": SUPERSESSION_RELATION,
+        "rule_id": target["rule_id"],
+        "rule_version": target["version"],
+        "key_parameter": part["key_parameter"],
+        "superseded_by": copy.deepcopy(part["superseded_by"]),
+        "registry_path": policy["registry"].relative_path,
+        "registry_sha256": policy["registry"].sha256,
+    }
 
 
 def authority(policy: dict) -> dict:
@@ -460,7 +539,8 @@ def first_allowed_fill_window(policy: dict, market: str, order_time: str, calend
                 return base | {"status": "KNOWN", "not_before": stamp(max(start, after)),
                                "window": {"start": stamp(start), "end_exclusive": stamp(end),
                                           "local_start": window["start"], "local_end": window["end"],
-                                          "timezone": window["timezone"]},
+                                          "timezone": window["timezone"],
+                                          "end_exclusive_basis": policy["config"]["rules"]["time_contract"]["fill_windows"]["window_basis"]["end_exclusive"]},
                                "session_date": day.isoformat(), "decision_cycle": None, "reason": None}
         elif status != "CLOSED":
             return base | {"status": "UNKNOWN", "not_before": None, "window": None, "session_date": day.isoformat(),
@@ -553,7 +633,7 @@ def _entity(packet: dict, scope_id: str, entity_id: str) -> Optional[dict]:
     return matches[0] if matches else None
 
 
-def _trigger(reason: str, entry: dict, entity: dict) -> dict:
+def _trigger(reason: str, entry: dict, entity: dict, gap_reset_packet_without_entity: bool = False) -> dict:
     packet = entry["packet"]
     return {
         "reason_code": reason,
@@ -565,10 +645,28 @@ def _trigger(reason: str, entry: dict, entity: dict) -> dict:
         "entity_bucket": entity["bucket"],
         "chain_reset": packet["chain"]["reset"],
         "strong_lapsed_by_gap": entity["strong_lapsed_by_gap"],
+        "gap_reset_packet_without_entity": gap_reset_packet_without_entity,
     }
 
 
-def rotation_judgment(policy: dict, position: dict, rotation_packets: list, t_dec: str, evaluation_date: str) -> dict:
+def decision_local_date(policy: dict, market: str, t_dec: str) -> str:
+    """Market-local calendar date of the decision time (KR Asia/Seoul, US America/New_York, CRYPTO UTC)."""
+    zone = ZoneInfo(policy["config"]["rules"]["time_contract"]["fill_windows"][market]["timezone"])
+    return parse_utc(t_dec, "DECISION_TIME_INVALID").astimezone(zone).date().isoformat()
+
+
+def bound_evaluation_date(policy: dict, market: str, t_dec: str, evaluation_date: Optional[str]) -> str:
+    """The evaluation date is derived from ``t_dec``; a supplied one must match it."""
+    derived = decision_local_date(policy, market, t_dec)
+    if evaluation_date is not None:
+        parse_date(evaluation_date, "EVALUATION_DATE_INVALID")
+        if evaluation_date != derived:
+            _fail("EVALUATION_DATE_NOT_DECISION_LOCAL_DATE", f"{evaluation_date}!={derived}")
+    return derived
+
+
+def rotation_judgment(policy: dict, position: dict, rotation_packets: list, t_dec: str,
+                      evaluation_date: Optional[str] = None) -> dict:
     """Walk every visible packet after the entry anchor for the position's sector/bucket.
 
     Four branches of RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1 plus the
@@ -581,6 +679,7 @@ def rotation_judgment(policy: dict, position: dict, rotation_packets: list, t_de
     position = validate_position(position)
     market = position["market"]
     decision_at = parse_utc(t_dec, "DECISION_TIME_INVALID")
+    evaluation_date = bound_evaluation_date(policy, market, t_dec, evaluation_date)
     evaluation = parse_date(evaluation_date, "EVALUATION_DATE_INVALID")
     rotation_policy = policy["rotation_policy"]
     max_gap = rotation_policy["markets"][market]["maximum_observation_gap_days"]
@@ -597,6 +696,10 @@ def rotation_judgment(policy: dict, position: dict, rotation_packets: list, t_de
             "path": RC.POLICY_RELATIVE_PATH,
             "pointer": f"/markets/{market}/maximum_observation_gap_days",
             "kind": policy["config"]["rules"]["observation_gap"]["maximum_observation_gap_days"]["kind"],
+            "unit": policy["config"]["rules"]["observation_gap"]["maximum_observation_gap_days"]["unit"],
+            "rule_id": policy["config"]["rules"]["observation_gap"]["maximum_observation_gap_days"]["rule_id"],
+            "record_id": policy["config"]["records"]["rotation_max_observation_gap"]["record_id"],
+            "record_sha256": policy["config"]["records"]["rotation_max_observation_gap"]["sha256"],
         },
         "chain_break_handling": policy["config"]["rules"]["observation_gap"]["chain_break_handling"],
         "visible_packet_count": len(visible),
@@ -621,6 +724,10 @@ def rotation_judgment(policy: dict, position: dict, rotation_packets: list, t_de
     mode = "STRONG"
     last_observed = anchor_date
     last_entity_missing = False
+    # A chain reset whose packet does not carry this entity leaves the gap
+    # unresolved: the next packet that observes the entity is the first
+    # post-gap judgment (the rotation layer has already reset its streaks).
+    pending_gap_return = False
     for entry in visible:
         packet = entry["packet"]
         if packet["as_of_date"] <= anchor_date or packet["observation"]["status"] != "OBSERVED":
@@ -629,19 +736,25 @@ def rotation_judgment(policy: dict, position: dict, rotation_packets: list, t_de
         last_observed = packet["as_of_date"]
         if entity is None:
             last_entity_missing = True
+            if packet["chain"]["reset"]:
+                pending_gap_return = True
             result["events"].append({"as_of_date": packet["as_of_date"], "event": "ENTITY_NOT_IN_OBSERVED_PACKET"})
             continue
         last_entity_missing = False
-        reset = packet["chain"]["reset"]
+        reset = packet["chain"]["reset"] or pending_gap_return
+        via_pending = pending_gap_return
+        if pending_gap_return:
+            result["events"].append({"as_of_date": packet["as_of_date"], "event": "FIRST_ENTITY_JUDGMENT_AFTER_GAP_RESET_WITHOUT_ENTITY"})
         if mode == "STRONG":
             if reset:
-                if not entity["strong_lapsed_by_gap"]:
+                if not via_pending and not entity["strong_lapsed_by_gap"]:
                     _fail("ROTATION_GAP_RESET_WITHOUT_LAPSE_FLAG", packet["as_of_date"])
+                pending_gap_return = False
                 if entity["bucket"] == "TOP":
                     mode = "CONTINUED"
                     result["events"].append({"as_of_date": packet["as_of_date"], "event": "GAP_RETURN_INSIDE_TOP_STRENGTH_CONTINUES"})
                     continue
-                result["trigger"] = _trigger(REASON_RELEASE_AFTER_GAP, entry, entity)
+                result["trigger"] = _trigger(REASON_RELEASE_AFTER_GAP, entry, entity, via_pending)
                 break
             if entity["state"] == "STRONG_RELEASED":
                 result["trigger"] = _trigger(REASON_RELEASE, entry, entity)
@@ -651,10 +764,11 @@ def rotation_judgment(policy: dict, position: dict, rotation_packets: list, t_de
             continue
         # mode == CONTINUED (strength continued after a gap return inside TOP)
         if reset:
+            pending_gap_return = False
             if entity["bucket"] == "TOP":
                 result["events"].append({"as_of_date": packet["as_of_date"], "event": "GAP_RETURN_INSIDE_TOP_STRENGTH_CONTINUES"})
                 continue
-            result["trigger"] = _trigger(REASON_RELEASE_AFTER_GAP, entry, entity)
+            result["trigger"] = _trigger(REASON_RELEASE_AFTER_GAP, entry, entity, via_pending)
             break
         if entity["state"] in RC.STRONG_STATES:
             mode = "STRONG"
@@ -671,7 +785,8 @@ def rotation_judgment(policy: dict, position: dict, rotation_packets: list, t_de
     if visible[-1]["packet"]["observation"]["status"] != "OBSERVED":
         return finish("OBSERVATION_UNKNOWN_WITHIN_MAX_GAP")
     if last_entity_missing:
-        return finish("ENTITY_NOT_OBSERVED")
+        return finish("OBSERVATION_GAP" if pending_gap_return else "ENTITY_NOT_OBSERVED",
+                      gap_pending_entity_not_observed_since_reset=pending_gap_return)
     return finish("STRONG" if mode == "STRONG" else "STRENGTH_CONTINUED_AFTER_GAP")
 
 
@@ -790,7 +905,7 @@ def build_exit_intent(policy: dict, position: dict, trigger: dict, t_dec: str, c
         "reason_code": reason,
         "trigger": copy.deepcopy(trigger),
         "ratification_records": ratifications,
-        "rule_refs": _sorted_refs(refs),
+        "rule_refs": _sorted_refs(refs, policy),
         "timestamps": {
             "t_obs": t_obs,
             "t_avail": stamp(available),
@@ -996,7 +1111,7 @@ def _normalized_fill(fill: dict) -> dict:
 # Per-position evaluation
 # ---------------------------------------------------------------------------
 
-def evaluate_position(policy: dict, position: dict, *, t_dec: str, evaluation_date: str, rotation_packets: list,
+def evaluate_position(policy: dict, position: dict, *, t_dec: str, rotation_packets: list, evaluation_date: Optional[str] = None,
                       store: Optional[ExitIntentStore] = None, decision_snapshot: Optional[dict] = None,
                       calendar: Optional[dict] = None) -> dict:
     """One decision slot for one open position episode.
@@ -1008,6 +1123,7 @@ def evaluate_position(policy: dict, position: dict, *, t_dec: str, evaluation_da
     """
     position = validate_position(position)
     decision_at = parse_utc(t_dec, "DECISION_TIME_INVALID")
+    evaluation_date = bound_evaluation_date(policy, position["market"], stamp(decision_at), evaluation_date)
     judgment = rotation_judgment(policy, position, rotation_packets, stamp(decision_at), evaluation_date)
     time_stop = crypto_time_stop(policy, position, stamp(decision_at), decision_snapshot)
     existing = None
@@ -1050,7 +1166,7 @@ def evaluate_position(policy: dict, position: dict, *, t_dec: str, evaluation_da
         "exit_intent_store_status": store.status(intent["intent_id"]) if (store is not None and intent is not None) else None,
         "exit_intent_write_status": write_status,
         "defaults_without": ["DISASTER_STOP", "PARTIAL_TAKE_PROFIT"],
-        "rule_refs": _sorted_refs(refs),
+        "rule_refs": _sorted_refs(refs, policy),
         "authority": authority(policy),
     }
     return with_payload_sha(evaluation)
@@ -1064,12 +1180,15 @@ EFFECTIVE_RELEASE_TEXT_KO = "강세 해제가 확인되면 신규 매수를 멈�
 SUPERSEDED_PORTAL_TEXT_KO = "강세 해제 시 신규 매수만 중단하고 보유분은 강제 청산하지 않습니다."
 
 
-def overlay_held_position_action(policy: dict, wiring_output: dict) -> dict:
+def overlay_held_position_action(policy: dict, wiring_output: dict, at_utc: Optional[str] = None) -> dict:
     """Mark ``held_position_action`` from ``new_buy_permission`` as superseded.
 
     The original field value is kept as produced (ratified rotation policy
-    unchanged); the copy gains ``held_position_action_superseded`` and a
-    ``rule_refs`` entry RULE.EXIT.RELEASE_FULL_SELL.V1 / SUPERSEDED_BY.
+    unchanged). The copy gains ``held_position_action_superseded`` with the
+    registry's partial supersession (relation SUPERSEDED_BY ->
+    RULE.EXIT.RELEASE_FULL_SELL.V1), and its ``rule_refs`` are re-issued
+    registry-exact (null ``registry_sha256`` from the wiring filled) with
+    RULE.EXIT.RELEASE_FULL_SELL.V1 / APPLIED added.
     """
     rule = policy["config"]["rules"]["release_full_sell"]
     if not isinstance(wiring_output, dict) or "held_position_action" not in wiring_output:
@@ -1088,7 +1207,23 @@ def overlay_held_position_action(policy: dict, wiring_output: dict) -> dict:
         "exit_intent_required": released,
         "display_ko": EFFECTIVE_RELEASE_TEXT_KO,
     }
-    result["rule_refs"] = _sorted_refs(list(result.get("rule_refs") or []) + [rule_ref(policy, "release_full_sell", "SUPERSEDED_BY")])
+    block = supersession_block(policy)
+    if at_utc is not None:
+        target = policy["registry"].rules[block["rule_id"]]
+        at = stamp(parse_utc(at_utc, "OVERLAY_AT_UTC_INVALID"))
+        block["superseded_part_in_force_at"] = {
+            "at_utc": at,
+            "superseded_value_in_force": REG.part_in_force_at(target, block["key_parameter"], at, policy["registry"].registry),
+        }
+    result["held_position_action_superseded"]["registry_supersession"] = block
+    pairs = [(ref["rule_id"], ref["role"]) for ref in result.get("rule_refs") or []]
+    pairs.append((rule["rule_id"], "APPLIED"))
+    if SUPERSESSION_RELATION in ROLES:  # additive library role, if a later PR registers it
+        pairs.append((rule["rule_id"], SUPERSESSION_RELATION))
+    try:
+        result["rule_refs"] = RR.canonical_rule_refs(pairs, policy["registry"])
+    except RR.RuleLineageError as exc:
+        _fail("RULE_REFS_NOT_REGISTRY_EXACT", str(exc))
     return result
 
 
@@ -1102,7 +1237,8 @@ def overlay_portal_projection(policy: dict, projection: dict) -> dict:
     result["display_rules_superseded_ko"] = [{
         "superseded_text_ko": SUPERSEDED_PORTAL_TEXT_KO,
         "effective_text_ko": EFFECTIVE_RELEASE_TEXT_KO,
-        "rule_refs": [rule_ref(policy, "release_full_sell", "SUPERSEDED_BY")],
+        "rule_refs": [rule_ref(policy, "release_full_sell", "APPLIED")],
+        "registry_supersession": supersession_block(policy),
     }]
     result["source_projection_payload_sha256"] = projection.get("payload_sha256")
     return with_payload_sha(result)

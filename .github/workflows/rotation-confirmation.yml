@@ -62,7 +62,7 @@ jobs:
           for market in US KR CRYPTO; do
             lower="$(echo "$market" | tr '[:upper:]' '[:lower:]')"
             paths="evidence/rotation/confirmation/$market evidence/rotation/opportunity_ledger/$market data/latest_rotation_confirmation_$lower.json data/latest_rotation_opportunity_ledger_$lower.json"
-            if python3 rotation/rotation_confirmation.py build --market "$market" --write \
+            if python3 rotation/rotation_confirmation.py build --market "$market" --write --no-portal \
               && python3 rotation/rotation_confirmation.py verify --market "$market" \
               && python3 rotation/rotation_opportunity_ledger.py build --market "$market" --write \
               && python3 rotation/rotation_opportunity_ledger.py verify --market "$market"; then
@@ -78,8 +78,23 @@ jobs:
               git clean -fdq -- $paths
             fi
           done
-          python3 rotation/rotation_confirmation.py portal --write
-          git add -- data/latest_rotation_confirmation_portal_ch02.json
+          # Late-older-evidence notices are kept even when that market's build failed.
+          for market in US KR CRYPTO; do
+            lower="$(echo "$market" | tr '[:upper:]' '[:lower:]')"
+            notice="data/rotation_confirmation_late_older_evidence_$lower.json"
+            if [ -f "$notice" ]; then
+              git add -- "$notice"
+            fi
+          done
+          # A portal projection failure must not block committing the markets that succeeded.
+          portal_failed=0
+          if python3 rotation/rotation_confirmation.py portal --write; then
+            git add -- data/latest_rotation_confirmation_portal_ch02.json
+          else
+            portal_failed=1
+            echo "::warning::rotation portal projection failed; market packets are still committed"
+            git checkout HEAD -- data/latest_rotation_confirmation_portal_ch02.json 2>/dev/null || true
+          fi
           if git diff --staged --quiet; then
             echo "no rotation confirmation change"
           else
@@ -102,4 +117,8 @@ jobs:
           if [ -n "$failed" ]; then
             echo "STOP: rotation confirmation failed for:$failed (the other markets were committed)" >&2
             exit 3
+          fi
+          if [ "$portal_failed" -ne 0 ]; then
+            echo "STOP: portal projection failed (market packets were committed)" >&2
+            exit 2
           fi
