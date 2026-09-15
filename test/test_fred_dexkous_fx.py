@@ -178,6 +178,47 @@ class CaptureAndPublishTests(unittest.TestCase):
             with self.assertRaisesRegex(M.FredDexkousFxError, "APPEND_ONLY_COLLISION"):
                 M.publish_capture(root, cap)
 
+    def test_re_observing_the_same_pair_later_keeps_the_earlier_availability(self):
+        # This is the exact shape of every normal day inside the bounded
+        # write window: the same (date, value) is legitimately re-parsed
+        # on a later run with a different captured_at_utc/batch_revision_id.
+        # It must be silently kept as a no-op -- not APPEND_ONLY_COLLISION,
+        # and the ORIGINAL (earlier, tighter) availability must survive.
+        raw = api_raw([("2026-09-10", "1385.00")])
+        first = M.build_capture(NOW, raw, "FRED_API")
+        later = NOW + dt.timedelta(days=1)
+        second = M.build_capture(later, raw, "FRED_API")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            summary1 = M.publish_capture(root, first)
+            self.assertEqual(len(summary1["new_observation_paths"]), 1)
+            summary2 = M.publish_capture(root, second)
+            self.assertEqual(summary2["new_observation_paths"], [])  # no-op, not a collision
+            path = root / first["observation_records"][0]["record_path"]
+            on_disk = json.loads(path.read_text())
+            self.assertEqual(
+                on_disk["availability_captured_at_utc"],
+                first["observation_records"][0]["record"]["availability_captured_at_utc"],
+            )
+
+    def test_observation_record_identity_mismatch_at_the_same_path_fails_closed(self):
+        # Same content-address path, but the observation_date/value baked
+        # into the existing file's content disagrees with the incoming
+        # write -- unreachable in practice (the path is derived from
+        # exactly those fields) except genuine corruption, so this must
+        # still fail closed rather than silently keep the wrong record.
+        raw = api_raw([("2026-09-10", "1385.00")])
+        cap = M.build_capture(NOW, raw, "FRED_API")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            M.publish_capture(root, cap)
+            record_path = root / cap["observation_records"][0]["record_path"]
+            corrupted = json.loads(record_path.read_text())
+            corrupted["value"] = "9999.99"
+            record_path.write_text(json.dumps(corrupted))
+            with self.assertRaisesRegex(M.FredDexkousFxError, "APPEND_ONLY_COLLISION"):
+                M.publish_capture(root, cap)
+
     def test_path_traversal_is_rejected(self):
         raw = api_raw([("2026-09-10", "1385.00")])
         cap = M.build_capture(NOW, raw, "FRED_API")
@@ -276,6 +317,142 @@ class LatestAvailableTests(unittest.TestCase):
             result = M.latest_available(root, "2026-09-15T02:00:00Z")
             self.assertEqual(result["status"], "OK")
             self.assertEqual(result["observation_date"], "2020-01-02")
+
+
+class BoundedWriteWindowTests(unittest.TestCase):
+    """CIO incident 2026-09-15: the first live FRED run wrote 11,352
+    CAPTURED files (the entire 1981-present history) in one commit. A
+    normal capture must never do that again -- see module docstring,
+    "Normal captures are bounded, not full-history"."""
+
+    def test_compute_write_from_date_with_nothing_committed_is_just_the_window(self):
+        today = dt.date(2026, 9, 15)
+        self.assertEqual(
+            M.compute_write_from_date(today, None, window_days=30),
+            (today - dt.timedelta(days=30)).isoformat(),
+        )
+
+    def test_compute_write_from_date_reaches_back_to_a_real_gap(self):
+        # Last commit was 60 days ago -- further back than the 30-day
+        # window -- so the gap itself, not the window, is authoritative.
+        today = dt.date(2026, 9, 15)
+        latest_committed = (today - dt.timedelta(days=60)).isoformat()
+        self.assertEqual(
+            M.compute_write_from_date(today, latest_committed, window_days=30),
+            latest_committed,
+        )
+
+    def test_compute_write_from_date_uses_the_window_when_committed_is_recent(self):
+        today = dt.date(2026, 9, 15)
+        latest_committed = (today - dt.timedelta(days=2)).isoformat()
+        self.assertEqual(
+            M.compute_write_from_date(today, latest_committed, window_days=30),
+            (today - dt.timedelta(days=30)).isoformat(),
+        )
+
+    def test_latest_committed_captured_date_ignores_backfill_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            M.publish_capture(root, M.build_capture(NOW, api_raw([("2020-01-02", "1160.00")]), "FRED_API", is_backfill=True))
+            self.assertIsNone(M.latest_committed_captured_date(root))
+            M.publish_capture(root, M.build_capture(NOW, api_raw([("2026-09-10", "1385.00")]), "FRED_API"))
+            self.assertEqual(M.latest_committed_captured_date(root), "2026-09-10")
+
+    def test_build_capture_bounds_written_records_but_manifest_keeps_full_count(self):
+        # A response spanning 1981-present-like range; only the tail should
+        # be written, but the manifest must still describe everything parsed.
+        rows = [("1981-04-13", "1.50"), ("2020-01-02", "1160.00"), ("2026-09-14", "1385.00"), ("2026-09-15", "1387.50")]
+        capture = M.build_capture(
+            NOW, api_raw(rows), "FRED_API", write_observations_from="2026-09-14",
+        )
+        self.assertEqual(capture["manifest"]["observation_count"], 4)
+        self.assertEqual(capture["manifest"]["observation_date_range"], ["1981-04-13", "2026-09-15"])
+        self.assertEqual(capture["manifest"]["written_observation_count"], 2)
+        self.assertEqual(
+            sorted(e["record"]["observation_date"] for e in capture["observation_records"]),
+            ["2026-09-14", "2026-09-15"],
+        )
+
+    def test_backfill_with_write_from_is_rejected(self):
+        with self.assertRaisesRegex(M.FredDexkousFxError, "BACKFILL_WITH_WRITE_FROM_NOT_ALLOWED"):
+            M.build_capture(
+                NOW, api_raw([("2020-01-02", "1160.00")]), "FRED_API",
+                is_backfill=True, write_observations_from="2026-01-01",
+            )
+
+    def test_end_to_end_normal_run_never_rewrites_full_history_again(self):
+        # Simulate: day 1 is a normal run against a response that (like the
+        # real incident) spans the entire history; day 2 is the next daily
+        # run against the same full-history response plus one new day.
+        # Neither day should write anywhere near the full row count.
+        history = [(f"2020-01-{d:02d}", "1160.00") for d in range(1, 29)]  # 28 old rows
+        recent = [("2026-09-14", "1385.00")]
+        full_response_day1 = history + recent
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest_committed = M.latest_committed_captured_date(root)
+            write_from = M.compute_write_from_date(dt.date(2026, 9, 15), latest_committed, window_days=5)
+            capture1 = M.build_capture(
+                NOW, api_raw(full_response_day1), "FRED_API", write_observations_from=write_from,
+            )
+            summary1 = M.publish_capture(root, capture1)
+            self.assertEqual(len(summary1["new_observation_paths"]), 1)  # only 2026-09-14
+
+            day2 = NOW + dt.timedelta(days=1)
+            full_response_day2 = full_response_day1 + [("2026-09-15", "1387.50")]
+            latest_committed = M.latest_committed_captured_date(root)
+            write_from2 = M.compute_write_from_date(day2.date(), latest_committed, window_days=5)
+            capture2 = M.build_capture(
+                day2, api_raw(full_response_day2), "FRED_API", write_observations_from=write_from2,
+            )
+            summary2 = M.publish_capture(root, capture2)
+            # 2026-09-14 already exists (no-op, content-addressed) and
+            # 2026-09-15 is genuinely new -- never the 29-row full history.
+            self.assertEqual(len(summary2["new_observation_paths"]), 1)
+            self.assertEqual(summary2["new_observation_paths"][0].split("/")[-2], "2026-09-15")
+
+
+class MainBoundedCaptureTests(unittest.TestCase):
+    """main() end-to-end: a normal run must bound itself using whatever is
+    already on disk, without the caller doing anything special."""
+
+    def test_normal_run_bounds_writes_using_latest_committed_date(self):
+        history_rows = [(f"2019-{m:02d}-01", "1150.00") for m in range(1, 13)]  # 12 old rows
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            original_root = M.ROOT
+            M.ROOT = root
+            try:
+                # Seed one already-committed CAPTURED observation so the
+                # window has something to bound against.
+                M.publish_capture(
+                    root,
+                    M.build_capture(NOW, api_raw([("2026-09-14", "1385.00")]), "FRED_API"),
+                )
+
+                # Patch fetch_dexkous itself, not the low-level _get: _get
+                # is only a *default parameter value* captured once when
+                # fetch_via_api/fetch_via_csv were defined, so reassigning
+                # the module attribute M._get after the fact would not
+                # reach main()'s call.
+                def fake_fetch_dexkous(api_key, *, observation_start=None, getter=None):
+                    raw = api_raw(history_rows + [("2026-09-14", "1385.00"), ("2026-09-15", "1387.50")])
+                    return raw, "FRED_API"
+
+                original_fetch_dexkous = M.fetch_dexkous
+                M.fetch_dexkous = fake_fetch_dexkous
+                try:
+                    rc = M.main([])
+                finally:
+                    M.fetch_dexkous = original_fetch_dexkous
+            finally:
+                M.ROOT = original_root
+
+            self.assertEqual(rc, 0)
+            written_dates = sorted(p.name for p in (root / M.EVIDENCE_ROOT / "observations").iterdir())
+            # Only the recent tail was ever written -- never the 12 old rows.
+            self.assertNotIn("2019-01-01", written_dates)
+            self.assertIn("2026-09-15", written_dates)
 
 
 if __name__ == "__main__":

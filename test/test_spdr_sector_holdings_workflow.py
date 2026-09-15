@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""spdr-sector-holdings.yml structure: manual dispatch only, no cron
-enabled, no secret used, offline regression before capture, commit scoped
-to derived evidence + latest pointer only (never a raw workbook). Offline
-YAML parse only -- the workflow is never dispatched from tests."""
+"""spdr-sector-holdings.yml structure: daily schedule (user-approved
+2026-09-15) plus workflow_dispatch, no secret used, offline regression
+before capture, bounded push-retry commit scoped to derived evidence +
+latest pointer only (never a raw workbook). Offline YAML parse only -- the
+workflow is never dispatched from tests."""
 from __future__ import annotations
 
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -35,19 +35,24 @@ class SpdrSectorHoldingsWorkflowTest(unittest.TestCase):
     def setUp(self):
         self.document, self.text = load(WORKFLOW)
 
-    def test_workflow_dispatch_only_no_cron(self):
-        self.assertEqual(triggers(self.document), {"workflow_dispatch"})
+    def test_triggers_are_schedule_and_workflow_dispatch_only(self):
+        self.assertEqual(triggers(self.document), {"schedule", "workflow_dispatch"})
         self.assertNotIn("pull_request", self.text)
         self.assertNotIn("push:", self.text)
-        for line in self.text.splitlines():
-            self.assertFalse(re.match(r"^\s*schedule:\s*$", line), line)
 
-    def test_proposed_cron_is_documented_but_not_active(self):
-        self.assertIn("Proposed cron (NOT enabled", self.text)
-        for line in self.text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("- cron:"):
-                self.fail(f"an active cron trigger is present: {line!r}")
+    def test_approved_cron_is_active_and_matches_the_approved_string(self):
+        on_block = self.document.get("on", self.document.get(True))
+        self.assertEqual(on_block["schedule"], [{"cron": "0 22 * * 1-5"}])
+        self.assertIn("'0 22 * * 1-5'", self.text)
+
+    def test_cron_timing_is_rejustified_against_ssga_publication(self):
+        self.assertIn("SSGA refreshes", self.text)
+        self.assertIn("overnight", self.text)
+
+    def test_first_live_dispatch_result_documented(self):
+        self.assertIn("34926977666 SUCCEEDED", self.text)
+        self.assertIn("515", self.text)
+        self.assertIn("symbols resolved", self.text)
 
     def test_no_secret_is_referenced(self):
         self.assertNotIn("secrets.", self.text)
@@ -71,13 +76,19 @@ class SpdrSectorHoldingsWorkflowTest(unittest.TestCase):
         for path in paths:
             self.assertNotIn(".xlsx", path)
 
-    def test_first_dispatch_verification_note_present(self):
-        self.assertIn("First dispatch is also verification", self.text)
-
-    def test_daily_schedule_recommendation_documented(self):
+    def test_time_gated_rationale_still_documented(self):
         self.assertIn("time-gated", self.text)
-        self.assertIn("This PR recommends", self.text)
-        self.assertIn("proposed daily schedule", self.text)
+
+    def test_commit_step_has_bounded_push_retry_with_pull_rebase(self):
+        # 2026-09-15 incident: the first live run pushed first and won the
+        # race, but fred-dexkous-fx.yml's first live run then failed with
+        # no retry -- both workflows' commit steps get the same bounded fix.
+        commit_step = next(step for step in steps(self.document) if "git add" in step.get("run", ""))
+        run = commit_step["run"]
+        self.assertIn("git pull --rebase", run)
+        self.assertIn("max_attempts=3", run)
+        self.assertIn("until git push", run)
+        self.assertIn("exit 1", run)
 
     def test_uses_pinned_action_shas(self):
         for step in steps(self.document):
