@@ -39,7 +39,7 @@ from portfolio import paper_execution_core as CORE  # noqa: E402
 SUMMARY_SCHEMA_VERSION = "paper_scorecard_summary/1"
 COOLING_OFF_SCHEMA_VERSION = "paper_readjustment_cooling_off/1"
 ROW_FIELDS = {"position_episode_id", "strength_episode_id", "market", "entry_date", "rule_id",
-              "metric_net_of_cost", "uses_recalculated_rotation_days"}
+              "metric_net_of_cost", "uses_recalculated_rotation_days", "nav_verification"}
 RULE_D11 = "RULE.SCORECARD.SINGLE_CONTRACT.V1"
 RULE_COOL = "RULE.GOVERNANCE.COOLING_OFF.V1"
 RULE_RECALC = "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1"
@@ -50,10 +50,11 @@ def _clustered_se_squared(values: list, clusters: list):
     for value, cluster in zip(values, clusters):
         groups.setdefault(cluster, []).append(value)
     count_g, count_n = len(groups), len(values)
-    if count_g < 2:
+    if count_g <= 1:
         return count_g, None
     mean = sum(values, Fraction(0)) / count_n
-    score = sum((sum(v - mean for v in members) ** 2 for members in groups.values()), Fraction(0))
+    deviations = [sum((v - mean for v in members), Fraction(0)) for members in groups.values()]
+    score = sum((d * d for d in deviations), Fraction(0))
     return count_g, Fraction(count_g, count_g - 1) * score / (count_n * count_n)
 
 
@@ -75,7 +76,7 @@ def scorecard_summary(core, *, rule_id: str, rows: list, as_of_utc: str, schedul
         CORE.fail("SCORECARD_RULE_NOT_REGISTERED", str(rule_id))
     if scheduled_check not in (True, False):
         CORE.fail("SCHEDULED_CHECK_FLAG_INVALID")
-    values, by_episode, by_date, seen, recalculated = [], [], [], set(), 0
+    values, by_episode, by_date, seen, recalculated, unverified_nav = [], [], [], set(), 0, 0
     for row in rows:
         if not isinstance(row, dict) or set(row) != ROW_FIELDS:
             CORE.fail("SCORECARD_ROW_FIELDS_INVALID")
@@ -89,6 +90,9 @@ def scorecard_summary(core, *, rule_id: str, rows: list, as_of_utc: str, schedul
             CORE.fail("SCORECARD_ROW_DUPLICATE_EPISODE", row["position_episode_id"])
         if row["uses_recalculated_rotation_days"] not in (True, False):
             CORE.fail("RECALC_FLAG_INVALID")
+        if row["nav_verification"] not in ("VERIFIED", "UNVERIFIED"):
+            CORE.fail("NAV_VERIFICATION_INVALID")
+        unverified_nav += row["nav_verification"] == "UNVERIFIED"
         seen.add(row["position_episode_id"])
         recalculated += row["uses_recalculated_rotation_days"]
         values.append(CORE.frac(row["metric_net_of_cost"], "metric_net_of_cost"))
@@ -127,7 +131,9 @@ def scorecard_summary(core, *, rule_id: str, rows: list, as_of_utc: str, schedul
         "sample_label_ko": f"{spec['display_insufficient_ko']} {n_eff}/{minimum}" if n_eff < minimum else None,
         "cumulative_label_ko": spec["display_reference_ko"],
         "recalculated_rotation_rows": recalculated,
-        "recalculated_mark_ko": "재계산" if recalculated else None,
+        "recalculated_mark_ko": core.param("recalculated_mark") if recalculated else None,
+        "nav_unverified_rows": unverified_nav,
+        "nav_status_ko": core.param("fx_staleness")["display"] if unverified_nav else None,
         "badges": "NOT_DEFINED:SCORECARD_BADGE_THRESHOLDS",
         "rule_refs": core.rule_refs([(RULE_D11, "APPLIED")] + ([(RULE_RECALC, "APPLIED")] if recalculated else []),
                                     as_of_utc),
@@ -155,7 +161,7 @@ def readjustment_proposal_gate(core, *, rule_id: str, market: str, reason: str, 
         CORE.fail("COOLING_OFF_RULE_UNEXPECTED")
     if reason != "PERFORMANCE" and reason not in not_blocked:
         CORE.fail("READJUSTMENT_REASON_INVALID", str(reason))
-    effective_date = dt.date.fromisoformat(row["effective_from"]["utc"][:10])
+    effective_date = dt.date.fromisoformat(row["effective_from"]["utc"].split("T")[0])
     today = dt.date.fromisoformat(as_of_date)
     if today < effective_date:
         CORE.fail("AS_OF_BEFORE_EFFECTIVE_DATE")
@@ -172,7 +178,8 @@ def readjustment_proposal_gate(core, *, rule_id: str, market: str, reason: str, 
     if reason != "PERFORMANCE":
         allowed, status = True, "NOT_BLOCKED_REASON"
     elif sample_met is None:
-        allowed, status = False, "BLOCKED:NOT_DEFINED_RULE_MINIMUM_SAMPLE"
+        # The D11 record states no numeric minimum sample to fall back on.
+        allowed, status = False, "MIN_SAMPLE_NOT_DEFINED"
     else:
         allowed = calendar_met and sample_met
         status = "ALLOWED" if allowed else "BLOCKED:COOLING_OFF"

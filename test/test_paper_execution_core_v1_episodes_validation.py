@@ -211,13 +211,18 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(low["verdict"], "FAILED")
         bad_path = self.complete() + [evidence("P9", "F", passed=False)]
         self.assertEqual(self.evaluate(bad_path)["verdict"], "FAILED")
+        with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "PERFORMANCE_SAMPLE_STATE_INVALID"):
+            CHECK.evaluate_checklist(self.core, market="CRYPTO", as_of_utc=AT, cohort="INVESTMENT_PAPER",
+                                     evidence=self.complete(), observation_window_closed=False,
+                                     safety_metrics=dict(SAFE), performance_sample_state="성과 좋음")
         canary = self.evaluate(self.complete(), cohort="SYSTEM_CANARY")
         self.assertFalse(canary["performance_counted"])
 
 
-def row(i, episode, date, metric, recalculated=False, rule="RULE.ROTATION.CRYPTO.V1"):
+def row(i, episode, date, metric, recalculated=False, rule="RULE.ROTATION.CRYPTO.V1", nav="VERIFIED"):
     return {"position_episode_id": f"PE-{i}", "strength_episode_id": episode, "market": "CRYPTO", "entry_date": date,
-            "rule_id": rule, "metric_net_of_cost": metric, "uses_recalculated_rotation_days": recalculated}
+            "rule_id": rule, "metric_net_of_cost": metric, "uses_recalculated_rotation_days": recalculated,
+            "nav_verification": nav}
 
 
 class ScorecardTests(unittest.TestCase):
@@ -227,14 +232,16 @@ class ScorecardTests(unittest.TestCase):
     def test_checkpoints_and_labels(self):
         self.assertEqual(SCORE.checkpoints_up_to(self.core, 250), [30, 80, 160, 240])
         rows = [row(0, "SE-1", "2026-10-01", "1"), row(1, "SE-1", "2026-10-02", "-1", recalculated=True),
-                row(2, "SE-2", "2026-10-02", "0.5")]
+                row(2, "SE-2", "2026-10-02", "0.5", nav="UNVERIFIED")]
         summary = SCORE.scorecard_summary(self.core, rule_id="RULE.ROTATION.CRYPTO.V1", rows=rows, as_of_utc=AT,
                                           scheduled_check=True, last_judged_checkpoint=None)
         self.assertEqual(summary["clusters"], {"STRENGTH_EPISODE": 2, "ENTRY_DATE": 2})
         self.assertEqual((summary["n_eff"], summary["judgement_allowed"]), (2, False))
         self.assertEqual(summary["sample_label_ko"], "표본 부족 2/30")
         self.assertEqual(summary["cumulative_label_ko"], "참고, 판정 아님")
-        self.assertEqual(summary["recalculated_mark_ko"], "재계산")
+        recalc = self.core.context.rules["RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1"]["key_parameters"]["mark"]["value"]
+        self.assertEqual(summary["recalculated_mark_ko"], recalc)
+        self.assertEqual((summary["nav_unverified_rows"], summary["nav_status_ko"]), (1, "NAV 일부 미검증"))
         self.assertEqual(summary["badges"], "NOT_DEFINED:SCORECARD_BADGE_THRESHOLDS")
 
     def test_wider_cluster_and_judgement_only_at_new_checkpoint(self):
@@ -271,7 +278,10 @@ class ScorecardTests(unittest.TestCase):
         self.assertFalse(gate(as_of_date="2026-10-14", post_effective_sample_n=minimum - 1)["allowed"])
         self.assertEqual(gate(as_of_date="2026-09-20", reason="BUG_FIX")["status"], "NOT_BLOCKED_REASON")
         kr = gate(rule_id="RULE.ROTATION.KR.V1T", market="KR", as_of_date="2026-12-01", kr_us_trading_days_since_effective=25)
-        self.assertEqual(kr["status"], "BLOCKED:NOT_DEFINED_RULE_MINIMUM_SAMPLE")
+        self.assertEqual((kr["status"], kr["allowed"]), ("MIN_SAMPLE_NOT_DEFINED", False))
+        self.assertIn("RULE_MINIMUM_SAMPLE", self.core.not_defined_ids())
+        d11 = json.dumps(record("paper_execution_contract_d1_d3_d5_d11_user_ratification_20260915.json"), ensure_ascii=False)
+        self.assertNotRegex(d11, r"최소 표본[^,.]*\d")  # the ratified D11 text gives no numeric fallback
         self.assertTrue(kr["calendar_met"])
         with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "TRADING_DAYS_INPUT_REQUIRED"):
             gate(rule_id="RULE.ROTATION.KR.V1T", market="KR", as_of_date="2026-12-01")

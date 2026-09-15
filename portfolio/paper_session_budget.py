@@ -23,8 +23,8 @@ holding blocks its market; canon 5-4 inverse hedge not in L; build plan 2-3
 principle 4 / section 9 note 3 for NAV0 in the first crypto cycle.
 
 US holdings are valued in USD and converted with RULE.NAV.KRW_USD_CONVERSION_
-FRED_DEXKOUS.V1 (P2): the caller supplies the DEXKOUS observation; a stale or
-missing rate marks NAV partly unverified and blocks new US allocation.
+FRED_DEXKOUS.V1 (P2): the caller supplies the DEXKOUS observation; a stale
+rate marks NAV 'NAV 일부 미검증' on the record and never blocks allocation.
 
 Pure and offline.  The ledger here is an in-memory append-only replay model
 for tests and consumers; persistence belongs to the private runtime (PR4).
@@ -37,10 +37,13 @@ from fractions import Fraction
 import math
 import re
 from zoneinfo import ZoneInfo
+import calendar
 
 try:
+    from portfolio import paper_allocation_envelope as ENV
     from portfolio import paper_execution_core as CORE
 except ImportError:  # pragma: no cover
+    import paper_allocation_envelope as ENV  # type: ignore
     import paper_execution_core as CORE  # type: ignore
 
 
@@ -51,7 +54,7 @@ RULE_BTC_ETH = "RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1"
 RULE_ALLOC = "RULE.ALLOCATION.V2"
 RULE_TIME = "RULE.EXEC.TIME_CONTRACT.V1"
 RULE_FX = "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1"
-SESSION_ID_RE = re.compile(r"^(CRYPTO|KR|US)-(\d{4}-\d{2}-\d{2})$")
+SESSION_ID_RE = re.compile(r"^(?P<market>CRYPTO|KR|US)-(?P<day>\d{4}-\d{2}-\d{2})$")
 ADV_WINDOW_BY_MARKET = {"KR": "20_SESSIONS", "US": "20_SESSIONS", "CRYPTO": "30_DAYS"}
 HOLDING_FIELDS = {"market", "instrument", "currency", "valuation", "last_verified_valuation", "is_inverse_hedge"}
 NAV_SNAPSHOT_FIELDS = {"as_of_utc", "virtual_cash_krw", "holdings", "open_buy_reservations", "fx_observation"}
@@ -86,7 +89,7 @@ def session_bounds(core, session_id: str) -> dict:
     match = SESSION_ID_RE.fullmatch(session_id or "")
     if match is None:
         CORE.fail("SESSION_ID_INVALID", str(session_id))
-    market, day = match.group(1), dt.date.fromisoformat(match.group(2))
+    market, day = match.group("market"), dt.date.fromisoformat(match.group("day"))
     if market == "CRYPTO":
         hour, minute = (int(x) for x in core.param("crypto_decision_cycle")["decision_time_utc"].split(":"))
         start = dt.datetime(day.year, day.month, day.day, hour, minute, tzinfo=dt.timezone.utc)
@@ -106,16 +109,20 @@ def evaluate_fx(core, fx, decision_at_utc: str) -> dict:
     """RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 (P2) on a caller-supplied observation.
 
     ``fx``: null or ``{"series", "observation_date", "published_at_utc",
-    "krw_per_usd"}``.  Published at or after the decision time is lookahead.
-    More than the ratified business days without a new value -> STALE, which
-    marks NAV partly unverified.  Business days are Mon-Fri after the
-    observation date up to the decision date (US holidays not excluded, so the
-    flag can only come earlier than a holiday-aware count).
+    "krw_per_usd"}`` -- the latest value published before the decision.
+    Published at or after the decision time is lookahead.  Staleness counts
+    from the publication (availability) date of that latest value: more than
+    the ratified business days -> STALE, displayed 'NAV 일부 미검증'.  It is a
+    NAV status only; it never blocks allocation (CIO decision 2026-09-15:
+    the user sentence only says display).  Business days = Mon-Fri after the
+    publication UTC date up to the decision UTC date (CIO interpretation, US
+    holidays not excluded).
     """
     source = core.param("fx_rate_source")
     staleness = core.param("fx_staleness")
     if fx is None:
-        return {"status": "MISSING", "krw_per_usd": None, "observation_date": None, "business_days_since": None}
+        return {"status": "MISSING", "krw_per_usd": None, "observation_date": None, "published_at_utc": None,
+                "business_days_since_publication": None, "display_ko": staleness["display"]}
     if not isinstance(fx, dict) or set(fx) != {"series", "observation_date", "published_at_utc", "krw_per_usd"}:
         CORE.fail("FX_OBSERVATION_FIELDS_INVALID")
     if fx["series"] != source["series"]:
@@ -123,22 +130,22 @@ def evaluate_fx(core, fx, decision_at_utc: str) -> dict:
     if core.param("fx_availability") != "PUBLISHED_BEFORE_DECISION_TIME" \
             or CORE.require_utc(fx["published_at_utc"], "fx.published_at_utc") >= decision_at_utc:
         CORE.fail("FX_NOT_PUBLISHED_BEFORE_DECISION")
-    observed = dt.date.fromisoformat(fx["observation_date"])
-    if observed > _utc(fx["published_at_utc"]).date():
+    published = _utc(fx["published_at_utc"]).date()
+    if dt.date.fromisoformat(fx["observation_date"]) > published:
         CORE.fail("FX_OBSERVATION_AFTER_PUBLICATION")
     rate = CORE.frac(fx["krw_per_usd"], "krw_per_usd")
     if rate <= 0:
         CORE.fail("FX_RATE_NOT_POSITIVE")
-    day, business = observed, 0
+    day, business = published, 0
     while day < _utc(decision_at_utc).date():
         day += dt.timedelta(days=1)
-        business += day.weekday() < 5
+        business += day.weekday() not in (calendar.SATURDAY, calendar.SUNDAY)
     if staleness["comparison"] != "MORE_THAN":
         CORE.fail("FX_STALENESS_RULE_UNEXPECTED")
     stale = business > staleness["max_business_days_without_new_value"]
     return {"status": "STALE" if stale else "VERIFIED", "krw_per_usd": CORE.fstr(rate),
-            "observation_date": fx["observation_date"], "business_days_since": business,
-            "display_ko": staleness["display"] if stale else None}
+            "observation_date": fx["observation_date"], "published_at_utc": fx["published_at_utc"],
+            "business_days_since_publication": business, "display_ko": staleness["display"] if stale else None}
 
 
 def _holdings(core, snapshot: dict, fx: dict) -> list:
@@ -159,7 +166,7 @@ def _holdings(core, snapshot: dict, fx: dict) -> list:
         verified = value is not None
         local = value if verified else last
         if item["currency"] == "USD":
-            verified = verified and fx["status"] == "VERIFIED"
+            # FX staleness is a NAV display status only (P2); price verification is unchanged.
             krw = None if local is None or rate is None else local * rate
         else:
             krw = local
@@ -183,6 +190,7 @@ def compute_nav0(core, snapshot: dict, decision_at_utc: str) -> dict:
     flags = set()
     if any(r["market"] == "US" for r in rows) and fx["status"] != "VERIFIED":
         flags.add(f"FX_{fx['status']}")
+        flags.add("NAV_PARTIALLY_UNVERIFIED")
     if any(r["krw"] is None for r in rows):
         return {"status": "UNKNOWN", "nav0_krw": None, "fx": fx, "flags": sorted(flags | {"NAV_HOLDING_WITHOUT_KRW_VALUE"}),
                 "unverified_markets": sorted({r["market"] for r in rows if not r["verified"]})}
@@ -191,6 +199,7 @@ def compute_nav0(core, snapshot: dict, decision_at_utc: str) -> dict:
         flags.add("NAV_PARTIALLY_UNVERIFIED")
     nav = cash + sum((r["krw"] for r in rows), Fraction(0))
     return {"status": "KNOWN", "nav0_krw": CORE.fstr(nav), "fx": fx, "flags": sorted(flags),
+            "nav_verification": "UNVERIFIED" if "NAV_PARTIALLY_UNVERIFIED" in flags else "VERIFIED",
             "unverified_markets": unverified}
 
 
@@ -227,8 +236,11 @@ def build_session_budget_record(
         CORE.fail("DECISION_OUTSIDE_CRYPTO_SESSION")
     if nav_snapshot.get("as_of_utc") is None or nav_snapshot["as_of_utc"] > decision_at_utc:
         CORE.fail("NAV_SNAPSHOT_AFTER_DECISION")
-    if envelope.get("decision_at_utc") is None or envelope["decision_at_utc"] > decision_at_utc:
-        CORE.fail("ENVELOPE_AFTER_DECISION")
+    # The embedded envelope must re-derive under its own registry/config and be
+    # the envelope of this very decision (no stale envelope reuse).
+    ENV.validate_envelope(envelope, root=core_root(core))
+    if envelope["decision_at_utc"] != decision_at_utc:
+        CORE.fail("ENVELOPE_DECISION_TIME_MISMATCH")
     env_market = envelope["markets"][market]
     row = core.context.rules[RULE_SIZE]
     size_cap = CORE.frac(core.param("per_name_nav_cap")["max_nav"])
@@ -262,8 +274,6 @@ def build_session_budget_record(
         reasons.append("NAV0_UNKNOWN")
     elif market in nav["unverified_markets"]:
         reasons.append("MARKET_HOLDING_VALUATION_UNVERIFIED")
-    if market == "US" and nav["fx"]["status"] != "VERIFIED":
-        reasons.append(f"US_FX_{nav['fx']['status']}_NO_NEW_ALLOCATION")
     if env_market["cap_fraction"] is None:
         reasons.append("MARKET_CAP_NOT_APPLICABLE")
     if nav["status"] == "KNOWN" and env_market["cap_fraction"] is not None:
@@ -378,11 +388,16 @@ def build_session_budget_record(
     return CORE.sign(record, "record_sha256")
 
 
-def validate_session_budget_record(core, record: dict) -> dict:
-    """Re-derive from embedded inputs; any byte difference fails."""
+def core_root(core):
+    return core.root
+
+
+def validate_session_budget_record(record: dict, *, root=CORE.ROOT) -> dict:
+    """Re-derive from embedded inputs under the registry snapshot the record names."""
     CORE.verify_signed(record, "record_sha256", "SESSION_BUDGET_RECORD_SHA_MISMATCH")
     if record.get("schema_version") != RECORD_SCHEMA_VERSION:
         CORE.fail("SESSION_BUDGET_RECORD_SCHEMA_INVALID")
+    core = CORE.load_core_for_record(record, root)
     rebuilt = build_session_budget_record(
         core, market=record["key"]["market"], session_id=record["key"]["session_id"],
         decision_at_utc=record["decision_at_utc"], **record["inputs"])
@@ -410,7 +425,7 @@ class SessionBudgetLedger:
         CORE.verify_signed(event, "event_sha256", "LEDGER_EVENT_SHA_MISMATCH")
         kind = event.get("event_type")
         if kind == "SESSION_BUDGET_RECORDED":
-            record = validate_session_budget_record(self.core, event["record"])
+            record = validate_session_budget_record(event["record"], root=core_root(self.core))
             key = _key_tuple(record["key"])
             existing = self._records.get(key)
             if existing is not None:
@@ -432,7 +447,7 @@ class SessionBudgetLedger:
                 if orders[order_id] != amount:
                     CORE.fail("ORDER_ID_CONFLICT", order_id)
                 return "UNCHANGED_SAME_ORDER"
-            budget = CORE.frac(self._records[key]["market_room"]["budget_krw"] or "0")
+            budget = (CORE.opt_frac(self._records[key]["market_room"]["budget_krw"], "budget_krw") or Fraction(0))
             if sum(orders.values(), Fraction(0)) + amount > budget:
                 CORE.fail("SESSION_BUDGET_EXCEEDED", order_id)
             orders[order_id] = amount
@@ -471,5 +486,5 @@ class SessionBudgetLedger:
 
     def remaining_krw(self, record: dict) -> str:
         key = _key_tuple(record["key"])
-        budget = CORE.frac(self._records[key]["market_room"]["budget_krw"] or "0")
+        budget = (CORE.opt_frac(self._records[key]["market_room"]["budget_krw"], "budget_krw") or Fraction(0))
         return CORE.fstr(budget - sum(self._consumed[key].values(), Fraction(0)))
