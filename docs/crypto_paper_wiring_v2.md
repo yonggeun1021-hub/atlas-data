@@ -121,3 +121,25 @@ Decisions `/1-/3` keep producing request `/3` (and `/2` replays) unchanged.
 * Runtime config `/1` `order_type` / `limit_price_source` are not used by `/4`
   (superseded by RULE.EXEC.QUALITY_LAYERS.V1); `fee_rate`, `queue_fraction`
   still are. `open_position_risk` is optional (record-only planned loss).
+
+## 7. Follow-up: /4 consumers and the decision time bound
+
+* `portfolio/crypto_paper_stale_hold.py` accepts `/4` (same per-market layout).
+* `governance/rule_lineage_producers.py` accepts `/4`: adds `promotion_t2_required`
+  and `buy_eligibility` events from the candidates' `rule_refs`; `/1-/3`
+  sidecars are unchanged.
+* `briefing/crypto_funnel_briefing.py` contract `/4` (sources `/1-/4`); issued
+  contract `/3` briefings revalidate under the frozen `/3` contract. `/4`
+  briefings add the runtime decision / rotation reference and T2 state per row.
+* Decision time: the workflow samples `generated_at` after the capture and
+  truncates it to the second, so the last realtime message could postdate it
+  (bridge `REALTIME_*_FUTURE_DATED`). `populate()` now stamps new packets
+  (`/3` and `/4`) with `decision_time_not_before_inputs`: the first whole second
+  no realtime input postdates (at most +1s; nothing uncaptured is admitted and
+  freshness is judged at the later instant). `/4` build rejects any realtime
+  input after `generated_at`. Committed packets keep their own `generated_at`
+  and re-derive byte-identically (they are not re-stamped, so a committed
+  packet like 2026-09-14 23:43:41 still cannot seed a bridge request). The
+  decision step writes the stamped `generated_at` to `GITHUB_OUTPUT`, and the
+  capture-gap guard accepts a packet stamped exactly +1s only when a realtime
+  input lies inside that second.

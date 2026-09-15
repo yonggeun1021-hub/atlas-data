@@ -64,6 +64,14 @@ REFERENCE_PRODUCER = "regime/paper_regime_reference.py"
 PER_MARKET_SCHEMA_VERSIONS = (
     "crypto_paper_decision_snapshot_packet/2",
     "crypto_paper_decision_snapshot_packet/3",
+    "crypto_paper_decision_snapshot_packet/4",
+)
+# /4 (crypto PAPER wiring v2) wires the runtime decision and the rotation
+# confirmation into P5-08 contract/3 and P5-09 contract/3: their per-candidate
+# ``rule_refs`` become lineage events and the "not wired" gaps no longer apply.
+V4_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/4"
+CRYPTO_CANDIDATE_UNAPPLIED_V4 = (
+    {"rule_id": "RULE.ROTATION.CRYPTO.V1", "reason_code": "ROTATION_BUCKET_STATE_PRODUCED_BY_CONFIRMATION_PACKET"},
 )
 LEGACY_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/1"
 REFERENCE_SCHEMA_VERSION = "paper_regime_reference/v2"
@@ -187,11 +195,27 @@ def build_crypto_decision_sidecar(packet: dict, context: REFS.RegistryContext) -
         capped_by_rule = bool(row["freshness_capped"]) and (
             cap_reason.startswith(REALTIME_CAP_PREFIX) or cap_reason.startswith(FLOOR_CAP_PREFIX)
         )
+        v4 = schema == V4_SCHEMA_VERSION
+        if v4:
+            p5_08 = row["p5_08"]
+            events.append(event(
+                market, "promotion_t2_required", "BLOCK" if p5_08["promotion_state"] != "FOCUSED_REVIEW" else "DECISION",
+                {"promotion_state": p5_08["promotion_state"], "promotion_reason": p5_08["promotion_reason"]},
+                [(ref["rule_id"], ref["role"]) for ref in p5_08["rule_refs"]],
+                p5_08["unapplied_rules"], p5_08["t2_required_conditions"],
+            ))
+            p5_09 = row.get("p5_09")
+            if p5_09 is not None:
+                events.append(event(
+                    market, "buy_eligibility", "DECISION" if p5_09["eligibility_state"] == "PAPER_BUY_ELIGIBLE" else "BLOCK",
+                    {"eligibility_state": p5_09["eligibility_state"], "eligibility_reason": p5_09["eligibility_reason"]},
+                    [(ref["rule_id"], ref["role"]) for ref in p5_09["rule_refs"]], [], p5_09["criteria"],
+                ))
         events.append(event(
             market, "candidate_state", "BLOCK" if row["freshness_capped"] else "DECISION",
             state_outcome,
             [(FRESHNESS_RULE, "BLOCKED_BY" if capped_by_rule else "APPLIED")],
-            CRYPTO_CANDIDATE_UNAPPLIED, row,
+            CRYPTO_CANDIDATE_UNAPPLIED_V4 if v4 else CRYPTO_CANDIDATE_UNAPPLIED, row,
         ))
     return REFS.build_sidecar(context, producer=CRYPTO_PRODUCER, source_packet=source, events=events)
 

@@ -107,6 +107,10 @@ def file_entry(path: Path) -> dict:
 def replay(schema_version: str, *, v4_sources: bool = True, generated_at: str | None = None) -> dict:
     packet = natural_packet()
     kwargs = natural_entries(packet)
+    if schema_version == DECISION.V4_OUTPUT_SCHEMA_VERSION and generated_at is None:
+        # /4 requires a decision instant no realtime input postdates; the
+        # committed packet's truncated 23:43:41 precedes its last message.
+        generated_at = BRIDGE_REPLAY_AT
     if v4_sources and schema_version == DECISION.V4_OUTPUT_SCHEMA_VERSION:
         kwargs.update(runtime_decision_entry=file_entry(RUNTIME_PATH), rotation_entry=file_entry(ROTATION_PATH))
     return DECISION.build_snapshot(

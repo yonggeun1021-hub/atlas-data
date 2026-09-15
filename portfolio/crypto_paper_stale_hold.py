@@ -8,8 +8,9 @@ HOLD with its reason, and raises an alert once the position has stayed stale
 for more than 30 minutes.  The 30 minutes is an engineering alert budget, not
 a policy threshold, and it never changes an exit or entry outcome.
 
-Inputs are one ``crypto_paper_decision_snapshot_packet/3`` (per-market
-freshness recorded for every subscribed market; an issued ``/2`` packet falls
+Inputs are one ``crypto_paper_decision_snapshot_packet/3`` or ``/4`` (per-market
+freshness recorded for every subscribed market; ``/4`` keeps the ``/3``
+per-market layout; an issued ``/2`` packet falls
 back to its candidate rows), the caller's list of held markets (market codes only -- no
 quantity, price, fee, or P&L ever enters this module), and the previous
 state this function returned.  The private runtime owns the held-market list
@@ -89,7 +90,7 @@ def _stamp(value: dt.datetime) -> str:
 def _checked_decision(decision_packet: dict, *, revalidate: bool) -> dict:
     if not isinstance(decision_packet, dict):
         raise CryptoPaperStaleHoldError("DECISION_PACKET_INVALID")
-    if decision_packet.get("schema_version") not in DECISION.PER_MARKET_OUTPUT_SCHEMA_VERSIONS:
+    if decision_packet.get("schema_version") not in DECISION.PER_MARKET_LAYOUT_SCHEMA_VERSIONS:
         raise CryptoPaperStaleHoldError("DECISION_PACKET_NOT_PER_MARKET_SCHEMA")
     if revalidate:
         try:

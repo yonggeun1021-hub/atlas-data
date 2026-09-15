@@ -2476,6 +2476,12 @@ APPROVED_TESTS = [
     #   marketable limit + registry 150bp quantity reduction, market-state
     #   mapping, exit-intent sells). No order/exchange/REAL authority.
     "test/test_crypto_paper_wiring_v2.py",
+    # ★ Wiring v2 follow-up: stale hold, rule lineage and funnel briefing
+    #   accept decision /4 (additive, issued briefing contract/3 frozen); new
+    #   decision packets are stamped at the first whole second no realtime
+    #   input postdates (fixes REALTIME_*_FUTURE_DATED), /4 enforces it,
+    #   committed packets replay byte-identically.
+    "test/test_crypto_paper_wiring_v2_consumers.py",
     # ★ D1 per-market account marks (crypto_paper_account_state/2): a stale
     #   held market is valued UNKNOWN instead of freezing FRESH markets'
     #   exits; unknown NAV blocks new entries only. /1 unchanged.

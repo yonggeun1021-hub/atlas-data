@@ -171,6 +171,8 @@ class OtherComponentsUnchangedTests(unittest.TestCase):
     PR3_WIRING_MODULES = (
         "decision/crypto_paper_decision_snapshot.py", "shadow/crypto_paper_runtime_bridge.py",
         "universe/crypto_candidate_promotion.py", "universe/crypto_paper_buy_eligibility.py",
+        # /4 display of the packet's rotation confirmation reference only.
+        "briefing/crypto_funnel_briefing.py",
     )
 
     def test_no_existing_producer_or_pinned_runtime_module_imports_the_confirmation_layer(self):
