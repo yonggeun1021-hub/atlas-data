@@ -329,11 +329,15 @@ class PublishTests(unittest.TestCase):
 
 class CommittedPointerAndWorkflowTests(unittest.TestCase):
     @unittest.skipIf(yaml is None, "PyYAML not installed")
-    def test_workflow_is_dispatch_only_and_bounded(self):
+    def test_workflow_is_scheduled_morning_capture_and_bounded(self):
         raw = WORKFLOW.read_text(encoding="utf-8")
         workflow = yaml.safe_load(raw)
         triggers = workflow.get("on", workflow.get(True))
-        self.assertEqual(set(triggers), {"workflow_dispatch"})
+        self.assertEqual(set(triggers), {"schedule", "workflow_dispatch"})
+        # Next-morning capture only (same-evening rows were provisional on 09-14).
+        self.assertEqual([c["cron"] for c in triggers["schedule"]], ["40 23 * * 0-4", "45 0 * * 1-5"])
+        # Scheduled runs carry no inputs, so every mode check must default to capture.
+        self.assertNotRegex(raw, r"inputs\.mode(?! \|\| 'capture')")
         self.assertEqual(workflow["permissions"], {"contents": "write", "actions": "read"})
         steps = workflow["jobs"]["publish"]["steps"]
         runs = "\n".join(step.get("run", "") for step in steps)

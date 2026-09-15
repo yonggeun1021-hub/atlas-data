@@ -3,25 +3,20 @@ name: KR PAPER Runtime Daily Publish
 # KC3 (build plan 2026-09-15 §3-2): daily KR PAPER display regime under
 # KR_PAPER_RUNTIME_ADOPTION_V1 (CIO-KR-RUNTIME-DAILY-ADOPTION-20260914).
 #
-# DISPATCH-ONLY. No schedule or workflow_run trigger is active. Activation
-# needs explicit user approval. Proposed triggers (NOT active):
+# SCHEDULED (activated 2026-09-15 on user approval; restarts the 28-session
+# chain after the 09-14 permanent gap). Scheduled runs use capture mode.
 #
-#   schedule:
-#     - cron: "40 23 * * 0-4"  # 08:40 KST next morning; capture mode. Not the
-#                              # same evening: at 18:14 KST on 2026-09-14 the
-#                              # current-day rows were still provisional
-#                              # (lateInfoMsgCd ME006, MKTCAP != close x shares)
-#                              # and the bridge rejected them
-#                              # (MARKET_CAP_SEMANTICS_INVALID, run 34936414628).
-#     - cron: "45 0 * * 1-5"   # 09:45 KST next morning: recovery slot. The
-#                              # last completed pair stays (P, D) until the
-#                              # next 15:30 KST close; an existing dated packet
-#                              # is skipped (idempotent, no overwrite).
-#   # Alternative chaining for artifact mode (also NOT active):
-#   # workflow_run:
-#   #   workflows: ["Korea Market Five Signals"]
-#   #   types: [completed]
-#   # with signals_run_id = github.event.workflow_run.id and a success guard.
+#   - 08:40 KST next morning, not the same evening: at 18:14 KST on 2026-09-14
+#     the current-day rows were still provisional (lateInfoMsgCd ME006,
+#     MKTCAP != close x shares) and the bridge rejected them
+#     (MARKET_CAP_SEMANTICS_INVALID, run 34936414628).
+#   - 09:45 KST recovery slot. The last completed pair stays (P, D) until the
+#     next 15:30 KST close; an existing dated packet is skipped (idempotent,
+#     no overwrite).
+#
+# Alternative chaining for artifact mode (NOT active):
+#   workflow_run: workflows ["Korea Market Five Signals"], types [completed],
+#   with signals_run_id = github.event.workflow_run.id and a success guard.
 #
 # Why the capture retry lives here and korea-market-signals.yml is untouched:
 # that workflow's sha256 is pinned by config/regime_source_owner_registry_v2.json
@@ -36,6 +31,9 @@ name: KR PAPER Runtime Daily Publish
 # step and are never printed. Every capital/order/trading/REAL flag stays false.
 
 on:
+  schedule:
+    - cron: "40 23 * * 0-4"  # 08:40 KST Mon-Fri, capture mode
+    - cron: "45 0 * * 1-5"   # 09:45 KST Mon-Fri, recovery slot (skips existing packet)
   workflow_dispatch:
     inputs:
       mode:
@@ -77,7 +75,7 @@ jobs:
           python3 test/test_kr_paper_runtime_adoption_v1.py
       - name: Resolve last completed KRX session pair (capture mode)
         id: pair
-        if: inputs.mode == 'capture'
+        if: (inputs.mode || 'capture') == 'capture'
         run: |
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           python3 -m regime.kr_paper_runtime_adoption_v1 resolve-pair --now "$NOW" > "$RUNNER_TEMP/pair.json"
@@ -91,12 +89,12 @@ jobs:
           print(f"floor={'true' if pair['display_floor_reached'] else 'false'}")
           PY
       - name: Stop before the 18:00 KST display floor (capture mode)
-        if: inputs.mode == 'capture' && steps.pair.outputs.skip != 'true' && steps.pair.outputs.floor != 'true'
+        if: (inputs.mode || 'capture') == 'capture' && steps.pair.outputs.skip != 'true' && steps.pair.outputs.floor != 'true'
         run: |
           echo "STOP: display floor not reached for ${{ steps.pair.outputs.current_date }}; nothing captured"
           exit 2
       - name: Install hash-locked KRX source dependency (capture mode)
-        if: inputs.mode == 'capture' && steps.pair.outputs.skip != 'true'
+        if: (inputs.mode || 'capture') == 'capture' && steps.pair.outputs.skip != 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/dependency-wheels"
           python3 -m pip download --only-binary=:all: --require-hashes \
@@ -111,7 +109,7 @@ jobs:
             --contract config/krx_information_system_source_candidate_v1.json \
             --wheel-dir "$RUNNER_TEMP/dependency-wheels"
       - name: Capture with bounded retry (capture mode)
-        if: inputs.mode == 'capture' && steps.pair.outputs.skip != 'true'
+        if: (inputs.mode || 'capture') == 'capture' && steps.pair.outputs.skip != 'true'
         env:
           KRX_ID: ${{ secrets.KRX_ID }}
           KRX_PW: ${{ secrets.KRX_PW }}
@@ -150,7 +148,7 @@ jobs:
           echo "SOURCE_RUN_ATTEMPTS=$attempt" >> "$GITHUB_ENV"
       - name: Verify source run (artifact mode)
         id: source
-        if: inputs.mode == 'artifact'
+        if: (inputs.mode || 'capture') == 'artifact'
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNALS_RUN_ID: ${{ inputs.signals_run_id }}
@@ -172,7 +170,7 @@ jobs:
           print(f"artifact_digest={names[0].get('digest') or ''}")
           PY
       - name: Download source artifact (artifact mode)
-        if: inputs.mode == 'artifact'
+        if: (inputs.mode || 'capture') == 'artifact'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ steps.source.outputs.artifact_name }}
@@ -180,9 +178,9 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/bundle
       - name: Write bundle provenance
-        if: inputs.mode == 'artifact' || steps.pair.outputs.skip != 'true'
+        if: (inputs.mode || 'capture') == 'artifact' || steps.pair.outputs.skip != 'true'
         env:
-          MODE: ${{ inputs.mode }}
+          MODE: ${{ inputs.mode || 'capture' }}
           ARTIFACT_NAME: ${{ steps.source.outputs.artifact_name }}
           ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
         run: |
@@ -221,7 +219,7 @@ jobs:
               handle.write(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
           PY
       - name: Publish dated packet and latest pointer
-        if: inputs.mode == 'artifact' || steps.pair.outputs.skip != 'true'
+        if: (inputs.mode || 'capture') == 'artifact' || steps.pair.outputs.skip != 'true'
         run: |
           # Without pipefail a publisher exception piped into tee exits 0 and
           # the run concludes success (run 34936414628).
@@ -234,7 +232,7 @@ jobs:
             --code-revision "$(git rev-parse HEAD)" \
             --require-bot-chain | tee "$RUNNER_TEMP/publication.json"
       - name: Verify commit boundary (aggregates only)
-        if: inputs.mode == 'artifact' || steps.pair.outputs.skip != 'true'
+        if: (inputs.mode || 'capture') == 'artifact' || steps.pair.outputs.skip != 'true'
         run: |
           git status --porcelain --untracked-files=all > "$RUNNER_TEMP/changes.txt"
           cat "$RUNNER_TEMP/changes.txt"
@@ -260,7 +258,7 @@ jobs:
         # bundle is NOT uploaded. Only response hashes, manifest identity and
         # the failure reason go to the job summary. Re-capture must happen
         # before the next session close (15:30 KST) or the session is lost.
-        if: failure() && inputs.mode == 'capture' && steps.pair.outputs.skip != 'true'
+        if: failure() && (inputs.mode || 'capture') == 'capture' && steps.pair.outputs.skip != 'true'
         run: |
           python3 - >> "$GITHUB_STEP_SUMMARY" <<'PY'
           import hashlib, json, os
@@ -280,7 +278,7 @@ jobs:
           print("\n".join(lines))
           PY
       - name: Commit and push
-        if: inputs.mode == 'artifact' || steps.pair.outputs.skip != 'true'
+        if: (inputs.mode || 'capture') == 'artifact' || steps.pair.outputs.skip != 'true'
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
