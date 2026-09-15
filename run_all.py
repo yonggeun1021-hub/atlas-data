@@ -2749,6 +2749,21 @@ APPROVED_TESTS = [
     "test/test_spdr_sector_holdings.py",
     "test/test_spdr_sector_holdings_workflow.py",
     "test/test_us_spdr_sector_mapping.py",
+    # ★ TKT-2 (W1) KR full-universe daily price history (#718): market-agnostic
+    #   price_history_session/1 contract, KR collector (no default opener, no
+    #   collection before next-morning publication, calendar-only session
+    #   selection, EMPTY never stored as data but repairable to OK), store
+    #   reader + calendar window, optional evaluator input with a
+    #   PRIVATE_ONLY public-write guard. Zero price bytes tracked publicly.
+    "test/test_krx_price_history.py",
+    "test/test_korea_population_price_history_input.py",
+    # ★ KR T2 C3 liquidity evaluator: thresholds read from the sha-verified
+    #   evidence/authority/paper_liquidity_kr_us_user_ratification_20260914.json
+    #   (no number in code); window = calendar's last 20 sessions ending at the
+    #   required session; any missing/EMPTY session, gap or flag gap -> UNKNOWN;
+    #   NOT_EVALUATED only for <20 sessions of listing history; per-symbol
+    #   results private, public summary counts only.
+    "test/test_kr_liquidity_c3.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
