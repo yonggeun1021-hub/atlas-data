@@ -148,6 +148,20 @@ def _crypto_runtime():
     return _CRYPTO_RUNTIME_MODULE
 
 
+# Loaded only when a rotation confirmation packet is supplied on contract/3
+# (crypto PAPER wiring v2), so every existing import graph is unchanged.
+_ROTATION_WIRING_MODULE = None
+
+
+def _rotation_wiring():
+    global _ROTATION_WIRING_MODULE
+    if _ROTATION_WIRING_MODULE is None:
+        _ROTATION_WIRING_MODULE = _load(
+            "crypto_candidate_promotion_rotation_wiring", "rotation/rotation_confirmation_wiring.py",
+        )
+    return _ROTATION_WIRING_MODULE
+
+
 CONTRACT_PATH = ROOT / "config" / "crypto_candidate_promotion_contract.json"
 OUTPUT_SCHEMA_VERSION = "crypto_candidate_promotion_packet/2"
 
@@ -1122,6 +1136,76 @@ def evaluate_t2_rotation_membership(canonical_asset_id: str | None) -> dict:
     )
 
 
+ROTATION_CRYPTO_MARKET = "CRYPTO"
+
+
+def _validate_rotation_confirmation(packet: object, *, reference_at: str) -> dict:
+    """Integrity boundary for a ``rotation_confirmation_packet/1`` (CRYPTO).
+
+    Packet hash, market and the ratified rotation policy identity are checked
+    by the #752 wiring itself. A packet for the reference UTC day (or later)
+    is lookahead: the as-of day's leadership close is not complete yet.
+    """
+    wiring = _rotation_wiring()
+    try:
+        checked = wiring.RC.validate_packet(copy.deepcopy(packet))
+    except ValueError as exc:
+        raise CryptoCandidatePromotionError(f"ROTATION_CONFIRMATION_INVALID:{exc}") from exc
+    if checked.get("market") != ROTATION_CRYPTO_MARKET:
+        raise CryptoCandidatePromotionError("ROTATION_CONFIRMATION_MARKET_MISMATCH")
+    if checked.get("policy") != wiring.RC.policy_identity(wiring.RC.load_policy()):
+        raise CryptoCandidatePromotionError("ROTATION_CONFIRMATION_POLICY_MISMATCH")
+    reference_day = _parse_utc(reference_at, "rotation.reference_at").date()
+    if _parse_date(checked.get("as_of_date"), "rotation.as_of_date") >= reference_day:
+        raise CryptoCandidatePromotionError("ROTATION_CONFIRMATION_LOOKAHEAD")
+    return checked
+
+
+def evaluate_t2_rotation_membership_confirmed(
+    canonical_asset_id: str | None, rotation_confirmation: dict, *, reference_at: str,
+) -> dict:
+    """RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1 C5 read from the ratified crypto
+    rotation confirmation packet (``rotation/rotation_confirmation_wiring.py``).
+
+    PASS only for a STRONG_CONFIRMED / STRONG_HELD bucket; another observed
+    state FAILs; an unobserved, stale, not-yet-effective packet or an
+    unresolved bucket is UNKNOWN (fail closed, never inferred).
+    """
+    wiring = _rotation_wiring()
+    policy = wiring.RC.load_policy()
+    pass_states = list(policy["common"]["t2_c5_pass_states"])
+    bucket = rotation_bucket(canonical_asset_id)
+    scope_id = policy["markets"][ROTATION_CRYPTO_MARKET]["scope_id"]
+    evaluation_date = _parse_utc(reference_at, "rotation.reference_at").date().isoformat()
+    lineage = {
+        "rotation_bucket": bucket,
+        "required_states": pass_states,
+        "confirmation_as_of_date": rotation_confirmation["as_of_date"],
+        "confirmation_payload_sha256": rotation_confirmation["payload_sha256"],
+        "scope_id": scope_id,
+    }
+    try:
+        blocker = wiring.packet_blocker(rotation_confirmation, ROTATION_CRYPTO_MARKET, evaluation_date, policy)
+    except ValueError as exc:
+        raise CryptoCandidatePromotionError(f"ROTATION_CONFIRMATION_INVALID:{exc}") from exc
+    if blocker is not None:
+        return _criterion("UNKNOWN", f"ROTATION_CONFIRMATION_UNKNOWN:{blocker}",
+                          sector_state=None, strong_confirmed_on=None, **lineage)
+    if bucket is None:
+        return _criterion("UNKNOWN", "ROTATION_BUCKET_UNRESOLVED",
+                          sector_state=None, strong_confirmed_on=None, **lineage)
+    entity = wiring._entity(rotation_confirmation, scope_id, bucket)
+    if entity is None:
+        return _criterion("UNKNOWN", "ROTATION_BUCKET_NOT_OBSERVED",
+                          sector_state=None, strong_confirmed_on=None, **lineage)
+    state = entity["state"]
+    if state in pass_states:
+        return _criterion("PASS", f"ROTATION_{state}", sector_state=state,
+                          strong_confirmed_on=entity["strong_confirmed_on"], **lineage)
+    return _criterion("FAIL", f"ROTATION_NOT_STRONG_CONFIRMED_OR_HELD:{state}", sector_state=state,
+                      strong_confirmed_on=None, **lineage)
+
+
 def aggregate_t2_state(t2_conditions: dict) -> tuple[str, str]:
     """Contract/3 state rule: only the six T2 required conditions decide."""
     if set(t2_conditions) != set(T2_REQUIRED_CONDITIONS):
@@ -1245,6 +1329,7 @@ def evaluate_candidate_v3(
     policy_unavailable_reason: str | None,
     snapshot_date: str,
     reference_at: str,
+    rotation_confirmation: dict | None = None,
 ) -> dict:
     """Contract/3 row under RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1.
 
@@ -1273,7 +1358,12 @@ def evaluate_candidate_v3(
         "T2_POPULATION_MEMBERSHIP": evaluate_t2_population_membership(universe_row, snapshot_date=snapshot_date),
         "T2_LIQUIDITY": evaluate_t2_liquidity(universe_row),
         "T2_PRICE_DATA": evaluate_t2_price_data(market, market_evidence_packet, reference_at=reference_at),
-        "T2_ROTATION_MEMBERSHIP": evaluate_t2_rotation_membership(canonical_asset_id),
+        "T2_ROTATION_MEMBERSHIP": (
+            evaluate_t2_rotation_membership(canonical_asset_id) if rotation_confirmation is None
+            else evaluate_t2_rotation_membership_confirmed(
+                canonical_asset_id, rotation_confirmation, reference_at=reference_at,
+            )
+        ),
         "T2_REGIME_PERMITS_NEW_BUYS": copy.deepcopy(regime_criterion),
     }
     state, reason = aggregate_t2_state(t2)
@@ -1282,15 +1372,21 @@ def evaluate_candidate_v3(
         for name, role in NON_BLOCKING_CRITERIA_V3.items() if criteria[name]["status"] != "PASS"
     )
     regime_role = "BLOCKED_BY" if t2["T2_REGIME_PERMITS_NEW_BUYS"]["status"] == "FAIL" else "APPLIED"
-    rule_refs = sorted(
-        [
-            _rule_ref(T2_RULE_ID, "BLOCKED_BY" if state == STATE_BLOCKED else "APPLIED"),
-            _rule_ref(ENTRY_BASELINE_RULE_ID, "APPLIED"),
-            _rule_ref(CRYPTO_RUNTIME_RULE_ID, regime_role),
-            _rule_ref(ALLOCATION_V2_RULE_ID, regime_role),
-        ],
-        key=lambda item: (item["rule_id"], item["role"]),
-    )
+    refs = [
+        _rule_ref(T2_RULE_ID, "BLOCKED_BY" if state == STATE_BLOCKED else "APPLIED"),
+        _rule_ref(ENTRY_BASELINE_RULE_ID, "APPLIED"),
+        _rule_ref(CRYPTO_RUNTIME_RULE_ID, regime_role),
+        _rule_ref(ALLOCATION_V2_RULE_ID, regime_role),
+    ]
+    if rotation_confirmation is None:
+        unapplied = [{"rule_id": ROTATION_T2_RULE_ID, "reason_code": ROTATION_NOT_WIRED_REASON}]
+    else:
+        unapplied = []
+        refs.append(_rule_ref(
+            ROTATION_T2_RULE_ID,
+            "BLOCKED_BY" if t2["T2_ROTATION_MEMBERSHIP"]["status"] == "FAIL" else "APPLIED",
+        ))
+    rule_refs = sorted(refs, key=lambda item: (item["rule_id"], item["role"]))
     return {
         "market": market,
         "canonical_asset_id": canonical_asset_id,
@@ -1301,9 +1397,7 @@ def evaluate_candidate_v3(
         "promotion_state": state,
         "promotion_reason": reason,
         "rule_refs": rule_refs,
-        "unapplied_rules": [
-            {"rule_id": ROTATION_T2_RULE_ID, "reason_code": ROTATION_NOT_WIRED_REASON},
-        ],
+        "unapplied_rules": unapplied,
         "authority": dict(_ROW_AUTHORITY),
     }
 
@@ -1317,6 +1411,7 @@ def build_promotion_packet(
     evaluation_as_of: str,
     contract_version: int = 2,
     crypto_runtime_decision: dict | None = None,
+    rotation_confirmation: dict | None = None,
 ) -> dict:
     """Pure derivation over four already-built, already-timestamped
     upstream evidence packets. Deterministic: the same inputs always
@@ -1330,12 +1425,21 @@ def build_promotion_packet(
     reads VOLUME_LIQUIDITY from the ratified P4-07 policy only, and emits
     ``crypto_candidate_promotion_packet/3``. The regime reference instant is
     the validated P1-CR-08 envelope's ``generated_at``.
+
+    ``rotation_confirmation`` (contract/3 only, crypto PAPER wiring v2): a
+    CRYPTO ``rotation_confirmation_packet/1`` whose as-of date is before the
+    reference UTC day. When supplied, T2_ROTATION_MEMBERSHIP reads the
+    ratified bucket state and the packet is retained under
+    ``source_packets.rotation_confirmation``; when omitted the contract/3
+    output is byte-identical to before (condition UNKNOWN, not wired).
     """
     if contract_version not in CONTRACT_VERSIONS or type(contract_version) is not int:
         raise CryptoCandidatePromotionError(f"CONTRACT_VERSION_UNSUPPORTED:{contract_version!r}")
     v3 = contract_version == 3
     if not v3 and crypto_runtime_decision is not None:
         raise CryptoCandidatePromotionError("CRYPTO_RUNTIME_DECISION_REQUIRES_CONTRACT_V3")
+    if not v3 and rotation_confirmation is not None:
+        raise CryptoCandidatePromotionError("ROTATION_CONFIRMATION_REQUIRES_CONTRACT_V3")
     contract_v3 = load_contract_v3() if v3 else None
     _parse_date(evaluation_as_of, "evaluation_as_of")
     universe_packet = _validate_universe_packet(universe_packet, evaluation_as_of)
@@ -1376,6 +1480,10 @@ def build_promotion_packet(
         regime_criterion = evaluate_crypto_runtime_regime(
             normalized_runtime, reference_at=regime_payload["generated_at"],
         )
+        normalized_rotation = (
+            _validate_rotation_confirmation(rotation_confirmation, reference_at=regime_payload["generated_at"])
+            if rotation_confirmation is not None else None
+        )
     else:
         normalized_market_evidence = {
             market: _validate_market_evidence_packet(packet, market, evaluation_as_of)
@@ -1401,6 +1509,7 @@ def build_promotion_packet(
                     policy_unavailable_reason=policy_unavailable_reason,
                     snapshot_date=universe_packet["snapshot_date"],
                     reference_at=regime_payload["generated_at"],
+                    rotation_confirmation=normalized_rotation,
                 )
             )
         else:
@@ -1421,6 +1530,8 @@ def build_promotion_packet(
     }
     if v3:
         source_packets["crypto_runtime_decision"] = copy.deepcopy(normalized_runtime)
+        if normalized_rotation is not None:
+            source_packets["rotation_confirmation"] = copy.deepcopy(normalized_rotation)
     packet = {
         "schema_version": OUTPUT_SCHEMA_VERSION_V3 if v3 else OUTPUT_SCHEMA_VERSION,
         "contract_version": (contract_v3 if v3 else load_contract())["contract_version"],
@@ -1475,12 +1586,16 @@ def validate_output(packet: dict) -> dict:
     expected_sources = {"universe", "regime", "market_evidence_by_market", "leadership"}
     if contract_version == 3:
         expected_sources.add("crypto_runtime_decision")
+        if isinstance(sources, dict) and "rotation_confirmation" in sources:
+            expected_sources.add("rotation_confirmation")
     if not isinstance(sources, dict) or set(sources) != expected_sources:
         raise CryptoCandidatePromotionError("OUTPUT_SOURCE_PACKETS_INVALID")
     extra = (
         {"contract_version": 3, "crypto_runtime_decision": sources["crypto_runtime_decision"]}
         if contract_version == 3 else {}
     )
+    if "rotation_confirmation" in expected_sources:
+        extra["rotation_confirmation"] = sources["rotation_confirmation"]
     rebuilt = build_promotion_packet(
         sources["universe"],
         sources["regime"],

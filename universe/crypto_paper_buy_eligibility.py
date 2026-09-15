@@ -1023,3 +1023,518 @@ def validate_output(packet: dict) -> dict:
     if canonical_json(rebuilt) != canonical_json(packet):
         raise CryptoPaperBuyEligibilityError("OUTPUT_DERIVATION_MISMATCH")
     return copy.deepcopy(packet)
+
+
+# ===========================================================================
+# Contract/3 (crypto PAPER wiring v2, build plan PR3 item 2)
+# ===========================================================================
+#
+# ``crypto_paper_buy_eligibility_contract/3`` consumes a
+# ``crypto_candidate_promotion_packet/3`` that carries the CRYPTO_PAPER_
+# RUNTIME_V1 decision and the crypto rotation confirmation packet.  Contract/2
+# above is unchanged and stays the default (``build_eligibility_packet``).
+#
+# * Entry follows RULE.ENTRY.PAPER_BASELINE_B.V1: market state permits new
+#   buys, the bucket is STRONG_CONFIRMED/STRONG_HELD and the six T2 conditions
+#   pass (all carried by the upstream FOCUSED_REVIEW row); EMA20 / breakout /
+#   chase / ATR features are record-only.  The contract/2 criteria 3-6
+#   (trigger/timeframe alignment, breakout, independent evidence, freshness,
+#   material blocker, overextension) are therefore emitted under
+#   ``record_only_features`` and never change the state.
+# * Size is the session budget from the PAPER execution core
+#   (``portfolio/paper_session_budget.py``, RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2):
+#   the draft quantity is the recorded allocation line; no planned-loss sizing.
+# * Planned loss is record-only (RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1): the
+#   draft carries quantity x DS5 ATR multiple x Wilder ATR14 when computable,
+#   UNKNOWN otherwise, and it is never a gate.
+# * Expiry is the end of the crypto decision cycle (next 07:00Z,
+#   RULE.EXEC.TIME_CONTRACT.V1; canon 2-3).
+# * The duplicate guard key is the R1 key (market, decision packet id,
+#   instrument) of RULE.EXEC.REENTRY.V1, and D7 re-entry after a release sell
+#   or the crypto 21-day time stop needs a new strength confirmation
+#   (``portfolio/paper_position_episode.reentry_decision``).
+
+CONTRACT_V3_PATH = ROOT / "config" / "crypto_paper_buy_eligibility_contract_v3.json"
+OUTPUT_SCHEMA_VERSION_V3 = "crypto_paper_buy_eligibility_packet/3"
+CRITERIA_V3 = (
+    "FOCUSED_REVIEW_UPSTREAM",
+    "REGIME_PERMITS_ENTRY",
+    "ROTATION_MEMBERSHIP",
+    "REENTRY_PERMITTED",
+    "DUPLICATE_GUARD",
+    "ORDER_DRAFT_COMPLETE",
+    "ZERO_ORDER_ENDPOINT_CALLS",
+)
+GATING_CRITERIA_V3 = tuple(name for name in CRITERIA_V3 if name != "ORDER_DRAFT_COMPLETE")
+RECORD_ONLY_FEATURES_V3 = (
+    "TRIGGER_TIMEFRAME_ALIGNMENT",
+    "BREAKOUT_OR_PULLBACK",
+    "INDEPENDENT_PRICE_VOLUME_EVIDENCE",
+    "CURRENT_EVIDENCE_FRESHNESS",
+    "MATERIAL_BLOCKER",
+    "OVEREXTENSION",
+)
+ORDER_DRAFT_V3_FIELDS = (
+    "session_id", "session_budget_record_sha256", "allocated_krw", "planning_price_krw",
+    "quantity", "fee_rate", "submitted_amount_krw", "expires_at", "next_review_at",
+    "duplicate_guard_key", "reentry_key", "planned_loss",
+)
+_ORDER_DRAFT_V3_REQUIRED = (
+    "session_id", "session_budget_record_sha256", "allocated_krw", "planning_price_krw",
+    "quantity", "fee_rate", "submitted_amount_krw", "expires_at", "next_review_at",
+    "duplicate_guard_key", "reentry_key",
+)
+RULE_ENTRY_B = "RULE.ENTRY.PAPER_BASELINE_B.V1"
+RULE_SESSION_BUDGET = "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2"
+RULE_REENTRY = "RULE.EXEC.REENTRY.V1"
+RULE_TIME_CONTRACT = "RULE.EXEC.TIME_CONTRACT.V1"
+RULE_PLANNED_LOSS = "RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1"
+CRYPTO_MARKET = "CRYPTO"
+
+_V3_MODULES: dict = {}
+
+
+def _v3_modules() -> dict:
+    """Execution-core modules, loaded lazily so contract/2 imports stay unchanged."""
+    if not _V3_MODULES:
+        from portfolio import paper_execution_core as core_module
+        from portfolio import paper_position_episode as episode_module
+        from portfolio import paper_session_budget as budget_module
+        shadow = _load("crypto_paper_buy_eligibility_shadow_controls", "portfolio/paper_shadow_controls.py")
+        _V3_MODULES.update(CORE=core_module, EPISODE=episode_module, BUDGET=budget_module, SHADOW=shadow)
+    return _V3_MODULES
+
+
+def load_contract_v3(path: Path = CONTRACT_V3_PATH) -> dict:
+    value = _read_json(Path(path))
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != 3
+        or value.get("contract_version") != "crypto_paper_buy_eligibility_contract/3"
+        or value.get("input_promotion_contract") != "crypto_candidate_promotion_contract/3"
+    ):
+        raise CryptoPaperBuyEligibilityError("CONTRACT_V3_FIELD_MISMATCH:contract_version")
+    if tuple(value.get("criteria", [])) != CRITERIA_V3:
+        raise CryptoPaperBuyEligibilityError("CONTRACT_V3_FIELD_MISMATCH:criteria")
+    if tuple(value.get("record_only_features", [])) != RECORD_ONLY_FEATURES_V3:
+        raise CryptoPaperBuyEligibilityError("CONTRACT_V3_FIELD_MISMATCH:record_only_features")
+    if tuple(value.get("criterion_statuses", [])) != CRITERION_STATUSES:
+        raise CryptoPaperBuyEligibilityError("CONTRACT_V3_FIELD_MISMATCH:criterion_statuses")
+    if tuple(value.get("eligibility_states", [])) != ELIGIBILITY_STATES:
+        raise CryptoPaperBuyEligibilityError("CONTRACT_V3_FIELD_MISMATCH:eligibility_states")
+    if tuple(value.get("order_draft_fields", [])) != ORDER_DRAFT_V3_FIELDS:
+        raise CryptoPaperBuyEligibilityError("CONTRACT_V3_FIELD_MISMATCH:order_draft_fields")
+    authority = value.get("authority", {})
+    if set(authority) != set(_ROW_AUTHORITY) or any(item is not False for item in authority.values()):
+        raise CryptoPaperBuyEligibilityError("CONTRACT_V3_AUTHORITY_NOT_FALSE")
+    return copy.deepcopy(value)
+
+
+def _inline_rule_refs(core, pairs, decision_at_utc: str) -> list:
+    """Registry-row ``rule_refs`` (version + source record), in force at the decision.
+
+    ``registry_sha256`` stays null, like P5-08 contract/3, so a packet re-derives
+    after registry rows are added; a rule id's version and record never change.
+    """
+    from governance import rule_registry as registry_module
+
+    registry = core.context.registry
+    refs = {}
+    for rule_id, role in pairs:
+        row = core.context.rules.get(rule_id)
+        if row is None:
+            raise CryptoPaperBuyEligibilityError(f"RULE_NOT_REGISTERED:{rule_id}")
+        if not registry_module.in_force_at(row, decision_at_utc, registry):
+            raise CryptoPaperBuyEligibilityError(f"RULE_NOT_IN_FORCE_AT_DECISION:{rule_id}@{decision_at_utc}")
+        refs[(rule_id, role)] = {
+            "rule_id": rule_id,
+            "version": row["version"],
+            "registry_sha256": None,
+            "source_record_sha256": registry_module.primary_record_sha256(row),
+            "role": role,
+        }
+    return [refs[key] for key in sorted(refs)]
+
+
+def compute_reentry_key(decision_packet_id: str, instrument: str) -> dict:
+    """R1 key of RULE.EXEC.REENTRY.V1 and the order idempotency token derived from it."""
+    if not isinstance(decision_packet_id, str) or not _SHA_RE.fullmatch(decision_packet_id):
+        raise CryptoPaperBuyEligibilityError("DECISION_PACKET_ID_INVALID")
+    key = {"market": CRYPTO_MARKET, "decision_packet_id": decision_packet_id, "instrument": instrument}
+    digest = hashlib.sha256(canonical_json(key).encode("utf-8")).hexdigest()[:24].upper()
+    token = f"CRYPTO-PAPER-BUY-{instrument}-R1-{digest}"
+    if not _TOKEN_RE.fullmatch(token):
+        raise CryptoPaperBuyEligibilityError("DUPLICATE_GUARD_KEY_FORMAT_INVALID")
+    return {"key": key, "duplicate_guard_key": token}
+
+
+def _record_only_features(universe_row: dict, market_evidence_packet: dict | None, policy: dict) -> dict:
+    return {
+        "TRIGGER_TIMEFRAME_ALIGNMENT": evaluate_trigger_timeframe_alignment(market_evidence_packet),
+        "BREAKOUT_OR_PULLBACK": evaluate_breakout_or_pullback(market_evidence_packet, policy),
+        "INDEPENDENT_PRICE_VOLUME_EVIDENCE": evaluate_independent_price_volume_evidence(market_evidence_packet),
+        "CURRENT_EVIDENCE_FRESHNESS": evaluate_current_evidence_freshness(market_evidence_packet),
+        "MATERIAL_BLOCKER": PROMOTION.evaluate_material_blocker(universe_row),
+        "OVEREXTENSION": PROMOTION.evaluate_overextension(),
+    }
+
+
+def _daily_bars(market_evidence_packet: dict | None) -> list:
+    rows = _finalized(market_evidence_packet, "1d") or []
+    return [
+        {
+            "bar_date": row["open_time"][:10], "close_at": row["close_time"],
+            "high": row["high_price"], "low": row["low_price"], "close": row["trade_price"],
+        }
+        for row in rows
+    ]
+
+
+def planned_loss_record(quantity: str | None, market_evidence_packet: dict | None, decision_at_utc: str) -> dict:
+    """RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1: record, never a gate (build plan
+    section 9 CIO note 4: stop distance = DS5 ATR multiple x Wilder ATR14)."""
+    modules = _v3_modules()
+    shadow = modules["SHADOW"]
+    if "EXIT_POLICY" not in modules:
+        modules["EXIT_POLICY"] = shadow.EXIT.load_policy()
+    policy = modules["EXIT_POLICY"]
+    multiple = policy["config"]["rules"]["shadow_controls"]["controls"]["DS5"]["atr_multiple"]
+    atr = shadow.wilder_atr14(policy, _daily_bars(market_evidence_packet), decision_at_utc)
+    base = {
+        "role": "RECORD_ONLY",
+        "basis": "QUANTITY_X_DS5_ATR_MULTIPLE_X_WILDER_ATR14",
+        "atr_multiple": multiple,
+        "atr14": atr["atr14"],
+        "atr_status": atr["status"],
+        "atr_record_sha256": atr["payload_sha256"],
+    }
+    if quantity is None or atr["status"] != "OBSERVED":
+        return base | {"status": "UNKNOWN", "planned_loss_krw": None}
+    core = modules["CORE"]
+    loss = core.frac(quantity, "quantity") * core.frac(multiple, "atr_multiple") * core.frac(atr["atr14"], "atr14")
+    return base | {"status": "RECORDED", "planned_loss_krw": core.fstr(loss)}
+
+
+def _strength_episode(t2_rotation: dict) -> dict | None:
+    if t2_rotation.get("status") != "PASS" or not t2_rotation.get("strong_confirmed_on"):
+        return None
+    episode = _v3_modules()["EPISODE"]
+    confirmed_on = t2_rotation["strong_confirmed_on"]
+    available = dt.datetime.strptime(confirmed_on, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc) + dt.timedelta(days=1)
+    return {
+        "strength_episode_id": episode.strength_episode_id(CRYPTO_MARKET, t2_rotation["rotation_bucket"], confirmed_on),
+        "confirmation_available_at_utc": _iso_utc(available),
+    }
+
+
+def _reentry_criterion(core, *, instrument: str, decision_packet_id: str | None, decision_at_utc: str,
+                       strength_episode: dict | None, position_fills: list | None) -> dict:
+    if decision_packet_id is None:
+        return _criterion("UNKNOWN", "DECISION_PACKET_ID_NOT_SUPPLIED")
+    if position_fills is None:
+        return _criterion("UNKNOWN", "POSITION_FILLS_NOT_SUPPLIED")
+    episode = _v3_modules()["EPISODE"]
+    own = [row for row in position_fills if row.get("market") == CRYPTO_MARKET and row.get("instrument") == instrument]
+    try:
+        record = episode.reentry_decision(
+            core, market=CRYPTO_MARKET, instrument=instrument, decision_packet_id=decision_packet_id,
+            decision_at_utc=decision_at_utc, current_strength_episode=strength_episode, fills=own,
+        )
+    except _v3_modules()["CORE"].PaperExecutionCoreError as exc:
+        raise CryptoPaperBuyEligibilityError(f"REENTRY_INPUT_INVALID:{instrument}:{exc}") from exc
+    status = {"ALLOWED": "PASS", "DENIED": "FAIL"}.get(record["verdict"], "UNKNOWN")
+    return _criterion(status, f"REENTRY_{record['verdict']}:{record['reason']}",
+                      strength_episode=strength_episode, fills_sha256=record["fills_sha256"])
+
+
+def _normalize_fills(position_fills) -> list | None:
+    if position_fills is None:
+        return None
+    if not isinstance(position_fills, list):
+        raise CryptoPaperBuyEligibilityError("POSITION_FILLS_INVALID")
+    fill_ids = [row.get("fill_id") if isinstance(row, dict) else None for row in position_fills]
+    if len(fill_ids) != len(set(fill_ids)):
+        raise CryptoPaperBuyEligibilityError("POSITION_FILL_ID_DUPLICATE")
+    return sorted(copy.deepcopy(position_fills), key=lambda row: str(row.get("fill_id")))
+
+
+def _session_budget_lines(record: dict | None, *, decision_at_utc: str) -> dict:
+    if record is None:
+        return {}
+    modules = _v3_modules()
+    budget = modules["BUDGET"]
+    try:
+        checked = budget.validate_session_budget_record(record)
+        session_id = budget.crypto_session_id(modules["CORE"].load_core(), decision_at_utc)
+    except modules["CORE"].PaperExecutionCoreError as exc:
+        raise CryptoPaperBuyEligibilityError(f"SESSION_BUDGET_RECORD_INVALID:{exc}") from exc
+    if checked["key"]["market"] != CRYPTO_MARKET or checked["key"]["session_id"] != session_id:
+        raise CryptoPaperBuyEligibilityError("SESSION_BUDGET_RECORD_SESSION_MISMATCH")
+    if checked["decision_at_utc"] != decision_at_utc:
+        raise CryptoPaperBuyEligibilityError("SESSION_BUDGET_RECORD_DECISION_MISMATCH")
+    return {"record": checked, "lines": {line["instrument"]: line for line in checked["allocation"]}}
+
+
+def _order_draft_v3(
+    core, *, market: str, budget: dict, decision_at_utc: str, fee_rate: str | None,
+    reentry: dict | None,
+) -> dict:
+    session = _v3_modules()["BUDGET"]
+    session_id = session.crypto_session_id(core, decision_at_utc)
+    bounds = session.session_bounds(core, session_id)
+    line = (budget.get("lines") or {}).get(market)
+    candidate = None
+    if line is not None:
+        candidate = next(c for c in budget["record"]["inputs"]["candidates"] if c["instrument"] == market)
+        if fee_rate is None or candidate["fee_rate"] != fee_rate:
+            raise CryptoPaperBuyEligibilityError(f"SESSION_BUDGET_FEE_RATE_MISMATCH:{market}")
+    quantity = line["quantity"] if line is not None else None
+    draft = {
+        "session_id": session_id,
+        "session_budget_record_sha256": budget["record"]["record_sha256"] if budget else None,
+        "allocated_krw": line["allocated_krw"] if line is not None and line["allocated_krw"] != "0" else None,
+        "planning_price_krw": candidate["limit_price"] if candidate is not None else None,
+        "quantity": quantity,
+        "fee_rate": fee_rate if line is not None else None,
+        "submitted_amount_krw": line["submitted_amount_krw"] if line is not None else None,
+        "expires_at": bounds["order_valid_before_utc"],
+        "next_review_at": bounds["order_valid_before_utc"],
+        "duplicate_guard_key": reentry["duplicate_guard_key"] if reentry is not None else None,
+        "reentry_key": reentry["key"] if reentry is not None else None,
+        "planned_loss": None,
+    }
+    return draft
+
+
+def evaluate_candidate_v3(
+    core,
+    candidate_row: dict,
+    *,
+    market_evidence_packet: dict | None,
+    universe_row: dict,
+    policy: dict,
+    decision_at_utc: str,
+    decision_packet_id: str | None,
+    known_idempotency_keys,
+    position_fills: list | None,
+    budget: dict,
+    fee_rate: str | None,
+) -> dict:
+    market = candidate_row["market"]
+    if universe_row["market"] != market:
+        raise CryptoPaperBuyEligibilityError(f"UNIVERSE_ROW_MARKET_MISMATCH:{market}")
+    t2 = candidate_row["t2_required_conditions"]
+    reentry = compute_reentry_key(decision_packet_id, market) if decision_packet_id is not None else None
+    if reentry is None:
+        duplicate = _criterion("UNKNOWN", "DECISION_PACKET_ID_NOT_SUPPLIED")
+    elif known_idempotency_keys is None:
+        duplicate = _criterion("UNKNOWN", "DUPLICATE_GUARD_LEDGER_NOT_SUPPLIED")
+    elif reentry["duplicate_guard_key"] in known_idempotency_keys:
+        duplicate = _criterion("FAIL", "R1_DUPLICATE_GUARD_KEY_ALREADY_PRESENT")
+    else:
+        duplicate = _criterion("PASS", "R1_DUPLICATE_GUARD_KEY_NOVEL")
+    strength = _strength_episode(t2["T2_ROTATION_MEMBERSHIP"])
+    criteria = {
+        "FOCUSED_REVIEW_UPSTREAM": evaluate_focused_review_upstream(candidate_row),
+        "REGIME_PERMITS_ENTRY": _criterion(
+            t2["T2_REGIME_PERMITS_NEW_BUYS"]["status"],
+            f"P5_08_T2_ECHO:{t2['T2_REGIME_PERMITS_NEW_BUYS']['reason']}",
+        ),
+        "ROTATION_MEMBERSHIP": _criterion(
+            t2["T2_ROTATION_MEMBERSHIP"]["status"],
+            f"P5_08_T2_ECHO:{t2['T2_ROTATION_MEMBERSHIP']['reason']}",
+        ),
+        "REENTRY_PERMITTED": _reentry_criterion(
+            core, instrument=market, decision_packet_id=decision_packet_id, decision_at_utc=decision_at_utc,
+            strength_episode=strength, position_fills=position_fills,
+        ),
+        "DUPLICATE_GUARD": duplicate,
+        "ORDER_DRAFT_COMPLETE": None,
+        "ZERO_ORDER_ENDPOINT_CALLS": evaluate_zero_order_endpoint_calls(),
+    }
+    gating = {name: criteria[name] for name in GATING_CRITERIA_V3}
+    failed = sorted(name for name, result in gating.items() if result["status"] == "FAIL")
+    unknown = sorted(name for name, result in gating.items() if result["status"] == "UNKNOWN")
+    if not failed and not unknown and budget and market not in budget["lines"]:
+        # Gating passed but this market was not a session budget candidate
+        # (e.g. removed by a per-market cap before allocation).
+        draft = _order_draft_v3(core, market=market, budget={}, decision_at_utc=decision_at_utc,
+                                fee_rate=None, reentry=reentry)
+    else:
+        draft = _order_draft_v3(core, market=market, budget=budget, decision_at_utc=decision_at_utc,
+                                fee_rate=fee_rate, reentry=reentry)
+    missing = [field for field in _ORDER_DRAFT_V3_REQUIRED if draft.get(field) is None]
+    criteria["ORDER_DRAFT_COMPLETE"] = (
+        _criterion("UNKNOWN", "ORDER_DRAFT_FIELDS_MISSING:" + ",".join(missing), missing_fields=missing)
+        if missing else _criterion("PASS", "ORDER_DRAFT_COMPLETE_SESSION_BUDGET_SIZED")
+    )
+    if failed:
+        state, reason = STATE_BLOCKED, "GATING_CRITERIA_FAILED:" + ",".join(failed)
+    elif unknown:
+        state, reason = STATE_WATCH, "GATING_CRITERIA_UNKNOWN:" + ",".join(unknown)
+    elif not missing:
+        state, reason = STATE_PAPER_BUY_ELIGIBLE, "ALL_GATING_CRITERIA_PASSED_SESSION_BUDGET_SIZED"
+    else:
+        state, reason = STATE_WAIT, "ALL_GATING_CRITERIA_PASSED_ORDER_DRAFT_INCOMPLETE"
+    if state != STATE_PAPER_BUY_ELIGIBLE:
+        draft = {key: None for key in draft}
+    else:
+        draft["planned_loss"] = planned_loss_record(draft["quantity"], market_evidence_packet, decision_at_utc)
+    pairs = [(RULE_ENTRY_B, "BLOCKED_BY" if state in (STATE_BLOCKED, STATE_WATCH) else "APPLIED"),
+             (RULE_REENTRY, "BLOCKED_BY" if "REENTRY_PERMITTED" in failed or "DUPLICATE_GUARD" in failed else "APPLIED"),
+             (RULE_TIME_CONTRACT, "APPLIED"), (RULE_PLANNED_LOSS, "APPLIED")]
+    if state == STATE_PAPER_BUY_ELIGIBLE:
+        pairs.append((RULE_SESSION_BUDGET, "SIZED_BY"))
+    return {
+        "market": market,
+        "canonical_asset_id": candidate_row.get("canonical_asset_id"),
+        "p5_08_promotion_state": candidate_row["promotion_state"],
+        "criteria": criteria,
+        "record_only_features": _record_only_features(universe_row, market_evidence_packet, policy),
+        "eligibility_state": state,
+        "eligibility_reason": reason,
+        "order_draft": draft,
+        "rule_refs": _inline_rule_refs(core, pairs, decision_at_utc),
+        "authority": dict(_ROW_AUTHORITY),
+    }
+
+
+def build_eligibility_packet_v3(
+    promotion_packet: dict,
+    *,
+    evaluation_as_of: str,
+    decision_at_utc: str,
+    decision_packet_id: str | None = None,
+    known_idempotency_keys=None,
+    position_fills: list | None = None,
+    session_budget_record: dict | None = None,
+    fee_rate: str | None = None,
+    policy: dict | None = None,
+) -> dict:
+    """Contract/3 derivation (see the section comment above)."""
+    if not _DATE_RE.fullmatch(evaluation_as_of):
+        raise CryptoPaperBuyEligibilityError("EVALUATION_AS_OF_INVALID")
+    _parse_utc(decision_at_utc, "DECISION_AT_UTC_INVALID")
+    contract = load_contract_v3()
+    policy = _require_repository_policy(load_policy() if policy is None else policy)
+    validated_promotion = PROMOTION.validate_output(promotion_packet)
+    if validated_promotion["schema_version"] != PROMOTION.OUTPUT_SCHEMA_VERSION_V3:
+        raise CryptoPaperBuyEligibilityError("ELIGIBILITY_V3_REQUIRES_PROMOTION_CONTRACT_V3")
+    if "rotation_confirmation" not in validated_promotion["source_packets"]:
+        raise CryptoPaperBuyEligibilityError("ELIGIBILITY_V3_REQUIRES_ROTATION_CONFIRMATION_SOURCE")
+    if validated_promotion["evaluation_as_of"] != evaluation_as_of:
+        raise CryptoPaperBuyEligibilityError("EVALUATION_AS_OF_MISMATCH")
+    if validated_promotion["regime_generated_at"] != decision_at_utc:
+        raise CryptoPaperBuyEligibilityError("DECISION_AT_NOT_PROMOTION_REFERENCE")
+    if fee_rate is not None:
+        _decimal(fee_rate, "FEE_RATE_INVALID", maximum=Decimal("1"))
+    if known_idempotency_keys is not None and not all(isinstance(key, str) for key in known_idempotency_keys):
+        raise CryptoPaperBuyEligibilityError("KNOWN_IDEMPOTENCY_KEYS_INVALID")
+    fills = _normalize_fills(position_fills)
+    core = _v3_modules()["CORE"].load_core()
+    budget = _session_budget_lines(session_budget_record, decision_at_utc=decision_at_utc)
+
+    sources = validated_promotion["source_packets"]
+    universe_packet = sources["universe"]
+    universe_policy = UPBIT_UNIVERSE.load_policy()
+    if universe_packet["policy_version"] != universe_policy.get("policy_version"):
+        raise CryptoPaperBuyEligibilityError("UNIVERSE_POLICY_PIN_MISMATCH")
+    universe_by_market = {row["market"]: row for row in universe_packet["markets"]}
+    focused = [row for row in validated_promotion["candidates"] if row["promotion_state"] == "FOCUSED_REVIEW"]
+    if budget:
+        extra = sorted(set(budget["lines"]) - {row["market"] for row in focused})
+        if extra:
+            raise CryptoPaperBuyEligibilityError("SESSION_BUDGET_CANDIDATE_NOT_FOCUSED_REVIEW:" + ",".join(extra))
+    rows = [
+        evaluate_candidate_v3(
+            core, candidate,
+            market_evidence_packet=sources["market_evidence_by_market"].get(candidate["market"]),
+            universe_row=universe_by_market[candidate["market"]],
+            policy=policy,
+            decision_at_utc=decision_at_utc,
+            decision_packet_id=decision_packet_id,
+            known_idempotency_keys=set(known_idempotency_keys) if known_idempotency_keys is not None else None,
+            position_fills=fills,
+            budget=budget,
+            fee_rate=fee_rate,
+        )
+        for candidate in focused
+    ]
+    packet = {
+        "schema_version": OUTPUT_SCHEMA_VERSION_V3,
+        "contract_version": contract["contract_version"],
+        "evaluation_as_of": evaluation_as_of,
+        "decision_at_utc": decision_at_utc,
+        "policy_version": policy["policy_version"],
+        "promotion_packet_sha256": validated_promotion["payload_sha256"],
+        "focused_review_input_count": len(focused),
+        "candidates": rows,
+        "summary": {
+            "candidate_count": len(rows),
+            "watch_count": sum(1 for r in rows if r["eligibility_state"] == STATE_WATCH),
+            "wait_count": sum(1 for r in rows if r["eligibility_state"] == STATE_WAIT),
+            "blocked_count": sum(1 for r in rows if r["eligibility_state"] == STATE_BLOCKED),
+            "paper_buy_eligible_count": sum(1 for r in rows if r["eligibility_state"] == STATE_PAPER_BUY_ELIGIBLE),
+        },
+        "authority": dict(_ROW_AUTHORITY),
+        "source": {
+            "promotion_packet": copy.deepcopy(promotion_packet),
+            "policy": copy.deepcopy(policy),
+            "decision_packet_id": decision_packet_id,
+            "known_idempotency_keys": sorted(known_idempotency_keys) if known_idempotency_keys is not None else None,
+            "position_fills": fills,
+            "session_budget_record": copy.deepcopy(session_budget_record),
+            "fee_rate": fee_rate,
+        },
+    }
+    packet["payload_sha256"] = payload_sha256(packet)
+    return packet
+
+
+def _validate_output_v3(packet: dict) -> dict:
+    expected_keys = {
+        "schema_version", "contract_version", "evaluation_as_of", "decision_at_utc", "policy_version",
+        "promotion_packet_sha256", "focused_review_input_count", "candidates", "summary",
+        "authority", "source", "payload_sha256",
+    }
+    if set(packet) != expected_keys:
+        raise CryptoPaperBuyEligibilityError("OUTPUT_SCHEMA_MISMATCH")
+    if packet.get("contract_version") != load_contract_v3()["contract_version"]:
+        raise CryptoPaperBuyEligibilityError("OUTPUT_CONTRACT_VERSION_MISMATCH")
+    claimed = packet.get("payload_sha256")
+    if not isinstance(claimed, str) or not _SHA_RE.fullmatch(claimed):
+        raise CryptoPaperBuyEligibilityError("PAYLOAD_SHA256_INVALID")
+    unsigned = copy.deepcopy(packet)
+    unsigned.pop("payload_sha256")
+    if payload_sha256(unsigned) != claimed:
+        raise CryptoPaperBuyEligibilityError("PAYLOAD_SHA256_MISMATCH")
+    source = packet["source"]
+    if not isinstance(source, dict) or set(source) != {
+        "promotion_packet", "policy", "decision_packet_id", "known_idempotency_keys",
+        "position_fills", "session_budget_record", "fee_rate",
+    }:
+        raise CryptoPaperBuyEligibilityError("OUTPUT_SOURCE_INVALID")
+    rebuilt = build_eligibility_packet_v3(
+        source["promotion_packet"],
+        evaluation_as_of=packet["evaluation_as_of"],
+        decision_at_utc=packet["decision_at_utc"],
+        decision_packet_id=source["decision_packet_id"],
+        known_idempotency_keys=set(source["known_idempotency_keys"]) if source["known_idempotency_keys"] is not None else None,
+        position_fills=source["position_fills"],
+        session_budget_record=source["session_budget_record"],
+        fee_rate=source["fee_rate"],
+        policy=source["policy"],
+    )
+    if canonical_json(rebuilt) != canonical_json(packet):
+        raise CryptoPaperBuyEligibilityError("OUTPUT_DERIVATION_MISMATCH")
+    return copy.deepcopy(packet)
+
+
+_validate_output_v2 = validate_output
+
+
+def validate_output(packet: dict) -> dict:  # noqa: F811 - contract dispatch
+    """Re-validate an eligibility packet under the contract its schema names."""
+    if isinstance(packet, dict) and packet.get("schema_version") == OUTPUT_SCHEMA_VERSION_V3:
+        return _validate_output_v3(packet)
+    return _validate_output_v2(packet)
