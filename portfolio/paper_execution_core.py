@@ -38,7 +38,7 @@ from governance import rule_refs as REFS  # noqa: E402
 CONFIG_RELATIVE_PATH = "config/paper_execution_core_v1.json"
 CONFIG_SCHEMA_VERSION = "paper_execution_core/1"
 # Two-place edit on purpose: a config change must also change this pin.
-PINNED_CONFIG_SHA256 = "a2dc18b05c33f19fb162fe5aac9d7eaab6ae1e80bcc3ec7fb7788aaec3d0f903"
+PINNED_CONFIG_SHA256 = "79efd4dcd9d1bd255ed3ba903d26e0a3f81b569c52f398d34da2eec7dab9d0fc"
 PINNED_SOURCE_DOCUMENTS = {
     "execution_contract_canon": "7a26907f9c05935278ae9232e4de90bb0d23e39447a57c22f66484642a35127c",
     "build_plan": "11f3d3422378cc152ae2af555cfb62926e3fe6779f2de0125c1bd811ebf6412a",

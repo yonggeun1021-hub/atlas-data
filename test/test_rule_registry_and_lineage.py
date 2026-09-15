@@ -124,7 +124,7 @@ class CommittedRegistryTests(unittest.TestCase):
         registry = REG.load_registry()
         ids = [row["rule_id"] for row in registry["rules"]]
         self.assertEqual(sorted(ids), sorted(REG.REQUIRED_RULE_IDS))
-        self.assertEqual(len(ids), 48)
+        self.assertEqual(len(ids), 53)
         status = {row["rule_id"]: row["status"] for row in registry["rules"]}
         self.assertEqual({k for k, v in status.items() if v == "PENDING_USER_DECISION"}, PENDING_IDS)
         self.assertEqual({k for k, v in status.items() if v == "RESOLVED"}, UNDECIDED_IDS - PENDING_IDS)

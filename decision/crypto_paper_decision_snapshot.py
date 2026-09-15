@@ -125,6 +125,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import functools
 import datetime as dt
 from decimal import Decimal
 import hashlib
@@ -272,6 +273,19 @@ PER_MARKET = _load(
 )
 
 
+def _registry_file_sha256() -> str:
+    return hashlib.sha256((Path(__file__).resolve().parents[1] / "config" / "rule_registry_v1.json").read_bytes()).hexdigest()
+
+
+@functools.lru_cache(maxsize=8)
+def _registry_decision_time(rule_id: str, key_parameter: str, registry_sha256: str) -> str:
+    """Validated registry value, cached per registry file hash (the registry is large)."""
+    from governance import rule_registry as registry_module
+
+    row = registry_module.rule_index(registry_module.load_registry())[rule_id]
+    return row["key_parameters"][key_parameter]["value"]["decision_time_utc"]
+
+
 def load_wiring_config(path: Path | None = None) -> dict:
     """``config/crypto_paper_wiring_v2.json`` with a validated /4 cutover.
 
@@ -296,13 +310,28 @@ def load_wiring_config(path: Path | None = None) -> dict:
     cut_dt = _parse_utc(t_cut, "wiring.t_cut_utc")
     if cutover.get("status") != "ACTIVE_FROM_T_CUT":
         raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_CUTOVER_STATUS_INVALID")
-    from governance import rule_registry as registry_module
-
     binding = cutover["time_of_day_must_equal_registry_parameter"]
-    row = registry_module.rule_index(registry_module.load_registry())[binding["rule_id"]]
-    cycle = row["key_parameters"][binding["key_parameter"]]["value"]["decision_time_utc"]
+    cycle = _registry_decision_time(binding["rule_id"], binding["key_parameter"], _registry_file_sha256())
     if cut_dt.strftime("%H:%M") != cycle or cut_dt.second != 0:
         raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_T_CUT_NOT_AT_CRYPTO_DECISION_CYCLE")
+    # An active T_cut must be the user-ratified instant of its byte-exact record.
+    source = cutover.get("source_record")
+    if not isinstance(source, dict) or set(source) != {"rule_id", "path", "sha256"}:
+        raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_T_CUT_RECORD_MISSING")
+    try:
+        # Authority records are code-checkout bytes (like this config), never
+        # read from a redirected observation root.
+        record_raw = (WIRING_CONFIG_PATH.parents[1] / source["path"]).read_bytes()
+    except OSError as exc:
+        raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_T_CUT_RECORD_MISSING") from exc
+    if hashlib.sha256(record_raw).hexdigest() != source["sha256"]:
+        raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_T_CUT_RECORD_HASH_MISMATCH")
+    ratified = [
+        rule for rule in (json.loads(record_raw.decode("utf-8")).get("rules") or [])
+        if isinstance(rule, dict) and rule.get("rule_id") == source["rule_id"]
+    ]
+    if len(ratified) != 1 or ratified[0].get("t_cut_utc") != t_cut:
+        raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_T_CUT_NOT_THE_RATIFIED_INSTANT")
     return copy.deepcopy(value)
 
 

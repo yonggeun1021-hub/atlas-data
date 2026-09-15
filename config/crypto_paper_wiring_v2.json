@@ -3,8 +3,13 @@
   "policy_id": "CRYPTO_PAPER_WIRING.V2",
   "description": "Crypto PAPER wiring v2 (build plan PR3): decision snapshot /4 binds the CRYPTO_PAPER_RUNTIME_V1 decision and the crypto rotation confirmation packet as sources and requests promotion contract/3 and buy eligibility contract/3; the runtime bridge emits crypto_paper_runtime_request/4 (session budget allocation, marketable limit with the ratified 150bp actual-notional slippage quantity reduction, exit-policy sell requests). Every number is read from config/rule_registry_v1.json or an existing repository contract; this file carries no investment number.",
   "decision_snapshot_v4_cutover": {
-    "t_cut_utc": null,
-    "status": "NOT_ACTIVE",
+    "t_cut_utc": "2026-09-18T07:00:00Z",
+    "status": "ACTIVE_FROM_T_CUT",
+    "source_record": {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_TCUT.V1",
+      "path": "evidence/authority/USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+      "sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56"
+    },
     "activation_requires": "CIO_OR_USER_SET_UTC_INSTANT_AFTER_SERVER_REINSTALL",
     "time_of_day_must_equal_registry_parameter": {"rule_id": "RULE.EXEC.TIME_CONTRACT.V1", "key_parameter": "crypto_decision_cycle"},
     "before_t_cut": "EMIT_crypto_paper_decision_snapshot_packet/3_BYTE_IDENTICAL",

@@ -548,12 +548,12 @@ class UnchangedGatesTests(_RatifiedUniverseMixin, unittest.TestCase):
 
     def test_production_callers_still_request_contract_2(self):
         """Crypto PAPER wiring v2 (build plan PR3) requests contract/3 only for
-        decision snapshot /4, which is emitted from the configured cutover
-        T_cut; the committed config keeps it inactive, so every /1-/3 caller
-        still requests contract/2."""
+        decision snapshot /4, which is emitted from the user-ratified cutover
+        T_cut 2026-09-18T07:00Z; every /1-/3 packet before it still requests
+        contract/2."""
         decision = _load("crypto_candidate_promotion_v3_caller_check", "decision/crypto_paper_decision_snapshot.py")
-        self.assertIsNone(decision.v4_cutover_at())
-        for instant in ("2026-09-14T23:43:41Z", "2026-09-20T07:40:00Z"):
+        self.assertEqual(decision.v4_cutover_at().strftime("%Y-%m-%dT%H:%M:%SZ"), "2026-09-18T07:00:00Z")
+        for instant in ("2026-09-14T23:43:41Z", "2026-09-18T06:59:59Z"):
             with self.subTest(instant=instant):
                 self.assertNotEqual(
                     decision.schema_version_for(decision._parse_utc(instant, "t")),

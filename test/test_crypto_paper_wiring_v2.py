@@ -277,16 +277,22 @@ def by_market(rows: list) -> dict:
 # ---------------------------------------------------------------------------
 
 class CutoverTests(unittest.TestCase):
-    def test_committed_config_keeps_v4_inactive_and_emits_v3(self):
+    def test_committed_config_names_the_user_ratified_t_cut_and_emits_v3_before_it(self):
         config_value = DECISION.load_wiring_config()
-        self.assertIsNone(config_value["decision_snapshot_v4_cutover"]["t_cut_utc"])
-        self.assertEqual(config_value["decision_snapshot_v4_cutover"]["status"], "NOT_ACTIVE")
-        self.assertIsNone(DECISION.v4_cutover_at())
-        for instant in ("2026-09-14T23:43:41Z", "2026-09-20T07:00:00Z", "2030-01-01T07:00:00Z"):
-            self.assertEqual(
-                DECISION.schema_version_for(DECISION._parse_utc(instant, "t")),
-                DECISION.PER_MARKET_OUTPUT_SCHEMA_VERSION, instant,
-            )
+        cutover_block = config_value["decision_snapshot_v4_cutover"]
+        self.assertEqual((cutover_block["t_cut_utc"], cutover_block["status"]), ("2026-09-18T07:00:00Z", "ACTIVE_FROM_T_CUT"))
+        self.assertEqual(cutover_block["source_record"], {
+            "rule_id": "RULE.CRYPTO.PAPER_V2_TCUT.V1",
+            "path": "evidence/authority/USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+            "sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56",
+        })
+        self.assertEqual(DECISION.v4_cutover_at(), dt.datetime(2026, 9, 18, 7, 0, tzinfo=dt.timezone.utc))
+        for instant, expected in (
+            ("2026-09-14T23:43:41Z", DECISION.PER_MARKET_OUTPUT_SCHEMA_VERSION),
+            ("2026-09-18T06:59:59Z", DECISION.PER_MARKET_OUTPUT_SCHEMA_VERSION),
+            ("2026-09-18T07:00:00Z", DECISION.V4_OUTPUT_SCHEMA_VERSION),
+        ):
+            self.assertEqual(DECISION.schema_version_for(DECISION._parse_utc(instant, "t")), expected, instant)
         self.assertTrue(all(value is False for value in config_value["authority"].values()))
 
     def test_active_cutover_switches_at_t_cut_only(self):
@@ -300,16 +306,20 @@ class CutoverTests(unittest.TestCase):
         base = json.loads(DECISION.WIRING_CONFIG_PATH.read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "wiring.json"
-            for t_cut, status, expected in (
-                ("2026-09-20T07:00:00Z", "ACTIVE_FROM_T_CUT", None),
-                ("2026-09-20T07:30:00Z", "ACTIVE_FROM_T_CUT", "WIRING_CONFIG_T_CUT_NOT_AT_CRYPTO_DECISION_CYCLE"),
-                ("2026-09-20T07:00:00Z", "NOT_ACTIVE", "WIRING_CONFIG_CUTOVER_STATUS_INVALID"),
-                (None, "ACTIVE_FROM_T_CUT", "WIRING_CONFIG_CUTOVER_STATUS_INVALID"),
+            record = base["decision_snapshot_v4_cutover"]["source_record"]
+            for t_cut, status, source, expected in (
+                ("2026-09-18T07:00:00Z", "ACTIVE_FROM_T_CUT", record, None),
+                ("2026-09-18T07:30:00Z", "ACTIVE_FROM_T_CUT", record, "WIRING_CONFIG_T_CUT_NOT_AT_CRYPTO_DECISION_CYCLE"),
+                ("2026-09-20T07:00:00Z", "ACTIVE_FROM_T_CUT", record, "WIRING_CONFIG_T_CUT_NOT_THE_RATIFIED_INSTANT"),
+                ("2026-09-18T07:00:00Z", "ACTIVE_FROM_T_CUT", dict(record, sha256="0" * 64), "WIRING_CONFIG_T_CUT_RECORD_HASH_MISMATCH"),
+                ("2026-09-18T07:00:00Z", "ACTIVE_FROM_T_CUT", None, "WIRING_CONFIG_T_CUT_RECORD_MISSING"),
+                ("2026-09-18T07:00:00Z", "NOT_ACTIVE", record, "WIRING_CONFIG_CUTOVER_STATUS_INVALID"),
+                (None, "ACTIVE_FROM_T_CUT", record, "WIRING_CONFIG_CUTOVER_STATUS_INVALID"),
             ):
                 value = copy.deepcopy(base)
-                value["decision_snapshot_v4_cutover"].update(t_cut_utc=t_cut, status=status)
+                value["decision_snapshot_v4_cutover"].update(t_cut_utc=t_cut, status=status, source_record=source)
                 path.write_text(json.dumps(value), encoding="utf-8")
-                with self.subTest(t_cut=t_cut, status=status):
+                with self.subTest(t_cut=t_cut, status=status, source=bool(source)):
                     if expected is None:
                         self.assertEqual(DECISION.load_wiring_config(path)["decision_snapshot_v4_cutover"]["t_cut_utc"], t_cut)
                     else:
