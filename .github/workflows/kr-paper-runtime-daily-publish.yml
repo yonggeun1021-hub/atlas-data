@@ -7,8 +7,12 @@ name: KR PAPER Runtime Daily Publish
 # needs explicit user approval. Proposed triggers (NOT active):
 #
 #   schedule:
-#     - cron: "40 9 * * 1-5"   # 18:40 KST: after the bridge's 18:00 KST
-#                              # display floor; capture mode.
+#     - cron: "40 23 * * 0-4"  # 08:40 KST next morning; capture mode. Not the
+#                              # same evening: at 18:14 KST on 2026-09-14 the
+#                              # current-day rows were still provisional
+#                              # (lateInfoMsgCd ME006, MKTCAP != close x shares)
+#                              # and the bridge rejected them
+#                              # (MARKET_CAP_SEMANTICS_INVALID, run 34936414628).
 #     - cron: "45 0 * * 1-5"   # 09:45 KST next morning: recovery slot. The
 #                              # last completed pair stays (P, D) until the
 #                              # next 15:30 KST close; an existing dated packet
@@ -219,6 +223,9 @@ jobs:
       - name: Publish dated packet and latest pointer
         if: inputs.mode == 'artifact' || steps.pair.outputs.skip != 'true'
         run: |
+          # Without pipefail a publisher exception piped into tee exits 0 and
+          # the run concludes success (run 34936414628).
+          set -o pipefail
           EVALUATION_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           python3 -m regime.kr_paper_runtime_adoption_v1 publish \
             --bundle-dir "$RUNNER_TEMP/bundle" \

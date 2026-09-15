@@ -338,6 +338,8 @@ class CommittedPointerAndWorkflowTests(unittest.TestCase):
         steps = workflow["jobs"]["publish"]["steps"]
         runs = "\n".join(step.get("run", "") for step in steps)
         self.assertIn('MAX_ATTEMPTS: "3"', raw)
+        publish_step = next(step for step in steps if step.get("name") == "Publish dated packet and latest pointer")
+        self.assertIn("set -o pipefail", publish_step["run"])
         self.assertIn("RESPONSE_ROW_SCHEMA_INVALID", runs)
         # Raw KRX rows are private-only: never uploaded as a public artifact.
         self.assertFalse([step for step in steps if "upload-artifact" in step.get("uses", "")])
