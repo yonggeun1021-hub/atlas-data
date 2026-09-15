@@ -727,6 +727,10 @@ APPROVED_TESTS = [
     "test/test_korea_market_signals.py",
     "test/test_korea_market_signals_pykrx_candidate.py",
     "test/test_krx_information_system_capture.py",
+    # ★ korea-market-signals.yml's public actions/upload-artifact bundle
+    #   carries no raw KRX response bytes (KRX Open API terms restrict
+    #   third-party redistribution); K2 workflow_sha256 pin regression.
+    "test/test_korea_market_signals_public_artifact.py",
     # ★ Korea 5/5 observation → staged-symbol review bridge. Confirmed KRX
     #   price/SMA20/investor flow is joined to 012450/298040/329180 while the
     #   final market policy and every entry/exit/order authority remain closed.

@@ -147,6 +147,21 @@ jobs:
             --fetched-at "$FETCHED_AT" \
             --capture-dir artifact/source-capture \
             --out artifact/KR_PAPER_REFERENCE_CANDIDATE.json
+      - name: Strip raw KRX response bytes before public artifact upload
+        # KRX Open API terms restrict third-party provision/redistribution of
+        # raw responses (docs/krx_investable_registry_contract.md,
+        # "Distribution boundary"). This GitHub Actions artifact is public
+        # (any repo reader can download it for its 30-day retention), so the
+        # original provider response bytes captured above never leave the
+        # runner. manifest.json (hashes, byte lengths, capture times, status)
+        # stays -- only responses/ (the raw per-symbol KOSPI/KOSDAQ bytes) is
+        # removed.
+        run: |
+          test -d artifact/source-capture/responses
+          test -f artifact/source-capture/manifest.json
+          rm -rf artifact/source-capture/responses
+          test ! -e artifact/source-capture/responses
+          test -f artifact/source-capture/manifest.json
       - name: Verify exact output and closed authority boundary
         if: steps.market_signals.outcome == 'success'
         env:

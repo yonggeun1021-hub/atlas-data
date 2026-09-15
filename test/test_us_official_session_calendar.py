@@ -90,7 +90,7 @@ class SourceConfigTest(unittest.TestCase):
         self.assertTrue(official["weekday_inference_prohibited"])
         self.assertEqual(
             CAL.file_sha256(ROOT / "config/regime_source_owner_registry_v2.json"),
-            "8dd2ad50f66e144aaca78ffc6a82615d814dee2b8f23f736cdbc85a56dba68bb",
+            "ce5dbc04ca2d6f73fe2164da53b4ea1e8c98c77c8349d4561adf53428fb541e0",
         )
 
 

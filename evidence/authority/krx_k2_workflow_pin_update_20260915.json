@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "record_type": "SOURCE_OWNER_REGISTRY_V2_PIN_UPDATE",
+  "status": "AUTHOR_PREPARED_NOT_A_CIO_OR_USER_APPROVAL",
+  "note": "This file records why and how the K2 workflow_sha256 pin changed. It documents the change; it does not itself ratify or approve anything. The repository's precedent for a K2-style byte-hash refresh (e.g. commits 006bbf58b 'Repair Korea market signal source-owner pins' and 3b60d5aea 'fix: refresh Korea source owner integrity pins') is a plain pin-value edit with no separate approval record, because the registry only pins byte-identity and owner metadata -- not a market policy, threshold, or authority value. This record exists anyway, per an explicit request to record the reason and stop short of claiming approval.",
+  "reason": "remove raw KRX rows from public artifact (licensing)",
+  "problem": "korea-market-signals.yml uploaded artifact/source-capture (original per-symbol KOSPI/KOSDAQ pykrx/KRX response bytes) as a public actions/upload-artifact bundle with 30-day retention, downloadable by any repository reader. docs/krx_investable_registry_contract.md 'Distribution boundary' and config/krx_*_contract.json cite KRX_OPEN_API_TERMS_RESTRICT_THIRD_PARTY_PROVISION_AND_REDISTRIBUTION_RIGHTS_ARE_NOT_ESTABLISHED: raw KRX responses and per-symbol rows are private-only evidence.",
+  "fix": "Added a 'Strip raw KRX response bytes before public artifact upload' step to .github/workflows/korea-market-signals.yml that removes artifact/source-capture/responses (the raw provider bytes) before the actions/upload-artifact step, while keeping artifact/source-capture/manifest.json (hashes, byte lengths, capture times, status -- no raw values) and every other already-aggregate file the artifact carries (KR_PAPER_REFERENCE_CANDIDATE.json, PYKRX_PROBE.json, the observation packets). The producer script and its local capture-then-hash-bind flow are unchanged; only what leaves the runner in the public artifact changes.",
+  "consumer_check": "No merged workflow downloads or requires artifact/source-capture/responses from this artifact. The only in-flight consumer is PR #770 (kr-paper-runtime-daily-publish.yml, artifact mode, not yet merged), whose own commit-boundary step already asserts its downloaded bundle's diff carries no responses/ or source-capture/ path -- it only ever persists the already-aggregate paths. Removing raw bytes from new runs' public artifacts does not remove anything that mode uses; it only makes raw-bundle re-validation (if ever added) unavailable for artifact runs produced after this change. Capture mode (PR #770's own direct producer run) is unaffected -- it never reads this workflow's artifact.",
+  "pin_changed": {
+    "registry_path": "config/regime_source_owner_registry_v2.json",
+    "field": "markets.KRX.source_owner.workflow_sha256",
+    "workflow_path": ".github/workflows/korea-market-signals.yml",
+    "old_workflow_sha256": "9226b64a344de2d76ccc706931227a26a478bbcb92ebaa27cb95f3b8f8f0df6f",
+    "new_workflow_sha256": "d9045876b311af5c85a61e827c3ae5501e2743a8ea8876435efbda606965e8b3",
+    "producer_sha256_unchanged": true,
+    "producer_path": ".github/scripts/korea_market_signals.py"
+  },
+  "cascading_whole_file_pins_updated": {
+    "registry_old_sha256": "8dd2ad50f66e144aaca78ffc6a82615d814dee2b8f23f736cdbc85a56dba68bb",
+    "registry_new_sha256": "ce5dbc04ca2d6f73fe2164da53b4ea1e8c98c77c8349d4561adf53428fb541e0",
+    "updated_bindings": [
+      {
+        "path": "config/us_session_calendar_source_v1.json",
+        "field": "registry_binding.sha256",
+        "enforced_by": "market_data/us_official_session_calendar.py::load_source_config (SOURCE_CONFIG_REGISTRY_HASH_MISMATCH fail-closed)",
+        "test": "test/test_us_official_session_calendar.py::SourceConfigTest.test_registry_bytes_are_unchanged_by_this_ratification"
+      },
+      {
+        "path": "config/crypto_paper_runtime_v1.json",
+        "field": "common_registry_sha256",
+        "enforced_by": "NONE_FOUND -- no .py file reads this field; updated for documentation consistency only"
+      },
+      {
+        "path": "config/kr_paper_runtime_ratification_candidate_v1.json",
+        "field": "common_registry_sha256",
+        "enforced_by": "NONE_FOUND -- no .py file reads this field; updated for documentation consistency only"
+      }
+    ],
+    "not_updated_and_why": [
+      {
+        "path": "config/kr_first_paper_experiment_application.json",
+        "field": "sha256 near path=config/regime_source_owner_registry_v2.json",
+        "observed_value": "ebc632c77f0aa2191b4e729a63a554eafb0ac301abd3e7a405f0b2753b5b27f4",
+        "reason": "Already did not match the live registry file's sha256 before this change (pre-existing drift, unrelated to this fix). Left untouched rather than guessed at."
+      }
+    ]
+  },
+  "no_semantic_change": "markets.US.official_calendar, common_v1_alignment, and every other market's source_owner/policy fields are byte-identical before and after this edit. Only markets.KRX.source_owner.workflow_sha256 (and the whole-file hash it forces) changed.",
+  "artifact_retention_action": "None taken on existing already-uploaded artifacts -- this record does not authorize deleting any of them. See the PR body for the current unexpired-artifact listing.",
+  "prepared_by": "Claude Opus 5 (AUTHOR PR session), 2026-09-15",
+  "requires_before_merge": "Human/CIO review of this PR and its workflow diff."
+}
