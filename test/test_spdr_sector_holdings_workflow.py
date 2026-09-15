@@ -85,6 +85,32 @@ class SpdrSectorHoldingsWorkflowTest(unittest.TestCase):
             if uses:
                 self.assertRegex(uses, r"@[0-9a-f]{40}\s*(#.*)?$")
 
+    def test_dispatch_input_is_never_substituted_directly_into_the_shell(self):
+        # PR #761 review item 2: `${{ inputs.tickers }}` must never appear
+        # inside a `run:` script body (that substitutes the untrusted
+        # value into the script text before the shell parses it -- a
+        # script-injection risk). It may only appear on the right-hand
+        # side of an `env:` mapping.
+        capture_step = next(step for step in steps(self.document) if step.get("name") and "Capture SPDR sector holdings" in step["name"])
+        self.assertNotIn("${{ inputs.tickers }}", capture_step.get("run", ""))
+        self.assertEqual(capture_step.get("env"), {"TICKERS": "${{ inputs.tickers }}"})
+        for step in steps(self.document):
+            if step is capture_step:
+                continue
+            self.assertNotIn("inputs.tickers", step.get("run", ""))
+
+    def test_ticker_variable_is_referenced_quoted(self):
+        capture_step = next(step for step in steps(self.document) if step.get("name") and "Capture SPDR sector holdings" in step["name"])
+        run = capture_step["run"]
+        self.assertIn('"$TICKERS"', run)
+        self.assertIn('-n "$TICKERS"', run)
+        # Every occurrence of the variable is inside double quotes -- an
+        # unquoted use anywhere would defeat the fix (word-splitting/glob).
+        total_occurrences = run.count("$TICKERS")
+        quoted_occurrences = run.count('"$TICKERS"')
+        self.assertEqual(total_occurrences, quoted_occurrences)
+        self.assertGreater(total_occurrences, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

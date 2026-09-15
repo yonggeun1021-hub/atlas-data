@@ -67,9 +67,20 @@ jobs:
           python3 test/test_spdr_sector_holdings.py
           python3 test/test_us_spdr_sector_mapping.py
       - name: Capture SPDR sector holdings (derived mapping only, no raw workbook committed)
+        # CIO review 2026-09-15 (PR #761): the untrusted workflow_dispatch
+        # input is never substituted directly into the run: script text
+        # (that would let its content be parsed as shell before reaching
+        # Python -- a script-injection risk). It is passed through env: and
+        # referenced only as a quoted shell variable, so bash performs no
+        # word-splitting/glob expansion on it either; collectors/
+        # spdr_sector_holdings.py itself splits and validates every ticker
+        # against the 11-ticker SECTOR_ETFS allowlist before making any
+        # HTTP request.
+        env:
+          TICKERS: ${{ inputs.tickers }}
         run: |
-          if [ -n "${{ inputs.tickers }}" ]; then
-            python3 collectors/spdr_sector_holdings.py --tickers ${{ inputs.tickers }}
+          if [ -n "$TICKERS" ]; then
+            python3 collectors/spdr_sector_holdings.py --tickers "$TICKERS"
           else
             python3 collectors/spdr_sector_holdings.py
           fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 reader regressions --
-built directly on collectors/spdr_sector_holdings.py captures (no network,
-no live SSGA fetch)."""
+built directly on collectors/spdr_sector_holdings.py capture batches (no
+network, no live SSGA fetch)."""
 from __future__ import annotations
 
 import datetime as dt
@@ -40,9 +40,24 @@ def fixture_workbook(rows) -> bytes:
     return buf.getvalue()
 
 
-def publish(root, ticker, rows, captured_at=NOW):
-    bundle = C.build_capture(captured_at, ticker, fixture_workbook(rows))
-    C.publish_capture(root, bundle)
+def build_and_publish(root, per_ticker_rows, *, captured_at=NOW, tickers=None):
+    """Build and publish one capture batch.
+
+    ``per_ticker_rows``: {ticker: [(symbol, name, weight_pct), ...]}.
+    ``tickers``: the full set of tickers this batch attempts to cover
+    (default: all 11 -- a complete batch). Pass a smaller set to build a
+    deliberately incomplete batch. Any ticker in ``tickers`` without an
+    entry in ``per_ticker_rows`` gets a harmless placeholder holding so
+    callers only need to spell out the tickers they actually care about.
+    """
+    tickers = list(C.SECTOR_ETFS) if tickers is None else tickers
+    raw = {
+        ticker: fixture_workbook(per_ticker_rows.get(ticker, [("PLACEHOLDER", "PLACEHOLDER CO", 0.01)]))
+        for ticker in tickers
+    }
+    batch = C.build_batch(captured_at, raw)
+    C.publish_batch(root, batch)
+    return batch
 
 
 class SectorMembershipTests(unittest.TestCase):
@@ -57,38 +72,49 @@ class SectorMembershipTests(unittest.TestCase):
     def test_sole_holder_wins(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            publish(root, "XLK", [("NVDA", "NVIDIA", 8.5)])
+            build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]})
             result = R.sector_for_symbol(root, "nvda", "2026-09-15T12:00:00Z")
             self.assertEqual(result["status"], "OK")
             self.assertEqual(result["sector_etf"], "XLK")
             self.assertEqual(result["basis"], "SOLE_HOLDER")
+            self.assertEqual(result["holder_etf_count"], 1)
+            self.assertFalse(result["tie"])
 
-    def test_multi_holder_picks_largest_weight_bucket_then_rank(self):
+    def test_multi_holder_uses_exact_weight_not_within_fund_rank(self):
+        # The bug PR #761 fixed: a rank-1-in-its-own-fund holding is NOT
+        # necessarily heavier than a rank-2 holding in a different fund.
+        # XLK's NVDA is rank 1 in XLK (6.0, sole holding there); XLC's NVDA
+        # is rank 2 in XLC (8.5, behind META's 9.0). The true larger weight
+        # is XLC's 8.5 -- a bucket+rank approximation would have picked
+        # XLK instead (rank 1 beats rank 2 on a same-bucket tie).
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            publish(root, "XLK", [("AAPL", "APPLE", 4.2), ("NVDA", "NVIDIA", 8.5)])
-            publish(root, "XLC", [("META", "META", 9.0), ("NVDA", "NVIDIA", 2.0)])
+            build_and_publish(root, {
+                "XLK": [("NVDA", "NVIDIA", 6.0)],
+                "XLC": [("META", "META", 9.0), ("NVDA", "NVIDIA", 8.5)],
+            })
             result = R.sector_for_symbol(root, "NVDA", "2026-09-15T12:00:00Z")
-            self.assertEqual(result["sector_etf"], "XLK")  # GE_5PCT beats GE_1PCT_LT_5PCT
+            self.assertEqual(result["sector_etf"], "XLC")
             self.assertEqual(result["basis"], "LARGEST_WEIGHT_ETF")
-            self.assertEqual(result["held_by"], ["XLC", "XLK"])
-            self.assertFalse(result["tie_broken_alphabetically"])
+            self.assertEqual(result["holder_etf_count"], 2)
+            self.assertFalse(result["tie"])
 
-    def test_full_tie_breaks_alphabetically(self):
+    def test_exact_tie_sets_tie_flag_and_breaks_alphabetically(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            # Same bucket (GE_5PCT) and same rank (1st, sole holding) in both
-            # funds -- a genuine full tie on the only signals this reader has.
-            publish(root, "XLK", [("DUP", "DUP CO", 8.5)])
-            publish(root, "XLC", [("DUP", "DUP CO", 8.5)])
+            build_and_publish(root, {
+                "XLK": [("DUP", "DUP CO", 5.0)],
+                "XLC": [("DUP", "DUP CO", 5.0)],
+            })
             result = R.sector_for_symbol(root, "DUP", "2026-09-15T12:00:00Z")
-            self.assertEqual(result["sector_etf"], "XLC")  # alphabetically first at rank1/GE_5PCT
-            self.assertTrue(result["tie_broken_alphabetically"])
+            self.assertEqual(result["sector_etf"], "XLC")  # alphabetically first on an exact tie
+            self.assertTrue(result["tie"])
+            self.assertEqual(result["holder_etf_count"], 2)
 
     def test_unheld_symbol_is_unknown_no_t2(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            publish(root, "XLK", [("NVDA", "NVIDIA", 8.5)])
+            build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]})
             result = R.sector_for_symbol(root, "MSFT", "2026-09-15T12:00:00Z")
             self.assertEqual(result["status"], "UNKNOWN_NO_T2")
             self.assertIsNone(result["sector_etf"])
@@ -96,26 +122,52 @@ class SectorMembershipTests(unittest.TestCase):
     def test_no_capture_before_decision_is_distinct_from_unheld(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            publish(root, "XLK", [("NVDA", "NVIDIA", 8.5)], captured_at=NOW)
+            build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]}, captured_at=NOW)
             result = R.sector_for_symbol(root, "NVDA", "2026-09-14T00:00:00Z")
             self.assertEqual(result["status"], "NO_POINT_IN_TIME_CAPTURE_AVAILABLE")
+            self.assertFalse(result["incomplete_batches_present"])
 
-    def test_only_the_latest_capture_day_before_decision_is_used(self):
+    def test_incomplete_batch_is_never_used_falls_back_to_previous_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             older = dt.datetime(2026, 9, 10, 6, 0, 0, tzinfo=dt.timezone.utc)
-            publish(root, "XLK", [("NVDA", "NVIDIA", 8.5)], captured_at=older)
-            publish(root, "XLK", [("AAPL", "APPLE", 4.2)], captured_at=NOW)
+            # Day 1: complete batch, NVDA held by XLK.
+            build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]}, captured_at=older)
+            # Day 2: only XLC fetched successfully -- an incomplete batch
+            # that, if trusted, would wrongly answer "not held" for NVDA.
+            build_and_publish(
+                root, {"XLC": [("META", "META", 9.0)]}, captured_at=NOW, tickers=["XLC"],
+            )
             result = R.sector_for_symbol(root, "NVDA", "2026-09-15T12:00:00Z")
-            # NVDA was only held on the older day; the latest capture day
-            # (2026-09-15) does not hold it -> unknown, not stale-but-held.
+            self.assertEqual(result["status"], "OK")
+            self.assertEqual(result["sector_etf"], "XLK")
+            self.assertEqual(result["as_of_capture_date_utc"], "2026-09-10")
+
+    def test_only_incomplete_batches_reports_incomplete_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            build_and_publish(root, {"XLC": [("META", "META", 9.0)]}, tickers=["XLC"])
+            result = R.sector_for_symbol(root, "META", "2026-09-15T12:00:00Z")
+            self.assertEqual(result["status"], "NO_POINT_IN_TIME_CAPTURE_AVAILABLE")
+            self.assertTrue(result["incomplete_batches_present"])
+
+    def test_only_the_latest_complete_capture_day_before_decision_is_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            older = dt.datetime(2026, 9, 10, 6, 0, 0, tzinfo=dt.timezone.utc)
+            build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]}, captured_at=older)
+            build_and_publish(root, {"XLK": [("AAPL", "APPLE", 4.2)]}, captured_at=NOW)
+            result = R.sector_for_symbol(root, "NVDA", "2026-09-15T12:00:00Z")
+            # NVDA was only held on the older day; the latest complete
+            # capture day (2026-09-15) does not hold it -> unknown, not
+            # stale-but-held.
             self.assertEqual(result["status"], "UNKNOWN_NO_T2")
             self.assertEqual(result["as_of_capture_date_utc"], "2026-09-15")
 
     def test_symbol_is_case_and_whitespace_normalized(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            publish(root, "XLK", [("NVDA", "NVIDIA", 8.5)])
+            build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]})
             result = R.sector_for_symbol(root, "  nvda  ", "2026-09-15T12:00:00Z")
             self.assertEqual(result["status"], "OK")
 

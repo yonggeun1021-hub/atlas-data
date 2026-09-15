@@ -185,5 +185,152 @@ class LatestPointerTests(unittest.TestCase):
             self.assertTrue(pointer_all["complete"])
 
 
+ALL_11_RAW = {ticker: fixture_workbook([("PLACEHOLDER", "PLACEHOLDER CO", 0.5)]) for ticker in M.SECTOR_ETFS}
+
+
+def all_11_raw_with(overrides: dict[str, bytes]) -> dict[str, bytes]:
+    raw = dict(ALL_11_RAW)
+    raw.update(overrides)
+    return raw
+
+
+class ResolveCrossEtfWinnersTests(unittest.TestCase):
+    def test_sole_holder(self):
+        resolved = M.resolve_cross_etf_winners({"XLK": [{"symbol": "NVDA", "weight_pct": 8.5, "name": None}]})
+        self.assertEqual(resolved["NVDA"], {
+            "schema_version": M.RESOLVED_SYMBOL_SCHEMA_VERSION,
+            "symbol": "NVDA", "primary_sector_etf": "XLK",
+            "holder_etf_count": 1, "tie": False,
+        })
+
+    def test_exact_weight_multi_holder_picks_the_true_larger_weight(self):
+        # A rank-1-in-fund holding is NOT always heavier than a rank-2 one
+        # in a different fund -- this is exactly the bug PR #761 fixed.
+        per_ticker_holdings = {
+            "XLK": [{"symbol": "NVDA", "weight_pct": 6.0, "name": None},
+                    {"symbol": "AAPL", "weight_pct": 4.0, "name": None}],
+            "XLC": [{"symbol": "META", "weight_pct": 9.0, "name": None},
+                    {"symbol": "NVDA", "weight_pct": 6.5, "name": None}],
+        }
+        resolved = M.resolve_cross_etf_winners(per_ticker_holdings)
+        self.assertEqual(resolved["NVDA"]["primary_sector_etf"], "XLC")  # 6.5 > 6.0
+        self.assertEqual(resolved["NVDA"]["holder_etf_count"], 2)
+        self.assertFalse(resolved["NVDA"]["tie"])
+
+    def test_exact_tie_sets_tie_flag_and_breaks_alphabetically(self):
+        per_ticker_holdings = {
+            "XLK": [{"symbol": "DUP", "weight_pct": 5.0, "name": None}],
+            "XLC": [{"symbol": "DUP", "weight_pct": 5.0, "name": None}],
+        }
+        resolved = M.resolve_cross_etf_winners(per_ticker_holdings)
+        self.assertTrue(resolved["DUP"]["tie"])
+        self.assertEqual(resolved["DUP"]["primary_sector_etf"], "XLC")
+
+
+class BuildBatchTests(unittest.TestCase):
+    def test_complete_batch_writes_resolved_symbols(self):
+        raw = all_11_raw_with({
+            "XLK": fixture_workbook([("NVDA", "NVIDIA", 8.5)]),
+            "XLC": fixture_workbook([("META", "META", 9.0)]),
+        })
+        batch = M.build_batch(NOW, raw)
+        self.assertTrue(batch["batch_complete"])
+        self.assertIsNotNone(batch["symbols_bytes"])
+        self.assertEqual(batch["manifest"]["tickers_captured"], sorted(M.SECTOR_ETFS))
+
+    def test_incomplete_batch_has_no_resolved_symbols_but_still_has_per_etf_captures(self):
+        raw = {"XLK": fixture_workbook([("NVDA", "NVIDIA", 8.5)])}
+        batch = M.build_batch(NOW, raw)
+        self.assertFalse(batch["batch_complete"])
+        self.assertIsNone(batch["symbols_bytes"])
+        self.assertIsNone(batch["symbols_path"])
+        self.assertEqual(list(batch["per_ticker_capture"]), ["XLK"])
+
+    def test_empty_batch_is_incomplete_and_does_not_crash(self):
+        batch = M.build_batch(NOW, {})
+        self.assertFalse(batch["batch_complete"])
+        self.assertEqual(batch["per_ticker_capture"], {})
+
+    def test_ticker_outside_universe_rejected(self):
+        with self.assertRaisesRegex(M.SpdrSectorHoldingsError, "HOLDINGS_TICKER_NOT_IN_UNIVERSE"):
+            M.build_batch(NOW, {"SMH": fixture_workbook([("NVDA", "NVIDIA", 8.5)])})
+
+
+class PublishBatchTests(unittest.TestCase):
+    def test_publish_complete_batch_writes_manifest_and_symbols(self):
+        raw = all_11_raw_with({"XLK": fixture_workbook([("NVDA", "NVIDIA", 8.5)])})
+        batch = M.build_batch(NOW, raw)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            summary = M.publish_batch(root, batch)
+            self.assertTrue(summary["batch_complete"])
+            self.assertTrue((root / summary["manifest_path"]).exists())
+            self.assertTrue((root / summary["symbols_path"]).exists())
+            self.assertEqual(len(summary["per_ticker"]), 11)
+            import json
+            symbols = json.loads((root / summary["symbols_path"]).read_text())
+            self.assertIn("NVDA", [s["symbol"] for s in symbols])
+
+    def test_publish_incomplete_batch_writes_manifest_only(self):
+        raw = {"XLK": fixture_workbook([("NVDA", "NVIDIA", 8.5)])}
+        batch = M.build_batch(NOW, raw)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            summary = M.publish_batch(root, batch)
+            self.assertFalse(summary["batch_complete"])
+            self.assertIsNone(summary["symbols_path"])
+            self.assertTrue((root / summary["manifest_path"]).exists())
+
+    def test_publish_is_idempotent(self):
+        raw = all_11_raw_with({"XLK": fixture_workbook([("NVDA", "NVIDIA", 8.5)])})
+        batch = M.build_batch(NOW, raw)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            M.publish_batch(root, batch)
+            M.publish_batch(root, batch)  # no error, no collision
+
+
+class TickerAllowlistCliTests(unittest.TestCase):
+    """collectors/spdr_sector_holdings.py main() -- see
+    .github/workflows/spdr-sector-holdings.yml's env:/quoted-variable fix
+    (PR #761 review item 2): the shell never substitutes the untrusted
+    workflow_dispatch input directly into the script text, and this script
+    is responsible for splitting + validating it against SECTOR_ETFS."""
+
+    def test_invalid_ticker_in_argv_is_rejected_before_any_fetch(self):
+        calls = []
+        original_fetch = M.fetch_holdings
+        def spy(ticker, *, getter=None):
+            calls.append(ticker)
+            return original_fetch(ticker, getter=lambda url, headers=None: fixture_workbook([("X", "X", 1.0)]))
+        M.fetch_holdings = spy
+        try:
+            rc = M.main(["--tickers", "XLK NOT_A_TICKER"])
+        finally:
+            M.fetch_holdings = original_fetch
+        self.assertEqual(rc, 2)
+        self.assertEqual(calls, [])  # rejected before any network call
+
+    def test_space_separated_string_is_split_correctly(self):
+        seen = []
+        original_fetch = M.fetch_holdings
+        def spy(ticker, *, getter=None):
+            seen.append(ticker)
+            raise M.SpdrSectorHoldingsError("HOLDINGS_HTTP_UNREACHABLE")
+        M.fetch_holdings = spy
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                original_root = M.ROOT
+                M.ROOT = Path(tmp)
+                try:
+                    rc = M.main(["--tickers", "XLK XLF"])
+                finally:
+                    M.ROOT = original_root
+        finally:
+            M.fetch_holdings = original_fetch
+        self.assertEqual(rc, 0)  # per-ticker fetch failure does not crash the run
+        self.assertEqual(sorted(seen), ["XLF", "XLK"])
+
+
 if __name__ == "__main__":
     unittest.main()

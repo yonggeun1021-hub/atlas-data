@@ -12,34 +12,50 @@ sha256 2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd).
 
 This module only *reads* the derived evidence written by
 ``collectors/spdr_sector_holdings.py`` under
-``evidence/spdr_sector_holdings/derived/<capture_date>/<ETF>.json`` -- it
-does not import that collector (independent-replay / copy-preserve
-convention already used across this repo's evidence readers) and makes no
-network call.
+``evidence/spdr_sector_holdings/resolved/<capture_date>/`` -- it does not
+import that collector (independent-replay / copy-preserve convention
+already used across this repo's evidence readers) and makes no network
+call.
 
-"Largest weight" without a stored exact weight
-------------------------------------------------
-The collector deliberately never retains the exact per-symbol weight (see
-its module docstring, "Licensing" section) -- only a coarse, ordered
-``weight_bucket`` plus a ``weight_rank`` that is only comparable *within a
-single ETF's own holdings that day*. A symbol held by more than one sector
-ETF on the same day is expected to be extremely rare (SPDR Select Sector
-funds partition the S&P 500 by GICS sector) -- when it happens, this reader
-resolves "largest weight" as: higher ``weight_bucket`` wins; on a bucket
-tie, lower ``weight_rank`` (closer to the top of its own fund) wins; on a
-full tie, the alphabetically first sector ETF wins as an arbitrary, stable,
-documented fallback. This ordering is a CIO interpretation of "largest
-weight" given the licensing-safe derived data actually retained, not a
-user-ratified exact comparison.
+"Largest weight" -- exact at capture time, never committed
+--------------------------------------------------------------
+CIO review 2026-09-15 (PR #761): a symbol's cross-ETF "largest weight"
+winner is resolved from the *exact* weights the collector holds in memory
+for one instant, at capture time, whenever a single capture run covers all
+11 sector ETFs (a "complete batch") -- see
+``collectors.spdr_sector_holdings.resolve_cross_etf_winners``. Only the
+outcome is committed: ``primary_sector_etf``, ``holder_etf_count`` and a
+``tie`` flag (set when two or more ETFs hold the symbol at the exact same
+weight -- the winner is then the alphabetically first tied ETF, an
+arbitrary, stable, documented fallback). The exact weight itself is never
+written to disk (see the collector's module docstring, "Licensing"
+section) -- this reader does not need it, because the comparison already
+happened, correctly, before the raw weights were discarded.
+
+An earlier revision of this reader approximated the tie-break from a
+coarse weight bucket plus a rank that was only comparable *within* one
+ETF's own holdings -- which could pick the wrong ETF across funds. That
+approximation is gone; ``sector_for_symbol`` now reads the batch's own
+resolved answer directly.
+
+Incomplete batches -- fail closed, not silently wrong
+--------------------------------------------------------
+If a capture run does not cover all 11 ETFs (one or more fetches failed),
+cross-ETF resolution for that day is impossible -- an ETF that failed to
+fetch might have been the true largest holder of some symbol. Such a batch
+is marked ``batch_complete: false`` and carries no ``symbols.json`` at all.
+This reader never falls back to a same-day incomplete batch: it walks
+backward to the most recent **complete** batch captured at or before the
+decision instant. If none exists, the answer is
+``NO_POINT_IN_TIME_CAPTURE_AVAILABLE`` (distinct from ``UNKNOWN_NO_T2`` --
+data exists and the symbol is genuinely unheld) -- conflating the two would
+silently read "we have no usable capture yet" as "no T2", which is wrong.
 
 Not backfillable
 ------------------
 Holdings history cannot be reconstructed after the fact (see the
-collector's module docstring). If no capture exists at or before the
-decision instant, this reader returns ``NO_POINT_IN_TIME_CAPTURE_AVAILABLE``
--- distinct from ``UNKNOWN_NO_T2`` (data exists; the symbol just is not
-held by any sector ETF that day). Conflating the two would silently read
-"we have not started capturing yet" as "no T2", which is wrong.
+collector's module docstring); there is no way to manufacture a missing
+complete batch for a past day.
 """
 from __future__ import annotations
 
@@ -52,12 +68,11 @@ import re
 UTC = dt.timezone.utc
 UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
-# Kept identical to collectors/spdr_sector_holdings.py's SECTOR_ETFS /
-# WEIGHT_BUCKETS by construction (both trace to
-# config/free_market_data_contract.json ``sector_reference_symbols`` minus
-# SMH); duplicated rather than imported, see module docstring.
+# Kept identical to collectors/spdr_sector_holdings.py's SECTOR_ETFS by
+# construction (both trace to config/free_market_data_contract.json
+# ``sector_reference_symbols`` minus SMH); duplicated rather than imported,
+# see module docstring.
 SECTOR_ETFS = ("XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY")
-WEIGHT_BUCKET_ORDER = {"LT_1PCT": 0, "GE_1PCT_LT_5PCT": 1, "GE_5PCT": 2}
 EVIDENCE_ROOT = "evidence/spdr_sector_holdings"
 
 
@@ -78,24 +93,28 @@ def _parse_utc(value: object, code: str) -> dt.datetime:
         fail(code)
 
 
-def _load_captures_before(root: Path, decision: dt.datetime) -> list[dict]:
-    derived_dir = root / EVIDENCE_ROOT / "derived"
-    if not derived_dir.is_dir():
+def _load_batches_before(root: Path, decision: dt.datetime) -> list[dict]:
+    resolved_dir = root / EVIDENCE_ROOT / "resolved"
+    if not resolved_dir.is_dir():
         return []
-    captures = []
-    for path in sorted(derived_dir.glob("*/*.json")):
+    batches = []
+    for manifest_path in sorted(resolved_dir.glob("*/manifest.json")):
         try:
-            capture = json.loads(path.read_text(encoding="utf-8"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            fail("HOLDINGS_CAPTURE_UNREADABLE")
-        captured_at = _parse_utc(capture.get("captured_at_utc"), "CAPTURE_TIME_INVALID")
+            fail("HOLDINGS_MANIFEST_UNREADABLE")
+        captured_at = _parse_utc(manifest.get("captured_at_utc"), "CAPTURE_TIME_INVALID")
         if captured_at <= decision:
-            captures.append(capture)
-    return captures
+            batches.append(manifest)
+    return batches
 
 
-def _rank_key(row: dict) -> tuple:
-    return (WEIGHT_BUCKET_ORDER[row["weight_bucket"]], -row["weight_rank"])
+def _load_symbols(root: Path, capture_date_utc: str) -> list[dict]:
+    path = root / EVIDENCE_ROOT / "resolved" / capture_date_utc / "symbols.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        fail("HOLDINGS_SYMBOLS_FILE_UNREADABLE")
 
 
 def sector_for_symbol(root: Path, symbol: str, decision_at: str) -> dict:
@@ -110,49 +129,46 @@ def sector_for_symbol(root: Path, symbol: str, decision_at: str) -> dict:
             "basis": "OWN_SECTOR",
         }
 
-    captures = _load_captures_before(root, decision)
-    if not captures:
+    batches = _load_batches_before(root, decision)
+    complete_batches = [b for b in batches if b.get("batch_complete")]
+
+    if not complete_batches:
         return {
             "status": "NO_POINT_IN_TIME_CAPTURE_AVAILABLE",
             "symbol": symbol,
+            "incomplete_batches_present": bool(batches),
             "explanation": (
-                "No SPDR sector holdings capture exists with "
-                "captured_at_utc <= decision_at. Holdings history is not "
-                "backfillable, so this is a genuine capture gap, not "
-                "evidence that the symbol is unheld."
+                "Only incomplete SPDR sector holdings batches (one or more "
+                "ETF fetches failed that day) exist with captured_at_utc <= "
+                "decision_at, and no earlier complete batch exists either. "
+                "Cross-ETF 'largest weight' cannot be resolved from an "
+                "incomplete batch, and holdings history is not backfillable."
+                if batches else
+                "No SPDR sector holdings batch exists with captured_at_utc "
+                "<= decision_at. Holdings history is not backfillable, so "
+                "this is a genuine capture gap, not evidence that the "
+                "symbol is unheld."
             ),
         }
 
-    latest_day = max(c["capture_date_utc"] for c in captures)
-    same_day = [c for c in captures if c["capture_date_utc"] == latest_day]
+    latest = max(complete_batches, key=lambda b: b["capture_date_utc"])
+    symbols = _load_symbols(root, latest["capture_date_utc"])
+    row = next((s for s in symbols if s["symbol"] == symbol), None)
 
-    holders = []
-    for capture in same_day:
-        for row in capture.get("mapping", []):
-            if row["symbol"] == symbol:
-                holders.append(row)
-
-    if not holders:
+    if row is None:
         return {
             "status": "UNKNOWN_NO_T2",
             "symbol": symbol,
             "sector_etf": None,
-            "as_of_capture_date_utc": latest_day,
-            "sector_etfs_captured_that_day": sorted(c["sector_etf"] for c in same_day),
+            "as_of_capture_date_utc": latest["capture_date_utc"],
         }
-
-    holders.sort(key=_rank_key, reverse=True)
-    best_bucket = holders[0]["weight_bucket"]
-    best_rank = holders[0]["weight_rank"]
-    tied = [h for h in holders if h["weight_bucket"] == best_bucket and h["weight_rank"] == best_rank]
-    winner = min(tied, key=lambda h: h["sector_etf"])
 
     return {
         "status": "OK",
         "symbol": symbol,
-        "sector_etf": winner["sector_etf"],
-        "basis": "LARGEST_WEIGHT_ETF" if len(holders) > 1 else "SOLE_HOLDER",
-        "as_of_capture_date_utc": latest_day,
-        "held_by": sorted(h["sector_etf"] for h in holders),
-        "tie_broken_alphabetically": len(tied) > 1,
+        "sector_etf": row["primary_sector_etf"],
+        "basis": "LARGEST_WEIGHT_ETF" if row["holder_etf_count"] > 1 else "SOLE_HOLDER",
+        "as_of_capture_date_utc": latest["capture_date_utc"],
+        "holder_etf_count": row["holder_etf_count"],
+        "tie": row["tie"],
     }

@@ -2641,15 +2641,26 @@ APPROVED_TESTS = [
     #   SPDR Select Sector ETFs (XLB XLC XLE XLF XLI XLK XLP XLRE XLU XLV
     #   XLY, verified against config/free_market_data_contract.json); the
     #   downloaded workbook itself is never committed (licensing) -- only a
-    #   derived symbol/sector-ETF/weight-rank/weight-bucket mapping plus
-    #   capture metadata/hash. Largest-weight-ETF tie-break, UNKNOWN (no
-    #   T2) for an unheld symbol, own-sector for a sector ETF, and
-    #   NO_POINT_IN_TIME_CAPTURE_AVAILABLE (distinct from UNKNOWN) when no
-    #   capture yet exists -- holdings history is physically time-gated and
-    #   cannot be backfilled. Fully offline: a small in-memory fixture
-    #   .xlsx workbook and a fake HTTP layer only; the real SSGA endpoint
-    #   is never contacted by this suite. Every *_authorized field stays
-    #   False.
+    #   per-ETF derived symbol/weight-rank/weight-bucket mapping plus
+    #   capture metadata/hash. CIO review 2026-09-15 (PR #761): the rule's
+    #   cross-fund "largest weight ETF" tie-break is resolved from EXACT
+    #   weights held only in memory at capture time, and only when a single
+    #   run covers all 11 ETFs (a "complete batch") -- per symbol, only the
+    #   outcome (primary_sector_etf / holder_etf_count / tie flag) is
+    #   committed, never the exact weight. An incomplete batch (an ETF
+    #   fetch failed) resolves nothing that day; the reader falls back to
+    #   the most recent earlier complete batch rather than trust a partial
+    #   one. UNKNOWN (no T2) for an unheld symbol, own-sector for a sector
+    #   ETF, and NO_POINT_IN_TIME_CAPTURE_AVAILABLE (distinct from UNKNOWN)
+    #   when no complete capture yet exists -- holdings history is
+    #   physically time-gated and cannot be backfilled. Fully offline: a
+    #   small in-memory fixture .xlsx workbook and a fake HTTP layer only;
+    #   the real SSGA endpoint is never contacted by this suite, and the
+    #   untrusted workflow_dispatch ticker-list input is passed through
+    #   env:/a quoted shell variable, never substituted directly into the
+    #   run: script, then split and validated against the 11-ticker
+    #   allowlist in Python before any HTTP request. Every *_authorized
+    #   field stays False.
     #   ⛔ CIO has not approved this file itself yet -- registered per the
     #      same convention as test_capture_azure_fixture.py above so it is
     #      not silently hidden from the test-set comparison.

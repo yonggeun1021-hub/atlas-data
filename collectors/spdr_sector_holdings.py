@@ -54,6 +54,23 @@ first ``workflow_dispatch`` run of ``.github/workflows/spdr-sector-holdings.yml`
 *is* that verification -- treat its result as unproven until then. Every
 test in ``test/test_spdr_sector_holdings.py`` uses a small in-memory fixture
 workbook and a fake HTTP layer; none of it proves the real endpoint's shape.
+
+Cross-ETF "largest weight" resolution (CIO review 2026-09-15, PR #761)
+--------------------------------------------------------------------------
+The rule's "if held by more than one, the ETF with the largest weight" is
+a comparison *across* funds, and a coarse per-fund weight bucket/rank
+cannot answer it correctly (a rank-1 holding in one fund is not
+necessarily heavier than a rank-2 holding in another). This module
+resolves that comparison from the *exact* weights it already holds in
+memory, but only when one capture run covers all 11 sector ETFs together
+(a "complete batch") -- see ``resolve_cross_etf_winners`` and
+``build_batch``. Only the outcome is committed for each symbol:
+``primary_sector_etf``, ``holder_etf_count``, and a ``tie`` flag; the exact
+weight itself is discarded, never written to disk, exactly as before. If a
+batch is incomplete (one or more ETF fetches failed that run),
+cross-ETF resolution is not attempted for that day at all -- the reader
+(``universe/us_spdr_sector_mapping.py``) falls back to the most recent
+earlier *complete* batch instead of trusting a partial one.
 """
 from __future__ import annotations
 
@@ -89,6 +106,8 @@ HOLDINGS_URL_TEMPLATE = (
 
 CAPTURE_SCHEMA_VERSION = "spdr_sector_holdings_capture/1"
 MAPPING_ROW_SCHEMA_VERSION = "spdr_sector_holdings_mapping_row/1"
+RESOLVED_BATCH_SCHEMA_VERSION = "spdr_sector_holdings_resolved_batch/1"
+RESOLVED_SYMBOL_SCHEMA_VERSION = "spdr_sector_holdings_resolved_symbol/1"
 EVIDENCE_ROOT = "evidence/spdr_sector_holdings"
 DERIVED_RETENTION = "APPEND_ONLY_CONTENT_ADDRESSED_DERIVED_ONLY_NO_RAW_WORKBOOK"
 
@@ -334,6 +353,126 @@ def publish_capture(root: Path, bundle: dict) -> dict:
             "capture_id": bundle["capture"]["capture_id"]}
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Cross-ETF resolution -- exact weights, in memory only, never committed.
+# See module docstring, "Cross-ETF 'largest weight' resolution".
+# ─────────────────────────────────────────────────────────────────────────
+
+def resolve_cross_etf_winners(per_ticker_holdings: dict[str, list[dict]]) -> dict[str, dict]:
+    """Per-symbol cross-ETF "largest weight" winner, from exact weights.
+
+    ``per_ticker_holdings`` is ``{ticker: parse_holdings_workbook(...)}``
+    for every ticker in a *complete* batch. Only called when the batch is
+    complete -- callers must not call this with a partial set of tickers,
+    since a missing ETF could have been the true winner for some symbol.
+    Returns ``{symbol: {"primary_sector_etf", "holder_etf_count", "tie"}}``;
+    the exact weight values used to decide this are not part of the return
+    value and are never persisted by any caller in this module.
+    """
+    by_symbol: dict[str, list[tuple[str, float]]] = {}
+    for ticker, holdings in per_ticker_holdings.items():
+        for holding in holdings:
+            by_symbol.setdefault(holding["symbol"], []).append((ticker, holding["weight_pct"]))
+
+    resolved = {}
+    for symbol, entries in by_symbol.items():
+        max_weight = max(weight for _, weight in entries)
+        winners = sorted(ticker for ticker, weight in entries if weight == max_weight)
+        resolved[symbol] = {
+            "schema_version": RESOLVED_SYMBOL_SCHEMA_VERSION,
+            "symbol": symbol,
+            "primary_sector_etf": winners[0],
+            "holder_etf_count": len(entries),
+            "tie": len(winners) > 1,
+        }
+    return resolved
+
+
+def build_batch(captured_at: dt.datetime, per_ticker_raw: dict[str, bytes]) -> dict:
+    """Build one day's full capture batch: a per-ETF capture bundle for
+    every ticker actually fetched (``per_ticker_raw``), plus -- only when
+    every one of the 11 sector ETFs was fetched this run (a "complete
+    batch") -- the cross-ETF resolved symbol mapping. An incomplete batch
+    still publishes each ETF's own per-ETF capture (unaffected, unchanged
+    shape) but carries no resolved symbols file at all; see module
+    docstring.
+    """
+    if captured_at.tzinfo is None:
+        fail("CAPTURE_TIME_NAIVE")
+    invalid = sorted(set(per_ticker_raw) - set(SECTOR_ETFS))
+    if invalid:
+        fail("HOLDINGS_TICKER_NOT_IN_UNIVERSE")
+
+    captured_at_utc = captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _parse_utc(captured_at_utc, "CAPTURE_TIME_INVALID")
+    day = captured_at.astimezone(UTC).date().isoformat()
+
+    per_ticker_capture = {}
+    per_ticker_holdings = {}
+    for ticker, raw in per_ticker_raw.items():
+        per_ticker_capture[ticker] = build_capture(captured_at, ticker, raw)
+        per_ticker_holdings[ticker] = parse_holdings_workbook(raw)
+
+    tickers_captured = sorted(per_ticker_raw)
+    complete = tickers_captured == sorted(SECTOR_ETFS)
+
+    resolved_symbols = resolve_cross_etf_winners(per_ticker_holdings) if complete else {}
+    symbols_list = [resolved_symbols[s] for s in sorted(resolved_symbols)]
+
+    manifest = {
+        "schema_version": RESOLVED_BATCH_SCHEMA_VERSION,
+        "captured_at_utc": captured_at_utc,
+        "capture_date_utc": day,
+        "tickers_captured": tickers_captured,
+        "batch_complete": complete,
+        "resolved_symbol_count": len(symbols_list),
+        "authority": AUTHORITY,
+    }
+    manifest_bytes = json.dumps(
+        manifest, ensure_ascii=False, indent=2, sort_keys=True
+    ).encode("utf-8") + b"\n"
+    manifest_path = f"{EVIDENCE_ROOT}/resolved/{day}/manifest.json"
+
+    symbols_bytes = None
+    symbols_path = None
+    if complete:
+        symbols_bytes = json.dumps(
+            symbols_list, ensure_ascii=False, indent=2, sort_keys=True
+        ).encode("utf-8") + b"\n"
+        symbols_path = f"{EVIDENCE_ROOT}/resolved/{day}/symbols.json"
+
+    return {
+        "per_ticker_capture": per_ticker_capture,
+        "manifest": manifest,
+        "manifest_bytes": manifest_bytes,
+        "manifest_path": manifest_path,
+        "symbols_bytes": symbols_bytes,
+        "symbols_path": symbols_path,
+        "batch_complete": complete,
+    }
+
+
+def publish_batch(root: Path, batch: dict) -> dict:
+    per_ticker_summary = {}
+    for ticker, bundle in batch["per_ticker_capture"].items():
+        per_ticker_summary[ticker] = publish_capture(root, bundle)
+
+    manifest_path = _safe_evidence_path(root, batch["manifest_path"], f"{EVIDENCE_ROOT}/resolved/")
+    _write_once(manifest_path, batch["manifest_bytes"])
+
+    if batch["symbols_bytes"] is not None:
+        symbols_path = _safe_evidence_path(root, batch["symbols_path"], f"{EVIDENCE_ROOT}/resolved/")
+        _write_once(symbols_path, batch["symbols_bytes"])
+
+    return {
+        "per_ticker": per_ticker_summary,
+        "manifest_path": batch["manifest_path"],
+        "batch_complete": batch["batch_complete"],
+        "resolved_symbol_count": batch["manifest"]["resolved_symbol_count"],
+        "symbols_path": batch["symbols_path"],
+    }
+
+
 def write_latest_pointer(root: Path, day: str, per_ticker: dict[str, dict]) -> Path:
     """data/latest_spdr_sector_holdings.json -- small, mutable pointer (like
     this repo's other data/latest_*.json files) at the most recent capture
@@ -365,21 +504,46 @@ def write_latest_pointer(root: Path, day: str, per_ticker: dict[str, dict]) -> P
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tickers", nargs="*", default=list(SECTOR_ETFS))
+    parser.add_argument(
+        "--tickers", default=None,
+        help=(
+            "Single space-separated string of tickers to capture (default: "
+            "all 11 SPDR Select Sector ETFs). Every ticker must be one of: "
+            + " ".join(SECTOR_ETFS) + ". Passed as one shell-quoted argument "
+            "(see .github/workflows/spdr-sector-holdings.yml) and split/"
+            "validated here, not by the shell."
+        ),
+    )
     args = parser.parse_args(argv)
 
+    tickers = args.tickers.split() if args.tickers else list(SECTOR_ETFS)
+    invalid = sorted(set(tickers) - set(SECTOR_ETFS))
+    if invalid:
+        print(
+            f"HOLDINGS_TICKER_NOT_IN_UNIVERSE: {invalid} not in {list(SECTOR_ETFS)}",
+            file=sys.stderr,
+        )
+        return 2
+
     captured_at = dt.datetime.now(tz=UTC)
-    per_ticker = {}
-    for ticker in args.tickers:
-        raw = fetch_holdings(ticker)
-        bundle = build_capture(captured_at, ticker, raw)
-        summary = publish_capture(ROOT, bundle)
-        per_ticker[ticker] = summary
-        print(json.dumps({ticker: summary}, ensure_ascii=False))
+    per_ticker_raw: dict[str, bytes] = {}
+    for ticker in tickers:
+        try:
+            per_ticker_raw[ticker] = fetch_holdings(ticker)
+        except SpdrSectorHoldingsError as exc:
+            # A single ETF's fetch failure does not abort the whole run --
+            # it makes the batch incomplete (see build_batch), which the
+            # reader then treats as "no cross-ETF resolution today", not as
+            # a crash.
+            print(f"WARN: fetch failed for {ticker}: {exc}", file=sys.stderr)
+
+    batch = build_batch(captured_at, per_ticker_raw)
+    summary = publish_batch(ROOT, batch)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
 
     day = captured_at.date().isoformat()
-    if per_ticker:
-        write_latest_pointer(ROOT, day, per_ticker)
+    if summary["per_ticker"]:
+        write_latest_pointer(ROOT, day, summary["per_ticker"])
     return 0
 
 
