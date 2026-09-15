@@ -1,0 +1,123 @@
+# Crypto PAPER wiring v2 (build plan PR3)
+
+Config: `config/crypto_paper_wiring_v2.json`. Tests: `test/test_crypto_paper_wiring_v2.py`.
+No order, exchange, secret, server or REAL authority. Every number comes from
+`config/rule_registry_v1.json` or an existing repository contract.
+
+## 1. Cutover (T_cut)
+
+| Setting | Behaviour |
+|---|---|
+| `decision_snapshot_v4_cutover.t_cut_utc = null`, `status = NOT_ACTIVE` (committed default) | `decision/crypto_paper_decision_snapshot.py` emits `crypto_paper_decision_snapshot_packet/3`, byte-identical to before. |
+| `t_cut_utc = "<YYYY-MM-DD>T07:00:00Z"`, `status = ACTIVE_FROM_T_CUT` | Packets generated at or after T_cut are `/4`; earlier ones stay `/3`. `validate_output` rejects a `/4` packet dated before T_cut or while inactive. |
+
+T_cut must be at the crypto decision cycle time of `RULE.EXEC.TIME_CONTRACT.V1`
+(07:00Z) and is chosen by the CIO/user after the private runtime reinstall
+(build plan section 6 S1). This PR does not set it.
+
+The frozen tuples `OUTPUT_SCHEMA_VERSIONS` / `PER_MARKET_OUTPUT_SCHEMA_VERSIONS`
+(/1-/3) are unchanged; `/4`-aware code uses `PER_MARKET_LAYOUT_SCHEMA_VERSIONS`
+and `ALL_OUTPUT_SCHEMA_VERSIONS`.
+
+## 2. Decision snapshot `/4`
+
+Same layout as `/3` plus:
+
+* `source_refs` roles `crypto_paper_runtime_decision`
+  (`evidence/regime/crypto_paper_runtime/<date>/<sha>.json`, latest
+  `evaluation_at <= generated_at`) and `rotation_confirmation_packet`
+  (`evidence/rotation/confirmation/CRYPTO/<as_of>/packet.json`, latest as-of
+  date strictly before the capture date). Both are retained under
+  `_sources/sha256/` like the other sources.
+* P5-08 runs `crypto_candidate_promotion_contract/3` with both sources
+  (T2_REGIME_PERMITS_NEW_BUYS and T2_ROTATION_MEMBERSHIP are now wired).
+* P5-09 runs `crypto_paper_buy_eligibility_contract/3` without private inputs,
+  so a FOCUSED_REVIEW row stays WATCH (re-entry and duplicate guard need the
+  private ledger).
+* Candidate `p5_08` adds `t2_required_conditions`, `warnings`, `rule_refs`,
+  `unapplied_rules`; `p5_09` adds `record_only_features`, `rule_refs`.
+* Top-level `crypto_paper_wiring` block (contract versions, runtime decision
+  id/date/regime, rotation as-of/observation status, unavailable reasons).
+
+## 3. Promotion contract/3 rotation source
+
+`build_promotion_packet(..., contract_version=3, crypto_runtime_decision=...,
+rotation_confirmation=<CRYPTO rotation_confirmation_packet/1>)`.
+T2_ROTATION_MEMBERSHIP for bucket BTC / ETH / ALT: STRONG_CONFIRMED or
+STRONG_HELD -> PASS (with `strong_confirmed_on`), other observed state -> FAIL,
+unobserved / stale / not decision-effective packet or unresolved bucket ->
+UNKNOWN. A packet dated on or after the reference UTC day raises
+`ROTATION_CONFIRMATION_LOOKAHEAD`. Without the argument the contract/3 output
+is unchanged.
+
+## 4. Buy eligibility contract/3
+
+`build_eligibility_packet_v3(promotion_v3, evaluation_as_of, decision_at_utc,
+decision_packet_id, known_idempotency_keys, position_fills,
+session_budget_record, fee_rate)` -> `crypto_paper_buy_eligibility_packet/3`.
+
+| Criterion | Role |
+|---|---|
+| FOCUSED_REVIEW_UPSTREAM, REGIME_PERMITS_ENTRY, ROTATION_MEMBERSHIP | gate (echo of the six T2 conditions, RULE.ENTRY.PAPER_BASELINE_B.V1) |
+| REENTRY_PERMITTED | gate: `portfolio/paper_position_episode.reentry_decision` (RULE.EXEC.REENTRY.V1, D7) |
+| DUPLICATE_GUARD | gate: R1 key (CRYPTO, decision packet id, instrument) |
+| ORDER_DRAFT_COMPLETE | WAIT vs PAPER_BUY_ELIGIBLE: needs a session budget allocation line with a quantity |
+| TRIGGER_TIMEFRAME_ALIGNMENT, BREAKOUT_OR_PULLBACK, INDEPENDENT_PRICE_VOLUME_EVIDENCE, CURRENT_EVIDENCE_FRESHNESS, MATERIAL_BLOCKER, OVEREXTENSION | `record_only_features`, never a gate |
+
+Order draft: `session_id`, `session_budget_record_sha256`, `allocated_krw`,
+`planning_price_krw`, `quantity`, `fee_rate`, `submitted_amount_krw`,
+`expires_at` = `next_review_at` = next 07:00Z, `duplicate_guard_key`,
+`reentry_key`, `planned_loss` (record-only: quantity x DS5 ATR multiple x
+Wilder ATR14, UNKNOWN when not computable). Contract/2 is unchanged.
+
+## 5. Runtime request `/4`
+
+`shadow/crypto_paper_runtime_bridge.build_runtime_request(decision_v4, ...,
+allocation_envelope, recorded_session_budget, position_fills, exit_intents)`.
+Decisions `/1-/3` keep producing request `/3` (and `/2` replays) unchanged.
+
+1. Rebuilds P5-08 contract/3 from the decision's retained sources and checks
+   every candidate state against the decision.
+2. P5-09 contract/3 with the private inputs; WAIT rows pass the per-market
+   entry blockers (as `/3`) and markets with an open exit intent are removed.
+3. Session budget (`portfolio/paper_session_budget.py`): NAV0 from the crypto
+   ledger (cash + FRESH marks, open buy orders as reservations; build plan 2-3
+   principle 4), ADV = the decision's `krw_30d_avg_turnover`, planning price =
+   decision snapshot best ask, quantity step = simulator decimal scale. The
+   envelope's CRYPTO `confirmed_state` must equal the decision regime.
+   * `recorded_session_budget` from an earlier decision in the session ->
+     `WAIT_SESSION_BUDGET_ALLOCATED`, no new buys.
+   * The same decision re-derives the same record (restart safe); a different
+     record under the same decision raises `RECORDED_SESSION_BUDGET_CONFLICT`.
+   * A decision with no allocation candidate writes no record.
+4. Each PAPER_BUY_ELIGIBLE row -> LIMIT BUY sized by `marketable_limit_sizing`:
+   largest quantity whose decision-book VWAP stays within
+   `RULE.EXEC.QUALITY_LAYERS.V1.crypto_slippage.threshold_bp` (150) of the
+   best ask, with limit x quantity x (1 + fee) <= allocated amount; limit = the
+   worst level needed.
+5. Each exit intent -> LIMIT SELL with the same sizing (quantity <= remaining),
+   held while the market's book is not FRESH.
+6. `market_regime_status` = `simulator_market_regime_status(state)`
+   (RISK_ON/NEUTRAL -> PASS, RISK_OFF/STRESS -> FAIL, UNKNOWN -> UNKNOWN). The
+   `/3` path applies the same mapping (its input is always UNKNOWN).
+
+## 6. What PR4 (private runtime v2) must consume
+
+* Decision `crypto_paper_decision_snapshot_packet/4` (validator accepts it only
+  after T_cut) and request `crypto_paper_runtime_request/4`.
+* Request top-level fields: `/3` fields + `session_budget_record`
+  (`session_budget_record/1` or null), `sell_requests`, `wiring`.
+  Row fields: `requests[]` = market, planned_loss, order_draft, intent,
+  source_snapshot, execution_sizing; `sell_requests[]` = market,
+  exit_intent_id, exit_reason_code, intent, source_snapshot, execution_sizing.
+* Persist `session_budget_record` once per (CRYPTO, session_id, rule version)
+  via `SessionBudgetLedger`, pass it back as `recorded_session_budget`, consume
+  `execution_sizing.submitted_amount_krw` per submitted BUY, never restore on
+  cancel/expiry.
+* Supply `allocation_envelope` (`paper_allocation_envelope/1` at the decision
+  instant), `position_fills` (`paper_position_episode` FILL rows with exit
+  reasons, `[]` when none), `exit_intents` (open `paper_exit_intent/1` from the
+  store with `remaining_quantity`, `[]` when none), `known_idempotency_keys`.
+* Runtime config `/1` `order_type` / `limit_price_source` are not used by `/4`
+  (superseded by RULE.EXEC.QUALITY_LAYERS.V1); `fee_rate`, `queue_fraction`
+  still are. `open_position_risk` is optional (record-only planned loss).

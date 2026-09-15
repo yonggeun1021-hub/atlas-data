@@ -164,6 +164,14 @@ class OtherComponentsUnchangedTests(unittest.TestCase):
     # New PAPER exit policy v1 layer (build plan PR2). It is not part of the pinned
     # runtime chain; the second pattern proves no existing module imports it.
     NEW_EXIT_LAYER_MODULES = ("portfolio/paper_exit_policy_v1.py", "portfolio/paper_shadow_controls.py")
+    # Crypto PAPER wiring v2 (build plan PR3) consumes the confirmation packet
+    # and the exit layer only on the decision snapshot /4 / runtime request /4
+    # path, which stays off until the configured cutover T_cut
+    # (config/crypto_paper_wiring_v2.json); /1-/3 derivations are unchanged.
+    PR3_WIRING_MODULES = (
+        "decision/crypto_paper_decision_snapshot.py", "shadow/crypto_paper_runtime_bridge.py",
+        "universe/crypto_candidate_promotion.py", "universe/crypto_paper_buy_eligibility.py",
+    )
 
     def test_no_existing_producer_or_pinned_runtime_module_imports_the_confirmation_layer(self):
         pattern = re.compile(r"rotation_confirmation")
@@ -175,7 +183,7 @@ class OtherComponentsUnchangedTests(unittest.TestCase):
                 continue
             for path in base.rglob("*.py"):
                 relative = path.relative_to(ROOT).as_posix()
-                if relative in self.NEW_EXIT_LAYER_MODULES:
+                if relative in self.NEW_EXIT_LAYER_MODULES or relative in self.PR3_WIRING_MODULES:
                     continue
                 text = path.read_text(encoding="utf-8", errors="ignore")
                 if pattern.search(text) or exit_layer.search(text):

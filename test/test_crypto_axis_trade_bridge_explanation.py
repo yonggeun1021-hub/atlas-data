@@ -42,7 +42,7 @@ PRODUCER_PINS = {
     "test/test_crypto_axis_trade_bridge.py":
         "9b37ea81a7997cf36432c4017d1d67583ebcc63d763240cf49027b1aed5b191f",
     "decision/crypto_paper_decision_snapshot.py":
-        "60d12ca70d1aafad6b7be892959723e41c5567a419435ab079b087ada840b074",
+        "fec5cf358446a7e0789a1232ac2d7b7c02f238bdceebcfa415f191e5cf262dd7",
 }
 
 _VALIDATED: list = []

@@ -2468,6 +2468,14 @@ APPROVED_TESTS = [
     #   its own blocker, never a whole-request abort; issued /2 requests keep
     #   rebuilding byte-identically. No order/exchange/REAL authority.
     "test/test_crypto_paper_runtime_bridge_per_market.py",
+    # ★ Crypto PAPER wiring v2 (build plan PR3): decision snapshot /4 behind
+    #   the config cutover T_cut (inactive by default, /3 byte-identical),
+    #   promotion contract/3 rotation source, buy eligibility contract/3
+    #   (session budget size, record-only features/planned loss, R1 key,
+    #   07:00Z expiry), runtime request /4 (multi-candidate session budget,
+    #   marketable limit + registry 150bp quantity reduction, market-state
+    #   mapping, exit-intent sells). No order/exchange/REAL authority.
+    "test/test_crypto_paper_wiring_v2.py",
     # ★ D1 per-market account marks (crypto_paper_account_state/2): a stale
     #   held market is valued UNKNOWN instead of freezing FRESH markets'
     #   exits; unknown NAV blocks new entries only. /1 unchanged.

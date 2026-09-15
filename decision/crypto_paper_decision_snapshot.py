@@ -172,6 +172,21 @@ PER_MARKET_OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/3"
 OUTPUT_SCHEMA_VERSION = PER_MARKET_OUTPUT_SCHEMA_VERSION
 PER_MARKET_OUTPUT_SCHEMA_VERSIONS = (PER_MARKET_V2_OUTPUT_SCHEMA_VERSION, PER_MARKET_OUTPUT_SCHEMA_VERSION)
 OUTPUT_SCHEMA_VERSIONS = (LEGACY_OUTPUT_SCHEMA_VERSION,) + PER_MARKET_OUTPUT_SCHEMA_VERSIONS
+# /4 (crypto PAPER wiring v2, build plan PR3): the /3 per-market layout plus
+# the CRYPTO_PAPER_RUNTIME_V1 decision and the crypto rotation confirmation
+# packet as sources, promotion contract/3 and buy eligibility contract/3.
+# Emitted only from the configured cutover instant T_cut
+# (config/crypto_paper_wiring_v2.json); before it every packet stays /3 and
+# byte-identical.  The /1-/3 tuples above are frozen on purpose (issued
+# briefing contracts enumerate them); /4-aware consumers use the tuples below.
+V4_OUTPUT_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/4"
+PER_MARKET_LAYOUT_SCHEMA_VERSIONS = PER_MARKET_OUTPUT_SCHEMA_VERSIONS + (V4_OUTPUT_SCHEMA_VERSION,)
+ALL_OUTPUT_SCHEMA_VERSIONS = OUTPUT_SCHEMA_VERSIONS + (V4_OUTPUT_SCHEMA_VERSION,)
+WIRING_CONFIG_PATH = ROOT / "config" / "crypto_paper_wiring_v2.json"
+WIRING_CONFIG_SCHEMA_VERSION = "crypto_paper_wiring/2"
+RUNTIME_DECISION_ROOT = ROOT / "evidence" / "regime" / "crypto_paper_runtime"
+ROTATION_CONFIRMATION_ROOT = ROOT / "evidence" / "rotation" / "confirmation" / "CRYPTO"
+V4_SOURCE_ROLES = ("crypto_paper_runtime_decision", "rotation_confirmation_packet")
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -257,8 +272,51 @@ PER_MARKET = _load(
 )
 
 
+def load_wiring_config(path: Path | None = None) -> dict:
+    """``config/crypto_paper_wiring_v2.json`` with a validated /4 cutover.
+
+    ``t_cut_utc`` null means /4 is not active (the default).  A set value must
+    be a UTC instant at the crypto decision cycle time of
+    RULE.EXEC.TIME_CONTRACT.V1 (07:00Z), chosen by the CIO/user after the
+    private runtime reinstall -- this module never invents one.
+    """
+    value = _read_json(WIRING_CONFIG_PATH if path is None else Path(path))
+    if not isinstance(value, dict) or value.get("schema_version") != WIRING_CONFIG_SCHEMA_VERSION:
+        raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_SCHEMA_INVALID")
+    cutover = value.get("decision_snapshot_v4_cutover")
+    if not isinstance(cutover, dict) or "t_cut_utc" not in cutover:
+        raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_CUTOVER_INVALID")
+    if any(flag is not False for flag in (value.get("authority") or {"missing": None}).values()):
+        raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_AUTHORITY_NOT_FALSE")
+    t_cut = cutover["t_cut_utc"]
+    if t_cut is None:
+        if cutover.get("status") != "NOT_ACTIVE":
+            raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_CUTOVER_STATUS_INVALID")
+        return copy.deepcopy(value)
+    cut_dt = _parse_utc(t_cut, "wiring.t_cut_utc")
+    if cutover.get("status") != "ACTIVE_FROM_T_CUT":
+        raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_CUTOVER_STATUS_INVALID")
+    from governance import rule_registry as registry_module
+
+    binding = cutover["time_of_day_must_equal_registry_parameter"]
+    row = registry_module.rule_index(registry_module.load_registry())[binding["rule_id"]]
+    cycle = row["key_parameters"][binding["key_parameter"]]["value"]["decision_time_utc"]
+    if cut_dt.strftime("%H:%M") != cycle or cut_dt.second != 0:
+        raise CryptoPaperDecisionSnapshotError("WIRING_CONFIG_T_CUT_NOT_AT_CRYPTO_DECISION_CYCLE")
+    return copy.deepcopy(value)
+
+
+def v4_cutover_at() -> dt.datetime | None:
+    t_cut = load_wiring_config()["decision_snapshot_v4_cutover"]["t_cut_utc"]
+    return None if t_cut is None else _parse_utc(t_cut, "wiring.t_cut_utc")
+
+
 def schema_version_for(generated_dt: dt.datetime) -> str:
-    """/2 from the per-market ratification's effective instant, else /1."""
+    """/4 from the configured cutover T_cut; before it /3 from the per-market
+    ratification's effective instant, else /1."""
+    cutover = v4_cutover_at()
+    if cutover is not None and generated_dt >= cutover and PER_MARKET.is_effective(generated_dt):
+        return V4_OUTPUT_SCHEMA_VERSION
     if PER_MARKET.is_effective(generated_dt):
         return PER_MARKET_OUTPUT_SCHEMA_VERSION
     return LEGACY_OUTPUT_SCHEMA_VERSION
@@ -1011,6 +1069,82 @@ def find_previous_packet(output_root: Path, before_date: str, before_hhmm: str):
     }
 
 
+def find_latest_runtime_decision(
+    data_root: Path = RUNTIME_DECISION_ROOT, *, not_after: dt.datetime | None = None,
+):
+    """Latest committed CRYPTO_PAPER_RUNTIME_V1 decision evaluated at or before
+    ``not_after`` (``evidence/regime/crypto_paper_runtime/<date>/<sha>.json``,
+    append-only, content-addressed by the publishing workflow), or ``None``."""
+    data_root = Path(data_root)
+    if not data_root.is_dir():
+        return None
+    candidates = []
+    for directory in data_root.iterdir():
+        if not directory.is_dir() or not DATE_RE.fullmatch(directory.name):
+            continue
+        for path in directory.glob("*.json"):
+            if not SHA256_RE.fullmatch(path.stem):
+                continue
+            record = _read_json(path)
+            evaluation_at = record.get("evaluation_at") if isinstance(record, dict) else None
+            evaluated = _parse_utc(evaluation_at, f"runtime_decision.evaluation_at:{path}")
+            if not_after is not None and evaluated > not_after:
+                continue
+            candidates.append((evaluation_at, directory.name, path.name, path, record))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: (row[0], row[1], row[2]))
+    evaluation_at, directory_name, _name, path, record = candidates[-1]
+    return {"date": directory_name, "path": path, "record": record}
+
+
+def find_latest_rotation_confirmation(
+    data_root: Path = ROTATION_CONFIRMATION_ROOT, *, before_date: str,
+):
+    """Latest committed CRYPTO rotation confirmation packet whose as-of date is
+    strictly before ``before_date`` (the as-of day must be complete), or ``None``."""
+    data_root = Path(data_root)
+    if not data_root.is_dir():
+        return None
+    candidates = []
+    for directory in data_root.iterdir():
+        if not directory.is_dir() or not DATE_RE.fullmatch(directory.name) or directory.name >= before_date:
+            continue
+        path = directory / "packet.json"
+        if path.is_file():
+            candidates.append((directory.name, path))
+    if not candidates:
+        return None
+    directory_name, path = sorted(candidates)[-1]
+    return {"date": directory_name, "path": path, "record": _read_json(path)}
+
+
+def _validate_runtime_decision_entry(entry: dict | None, *, generated_dt: dt.datetime) -> None:
+    if entry is None:
+        return
+    record = entry["record"]
+    if not isinstance(record, dict) or record.get("market") != "CRYPTO":
+        raise CryptoPaperDecisionSnapshotError("RUNTIME_DECISION_SOURCE_RECORD_INVALID")
+    if _parse_utc(record.get("evaluation_at"), "runtime_decision.evaluation_at") > generated_dt:
+        raise CryptoPaperDecisionSnapshotError("RUNTIME_DECISION_FUTURE_DATED")
+    if record.get("current_decision_date") not in (None, entry["date"]):
+        raise CryptoPaperDecisionSnapshotError("RUNTIME_DECISION_DATE_DIRECTORY_MISMATCH")
+
+
+def _validate_rotation_entry(entry: dict | None, *, capture_date: str) -> None:
+    if entry is None:
+        return
+    record = entry["record"]
+    if (
+        not isinstance(record, dict)
+        or record.get("market") != "CRYPTO"
+        or record.get("as_of_date") != entry["date"]
+    ):
+        raise CryptoPaperDecisionSnapshotError("ROTATION_CONFIRMATION_SOURCE_RECORD_INVALID")
+    if record["as_of_date"] >= capture_date:
+        raise CryptoPaperDecisionSnapshotError("ROTATION_CONFIRMATION_FUTURE_DATED")
+
+
 def vintage_readiness(
     *,
     expected_date: str,
@@ -1255,6 +1389,8 @@ def build_snapshot(
     component_rows: dict | None = None,
     started_at: str | None = None,
     schema_version: str | None = None,
+    runtime_decision_entry: dict | None = None,
+    rotation_entry: dict | None = None,
 ) -> dict:
     generated_dt = _parse_utc(generated_at, "generated_at")
     # ``schema_version`` defaults to the ratified effective window.  An
@@ -1262,9 +1398,12 @@ def build_snapshot(
     # never passes one and validate_output() rejects a /2 packet dated before
     # the per-market ratification became effective.
     schema_version = schema_version_for(generated_dt) if schema_version is None else schema_version
-    if schema_version not in OUTPUT_SCHEMA_VERSIONS:
+    if schema_version not in ALL_OUTPUT_SCHEMA_VERSIONS:
         raise CryptoPaperDecisionSnapshotError(f"OUTPUT_SCHEMA_VERSION_UNSUPPORTED:{schema_version}")
-    per_market_mode = schema_version in PER_MARKET_OUTPUT_SCHEMA_VERSIONS
+    per_market_mode = schema_version in PER_MARKET_LAYOUT_SCHEMA_VERSIONS
+    v4_mode = schema_version == V4_OUTPUT_SCHEMA_VERSION
+    if not v4_mode and (runtime_decision_entry is not None or rotation_entry is not None):
+        raise CryptoPaperDecisionSnapshotError("V4_SOURCES_REQUIRE_SCHEMA_V4")
     packet_v2_layout = schema_version == PER_MARKET_V2_OUTPUT_SCHEMA_VERSION
     per_market_policy = (
         (PER_MARKET.load_packet_v2_policy() if packet_v2_layout else PER_MARKET.load_policy())
@@ -1355,6 +1494,8 @@ def build_snapshot(
         ended_at = _parse_utc(realtime_entry["record"]["run"].get("ended_at"), "realtime.ended_at")
         if ended_at > generated_dt:
             raise CryptoPaperDecisionSnapshotError("REALTIME_EVIDENCE_FUTURE_DATED")
+    _validate_runtime_decision_entry(runtime_decision_entry, generated_dt=generated_dt)
+    _validate_rotation_entry(rotation_entry, capture_date=capture_date)
 
     # -- P3-12 universe freshness -------------------------------------
     universe_policy = UNIVERSE.load_policy()
@@ -1526,6 +1667,19 @@ def build_snapshot(
             leadership_status = FRESH
             leadership_for_promotion = leadership_entry["record"]
 
+    # -- /4 wiring sources (runtime decision, rotation confirmation) -----
+    if v4_mode:
+        for role, entry, missing_note in (
+            ("crypto_paper_runtime_decision", runtime_decision_entry, "CRYPTO_PAPER_RUNTIME_DECISION_MISSING"),
+            ("rotation_confirmation_packet", rotation_entry, "CRYPTO_ROTATION_CONFIRMATION_PACKET_MISSING"),
+        ):
+            if entry is None:
+                notes.append(missing_note)
+                continue
+            source_refs.append({
+                "role": role, "path": _relpath(entry["path"]), "sha256": _file_sha256(entry["path"]),
+            })
+
     # -- Regime (P1-CR-08) -- independent of universe/market-evidence
     #    freshness; always computed honestly. ---------------------------
     regime_payload = build_regime_snapshot(generated_at, regime_component_rows)
@@ -1550,14 +1704,22 @@ def build_snapshot(
                 universe_packet, regime_payload, market_evidence_by_market,
                 leadership_for_promotion,
                 evaluation_as_of=universe_packet["evaluation_as_of"],
+                **(v4_promotion_kwargs(runtime_decision_entry, rotation_entry) if v4_mode else {}),
             )
         except PROMOTION.CryptoCandidatePromotionError as exc:
             promotion_error = str(exc)
             notes.append(f"P5_08_PROMOTION_FUNNEL_UNAVAILABLE:{promotion_error}")
         if promotion_packet is not None:
             try:
-                eligibility_packet = ELIGIBILITY.build_eligibility_packet(
-                    promotion_packet, evaluation_as_of=universe_packet["evaluation_as_of"],
+                eligibility_packet = (
+                    ELIGIBILITY.build_eligibility_packet_v3(
+                        promotion_packet, evaluation_as_of=universe_packet["evaluation_as_of"],
+                        decision_at_utc=generated_at,
+                    )
+                    if v4_mode else
+                    ELIGIBILITY.build_eligibility_packet(
+                        promotion_packet, evaluation_as_of=universe_packet["evaluation_as_of"],
+                    )
                 )
             except ELIGIBILITY.CryptoPaperBuyEligibilityError as exc:
                 eligibility_error = str(exc)
@@ -1661,6 +1823,12 @@ def build_snapshot(
                 ),
                 "authority": _authority_block(),
             }
+            if v4_mode:
+                for key in ("t2_required_conditions", "warnings", "rule_refs", "unapplied_rules"):
+                    candidate_row["p5_08"][key] = row[key]
+                if elig_row is not None:
+                    candidate_row["p5_09"]["record_only_features"] = elig_row["record_only_features"]
+                    candidate_row["p5_09"]["rule_refs"] = elig_row["rule_refs"]
             if per_market_mode:
                 candidate_row["realtime_freshness"] = market_realtime
                 candidate_row["realtime_liquidity_floor"] = market_floor
@@ -1751,6 +1919,15 @@ def build_snapshot(
         # content-addressed identity so /1 and /2 never share a path.
         generation_basis["schema_version"] = schema_version
         generation_basis["realtime_per_market_policy_sha256"] = per_market_policy["packet_sha256"]
+    if v4_mode:
+        generation_basis["crypto_paper_runtime_decision"] = (
+            {"date": runtime_decision_entry["date"], "file_sha256": _file_sha256(runtime_decision_entry["path"])}
+            if runtime_decision_entry else None
+        )
+        generation_basis["rotation_confirmation"] = (
+            {"date": rotation_entry["date"], "file_sha256": _file_sha256(rotation_entry["path"])}
+            if rotation_entry else None
+        )
     generation_id = payload_sha256(generation_basis)
     if not SHA256_RE.fullmatch(generation_id):
         raise CryptoPaperDecisionSnapshotError("GENERATION_ID_INVALID")
@@ -1873,8 +2050,46 @@ def build_snapshot(
                 market: _market_realtime(market)
                 for market in sorted(subscribed_run_markets | {row["market"] for row in candidates})
             }
+    if v4_mode:
+        runtime_record = runtime_decision_entry["record"] if runtime_decision_entry else None
+        rotation_record = rotation_entry["record"] if rotation_entry else None
+        packet["crypto_paper_wiring"] = {
+            "wiring_schema_version": WIRING_CONFIG_SCHEMA_VERSION,
+            "promotion_contract_version": PROMOTION.load_contract_v3()["contract_version"],
+            "eligibility_contract_version": ELIGIBILITY.load_contract_v3()["contract_version"],
+            "crypto_paper_runtime_decision": (
+                {
+                    "decision_id": runtime_record.get("decision_id"),
+                    "current_decision_date": runtime_record.get("current_decision_date"),
+                    "evaluation_at": runtime_record.get("evaluation_at"),
+                    "runtime_regime": runtime_record.get("runtime_regime"),
+                }
+                if runtime_record is not None else None
+            ),
+            "rotation_confirmation": (
+                {
+                    "as_of_date": rotation_record.get("as_of_date"),
+                    "observation_status": (rotation_record.get("observation") or {}).get("status"),
+                    "payload_sha256": rotation_record.get("payload_sha256"),
+                }
+                if rotation_record is not None else None
+            ),
+            "promotion_unavailable_reason": promotion_error,
+            "eligibility_unavailable_reason": eligibility_error,
+        }
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
+
+
+def v4_promotion_kwargs(runtime_decision_entry: dict | None, rotation_entry: dict | None) -> dict:
+    """P5-08 contract/3 inputs of a /4 packet (shared with the runtime bridge)."""
+    kwargs = {
+        "contract_version": 3,
+        "crypto_runtime_decision": copy.deepcopy(runtime_decision_entry["record"]) if runtime_decision_entry else None,
+    }
+    if rotation_entry is not None:
+        kwargs["rotation_confirmation"] = copy.deepcopy(rotation_entry["record"])
+    return kwargs
 
 
 def _resolve_source_path(path_value: object, *, allow_external_sources: bool) -> Path:
@@ -1914,13 +2129,21 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
     if not isinstance(packet, dict):
         raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
     packet_schema_version = packet.get("schema_version")
-    if packet_schema_version in PER_MARKET_OUTPUT_SCHEMA_VERSIONS:
-        if set(packet) != per_market_expected_keys:
+    v4_packet = packet_schema_version == V4_OUTPUT_SCHEMA_VERSION
+    if packet_schema_version in PER_MARKET_LAYOUT_SCHEMA_VERSIONS:
+        wanted = per_market_expected_keys | ({"crypto_paper_wiring"} if v4_packet else set())
+        if set(packet) != wanted:
             raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
         if not PER_MARKET.is_effective(_parse_utc(packet.get("generated_at"), "generated_at")):
             raise CryptoPaperDecisionSnapshotError(
                 "OUTPUT_SCHEMA_VERSION_NOT_EFFECTIVE_FOR_GENERATED_AT"
             )
+        if v4_packet:
+            cutover = v4_cutover_at()
+            if cutover is None or _parse_utc(packet.get("generated_at"), "generated_at") < cutover:
+                raise CryptoPaperDecisionSnapshotError(
+                    "OUTPUT_SCHEMA_VERSION_NOT_EFFECTIVE_FOR_GENERATED_AT"
+                )
         rows = packet.get("candidates")
         if not isinstance(rows, list) or any(
             not isinstance(row, dict)
@@ -1935,7 +2158,7 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
     }:
         raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_MISMATCH")
     is_legacy_packet = set(packet) == legacy_expected_keys
-    if packet_schema_version not in OUTPUT_SCHEMA_VERSIONS:
+    if packet_schema_version not in ALL_OUTPUT_SCHEMA_VERSIONS:
         raise CryptoPaperDecisionSnapshotError("OUTPUT_SCHEMA_VERSION_MISMATCH")
     _validate_embedded_hash(packet, "payload_sha256", "crypto_paper_decision_snapshot")
     _require_all_false(packet.get("authority") or {})
@@ -1954,7 +2177,7 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
             "upbit_tradeable_universe_packet", "upbit_market_evidence_packet",
             "upbit_realtime_capture_run", "crypto_leadership_packet",
             "upbit_universe_transition_manifest", "upbit_universe_transition_source",
-        }:
+        } | (set(V4_SOURCE_ROLES) if v4_packet else set()):
             raise CryptoPaperDecisionSnapshotError("SOURCE_REF_ROLE_INVALID")
         path = _resolve_source_path(ref["path"], allow_external_sources=allow_external_sources)
         if _file_sha256(path) != ref["sha256"]:
@@ -2026,6 +2249,12 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
             "record": value["record"],
         }
 
+    v4_entries = {}
+    if v4_packet:
+        for role, name in zip(V4_SOURCE_ROLES, ("runtime_decision_entry", "rotation_entry")):
+            if role in by_role:
+                value = by_role[role]
+                v4_entries[name] = {"date": value["path"].parent.name, "path": value["path"], "record": value["record"]}
     rebuilt = build_snapshot(
         generated_at=packet["generated_at"],
         source_commit=packet["source_commit"],
@@ -2037,6 +2266,7 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
         component_rows=packet["source_components"],
         started_at=packet.get("started_at"),
         schema_version=packet_schema_version,
+        **v4_entries,
     )
     if is_legacy_packet:
         rebuilt.pop("payload_sha256")
@@ -2132,6 +2362,8 @@ def populate(
     started_at: str | None = None,
     wire_regime_components: bool = False,
     expected_vintage_date: str | None = None,
+    runtime_decision_root: Path = RUNTIME_DECISION_ROOT,
+    rotation_confirmation_root: Path = ROTATION_CONFIRMATION_ROOT,
 ) -> dict:
     resolved_source_commit = resolve_source_commit(source_commit)
     generated_dt = _parse_utc(generated_at, "generated_at")
@@ -2184,6 +2416,17 @@ def populate(
     market_evidence_entry = retain_source(market_evidence_entry, output_root)
     realtime_entry = retain_source(realtime_entry, output_root)
     leadership_entry = retain_source(leadership_entry, output_root)
+    v4_entries = {}
+    if schema_version_for(generated_dt) == V4_OUTPUT_SCHEMA_VERSION:
+        v4_entries = {
+            "runtime_decision_entry": retain_source(
+                find_latest_runtime_decision(runtime_decision_root, not_after=generated_dt), output_root,
+            ),
+            "rotation_entry": retain_source(
+                find_latest_rotation_confirmation(rotation_confirmation_root, before_date=capture_date),
+                output_root,
+            ),
+        }
 
     component_registry = None
     if wire_regime_components:
@@ -2206,6 +2449,7 @@ def populate(
         previous_entry=previous_entry,
         started_at=started_at,
         component_rows=component_registry,
+        **v4_entries,
     )
     validate_output(
         record,
