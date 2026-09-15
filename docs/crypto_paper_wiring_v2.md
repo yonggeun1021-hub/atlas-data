@@ -160,8 +160,11 @@ Decisions `/1-/3` keep producing request `/3` (and `/2` replays) unchanged.
   not block re-issue. A sell whose slot bound the session end would cut short
   (decisions in the last slot before 07:00Z) is not issued
   (`EXIT_SELL_DEFERRED_TO_NEXT_SESSION:{market}`); the next session's first
-  decision issues it. The envelope must be for this decision instant
-  (`ALLOCATION_ENVELOPE_NOT_THIS_DECISION`). When sells exist, only the stale or
+  decision issues it; the request then reports `wiring.sell_order_valid_before_utc`
+  = null with `sell_issuance_deferred_to_next_session` = true. The envelope is
+  first re-derived by the execution core (a tampered envelope raises
+  `EXECUTION_CORE_REJECTED:ENVELOPE_SHA_MISMATCH`, never allowlisted) and must
+  then be for this decision instant (`ALLOCATION_ENVELOPE_NOT_THIS_DECISION`). When sells exist, only the stale or
   mismatched private buy inputs in `BUY_SIDE_FAILURES_EXITS_MAY_PROCEED`
   (envelope for another instant or state, signed record for another session or
   regime) become a `BUY_SIDE_BLOCKED_EXITS_PROCEED:*` blocker; integrity faults

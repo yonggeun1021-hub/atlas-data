@@ -1898,6 +1898,11 @@ def sell_order_valid_before(generated_at: str, session_order_valid_before: str |
     return bound.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def sell_issuance_deferred(generated_at: str, session_order_valid_before: str) -> bool:
+    """Whether the session end would cut this decision's sell validity short of its slot bound."""
+    return sell_order_valid_before(generated_at, session_order_valid_before) != sell_order_valid_before(generated_at)
+
+
 # Buy-side failures that only mean "this decision's private buy inputs are
 # stale or disagree with its market state": a caller envelope for another
 # decision instant or state, or a validly signed recorded session budget for
@@ -1942,7 +1947,7 @@ def _exit_orders(
         if held is None or Decimal(held["quantity"]) < Decimal(row["remaining_quantity"]):
             blockers.append(f"EXIT_INTENT_POSITION_QUANTITY_MISMATCH:{market}")
             continue
-        if sell_order_valid_before(generated, session_order_valid_before) != sell_order_valid_before(generated):
+        if sell_issuance_deferred(generated, session_order_valid_before):
             # The session end would cut this sell's one match opportunity short
             # (last slot before 07:00Z): the next session's first decision issues it.
             blockers.append(f"EXIT_SELL_DEFERRED_TO_NEXT_SESSION:{market}")
@@ -2047,6 +2052,12 @@ def _buy_side(
         # verbatim; lines whose idempotency key is already known are BLOCKED by
         # the duplicate guard, the rest are (re)submitted.
     elif books:
+        # Integrity first: a tampered envelope is rejected by the execution core
+        # (never allowlisted) before the staleness and state checks can see it.
+        _core_call(
+            _v4_modules()["ENVELOPE"].validate_envelope, copy.deepcopy(envelope),
+            root=budget_module.core_root(core),
+        )
         if envelope.get("decision_at_utc") != generated:
             raise CryptoPaperRuntimeBridgeError("ALLOCATION_ENVELOPE_NOT_THIS_DECISION")
         if envelope["markets"]["CRYPTO"]["confirmed_state"] != regime:
@@ -2288,7 +2299,13 @@ def _derive_runtime_request_v4(
             "crypto_slippage_rule": slippage,
             "runtime_config_order_fields_superseded_by": RULE_QUALITY_LAYERS,
             "session_budget_record_reused": buy["reused"],
-            "sell_order_valid_before_utc": sell_order_valid_before(generated, bounds["order_valid_before_utc"]),
+            # Null when this decision's slot is cut short by the session end: exit
+            # sells are then deferred to the next session and none is issued.
+            "sell_order_valid_before_utc": (
+                None if sell_issuance_deferred(generated, bounds["order_valid_before_utc"])
+                else sell_order_valid_before(generated, bounds["order_valid_before_utc"])
+            ),
+            "sell_issuance_deferred_to_next_session": sell_issuance_deferred(generated, bounds["order_valid_before_utc"]),
             "quantity_decimal_places": crypto_quantity_decimal_places(),
         },
         "source_inputs": {
