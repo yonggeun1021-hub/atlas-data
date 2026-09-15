@@ -24,6 +24,13 @@ name: Alpaca SIP Daily Bars (US T2 C3 Liquidity)
 # assert_no_raw_bar_fields checks this mechanically before anything is
 # written to disk, and this workflow re-checks the committed file the same
 # way before commit.
+#
+# The OTC/exchange-listing sub-check reads the already-committed, this-
+# repo-native Nasdaq Trader Symbol Directory capture
+# (data/observations/us_global_universe/, universe/us_global_universe.py
+# and its own workflow -- untouched by this one) via
+# universe/us_listing_lookup.py, point-in-time (never a later packet than
+# the run's own as-of date).
 
 on:
   workflow_dispatch:
@@ -47,6 +54,7 @@ jobs:
       - name: Offline regression (mocked HTTP, no network, no secrets)
         run: |
           python3 test/test_us_liquidity_sip_source.py
+          python3 test/test_us_listing_lookup.py
           python3 test/test_alpaca_sip_daily_bars.py
       - name: Collect SIP daily bars and derive T2 C3 liquidity (22 approved symbols only)
         env:

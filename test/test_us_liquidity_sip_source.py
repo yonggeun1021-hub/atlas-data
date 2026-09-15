@@ -325,6 +325,15 @@ class StatusVocabularyTests(unittest.TestCase):
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("OTC_EXCLUDED", result["reasons"])
 
+    def test_confirmed_test_issue_is_fail_with_its_own_reason(self):
+        policy = make_policy()
+        sip = make_observation("sip", "50000000.00", "450.00")
+        result = M.evaluate_symbol_liquidity("TESTX", sip, None, policy, exchange_listing_status="TEST_ISSUE")
+        self.assertEqual(result["otc_exclusion_status"], "FAIL")
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("TEST_ISSUE_EXCLUDED", result["reasons"])
+        self.assertNotIn("OTC_EXCLUDED", result["reasons"])
+
     def test_invalid_exchange_listing_status_token_fails_closed(self):
         policy = make_policy()
         with self.assertRaisesRegex(M.UsLiquiditySipSourceError, "EXCHANGE_LISTING_STATUS_INVALID"):

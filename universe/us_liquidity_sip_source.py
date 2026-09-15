@@ -45,26 +45,25 @@ this repo -- e.g. ``config/free_market_data_contract.json:22``
       -> ``FAIL``.
     - every sub-check PASS -> ``PASS``.
 
-★ The OTC / non-exchange-listed exclusion, honestly (2026-09-15 CIO note):
-  Alpaca's historical-bars response carries no exchange/listing-venue
-  field, so ``collectors/alpaca_sip_daily_bars.py`` cannot supply
-  ``exchange_listing_status`` today -- it is always ``None`` in production,
-  and this module reports that sub-check as ``UNKNOWN`` /
-  ``EXCHANGE_LISTING_STATUS_UNAVAILABLE`` rather than assuming "these are
-  all obviously exchange-listed ETFs/large-caps". A committed listing
-  source DOES exist elsewhere in this repo --
+★ The OTC / non-exchange-listed exclusion (2026-09-15 CIO wiring): without
+  a listing input, every US name's ``otc_exclusion_status`` was ``UNKNOWN``,
+  which the base record's own fail_closed clause turns into an overall
+  ``UNKNOWN`` for every name -- the reader could never PASS. Rather than
+  leave that unresolved, ``exchange_listing_status`` is now sourced from
+  ``universe/us_listing_lookup.py``, which reads the already-committed
+  Nasdaq Trader Symbol Directory capture at
   ``data/observations/us_global_universe/<date>/packet.json``
-  (``universe/us_global_universe.py``, forward-only Nasdaq Trader Symbol
-  Directory capture, contract ``us_global_universe_adapter/1``): the
-  2026-09-11 packet was checked directly and carries a listing record with
-  a valid exchange code for all 22 symbols in
-  ``config/free_market_data_contract.json``'s ``alpaca.symbols`` (e.g. SPY
-  -> ``NASDAQ_TRADER:P`` via ``otherlisted.txt``), meaning none of them are
-  OTC. Wiring that source in is deliberately left to a separate follow-up
-  (it has no ``latest`` pointer file, so a caller must resolve "most recent
-  packet as of the decision date" itself, which is a PIT-correctness
-  decision worth its own review) rather than folded silently into this
-  correction.
+  (``universe/us_global_universe.py``, contract
+  ``us_global_universe_adapter/1`` -- untouched by this change; see that
+  module's docstring for the point-in-time packet-selection rule and the
+  packet's own field definitions this reads). ``exchange_listing_status``
+  is still honestly ``None`` (-> ``UNKNOWN``) whenever that lookup itself
+  can't resolve a symbol (no packet as-of the evaluation date, or the
+  symbol absent from the selected packet) -- this module never assumes.
+  ``"TEST_ISSUE"`` is accepted alongside ``"OTC"``/``"EXCHANGE_LISTED"``:
+  Nasdaq's own confirmed-test-security flag is a distinct, evidence-backed
+  exclusion, reported with its own reason even though it currently folds
+  into the same ``otc_exclusion_status`` sub-check as OTC.
 
 ★ Threshold status: the ratified USD amounts above are now bound via
   ``config/us_liquidity_sip_source_policy.json``, sha256-cross-checked
@@ -101,7 +100,7 @@ REQUIRED_SESSION_WINDOW = 20
 
 FEEDS = ("sip", "iex")
 NOTIONAL_FORMULAS = ("CLOSE_TIMES_VOLUME",)
-EXCHANGE_LISTING_STATUSES = ("EXCHANGE_LISTED", "OTC")
+EXCHANGE_LISTING_STATUSES = ("EXCHANGE_LISTED", "OTC", "TEST_ISSUE")
 ALLOWED_STATUSES = ("PASS", "FAIL", "UNKNOWN", "NOT_EVALUATED")
 
 _TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{0,63}$")
@@ -359,9 +358,9 @@ def evaluate_symbol_liquidity(
 
     ``sip``/``iex`` are ``None`` or a dict matching ``_OBSERVATION_FIELDS``
     -- an already-aggregated 20-session observation (never a per-day bar).
-    ``exchange_listing_status`` is ``None`` (honestly: no listing source is
-    wired into ``collectors/alpaca_sip_daily_bars.py`` today -- see module
-    docstring), ``"EXCHANGE_LISTED"``, or ``"OTC"``.
+    ``exchange_listing_status`` is ``None`` (the listing lookup itself
+    could not resolve this symbol -- see module docstring),
+    ``"EXCHANGE_LISTED"``, ``"OTC"``, or ``"TEST_ISSUE"``.
 
     Step 1 -- feed selection, independent of whether a threshold policy
     exists, so the derived average/last-close/session-count/feed are
@@ -380,8 +379,9 @@ def evaluate_symbol_liquidity(
         ratified price floor; PASS/FAIL (this is real bar data, never
         missing when a feed was selected).
       * ``otc_exclusion_status`` -- PASS if ``exchange_listing_status ==
-        "EXCHANGE_LISTED"``, FAIL if ``"OTC"``, UNKNOWN if ``None``
-        (input not available -- honest, not assumed).
+        "EXCHANGE_LISTED"``, FAIL if ``"OTC"`` or ``"TEST_ISSUE"``
+        (distinct reasons), UNKNOWN if ``None`` (input not available --
+        honest, not assumed).
       * any of the three is UNKNOWN if the policy itself could not be
         bound (see ``load_policy``/``describe_policy``).
     """
@@ -482,6 +482,13 @@ def evaluate_symbol_liquidity(
     elif exchange_listing_status == "OTC":
         otc_exclusion_status = "FAIL"
         reasons.append("OTC_EXCLUDED")
+    elif exchange_listing_status == "TEST_ISSUE":
+        # A confirmed test issue (Nasdaq's own "Test Issue" = Y flag) is a
+        # distinct, evidence-backed exclusion from OTC -- reported with its
+        # own reason so a reviewer never mistakes one for the other, even
+        # though both currently fold into the same otc_exclusion_status.
+        otc_exclusion_status = "FAIL"
+        reasons.append("TEST_ISSUE_EXCLUDED")
     else:  # "EXCHANGE_LISTED"
         otc_exclusion_status = "PASS"
 

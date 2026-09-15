@@ -19,15 +19,23 @@ against ``evidence/authority/``) -- most tests here call
 ``run_collection(..., policy=None)``, which loads that REAL policy (not a
 mock), so ``volume_status``/``price_status`` below reflect genuine
 PASS/FAIL arithmetic against the real $10,000,000 / $5 numbers.
-``otc_exclusion_status`` stays honestly ``UNKNOWN`` throughout (no listing
-source is wired into this collector -- see
-``universe/us_liquidity_sip_source.py``'s module docstring).
+
+★ 2026-09-15 wiring: ``otc_exclusion_status`` now comes from
+``universe/us_listing_lookup.py`` (a point-in-time Nasdaq Trader Symbol
+Directory lookup). Most tests here pass an explicit ``listing=no_listing(...)``
+fixture (unresolved for every symbol) so they stay independent of whatever
+the real committed capture happens to contain on any given day; a
+dedicated ``ListingWiringTests`` class below exercises the real lookup
+(against a temp fixture packet, still never the actual committed
+multi-megabyte packets) end to end, proving the collector really can reach
+``status: "PASS"`` now.
 """
 from __future__ import annotations
 
 import datetime as dt
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -61,6 +69,23 @@ FULL_WINDOW_DATES = _dates(dt.date(2026, 9, 14), LIQ.REQUIRED_SESSION_WINDOW)
 
 def _body(bars: list[dict], next_page_token=None) -> bytes:
     return json.dumps({"bars": bars, "next_page_token": next_page_token}).encode()
+
+
+def no_listing(symbols: list[str]) -> dict:
+    """A ``resolve_listing``-shaped result where nothing resolved (no
+    packet available) -- decouples these tests from whatever the real
+    committed data/observations/us_global_universe packet contains today.
+    """
+    return {
+        "packet_date": None,
+        "packet_path": None,
+        "packet_sha256": None,
+        "listing_packet_age_days": None,
+        "per_symbol": {
+            symbol: {"status": None, "reasons": ["NO_LISTING_PACKET_AVAILABLE"]}
+            for symbol in symbols
+        },
+    }
 
 
 class ScriptedOpener:
@@ -140,7 +165,7 @@ class FullPipelineTests(unittest.TestCase):
         # specific, clearly-named input is.
         rows = [_bar(d, 100.0, 1_000_000.0) for d in FULL_WINDOW_DATES]
         opener = ScriptedOpener({"sip": [(200, _body(rows))]})
-        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
+        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing=no_listing(CONTRACT["alpaca"]["symbols"]))
         row = summary["per_symbol"]["SPY"]
         self.assertEqual(row["source_feed"], "sip")
         self.assertEqual(row["session_count"], LIQ.REQUIRED_SESSION_WINDOW)
@@ -161,7 +186,7 @@ class FullPipelineTests(unittest.TestCase):
         # $5 price floor -- a definite FAIL, computed with no mocked policy.
         rows = [_bar(d, 2.0, 10_000_000.0) for d in FULL_WINDOW_DATES]  # volume high enough that only price fails
         opener = ScriptedOpener({"sip": [(200, _body(rows))]})
-        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
+        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing=no_listing(CONTRACT["alpaca"]["symbols"]))
         row = summary["per_symbol"]["SPY"]
         self.assertEqual(row["last_close_usd"], "2.00")
         self.assertEqual(row["price_status"], "FAIL")
@@ -172,7 +197,7 @@ class FullPipelineTests(unittest.TestCase):
         rows = [_bar(d, 5.0, 400_000.0) for d in FULL_WINDOW_DATES]  # avg 2,000,000/day
         body = b'{"message": "subscription does not permit querying recent SIP data"}'
         opener = ScriptedOpener({"sip": [(403, body)], "iex": [(200, _body(rows))]})
-        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
+        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing=no_listing(CONTRACT["alpaca"]["symbols"]))
         row = summary["per_symbol"]["SPY"]
         self.assertEqual(row["source_feed"], "iex")
         self.assertEqual(row["avg_traded_value_usd"], "2000000.00")
@@ -187,7 +212,7 @@ class FullPipelineTests(unittest.TestCase):
         # T2 yet"), not crash and not UNKNOWN (UNKNOWN is reserved for a
         # real-but-inconclusive/missing input, which this isn't).
         opener = ScriptedOpener({"sip": [(200, _body([]))], "iex": [(200, _body([]))]})
-        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
+        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing=no_listing(CONTRACT["alpaca"]["symbols"]))
         row = summary["per_symbol"]["SPY"]
         self.assertIsNone(row["source_feed"])
         self.assertEqual(row["status"], "NOT_EVALUATED")
@@ -209,7 +234,7 @@ class FullPipelineTests(unittest.TestCase):
                 return 200, _body(page1, next_page_token="tok-abc")
 
         opener = PagedOpener()
-        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
+        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing=no_listing(CONTRACT["alpaca"]["symbols"]))
         row = summary["per_symbol"]["SPY"]
         self.assertEqual(row["session_count"], LIQ.REQUIRED_SESSION_WINDOW)
         # two SIP page requests were made for SPY specifically
@@ -230,7 +255,7 @@ class FullPipelineTests(unittest.TestCase):
         opener = ScriptedOpener({
             "sip": [(503, b'{"message": "temporary"}'), (200, _body(rows))],
         })
-        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
+        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing=no_listing(CONTRACT["alpaca"]["symbols"]))
         row = summary["per_symbol"]["SPY"]
         self.assertEqual(row["source_feed"], "sip")
         self.assertEqual(row["session_count"], LIQ.REQUIRED_SESSION_WINDOW)
@@ -244,7 +269,8 @@ class FullPipelineTests(unittest.TestCase):
         rows.append(_bar(today.isoformat(), 100.0, 1_000_000.0))
         opener = ScriptedOpener({"sip": [(200, _body(rows))], "iex": [(200, _body(rows))]})
         summary = M.run_collection(
-            CREDENTIALS, opener=opener, clock=lambda: too_fresh_now, contract=CONTRACT, policy=None
+            CREDENTIALS, opener=opener, clock=lambda: too_fresh_now, contract=CONTRACT, policy=None,
+            listing=no_listing(CONTRACT["alpaca"]["symbols"]),
         )
         row = summary["per_symbol"]["SPY"]
         self.assertEqual(row["session_count"], LIQ.REQUIRED_SESSION_WINDOW)
@@ -262,7 +288,7 @@ class DerivedOnlyOutputTests(unittest.TestCase):
         # reported in any form, aggregate or otherwise) or a secret.
         rows = [_bar(d, 123.45, 987_654.0) for d in FULL_WINDOW_DATES]
         opener = ScriptedOpener({"sip": [(200, _body(rows))]})
-        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
+        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing=no_listing(CONTRACT["alpaca"]["symbols"]))
         M.assert_no_raw_bar_fields(summary)  # already asserted inside run_collection; idempotent re-check
         blob = json.dumps(summary)
         self.assertNotIn(SECRET_KEY, blob)
@@ -301,7 +327,10 @@ class RequestBudgetTests(unittest.TestCase):
         rows = [_bar(d, 1.0, 1.0) for d in FULL_WINDOW_DATES]
         opener = ScriptedOpener({"sip": [(200, _body(rows))]})
         contract = {"alpaca": {"symbols": ["SPY", "QQQ", "IWM"]}}
-        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=contract, policy=None)
+        summary = M.run_collection(
+            CREDENTIALS, opener=opener, clock=lambda: NOW, contract=contract, policy=None,
+            listing=no_listing(contract["alpaca"]["symbols"]),
+        )
         expected = 3 * len(M.FEEDS) * M.MAX_PAGES_PER_REQUEST * M.MAX_ATTEMPTS_PER_PAGE
         self.assertEqual(summary["request_budget"], expected)
         self.assertLessEqual(summary["requests_used"], expected)
@@ -313,7 +342,7 @@ class WriteOutputsTests(unittest.TestCase):
 
         rows = [_bar(d, 1.0, 1.0) for d in FULL_WINDOW_DATES]
         opener = ScriptedOpener({"sip": [(200, _body(rows))]})
-        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
+        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing=no_listing(CONTRACT["alpaca"]["symbols"]))
         with tempfile.TemporaryDirectory() as tmp:
             dated_dir = Path(tmp) / "data" / "us_sip_daily_liquidity"
             latest_path = Path(tmp) / "data" / "latest_us_sip_daily_liquidity.json"
@@ -324,6 +353,119 @@ class WriteOutputsTests(unittest.TestCase):
             M.assert_no_raw_bar_fields(on_disk)
             latest = json.loads(written_latest.read_text(encoding="utf-8"))
             self.assertEqual(latest["symbol_count"], summary["symbol_count"])
+
+
+class ListingWiringTests(unittest.TestCase):
+    """The 2026-09-15 wiring: otc_exclusion_status now comes from a real
+    point-in-time listing lookup, not an always-None input. Uses a small
+    temp fixture packet (never the real committed multi-megabyte ones) so
+    these tests stay fast and independent of what today's real capture
+    happens to contain.
+    """
+
+    def _fixture_root(self, tmp: str, date: str, rows: list[dict]) -> Path:
+        root = Path(tmp)
+        packet_dir = root / "data" / "observations" / "us_global_universe" / date
+        packet_dir.mkdir(parents=True)
+        (packet_dir / "packet.json").write_text(
+            json.dumps({"packet": {"as_of_date": date, "source_attribute_rows": rows}}), encoding="utf-8"
+        )
+        return root
+
+    def test_exchange_listed_symbol_reaches_a_real_pass_end_to_end(self):
+        rows = [_bar(d, 10.0, 2_000_000.0) for d in FULL_WINDOW_DATES]  # avg $20M, close $10 -- both above real floors
+        opener = ScriptedOpener({"sip": [(200, _body(rows))]})
+        with tempfile.TemporaryDirectory() as tmp:
+            listing_root = self._fixture_root(tmp, "2026-09-15", [
+                {"primary_symbol": "SPY", "source_name": "other_listed", "fields": {"Test Issue": "N"}},
+            ])
+            summary = M.run_collection(
+                CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing_root=listing_root,
+            )
+        row = summary["per_symbol"]["SPY"]
+        self.assertEqual(row["listing_status"], "EXCHANGE_LISTED")
+        self.assertEqual(row["otc_exclusion_status"], "PASS")
+        self.assertEqual(row["status"], "PASS")  # was structurally unreachable before this wiring
+        self.assertEqual(summary["listing_packet_date"], "2026-09-15")
+        self.assertEqual(summary["listing_packet_age_days"], 0)
+        self.assertIsNotNone(summary["listing_packet_sha256"])
+        self.assertEqual(summary["listing_packet_path"], "data/observations/us_global_universe/2026-09-15/packet.json")
+
+    def test_confirmed_test_issue_symbol_fails_through_the_collector(self):
+        rows = [_bar(d, 10.0, 2_000_000.0) for d in FULL_WINDOW_DATES]
+        opener = ScriptedOpener({"sip": [(200, _body(rows))]})
+        with tempfile.TemporaryDirectory() as tmp:
+            listing_root = self._fixture_root(tmp, "2026-09-15", [
+                {"primary_symbol": "SPY", "source_name": "nasdaq_listed", "fields": {"Test Issue": "Y"}},
+            ])
+            summary = M.run_collection(
+                CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing_root=listing_root,
+            )
+        row = summary["per_symbol"]["SPY"]
+        self.assertEqual(row["listing_status"], "TEST_ISSUE")
+        self.assertEqual(row["otc_exclusion_status"], "FAIL")
+        self.assertEqual(row["status"], "FAIL")
+        self.assertIn("TEST_ISSUE_EXCLUDED", row["reasons"])
+
+    def test_symbol_absent_from_the_listing_packet_stays_unknown(self):
+        rows = [_bar(d, 10.0, 2_000_000.0) for d in FULL_WINDOW_DATES]
+        opener = ScriptedOpener({"sip": [(200, _body(rows))]})
+        with tempfile.TemporaryDirectory() as tmp:
+            listing_root = self._fixture_root(tmp, "2026-09-15", [])  # nothing in the packet at all
+            summary = M.run_collection(
+                CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing_root=listing_root,
+            )
+        row = summary["per_symbol"]["SPY"]
+        self.assertIsNone(row["listing_status"])
+        self.assertEqual(row["otc_exclusion_status"], "UNKNOWN")
+        self.assertEqual(row["status"], "UNKNOWN")
+        self.assertIn("SYMBOL_ABSENT_FROM_LISTING_PACKET", row["listing_reasons"])
+
+    def test_no_listing_packet_available_at_all_is_unknown_not_a_crash(self):
+        rows = [_bar(d, 10.0, 2_000_000.0) for d in FULL_WINDOW_DATES]
+        opener = ScriptedOpener({"sip": [(200, _body(rows))]})
+        with tempfile.TemporaryDirectory() as tmp:
+            listing_root = Path(tmp)  # no data/observations/us_global_universe at all
+            summary = M.run_collection(
+                CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing_root=listing_root,
+            )
+        self.assertIsNone(summary["listing_packet_date"])
+        row = summary["per_symbol"]["SPY"]
+        self.assertIsNone(row["listing_status"])
+        self.assertEqual(row["otc_exclusion_status"], "UNKNOWN")
+
+    def test_pit_selection_through_the_collector_never_uses_a_future_packet(self):
+        # NOW is 2026-09-15; a packet dated 2026-09-20 must never be used.
+        rows = [_bar(d, 10.0, 2_000_000.0) for d in FULL_WINDOW_DATES]
+        opener = ScriptedOpener({"sip": [(200, _body(rows))]})
+        with tempfile.TemporaryDirectory() as tmp:
+            listing_root = Path(tmp)
+            older = listing_root / "data" / "observations" / "us_global_universe" / "2026-09-10"
+            older.mkdir(parents=True)
+            (older / "packet.json").write_text(
+                json.dumps({"packet": {"source_attribute_rows": [
+                    {"primary_symbol": "SPY", "source_name": "other_listed", "fields": {"Test Issue": "N"}},
+                ]}}), encoding="utf-8",
+            )
+            future = listing_root / "data" / "observations" / "us_global_universe" / "2026-09-20"
+            future.mkdir(parents=True)
+            (future / "packet.json").write_text(
+                json.dumps({"packet": {"source_attribute_rows": [
+                    {"primary_symbol": "SPY", "source_name": "nasdaq_listed", "fields": {"Test Issue": "Y"}},
+                ]}}), encoding="utf-8",
+            )
+            summary = M.run_collection(
+                CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing_root=listing_root,
+            )
+        self.assertEqual(summary["listing_packet_date"], "2026-09-10")  # NOT 2026-09-20
+        self.assertEqual(summary["per_symbol"]["SPY"]["listing_status"], "EXCHANGE_LISTED")
+
+
+class ListingProducerUntouchedTests(unittest.TestCase):
+    def test_collector_never_writes_to_the_listing_producers_own_paths(self):
+        text = (ROOT / "collectors" / "alpaca_sip_daily_bars.py").read_text(encoding="utf-8")
+        self.assertNotIn("us_global_universe.py", text)
+        self.assertNotIn("us_breadth_forward.py", text)
 
 
 if __name__ == "__main__":

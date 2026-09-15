@@ -2611,17 +2611,31 @@ APPROVED_TESTS = [
     #   20260915.json (both also landing via #753) -- load_policy() fails
     #   closed to None (every sub-check UNKNOWN) only if that policy file
     #   or either cited evidence file is missing/tampered, never by
-    #   default. otc_exclusion_status stays honestly UNKNOWN in production
-    #   today: Alpaca's bars response has no listing-venue field, and this
-    #   collector does not assume "obviously exchange-listed" -- a
-    #   committed listing source was found elsewhere in this repo
-    #   (data/observations/us_global_universe/) for a deliberate follow-up
-    #   to wire in instead. Workflow: dispatch only (no cron -- scheduling
-    #   needs separate approval), contents: write, secrets in exactly one
-    #   step env, commits ONLY the two derived data paths, guarded on an
-    #   actual staged diff. Offline mocked-HTTP regression only; no
-    #   network call from tests.
+    #   default. ★ 2026-09-15 wiring: otc_exclusion_status now comes from
+    #   universe/us_listing_lookup.py, a point-in-time (never a later
+    #   packet than the run's own as-of date, by directory scan -- no
+    #   `latest` pointer needed) reader of the already-committed Nasdaq
+    #   Trader Symbol Directory capture
+    #   (data/observations/us_global_universe/<date>/packet.json,
+    #   universe/us_global_universe.py + its own workflow, both untouched
+    #   by this change). Presence in either captured file (nasdaq_listed
+    #   or other_listed -- both exchange-listed-only directories, per
+    #   config/us_breadth_forward_contract.json) -> EXCHANGE_LISTED; a
+    #   confirmed Nasdaq "Test Issue"=Y row -> TEST_ISSUE (a distinct,
+    #   evidence-backed exclusion this source CAN assert -- it structurally
+    #   cannot assert "OTC" directly, since neither captured file ever
+    #   contains an OTC security); absent from the selected packet, or no
+    #   packet at all as-of the evaluation date -> UNKNOWN, never assumed.
+    #   listing_packet_age_days is recorded only -- no staleness threshold
+    #   is invented. Workflow: dispatch only (no cron -- scheduling needs
+    #   separate approval), contents: write, secrets in exactly one step
+    #   env, commits ONLY the two derived data paths, guarded on an actual
+    #   staged diff. Offline mocked-HTTP/temp-fixture regression only; no
+    #   network call from tests, and the real ~74MB committed packets are
+    #   read (fast, ~0.2s) only by a couple of dedicated tests that verify
+    #   the real wiring, never by the bulk of the suite.
     "test/test_us_liquidity_sip_source.py",
+    "test/test_us_listing_lookup.py",
     "test/test_alpaca_sip_daily_bars.py",
     "test/test_alpaca_sip_daily_bars_workflow.py",
     # ★ Rule registry v1 + decision lineage (CLAUDE_CIO 2026-09-15, user

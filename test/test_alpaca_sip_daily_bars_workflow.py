@@ -83,9 +83,10 @@ class AlpacaSipDailyBarsWorkflowTest(unittest.TestCase):
         self.assertLess(collect, schema)
         self.assertLess(schema, commit)
 
-    def test_offline_regression_runs_both_new_test_modules(self):
+    def test_offline_regression_runs_all_three_new_test_modules(self):
         step = next(step for step in steps(self.document) if step.get("name") and "Offline regression" in step["name"])
         self.assertIn("test/test_us_liquidity_sip_source.py", step["run"])
+        self.assertIn("test/test_us_listing_lookup.py", step["run"])
         self.assertIn("test/test_alpaca_sip_daily_bars.py", step["run"])
 
     def test_only_derived_data_paths_are_committed(self):

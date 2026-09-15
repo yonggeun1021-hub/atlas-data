@@ -38,14 +38,16 @@ used, which feed produced it, and the composite
 RULE.LIQUIDITY.US_SIP_SOURCE.V1 verdict via
 ``universe/us_liquidity_sip_source.py`` (``status`` plus its three
 sub-checks ``volume_status``/``price_status``/``otc_exclusion_status``,
-and lineage: window_end, reasons). ``otc_exclusion_status`` is always
-``UNKNOWN`` today -- this collector has no exchange/listing-venue input to
-give the evaluator (see that module's docstring for a committed listing
-source found elsewhere in this repo that a follow-up could wire in). No
-per-day bar (open/high/low/close/volume/vwap/trade_count) is ever written
-to disk or committed; ``assert_no_raw_bar_fields`` re-checks that
-mechanically before anything is written, mirroring the existing probe's
-``assert_no_forbidden_fields`` pattern.
+and lineage: window_end, reasons). ``otc_exclusion_status`` is resolved via
+``universe/us_listing_lookup.py`` from the already-committed, point-in-time
+Nasdaq Trader Symbol Directory capture (that module's own docstring has
+the exact field definitions and packet-selection rule this collector
+does not duplicate here); it stays honestly ``UNKNOWN`` only when that
+lookup itself cannot resolve a symbol. No per-day bar (open/high/low/
+close/volume/vwap/trade_count) is ever written to disk or committed;
+``assert_no_raw_bar_fields`` re-checks that mechanically before anything
+is written, mirroring the existing probe's ``assert_no_forbidden_fields``
+pattern.
 
 Secrets (``ALPACA_MARKET_DATA_API_KEY``/``ALPACA_MARKET_DATA_API_SECRET`` --
 the existing dedicated market-data-only credential, same as
@@ -72,6 +74,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from universe import us_liquidity_sip_source as LIQ  # noqa: E402
+from universe import us_listing_lookup as LISTING  # noqa: E402
 
 CONTRACT_PATH = ROOT / "config" / "free_market_data_contract.json"
 DATED_DIR = ROOT / "data" / "us_sip_daily_liquidity"
@@ -366,6 +369,8 @@ def run_collection(
     clock=None,
     contract: Optional[dict] = None,
     policy: Optional[dict] = None,
+    listing: Optional[dict] = None,
+    listing_root: Path = LISTING.ROOT,
 ) -> dict:
     opener = _default_open if opener is None else opener
     clock = (lambda: dt.datetime.now(dt.timezone.utc)) if clock is None else clock
@@ -375,19 +380,30 @@ def run_collection(
     budget = RequestBudget(limit=len(symbols) * len(FEEDS) * MAX_PAGES_PER_REQUEST * MAX_ATTEMPTS_PER_PAGE)
     policy = LIQ.load_policy() if policy is None else policy
 
-    # Honest, not assumed (2026-09-15 CIO correction): Alpaca's historical
-    # daily-bars response carries no exchange/listing-venue field, so this
-    # collector cannot supply RULE.LIQUIDITY.US_SIP_SOURCE.V1's
-    # exchange_listing_status input. Every symbol's otc_exclusion_status is
-    # therefore UNKNOWN today -- see universe/us_liquidity_sip_source.py's
-    # module docstring for the committed listing source found elsewhere in
-    # this repo (data/observations/us_global_universe/) that a follow-up
-    # could wire in instead of leaving this None.
+    # 2026-09-15 CIO wiring: point-in-time exchange-listing lookup against
+    # the already-committed Nasdaq Trader Symbol Directory capture (see
+    # universe/us_listing_lookup.py's docstring for the exact packet
+    # selection rule and field definitions). ``listing`` lets a caller
+    # inject a fully synthetic result (tests); otherwise this is the one
+    # real, point-in-time-correct lookup for this run's own as-of date.
+    listing = (
+        LISTING.resolve_listing(symbols, now.date(), root=listing_root)
+        if listing is None
+        else listing
+    )
+
     per_symbol: dict[str, dict] = {}
     for symbol in symbols:
         collected = collect_symbol(symbol, window, credentials, opener, budget, now)
         observations = collected["observations"]
-        result = LIQ.evaluate_symbol_liquidity(symbol, observations.get("sip"), observations.get("iex"), policy)
+        listing_row = listing["per_symbol"].get(symbol, {"status": None, "reasons": ["SYMBOL_ABSENT_FROM_LISTING_PACKET"]})
+        result = LIQ.evaluate_symbol_liquidity(
+            symbol,
+            observations.get("sip"),
+            observations.get("iex"),
+            policy,
+            exchange_listing_status=listing_row["status"],
+        )
         per_symbol[symbol] = {
             "symbol": symbol,
             "source_feed": result["source_feed_used"],
@@ -400,6 +416,8 @@ def run_collection(
             "volume_status": result["volume_status"],
             "price_status": result["price_status"],
             "otc_exclusion_status": result["otc_exclusion_status"],
+            "listing_status": listing_row["status"],
+            "listing_reasons": listing_row["reasons"],
             "reasons": result["reasons"],
             "sip_feed_ok": collected["feed_reports"]["sip"]["ok"],
             "sip_bar_count": collected["feed_reports"]["sip"]["bar_count"],
@@ -423,6 +441,10 @@ def run_collection(
         "policy_id": policy["policy_id"] if policy else None,
         "policy_status": policy_diagnostic["status"],
         "policy_problems": policy_diagnostic["problems"],
+        "listing_packet_date": listing["packet_date"],
+        "listing_packet_path": listing["packet_path"],
+        "listing_packet_sha256": listing["packet_sha256"],
+        "listing_packet_age_days": listing["listing_packet_age_days"],
         "request_budget": budget.limit,
         "requests_used": budget.used,
         "per_symbol": per_symbol,
