@@ -661,6 +661,10 @@ def main(argv=None) -> int:
         markets = anchor_contract["markets"]
     else:
         capture_mode = ELIGIBLE_UNIVERSE_MODE
+        # Every admitted P3-12 market, independent of the liquidity floor and
+        # of holdings (CIO subscription-scope addendum 2026-09-14): the floor
+        # is applied per market in the decision, and this public repository
+        # takes no holdings input.
         markets = GATE.eligible_markets_from_universe_packet(args.universe_packet)
     validate_evidence_root(capture_mode, args.evidence_root)
     snapshot_date = args.snapshot_date or utc_now().date()

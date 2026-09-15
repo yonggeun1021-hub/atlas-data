@@ -172,6 +172,63 @@ same `RealtimeGate` class unchanged -- that is a future, separate
 infrastructure/deployment-track decision, explicitly out of scope for this
 PR (which is the public data-contract repo, cron-based).
 
+### Per-market realtime freshness and realtime liquidity floor (2026-09-14)
+
+User ratification `CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914`
+(record `evidence/authority/crypto_realtime_freshness_per_market_user_ratification_20260914.json`,
+sha256 `043932a4…5ac4`) is bound by
+`config/crypto_realtime_freshness_per_market_policy_ratified.json` (self hash
+pinned in `realtime/crypto_realtime_per_market_policy.py`). From
+`2026-09-13T23:25:00Z` the decision producer writes
+`crypto_paper_decision_snapshot_packet/3` (packets `/2` issued by the earlier
+held-markets layout keep revalidating against their frozen policy file
+`config/crypto_realtime_freshness_per_market_policy_ratified_packet_v2_layout.json`):
+
+* each market's realtime freshness is the unchanged ratified P9-01 result for
+  its own ticker (20s provider age / 3s transport delay); a STALE, MISSING,
+  UNKNOWN or MIXED_GENERATION market caps only its own actionable state, and
+  `freshness_status.realtime` / `overall` stay recorded for display only;
+* universe and market-evidence freshness remain global caps;
+* the PAPER action set applies the ratified P3-12 liquidity floor as a
+  per-market cap, exactly as `config/upbit_tradeable_universe_policy.json`
+  defines it (`trailing_30d_krw_turnover` / `turnover_lookback_finalized_days`
+  against `min_30d_avg_krw_turnover`); unknown turnover is excluded and every
+  exclusion is recorded with its reason. CIO addendum
+  `CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914` (sha256
+  `bc009c59…4e1f`) corrected an earlier 24h metric;
+* the realtime subscription is every admitted P3-12 market
+  (`TRADEABLE_UNIVERSE` and `PAPER_ELIGIBLE`), independent of the floor and of
+  holdings, with no holdings input in this public repository (CIO addendum
+  `CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-20260914`, sha256
+  `25e69d51…cb7f`); the decision records the ratified per-market realtime
+  status for every subscribed market in
+  `realtime_per_market_freshness.subscribed_market_realtime`;
+* `portfolio/crypto_paper_stale_hold.py` turns a /2 packet plus the private
+  runtime's own held-market list (never published) into per-market HOLD rows (no PAPER exit
+  execution while not FRESH) and an alert beyond a 30-minute engineering
+  alert budget.
+
+Packets generated before the effective instant keep the /1 derivation and
+revalidate unchanged.
+
+### Capture-to-decision step order (2026-09-14)
+
+Within that job the Crypto PAPER decision snapshot step runs **directly
+after** the bounded realtime capture step.  The decision re-evaluates the
+RATIFIED CRYPTO freshness policy (`P9_06_UPBIT_CRYPTO_PAPER_V1`, 20s provider
+age / 3s transport delay) at its own `generated_at`, so any step placed in
+between adds its wall-clock duration to every ticker's provider age.  The
+~30s decision-isolated public transport validation capture therefore runs
+after the decision chain (still only when the realtime capture succeeded).
+
+`.github/scripts/check_crypto_decision_capture_gap.py` measures
+`decision generated_at - run.status.generated_at` and fails its own step
+when the gap exceeds **5 seconds**.  That number is an *engineering budget*
+for GitHub Actions step hand-off (expected gap 0-1s), not a freshness policy:
+no freshness evaluation reads it, it does not alter the ratified 20s/3s
+limits, and it changes no decision outcome.  The measured gap is recorded in
+the run telemetry (`ATLAS_CRYPTO_DECISION_CAPTURE_GAP_*`).
+
 ## The `websockets` dependency (new)
 
 The `websockets>=12.0` package is added to `requirements.txt` --

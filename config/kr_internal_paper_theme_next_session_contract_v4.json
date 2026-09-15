@@ -1,0 +1,145 @@
+{
+  "schema_version": "kr_internal_paper_theme_next_session_contract/4",
+  "decision_id": "KR_INTERNAL_PAPER_PREVIOUS_COMPLETED_SESSION_CONTEXT_V2",
+  "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0_ENTRY_FILTER",
+  "base_profile": {
+    "proposal_id": "KR_INTERNAL_PAPER_TWO_STOCK_THEME_APPLICATION_CONTRACT_V1",
+    "commit": "d14b17a1c33beb1e25bfc5a9921e588ddf8e5971",
+    "contract_path": "config/kr_internal_paper_theme_application_contract.json",
+    "contract_sha256": "77453d7c6637b0a5b1538b8587e557ad3f5998c39e68527d1158121ec24d0472"
+  },
+  "predecessor_contract": {
+    "schema_version": "kr_internal_paper_theme_next_session_contract/3",
+    "contract_path": "config/kr_internal_paper_theme_next_session_contract.json",
+    "contract_sha256": "717fea4b6e7fca24e1cba607bd330f8455aa4777727cb0eb7a46edacd6e7c602",
+    "retained_unmodified_for_replay": true
+  },
+  "decision_evidence": {
+    "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_amendment_20260913.json",
+    "sha256": "b318ce526801278a5eb6b77fe37411cc8ee204594d96f6be4cfa2674d55ee470"
+  },
+  "predecessor_decision_evidence": {
+    "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_adoption_20260908.json",
+    "sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b",
+    "amended_rule_indices": [3]
+  },
+  "user_ratification": {
+    "ratification_id": "KR-NEXT-SESSION-INPUT-POLICY-DBE-20260913",
+    "ratified_at_utc": "2026-09-13T12:40:00Z",
+    "ratification_sha256": "c18d397994324f09e95a0ba17baae5a722448d595ad1d401e1fb2536f0b0e3b5",
+    "adopted_decisions": ["B_e_identity_substitute", "E_stage3_population_carry"],
+    "conditional_decisions_not_activated": ["D_same_day_post_close_source"],
+    "not_adopted_decisions": ["A_relax_D_definition"],
+    "deferred_decisions": ["C_pre_open_E_master_source"]
+  },
+  "session_boundary": {
+    "required_proof": "independently verified calendar proves D is the immediately previous OPEN_REGULAR session before E",
+    "calendar_validator": "market_data/krx_session_calendar_v2.py::validate_calendar",
+    "calendar_validator_sha256": "6660af3f9d12cc1ca8f0d417186fad0c6919ef16ad6d05973ae3ab8104f117ca",
+    "calendar_contract": "config/krx_session_calendar_sources_v2.json",
+    "calendar_contract_sha256": "58698d8d8045c9e084f250bb37becc667cfb3161073b6789af22cacc9456e813",
+    "calendar_source_schema_version": "krx_date_specific_session_source/1",
+    "calendar_coverage": "exact committed approved-source snapshot for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
+    "post_close_market_signals_relation_required": false,
+    "calendar_day_subtraction_authorized": false,
+    "d_minus_two_fallback_authorized": false
+  },
+  "context_session": {
+    "label": "PREVIOUS_COMPLETED_SESSION_CONTEXT",
+    "required_same_date_inputs": [
+      "D master",
+      "D leadership"
+    ],
+    "must_be_available_before_evaluation": true,
+    "d_price_as_execution_fill_authorized": false,
+    "context_source_modes": {
+      "NEXT_SESSION_OFFICIAL_DAILY": {
+        "admitted": true,
+        "master_source_ids": ["krx_open_api_stock_daily"],
+        "leadership_source_names": ["KRX_OPEN_API_INDEX_LIVE"]
+      },
+      "SAME_DAY_POST_CLOSE": {
+        "ratified_decision": "D_same_day_post_close_source=ADOPT_CONDITIONAL",
+        "condition_precedent_result": "V1_FAILED",
+        "v1_validation_sha256": "41e99cb8ef812690c72b0d325ccc76c3bae480b7f235095579882f4d4ea0d8b2",
+        "status": "NOT_ACTIVATED_RETURNED_TO_USER",
+        "post_close_source_admitted": false,
+        "validator_activation_branch_present": false,
+        "unadmitted_behavior": "UNKNOWN_CONTEXT_POST_CLOSE_SOURCE_NOT_ADMITTED"
+      }
+    }
+  },
+  "execution_session": {
+    "identity_evidence_modes": {
+      "EXACT_E_MASTER": {
+        "admitted": true,
+        "required_same_date_inputs": [
+          "E master",
+          "E candidate identity",
+          "E prospective application membership"
+        ]
+      },
+      "LATEST_PUBLISHED_MASTER_WITH_E_LISTING_RESOLUTION": {
+        "admitted": true,
+        "ratified_decision": "B_e_identity_substitute=ADOPT",
+        "identity_master": {
+          "packet_validator": ".github/scripts/korea_global_universe_populate.py::validate_packet",
+          "published_path_pattern": "data/observations/krx_global_universe/<as_of_date>/packet.json",
+          "exact_committed_bytes_at_trusted_commit": true,
+          "available_at_rule": "max(git first_seen of exact bytes, every source_snapshots[].retrieved_at_utc)",
+          "availability_predicate": "available_at <= evaluation_at",
+          "selection_rule": "greatest as_of_date among exact committed packets at trusted_commit whose available_at <= evaluation_at",
+          "as_of_date_predicate": "as_of_date <= D",
+          "newer_available_packet_invalid_behavior": "FAIL_CLOSED",
+          "maximum_age_authorized": null,
+          "target_row_predicate": "market KOREA, asset_class EQUITY, exact primary_symbol, active UNIVERSE=KOSPI membership at the master's own as_of_date"
+        },
+        "e_canonical_listing_resolution": {
+          "resolver": "identity/canonical_identity.py::resolve_instrument_identity",
+          "authority": "config/canonical_security_identity.json verified at trusted_commit",
+          "source_name": "krx_open_api_stock_daily",
+          "market": "KOREA",
+          "decision_instants": ["evaluation_at", "forward_execution_at"],
+          "instant_format": "UTC YYYY-MM-DDTHH:MM:SSZ floored to whole seconds",
+          "required_status": "RESOLVED",
+          "exact_ids": ["canonical_instrument_id", "canonical_issuer_id", "listing_id"],
+          "listing_row_uniquely_active_with_exact_ticker_and_market": true
+        },
+        "e_calendar_predicate": "E envelope exact committed, OPEN_REGULAR, available_at and first_seen <= evaluation_at",
+        "execution_session_date_rule": "E = Asia/Seoul local date of evaluation_at; forward_execution_at local date == E; last session calendar envelope as_of_date == E",
+        "master_effective_interval_extended": false,
+        "scope": "E identity and prospective membership evidence for this application_scope only"
+      }
+    },
+    "market_timezone": "Asia/Seoul",
+    "regular_session_close_local": "15:30:00",
+    "decision_to_forward_execution_max_seconds": 600,
+    "active_predicate": "membership_from <= evaluation_at <= forward_execution_at < E_regular_session_close",
+    "e_plus_one_carry_authorized": false
+  },
+  "membership": {
+    "membership_from_rule": "max(E 00:00:00 KST, source_admission_real_usable_from, D/E_decision_real_usable_from)",
+    "membership_to_rule": "E 15:30:00 KST",
+    "d_master_interval_extension_authorized": false,
+    "backdating_authorized": false
+  },
+  "separate_required_inputs": [
+    "Exact D rotation TOP bucket",
+    "Qualified current E price/spread/impact and causal execution observations",
+    "Actual E tradability evidence",
+    "Any separately required E-day regime state"
+  ],
+  "authority": {
+    "previous_completed_session_context_input_only": true,
+    "baseline_entry_eligibility_authorized": false,
+    "new_entry_authorized": false,
+    "regime_gate_authorized": false,
+    "global_taxonomy_authority_changed": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "real_authority": false,
+    "order_authorized": false,
+    "trading_authorized": false,
+    "profitability_claimed": false
+  }
+}

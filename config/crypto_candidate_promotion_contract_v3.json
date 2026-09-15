@@ -1,0 +1,148 @@
+{
+  "schema_version": 3,
+  "contract_version": "crypto_candidate_promotion_contract/3",
+  "activation": "OPT_IN_ONLY: crypto_candidate_promotion_packet/2 (contract/2) stays the default and byte-identical; a caller must request contract 3 explicitly",
+  "input_states": [
+    "TRADEABLE_UNIVERSE",
+    "PAPER_ELIGIBLE"
+  ],
+  "criteria": [
+    "IDENTITY",
+    "TRADABILITY",
+    "REGIME",
+    "TREND",
+    "RELATIVE_STRENGTH",
+    "VOLUME_LIQUIDITY",
+    "OVEREXTENSION",
+    "MATERIAL_BLOCKER"
+  ],
+  "criterion_statuses": [
+    "PASS",
+    "FAIL",
+    "UNKNOWN"
+  ],
+  "promotion_states": [
+    "WATCH",
+    "FOCUSED_REVIEW",
+    "BLOCKED"
+  ],
+  "leadership_reference_window_id": "primary_30d",
+  "regime_source": {
+    "module": "regime/crypto_paper_runtime.py",
+    "decision_schema_version": "crypto_paper_runtime_decision/1",
+    "policy_path": "config/crypto_paper_runtime_v1.json",
+    "policy_sha256": "6a4f643d66bde2b418f951b47aed2dbd75b89938a171d812f9c3925d1c0935f9",
+    "ratification_identity": "CRYPTO-PAPER-RUNTIME-V1-20260914",
+    "ratification_record_sha256": "e2f9f69461088d52300258ab22f17d7f287bd7c2fd6efd1d49962b44f16fffe1",
+    "applicable_decision_rule": "the runtime decision whose current_decision_date equals the UTC decision date in force at the promotion reference instant (07:00Z boundary); an older decision is UNKNOWN with no carry; a decision evaluated after the reference instant is rejected as lookahead"
+  },
+  "regime_gate": {
+    "market": "CRYPTO",
+    "source_ratification_id": "PAPER-MARKET-ALLOCATION-V2-20260913",
+    "source_record_sha256": "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8",
+    "source_fields": [
+      "new_buys_by_market_state",
+      "per_market_state_multiplier_of_base"
+    ],
+    "states": {
+      "RISK_ON": {
+        "criterion_status": "PASS",
+        "new_buys": "PERMIT",
+        "state_multiplier_of_base": "1.00",
+        "hold_current_max_multiplier_of_base": null
+      },
+      "NEUTRAL": {
+        "criterion_status": "PASS",
+        "new_buys": "PERMIT_SELECTIVE",
+        "state_multiplier_of_base": "0.70",
+        "hold_current_max_multiplier_of_base": null
+      },
+      "RISK_OFF": {
+        "criterion_status": "FAIL",
+        "new_buys": "DENY",
+        "state_multiplier_of_base": "0.25",
+        "hold_current_max_multiplier_of_base": null
+      },
+      "STRESS": {
+        "criterion_status": "FAIL",
+        "new_buys": "DENY",
+        "state_multiplier_of_base": "0.00",
+        "hold_current_max_multiplier_of_base": null
+      },
+      "UNKNOWN": {
+        "criterion_status": "UNKNOWN",
+        "new_buys": "DENY",
+        "state_multiplier_of_base": null,
+        "hold_current_max_multiplier_of_base": "0.50"
+      }
+    },
+    "note": "Multipliers are carried as lineage for downstream sizing only; P5-08 opens no sizing, buy, order or capital authority. NEUTRAL selectivity is enforced by the required T2_ROTATION_MEMBERSHIP condition."
+  },
+  "market_evidence_policy": {
+    "path": "config/upbit_market_evidence_policy_ratified.json",
+    "policy_id": "P4_07_UPBIT_PUBLIC_MARKET_EVIDENCE_PAPER_V1",
+    "policy_version": "upbit_market_evidence_policy/v1",
+    "packet_sha256": "26d921e4b98f91010b4397d6642c1dc6021d06ef134977cc80a94692e6e1df5e",
+    "proposal_policy_read": false,
+    "unavailable_or_invalid": "VOLUME_LIQUIDITY UNKNOWN (fail closed), never PASS",
+    "pass_rule": "packet bound to the ratified policy; 1d and 4h candle evidence PASS; trade evidence PASS; orderbook FRESH with full ratified depth, ratified slippage notional, spread_bps <= max_spread_bps_normal and slippage_bps <= max_slippage_bps_normal recomputed from the packet numbers",
+    "breach": "VOLUME_LIQUIDITY UNKNOWN with named reasons (P4-07 fail_closed_unknown); a QUALITY_WARNING under the T2 rule, never a promotion blocker"
+  },
+  "authority": {
+    "investable_eligible": false,
+    "paper_eligible": false,
+    "focused_review_authorized": false,
+    "entry_authorized": false,
+    "stage_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "order_authorized": false
+  },
+  "promotion_rule": {
+    "rule_id": "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
+    "version": 1,
+    "source_record": {
+      "record_id": "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915",
+      "repo_path": "evidence/authority/paper_b2_b3_size_assembly_user_ratification_20260915.json",
+      "sha256": "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5",
+      "decision_key": "B2"
+    },
+    "t2_definition_record": {
+      "record_id": "CANDIDATE-PIPELINE-REBUILD-20260913",
+      "repo_path": "evidence/authority/candidate_pipeline_rebuild_user_ratification_20260913.json",
+      "sha256": "6870b4572fe46901e9e2ce14e07e01d89c54ba2860ab42a0087f16a4c4703625",
+      "field": "ratified.t2_minimum_conditions"
+    },
+    "entry_baseline_record": {
+      "record_id": "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915",
+      "repo_path": "evidence/authority/paper_entry_baseline_b_user_ratification_20260915.json",
+      "sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+      "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1"
+    },
+    "blocking_conditions": {
+      "T2_IDENTITY": "resolved identity via the ratified Upbit market registry (P3-12 identity gate)",
+      "T2_POPULATION_MEMBERSHIP": "in-scope row of the validated P3-12 population snapshot for the evaluation date",
+      "T2_LIQUIDITY": "ratified Upbit min_30d_avg_krw_turnover (P3-12 policy) met",
+      "T2_PRICE_DATA": "finalized 1d candle for the latest completed UTC day present with available_at <= reference instant",
+      "T2_ROTATION_MEMBERSHIP": "asset bucket (BTC/ETH/ALT) STRONG_CONFIRMED or STRONG_HELD under RULE.ROTATION.CRYPTO.V1 / RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1; no confirmation source is wired into P5-08 yet, so UNKNOWN",
+      "T2_REGIME_PERMITS_NEW_BUYS": "regime_gate above"
+    },
+    "non_blocking_criteria": {
+      "TREND": "RECORD_ONLY_ENTRY_STAGE",
+      "OVEREXTENSION": "RECORD_ONLY_ENTRY_STAGE",
+      "RELATIVE_STRENGTH": "SCORE",
+      "VOLUME_LIQUIDITY": "QUALITY_WARNING",
+      "MATERIAL_BLOCKER": "WARNING"
+    },
+    "state_rule": "any T2 required condition FAIL -> BLOCKED; otherwise any UNKNOWN -> WATCH; otherwise FOCUSED_REVIEW. Non-blocking criteria never change the state; they are emitted as warnings.",
+    "missing_input": "a missing required input is UNKNOWN (fail closed), never PASS"
+  },
+  "rule_sources": {
+    "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1": "0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5",
+    "RULE.ENTRY.PAPER_BASELINE_B.V1": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+    "RULE.CRYPTO.RUNTIME.V1": "e2f9f69461088d52300258ab22f17d7f287bd7c2fd6efd1d49962b44f16fffe1",
+    "RULE.ALLOCATION.V2": "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8",
+    "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
+  },
+  "rule_refs_shape": "{rule_id, version, registry_sha256 (null until the rule registry is on main), source_record_sha256, role in APPLIED|BLOCKED_BY}; unapplied_rules {rule_id, reason_code}"
+}

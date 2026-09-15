@@ -471,6 +471,108 @@ why. A packet shape the formatter does not recognize falls back to no
 detail line rather than raising, so a future upstream schema change cannot
 break the whole render.
 
+### Market-scoped session dates, PAPER reference, and row dates (2026-09-14)
+
+The 2026-09-14 briefing content audit found date defects, not arithmetic
+defects. The renderer now binds each date to its own source:
+
+- KRX `latest_confirmed_close_date` is `data/latest_krx.json`
+  `decision_readiness.confirmed_through` (the collector's next-day
+  confirmation), rendered only when its sha256 equals the STEP0 read-model
+  gate's `sources.krx.source_sha256`. The five-axis observation date stays
+  visible as `index_move_observation_date`. `latest_completed_session_date`
+  is the newest KRX session with retained session evidence (confirmed, or a
+  later `observed_unconfirmed` post-close bundle), so a weekend morning shows
+  Friday's recorded session instead of only the previous confirmed close.
+- The weekend context names the STEP0 collector run date and each market's
+  last-session dates (superseded on 2026-09-14 by the market-scoped weekend
+  lines of scheduled briefing retrieval authority v4, below).
+- The Regime section shows the PAPER regime reference (the pointer PAPER
+  posture reads) per market with its `기준일`, labelled
+  `PAPER 참고 판정 (런타임 판정 아님 · 매매/주문 권한 없음)`. Runtime regime
+  stays `UNKNOWN`.
+- Every component header carries `기준일=<as_of_date>`; Forward Alpha,
+  official release, DART, business-acceleration and zero-capital review rows
+  carry their own dates. No stale window is ratified for those rows, so none
+  is applied. Only KR five-axis-derived rows cite the ratified
+  `config/regime_semantic_freshness_policy_v1.json` KR `SESSION_EXACT_MATCH`
+  rule (`SOURCE_NOT_ADVANCED_EXPECTED_SESSION`).
+- The Dynamic Clock overflow pointer names this revision's own packet instead
+  of a separately refreshed file.
+
+These references are presentation-only. They are chosen once on a fresh
+build and attached to the `STEP0_READ_MODEL_HEALTH` frozen snapshot under
+`presentation_references`; replay re-derives the post-close and PAPER fields
+from immutable retained bytes. For the confirmed close only the git blob id of
+the `data/latest_krx.json` bytes is frozen: replay reads that blob from the
+trusted repository (`validate_packet(trusted_repository_root=...)`, so full
+git history is required, as it already is for Flow replay), requires its
+sha256 to equal STEP0's recorded hash and re-derives `confirmed_through`; a
+missing blob fails validation. When references are present the claim ledger
+names the five-axis date `freshness.krx.index_move_observation_date` (legacy
+packets keep `freshness.krx.latest_confirmed_close_date`). Board values keep
+their machine form before `;` and carry Korean glosses after it
+(거래소 확정 종가, 관측·미확정(거래소 확정 전), 최근 완료 거래일), a legacy snapshot without the field replays
+byte-identically, and no component row, status, aggregate or authority reads
+them. `validation/korea_index_move_recompute.py` recomputes KOSPI/KOSDAQ
+one-session moves from retained KRX Information Data System index responses
+(hash-checked against their capture manifest) and reports
+`NOT_VERIFIABLE_RAW_NOT_RETAINED` for sessions without retained bytes.
+
+### B5 semantic checklist formats (2026-09-14)
+
+The renderer emits the formats `atlas_b5_semantic_checklist/1` (staging
+controller `briefing_semantic_checks.py`) reads, so a correct briefing is not
+held for a format gap. The checks themselves are unchanged.
+
+- B5-3 row date tokens (`key=YYYY-MM-DD`, or an explicit `key=UNKNOWN` only
+  when the source has no date): Forward Alpha rows `pilot_decision_date=`
+  (the pilot evidence date, not the briefing decision date), DART rows
+  `filing_date=`, official release rows `published_at=` and `evidence_as_of=`,
+  Dynamic Clock rows `price_observation_date=`, US breadth `snapshot_date=`,
+  `VIXCLS=` with `as_of=`. The Korean `기준일` glosses from 2026-09-14 stay.
+- B5-5: every PAPER reference market line ends with `; 런타임 미승인`, so the
+  market, the candidate regime, `PAPER 참고` and `런타임 미승인` share one line.
+  `FREE_MARKET_DATA` lists each `us_market_reference.trend_etfs` row as
+  `US trend ETF <symbol>: close=<source value verbatim> as_of_session_date=<date>`;
+  when that session is not the decision date the line says it is not a
+  decision-date close, and the IEX summary line reads
+  `US close values withheld as <decision_date> closes`.
+- B5-4: the Dynamic Clock overflow pointer names this revision's packet; when
+  the Dynamic Clock decision date differs from the briefing date it carries
+  `상세 목록 미갱신(기준일 YYYY-MM-DD)`.
+
+Rendering never changes a packet, so sealed packets revalidate exactly as
+before. `test/test_briefing_b5_renderer_alignment_20260914.py` runs a pinned
+copy of the checks on real retained 2026-09-13/14 morning renders.
+
+### Weekend evidence-date lines (scheduled briefing retrieval authority v4, 2026-09-14)
+
+A Saturday/Sunday morning briefing binds the previous Friday's read-model
+generation. The v3 contract line `- latest_confirmed_evidence_date: <date>`
+carried the STEP0 collector run KST date, which overstated what KRX had
+confirmed (KRX confirms Friday's session only on Sunday ~21:00Z). From
+`scheduled_briefing_retrieval_authority/4` the weekend context renders:
+
+```
+- market_session: MARKET_CLOSED
+- new_session: NONE
+- source_evidence_kst_date: <STEP0 sources collected_for_kst_date>
+- krx_latest_confirmed_close_date: <data/latest_krx.json confirmed_through>
+- us_latest_verified_session_date: <READY FREE_MARKET_DATA us_market_reference.as_of_session_date>
+- latest_confirmed_evidence_relabelled_as_today: false
+```
+
+`weekend_session_context_dates()` derives each value from the hash-bound
+packet: the KRX date only from the frozen confirmed-close presentation
+reference whose sha256 equals the STEP0 krx `source_sha256`; the US date only
+from a READY `FREE_MARKET_DATA` row. A missing, unbound or out-of-range value
+is `UNKNOWN`; no date is borrowed from another market. The v3 line is no
+longer rendered. The publisher and consumer re-derive the same values (the
+publisher also re-reads the frozen `data/latest_krx.json` git blob) and
+require each line exactly once; see
+`docs/scheduled_briefing_retrieval_authority.md`.
+
 ## Storage is not delivery
 
 Committing `evidence/daily_briefing/...` to `main` is *storage*, not proof

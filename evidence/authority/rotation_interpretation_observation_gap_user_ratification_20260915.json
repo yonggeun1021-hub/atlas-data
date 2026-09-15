@@ -1,0 +1,29 @@
+{
+ "schema": "user_ratification/1",
+ "id": "USER_RATIFICATION_ROTATION_INTERPRETATION_OBSERVATION_GAP_20260915",
+ "recorded_by": "CLAUDE_CIO",
+ "recorded_at_kst": "2026-09-15T08:13+09:00",
+ "user_sentence_verbatim": "로테이션 확정 해석을 정한다: ① 연속 확인은 허용 공백 안의 연속 관측 기준으로 센다. ② 데이터 공백으로 강세 판정이 소멸하면 해제로 보지 않고 보유 유지·신규 매수 중단·판정 공백 표시로 처리하며, 데이터 복귀 후 첫 판정이 상위권 밖이면 해제로 보고 매도한다. 공백 중에도 시간 손절 등 다른 청산 조건은 그대로 적용한다.",
+ "interprets": [
+  {
+   "record": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json",
+   "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
+  },
+  {
+   "record": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915.json",
+   "sha256": "47276abe432102c33b208a5c3a5d10b30c3c30c79fcb809bb1283c97efb95619"
+  }
+ ],
+ "context": "PR #752 independent review questions (crypto '2 consecutive days' reading; strong state lapsing to NEUTRAL across max gap is not a confirmed release)",
+ "decision": {
+  "rule_id": "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1",
+  "consecutive_confirmation": "count consecutive OBSERVATIONS within the ratified maximum gap (crypto 2 / US 4 / KR 7 days), not calendar days",
+  "gap_lapse": "when a strong state lapses because data exceeds the max gap: not a release; hold positions, stop new buys, display '판정 공백'; on data return, if the first judgment is outside the top bucket treat it as a release and sell per RULE.EXIT.RELEASE_FULL_SELL.V1; if inside the top bucket, strength continues",
+  "other_exits_during_gap": "time stops and other exit conditions continue to apply during the gap"
+ },
+ "not_changed": [
+  "rotation rule parameters",
+  "exit rules",
+  "REAL/order/payment/secret authority"
+ ]
+}

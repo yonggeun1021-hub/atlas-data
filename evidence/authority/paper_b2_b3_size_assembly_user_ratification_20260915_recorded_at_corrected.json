@@ -1,0 +1,41 @@
+{
+ "schema": "user_ratification/1",
+ "id": "USER_RATIFICATION_PAPER_B2_B3_SIZE_ASSEMBLY_20260915",
+ "recorded_by": "CLAUDE_CIO",
+ "recorded_at_kst": "2026-09-15T07:22+09:00",
+ "user_sentence_verbatim": "PAPER 결정 차단 목록 v2의 B2·B3·B1-c 크기 조립을 확정한다. ① 코인 후보 승격은 T2 필수 6조건만 차단하고 나머지는 점수·경고로 쓴다. ② 한국 경로 A 첫 1회는 baseline v0로 기계 검증만 하고 성과에서 제외한다. ③ 세션 매수 합계는 종목 NAV 5%, 세션 시작 시 시장 몫 남은 여유의 1/3, 거래대금 평균 1% 중 가장 작은 값을 넘지 않게 하고, 부분 수량·다음 세션 보충·후보 균등 분할을 허용하며, 옛 미국 1종목·코인 3종목 한도는 이것으로 대체한다. 계획손실 한도·청산·실행 품질 숫자는 이번에 확정하지 않는다.",
+ "source_document": {
+  "path": "outputs/CLAUDE_CIO_PAPER_CYCLE_DECISION_BLOCKERS_20260915_v2.md",
+  "sha256": "e9e67d5be5f89388bab0727f9ee761bc911e23bf6e20d46f560b0261277d34f9"
+ },
+ "decisions": {
+  "B2": {
+   "rule_id": "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1",
+   "status": "RATIFIED",
+   "text": "crypto candidate promotion blocks only on the 6 T2 required conditions; other criteria become score/warning"
+  },
+  "B3": {
+   "rule_id": "RULE.KR.FIRST_CYCLE_CANARY_V0.V1",
+   "status": "RATIFIED",
+   "text": "KR path A first single cycle runs baseline v0 (1 name, 5%) as mechanical verification only (SYSTEM_CANARY), excluded from performance"
+  },
+  "B1c": {
+   "rule_id": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V1",
+   "status": "RATIFIED",
+   "text": "session buy total <= min(per-name NAV 5%, one-third of remaining market-share room at session start (session total), 1% of the ratified average traded value (KR/US 20-session; crypto 30-day average per addendum)); partial quantities, next-session top-ups and equal split across candidates allowed; supersedes 2026-08-31 US 1-name/5% exposure and crypto 3-name limits"
+  }
+ },
+ "explicitly_not_decided": [
+  "planned loss cap (0.25%/0.40%)",
+  "exit rules",
+  "execution quality numbers (time windows, spread, quote age)",
+  "BTC/ETH per-name cap (B8)",
+  "US liquidity IEX treatment (B4)"
+ ],
+ "not_changed": [
+  "allocation v2",
+  "hedge rules",
+  "REAL/order/payment/secret authority"
+ ],
+ "correction_note": "recorded_at_kst corrected by CIO on 2026-09-15 08:1x KST from '2026-09-15T07:40+09:00' (CIO clock-estimation error) to the file creation time; previous file sha256 0e2691e072f4193b6fcd07c14cf2c87be469c4acb9167eca0cbd5d72a390e1c5; decision content unchanged."
+}

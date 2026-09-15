@@ -1,0 +1,73 @@
+{
+  "auth_required": false,
+  "capture_started_at_utc": "2026-09-14T05:44:32Z",
+  "capture_version": "upbit-microstructure-capture/v2",
+  "checksums": {
+    "upbit_candles_15m.ndjson.gz": "d99e0f592da2c3e73b0a013fa1e97e3c58b0feb6930f6c4ebb32e371448d663c",
+    "upbit_candles_1d.ndjson.gz": "957ddbcce404d7421939525847de0378f0295886bbdb3d9832ce6ed924345578",
+    "upbit_candles_1h.ndjson.gz": "ac8eecc01dc72d3b6631dd427aa5b40452eb977b80dbe1802d1d4735bbb34929",
+    "upbit_candles_4h.ndjson.gz": "6b9be5eae5d781403f668ce17cbac4e961d35c9667b53c1528c973a8b302bfe3",
+    "upbit_orderbook.json.gz": "e32138e24645966cd7fd587a68188cfadd3d43af3f31e72181bb829caf41f5fa",
+    "upbit_trades.ndjson.gz": "9df6bd42d734c2ff97a14ac656e744472812c929e18ecb8447e183d043a63575"
+  },
+  "downloaded_at_utc": "2026-09-14T05:45:40Z",
+  "market_count": 8,
+  "markets": [
+    "KRW-BTC",
+    "KRW-ETH",
+    "KRW-LINK",
+    "KRW-SHIB",
+    "KRW-SOL",
+    "KRW-SUI",
+    "KRW-WLD",
+    "KRW-XRP"
+  ],
+  "order_or_withdrawal_endpoints_called": false,
+  "schema_version": 1,
+  "source_name": "upbit_market_evidence_microstructure",
+  "timeframes": [
+    "15m",
+    "1h",
+    "4h",
+    "1d"
+  ],
+  "transform_version": "upbit_market_evidence_capture/1",
+  "universe_lineage": {
+    "authority": {
+      "candidate_promotion_authorized": false,
+      "decision_eligible": false,
+      "evidence_derivation_only": true,
+      "order_authorized": false,
+      "paper_exit_authorized": false,
+      "production_authorized": false,
+      "trading_authorized": false
+    },
+    "available_at": "2026-09-14T02:37:18Z",
+    "bridge_id": "P3_12_TO_P4_07_EXACT_HASH_PAPER_V1",
+    "generated_at": "2026-09-14T02:37:18Z",
+    "historical_identity_backfill_applied": false,
+    "identity_unratified_count": 267,
+    "market_count": 8,
+    "markets": [
+      "KRW-BTC",
+      "KRW-ETH",
+      "KRW-LINK",
+      "KRW-SHIB",
+      "KRW-SOL",
+      "KRW-SUI",
+      "KRW-WLD",
+      "KRW-XRP"
+    ],
+    "observed_at": "2026-09-14T02:37:18Z",
+    "p4_policy": {
+      "packet_sha256": "26d921e4b98f91010b4397d6642c1dc6021d06ef134977cc80a94692e6e1df5e",
+      "policy_id": "P4_07_UPBIT_PUBLIC_MARKET_EVIDENCE_PAPER_V1",
+      "policy_version": "upbit_market_evidence_policy/v1"
+    },
+    "packet_payload_sha256": "66651c922034004636f6d9e25503882ba63d8e8b2179df9c6323ace6eba63612",
+    "record_path": "data/observations/upbit_tradeable_universe/2026-09-14/packet.json",
+    "record_payload_sha256": "c8e277226b41cfb2bbe2adcf9b6b058988f594f0e7de9e8d799ca2af3ae5ad2f",
+    "snapshot_date": "2026-09-14"
+  },
+  "vintage_date": "2026-09-14"
+}

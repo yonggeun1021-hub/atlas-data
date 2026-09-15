@@ -35,7 +35,17 @@ REALTIME_GATE_PATH = ROOT / "realtime" / "upbit_realtime_gate.py"
 LIVE_AXIS_PATH = ROOT / "regime" / "live_axis_adapter.py"
 STAGE5_PATH = ROOT / "shadow" / "stage5_paper_envelope_ledger.py"
 
-REQUEST_SCHEMA_VERSION = "crypto_paper_runtime_request/2"
+REQUEST_SCHEMA_VERSION = "crypto_paper_runtime_request/3"
+# Requests issued before the per-market realtime freshness ratification
+# (CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914) keep revalidating with
+# their original aggregate-freshness derivation, byte for byte.
+LEGACY_REQUEST_SCHEMA_VERSION = "crypto_paper_runtime_request/2"
+REQUEST_SCHEMA_VERSIONS = (LEGACY_REQUEST_SCHEMA_VERSION, REQUEST_SCHEMA_VERSION)
+PER_MARKET_FRESHNESS_MODE = "PER_MARKET_RATIFIED"
+AGGREGATE_FRESHNESS_MODE = "AGGREGATE_DECISION_V1"
+ENTRY_OPEN = "ENTRY_OPEN"
+ENTRY_CAPPED = "ENTRY_CAPPED"
+MARKET_NOT_SUBSCRIBED_REASON = "MARKET_NOT_SUBSCRIBED_IN_DECISION_REALTIME"
 RUNTIME_CONFIG_SCHEMA_VERSION = "crypto_paper_runtime_config/1"
 RUNTIME_CONFIG_APPROVAL = "USER_RATIFIED_PAPER_RUNTIME"
 LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION = "upbit_realtime_latest_public_messages/1"
@@ -66,6 +76,15 @@ AUTHORITY = {
 
 class CryptoPaperRuntimeBridgeError(ValueError):
     """Fail-closed bridge contract, lineage, or runtime-input violation."""
+
+
+class MarketEvidenceUnavailableError(CryptoPaperRuntimeBridgeError):
+    """One market's realtime evidence is not usable (not FRESH, missing, late).
+
+    Under per-market freshness this is that market's blocker only.  Identity,
+    hash, or value violations stay plain ``CryptoPaperRuntimeBridgeError`` and
+    still fail the whole request closed.
+    """
 
 
 def _load(name: str, path: Path):
@@ -611,6 +630,8 @@ def paper_account_state_from_ledger(
     account_state: dict, *, open_position_risk: list[dict],
 ) -> dict:
     checked = SIMULATOR.validate_account_state(account_state)
+    if checked["total_nav"] is None:
+        raise CryptoPaperRuntimeBridgeError("PAPER_ACCOUNT_NAV_UNKNOWN")
     total_nav = Decimal(checked["total_nav"])
     if total_nav <= 0:
         raise CryptoPaperRuntimeBridgeError("PAPER_ACCOUNT_NAV_NOT_POSITIVE")
@@ -684,16 +705,101 @@ def _realtime_source(
     return entry["path"], record
 
 
+def is_per_market_decision(decision: dict) -> bool:
+    """Whether a decision packet carries ratified per-market realtime freshness."""
+    return (
+        isinstance(decision, dict)
+        and decision.get("schema_version") in DECISION.PER_MARKET_OUTPUT_SCHEMA_VERSIONS
+    )
+
+
+def market_freshness_view(decision: dict) -> dict[str, dict]:
+    """Per-market realtime/floor/cap view of a validated per-market decision.
+
+    ``/3`` records realtime status for every subscribed market
+    (``subscribed_market_realtime``); an issued ``/2`` packet only has its
+    candidate rows.  A market absent from both is not in this view and is
+    treated as MISSING by every consumer.  A ``/1`` packet has no per-market
+    view (empty result).
+    """
+    if not is_per_market_decision(decision):
+        return {}
+    view = {}
+    for row in decision["candidates"]:
+        realtime = row["realtime_freshness"]
+        view[row["market"]] = {
+            "candidate": True,
+            "realtime_status": realtime["status"],
+            "realtime_reasons": list(realtime.get("reasons") or []),
+            "liquidity_floor_status": row["realtime_liquidity_floor"]["status"],
+            "market_action_cap_reason": row["market_action_cap_reason"],
+        }
+    block = decision.get("realtime_per_market_freshness") or {}
+    subscribed = block.get("subscribed_market_realtime")
+    if subscribed is None:
+        if decision["schema_version"] != DECISION.PER_MARKET_V2_OUTPUT_SCHEMA_VERSION:
+            raise CryptoPaperRuntimeBridgeError("DECISION_SUBSCRIBED_MARKET_REALTIME_MISSING")
+        subscribed = {}
+    if not isinstance(subscribed, dict):
+        raise CryptoPaperRuntimeBridgeError("DECISION_SUBSCRIBED_MARKET_REALTIME_INVALID")
+    for market, realtime in sorted(subscribed.items()):
+        if not isinstance(realtime, dict) or not isinstance(realtime.get("status"), str):
+            raise CryptoPaperRuntimeBridgeError("DECISION_SUBSCRIBED_MARKET_REALTIME_INVALID")
+        if market in view:
+            if realtime["status"] != view[market]["realtime_status"]:
+                raise CryptoPaperRuntimeBridgeError(
+                    f"DECISION_MARKET_REALTIME_INCONSISTENT:{market}"
+                )
+            continue
+        view[market] = {
+            "candidate": False,
+            "realtime_status": realtime["status"],
+            "realtime_reasons": list(realtime.get("reasons") or []),
+            "liquidity_floor_status": None,
+            "market_action_cap_reason": None,
+        }
+    return dict(sorted(view.items()))
+
+
+def market_realtime_status(decision: dict, market: str) -> tuple[str, list[str]]:
+    """One market's own ratified realtime status (MISSING when not recorded)."""
+    row = market_freshness_view(decision).get(market)
+    if row is None:
+        return DECISION.MISSING, [MARKET_NOT_SUBSCRIBED_REASON]
+    return row["realtime_status"], list(row["realtime_reasons"])
+
+
 def _latest_public_message(
     decision: dict, *, market: str, kind: str,
     observation_root: Path | None = None,
+    per_market: bool | None = None,
 ) -> tuple[dict, Path, dict]:
-    if (decision.get("freshness_status") or {}).get("realtime") != DECISION.FRESH:
-        raise CryptoPaperRuntimeBridgeError("DECISION_REALTIME_FRESHNESS_NOT_RATIFIED_FRESH")
+    """Return one retained public message only when its evidence is usable.
+
+    ``per_market`` (default: whether the decision is per-market) selects the
+    ratified gate.  Per-market: the market's own ratified realtime status and
+    that market's own ``freshness_by_kind[kind]`` must be FRESH; the aggregate
+    realtime status and the run's gate ``overall_status`` (worst over every
+    market) are telemetry only.  Aggregate (``/1`` decisions and replay of
+    ``/2`` requests): the pre-ratification checks, unchanged.
+    """
+    if per_market is None:
+        per_market = is_per_market_decision(decision)
+    if per_market:
+        status, reasons = market_realtime_status(decision, market)
+        if status != DECISION.FRESH:
+            detail = f":{','.join(reasons)}" if reasons else ""
+            raise MarketEvidenceUnavailableError(
+                f"MARKET_REALTIME_NOT_FRESH:{market}:{status}{detail}"
+            )
+    elif (decision.get("freshness_status") or {}).get("realtime") != DECISION.FRESH:
+        raise MarketEvidenceUnavailableError("DECISION_REALTIME_FRESHNESS_NOT_RATIFIED_FRESH")
     path, record = _realtime_source(decision, observation_root=observation_root)
     run = record["run"]
     key = f"{kind}|-|{market}"
     row = run["latest_public_messages"].get(key)
+    if row is None:
+        raise MarketEvidenceUnavailableError(f"REALTIME_{kind.upper()}_MISSING:{market}")
     if not isinstance(row, dict) or set(row) != {
         "kind", "timeframe", "market", "received_at", "source_sha256", "raw"
     }:
@@ -722,42 +828,82 @@ def _latest_public_message(
             f"REALTIME_{kind.upper()}_FUTURE_DATED:{market}"
         )
     status = run.get("status") or {}
-    if status.get("overall_status") != "FRESH":
-        raise CryptoPaperRuntimeBridgeError("REALTIME_STATUS_NOT_FRESH")
+    if not per_market and status.get("overall_status") != "FRESH":
+        raise MarketEvidenceUnavailableError("REALTIME_STATUS_NOT_FRESH")
     market_rows = [item for item in status.get("markets", []) if item.get("market") == market]
     if len(market_rows) != 1:
-        raise CryptoPaperRuntimeBridgeError(f"REALTIME_MARKET_STATUS_MISSING:{market}")
+        raise MarketEvidenceUnavailableError(f"REALTIME_MARKET_STATUS_MISSING:{market}")
     if (market_rows[0].get("freshness_by_kind") or {}).get(kind, {}).get("status") != "FRESH":
-        raise CryptoPaperRuntimeBridgeError(f"REALTIME_{kind.upper()}_NOT_FRESH:{market}")
+        raise MarketEvidenceUnavailableError(f"REALTIME_{kind.upper()}_NOT_FRESH:{market}")
     return row, path, record
+
+
+def latest_mark_prices_by_market(
+    decision: dict, markets: list[str], *, observation_root: Path | None = None,
+    per_market: bool | None = None,
+) -> dict:
+    """Per-market marks: a market without usable evidence is UNKNOWN, not fatal.
+
+    Returns ``marks`` (FRESH markets only), ``mark_status`` (FRESH/UNKNOWN for
+    every requested market), ``unavailable_reasons`` and the source reference
+    plus a hash over the FRESH source rows only.  Tampered or malformed
+    evidence still raises.
+    """
+    root = _safe_observation_root(observation_root)
+    marks = {}
+    mark_status = {}
+    unavailable = {}
+    source_rows = []
+    for market in sorted(set(markets)):
+        if not isinstance(market, str) or MARKET_RE.fullmatch(market) is None:
+            raise CryptoPaperRuntimeBridgeError("MARK_MARKET_INVALID")
+        try:
+            row, path, _record = _latest_public_message(
+                decision, market=market, kind="ticker", observation_root=root,
+                per_market=per_market,
+            )
+        except MarketEvidenceUnavailableError as exc:
+            mark_status[market] = DECISION.UNKNOWN
+            unavailable[market] = str(exc)
+            continue
+        marks[market] = _format_decimal(row["raw"].get("trade_price"), "TICKER_PRICE_INVALID", positive=True)
+        mark_status[market] = DECISION.FRESH
+        source_rows.append({"path": str(path.relative_to(root)), "sha256": row["source_sha256"]})
+    return {
+        "marks": marks,
+        "mark_status": mark_status,
+        "unavailable_reasons": unavailable,
+        "source_ref": "public://upbit/realtime/latest-ticker",
+        "source_sha256": payload_sha256(source_rows),
+    }
 
 
 def latest_mark_prices(
     decision: dict, markets: list[str], *, observation_root: Path | None = None,
 ) -> tuple[dict[str, str], str, str]:
-    root = _safe_observation_root(observation_root)
-    marks = {}
-    source_rows = []
-    for market in sorted(set(markets)):
-        row, path, _record = _latest_public_message(
-            decision, market=market, kind="ticker", observation_root=root,
-        )
-        marks[market] = _format_decimal(row["raw"].get("trade_price"), "TICKER_PRICE_INVALID", positive=True)
-        source_rows.append({"path": str(path.relative_to(root)), "sha256": row["source_sha256"]})
-    return marks, "public://upbit/realtime/latest-ticker", payload_sha256(source_rows)
+    """All-or-nothing marks (the simulator account view needs every position)."""
+    result = latest_mark_prices_by_market(
+        decision, markets, observation_root=observation_root,
+    )
+    if result["unavailable_reasons"]:
+        market = sorted(result["unavailable_reasons"])[0]
+        raise MarketEvidenceUnavailableError(result["unavailable_reasons"][market])
+    return result["marks"], result["source_ref"], result["source_sha256"]
 
 
 def orderbook_snapshot(
     decision: dict, *, market: str, observation_root: Path | None = None,
+    per_market: bool | None = None,
 ) -> dict:
     root = _safe_observation_root(observation_root)
     row, path, _record = _latest_public_message(
         decision, market=market, kind="orderbook", observation_root=root,
+        per_market=per_market,
     )
     raw = row["raw"]
     units = raw.get("orderbook_units")
     if not isinstance(units, list) or not units:
-        raise CryptoPaperRuntimeBridgeError(f"ORDERBOOK_UNITS_MISSING:{market}")
+        raise MarketEvidenceUnavailableError(f"ORDERBOOK_UNITS_MISSING:{market}")
     asks = []
     bids = []
     for index, unit in enumerate(units):
@@ -815,6 +961,42 @@ def _promotion_packet(
         return None
 
 
+def _request_market_status(decision: dict) -> dict[str, dict]:
+    """Per-market lineage carried by a ``/3`` request (no value field)."""
+    status = {}
+    for market, row in market_freshness_view(decision).items():
+        entry_open = (
+            row["candidate"]
+            and row["realtime_status"] == DECISION.FRESH
+            and row["liquidity_floor_status"] == DECISION.PER_MARKET.INCLUDED
+            and row["market_action_cap_reason"] is None
+        )
+        status[market] = {
+            "candidate": row["candidate"],
+            "realtime_status": row["realtime_status"],
+            "liquidity_floor_status": row["liquidity_floor_status"],
+            "market_action_cap_reason": row["market_action_cap_reason"],
+            "entry_state": ENTRY_OPEN if entry_open else ENTRY_CAPPED,
+        }
+    return status
+
+
+def _per_market_entry_blocker(view: dict, market: str) -> str | None:
+    """Why this market may not receive a new PAPER intent (None = open)."""
+    row = view.get(market)
+    if row is None:
+        return f"MARKET_REALTIME_NOT_FRESH:{market}:{DECISION.MISSING}:{MARKET_NOT_SUBSCRIBED_REASON}"
+    if not row["candidate"]:
+        return f"MARKET_NOT_A_DECISION_CANDIDATE:{market}"
+    if row["market_action_cap_reason"] is not None:
+        return f"MARKET_ACTION_CAPPED:{market}:{row['market_action_cap_reason']}"
+    if row["liquidity_floor_status"] != DECISION.PER_MARKET.INCLUDED:
+        return f"MARKET_LIQUIDITY_FLOOR_NOT_INCLUDED:{market}:{row['liquidity_floor_status']}"
+    if row["realtime_status"] != DECISION.FRESH:
+        return f"MARKET_REALTIME_NOT_FRESH:{market}:{row['realtime_status']}"
+    return None
+
+
 def _derive_runtime_request(
     decision: dict,
     *,
@@ -826,12 +1008,27 @@ def _derive_runtime_request(
     open_position_risk: list[dict] | None,
     runtime_config: dict | None,
     known_idempotency_keys=None,
+    request_schema_version: str = REQUEST_SCHEMA_VERSION,
 ) -> dict:
+    if request_schema_version not in REQUEST_SCHEMA_VERSIONS:
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_SCHEMA_VERSION_UNSUPPORTED")
+    legacy_request = request_schema_version == LEGACY_REQUEST_SCHEMA_VERSION
     source_root = _safe_observation_root(observation_root)
     decision = validate_decision_snapshot(
         decision, expected_source_commit=expected_source_commit,
         observation_root=source_root,
     )
+    if legacy_request and decision["schema_version"] != DECISION.LEGACY_OUTPUT_SCHEMA_VERSION:
+        # No /2 request was ever issued for a per-market decision (the runtime
+        # pin that emitted /2 could not read /2 or /3 decisions).  Accepting one
+        # would let a relabelled request downgrade a per-market decision to the
+        # aggregate gate, so it fails closed.
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_DECISION")
+    # A /2 request is replayed exactly as issued: aggregate freshness gate and a
+    # whole-request abort on an unusable entry orderbook.  A /3 request judges
+    # each market by its own ratified freshness when the decision carries it.
+    per_market = (not legacy_request) and is_per_market_decision(decision)
+    view = market_freshness_view(decision) if per_market else {}
     code_commit = _require_sha40(
         public_code_commit_sha or expected_source_commit,
         "PUBLIC_CODE_COMMIT_INVALID",
@@ -849,6 +1046,11 @@ def _derive_runtime_request(
         SIMULATOR.validate_account_state(account_state)
         if account_state is not None else None
     )
+    if (
+        legacy_request and checked_account is not None
+        and checked_account["schema_version"] != SIMULATOR.load_contract()["account_state_schema_version"]
+    ):
+        raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_LEGACY_SCHEMA_REQUIRES_V1_ACCOUNT")
     normalized_risk = _normalize_open_position_risk(open_position_risk)
     normalized_keys = _normalize_known_idempotency_keys(known_idempotency_keys)
     missing = []
@@ -866,6 +1068,7 @@ def _derive_runtime_request(
     blockers = []
     carried_open_order_ids = []
     new_intent_allocation_blocked = False
+    market_blocked = False
 
     # A current run's retained orderbook predates the decision assembled at
     # the tail of that run, so it may support the decision but cannot fill a
@@ -884,10 +1087,26 @@ def _derive_runtime_request(
                 open_orders_by_market.setdefault(order["market"], []).append(order)
         for market, orders in sorted(open_orders_by_market.items()):
             try:
+                if per_market:
+                    # A fill creates a position the P10-11 account view must
+                    # mark FRESH.  Under per-market freshness a market's ticker
+                    # channel can lag its book, so a match also requires this
+                    # market's usable ticker (the aggregate gate implied it).
+                    _latest_public_message(
+                        decision, market=market, kind="ticker",
+                        observation_root=source_root, per_market=True,
+                    )
                 snapshot = orderbook_snapshot(
                     decision, market=market, observation_root=source_root,
+                    per_market=per_market,
                 )
-            except CryptoPaperRuntimeBridgeError as exc:
+            except (
+                CryptoPaperRuntimeBridgeError if legacy_request
+                else MarketEvidenceUnavailableError
+            ) as exc:
+                # /3: only unavailable evidence is this market's blocker;
+                # tampered or malformed evidence aborts the whole request.
+                # /2 keeps its issued catch-all for byte-identical replay.
                 blockers.append(f"MATCH_SNAPSHOT_UNAVAILABLE:{market}:{exc}")
                 continue
             captured = _parse_utc(snapshot["captured_at"], "ORDERBOOK_CAPTURED_AT_INVALID")
@@ -914,10 +1133,18 @@ def _derive_runtime_request(
                     "order_ids": sorted(eligible_order_ids),
                     "snapshot": snapshot,
                 })
+    nav_unknown_markets = (
+        sorted(row["market"] for row in checked_account["positions"] if row.get("mark_status") == "UNKNOWN")
+        if checked_account is not None and checked_account["total_nav"] is None else []
+    )
     if promotion is None:
         blockers.append("PROMOTION_PACKET_UNAVAILABLE")
     elif missing:
         blockers.extend("RUNTIME_INPUT_MISSING:" + item for item in missing)
+    elif nav_unknown_markets:
+        # A per-market account view with an UNKNOWN-valued position has no
+        # NAV, so no new entry can be sized; carried matches still proceed.
+        blockers.append("PAPER_ACCOUNT_NAV_UNKNOWN:" + ",".join(nav_unknown_markets))
     else:
         paper_account = paper_account_state_from_ledger(
             checked_account, open_position_risk=normalized_risk or [],
@@ -934,6 +1161,20 @@ def _derive_runtime_request(
             row for row in eligibility["candidates"]
             if row["eligibility_state"] == "PAPER_BUY_ELIGIBLE"
         ]
+        if per_market:
+            # The P5-09 rebuild here does not see the decision's per-market
+            # caps, so a STALE/MISSING/UNKNOWN, floor-excluded or otherwise
+            # capped market is removed before allocation.  Other markets are
+            # evaluated normally (user ratification, action_cap rule).
+            open_rows = []
+            for row in eligible_rows:
+                blocker = _per_market_entry_blocker(view, row["market"])
+                if blocker is None:
+                    open_rows.append(row)
+                else:
+                    market_blocked = True
+                    blockers.append(blocker)
+            eligible_rows = open_rows
         if eligible_rows and carried_open_order_ids:
             new_intent_allocation_blocked = True
             blockers.append(
@@ -956,9 +1197,23 @@ def _derive_runtime_request(
             ):
                 blockers.append(f"ORDER_DRAFT_EXPIRED:{row['market']}")
                 continue
-            snapshot = orderbook_snapshot(
-                decision, market=row["market"], observation_root=source_root,
-            )
+            if legacy_request:
+                snapshot = orderbook_snapshot(
+                    decision, market=row["market"], observation_root=source_root,
+                    per_market=False,
+                )
+            else:
+                try:
+                    snapshot = orderbook_snapshot(
+                        decision, market=row["market"], observation_root=source_root,
+                        per_market=per_market,
+                    )
+                except MarketEvidenceUnavailableError as exc:
+                    # One market's missing/stale book is that market's blocker;
+                    # it never aborts carried matches or other markets.
+                    market_blocked = True
+                    blockers.append(f"ENTRY_SNAPSHOT_UNAVAILABLE:{row['market']}:{exc}")
+                    continue
             limit_price = None
             if config["order_type"] == "LIMIT":
                 key = "low" if config["limit_price_source"] == "ENTRY_ZONE_LOW" else "high"
@@ -999,12 +1254,16 @@ def _derive_runtime_request(
         status = "WAIT_PROMOTION_UNAVAILABLE"
     elif missing:
         status = "WAIT_RUNTIME_INPUTS_MISSING"
+    elif nav_unknown_markets:
+        status = "WAIT_ACCOUNT_NAV_UNKNOWN"
     elif new_intent_allocation_blocked:
         status = "WAIT_ALLOCATION_POLICY"
+    elif market_blocked:
+        status = "WAIT_MARKET_EVIDENCE_OR_CAP"
     else:
         status = "NO_ELIGIBLE_CANDIDATE"
     packet = {
-        "schema_version": REQUEST_SCHEMA_VERSION,
+        "schema_version": request_schema_version,
         "mode": PRIVATE_RUNTIME_MODE,
         "status": status,
         "observed_at": decision["generated_at"],
@@ -1030,6 +1289,12 @@ def _derive_runtime_request(
             "known_idempotency_keys": normalized_keys,
         },
     }
+    if not legacy_request:
+        packet["decision_schema_version"] = decision["schema_version"]
+        packet["freshness_mode"] = (
+            PER_MARKET_FRESHNESS_MODE if per_market else AGGREGATE_FRESHNESS_MODE
+        )
+        packet["market_status"] = _request_market_status(decision) if per_market else {}
     packet["packet_sha256"] = payload_sha256(packet)
     return packet
 
@@ -1065,28 +1330,42 @@ def build_runtime_request(
     )
 
 
+LEGACY_REQUEST_FIELDS = frozenset({
+    "schema_version", "mode", "status", "observed_at",
+    "decision_generation_id", "decision_payload_sha256",
+    "decision_source_commit_sha", "public_code_commit_sha",
+    "observation_commit_sha",
+    "runtime_config_sha256", "eligibility",
+    "requests", "match_snapshots", "blockers", "authority", "source_inputs",
+    "packet_sha256",
+})
+REQUEST_FIELDS = LEGACY_REQUEST_FIELDS | {
+    "decision_schema_version", "freshness_mode", "market_status",
+}
+
+
 def validate_runtime_request(
     value: object, *, expected_public_code_commit_sha: str | None = None,
     expected_observation_root: Path | None = None,
     expected_observation_commit_sha: str | None = None,
 ) -> dict:
-    fields = {
-        "schema_version", "mode", "status", "observed_at",
-        "decision_generation_id", "decision_payload_sha256",
-        "decision_source_commit_sha", "public_code_commit_sha",
-        "observation_commit_sha",
-        "runtime_config_sha256", "eligibility",
-        "requests", "match_snapshots", "blockers", "authority", "source_inputs",
-        "packet_sha256",
-    }
+    schema_version = value.get("schema_version") if isinstance(value, dict) else None
+    fields = LEGACY_REQUEST_FIELDS if schema_version == LEGACY_REQUEST_SCHEMA_VERSION else REQUEST_FIELDS
     if not isinstance(value, dict) or set(value) != fields:
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_FIELDS_INVALID")
     if (
-        value.get("schema_version") != REQUEST_SCHEMA_VERSION
+        schema_version not in REQUEST_SCHEMA_VERSIONS
         or value.get("mode") != PRIVATE_RUNTIME_MODE
         or value.get("authority") != AUTHORITY
     ):
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_IDENTITY_INVALID")
+    if schema_version == REQUEST_SCHEMA_VERSION:
+        if (
+            value.get("freshness_mode") not in {PER_MARKET_FRESHNESS_MODE, AGGREGATE_FRESHNESS_MODE}
+            or not isinstance(value.get("market_status"), dict)
+            or value.get("decision_schema_version") not in DECISION.OUTPUT_SCHEMA_VERSIONS
+        ):
+            raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_PER_MARKET_FIELDS_INVALID")
     _parse_utc(value.get("observed_at"), "RUNTIME_REQUEST_OBSERVED_AT_INVALID")
     _require_sha256(value.get("decision_generation_id"), "RUNTIME_REQUEST_GENERATION_INVALID")
     _require_sha256(value.get("decision_payload_sha256"), "RUNTIME_REQUEST_DECISION_SHA_INVALID")
@@ -1196,6 +1475,7 @@ def validate_runtime_request(
         open_position_risk=source_inputs["open_position_risk"],
         runtime_config=source_inputs["runtime_config"],
         known_idempotency_keys=source_inputs["known_idempotency_keys"],
+        request_schema_version=schema_version,
     )
     if canonical_json(rebuilt) != canonical_json(value):
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_DERIVATION_MISMATCH")

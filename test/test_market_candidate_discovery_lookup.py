@@ -216,7 +216,20 @@ class CurrentInputsTests(unittest.TestCase):
         self.assertEqual(roles["three_market_coverage"]["payload_sha256"], receipt.get("payload_sha256"))
         self.assertEqual(roles["kr_symbol_review"]["contract"], "korea_symbol_market_review/1")
         self.assertEqual(roles["us_symbol_review"]["contract"], "us_symbol_market_review/1")
-        self.assertEqual(roles["crypto_decision"]["contract"], "crypto_paper_decision_snapshot_packet/1")
+        # The latest committed Crypto decision may be the pre-ratification /1
+        # packet or a per-market /3 packet (user ratification
+        # CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914); the portal block
+        # must reuse exactly the contract of the decision it links.
+        crypto_decision_contract = roles["crypto_decision"]["contract"]
+        self.assertIn(crypto_decision_contract, (
+            "crypto_paper_decision_snapshot_packet/1",
+            "crypto_paper_decision_snapshot_packet/2",
+            "crypto_paper_decision_snapshot_packet/3",
+        ))
+        decision_path = MODULE.ROOT / roles["crypto_decision"]["source"]["path"]
+        self.assertEqual(
+            json.loads(decision_path.read_text(encoding="utf-8"))["schema_version"], crypto_decision_contract,
+        )
         for ref in portal["reused_contracts"]:
             if "source" in ref:
                 self.assertRegex(ref["source"]["file_sha256"], r"^[0-9a-f]{64}$")

@@ -1,0 +1,138 @@
+{
+  "active_by_membership_id": {
+    "KOSDAQ": {
+      "KOSDAQ.SECTOR.02": 28,
+      "KOSDAQ.SECTOR.03": 75,
+      "KOSDAQ.SECTOR.04": 34,
+      "KOSDAQ.SECTOR.05": 183,
+      "KOSDAQ.SECTOR.06": 15,
+      "KOSDAQ.SECTOR.07": 15,
+      "KOSDAQ.SECTOR.08": 23,
+      "KOSDAQ.SECTOR.09": 55,
+      "KOSDAQ.SECTOR.10": 4,
+      "KOSDAQ.SECTOR.11": 77,
+      "KOSDAQ.SECTOR.12": 101,
+      "KOSDAQ.SECTOR.13": 48,
+      "KOSDAQ.SECTOR.14": 99,
+      "KOSDAQ.SECTOR.15": 144,
+      "KOSDAQ.SECTOR.16": 316,
+      "KOSDAQ.SECTOR.17": 130,
+      "KOSDAQ.SECTOR.19": 9,
+      "KOSDAQ.SECTOR.20": 2,
+      "KOSDAQ.SECTOR.22": 126
+    },
+    "KOSPI": {
+      "KOSPI.SECTOR.01": 25,
+      "KOSPI.SECTOR.02": 28,
+      "KOSPI.SECTOR.03": 60,
+      "KOSPI.SECTOR.04": 78,
+      "KOSPI.SECTOR.05": 32,
+      "KOSPI.SECTOR.06": 11,
+      "KOSPI.SECTOR.07": 3,
+      "KOSPI.SECTOR.08": 21,
+      "KOSPI.SECTOR.09": 27,
+      "KOSPI.SECTOR.10": 13,
+      "KOSPI.SECTOR.11": 24,
+      "KOSPI.SECTOR.12": 61,
+      "KOSPI.SECTOR.13": 62,
+      "KOSPI.SECTOR.14": 37,
+      "KOSPI.SECTOR.15": 8,
+      "KOSPI.SECTOR.16": 32,
+      "KOSPI.SECTOR.17": 10,
+      "KOSPI.SECTOR.18": 69,
+      "KOSPI.SECTOR.19": 49,
+      "KOSPI.SECTOR.20": 8,
+      "KOSPI.SECTOR.21": 18,
+      "KOSPI.SECTOR.22": 18,
+      "KOSPI.SECTOR.23": 5,
+      "KOSPI.SECTOR.24": 103
+    }
+  },
+  "authority": {
+    "capital_movement_authorized": false,
+    "membership_is_candidate_approval": false,
+    "paper_order_authorized": false,
+    "production_authorized": false,
+    "real_order_authorized": false,
+    "t2_eligibility_granted": false,
+    "t3_real_candidate_authorized": false
+  },
+  "contract_payload_sha256": "c910441f323765371ff1a6284f8532953e35470dd6896e95a585f3acf56f3d1e",
+  "coverage": {
+    "KOSDAQ": {
+      "active": 1484,
+      "common_stocks": 1729,
+      "pending_change": 0,
+      "unmapped": 245
+    },
+    "KOSPI": {
+      "active": 802,
+      "common_stocks": 804,
+      "pending_change": 0,
+      "unmapped": 2
+    },
+    "total": {
+      "active": 2286,
+      "common_stocks": 2533,
+      "pending_change": 0,
+      "unmapped": 247
+    }
+  },
+  "generator": {
+    "file_sha256": "e0c73c0a01298ce83191c1830b83b3e162d2dda724d9850ad5bdcfe61d112938",
+    "path": "universe/security_sector_membership.py"
+  },
+  "market_scope": "KR",
+  "payload_sha256": "84c19238f64e0c86fc8ee76ed136b8e0c4170f49fa4c3656da0103fe743ead43",
+  "pending_change_by_membership_id": {
+    "KOSDAQ": {},
+    "KOSPI": {}
+  },
+  "private_document_payload_sha256": "b92a09d981f91d136326dd7128369bea00404ee3b3a055e4316df84912c206ef",
+  "publication": {
+    "as_of_session": "2026-09-11",
+    "observed_at_utc": "2026-09-13T14:21:33Z"
+  },
+  "schema_version": "security_sector_membership_public_summary/1",
+  "source_policy": {
+    "decision_id": "CIO-TKT3-MEMBERSHIP-D1-D5-20260914",
+    "decision_sha256": "1fb9a8d525491dbcacac379b36d07c8c50c0b8ae90700e9de51bf83f106cf220",
+    "kr_sector_membership_source": "KIS_ONLY",
+    "satisfies_t2_c5": true,
+    "satisfies_t3": false,
+    "source_count": 1,
+    "t3_target": "BOTH_MUST_AGREE",
+    "verification": "SINGLE_SOURCE_KIS"
+  },
+  "source_shas": [
+    {
+      "archive_sha256": "39948f755a7a06ee4355301860b92e86d5d510947674861f6bcce2844ce8f4a6",
+      "master_sha256": "adfa5923597e37433aa80677fe00d38bab646227f9b2c9b35320bf76e5a4cdd8",
+      "row_count": 491,
+      "source": "KIS_IDXCODE_MASTER"
+    },
+    {
+      "archive_sha256": "91c520e2838f4c6eb39379553b62e0210a1d4e2610242ac1ee7c0885729de3c1",
+      "market": "KOSDAQ",
+      "master_sha256": "ad227a56c27b40db89ba81b5ec31a51f799d5c89dc05b6147d97f9afaa74494a",
+      "row_count": 1823,
+      "source": "KIS_STOCK_MASTER"
+    },
+    {
+      "archive_sha256": "110655b855e276d4e8fc3743a3ac99cf7e79c3031eaaf3bd2a2104d42bdcb95c",
+      "market": "KOSPI",
+      "master_sha256": "2da4673914c3cd88ad686102396620844dec805ed4de7734f2641465bc72ee25",
+      "row_count": 2580,
+      "source": "KIS_STOCK_MASTER"
+    }
+  ],
+  "taxonomy_binding_sha256": "6027e89b70766599bac4a242aef5bf608f7979628a6e8b5cbaf23219cab287e3",
+  "unmapped_by_reason": {
+    "KOSDAQ": {
+      "NO_SECTOR_CODE": 245
+    },
+    "KOSPI": {
+      "NO_SECTOR_CODE": 2
+    }
+  }
+}

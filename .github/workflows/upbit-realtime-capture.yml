@@ -68,6 +68,10 @@ jobs:
       # private endpoint. See config/upbit_realtime_gate_contract.json and
       # realtime/upbit_realtime_gate.py::PRIVATE_WS_TYPES_FORBIDDEN /
       # build_subscription_message (fails closed on any private channel).
+      # Subscription = every admitted P3-12 market (TRADEABLE_UNIVERSE and
+      # PAPER_ELIGIBLE), independent of the liquidity floor and of holdings
+      # (CIO addendum CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-
+      # 20260914). The ratified 30-day floor is a per-market decision cap only.
       - name: Bounded-duration public WebSocket capture
         id: capture
         env:
@@ -86,29 +90,14 @@ jobs:
             --duration-seconds "$DURATION_SECONDS" \
             "${UNIVERSE_ARG[@]}"
           echo "result=captured" >> "$GITHUB_OUTPUT"
-      # Observation-only reference markets prove the public ticker/trade/
-      # orderbook/candle transport even while P3-12 has zero approved
-      # subscription markets.  This separate root is never passed to the
-      # P3/P5/P8 decision chain and carries zero strategy/order authority.
-      - name: Public WebSocket natural transport validation (decision-isolated)
-        id: validation_capture
-        env:
-          DURATION_SECONDS: ${{ github.event.inputs.validation_duration_seconds || '30' }}
-        run: |
-          set -euo pipefail
-          SNAPSHOT_DATE=$(date -u +%F)
-          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
-          python3 .github/scripts/upbit_realtime_capture.py \
-            --evidence-root evidence/crypto/upbit/realtime_validation \
-            --validation-anchor-contract config/upbit_public_validation_anchor_contract.json \
-            --snapshot-date "$SNAPSHOT_DATE" \
-            --duration-seconds "$DURATION_SECONDS"
-          echo "result=captured" >> "$GITHUB_OUTPUT"
       # P1-CR-08 (Regime) + P5-08 (Candidate Promotion) + P5-09 (PAPER Buy
-      # Eligibility) composition, tacked onto the tail of this existing
-      # 30-minute job -- NOT a new schedule. Pure read-only derivation over
-      # already-committed evidence (this run's just-captured P9-06 evidence
-      # included); zero network/order calls -- see
+      # Eligibility) composition, tacked onto this existing 30-minute job --
+      # NOT a new schedule.  It must run IMMEDIATELY after the realtime
+      # capture step: the ratified CRYPTO freshness policy is re-evaluated at
+      # this step's generated_at, so any step in between adds its duration to
+      # every ticker's provider age (see the capture-to-decision guard below).
+      # Pure read-only derivation over already-committed evidence (this run's
+      # just-captured P9-06 evidence included); zero network/order calls -- see
       # decision/crypto_paper_decision_snapshot.py's own module docstring
       # for the full scope boundary (Continuous Briefing/alerting stays
       # UNDEFINED/out of scope). Runs unconditionally, but writes no decision
@@ -136,10 +125,12 @@ jobs:
           if [ -n "${OBSERVED_STARTED_AT_UTC:-}" ]; then
             ARGS+=(--started-at "$OBSERVED_STARTED_AT_UTC")
           fi
+          echo "generated_at=$GENERATED_AT" >> "$GITHUB_OUTPUT"
           if [ "$CAPTURE_RESULT" = "captured" ] && [ -n "$SNAPSHOT_DATE" ]; then
             RUN_PATH=$(ls -1 "evidence/crypto/upbit/realtime/$SNAPSHOT_DATE"/run_*.json 2>/dev/null | sort | tail -n 1 || true)
             if [ -n "$RUN_PATH" ]; then
               ARGS+=(--realtime-run-path "$RUN_PATH")
+              echo "realtime_run_path=$RUN_PATH" >> "$GITHUB_OUTPUT"
             fi
           fi
           python3 decision/crypto_paper_decision_snapshot.py \
@@ -198,6 +189,53 @@ jobs:
           python3 decision/crypto_candidate_detail_view.py \
             --decision-packet "$DECISION_PATH" \
             --output-root evidence/crypto_candidate_detail
+      # Scheduler-ordering regression guard.  Measures the decision's
+      # generated_at minus the consumed realtime run's status.generated_at and
+      # fails this step when it exceeds the ENGINEERING budget in
+      # .github/scripts/check_crypto_decision_capture_gap.py (5s; expected
+      # 0-1s).  That budget is not a freshness policy: it never changes the
+      # ratified 20s/3s CRYPTO limits or any decision outcome.  Placed after
+      # the read-only consumers so a failure never suppresses them; telemetry
+      # and the evidence commit still run.
+      - name: Crypto capture-to-decision timing guard (engineering budget, read-only)
+        id: crypto_decision_capture_gap
+        if: ${{ !cancelled() && steps.crypto_paper_decision.outputs.realtime_run_path != '' }}
+        env:
+          REALTIME_RUN_PATH: ${{ steps.crypto_paper_decision.outputs.realtime_run_path }}
+          DECISION_GENERATED_AT: ${{ steps.crypto_paper_decision.outputs.generated_at }}
+          DECISION_PACKET_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
+        run: |
+          set -euo pipefail
+          ARGS=(--realtime-run-path "$REALTIME_RUN_PATH" --decision-generated-at "$DECISION_GENERATED_AT")
+          if [ -n "${DECISION_PACKET_PATH:-}" ]; then
+            ARGS+=(--decision-packet "$DECISION_PACKET_PATH")
+          fi
+          python3 .github/scripts/check_crypto_decision_capture_gap.py "${ARGS[@]}"
+      # Observation-only reference markets prove the public ticker/trade/
+      # orderbook/candle transport even while P3-12 has zero approved
+      # subscription markets.  This separate root is never passed to the
+      # P3/P5/P8 decision chain and carries zero strategy/order authority.
+      # It runs AFTER the decision chain: its ~30s window used to sit between
+      # the realtime capture and the decision step, so the decision (which
+      # re-evaluates the ratified CRYPTO freshness policy at its own
+      # generated_at) always saw every ticker >= 30s old.  It still runs
+      # exactly when the realtime capture succeeded, independent of the
+      # decision chain's own outcome.
+      - name: Public WebSocket natural transport validation (decision-isolated)
+        id: validation_capture
+        if: ${{ !cancelled() && steps.capture.outcome == 'success' }}
+        env:
+          DURATION_SECONDS: ${{ github.event.inputs.validation_duration_seconds || '30' }}
+        run: |
+          set -euo pipefail
+          SNAPSHOT_DATE=$(date -u +%F)
+          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
+          python3 .github/scripts/upbit_realtime_capture.py \
+            --evidence-root evidence/crypto/upbit/realtime_validation \
+            --validation-anchor-contract config/upbit_public_validation_anchor_contract.json \
+            --snapshot-date "$SNAPSHOT_DATE" \
+            --duration-seconds "$DURATION_SECONDS"
+          echo "result=captured" >> "$GITHUB_OUTPUT"
       - name: Record P9-06 realtime scheduler telemetry
         if: always()
         env:
@@ -231,6 +269,10 @@ jobs:
           ATLAS_CRYPTO_FUNNEL_BRIEFING_GENERATION_ID: ${{ steps.crypto_funnel_briefing.outputs.generation_id }}
           ATLAS_CRYPTO_FUNNEL_BRIEFING_SHA256: ${{ steps.crypto_funnel_briefing.outputs.packet_sha256 }}
           ATLAS_CRYPTO_CANDIDATE_DETAIL_STEP_OUTCOME: ${{ steps.crypto_candidate_detail.outcome }}
+          ATLAS_CRYPTO_DECISION_CAPTURE_GAP_STEP_OUTCOME: ${{ steps.crypto_decision_capture_gap.outcome }}
+          ATLAS_CRYPTO_DECISION_CAPTURE_GAP_STATUS: ${{ steps.crypto_decision_capture_gap.outputs.status }}
+          ATLAS_CRYPTO_DECISION_CAPTURE_GAP_SECONDS: ${{ steps.crypto_decision_capture_gap.outputs.gap_seconds }}
+          ATLAS_CRYPTO_DECISION_CAPTURE_GAP_ENGINEERING_BUDGET_SECONDS: ${{ steps.crypto_decision_capture_gap.outputs.engineering_budget_seconds }}
           ATLAS_REPOSITORY: ${{ github.repository }}
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: |
@@ -247,6 +289,19 @@ jobs:
               json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
           )
           PY
+      # Additive rule-lineage sidecar (config/rule_registry_v1.json ids) for the
+      # exact decision packet above, keyed by its payload_sha256. It reads that
+      # packet only, never edits it or the producer, and never exits non-zero
+      # for a lineage problem (a failure prints a ::warning:: annotation);
+      # continue-on-error and the timeout keep the evidence commit.
+      - name: Rule lineage sidecar for the Crypto PAPER decision packet (read-only)
+        id: crypto_rule_lineage
+        if: ${{ !cancelled() && steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
+        run: python3 governance/rule_lineage_producers.py crypto-decision --packet "$DECISION_PATH"
       - name: Commit append-only realtime evidence and run telemetry
         if: always()
         env:
@@ -271,6 +326,8 @@ jobs:
           # new, separate evidence path; committed in the same run/commit as
           # the realtime evidence above, never reusing an existing path.
           git add evidence/crypto_paper_decision || true
+          # Additive rule-lineage sidecar of that decision packet.
+          git add evidence/rule_lineage/crypto_paper_decision || true
           # P5-10 read-only, per-symbol five-axis entry/exit policy bridge.
           # It contains no private position/account bytes and no authority.
           git add evidence/crypto_axis_trade_bridge || true

@@ -1,0 +1,29 @@
+{
+ "schema": "user_ratification/1",
+ "id": "USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_20260915",
+ "recorded_by": "CLAUDE_CIO",
+ "recorded_at_kst": "2026-09-15T08:06+09:00",
+ "user_sentence_verbatim": "미국 유동성 판정(B4)은 Alpaca 과거 SIP 일봉(정규장 마감 후 15분 이상 지난 자료)의 20세션 평균 거래대금으로 한다. SIP 자료가 없으면 IEX 값이 기준 이상일 때만 통과, 미달이면 UNKNOWN으로 한다. 미국 투자 후보 종목의 SIP 가격 이력 확대는 출처·종목 수·요청 수·저장 경계를 산정해 따로 승인 요청한다.",
+ "evidence": {
+  "probe_run": "atlas-data run 34907066300 (alpaca-sip-access-probe, 2026-09-14T23:04Z)",
+  "facts": "feed=sip historical daily bars HTTP 200 with bars; XLK 10 shared sessions SIP/IEX volume ratio median 20.33; vwap-notional/close-notional ratio ~1.0002; SPY/MSFT returned 0 bars in the multi-symbol probe (probe did not follow pagination)"
+ },
+ "implements": {
+  "record": "outputs/USER_RATIFICATION_PAPER_LIQUIDITY_KR_US_20260914.json",
+  "sha256": "1e068439c4e43050072e38c7450dea38baccf701dab23e784467c9ce48ef40d6",
+  "note": "US threshold ($10M 20-session average traded value, $5 price, OTC exclusion, <20 sessions NOT_EVALUATED, order <=1% ADV) unchanged; this decides the data source and fallback"
+ },
+ "decision": {
+  "rule_id": "RULE.LIQUIDITY.US_SIP_SOURCE.V1",
+  "status": "RATIFIED",
+  "primary_source": "Alpaca historical SIP daily bars, only data whose regular-session close is at least 15 minutes past",
+  "metric": "20-session average traded value (implementation must state notional formula; probe showed vwap vs close notional differ ~0.02%)",
+  "fallback": "if SIP unavailable: IEX traded value >= threshold -> PASS; below -> UNKNOWN (never FAIL on IEX alone)",
+  "expansion": "SIP price-history expansion for US candidate universe requires a separate approval with source, symbol count, request count and storage boundary"
+ },
+ "closes_pending": "US IEX liquidity (last PENDING_USER_DECISION row)",
+ "not_changed": [
+  "liquidity thresholds",
+  "REAL/order/payment/secret authority"
+ ]
+}

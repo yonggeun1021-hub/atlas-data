@@ -191,6 +191,15 @@ APPROVED_TESTS = [
     #   date. No second provider call, raw response, price field, investability,
     #   Stage, Production, or trading authority is introduced.
     "test/test_korea_global_universe_populate.py",
+    # ★ TKT-3 (W2) — KR security <-> sector membership, security_sector_membership/1.
+    #   KIS master sector codes + KIS idxcode -> the 46 ratified P2-03 sector
+    #   theme_ids (binding payload sha pinned). CIO D1-D5: KIS_ONLY single-source
+    #   (T2 C5 only, T3 keeps BOTH_MUST_AGREE), exactly two ratified aliases,
+    #   deepest-level ACTIVE <= 1 with a derived parent_view, one-publication
+    #   PENDING_CHANGE, no-code stocks UNMAPPED, no retroactive rows.
+    #   ⛔ synthetic masters + temp output only; no fetch, no per-stock public output,
+    #   no candidate/order/capital authority.
+    "test/test_security_sector_membership.py",
     # ★ P3-04 — ratified Crypto breadth selection → Global Asset Master adapter.
     #   exact append-only Kraken snapshot/manifest/policy/taxonomy/identity lineage와
     #   full target observation을 요구해 breadth source-coverage membership만 만든다.
@@ -273,6 +282,19 @@ APPROVED_TESTS = [
     #   ⛔ decision/entry/action/order/production/trading 권한 없음 — evidence only.
     "test/test_upbit_candle_finalization.py",
     "test/test_upbit_microstructure_capture.py",
+    # P4-07 orderbook second-precision regression (2026-09-14): capture v2
+    #   rounds downloaded_at_utc UP to the whole second so ms-stamped orderbook
+    #   rows are never "after" capture (v1 truncation -> ORDERBOOK_UNKNOWN on
+    #   KRW-BTC/ETH/XRP). Replays real retained 2026-09-13 provider bytes;
+    #   issued v1 packets rebuild byte-identically. Builder/policy untouched.
+    "test/test_upbit_microstructure_orderbook_second_precision.py",
+    # P4-07 candle-finalization lookahead fix (2026-09-14): capture v3 records
+    #   each candle fetch's request/response instant; finalization is judged
+    #   against the fetch request, never capture completion. Replays retained
+    #   2026-09-05 bytes (KRW-BTC 15m 01:15-01:30 no longer FINALIZED), exact
+    #   close boundary, mutation proofs; v1/v2 packets rebuild byte-identically
+    #   and their exposure (2026-09-05, 2026-09-14 15m) is pinned, not rewritten.
+    "test/test_upbit_candle_finalization_fetch_time.py",
     "test/test_upbit_market_evidence_microstructure.py",
     "test/test_upbit_p3_p4_exact_hash_consumer.py",
     # Expected governance WAIT is fail-closed and provider-call-free, but it
@@ -861,6 +883,7 @@ APPROVED_TESTS = [
     "test/test_kr_information_system_runtime_bridge.py",
     "test/test_kr_information_system_runtime_publication.py",
     "test/test_kr_internal_paper_theme_application.py",
+    "test/test_kr_internal_paper_theme_next_session_v4.py",
     "test/test_us_paper_policy_binding.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — normalization replay-readiness
     #   evidence (SHADOW only). Reuses build_us/build_kr from
@@ -999,6 +1022,22 @@ APPROVED_TESTS = [
     #   natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
+    # ★ US-DATA-1 U3 (CIO 2026-09-14) + user ratification
+    #   US-SESSION-CALENDAR-SOURCE-V1-20260914. US session calendar: official
+    #   NYSE capture for published years (Nasdaq cross-check where available),
+    #   Alpaca calendar AND IEX SPY bar for 2018+ earlier years, conflict/missing
+    #   = US_FINISHED_SESSION_UNKNOWN, no weekday inference. The registry bytes
+    #   stay hash-bound; the amendment is an overlay config. Offline fixtures only.
+    "test/test_us_official_session_calendar.py",
+    #   Rule-fixed US replay range declared before any run: 15 replay symbols,
+    #   61-session warm-up, latest completed session, whole-range fail-closed
+    #   truncation, no sub-range arguments; bounded (<=15 request) probe capture
+    #   with no secret or price retention; resumable/idempotent chunk driver that
+    #   evaluates US PIT acceptance only on the complete declared range.
+    "test/test_us_replay_range_declaration.py",
+    #   Probe + full replay workflows: workflow_dispatch only, least privilege,
+    #   secrets only in step env, artifacts under RUNNER_TEMP, nothing committed.
+    "test/test_us_regime_replay_workflows.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay
     #   population/report (SHADOW backfill only, never NATURAL). Joins the KR
     #   5-axis and US free-axis replay populations over ONE caller-supplied set
@@ -1140,6 +1179,20 @@ APPROVED_TESTS = [
     # Crypto five-axis reference.  It preserves the provisional caveats and
     # cannot grant runtime, capital, order, Production, or trading authority.
     "test/test_crypto_paper_descriptive_normalization.py",
+    # CRYPTO_PAPER_RUNTIME_V1 (user ratification 2026-09-14): crypto-scoped
+    # PAPER runtime identity, ratified RISK_VOL absolute rule boundaries,
+    # LEADERSHIP pilot->primary window rule, 07:00Z finalized packets with
+    # immediate UNKNOWN on stale/missing/date-mismatch/lookahead/mixed
+    # generation, PROVISIONAL_FORWARD_ACCEPTANCE with auto-revert, the Kraken
+    # bulk BTC-only replay diagnostic, and the retained-evidence publisher.
+    # Strategy, capital, order, production, trading and REAL stay closed.
+    "test/test_crypto_paper_runtime.py",
+    "test/test_crypto_kraken_btc_replay_diagnostic.py",
+    "test/test_crypto_paper_runtime_publication.py",
+    # Scheduled crypto PAPER runtime producer (07:15Z/08:45Z, --check before
+    # commit, contents:write only) and the earlier stablecoin cutoff slots;
+    # captures after 07:00Z stay lookahead-rejected.
+    "test/test_crypto_paper_runtime_schedule.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
@@ -1248,6 +1301,16 @@ APPROVED_TESTS = [
     #   HNT/SKR resolve, SN8 stays UNKNOWN, qualified_members() stays
     #   TAXONOMY_COVERAGE_UNKNOWN because of SN8 -- no BREADTH PASS claimed.
     "test/test_crypto_breadth_hnt_skr_taxonomy_ratification.py",
+    # ★ 2026-09-14 user ratification CRYPTO-BREADTH-TAXONOMY-ADDITIONS-20260914:
+    #   LSK (effective 09-14) and SUSHI/VSN/TRIA/ZORA/XTZ/KII/0G (effective
+    #   09-15) eligible_crypto. No backfill; retained vintages 09-08..09-14
+    #   unchanged; in-memory projection of the committed 09-14 snapshot to
+    #   vintage 09-15 is no longer TAXONOMY_COVERAGE_UNKNOWN because of LSK.
+    #   ⛔ thresholds/fail-closed unchanged; no live Kraken, no date-dependent test.
+    "test/test_crypto_breadth_taxonomy_additions_20260914.py",
+    # ★ Conditional LIGHTER (same ratification): Kraken official asset page
+    #   identity confirmed; eligible_crypto effective 2026-09-16, no backfill.
+    "test/test_crypto_breadth_lighter_identity_20260914.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
@@ -1646,6 +1709,34 @@ APPROVED_TESTS = [
     #   atomic append-only publish, self-rehash 재검증, 컴포넌트별 실패 격리,
     #   결정론적 재생성을 검증한다. ⛔ live network·provider 호출 없음.
     "test/test_daily_orchestrator.py",
+    # ★ Briefing content recency (CLAUDE_CIO briefing audit 2026-09-14 Task B) —
+    #   real audited slots 09-10 AM/PM … 09-13 AM as fixtures. KRX confirmed
+    #   close binds to latest_krx decision_readiness, weekend shows Friday's
+    #   recorded session, PAPER regime reference shown dated and labelled
+    #   (runtime regime stays UNKNOWN), rows carry 기준일, KOSPI/KOSDAQ moves
+    #   recomputed from retained raw index bytes. Presentation only; no status,
+    #   aggregate, action, order, Production or trading authority changes.
+    "test/test_briefing_content_recency_20260914.py",
+    # ★ Briefing renderer ↔ B5 semantic checklist alignment (S8 section 6,
+    #   CLAUDE_CIO 2026-09-14) — pinned copy of the staging
+    #   briefing_semantic_checks.py (sha256 fd98a204…) runs on real retained
+    #   09-13 AM / 09-14 AM rev-001·002 renders with seal-commit inputs.
+    #   Row date tokens (decision_date/filing_date/evidence_as_of/…), PAPER
+    #   "런타임 미승인" label, dated trend ETF closes, stale-pointer label.
+    #   Checks are not loosened: the sealed payloads still HOLD/PWC.
+    #   Presentation only; no packet, status, action or authority change.
+    "test/test_briefing_b5_renderer_alignment_20260914.py",
+    # ★ Weekend briefing evidence-date contract (scheduled_briefing_retrieval_authority/4,
+    #   CLAUDE_CIO 2026-09-14) — the ambiguous weekend line
+    #   latest_confirmed_evidence_date is replaced by source_evidence_kst_date,
+    #   krx_latest_confirmed_close_date and us_latest_verified_session_date,
+    #   re-derived by renderer, publisher (re-reads the latest_krx blob) and
+    #   consumer from the same hash-bound packet sources; UNKNOWN when unbound.
+    #   Real retained 09-12 AM rev-001·002 / 09-13 AM renders pass the pinned
+    #   B5-1 (sha256 fd98a204…, unmodified); sealed v3 payloads still HOLD;
+    #   retained v3 envelopes still validate under v3; v3 line rejected under v4.
+    #   No authority, status or packet change; scratch git repos only.
+    "test/test_briefing_weekend_evidence_date_contract_20260914.py",
     # ★ Daily Briefing same-day recovery — original natural schedule run만
     #   KST slot/date로 식별하고 briefing job 실패 시 최대 3회 안에서 재실행한다.
     #   성공한 briefing은 병렬 regression 결론과 분리해 다시 실행하지 않으며,
@@ -2252,6 +2343,17 @@ APPROVED_TESTS = [
     #      same convention as test_capture_azure_fixture.py above so it is
     #      not silently hidden from the test-set comparison.
     "test/test_crypto_candidate_promotion.py",
+    # ★ P5-08 contract/3 (opt-in; contract/2 default stays byte-identical):
+    #   VOLUME_LIQUIDITY reads only the hash-bound RATIFIED P4-07 policy, and
+    #   REGIME consumes the CRYPTO_PAPER_RUNTIME_V1 decision mapped through
+    #   the PAPER-MARKET-ALLOCATION-V2 new-buy table (RISK_ON/NEUTRAL PASS,
+    #   RISK_OFF/STRESS FAIL, UNKNOWN/missing/not-current UNKNOWN). Tests
+    #   every regime state and the 2026-09-20 07:00Z transition day. State
+    #   rule RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 (user B2, record
+    #   hash-bound): only the six T2 required conditions block; TREND/
+    #   OVEREXTENSION record-only, RS score, P4-07 quality and material
+    #   blocker warnings. Rotation membership is not wired -> UNKNOWN.
+    "test/test_crypto_candidate_promotion_v3.py",
     "test/test_crypto_candidate_trend_metrics.py",
     "test/test_crypto_candidate_volume_metrics.py",
     # ★ P5-08 observation capability, deliberately unwired: the two
@@ -2304,6 +2406,33 @@ APPROVED_TESTS = [
     #   presence only; no axis interpretation, threshold, strategy, action,
     #   PAPER/exchange order, withdrawal, Production, Trading or REAL authority.
     "test/test_crypto_live_component_registry.py",
+    # ★ W5-01/W5-02 (2026-09-14) Crypto decision-generation defects D1/D2.
+    #   The unratified realtime gate overall_status STALE no longer blocks a
+    #   scheduler decision packet (MISSING/CONNECTION/DATE_MISMATCH stay WAIT;
+    #   cap_state_for_freshness is unchanged and still caps action state).
+    #   The live component registry binds UTC-keyed sources to the UTC vintage
+    #   date (schema /2); issued /1 records keep revalidating; absent sources
+    #   stay absent. Crypto regime remains UNKNOWN; no new threshold/authority.
+    "test/test_crypto_regime_vintage_d1_d2.py",
+    # ★ 2026-09-14 Crypto capture-to-decision timing. The decision step runs
+    #   directly after the P9-06 realtime capture and the ~30s decision-
+    #   isolated validation capture runs after the decision chain, so the
+    #   ratified 20s/3s CRYPTO freshness re-evaluation no longer sees a
+    #   pipeline-added 30s age. A read-only guard fails over a 5s ENGINEERING
+    #   budget (scheduler hand-off, not a freshness policy). No threshold,
+    #   decision semantics or authority change.
+    "test/test_crypto_decision_capture_timing.py",
+    # ★ 2026-09-14 user ratification CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1
+    #   (option B) + CIO companion liquidity decision. Realtime freshness is
+    #   judged per market with the unchanged 20s/3s thresholds; a non-FRESH
+    #   market caps only its own action state (aggregate is display only);
+    #   the action set applies the ratified P3-12 30-day average turnover
+    #   floor per market (CIO addendum; unknown excluded), the realtime
+    #   subscription is every admitted P3-12 market with no holdings input
+    #   (scope addendum), and held stale positions HOLD with a 30-minute
+    #   engineering alert budget.
+    #   Decision packets /1 before the effective instant keep revalidating.
+    "test/test_crypto_realtime_per_market_freshness.py",
     # ★ CIO item 3 (2026-08-29): CRYPTO_BREADTH real coverage-ratio
     #   diagnostics (additive, never a new gate) and CRYPTO_LEADERSHIP's
     #   daily_orchestrator.py component-row wiring into build_packet(),
@@ -2332,6 +2461,221 @@ APPROVED_TESTS = [
     #   User-ratified economic inputs have no defaults. No credentials,
     #   exchange endpoints, or REAL authority are introduced.
     "test/test_crypto_paper_runtime_bridge.py",
+    # ★ Per-market realtime freshness in the P10-11 bridge (user ratification
+    #   CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914 + CIO addenda):
+    #   request /3 judges each market by its own ratified freshness and floor
+    #   cap on natural 2026-09-13 bytes; a stale/capped/missing-book market is
+    #   its own blocker, never a whole-request abort; issued /2 requests keep
+    #   rebuilding byte-identically. No order/exchange/REAL authority.
+    "test/test_crypto_paper_runtime_bridge_per_market.py",
+    # ★ D1 per-market account marks (crypto_paper_account_state/2): a stale
+    #   held market is valued UNKNOWN instead of freezing FRESH markets'
+    #   exits; unknown NAV blocks new entries only. /1 unchanged.
+    "test/test_crypto_paper_per_market_account_marks.py",
+    # ★ US-DATA-1 item 1 (CIO 2026-09-13): US-U1 investable-universe T1
+    #   display generator -- deterministic ETF/Test-Issue/Financial-Status
+    #   flag filter + a documented, unratified Security-Name common/ADS
+    #   pattern heuristic + a SEC company_tickers_exchange CIK presence
+    #   cross-check over the already-published P3-02 us_global_universe
+    #   packet. Every exclusion reason is counted and the pipeline fails
+    #   closed unless kept+excluded reconciles to the source row count.
+    #   t1_display_only=true, ratified=false on every row; no W2/W3/T2/T3
+    #   authority and no trading/order/capital authority anywhere.
+    "test/test_us_investable_universe_v1.py",
+    # ★ US-DATA-1 item 2 (CIO 2026-09-13): US price-history backfill request
+    #   planner (`collectors/us_price_history_backfill.py`). Reuses
+    #   `fetch_alpaca_daily_bars` unmodified, chaining its fixed 180-day
+    #   lookback into PIT-anchored HISTORICAL_BACKFILL windows (regime/
+    #   us_historical_replay_population.py::replay_trend_source lookahead
+    #   discipline). Pure-logic coverage: anchor chaining, batching,
+    #   configurable pacing estimate, dry-run plan shape (zero network
+    #   calls by default), and the live path exercised only through a
+    #   synthetic in-memory getter that never touches urllib. Public repo
+    #   boundary is enforced in code (`--out-dir` must resolve outside this
+    #   repo) and asserted here. authority is false everywhere; no network
+    #   call, no order/trading/capital authority anywhere in this file.
+    "test/test_us_price_history_backfill.py",
+    # ★ US_BACKFILL user approval (USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_
+    #   20260915) + CLAUDE_CIO 2026-09-15: pre-registered US sector rotation
+    #   event study re-run on the 1-year Alpaca backfill. Backfill live path is
+    #   write-once/resumable and bounded (22 approved symbols, <=364 days,
+    #   <=66 requests, pacing floor). Study is a line-by-line port of the
+    #   pre-registered engine (hash-pinned document, frozen parameters/gates)
+    #   and emits aggregate-only statistics; the artifact schema rejects any
+    #   price/close/volume/bar/per-day return series. Workflow: dispatch only,
+    #   contents: read, secrets only in the backfill step env, vendor rows only
+    #   under RUNNER_TEMP, one aggregated JSON upload, nothing committed.
+    #   Offline synthetic fixtures only; no network call.
+    "test/test_us_sector_rotation_event_study.py",
+    "test/test_us_sector_rotation_backfill_study_workflow.py",
+    # ★ P0-06 consumer derivation-marker acceptance (CLAUDE_CIO 2026-09-14):
+    #   _validate_pinned_delivery_packet's closed top-level field set predated
+    #   the additive daily_orchestrator/6 packet fields
+    #   (runtime_regime_readiness_version, flow_replay_version,
+    #   crypto_derivation_version) and rejected every retained packet since
+    #   2026-09-06 AM with DELIVERY_PACKET_FIELDS_MISMATCH. The consumer now
+    #   allows exactly these three optional markers, each a plain int in its
+    #   hard-coded supported set and accepted only under contract_version
+    #   daily_orchestrator/6. Every retained /3-/6 packet.json under
+    #   evidence/daily_briefing validates; every retained /2 packet still
+    #   fails by design. No import of the orchestrator; no authority change.
+    "test/test_briefing_consumer_derivation_markers_20260914.py",
+    # ★ KR sector index history backfill + pre-registered 20-session rotation
+    #   event study (CLAUDE_CIO 2026-09-15; user ratification KR = TEMPORARY
+    #   until KRX sector index history is re-verified). Offline only: synthetic
+    #   KRX index responses through an in-memory opener exercise the request
+    #   budget (2 requests per requested weekday, hard caps), write-once
+    #   resume, fail-closed stops on HTTP 401/403/429 and KRX error codes,
+    #   response-decided sessions with official-calendar cross-checks, the
+    #   pinned pre-registration hash, R1-k/R2/R3/R4/R5 mechanics and gates,
+    #   and the aggregate-only public validator (no index values, no per-day
+    #   sequences). The workflow test pins workflow_dispatch-only, contents:
+    #   read, persist-credentials false, the KRX secret in one step env only,
+    #   runner-temp private records and a tracked-change prohibition. No
+    #   network call, no policy/ledger/order/trading authority.
+    "test/test_kr_sector_index_history_backfill.py",
+    "test/test_kr_rotation_event_study.py",
+    "test/test_kr_sector_history_study_workflow.py",
+    # ★ User-ratified capital rotation confirmation layer (CLAUDE_CIO 2026-09-15,
+    #   USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915 sha c6f5dbbe…):
+    #   policy bound to the ratification record sha; STRONG_CONFIRMED/HELD/
+    #   RELEASED/EMERGING_WATCH/NEUTRAL replayed from committed daily evidence
+    #   (US SPDR 20-session, KR 1-session TEMPORARY with the 20-session switch
+    #   refused, CRYPTO primary_30d); byte-deterministic, prefix-stable (no
+    #   lookahead), append-only packets; T1/T2 C5/new-buy wiring uses only
+    #   confirmed/held, release = new-buy stop only (no forced exit). Existing
+    #   membership C5 and ledger/ratification contracts are asserted unchanged.
+    "test/test_rotation_confirmation.py",
+    "test/test_rotation_confirmation_wiring.py",
+    # ★ PAPER entry opportunity ledger (RULE.ENTRY.PAPER_BASELINE_B.V1, user
+    #   ratification 2026-09-15 sha b2a905c4…): every STRONG_CONFIRMED/HELD
+    #   sector/bucket per day with point-in-time allocation v2 market-state
+    #   verdict, T2 PENDING, record-only EMA20/breakout/ATR features from
+    #   committed bars up to the session, null forward-return fields; final-day
+    #   rule, byte-deterministic, append-only; chained workflow has no cron and
+    #   no secret, and the sha-pinned source workflows stay untouched.
+    "test/test_rotation_opportunity_ledger.py",
+    # ★ #752 robustness (CLAUDE_CIO PAPER execution v1 build plan PR2): per-market
+    #   build/verify isolation (exit 3), committed packets preferred so late older
+    #   evidence is reported instead of replayed, workflow push retry, and a
+    #   regression that post-session bars never enter record-only features.
+    "test/test_rotation_confirmation_robustness.py",
+    # ★ PAPER exit policy v1 (USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915
+    #   sha 47276abe…, observation-gap interpretation ed2ca92d…, D1 time contract
+    #   10de02bf…): persistent paper_exit_intent/1 on confirmed release (survives
+    #   the next day and restarts, append-only store), gap lapse = hold / new-buy
+    #   stop / 판정 공백 with the first post-gap judgment deciding, crypto 21-day
+    #   stop at the first FRESH decision snapshot, KR/US/crypto first allowed fill
+    #   time; rotation policy v1 file unchanged (superseded via rule_refs only).
+    "test/test_paper_exit_policy_v1.py",
+    # ★ Record-only shadow controls (RULE.EXIT.SHADOW_CONTROLS.V1, exit study v2
+    #   definitions): 1-B, TS14, PTP1, DS5 with the D9 monitored stop fill model
+    #   and monitoring gaps; KR/US emitted NOT_DEFINED (P3 undecided).
+    "test/test_paper_shadow_controls.py",
+    # ★ Alpaca historical SIP daily-bar access probe (user approval
+    #   2026-09-15: "Alpaca 과거 SIP 데이터 접근 확인 테스트 승인"). Answers, once,
+    #   on request: can the existing dedicated ALPACA_MARKET_DATA_API_KEY/
+    #   ALPACA_MARKET_DATA_API_SECRET credential read HISTORICAL SIP daily
+    #   bars (feed=sip) outside the real-time SIP embargo, and how does SIP
+    #   daily volume compare with IEX daily volume over the same window?
+    #   Bounded to at most 6 requests to /v2/stocks/bars (multi-symbol):
+    #   once with feed=sip and once with feed=iex over the SAME fixed
+    #   10-session window ending >=2 days before the run, each with at most
+    #   one retry on a transient (network/429/5xx) failure only -- a
+    #   definitive 401/403 is never retried. Symbols are 3 approved
+    #   config/free_market_data_contract.json alpaca.symbols (SPY/XLK/AAPL
+    #   preferred; SPY/XLK/MSFT fallback since AAPL is not currently
+    #   approved). Output is aggregate-only: per-request status/error
+    #   class, whether SIP returned bars, bar counts, the SIP/IEX
+    #   volume ratio and the (vwap*volume)/(close*volume) notional-ratio
+    #   per symbol (median across the shared session window) -- never a
+    #   per-day price/close/volume/vwap value. assert_no_forbidden_fields
+    #   checks that mechanically before anything is written, and the
+    #   workflow re-checks the written file the same way before upload.
+    #   Workflow: dispatch only, contents: read, persist-credentials
+    #   false, secrets in exactly one step env, aggregate JSON only under
+    #   RUNNER_TEMP, nothing committed, tracked-change guard. Offline
+    #   fixture/fake-HTTP-layer regression only; no network call from
+    #   tests.
+    "test/test_alpaca_sip_access_probe.py",
+    "test/test_alpaca_sip_access_probe_workflow.py",
+    # ★ US T2 C3 liquidity, RULE.LIQUIDITY.US_SIP_SOURCE.V1 (user
+    #   ratification 2026-09-15, USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_
+    #   20260915 + base record PAPER-LIQUIDITY-KR-US-V1-20260914): Alpaca
+    #   historical SIP daily bars (>=15 minutes past regular-session close
+    #   only) for the 22 already-approved
+    #   config/free_market_data_contract.json alpaca.symbols (per-symbol
+    #   requests with bounded page_token pagination -- the multi-symbol
+    #   endpoint silently dropped SPY/MSFT in the prior probe, run
+    #   34907066300); feed=iex is the fallback only when SIP is denied/
+    #   empty for a symbol. Public output is derived-only per symbol:
+    #   20-session average traded value (close*volume), the selected
+    #   feed's own last close (the one deliberate single-price exception,
+    #   required by the ratified price-floor condition itself), session
+    #   count, source feed, and the composite status plus its three
+    #   sub-checks (volume_status/price_status/otc_exclusion_status) --
+    #   never a raw open/high/low/close/volume/vwap/trade_count field.
+    #   universe/us_liquidity_sip_source.py is the pure rule evaluator: SIP
+    #   with a full window is authoritative (PASS/FAIL); IEX fallback is
+    #   PASS or UNKNOWN, never FAIL; fewer than 20 sessions on every feed
+    #   is NOT_EVALUATED (the base record's own vocabulary), not UNKNOWN.
+    #   ★ 2026-09-15 correction: the ratified USD threshold ($10,000,000
+    #   20-session average, $5 min close) is now BOUND via the committed
+    #   config/us_liquidity_sip_source_policy.json, sha256-cross-checked
+    #   against byte-identical copies at evidence/authority/
+    #   paper_liquidity_kr_us_user_ratification_20260914.json and
+    #   evidence/authority/us_liquidity_sip_source_user_ratification_
+    #   20260915.json (both also landing via #753) -- load_policy() fails
+    #   closed to None (every sub-check UNKNOWN) only if that policy file
+    #   or either cited evidence file is missing/tampered, never by
+    #   default. ★ 2026-09-15 wiring: otc_exclusion_status now comes from
+    #   universe/us_listing_lookup.py, a point-in-time (never a later
+    #   packet than the run's own as-of date, by directory scan -- no
+    #   `latest` pointer needed) reader of the already-committed Nasdaq
+    #   Trader Symbol Directory capture
+    #   (data/observations/us_global_universe/<date>/packet.json,
+    #   universe/us_global_universe.py + its own workflow, both untouched
+    #   by this change). Presence in either captured file (nasdaq_listed
+    #   or other_listed -- both exchange-listed-only directories, per
+    #   config/us_breadth_forward_contract.json) -> EXCHANGE_LISTED; a
+    #   confirmed Nasdaq "Test Issue"=Y row -> TEST_ISSUE (a distinct,
+    #   evidence-backed exclusion this source CAN assert -- it structurally
+    #   cannot assert "OTC" directly, since neither captured file ever
+    #   contains an OTC security); absent from the selected packet, or no
+    #   packet at all as-of the evaluation date -> UNKNOWN, never assumed.
+    #   listing_packet_age_days is recorded only -- no staleness threshold
+    #   is invented. Workflow: dispatch only (no cron -- scheduling needs
+    #   separate approval), contents: write, secrets in exactly one step
+    #   env, commits ONLY the two derived data paths, guarded on an actual
+    #   staged diff. Offline mocked-HTTP/temp-fixture regression only; no
+    #   network call from tests, and the real ~74MB committed packets are
+    #   read (fast, ~0.2s) only by a couple of dedicated tests that verify
+    #   the real wiring, never by the bulk of the suite.
+    "test/test_us_liquidity_sip_source.py",
+    "test/test_us_listing_lookup.py",
+    "test/test_alpaca_sip_daily_bars.py",
+    "test/test_alpaca_sip_daily_bars_workflow.py",
+    # ★ Rule registry v1 + decision lineage (CLAUDE_CIO 2026-09-15, user
+    #   ratification RULE-GOVERNANCE-EVIDENCE-GATED-ADJUSTMENT). Offline only:
+    #   config/rule_registry_v1.json validates against byte-exact authority
+    #   record copies (hash, ids, pointer-bound parameters/triggers, monotone
+    #   versions); rule_refs / rule_lineage_event/1 tamper checks; additive
+    #   sidecars for every committed crypto PAPER decision packet and PAPER
+    #   reference packet reproduce each decision verbatim, lineage steps
+    #   never raise and the packets still revalidate byte-for-byte.
+    "test/test_rule_registry_and_lineage.py",
+    # ★ PAPER execution core v1 (CLAUDE_CIO build plan PR1): pure library, no
+    #   runtime wiring. Every ratified number resolves from
+    #   config/rule_registry_v1.json through config/paper_execution_core_v1.json
+    #   (sha-pinned); session budget (NAV0, Room/3, water-filling,
+    #   session_budget_record/1, restart reuse), allocation envelope (v2 caps,
+    #   D6 base-ratio reallocation, D5 reductions, UNKNOWN 2-cycle cap,
+    #   combined-NAV drawdown without peak reset, KR STRESS fixture-only),
+    #   DEXKOUS FX staleness, position episodes / D7 re-entry, D4 status
+    #   vocabulary and delay-loss rows, D10 checklist, D11 scorecard + P6
+    #   cooling-off. Undecided items are emitted as NOT_DEFINED.
+    "test/test_paper_execution_core_v1.py",
+    "test/test_paper_execution_core_v1_episodes_validation.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
@@ -2372,6 +2716,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_portfolio_account_fact_v3_producer.py": 39.6,
     "test/test_entry_proposal_boundary.py": 38.3,
     "test/test_crypto_live_component_registry.py": 36.5,
+    "test/test_crypto_regime_vintage_d1_d2.py": 30.0,
     "test/test_profit_harvest_population.py": 34.3,
     "test/test_profit_harvest_end_to_end.py": 33.6,
     "test/test_pit_replay_end_to_end.py": 33.4,

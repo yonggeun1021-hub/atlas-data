@@ -1,0 +1,351 @@
+{
+  "authority": {
+    "allocation_change_authorized": false,
+    "forced_liquidation_authorized": false,
+    "order_authorized": false,
+    "real_trading_authorized": false,
+    "secret_access_authorized": false
+  },
+  "chapter": "02",
+  "display_rules_ko": [
+    "강세 확정·유지 섹터만 T1 선정과 T2 C5에 쓰입니다.",
+    "떠오름 관찰은 표시만 하며 매수 근거가 아닙니다.",
+    "강세 해제 시 신규 매수만 중단하고 보유분은 강제 청산하지 않습니다.",
+    "시장 사이 자금 이동은 이 표시로 판정하지 않습니다."
+  ],
+  "markets": [
+    {
+      "as_of_date": "2026-09-14",
+      "counts": {
+        "EMERGING_WATCH": 0,
+        "NEUTRAL": 0,
+        "STRONG_CONFIRMED": 0,
+        "STRONG_HELD": 0,
+        "STRONG_RELEASED": 0
+      },
+      "emerging_watch": [],
+      "evidence_badge_ko": "경계선 통과",
+      "evidence_phase": "PRE_DECISION_EFFECTIVE_REPLAY",
+      "lagging_warnings": [],
+      "last_observed_as_of_date": null,
+      "market": "CRYPTO",
+      "maximum_observation_gap_days": 2,
+      "pending_definitions": [
+        "FORWARD_REVIEW_EXCESS_RETURN_BASELINE_CLARIFICATION_PENDING_USER_RATIFICATION"
+      ],
+      "ratification_status": "RATIFIED",
+      "released": [],
+      "rule_id": "RULE.ROTATION.CRYPTO.V1",
+      "status": "UNKNOWN",
+      "strong": [],
+      "unknown_reason": "WINDOW_INSUFFICIENT_CONTIGUOUS_HISTORY"
+    },
+    {
+      "as_of_date": "2026-09-14",
+      "counts": {
+        "EMERGING_WATCH": 17,
+        "NEUTRAL": 27,
+        "STRONG_CONFIRMED": 0,
+        "STRONG_HELD": 0,
+        "STRONG_RELEASED": 2
+      },
+      "emerging_watch": [
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSDAQ.SECTOR.10",
+          "label": "KOSDAQ::운송·창고",
+          "observations_in_state": 1,
+          "rank": 4,
+          "scope_id": "KOSDAQ::코스닥",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSDAQ.SECTOR.06",
+          "label": "KOSDAQ::기타제조",
+          "observations_in_state": 1,
+          "rank": 5,
+          "scope_id": "KOSDAQ::코스닥",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSDAQ.SECTOR.07",
+          "label": "KOSDAQ::비금속",
+          "observations_in_state": 1,
+          "rank": 6,
+          "scope_id": "KOSDAQ::코스닥",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSDAQ.SECTOR.03",
+          "label": "KOSDAQ::금속",
+          "observations_in_state": 1,
+          "rank": 7,
+          "scope_id": "KOSDAQ::코스닥",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSDAQ.SECTOR.13",
+          "label": "KOSDAQ::음식료·담배",
+          "observations_in_state": 1,
+          "rank": 8,
+          "scope_id": "KOSDAQ::코스닥",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSDAQ.SECTOR.12",
+          "label": "KOSDAQ::유통",
+          "observations_in_state": 1,
+          "rank": 11,
+          "scope_id": "KOSDAQ::코스닥",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSDAQ.SECTOR.08",
+          "label": "KOSDAQ::섬유·의류",
+          "observations_in_state": 1,
+          "rank": 15,
+          "scope_id": "KOSDAQ::코스닥",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSDAQ.SECTOR.19",
+          "label": "KOSDAQ::종이·목재",
+          "observations_in_state": 1,
+          "rank": 16,
+          "scope_id": "KOSDAQ::코스닥",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 5,
+          "entity_id": "KOSPI.SECTOR.14",
+          "label": "KOSPI::음식료·담배",
+          "observations_in_state": 2,
+          "rank": 4,
+          "scope_id": "KOSPI::코스피",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-10"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSPI.SECTOR.19",
+          "label": "KOSPI::제약",
+          "observations_in_state": 1,
+          "rank": 5,
+          "scope_id": "KOSPI::코스피",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 5,
+          "entity_id": "KOSPI.SECTOR.07",
+          "label": "KOSPI::부동산",
+          "observations_in_state": 2,
+          "rank": 7,
+          "scope_id": "KOSPI::코스피",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-10"
+        },
+        {
+          "calendar_days_in_state": 5,
+          "entity_id": "KOSPI.SECTOR.08",
+          "label": "KOSPI::비금속",
+          "observations_in_state": 2,
+          "rank": 9,
+          "scope_id": "KOSPI::코스피",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-10"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSPI.SECTOR.12",
+          "label": "KOSPI::운송장비·부품",
+          "observations_in_state": 1,
+          "rank": 10,
+          "scope_id": "KOSPI::코스피",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSPI.SECTOR.03",
+          "label": "KOSPI::금속",
+          "observations_in_state": 1,
+          "rank": 11,
+          "scope_id": "KOSPI::코스피",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 5,
+          "entity_id": "KOSPI.SECTOR.13",
+          "label": "KOSPI::유통",
+          "observations_in_state": 2,
+          "rank": 16,
+          "scope_id": "KOSPI::코스피",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-10"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSPI.SECTOR.06",
+          "label": "KOSPI::보험",
+          "observations_in_state": 1,
+          "rank": 19,
+          "scope_id": "KOSPI::코스피",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSPI.SECTOR.17",
+          "label": "KOSPI::전기·가스",
+          "observations_in_state": 1,
+          "rank": 20,
+          "scope_id": "KOSPI::코스피",
+          "state": "EMERGING_WATCH",
+          "state_since_date": "2026-09-14"
+        }
+      ],
+      "evidence_badge_ko": "관찰 시작·잠정",
+      "evidence_phase": "PRE_DECISION_EFFECTIVE_REPLAY",
+      "lagging_warnings": [],
+      "last_observed_as_of_date": "2026-09-14",
+      "market": "KR",
+      "maximum_observation_gap_days": 7,
+      "pending_definitions": [
+        "TWENTY_SESSION_BASIS_MEANING_CLARIFICATION_PENDING_USER_RATIFICATION",
+        "KR_DAILY_LEADERSHIP_CONTEXT_NOT_COMMITTED_BY_SCHEDULED_PAIR_PATH"
+      ],
+      "ratification_status": "TEMPORARY",
+      "released": [
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSDAQ.SECTOR.05",
+          "label": "KOSDAQ::기계·장비",
+          "observations_in_state": 1,
+          "rank": 21,
+          "scope_id": "KOSDAQ::코스닥",
+          "state": "STRONG_RELEASED",
+          "state_since_date": "2026-09-14"
+        },
+        {
+          "calendar_days_in_state": 1,
+          "entity_id": "KOSPI.SECTOR.18",
+          "label": "KOSPI::전기전자",
+          "observations_in_state": 1,
+          "rank": 24,
+          "scope_id": "KOSPI::코스피",
+          "state": "STRONG_RELEASED",
+          "state_since_date": "2026-09-14"
+        }
+      ],
+      "rule_id": "RULE.ROTATION.KR.V1T",
+      "status": "OBSERVED",
+      "strong": [],
+      "unknown_reason": null
+    },
+    {
+      "as_of_date": "2026-09-11",
+      "counts": {
+        "EMERGING_WATCH": 0,
+        "NEUTRAL": 8,
+        "STRONG_CONFIRMED": 0,
+        "STRONG_HELD": 3,
+        "STRONG_RELEASED": 0
+      },
+      "emerging_watch": [],
+      "evidence_badge_ko": "증거 부족·잠정",
+      "evidence_phase": "PRE_DECISION_EFFECTIVE_REPLAY",
+      "lagging_warnings": [],
+      "last_observed_as_of_date": "2026-09-11",
+      "market": "US",
+      "maximum_observation_gap_days": 4,
+      "pending_definitions": [
+        "EXCESS_RETURN_BENCHMARK_DEFINITION_NOT_RATIFIED",
+        "STOCK_TO_SPDR_SECTOR_MAPPING_NOT_RATIFIED",
+        "RESTUDY_AFTER_ONE_YEAR_BACKFILL"
+      ],
+      "ratification_status": "PROVISIONAL",
+      "released": [],
+      "rule_id": "RULE.ROTATION.US.V1P",
+      "status": "OBSERVED",
+      "strong": [
+        {
+          "calendar_days_in_state": 11,
+          "entity_id": "XLE",
+          "label": "XLE",
+          "observations_in_state": 8,
+          "rank": 1,
+          "scope_id": "SPY",
+          "state": "STRONG_HELD",
+          "state_since_date": "2026-09-01"
+        },
+        {
+          "calendar_days_in_state": 2,
+          "entity_id": "XLC",
+          "label": "XLC",
+          "observations_in_state": 2,
+          "rank": 2,
+          "scope_id": "SPY",
+          "state": "STRONG_HELD",
+          "state_since_date": "2026-09-10"
+        },
+        {
+          "calendar_days_in_state": 3,
+          "entity_id": "XLK",
+          "label": "XLK",
+          "observations_in_state": 3,
+          "rank": 3,
+          "scope_id": "SPY",
+          "state": "STRONG_HELD",
+          "state_since_date": "2026-09-09"
+        }
+      ],
+      "unknown_reason": null
+    }
+  ],
+  "payload_sha256": "091e5263d47a68fe0a9a47c42d2e359535b81e8f790c462cb6fe66f515ec00b6",
+  "policy": {
+    "policy_id": "ROTATION_CONFIRMATION.USER_RATIFIED.V1",
+    "policy_sha256": "0bf2af4b63171c2bc7dda2cbcfde0b7023bba4a63d4ef10d4ed5361a223885d8",
+    "ratification_record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+    "ratification_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
+  },
+  "schema_version": "rotation_confirmation_portal_ch02/1",
+  "section": "capital_rotation_confirmation",
+  "source_packets": [
+    {
+      "as_of_date": "2026-09-14",
+      "market": "CRYPTO",
+      "path": "data/latest_rotation_confirmation_crypto.json",
+      "payload_sha256": "d4f1ce2c505f53dae80a64d0820a361908df433af6a0cfde9babd828097e882f"
+    },
+    {
+      "as_of_date": "2026-09-14",
+      "market": "KR",
+      "path": "data/latest_rotation_confirmation_kr.json",
+      "payload_sha256": "0f6ce6a8316a4a0bfbb0cf15d0618cae5f2f2025a2f6180f8b478b28d2379e6d"
+    },
+    {
+      "as_of_date": "2026-09-11",
+      "market": "US",
+      "path": "data/latest_rotation_confirmation_us.json",
+      "payload_sha256": "04f2217a4c692345fd2277c5001a5f7e570a3e1e52256e5e19a01c09aa92156f"
+    }
+  ]
+}

@@ -258,7 +258,11 @@ def load_context(inputs: dict, *, generated_at: str, contract: dict) -> dict:
     stages = read_json(inputs["stage_history_path"], "STAGE_HISTORY_READ_FAILED")
     stage_as_of, latest_stage = stage_snapshot(stages)
     review_contract = KOREA_REVIEW.load_contract()
-    bounded = KOREA_REVIEW.build_review(market, stages, contract=review_contract)
+    # The bounded review must read the same watchlist files this run records
+    # in input_refs, not the module-default data/briefing/krx behind them.
+    bounded = KOREA_REVIEW.build_review(
+        market, stages, contract=review_contract, briefing_root=Path(inputs["watchlist_root"])
+    )
     committed = read_json(inputs["bounded_review_path"], "KR_BOUNDED_REVIEW_READ_FAILED")
     if committed != bounded:
         _fail("KR_BOUNDED_REVIEW_NOT_REPRODUCIBLE")
