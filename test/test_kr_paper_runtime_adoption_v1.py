@@ -339,10 +339,11 @@ class CommittedPointerAndWorkflowTests(unittest.TestCase):
         runs = "\n".join(step.get("run", "") for step in steps)
         self.assertIn('MAX_ATTEMPTS: "3"', raw)
         self.assertIn("RESPONSE_ROW_SCHEMA_INVALID", runs)
-        failure_upload = [step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@")]
-        self.assertEqual(len(failure_upload), 1)
-        self.assertIn("failure()", failure_upload[0]["if"])
-        self.assertLessEqual(int(failure_upload[0]["with"]["retention-days"]), 3)
+        # Raw KRX rows are private-only: never uploaded as a public artifact.
+        self.assertFalse([step for step in steps if "upload-artifact" in step.get("uses", "")])
+        failure = [step for step in steps if "failure()" in str(step.get("if", ""))]
+        self.assertEqual(len(failure), 1)
+        self.assertIn("GITHUB_STEP_SUMMARY", failure[0]["run"])
         self.assertIn("non-transient capture failure", runs)
         self.assertIn('assert "/responses/" not in path', runs)
         self.assertNotIn("echo \"$KRX", runs)

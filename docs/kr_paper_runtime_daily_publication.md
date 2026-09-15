@@ -77,8 +77,12 @@ supplies its `/5` side:
   execution session in 2027; without a committed 2027 official capture and
   packets the observation is recorded with `CALENDAR_PACKET_MISSING` and the
   runtime stays UNKNOWN. Commit the 2027 capture/packets before 2026-12-29.
-- **Failed capture runs** keep the raw bundle as a 3-day workflow artifact
-  (never committed) so the session can still be admitted via artifact mode.
+- **Failed capture runs** retain no raw rows anywhere (not committed, not
+  uploaded: public-repo artifacts are readable by any reader and KRX
+  redistribution rights are not established). Only response hashes, manifest
+  identity and the failure reason go to the job summary. Re-capture must
+  succeed before the next session close (15:30 KST), after which the pair
+  moves on and the session is permanently lost (`HISTORY_CHAIN_GAP`).
 - **Rotation ledger proof pin**: `.github/scripts/korea_capital_rotation_ledger_proof.py`
   `REVIEWED_PAPER_RUNTIME_RELEASE` pins the #696 pointer bytes (sha
   `a5f76eb6…`, commit `b08c5db2`). Its PAPER consumption mode fails closed
