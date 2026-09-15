@@ -27,8 +27,9 @@ raw per-day bar. ``evaluate_symbol_liquidity`` turns a caller-supplied
 ``REQUIRED_SESSION_WINDOW = 20`` is the rule's own window *definition*
 (matching the "20-session" window convention already used elsewhere in
 this repo -- e.g. ``config/free_market_data_contract.json:22``
-``return_windows_sessions``, ``config/rotation_confirmation_policy_v1.json:99``
-``strength_window_sessions``) -- it is not a threshold number.
+``return_windows_sessions``, and the same 20-session strength window this
+repo's own capital-rotation confirmation policy also uses) -- it is not a
+threshold number.
 
 ★ Status vocabulary, exactly as the base record's own words (2026-09-15
   CIO correction -- an earlier revision of this module used ``UNKNOWN`` for

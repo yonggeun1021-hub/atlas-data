@@ -23,14 +23,26 @@ different purpose, rather than inventing a new one.
   to it, no change to its producer, contract, or workflow.
 
 ★ Point-in-time packet selection (2026-09-15 CIO instruction): the packet
-  used for an evaluation as-of date is the LATEST
+  used for an evaluation as-of INSTANT is the LATEST
   ``data/observations/us_global_universe/<date>/packet.json`` whose
-  directory date is <= the as-of date, found by a plain directory scan
-  (this producer has no ``latest`` pointer file). A later packet is never
-  used for an earlier as-of date, and a date before this producer's first
-  capture -- or a missing ``data/observations/us_global_universe``
-  directory entirely -- resolves to no packet at all, never a silent
-  fallback to whatever happens to be newest.
+  directory date is <= the as-of instant's own date, found by a plain
+  directory scan (this producer has no ``latest`` pointer file). A later
+  packet is never used for an earlier as-of instant, and a date before
+  this producer's first capture -- or a missing
+  ``data/observations/us_global_universe`` directory entirely -- resolves
+  to no packet at all, never a silent fallback to whatever happens to be
+  newest.
+
+  Directory-date granularity alone is not enough: a packet dated the same
+  calendar day as the as-of instant could have been captured LATER that
+  same day than the decision itself (this producer's own capture instant,
+  ``packet['packet']['as_of_utc']``, routinely falls on the calendar day
+  AFTER its own ``as_of_date`` -- e.g. an ``as_of_date`` of ``2026-09-11``
+  captured at ``as_of_utc`` ``2026-09-12T01:30:12Z``). So every candidate
+  is additionally required to have its own ``as_of_utc`` <= the as-of
+  instant; a same-day candidate that fails this is never used -- the
+  search retries strictly before it (never silently skipped, never
+  accepted anyway) until a qualifying packet is found or none remains.
 
 ★ Classification -- reads the packet's OWN field definitions, cited
   exactly where they already live in this repo, and interprets nothing
@@ -82,6 +94,7 @@ from typing import Iterable, Optional
 ROOT = Path(__file__).resolve().parents[1]
 
 _DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_INSTANT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 
 # Exactly config/us_breadth_forward_contract.json's two sources[].name
 # values -- a row under any other source_name is not one of the two
@@ -101,6 +114,12 @@ class UsListingLookupError(ValueError):
 
 def _fail(code: str, detail: str = "") -> None:
     raise UsListingLookupError(f"{code}:{detail}" if detail else code)
+
+
+def _parse_instant(value: object, code: str) -> dt.datetime:
+    if not isinstance(value, str) or _INSTANT_RE.fullmatch(value) is None:
+        _fail(code, str(value))
+    return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _observations_dir(root: Path) -> Path:
@@ -139,10 +158,11 @@ def packet_path_for_date(packet_date: dt.date, root: Path = ROOT) -> Path:
 
 def load_listing_rows(packet_path: Path, symbols: Iterable[str]) -> dict:
     """Read one ``packet.json`` once; return only what the requested
-    ``symbols`` need. The full ~13,000-row population is never retained
-    beyond this filtering pass.
+    ``symbols`` need plus the packet's own ``as_of_utc`` capture instant
+    (see module docstring's instant guard). The full ~13,000-row
+    population is never retained beyond this filtering pass.
 
-    Returns ``{"sha256": <file sha256>, "rows_by_symbol": {symbol: [row, ...]}}``.
+    Returns ``{"sha256": ..., "as_of_utc": <tz-aware datetime>, "rows_by_symbol": {...}}``.
     """
     try:
         raw_bytes = Path(packet_path).read_bytes()
@@ -154,11 +174,17 @@ def load_listing_rows(packet_path: Path, symbols: Iterable[str]) -> dict:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         _fail("LISTING_PACKET_INVALID_JSON", str(exc))
     try:
-        rows = parsed["packet"]["source_attribute_rows"]
+        packet = parsed["packet"]
+        rows = packet["source_attribute_rows"]
     except (KeyError, TypeError):
         _fail("LISTING_PACKET_SHAPE_INVALID")
     if not isinstance(rows, list):
         _fail("LISTING_PACKET_SHAPE_INVALID")
+    try:
+        as_of_utc_raw = packet["as_of_utc"]
+    except (KeyError, TypeError):
+        _fail("LISTING_PACKET_AS_OF_UTC_MISSING")
+    as_of_utc = _parse_instant(as_of_utc_raw, "LISTING_PACKET_AS_OF_UTC_INVALID")
     wanted = set(symbols)
     rows_by_symbol: dict[str, list[dict]] = {}
     for row in rows:
@@ -168,7 +194,7 @@ def load_listing_rows(packet_path: Path, symbols: Iterable[str]) -> dict:
         if symbol not in wanted:
             continue
         rows_by_symbol.setdefault(symbol, []).append(row)
-    return {"sha256": sha256, "rows_by_symbol": rows_by_symbol}
+    return {"sha256": sha256, "as_of_utc": as_of_utc, "rows_by_symbol": rows_by_symbol}
 
 
 def classify_symbol_listing(symbol: str, rows_by_symbol: dict) -> tuple[Optional[str], list[str]]:
@@ -200,10 +226,17 @@ def classify_symbol_listing(symbol: str, rows_by_symbol: dict) -> tuple[Optional
 
 def resolve_listing(
     symbols: Iterable[str],
-    as_of_date: dt.date,
+    as_of_instant: dt.datetime,
     root: Path = ROOT,
 ) -> dict:
-    """Full point-in-time listing lookup for ``symbols`` as of ``as_of_date``.
+    """Full point-in-time listing lookup for ``symbols`` as of ``as_of_instant``.
+
+    ``as_of_instant`` must be tz-aware (the collector passes its own
+    ``now``). Directory-date selection is date-granular, but the WINNING
+    candidate is additionally required to have its own recorded
+    ``as_of_utc`` <= ``as_of_instant`` (see module docstring's instant
+    guard) -- a same-day packet captured after the decision instant is
+    never used; the search retries strictly before it instead.
 
     ``{
       "packet_date": "YYYY-MM-DD" | None,
@@ -213,9 +246,28 @@ def resolve_listing(
       "per_symbol": {symbol: {"status": ..., "reasons": [...]}, ...},
     }``
     """
+    if as_of_instant.tzinfo is None:
+        _fail("AS_OF_INSTANT_NOT_TIMEZONE_AWARE")
     symbols = list(symbols)
-    packet_date = find_latest_packet_date(as_of_date, root=root)
-    if packet_date is None:
+    as_of_date = as_of_instant.date()
+
+    qualifying_date: Optional[dt.date] = None
+    loaded: Optional[dict] = None
+    search_date = as_of_date
+    while True:
+        candidate_date = find_latest_packet_date(search_date, root=root)
+        if candidate_date is None:
+            break
+        candidate_loaded = load_listing_rows(packet_path_for_date(candidate_date, root=root), symbols)
+        if candidate_loaded["as_of_utc"] <= as_of_instant:
+            qualifying_date, loaded = candidate_date, candidate_loaded
+            break
+        # This candidate's own capture instant is after the decision
+        # instant even though its directory date qualifies on a date-only
+        # basis -- never use it; retry strictly before it.
+        search_date = candidate_date - dt.timedelta(days=1)
+
+    if qualifying_date is None:
         return {
             "packet_date": None,
             "packet_path": None,
@@ -226,8 +278,7 @@ def resolve_listing(
                 for symbol in symbols
             },
         }
-    packet_path = packet_path_for_date(packet_date, root=root)
-    loaded = load_listing_rows(packet_path, symbols)
+    packet_path = packet_path_for_date(qualifying_date, root=root)
     per_symbol = {
         symbol: dict(zip(("status", "reasons"), classify_symbol_listing(symbol, loaded["rows_by_symbol"])))
         for symbol in symbols
@@ -237,9 +288,9 @@ def resolve_listing(
     except ValueError:
         packet_path_out = str(packet_path)
     return {
-        "packet_date": packet_date.isoformat(),
+        "packet_date": qualifying_date.isoformat(),
         "packet_path": packet_path_out,
         "packet_sha256": loaded["sha256"],
-        "listing_packet_age_days": (as_of_date - packet_date).days,
+        "listing_packet_age_days": (as_of_date - qualifying_date).days,
         "per_symbol": per_symbol,
     }

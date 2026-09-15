@@ -383,11 +383,13 @@ def run_collection(
     # 2026-09-15 CIO wiring: point-in-time exchange-listing lookup against
     # the already-committed Nasdaq Trader Symbol Directory capture (see
     # universe/us_listing_lookup.py's docstring for the exact packet
-    # selection rule and field definitions). ``listing`` lets a caller
-    # inject a fully synthetic result (tests); otherwise this is the one
-    # real, point-in-time-correct lookup for this run's own as-of date.
+    # selection rule, its instant guard, and field definitions). ``now``
+    # (an instant, not just a date) is passed through so a same-day
+    # packet captured after this very run is never used. ``listing`` lets
+    # a caller inject a fully synthetic result (tests); otherwise this is
+    # the one real, point-in-time-correct lookup for this run.
     listing = (
-        LISTING.resolve_listing(symbols, now.date(), root=listing_root)
+        LISTING.resolve_listing(symbols, now, root=listing_root)
         if listing is None
         else listing
     )

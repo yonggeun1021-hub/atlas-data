@@ -363,12 +363,16 @@ class ListingWiringTests(unittest.TestCase):
     happens to contain.
     """
 
-    def _fixture_root(self, tmp: str, date: str, rows: list[dict]) -> Path:
+    def _fixture_root(self, tmp: str, date: str, rows: list[dict], as_of_utc: str | None = None) -> Path:
         root = Path(tmp)
         packet_dir = root / "data" / "observations" / "us_global_universe" / date
         packet_dir.mkdir(parents=True)
         (packet_dir / "packet.json").write_text(
-            json.dumps({"packet": {"as_of_date": date, "source_attribute_rows": rows}}), encoding="utf-8"
+            json.dumps({"packet": {
+                "as_of_date": date,
+                "as_of_utc": as_of_utc or f"{date}T20:00:00Z",  # safely before NOW (23:00Z that day)
+                "source_attribute_rows": rows,
+            }}), encoding="utf-8",
         )
         return root
 
@@ -443,22 +447,48 @@ class ListingWiringTests(unittest.TestCase):
             older = listing_root / "data" / "observations" / "us_global_universe" / "2026-09-10"
             older.mkdir(parents=True)
             (older / "packet.json").write_text(
-                json.dumps({"packet": {"source_attribute_rows": [
-                    {"primary_symbol": "SPY", "source_name": "other_listed", "fields": {"Test Issue": "N"}},
-                ]}}), encoding="utf-8",
+                json.dumps({"packet": {
+                    "as_of_utc": "2026-09-10T20:00:00Z",
+                    "source_attribute_rows": [
+                        {"primary_symbol": "SPY", "source_name": "other_listed", "fields": {"Test Issue": "N"}},
+                    ],
+                }}), encoding="utf-8",
             )
             future = listing_root / "data" / "observations" / "us_global_universe" / "2026-09-20"
             future.mkdir(parents=True)
             (future / "packet.json").write_text(
-                json.dumps({"packet": {"source_attribute_rows": [
-                    {"primary_symbol": "SPY", "source_name": "nasdaq_listed", "fields": {"Test Issue": "Y"}},
-                ]}}), encoding="utf-8",
+                json.dumps({"packet": {
+                    "as_of_utc": "2026-09-20T20:00:00Z",
+                    "source_attribute_rows": [
+                        {"primary_symbol": "SPY", "source_name": "nasdaq_listed", "fields": {"Test Issue": "Y"}},
+                    ],
+                }}), encoding="utf-8",
             )
             summary = M.run_collection(
                 CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing_root=listing_root,
             )
         self.assertEqual(summary["listing_packet_date"], "2026-09-10")  # NOT 2026-09-20
         self.assertEqual(summary["per_symbol"]["SPY"]["listing_status"], "EXCHANGE_LISTED")
+
+    def test_instant_guard_through_the_collector_rejects_a_same_day_packet_captured_after_this_run(self):
+        # NOW is 2026-09-15T23:00:00Z. A same-day packet whose own as_of_utc
+        # is AFTER that (e.g. captured by a later run the same day) must
+        # never be used, even though its directory date qualifies.
+        rows = [_bar(d, 10.0, 2_000_000.0) for d in FULL_WINDOW_DATES]
+        opener = ScriptedOpener({"sip": [(200, _body(rows))]})
+        with tempfile.TemporaryDirectory() as tmp:
+            listing_root = self._fixture_root(
+                tmp, "2026-09-15",
+                [{"primary_symbol": "SPY", "source_name": "other_listed", "fields": {"Test Issue": "N"}}],
+                as_of_utc="2026-09-15T23:30:00Z",  # after NOW (23:00:00Z)
+            )
+            summary = M.run_collection(
+                CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None, listing_root=listing_root,
+            )
+        self.assertIsNone(summary["listing_packet_date"])  # the 09-15 packet was rejected, nothing earlier exists
+        row = summary["per_symbol"]["SPY"]
+        self.assertIsNone(row["listing_status"])
+        self.assertEqual(row["otc_exclusion_status"], "UNKNOWN")
 
 
 class ListingProducerUntouchedTests(unittest.TestCase):
