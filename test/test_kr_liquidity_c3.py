@@ -311,10 +311,64 @@ class RealStoreCalendarWindowTests(unittest.TestCase):
     def test_calendar_gap_is_unknown_not_exception(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = STORE.PriceHistoryStore(tmp, contract=self.contract)
-            out = M.evaluate_from_store(store, CODE, as_of_utc=self.AS_OF, required_session="20260913",
-                                        status_exclusion=flags())
+            out = M.evaluate_from_store(store, CODE, as_of_utc="2025-06-10T01:00:00Z",
+                                        required_session="20250609", status_exclusion=flags())
             self.assertEqual(out["status"], "UNKNOWN")
-            self.assertTrue(out["reasons"][0].startswith("CALENDAR_WINDOW_UNAVAILABLE:"))
+            self.assertTrue(out["reasons"][0].startswith("CALENDAR_WINDOW_UNAVAILABLE:"), out)
+
+
+class RequiredSessionStalenessTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.contract = COLLECTOR.load_contract()
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.store = STORE.PriceHistoryStore(cls.tmp.name, contract=cls.contract)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_latest_collectable_session_follows_publication_and_calendar(self):
+        cases = {
+            "2026-09-15T00:09:00Z": "20260911",  # Tue 09:09 KST: Monday not yet collectable
+            "2026-09-15T00:10:00Z": "20260914",  # Tue 09:10 KST: Monday collectable
+            "2026-09-14T01:00:00Z": "20260911",  # Mon 10:00 KST -> Friday
+            "2026-09-13T12:00:00Z": "20260911",  # Sunday -> Friday
+            "2026-08-18T00:30:00Z": "20260814",  # Tue after 08-17 holiday, before 09:10 -> Fri 08-14
+            "2026-08-18T01:00:00Z": "20260814",  # 08-17 is closed, so still Fri 08-14
+        }
+        for as_of, expected in cases.items():
+            self.assertEqual(M.latest_collectable_session(self.store, as_of), expected, as_of)
+
+    def test_stale_required_session_is_unknown(self):
+        """Reviewer case: required 20260910 evaluated at 2026-09-30 -> UNKNOWN."""
+        out = M.evaluate_from_store(self.store, CODE, as_of_utc="2026-09-30T03:00:00Z",
+                                    required_session="20260910", status_exclusion=flags(session="2026-09-10"))
+        self.assertEqual(out["status"], "UNKNOWN")
+        self.assertTrue(out["reasons"][0].startswith(
+            "REQUIRED_SESSION_NOT_LATEST_COLLECTABLE:required=20260910:latest="), out)
+
+    def test_not_yet_published_required_session_is_unknown(self):
+        out = M.evaluate_from_store(self.store, CODE, as_of_utc="2026-09-15T00:09:00Z",
+                                    required_session="20260914", status_exclusion=flags())
+        self.assertEqual(out["status"], "UNKNOWN")
+        self.assertIn("latest=20260911", out["reasons"][0])
+
+    def test_stale_even_with_a_complete_store(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = RealStoreCalendarWindowTests()
+            helper.contract = self.contract
+            store = STORE.PriceHistoryStore(tmp, contract=self.contract)
+            for day in COLLECTOR.open_sessions_ending("20260910", 20, self.contract):
+                helper.write(store, day, retrieved="2026-09-11T01:00:00Z")
+            fresh = M.evaluate_from_store(store, CODE, as_of_utc="2026-09-11T01:00:00Z",
+                                          required_session="20260910",
+                                          status_exclusion=flags(session="2026-09-10"))
+            self.assertEqual(fresh["status"], "PASS", fresh)
+            stale = M.evaluate_from_store(store, CODE, as_of_utc="2026-09-30T03:00:00Z",
+                                          required_session="20260910",
+                                          status_exclusion=flags(session="2026-09-10"))
+            self.assertEqual(stale["status"], "UNKNOWN")
 
 
 if __name__ == "__main__":
