@@ -233,6 +233,22 @@ class DecisionTimeBoundTests(RepoTempMixin, unittest.TestCase):
         with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError, "FUTURE_DATED"):
             BRIDGE.orderbook_snapshot(W.natural_packet(), market="KRW-ETH")
 
+    def test_bound_crossing_utc_midnight_writes_no_packet(self):
+        record = {"run": {"ended_at": "2026-09-14T23:59:59Z", "status": {"generated_at": "2026-09-14T23:59:59Z"},
+                          "latest_public_messages": {"ticker|-|KRW-BTC": {"received_at": "2026-09-14T23:59:59.400000Z"}},
+                          "message_log": []}}
+        self.assertEqual(
+            DECISION.decision_time_not_before_inputs("2026-09-14T23:59:59Z", {"record": record}),
+            "2026-09-15T00:00:00Z",
+        )
+        with mock.patch.object(DECISION, "decision_time_not_before_inputs", return_value="2026-09-15T00:00:00Z"):
+            result = self.populate()
+        self.assertEqual((result["outcome"], result["evaluation_status"], result["decision_state"]),
+                         ("not_evaluated", "NOT_EVALUATED", "WAIT"))
+        self.assertEqual(result["reason"], "WAIT:DECISION_TIME_BOUND_CROSSES_UTC_DATE")
+        self.assertEqual((result["record"], result["path"], result["generated_at"]), (None, None, COMMITTED_AT))
+        self.assertFalse((self.tmp / "out" / "2026-09-15").exists())
+
     def test_capture_gap_guard_accepts_only_the_input_bounded_stamp(self):
         packet = W.natural_packet()
         run_path = ROOT / next(r["path"] for r in packet["source_refs"] if r["role"] == "upbit_realtime_capture_run")

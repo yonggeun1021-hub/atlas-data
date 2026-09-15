@@ -176,6 +176,7 @@ class OtherComponentsUnchangedTests(unittest.TestCase):
         "decision/crypto_paper_decision_snapshot.py": set(),
         "briefing/crypto_funnel_briefing.py": set(),
     }
+    WIRING_KEY_ACCESS_ONLY = ("briefing/crypto_funnel_briefing.py",)
     LAYER_MODULE = re.compile(r"(rotation_confirmation(_wiring)?|paper_exit_policy_v1|paper_shadow_controls)(\.py)?$")
 
     def _layer_loads_outside_loaders(self, path: Path, loaders: set) -> list:
@@ -224,6 +225,12 @@ class OtherComponentsUnchangedTests(unittest.TestCase):
                         f"{relative}:{item}"
                         for item in self._layer_loads_outside_loaders(path, self.PR3_LAZY_LOADERS[relative])
                     )
+                    if relative in self.WIRING_KEY_ACCESS_ONLY:
+                        # Only the /4 packet's wiring key may be read; no other mention.
+                        text = path.read_text(encoding="utf-8")
+                        rest = text.replace('["rotation_confirmation"]', "")
+                        if text == rest or pattern.search(rest) or exit_layer.search(rest):
+                            offenders.append(f"{relative}:NOT_KEY_ACCESS_ONLY")
                     continue
                 text = path.read_text(encoding="utf-8", errors="ignore")
                 if pattern.search(text) or exit_layer.search(text):

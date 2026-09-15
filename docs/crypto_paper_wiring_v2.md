@@ -142,7 +142,9 @@ Decisions `/1-/3` keep producing request `/3` (and `/2` replays) unchanged.
   packet like 2026-09-14 23:43:41 still cannot seed a bridge request). The
   decision step writes the stamped `generated_at` to `GITHUB_OUTPUT`, and the
   capture-gap guard accepts a packet stamped exactly +1s only when a realtime
-  input lies inside that second.
+  input lies inside that second. If the +1s bound would cross into the next UTC
+  date, the slot writes no packet (`WAIT:DECISION_TIME_BOUND_CROSSES_UTC_DATE`,
+  NOT_EVALUATED) instead of filing sampled-day inputs under the next day.
 
 ## 8. Activation fixes (#763 review)
 

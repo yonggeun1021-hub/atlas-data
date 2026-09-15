@@ -2473,10 +2473,28 @@ def populate(
     leadership_entry = find_latest_leadership_packet(
         leadership_data_root, not_after=generated_dt,
     )
-    # Inputs above were selected at the sampled instant; the packet is stamped
-    # at the first whole second no realtime input postdates (<= +1s).
+    # Every input (the /4 runtime decision below included) is selected at the
+    # sampled instant; the packet is stamped at the first whole second no
+    # realtime input postdates (<= +1s).
+    sampled_at, sampled_dt = generated_at, generated_dt
     generated_at = decision_time_not_before_inputs(generated_at, realtime_entry)
     generated_dt = _parse_utc(generated_at, "generated_at")
+    if generated_at[:10] != sampled_at[:10]:
+        # The +1s bound would move the packet into the next UTC day while its
+        # inputs belong to the sampled day's vintage: never file it under the
+        # next day. This slot writes no packet; the next slot evaluates normally.
+        return {
+            "outcome": "not_evaluated",
+            "generated_at": sampled_at,
+            "evaluation_status": "NOT_EVALUATED",
+            "decision_state": "WAIT",
+            "reason": "WAIT:DECISION_TIME_BOUND_CROSSES_UTC_DATE",
+            "path": None,
+            "payload_sha256": None,
+            "generation_id": None,
+            "last_evaluated": find_previous_packet(output_root, sampled_at[:10], sampled_at[11:13] + sampled_at[14:16]),
+            "record": None,
+        }
 
     capture_date = generated_at[:10]
     capture_hhmm = generated_at[11:13] + generated_at[14:16]
@@ -2512,7 +2530,7 @@ def populate(
     if schema_version_for(generated_dt) == V4_OUTPUT_SCHEMA_VERSION:
         v4_entries = {
             "runtime_decision_entry": retain_source(
-                find_latest_runtime_decision(runtime_decision_root, not_after=generated_dt), output_root,
+                find_latest_runtime_decision(runtime_decision_root, not_after=sampled_dt), output_root,
             ),
             "rotation_entry": retain_source(
                 find_latest_rotation_confirmation(rotation_confirmation_root, before_date=capture_date),
