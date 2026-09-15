@@ -198,6 +198,14 @@ class OtherComponentsUnchangedTests(unittest.TestCase):
             elif isinstance(node, ast.ImportFrom):
                 names.extend(alias.name for alias in node.names)
                 names.append((node.module or "").rsplit(".", 1)[-1])
+            elif isinstance(node, ast.Call):
+                # String loads: importlib.import_module("rotation.rotation_confirmation"),
+                # import_module(...), __import__(...), importlib.__import__(...).
+                func = node.func
+                called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+                if called in {"import_module", "__import__"} and node.args \
+                        and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                    names.append(node.args[0].value.rsplit(".", 1)[-1])
             for name in names:
                 if self.LAYER_MODULE.search(name) and enclosing not in loaders:
                     found.append(f"{name}@{enclosing}")
@@ -207,6 +215,26 @@ class OtherComponentsUnchangedTests(unittest.TestCase):
         visit(tree, None)
         self.assertEqual(seen_loaders, loaders, path)
         return found
+
+    def test_guard_catches_import_statements_path_loads_and_string_imports(self):
+        source = (
+            "import importlib\n"
+            "def _rotation_wiring():\n"
+            "    return importlib.import_module('rotation.rotation_confirmation_wiring')\n"
+            "def sneaky():\n"
+            "    a = importlib.import_module('rotation.rotation_confirmation')\n"
+            "    b = __import__('portfolio.paper_exit_policy_v1')\n"
+            "    from rotation import rotation_confirmation\n"
+            "    return _load('x', 'portfolio/paper_shadow_controls.py')\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "module.py"
+            path.write_text(source, encoding="utf-8")
+            found = self._layer_loads_outside_loaders(path, {"_rotation_wiring"})
+        self.assertEqual(sorted(found), sorted([
+            "rotation_confirmation@sneaky", "paper_exit_policy_v1@sneaky",
+            "rotation_confirmation@sneaky", "paper_shadow_controls.py@sneaky",
+        ]))
 
     def test_no_existing_producer_or_pinned_runtime_module_imports_the_confirmation_layer(self):
         pattern = re.compile(r"rotation_confirmation")

@@ -1878,23 +1878,43 @@ def _nav_snapshot_from_account(checked_account: dict, intent_by_order_id: dict, 
     return snapshot, blockers
 
 
-def sell_order_valid_before(generated_at: str) -> str:
-    """Exit sells are valid through the next decision slot only.
+def sell_order_valid_before(generated_at: str, session_order_valid_before: str | None = None) -> str:
+    """Exit sells are valid through the next decision slot, never past the session.
 
     Decision slots follow the realtime capture schedule
     (``DECISION.SCHEDULED_SLOT_MINUTES``): a sell issued in slot N can be matched
     by the capture of slot N+1 and expires at the end of that slot, so the
     decision after it re-sizes the remainder on a fresh book instead of leaving
-    a stale limit open until the next 07:00Z.
+    a stale limit open.  Canon 2-3: no order outlives its crypto decision
+    cycle, so the slot bound is capped at the session's ``order_valid_before``
+    (07:00Z); a sell issued in the last slot before 07:00Z is re-issued by the
+    first decision of the next session.
     """
     slot = dt.timedelta(minutes=DECISION.SCHEDULED_SLOT_MINUTES)
     start = DECISION._floor_to_schedule_slot(_parse_utc(generated_at, "DECISION_GENERATED_AT_INVALID"))
-    return (start + 2 * slot).strftime("%Y-%m-%dT%H:%M:%SZ")
+    bound = start + 2 * slot
+    if session_order_valid_before is not None:
+        bound = min(bound, _parse_utc(session_order_valid_before, "SESSION_ORDER_VALID_BEFORE_INVALID"))
+    return bound.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# Buy-side failures that only mean "this decision's private buy inputs disagree
+# with its market state" (a caller-supplied envelope, or a recorded session
+# budget from a runtime decision republished within the session).  They touch
+# neither the decision packet, whose full re-derivation already passed, nor the
+# exit intents, account or books the sells are built from, so exits proceed.
+# Every other buy-side failure (record for another session, tampered record or
+# envelope rejected by the execution core, promotion rebuild inconsistent with
+# the decision) is an integrity fault and aborts the whole request.
+BUY_SIDE_FAILURES_EXITS_MAY_PROCEED = frozenset({
+    "ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME",
+    "RECORDED_SESSION_BUDGET_STATE_NOT_DECISION_REGIME",
+})
 
 
 def _exit_orders(
     decision: dict, *, exit_intents: list, checked_account: dict, intent_by_order_id: dict,
-    config: dict, threshold_bp: int, regime_status: str, source_root: Path,
+    config: dict, threshold_bp: int, regime_status: str, source_root: Path, session_order_valid_before: str,
 ) -> tuple:
     """SELL requests for open exit intents and cancel requests for the open
     buys in those markets (canon 1-4: open buy remainders are cancelled before
@@ -1948,7 +1968,7 @@ def _exit_orders(
             market=market, side="SELL", order_type="LIMIT",
             quantity=sizing["quantity"], limit_price=sizing["limit_price"],
             fee_rate=config["fee_rate"], queue_fraction=config["queue_fraction"],
-            submitted_at=generated, expires_at=sell_order_valid_before(generated),
+            submitted_at=generated, expires_at=sell_order_valid_before(generated, session_order_valid_before),
             market_regime_status=regime_status,
             source_plan_ref=f"public://paper-exit-intent/{intent['intent_id']}",
             source_plan_sha256=intent["payload_sha256"],
@@ -2163,7 +2183,7 @@ def _derive_runtime_request_v4(
         sell_requests, cancel_requests, exit_blockers, exit_markets = _exit_orders(
             decision, exit_intents=exits, checked_account=checked_account, intent_by_order_id=intent_by_order_id,
             config=config, threshold_bp=slippage["threshold_bp"], regime_status=regime_status,
-            source_root=source_root,
+            source_root=source_root, session_order_valid_before=bounds["order_valid_before_utc"],
         )
         blockers.extend(exit_blockers)
         cancelled = {row["order_id"] for row in cancel_requests}
@@ -2197,7 +2217,7 @@ def _derive_runtime_request_v4(
                 intent_by_order_id=intent_by_order_id, slippage=slippage, source_root=source_root,
             )
         except CryptoPaperRuntimeBridgeError as exc:
-            if not sell_requests:
+            if not sell_requests or str(exc) not in BUY_SIDE_FAILURES_EXITS_MAY_PROCEED:
                 raise
             # Exits still go out when the buy side cannot be derived.
             buy["blockers"] = [f"BUY_SIDE_BLOCKED_EXITS_PROCEED:{exc}"]
@@ -2258,7 +2278,7 @@ def _derive_runtime_request_v4(
             "crypto_slippage_rule": slippage,
             "runtime_config_order_fields_superseded_by": RULE_QUALITY_LAYERS,
             "session_budget_record_reused": buy["reused"],
-            "sell_order_valid_before_utc": sell_order_valid_before(generated),
+            "sell_order_valid_before_utc": sell_order_valid_before(generated, bounds["order_valid_before_utc"]),
             "quantity_decimal_places": crypto_quantity_decimal_places(),
         },
         "source_inputs": {
