@@ -44,16 +44,37 @@ commits the downloaded workbook. It retains only:
 If SSGA's terms are later confirmed to clearly permit redistribution, that
 is a separate, deliberate decision -- this module does not assume it.
 
-URL pattern -- UNVERIFIED, first-dispatch check required
+URL pattern -- CONFIRMED by the first live run (2026-09-15)
 -----------------------------------------------------------
-``HOLDINGS_URL_TEMPLATE`` below is State Street's known public daily
-holdings download pattern for these funds. Fetching it from this machine to
-confirm the exact shape (content-type, workbook layout, header row) was
-explicitly out of scope for this PR (no live network call from here). The
-first ``workflow_dispatch`` run of ``.github/workflows/spdr-sector-holdings.yml``
-*is* that verification -- treat its result as unproven until then. Every
-test in ``test/test_spdr_sector_holdings.py`` uses a small in-memory fixture
-workbook and a fake HTTP layer; none of it proves the real endpoint's shape.
+``HOLDINGS_URL_TEMPLATE`` below was originally an unverified guess at
+State Street's public daily holdings download pattern (no live network
+call was made building it). The first ``workflow_dispatch`` run of
+``.github/workflows/spdr-sector-holdings.yml`` (run 34926977666) confirmed
+it works: a complete 11-ETF batch, 515 symbols resolved. Every test in
+``test/test_spdr_sector_holdings.py`` still uses a small in-memory fixture
+workbook and a fake HTTP layer -- none of it proves the real endpoint's
+shape on its own; that first live run is what did.
+
+Holdings "As of" date (CIO 2026-09-15, PR #765 follow-up)
+-------------------------------------------------------------
+SSGA's holdings workbooks carry their own "as of" date in a header row
+above the real column-header row (e.g. "Holdings are as of MM/DD/YYYY").
+That date is the fund's own claim about which trading day's holdings the
+file describes, and can differ from ``capture_date_utc`` (this collector's
+own capture wall-clock date) -- SSGA may not have refreshed a fund's file
+yet when this collector's daily run executes, in which case the file still
+legitimately describes the *prior* trading day. ``parse_holdings_as_of_date``
+scans for it tolerantly (the exact real-world header wording/date format is
+still UNVERIFIED -- no committed metadata from the first live run preserved
+the raw header text to confirm it against, since this collector deliberately
+never retains the raw workbook; the derived-only design in "Licensing" above
+predates this feature. The collector's *next* scheduled run is what will
+verify the real wording). When the date cannot be found or parsed, the
+field is recorded as the literal string ``"UNKNOWN"`` -- never a guess, and
+never blocks the capture (a missing "as of" date does not mean the holdings
+themselves are unusable, only that this one piece of provenance is absent).
+See ``build_capture``'s ``holdings_as_of_date`` and ``build_batch``'s
+``holdings_as_of_dates``/``holdings_as_of_date``.
 
 Cross-ETF "largest weight" resolution (CIO review 2026-09-15, PR #761)
 --------------------------------------------------------------------------
@@ -104,10 +125,12 @@ HOLDINGS_URL_TEMPLATE = (
     "fund-data/etfs/us/holdings-daily-us-en-{ticker_lower}.xlsx"
 )
 
-CAPTURE_SCHEMA_VERSION = "spdr_sector_holdings_capture/1"
+CAPTURE_SCHEMA_VERSION = "spdr_sector_holdings_capture/2"  # /2: + holdings_as_of_date
 MAPPING_ROW_SCHEMA_VERSION = "spdr_sector_holdings_mapping_row/1"
-RESOLVED_BATCH_SCHEMA_VERSION = "spdr_sector_holdings_resolved_batch/1"
+RESOLVED_BATCH_SCHEMA_VERSION = "spdr_sector_holdings_resolved_batch/2"  # /2: + holdings_as_of_date(s)
 RESOLVED_SYMBOL_SCHEMA_VERSION = "spdr_sector_holdings_resolved_symbol/1"
+
+HOLDINGS_AS_OF_UNKNOWN = "UNKNOWN"
 EVIDENCE_ROOT = "evidence/spdr_sector_holdings"
 DERIVED_RETENTION = "APPEND_ONLY_CONTENT_ADDRESSED_DERIVED_ONLY_NO_RAW_WORKBOOK"
 
@@ -189,6 +212,58 @@ NAME_HEADER_NAMES = {"name", "security description", "description"}
 # Rows that are not a real holding (cash, disclaimers, totals) -- symbol
 # cells matching any of these (case-insensitive) are skipped.
 NOT_A_HOLDING_SYMBOLS = {"", "cash", "cash_usd", "n/a", "-", "net cash", "total"}
+
+
+_AS_OF_PHRASE = re.compile(r"as[\s-]*of", re.IGNORECASE)
+# Tries several plausible date spellings inside an "as of" cell -- see
+# module docstring, "Holdings 'As of' date": the real wording/format is
+# still UNVERIFIED, this is deliberately tolerant rather than a single
+# hardcoded pattern.
+_AS_OF_DATE_TOKEN = re.compile(
+    r"\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}-[A-Za-z]{3}-\d{4}"
+    r"|[A-Za-z]+\.?\s+\d{1,2},?\s+\d{4}"
+)
+_AS_OF_DATE_FORMATS = ("%m/%d/%Y", "%Y-%m-%d", "%d-%b-%Y", "%B %d %Y", "%b %d %Y")
+
+
+def _extract_date_from_text(text: str) -> dt.date | None:
+    match = _AS_OF_DATE_TOKEN.search(text)
+    if not match:
+        return None
+    token = match.group(0).replace(",", "").replace(".", "")
+    for fmt in _AS_OF_DATE_FORMATS:
+        try:
+            return dt.datetime.strptime(token, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def parse_holdings_as_of_date(raw: bytes) -> str | None:
+    """The fund's own "as of" date from a header row above the real column
+    header (e.g. "Holdings are as of 09/12/2026") -- see module docstring.
+    Returns an ISO date string, or ``None`` if no such cell is found or its
+    date token cannot be parsed (never raises, never guesses -- the caller
+    records ``HOLDINGS_AS_OF_UNKNOWN``, it never fails the capture).
+    """
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    except Exception:
+        return None
+    try:
+        sheet = workbook.worksheets[0]
+        for row in sheet.iter_rows(values_only=True, max_row=20):
+            for cell in row:
+                if not isinstance(cell, str) or not _AS_OF_PHRASE.search(cell):
+                    continue
+                found = _extract_date_from_text(cell)
+                if found is not None:
+                    return found.isoformat()
+        return None
+    except Exception:
+        return None
+    finally:
+        workbook.close()
 
 
 def parse_holdings_workbook(raw: bytes) -> list[dict]:
@@ -300,6 +375,7 @@ def build_capture(
     holdings = parse_holdings_workbook(raw)
     mapping_rows = derive_mapping_rows(ticker, holdings)
     raw_sha256 = sha256_bytes(raw)
+    holdings_as_of_date = parse_holdings_as_of_date(raw) or HOLDINGS_AS_OF_UNKNOWN
 
     day = captured_at.astimezone(UTC).date().isoformat()
     capture = {
@@ -307,6 +383,7 @@ def build_capture(
         "sector_etf": ticker,
         "captured_at_utc": captured_at_utc,
         "capture_date_utc": day,
+        "holdings_as_of_date": holdings_as_of_date,
         "source_url": source_url or holdings_url(ticker),
         "raw_sha256": raw_sha256,
         "raw_byte_length": len(raw),
@@ -419,6 +496,21 @@ def build_batch(captured_at: dt.datetime, per_ticker_raw: dict[str, bytes]) -> d
     resolved_symbols = resolve_cross_etf_winners(per_ticker_holdings) if complete else {}
     symbols_list = [resolved_symbols[s] for s in sorted(resolved_symbols)]
 
+    # Per-ETF "as of" date (see module docstring, "Holdings 'As of' date")
+    # plus a conservative batch-level aggregate: only a single date if
+    # every captured ETF agrees on one KNOWN date, HOLDINGS_AS_OF_UNKNOWN
+    # otherwise (a disagreement or any missing date is never averaged or
+    # guessed away).
+    holdings_as_of_dates = {
+        ticker: per_ticker_capture[ticker]["capture"]["holdings_as_of_date"]
+        for ticker in tickers_captured
+    }
+    distinct_dates = set(holdings_as_of_dates.values())
+    if len(distinct_dates) == 1 and HOLDINGS_AS_OF_UNKNOWN not in distinct_dates:
+        holdings_as_of_date = distinct_dates.pop()
+    else:
+        holdings_as_of_date = HOLDINGS_AS_OF_UNKNOWN
+
     manifest = {
         "schema_version": RESOLVED_BATCH_SCHEMA_VERSION,
         "captured_at_utc": captured_at_utc,
@@ -426,6 +518,8 @@ def build_batch(captured_at: dt.datetime, per_ticker_raw: dict[str, bytes]) -> d
         "tickers_captured": tickers_captured,
         "batch_complete": complete,
         "resolved_symbol_count": len(symbols_list),
+        "holdings_as_of_dates": holdings_as_of_dates,
+        "holdings_as_of_date": holdings_as_of_date,
         "authority": AUTHORITY,
     }
     manifest_bytes = json.dumps(

@@ -34,6 +34,25 @@ def fixture_workbook(rows: list[tuple], header=("Ticker", "Name", "Weight (%)"))
     return buf.getvalue()
 
 
+def fixture_workbook_with_preamble(
+    preamble_rows: list, rows: list[tuple], header=("Ticker", "Name", "Weight (%)")
+) -> bytes:
+    """Like fixture_workbook, but with extra header rows (e.g. an "as of"
+    date cell, a fund title) BEFORE the real column-header row -- exactly
+    the shape parse_holdings_workbook/parse_holdings_as_of_date must
+    tolerate."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for preamble_row in preamble_rows:
+        ws.append(list(preamble_row))
+    ws.append(list(header))
+    for row in rows:
+        ws.append(list(row))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 class SectorUniverseTests(unittest.TestCase):
     def test_universe_matches_repo_config(self):
         import json
@@ -90,6 +109,52 @@ class WeightBucketTests(unittest.TestCase):
         self.assertEqual(M.weight_bucket(1.0), "GE_1PCT_LT_5PCT")
         self.assertEqual(M.weight_bucket(4.99), "GE_1PCT_LT_5PCT")
         self.assertEqual(M.weight_bucket(5.0), "GE_5PCT")
+
+
+class HoldingsAsOfDateTests(unittest.TestCase):
+    """collectors/spdr_sector_holdings.py::parse_holdings_as_of_date --
+    the real SSGA header wording/format is UNVERIFIED (see module
+    docstring); this exercises several plausible spellings tolerantly."""
+
+    def test_slash_date_with_are_as_of_phrasing(self):
+        raw = fixture_workbook_with_preamble(
+            [["Holdings are as of 09/12/2026", None, None]], [("NVDA", "NVIDIA", 8.5)],
+        )
+        self.assertEqual(M.parse_holdings_as_of_date(raw), "2026-09-12")
+
+    def test_iso_date_with_colon_phrasing(self):
+        raw = fixture_workbook_with_preamble(
+            [["SPDR XLK", None, None], ["As Of: 2026-09-12", None, None]],
+            [("NVDA", "NVIDIA", 8.5)],
+        )
+        self.assertEqual(M.parse_holdings_as_of_date(raw), "2026-09-12")
+
+    def test_month_name_date(self):
+        raw = fixture_workbook_with_preamble(
+            [["As Of September 12, 2026"]], [("NVDA", "NVIDIA", 8.5)],
+        )
+        self.assertEqual(M.parse_holdings_as_of_date(raw), "2026-09-12")
+
+    def test_dd_mon_yyyy_date(self):
+        raw = fixture_workbook_with_preamble(
+            [["as-of 12-Sep-2026"]], [("NVDA", "NVIDIA", 8.5)],
+        )
+        self.assertEqual(M.parse_holdings_as_of_date(raw), "2026-09-12")
+
+    def test_no_as_of_phrase_returns_none(self):
+        raw = fixture_workbook_with_preamble(
+            [["SPDR Select Sector Fund - XLK"]], [("NVDA", "NVIDIA", 8.5)],
+        )
+        self.assertIsNone(M.parse_holdings_as_of_date(raw))
+
+    def test_as_of_phrase_without_a_parseable_date_returns_none(self):
+        raw = fixture_workbook_with_preamble(
+            [["Holdings are as of the most recent close"]], [("NVDA", "NVIDIA", 8.5)],
+        )
+        self.assertIsNone(M.parse_holdings_as_of_date(raw))
+
+    def test_unreadable_workbook_returns_none_not_an_exception(self):
+        self.assertIsNone(M.parse_holdings_as_of_date(b"not an xlsx file"))
 
 
 class FetchTests(unittest.TestCase):
@@ -168,6 +233,21 @@ class CaptureAndPublishTests(unittest.TestCase):
         raw = fixture_workbook([("NVDA", "NVIDIA", 8.5)])
         with self.assertRaisesRegex(M.SpdrSectorHoldingsError, "HOLDINGS_TICKER_NOT_IN_UNIVERSE"):
             M.build_capture(NOW, "SMH", raw)
+
+    def test_holdings_as_of_date_is_recorded_when_present(self):
+        raw = fixture_workbook_with_preamble(
+            [["Holdings are as of 09/12/2026"]], [("NVDA", "NVIDIA", 8.5)],
+        )
+        bundle = M.build_capture(NOW, "XLK", raw)
+        self.assertEqual(bundle["capture"]["holdings_as_of_date"], "2026-09-12")
+
+    def test_holdings_as_of_date_is_unknown_not_a_guess_when_absent(self):
+        raw = fixture_workbook([("NVDA", "NVIDIA", 8.5)])  # no preamble at all
+        bundle = M.build_capture(NOW, "XLK", raw)
+        self.assertEqual(bundle["capture"]["holdings_as_of_date"], M.HOLDINGS_AS_OF_UNKNOWN)
+        # Never silently defaults to the capture date -- that would assume
+        # same-day freshness, which this feature exists to stop doing.
+        self.assertNotEqual(bundle["capture"]["holdings_as_of_date"], bundle["capture"]["capture_date_utc"])
 
 
 class LatestPointerTests(unittest.TestCase):
@@ -254,6 +334,35 @@ class BuildBatchTests(unittest.TestCase):
     def test_ticker_outside_universe_rejected(self):
         with self.assertRaisesRegex(M.SpdrSectorHoldingsError, "HOLDINGS_TICKER_NOT_IN_UNIVERSE"):
             M.build_batch(NOW, {"SMH": fixture_workbook([("NVDA", "NVIDIA", 8.5)])})
+
+    def test_batch_aggregate_as_of_date_when_every_etf_agrees(self):
+        with_as_of = fixture_workbook_with_preamble(
+            [["Holdings are as of 09/12/2026"]], [("PLACEHOLDER", "PLACEHOLDER CO", 0.5)],
+        )
+        raw = {ticker: with_as_of for ticker in M.SECTOR_ETFS}
+        batch = M.build_batch(NOW, raw)
+        self.assertEqual(batch["manifest"]["holdings_as_of_date"], "2026-09-12")
+        self.assertTrue(all(d == "2026-09-12" for d in batch["manifest"]["holdings_as_of_dates"].values()))
+
+    def test_batch_aggregate_is_unknown_on_disagreement(self):
+        raw = all_11_raw_with({
+            "XLK": fixture_workbook_with_preamble([["as of 09/12/2026"]], [("NVDA", "NVIDIA", 8.5)]),
+            "XLC": fixture_workbook_with_preamble([["as of 09/11/2026"]], [("META", "META", 9.0)]),
+        })
+        batch = M.build_batch(NOW, raw)
+        self.assertEqual(batch["manifest"]["holdings_as_of_dates"]["XLK"], "2026-09-12")
+        self.assertEqual(batch["manifest"]["holdings_as_of_dates"]["XLC"], "2026-09-11")
+        self.assertEqual(batch["manifest"]["holdings_as_of_date"], M.HOLDINGS_AS_OF_UNKNOWN)
+
+    def test_batch_aggregate_is_unknown_when_any_etf_is_unknown(self):
+        # ALL_11_RAW's default fixture has no "as of" preamble at all --
+        # even one ETF's holdings_as_of_date is UNKNOWN, so a naive
+        # "agreement among the known ones" reading must NOT be used.
+        raw = all_11_raw_with({
+            "XLK": fixture_workbook_with_preamble([["as of 09/12/2026"]], [("NVDA", "NVIDIA", 8.5)]),
+        })
+        batch = M.build_batch(NOW, raw)
+        self.assertEqual(batch["manifest"]["holdings_as_of_date"], M.HOLDINGS_AS_OF_UNKNOWN)
 
 
 class PublishBatchTests(unittest.TestCase):

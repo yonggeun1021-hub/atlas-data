@@ -56,6 +56,22 @@ Not backfillable
 Holdings history cannot be reconstructed after the fact (see the
 collector's module docstring); there is no way to manufacture a missing
 complete batch for a past day.
+
+Holdings "As of" date, exposed (PR #765 follow-up)
+-------------------------------------------------------
+``capture_date_utc`` is this collector's own capture wall-clock date, not
+necessarily the trading day the holdings file actually describes -- a
+22:00 UTC capture may still legitimately reflect the *prior* trading
+day's holdings if SSGA has not refreshed a fund's file yet by then; this
+reader never assumes same-day freshness. Every ``OK`` result therefore
+also carries ``holdings_as_of_date``: for a resolved symbol, the *specific*
+winning ETF's own "as of" date (from
+``collectors.spdr_sector_holdings.parse_holdings_as_of_date``); for
+``UNKNOWN_NO_T2`` (no winning ETF to point at), the whole batch's
+conservative aggregate instead. Either can be the literal string
+``"UNKNOWN"`` (never a guess) -- including for a manifest committed before
+this field existed, which this reader tolerates via ``.get(..., "UNKNOWN")``
+rather than crashing on an old record's missing key.
 """
 from __future__ import annotations
 
@@ -74,6 +90,7 @@ UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 # see module docstring.
 SECTOR_ETFS = ("XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY")
 EVIDENCE_ROOT = "evidence/spdr_sector_holdings"
+HOLDINGS_AS_OF_UNKNOWN = "UNKNOWN"
 
 
 class UsSpdrSectorMappingError(ValueError):
@@ -161,14 +178,19 @@ def sector_for_symbol(root: Path, symbol: str, decision_at: str) -> dict:
             "symbol": symbol,
             "sector_etf": None,
             "as_of_capture_date_utc": latest["capture_date_utc"],
+            "holdings_as_of_date": latest.get("holdings_as_of_date", HOLDINGS_AS_OF_UNKNOWN),
         }
 
+    winner_as_of_date = latest.get("holdings_as_of_dates", {}).get(
+        row["primary_sector_etf"], HOLDINGS_AS_OF_UNKNOWN
+    )
     return {
         "status": "OK",
         "symbol": symbol,
         "sector_etf": row["primary_sector_etf"],
         "basis": "LARGEST_WEIGHT_ETF" if row["holder_etf_count"] > 1 else "SOLE_HOLDER",
         "as_of_capture_date_utc": latest["capture_date_utc"],
+        "holdings_as_of_date": winner_as_of_date,
         "holder_etf_count": row["holder_etf_count"],
         "tie": row["tie"],
     }

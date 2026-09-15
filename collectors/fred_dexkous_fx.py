@@ -73,6 +73,38 @@ no new secret is added here), otherwise falls back to the public CSV
 endpoint (``fred.stlouisfed.org/graph/fredgraph.csv``), which needs no key.
 Both paths are exercised by mocked-HTTP tests only -- this module makes no
 network call unless explicitly invoked with a live ``getter``.
+
+Both paths bound the RAW ARCHIVE too, not just which observations become
+files (PR #765 follow-up)
+--------------------------------------------------------------------------
+The bounded write window above (see "Normal captures are bounded") only
+ever bounded which *parsed* observations become per-observation files --
+the raw archive (the gzip of the exact HTTP response, one file per day)
+was always the literal, unmodified bytes actually received, regardless of
+how much of it get written out as records. That distinction matters here:
+the FRED **API** path already requests only the bounded window
+server-side (``observation_start``), so its raw archive is small and
+already bounded. The FRED **CSV** fallback, in contrast, had no such
+parameter wired through, so a normal run using it (``FRED_API_KEY``
+absent) would archive FRED's *entire* 1981-present response every single
+day -- still just one file (~60-90KB gzipped, not thousands), so never the
+11,352-file incident, but a real, avoidable daily cost that would
+otherwise accumulate for as long as the CSV fallback stays in use.
+``fetch_via_csv`` now also accepts ``observation_start`` and appends it as
+FRED's public ``cosd`` (chart observation start date) query parameter,
+wired through by ``main()`` exactly like the API path already was. This
+keeps the raw-evidence integrity model unchanged -- the archive is still
+the literal, unmodified bytes FRED actually sent for the request that was
+actually made, just for a smaller, explicitly bounded request -- rather
+than trimming a full response ourselves after the fact, which would mean
+``raw_sha256`` no longer hashed what the server truly returned.
+``cosd`` is FRED's own long-documented public parameter for this endpoint,
+but -- like every other never-fetched-live claim in this module -- it is
+UNVERIFIED against the real endpoint from this repo; its next live
+(non-backfill) CSV-fallback run is what will confirm it actually narrows
+the response as expected. ``--backfill`` never passes ``observation_start``
+either way and continues to fetch (and archive) the complete series,
+deliberately.
 """
 from __future__ import annotations
 
@@ -308,8 +340,15 @@ def fetch_via_api(
     return raw, "FRED_API"
 
 
-def fetch_via_csv(*, getter=_get) -> tuple[bytes, str]:
-    return getter(CSV_URL), "FRED_CSV"
+def fetch_via_csv(*, observation_start: str | None = None, getter=_get) -> tuple[bytes, str]:
+    url = CSV_URL
+    if observation_start:
+        # FRED's public chart-download endpoint accepts cosd (chart
+        # observation start date) to bound the series server-side --
+        # see module docstring, "Source", for why this matters and why it
+        # is UNVERIFIED against the real endpoint from this repo.
+        url += "&" + urllib.parse.urlencode({"cosd": observation_start})
+    return getter(url), "FRED_CSV"
 
 
 def fetch_dexkous(
@@ -317,7 +356,7 @@ def fetch_dexkous(
 ) -> tuple[bytes, str]:
     if api_key:
         return fetch_via_api(api_key, observation_start=observation_start, getter=getter)
-    return fetch_via_csv(getter=getter)
+    return fetch_via_csv(observation_start=observation_start, getter=getter)
 
 
 # ─────────────────────────────────────────────────────────────────────────

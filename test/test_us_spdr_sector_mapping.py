@@ -40,6 +40,18 @@ def fixture_workbook(rows) -> bytes:
     return buf.getvalue()
 
 
+def fixture_workbook_with_as_of(as_of_text: str, rows) -> bytes:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append([as_of_text])
+    ws.append(["Ticker", "Name", "Weight (%)"])
+    for row in rows:
+        ws.append(list(row))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def build_and_publish(root, per_ticker_rows, *, captured_at=NOW, tickers=None):
     """Build and publish one capture batch.
 
@@ -170,6 +182,62 @@ class SectorMembershipTests(unittest.TestCase):
             build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]})
             result = R.sector_for_symbol(root, "  nvda  ", "2026-09-15T12:00:00Z")
             self.assertEqual(result["status"], "OK")
+
+
+class HoldingsAsOfDateExposureTests(unittest.TestCase):
+    """PR #765 follow-up: a 22:00 UTC capture may still reflect the prior
+    trading day's file -- this reader must expose that, never assume
+    same-day freshness."""
+
+    def _publish_with_as_of(self, root, per_ticker_as_of, *, captured_at=NOW):
+        raw = {
+            ticker: fixture_workbook_with_as_of(as_of, [("NVDA" if ticker == "XLK" else "META", "X", 8.5)])
+            for ticker, as_of in per_ticker_as_of.items()
+        }
+        for ticker in C.SECTOR_ETFS:
+            raw.setdefault(ticker, fixture_workbook([("PLACEHOLDER", "PLACEHOLDER CO", 0.01)]))
+        batch = C.build_batch(captured_at, raw)
+        C.publish_batch(root, batch)
+
+    def test_ok_result_exposes_the_winning_etfs_own_as_of_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._publish_with_as_of(root, {"XLK": "Holdings are as of 09/12/2026"})
+            result = R.sector_for_symbol(root, "NVDA", "2026-09-15T12:00:00Z")
+            self.assertEqual(result["status"], "OK")
+            self.assertEqual(result["sector_etf"], "XLK")
+            self.assertEqual(result["holdings_as_of_date"], "2026-09-12")
+
+    def test_ok_result_is_unknown_when_the_winning_etfs_file_had_no_as_of_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]})  # no as-of preamble
+            result = R.sector_for_symbol(root, "NVDA", "2026-09-15T12:00:00Z")
+            self.assertEqual(result["holdings_as_of_date"], R.HOLDINGS_AS_OF_UNKNOWN)
+
+    def test_unheld_result_exposes_the_batch_level_aggregate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]})
+            result = R.sector_for_symbol(root, "MSFT", "2026-09-15T12:00:00Z")
+            self.assertEqual(result["status"], "UNKNOWN_NO_T2")
+            self.assertIn("holdings_as_of_date", result)
+
+    def test_manifest_from_before_this_field_existed_is_tolerated_not_crashed(self):
+        # Simulate a manifest committed by the pre-#765-follow-up schema
+        # (no holdings_as_of_date/holdings_as_of_dates keys at all).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            build_and_publish(root, {"XLK": [("NVDA", "NVIDIA", 8.5)]})
+            import json
+            manifest_path = root / C.EVIDENCE_ROOT / "resolved" / "2026-09-15" / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            del manifest["holdings_as_of_date"]
+            del manifest["holdings_as_of_dates"]
+            manifest_path.write_text(json.dumps(manifest))
+            result = R.sector_for_symbol(root, "NVDA", "2026-09-15T12:00:00Z")
+            self.assertEqual(result["status"], "OK")
+            self.assertEqual(result["holdings_as_of_date"], R.HOLDINGS_AS_OF_UNKNOWN)
 
 
 if __name__ == "__main__":

@@ -46,8 +46,16 @@ class SpdrSectorHoldingsWorkflowTest(unittest.TestCase):
         self.assertIn("'0 22 * * 1-5'", self.text)
 
     def test_cron_timing_is_rejustified_against_ssga_publication(self):
-        self.assertIn("SSGA refreshes", self.text)
+        self.assertIn("SSGA", self.text)
+        self.assertIn("refreshes", self.text)
         self.assertIn("overnight", self.text)
+
+    def test_never_assumes_same_day_freshness_caveat_is_present(self):
+        # A 22:00 UTC capture may still land on the prior trading day's
+        # file -- this must stay an explicit, honest caveat, not an
+        # overclaim of same-day freshness.
+        self.assertIn("never assumes same-day freshness", self.text)
+        self.assertIn("MAY still land on the", self.text)
 
     def test_first_live_dispatch_result_documented(self):
         self.assertIn("34926977666 SUCCEEDED", self.text)
