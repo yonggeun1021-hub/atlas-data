@@ -1061,6 +1061,38 @@ class RuntimeRequestV4Tests(unittest.TestCase):
         ):
             request(self.lifted, allocation_envelope=envelope("2026-09-14T23:13:00Z"))  # no sells: still raises
 
+    def test_tampered_envelope_raises_hash_mismatch_even_when_sells_exist(self):
+        forged = envelope(self.lifted["generated_at"])
+        forged["decision_at_utc"] = "2026-09-14T23:13:00Z"  # edited, not re-hashed
+        with lifted_regime_and_rotation(), self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError, "^EXECUTION_CORE_REJECTED:ENVELOPE_SHA_MISMATCH$",
+        ):
+            request(self.lifted, account_state=account(self.lifted, eth_position=True),
+                    exit_intents=[{"intent": self.exit_intent(), "remaining_quantity": "1"}],
+                    allocation_envelope=forged)
+
+    def test_deferred_sell_is_not_reported_as_issued(self):
+        self.assertTrue(BRIDGE.sell_issuance_deferred("2026-09-15T06:40:00Z", "2026-09-15T07:00:00Z"))
+        self.assertFalse(BRIDGE.sell_issuance_deferred("2026-09-15T06:10:00Z", "2026-09-15T07:00:00Z"))
+        with lifted_regime_and_rotation():
+            packet = request(self.lifted, account_state=account(self.lifted, eth_position=True),
+                             exit_intents=[{"intent": self.exit_intent(), "remaining_quantity": "1"}])
+        self.assertFalse(packet["wiring"]["sell_issuance_deferred_to_next_session"])
+        self.assertEqual(packet["wiring"]["sell_order_valid_before_utc"], packet["sell_requests"][0]["intent"]["expires_at"])
+        # A 06:40Z decision (last slot of the session) reports no sell validity.
+        late = dict(self.lifted, generated_at="2026-09-15T06:40:00Z")
+        with mock.patch.object(BRIDGE, "validate_decision_snapshot", side_effect=lambda value, **_: value), \
+                mock.patch.object(BRIDGE, "_promotion_packet_v4", return_value=None), \
+                mock.patch.object(BRIDGE, "_carried_open_order_matches",
+                                  return_value={"match_snapshots": [], "blockers": [], "carried_open_order_ids": []}):
+            deferred = BRIDGE._derive_runtime_request_v4(
+                late, expected_source_commit=late["source_commit"], account_state=None, open_position_risk=None,
+                runtime_config=None, allocation_envelope=None, recorded_session_budget=None,
+                position_fills=None, exit_intents=None,
+            )
+        self.assertIsNone(deferred["wiring"]["sell_order_valid_before_utc"])
+        self.assertTrue(deferred["wiring"]["sell_issuance_deferred_to_next_session"])
+
     def test_integrity_failures_on_the_buy_side_still_abort_when_sells_exist(self):
         tampered = copy.deepcopy(budget_record())
         tampered["allocation"][0]["allocated_krw"] = "1"
