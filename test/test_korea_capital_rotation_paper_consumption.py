@@ -29,7 +29,8 @@ def load(name, path):
 PROOF = load("paper_rotation_proof", ".github/scripts/korea_capital_rotation_ledger_proof.py")
 KCR = PROOF.KCR
 FIXTURES = load("paper_rotation_fixtures", "test/test_korea_capital_rotation.py")
-RUNTIME_PATH = ROOT / "data/latest_kr_paper_runtime_decision.json"
+# Frozen dated copy of the reviewed #696 bytes; data/latest_* is a rolling pointer.
+RUNTIME_PATH = ROOT / "evidence/regime/kr_information_system/2026-09-11/decision.json"
 NOW = "2026-09-13T03:00:00Z"
 # External Stage1/Root-reviewed #696 canonical pin, not calculated from input.
 REVIEWED_RUNTIME_SHA256 = "a5f76eb6b38292185a893bcf9d321da7154777d5cd5e0cb7c2c994a1874aea44"
