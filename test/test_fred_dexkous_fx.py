@@ -103,6 +103,27 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(kind, "FRED_CSV")
         self.assertIn("fred.stlouisfed.org", calls[0])
 
+    def test_csv_fallback_also_bounds_the_request_via_cosd(self):
+        # PR #765 follow-up: the CSV fallback's raw archive was previously
+        # unbounded (FRED's entire 1981-present response) every normal run,
+        # unlike the API path (which already passed observation_start).
+        calls = []
+        def fake_getter(url, headers=None):
+            calls.append(url)
+            return csv_raw([("2026-09-10", "1385.00")])
+        M.fetch_dexkous(None, observation_start="2026-08-16", getter=fake_getter)
+        self.assertIn("cosd=2026-08-16", calls[0])
+
+    def test_csv_fallback_omits_cosd_when_no_observation_start_given(self):
+        # --backfill never passes observation_start -- confirms the full
+        # series is still requested in that deliberate case.
+        calls = []
+        def fake_getter(url, headers=None):
+            calls.append(url)
+            return csv_raw([("2026-09-10", "1385.00")])
+        M.fetch_dexkous(None, getter=fake_getter)
+        self.assertNotIn("cosd", calls[0])
+
     def test_http_error_is_caught_and_reduced_to_a_status_code(self):
         import urllib.error
         from unittest import mock

@@ -9,14 +9,18 @@ name: SPDR Sector Holdings Capture
 # HOLDINGS_URL_TEMPLATE/workbook layout is now confirmed working against
 # the real SSGA endpoint. Schedule timing:
 #   '0 22 * * 1-5'  # ~07:00 KST Tue-Sat.
-# Re-justified against the source's own publication timing: SSGA refreshes
-# each fund's daily holdings file overnight for the *prior* completed
-# trading day, typically available well before the next US market open;
-# 22:00 UTC is 18:00 ET (6pm Eastern, in EDT) -- 2 hours after the 4pm ET
-# close, comfortably inside SSGA's overnight refresh window and still same
-# calendar day in the US, so the file this captures is expected to already
-# reflect that day's close by the time the run executes. Unlike a price or
-# FX series, a fund's holdings on a given day are never published again
+# Re-justified against the source's own publication timing: SSGA typically
+# refreshes each fund's daily holdings file overnight, and 22:00 UTC
+# (18:00 ET / 6pm Eastern in EDT) is 2 hours after the 4pm ET close --
+# plausibly inside that overnight refresh window. But SSGA publishes no
+# exact SLA, and this collector has never independently confirmed the
+# timing (see collectors/spdr_sector_holdings.py's module docstring,
+# "Holdings 'As of' date" -- exactly why that field exists): a 22:00 UTC
+# run MAY still land on the *prior* trading day's file if SSGA has not
+# refreshed yet, and this collector never assumes same-day freshness --
+# it records the file's own claimed as-of date and the reader exposes it,
+# rather than trusting the capture's own wall-clock date. Unlike a price
+# or FX series, a fund's holdings on a given day are never published again
 # once that day passes -- this data is physically time-gated and cannot be
 # backfilled (see the collector's module docstring) -- so daily capture is
 # not merely convenient here, it is the only way this evidence can exist
