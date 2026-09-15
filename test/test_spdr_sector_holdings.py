@@ -156,6 +156,33 @@ class HoldingsAsOfDateTests(unittest.TestCase):
     def test_unreadable_workbook_returns_none_not_an_exception(self):
         self.assertIsNone(M.parse_holdings_as_of_date(b"not an xlsx file"))
 
+    def test_decoy_date_before_the_as_of_phrase_in_the_same_cell_is_ignored(self):
+        # PR #767 review: an unrelated earlier date in the same cell must
+        # never be picked up as the "as of" date -- only a date
+        # POSITIONALLY anchored right after the phrase counts.
+        raw = fixture_workbook_with_preamble(
+            [["Fund inception 01/01/2001. Holdings as of 09/12/2026"]],
+            [("NVDA", "NVIDIA", 8.5)],
+        )
+        self.assertEqual(M.parse_holdings_as_of_date(raw), "2026-09-12")
+
+    def test_conflicting_as_of_dates_across_rows_is_unknown(self):
+        # An earlier disclaimer row with its own "as of <date>" must never
+        # silently "win" over the real holdings row -- two distinct
+        # anchored candidates means UNKNOWN, not a guess.
+        raw = fixture_workbook_with_preamble(
+            [["Data as of 01/01/2001 (report basis)"], ["Holdings are as of 09/12/2026"]],
+            [("NVDA", "NVIDIA", 8.5)],
+        )
+        self.assertIsNone(M.parse_holdings_as_of_date(raw))
+
+    def test_repeated_identical_as_of_date_across_rows_is_not_a_conflict(self):
+        raw = fixture_workbook_with_preamble(
+            [["See disclosures. As of 09/12/2026"], ["Holdings are as of 09/12/2026"]],
+            [("NVDA", "NVIDIA", 8.5)],
+        )
+        self.assertEqual(M.parse_holdings_as_of_date(raw), "2026-09-12")
+
 
 class FetchTests(unittest.TestCase):
     def test_fetch_holdings_uses_the_documented_url_template(self):

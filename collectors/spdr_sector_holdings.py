@@ -214,37 +214,47 @@ NAME_HEADER_NAMES = {"name", "security description", "description"}
 NOT_A_HOLDING_SYMBOLS = {"", "cash", "cash_usd", "n/a", "-", "net cash", "total"}
 
 
-_AS_OF_PHRASE = re.compile(r"as[\s-]*of", re.IGNORECASE)
-# Tries several plausible date spellings inside an "as of" cell -- see
-# module docstring, "Holdings 'As of' date": the real wording/format is
-# still UNVERIFIED, this is deliberately tolerant rather than a single
-# hardcoded pattern.
-_AS_OF_DATE_TOKEN = re.compile(
+_AS_OF_DATE_FORMATS = ("%m/%d/%Y", "%Y-%m-%d", "%d-%b-%Y", "%B %d %Y", "%b %d %Y")
+# CIO review 2026-09-15 (PR #767): the date must be POSITIONALLY anchored
+# right after the "as of" phrase, in the same cell -- an unrelated earlier
+# date in the same cell (e.g. "Fund inception 01/01/2001. Holdings as of
+# 09/12/2026") or an earlier disclaimer row's own "as of <date>" must never
+# be picked up as a decoy. This is deliberately tolerant of spelling/format
+# (the real header wording is still UNVERIFIED -- see module docstring)
+# but never tolerant of *position*.
+_AS_OF_ANCHORED_DATE = re.compile(
+    r"as[\s-]*of\s*:?\s*("
     r"\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}-[A-Za-z]{3}-\d{4}"
     r"|[A-Za-z]+\.?\s+\d{1,2},?\s+\d{4}"
+    r")",
+    re.IGNORECASE,
 )
-_AS_OF_DATE_FORMATS = ("%m/%d/%Y", "%Y-%m-%d", "%d-%b-%Y", "%B %d %Y", "%b %d %Y")
 
 
-def _extract_date_from_text(text: str) -> dt.date | None:
-    match = _AS_OF_DATE_TOKEN.search(text)
-    if not match:
-        return None
-    token = match.group(0).replace(",", "").replace(".", "")
-    for fmt in _AS_OF_DATE_FORMATS:
-        try:
-            return dt.datetime.strptime(token, fmt).date()
-        except ValueError:
-            continue
-    return None
+def _anchored_dates_in_text(text: str) -> list[dt.date]:
+    dates = []
+    for match in _AS_OF_ANCHORED_DATE.finditer(text):
+        token = match.group(1).replace(",", "").replace(".", "")
+        for fmt in _AS_OF_DATE_FORMATS:
+            try:
+                dates.append(dt.datetime.strptime(token, fmt).date())
+                break
+            except ValueError:
+                continue
+    return dates
 
 
 def parse_holdings_as_of_date(raw: bytes) -> str | None:
     """The fund's own "as of" date from a header row above the real column
     header (e.g. "Holdings are as of 09/12/2026") -- see module docstring.
-    Returns an ISO date string, or ``None`` if no such cell is found or its
-    date token cannot be parsed (never raises, never guesses -- the caller
-    records ``HOLDINGS_AS_OF_UNKNOWN``, it never fails the capture).
+    Only a date immediately following the "as of" phrase, in the same
+    cell, is a candidate (never an unrelated earlier date in that cell or
+    a different row's own "as of" claim). Returns an ISO date string only
+    when exactly one distinct candidate date is found across the whole
+    scanned region; returns ``None`` (no candidate, or two+ CONFLICTING
+    candidates -- this never guesses which one "wins") otherwise. Never
+    raises -- the caller records ``HOLDINGS_AS_OF_UNKNOWN``, it never fails
+    the capture.
     """
     try:
         workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
@@ -252,13 +262,13 @@ def parse_holdings_as_of_date(raw: bytes) -> str | None:
         return None
     try:
         sheet = workbook.worksheets[0]
+        found: set[dt.date] = set()
         for row in sheet.iter_rows(values_only=True, max_row=20):
             for cell in row:
-                if not isinstance(cell, str) or not _AS_OF_PHRASE.search(cell):
-                    continue
-                found = _extract_date_from_text(cell)
-                if found is not None:
-                    return found.isoformat()
+                if isinstance(cell, str):
+                    found.update(_anchored_dates_in_text(cell))
+        if len(found) == 1:
+            return found.pop().isoformat()
         return None
     except Exception:
         return None
