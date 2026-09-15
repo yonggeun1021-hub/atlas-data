@@ -49,7 +49,7 @@ def strength_episode_id(market: str, bucket_id: str, confirmed_on: str) -> str:
     CORE.require_market(market)
     CORE.require_token(bucket_id, "bucket_id")
     dt.date.fromisoformat(confirmed_on)
-    return "SE-" + CORE.payload_sha256({"market": market, "bucket_id": bucket_id, "confirmed_on": confirmed_on})[:32]
+    return "SE-" + CORE.payload_sha256({"market": market, "bucket_id": bucket_id, "confirmed_on": confirmed_on})
 
 
 def _fills(fills: list) -> list:
@@ -122,7 +122,7 @@ def _episode(core, market, instrument, state, closing_fill, as_of_utc) -> dict:
         "schema_version": EPISODE_SCHEMA_VERSION,
         "position_episode_id": "PE-" + CORE.payload_sha256({"market": market, "instrument": instrument,
                                                             "first_fill_id": first["fill_id"],
-                                                            "first_fill_at_utc": first["filled_at_utc"]})[:32],
+                                                            "first_fill_at_utc": first["filled_at_utc"]}),
         "market": market,
         "instrument": instrument,
         "status": "CLOSED" if closing_fill is not None else "OPEN",

@@ -102,7 +102,7 @@ def operational_safety(core, metrics: dict) -> dict:
 
 def evaluate_checklist(core, *, market: str, as_of_utc: str, cohort: str, evidence: list,
                        observation_window_closed: bool, safety_metrics: dict,
-                       performance_sample_label: str | None = None, display_only_performance: dict | None = None) -> dict:
+                       performance_sample_state: str = "INSUFFICIENT", display_only_performance: dict | None = None) -> dict:
     """Mechanical validation state for one market.
 
     ``cohort``: INVESTMENT_PAPER or SYSTEM_CANARY (canary is never counted as
@@ -117,6 +117,9 @@ def evaluate_checklist(core, *, market: str, as_of_utc: str, cohort: str, eviden
             or core.param("krx_9_8_performance_criteria") != "DISPLAY_ONLY":
         CORE.fail("D10_RULE_UNEXPECTED")
     spec = core.interpretations["mechanical_checklist"]
+    performance_labels = spec["performance_state_display_ko"]
+    if performance_sample_state not in performance_labels:
+        CORE.fail("PERFORMANCE_SAMPLE_STATE_INVALID", str(performance_sample_state))
     by_path = {path_id: [] for path_id in spec["paths"]}
     for item in evidence:
         if not isinstance(item, dict) or set(item) != EVIDENCE_FIELDS:
@@ -147,7 +150,8 @@ def evaluate_checklist(core, *, market: str, as_of_utc: str, cohort: str, eviden
         "operational_safety": safety,
         "verdict": verdict,
         "paper_validated_means": core.param("paper_validated_meaning"),
-        "display_ko": f"{display} / {performance_sample_label or labels['performance_insufficient']}",
+        "display_ko": f"{display} / {performance_labels[performance_sample_state]}",
+        "performance_sample_state": performance_sample_state,
         "performance_counted": cohort == "INVESTMENT_PAPER",
         # KRX 9-8 performance numbers are carried for display only and never read.
         "display_only_performance": display_only_performance,

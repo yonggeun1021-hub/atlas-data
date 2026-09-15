@@ -2608,6 +2608,62 @@ APPROVED_TESTS = [
     #   tests.
     "test/test_alpaca_sip_access_probe.py",
     "test/test_alpaca_sip_access_probe_workflow.py",
+    # ★ US T2 C3 liquidity, RULE.LIQUIDITY.US_SIP_SOURCE.V1 (user
+    #   ratification 2026-09-15, USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_
+    #   20260915 + base record PAPER-LIQUIDITY-KR-US-V1-20260914): Alpaca
+    #   historical SIP daily bars (>=15 minutes past regular-session close
+    #   only) for the 22 already-approved
+    #   config/free_market_data_contract.json alpaca.symbols (per-symbol
+    #   requests with bounded page_token pagination -- the multi-symbol
+    #   endpoint silently dropped SPY/MSFT in the prior probe, run
+    #   34907066300); feed=iex is the fallback only when SIP is denied/
+    #   empty for a symbol. Public output is derived-only per symbol:
+    #   20-session average traded value (close*volume), the selected
+    #   feed's own last close (the one deliberate single-price exception,
+    #   required by the ratified price-floor condition itself), session
+    #   count, source feed, and the composite status plus its three
+    #   sub-checks (volume_status/price_status/otc_exclusion_status) --
+    #   never a raw open/high/low/close/volume/vwap/trade_count field.
+    #   universe/us_liquidity_sip_source.py is the pure rule evaluator: SIP
+    #   with a full window is authoritative (PASS/FAIL); IEX fallback is
+    #   PASS or UNKNOWN, never FAIL; fewer than 20 sessions on every feed
+    #   is NOT_EVALUATED (the base record's own vocabulary), not UNKNOWN.
+    #   ★ 2026-09-15 correction: the ratified USD threshold ($10,000,000
+    #   20-session average, $5 min close) is now BOUND via the committed
+    #   config/us_liquidity_sip_source_policy.json, sha256-cross-checked
+    #   against byte-identical copies at evidence/authority/
+    #   paper_liquidity_kr_us_user_ratification_20260914.json and
+    #   evidence/authority/us_liquidity_sip_source_user_ratification_
+    #   20260915.json (both also landing via #753) -- load_policy() fails
+    #   closed to None (every sub-check UNKNOWN) only if that policy file
+    #   or either cited evidence file is missing/tampered, never by
+    #   default. ★ 2026-09-15 wiring: otc_exclusion_status now comes from
+    #   universe/us_listing_lookup.py, a point-in-time (never a later
+    #   packet than the run's own as-of date, by directory scan -- no
+    #   `latest` pointer needed) reader of the already-committed Nasdaq
+    #   Trader Symbol Directory capture
+    #   (data/observations/us_global_universe/<date>/packet.json,
+    #   universe/us_global_universe.py + its own workflow, both untouched
+    #   by this change). Presence in either captured file (nasdaq_listed
+    #   or other_listed -- both exchange-listed-only directories, per
+    #   config/us_breadth_forward_contract.json) -> EXCHANGE_LISTED; a
+    #   confirmed Nasdaq "Test Issue"=Y row -> TEST_ISSUE (a distinct,
+    #   evidence-backed exclusion this source CAN assert -- it structurally
+    #   cannot assert "OTC" directly, since neither captured file ever
+    #   contains an OTC security); absent from the selected packet, or no
+    #   packet at all as-of the evaluation date -> UNKNOWN, never assumed.
+    #   listing_packet_age_days is recorded only -- no staleness threshold
+    #   is invented. Workflow: dispatch only (no cron -- scheduling needs
+    #   separate approval), contents: write, secrets in exactly one step
+    #   env, commits ONLY the two derived data paths, guarded on an actual
+    #   staged diff. Offline mocked-HTTP/temp-fixture regression only; no
+    #   network call from tests, and the real ~74MB committed packets are
+    #   read (fast, ~0.2s) only by a couple of dedicated tests that verify
+    #   the real wiring, never by the bulk of the suite.
+    "test/test_us_liquidity_sip_source.py",
+    "test/test_us_listing_lookup.py",
+    "test/test_alpaca_sip_daily_bars.py",
+    "test/test_alpaca_sip_daily_bars_workflow.py",
     # ★ Rule registry v1 + decision lineage (CLAUDE_CIO 2026-09-15, user
     #   ratification RULE-GOVERNANCE-EVIDENCE-GATED-ADJUSTMENT). Offline only:
     #   config/rule_registry_v1.json validates against byte-exact authority

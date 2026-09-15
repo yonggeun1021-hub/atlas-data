@@ -240,9 +240,12 @@ class CommittedRegistryTests(unittest.TestCase):
                    "sha256": full_sell["source_records"][0]["sha256"]}
         self.assertEqual(release["superseded_parts"],
                          [{"key_parameter": key, "superseded_by": pointer}
-                          for key in ("held_positions", "rules_text", "user_sentence")])
+                          for key in ("held_positions", "rules_text", "user_sentence", "on_release_new_buys")])
         self.assertEqual([p["key_parameter"] for p in full_sell["supersedes_parts"]],
-                         ["held_positions", "rules_text", "user_sentence"])
+                         ["held_positions", "rules_text", "user_sentence", "on_release_new_buys"])
+        # "stop new buys ONLY" is superseded in part; the stop itself stays in force.
+        self.assertFalse(REG.part_in_force_at(release, "on_release_new_buys", "2026-09-14T22:57:00Z", registry))
+        self.assertEqual(release["key_parameters"]["on_release_new_buys_stop"]["value"], "STOP_NEW_BUYS")
         for key in ("rules_text", "user_sentence"):
             self.assertIn("손절·익절" if key == "user_sentence" else "stop-loss/take-profit",
                           release["key_parameters"][key]["text"] or release["key_parameters"][key]["value"])
@@ -254,10 +257,11 @@ class CommittedRegistryTests(unittest.TestCase):
             blob = json.dumps(release["key_parameters"][key], ensure_ascii=False)
             self.assertNotIn("stop-loss/take-profit", blob)
             self.assertNotIn("손절·익절", blob)
-        self.assertIn("on_release_new_buys", in_force_after)
+        self.assertIn("on_release_new_buys_stop", in_force_after)
+        self.assertNotIn("on_release_new_buys", in_force_after)
         self.assertIsNone(full_sell["supersedes"])
         self.assertTrue(REG.in_force_at(release, "2026-09-15T12:00:00Z", registry))
-        self.assertTrue(REG.part_in_force_at(release, "on_release_new_buys", "2026-09-15T12:00:00Z", registry))
+        self.assertTrue(REG.part_in_force_at(release, "on_release_new_buys_stop", "2026-09-15T12:00:00Z", registry))
         self.assertTrue(REG.part_in_force_at(release, "held_positions", "2026-09-14T22:56:59Z", registry))
         self.assertFalse(REG.part_in_force_at(release, "held_positions", "2026-09-14T22:57:00Z", registry))
         self.assertEqual(release["key_parameters"]["on_release_new_buys"]["value"], "STOP_NEW_BUYS_ONLY")
