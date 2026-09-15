@@ -882,6 +882,10 @@ APPROVED_TESTS = [
     "test/test_kr_paper_runtime_ratification_candidate.py",
     "test/test_kr_information_system_runtime_bridge.py",
     "test/test_kr_information_system_runtime_publication.py",
+    # KC3 daily KR PAPER evidence: offline KRX calendar packets from the
+    #   committed official capture and the rolling 28-session common-v1
+    #   history window (unchanged bridge validator; gaps fail closed).
+    "test/test_kr_paper_runtime_daily_evidence.py",
     "test/test_kr_internal_paper_theme_application.py",
     "test/test_kr_internal_paper_theme_next_session_v4.py",
     "test/test_us_paper_policy_binding.py",
