@@ -28,7 +28,9 @@
   "classification_source": {
     "path": "config/crypto_breadth_exclusion_taxonomy.json",
     "confirmed_means": "record present in the ratified taxonomy file on the first-parent history of the recalculating checkout, committed at or before recalculated_at_utc",
-    "later_record_applied": "earliest confirmed record whose effective_from is after the observation day, only for assets with no record effective on that day"
+    "point_in_time_means": "record effective on the observation day AND committed at or before the day's snapshot available_at",
+    "later_record_applied": "for assets without a point-in-time record: the earliest confirmed record still in force on or after the day, including a backdated record committed after the snapshot (kind BACKDATED_COMMITTED_AFTER_SNAPSHOT)",
+    "history": "full first-parent git history required; a shallow clone is refused"
   },
   "prices": "POINT_IN_TIME_SAME_SNAPSHOT_ONLY",
   "write_once": true,

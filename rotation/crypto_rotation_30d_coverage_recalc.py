@@ -179,8 +179,9 @@ def _paths(root: Path) -> dict:
 def git_confirmations(root: Path, relative_path: str = CONFIG_PATHS["exclusion_taxonomy"]) -> Callable:
     """Return ``lookup(record) -> {"commit", "committed_at_utc", "history_shallow"} | None``.
 
-    The first first-parent commit whose file contains the exact record
-    (asset, category, effective_from, effective_to) is its confirmation.
+    The first first-parent commit whose ratified file contains the exact record
+    (asset, category, effective_from, effective_to) is its confirmation. A
+    shallow clone cannot prove the first commit, so it is refused (fail closed).
     """
     root = Path(root)
 
@@ -189,9 +190,11 @@ def git_confirmations(root: Path, relative_path: str = CONFIG_PATHS["exclusion_t
 
     try:
         shallow = git("rev-parse", "--is-shallow-repository").strip() == "true"
-        lines = [line for line in git("log", "--first-parent", "--reverse", "--format=%H %cI", "HEAD", "--", relative_path).splitlines() if line]
     except (OSError, subprocess.CalledProcessError):
-        return lambda record: None
+        _fail("CLASSIFICATION_HISTORY_UNAVAILABLE", str(root))
+    if shallow:
+        _fail("REFUSED_SHALLOW_HISTORY", "run `git fetch --unshallow` before recalculating")
+    lines = [line for line in git("log", "--first-parent", "--reverse", "--format=%H %cI", "HEAD", "--", relative_path).splitlines() if line]
     first = {}
     for line in lines:
         sha, committed = line.split(" ", 1)
@@ -202,11 +205,12 @@ def git_confirmations(root: Path, relative_path: str = CONFIG_PATHS["exclusion_t
         if data.get("approval_status") != "RATIFIED":
             continue
         for record in data.get("records") or []:
-            key = (record.get("canonical_asset_id"), record.get("category"), record.get("effective_from"), record.get("effective_to"))
-            first.setdefault(key, {"commit": sha, "committed_at_utc": _utc_text(dt.datetime.fromisoformat(committed)), "history_shallow": shallow})
+            first.setdefault(_record_key(record), {
+                "commit": sha, "committed_at_utc": _utc_text(dt.datetime.fromisoformat(committed)), "history_shallow": False,
+            })
 
     def lookup(record):
-        return first.get((record["canonical_asset_id"], record["category"], record["effective_from"], record["effective_to"]))
+        return first.get(_record_key(record))
 
     return lookup
 
@@ -215,19 +219,27 @@ def git_confirmations(root: Path, relative_path: str = CONFIG_PATHS["exclusion_t
 # Point recalculation
 # ---------------------------------------------------------------------------
 
+RECORD_FIELDS = ("canonical_asset_id", "category", "effective_from", "effective_to", "reason")
+
+
+def _record_key(record: dict) -> tuple:
+    return (record.get("canonical_asset_id"), record.get("category"), record.get("effective_from"), record.get("effective_to"))
+
+
 def _public_record(record: dict) -> dict:
-    return {key: record[key] for key in ("canonical_asset_id", "category", "effective_from", "effective_to", "reason")}
+    return {key: record[key] for key in RECORD_FIELDS}
 
 
-def _overlay_taxonomy(taxonomy_raw: dict, day: dt.date, synthetic: list) -> dict:
-    """PIT records effective on ``day`` plus one-day synthetic records for later-confirmed classifications."""
-    records = []
-    for record in taxonomy_raw["records"]:
-        start = dt.date.fromisoformat(record["effective_from"])
-        end = dt.date.fromisoformat(record["effective_to"]) if record["effective_to"] else dt.date.max
-        if start <= day <= end:
-            records.append(copy.deepcopy(record))
-    for item in synthetic:
+def _covers(record: dict, day: dt.date) -> bool:
+    start = dt.date.fromisoformat(record["effective_from"])
+    end = dt.date.fromisoformat(record["effective_to"]) if record["effective_to"] else dt.date.max
+    return start <= day <= end
+
+
+def _taxonomy_view(taxonomy_raw: dict, day: dt.date, point_in_time_records: list, resolving: list) -> dict:
+    """Point-in-time records plus one-day synthetic records for later-confirmed classifications."""
+    records = [_public_record(record) for record in point_in_time_records]
+    for item in resolving:
         records.append({
             "canonical_asset_id": item["canonical_asset_id"],
             "category": item["category"],
@@ -238,9 +250,9 @@ def _overlay_taxonomy(taxonomy_raw: dict, day: dt.date, synthetic: list) -> dict
                 f"{item['effective_from']} applied to {day.isoformat()}"
             ),
         })
-    overlay = {key: copy.deepcopy(value) for key, value in taxonomy_raw.items() if key != "records"}
-    overlay["records"] = sorted(records, key=lambda r: (r["canonical_asset_id"], r["effective_from"]))
-    return overlay
+    view = {key: copy.deepcopy(value) for key, value in taxonomy_raw.items() if key != "records"}
+    view["records"] = sorted(records, key=lambda r: (r["canonical_asset_id"], r["effective_from"]))
+    return view
 
 
 def _transform(snapshot: Path, paths: dict, taxonomy_path: Path) -> dict:
@@ -252,10 +264,10 @@ def _transform(snapshot: Path, paths: dict, taxonomy_path: Path) -> dict:
     )
 
 
-def _transform_with_overlay(snapshot: Path, paths: dict, overlay: dict) -> tuple:
-    data = render_json(overlay)
+def _transform_with_view(snapshot: Path, paths: dict, view: dict) -> tuple:
+    data = render_json(view)
     with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "crypto_breadth_exclusion_taxonomy.recalc_overlay.json"
+        path = Path(tmp) / "crypto_breadth_exclusion_taxonomy.recalc_view.json"
         path.write_bytes(data)
         return _transform(snapshot, paths, path), hashlib.sha256(data).hexdigest()
 
@@ -270,14 +282,27 @@ def _visited_assets(point: dict) -> set:
     )
 
 
-def derive_point_body(root: Path, config: dict, snapshot: Path, resolving: Optional[list] = None,
-                      confirmed: Optional[Callable] = None, now: Optional[dt.datetime] = None) -> dict:
-    """Deterministic recalculation body for one snapshot (no wall-clock, no git data).
+def _unknown_assets(point: dict) -> list:
+    return [
+        {"canonical_asset_id": u["canonical_asset_id"], "rank_before_taxonomy": u["rank_before_taxonomy"]}
+        for u in point["universe"]["taxonomy_unknown_before_cutoff"]
+    ]
 
-    ``resolving`` given -> re-derive with exactly those later records (verify).
-    Otherwise discover them from confirmed later records (``confirmed(record)``
-    returns confirmation info or None, and must be at or before ``now``).
-    Returns ``{"status": ..., ...}``; ``status == "RECALCULATED"`` carries the body.
+
+def derive_point_body(root: Path, config: dict, snapshot: Path, recorded: Optional[dict] = None,
+                      confirmed: Optional[Callable] = None, now: Optional[dt.datetime] = None) -> dict:
+    """Deterministic recalculation body for one snapshot (no wall-clock, no git data in the body).
+
+    Point in time = records effective on the day AND confirmed (committed) at or
+    before the snapshot's ``available_at``. A record committed later -- including
+    a backdated one whose ``effective_from`` is on or before the day -- is a
+    later-confirmed classification: it can only enter as a resolving record.
+
+    ``recorded`` given (verify) -> re-derive from the point's own recorded
+    point-in-time and resolving records (each must still exist in the current
+    classification file), so unrelated later additions never change the body.
+    Otherwise (recalc) ``confirmed(record)`` supplies confirmation info and every
+    resolving record must be confirmed at or before ``now``.
     """
     root = Path(root)
     paths = _paths(root)
@@ -286,54 +311,72 @@ def derive_point_body(root: Path, config: dict, snapshot: Path, resolving: Optio
     as_of = day.isoformat()
     if as_of < config["eligible_observation_from"]:
         return {"status": "IGNORED_BEFORE_ELIGIBLE_FROM", "as_of_date": as_of}
-    pit = _transform(snapshot, paths, paths["exclusion_taxonomy"])
-    if pit["status"] != "UNKNOWN" or pit["unknown_reason"] != config["eligible_point_in_time_unknown_reason"]:
-        return {"status": "NOT_ELIGIBLE_POINT_IN_TIME", "as_of_date": as_of,
-                "point_in_time_status": pit["status"], "point_in_time_unknown_reason": pit["unknown_reason"]}
+    available_at = BREADTH.downloaded_at(Path(snapshot), vintage)
     taxonomy_raw = _read_json(paths["exclusion_taxonomy"])
     taxonomy = BREADTH.load_exclusion_taxonomy(paths["exclusion_taxonomy"])
     if taxonomy["approval_status"] != "RATIFIED":
         _fail("CLASSIFICATION_SOURCE_UNRATIFIED")
-    if resolving is None:
+    confirmations = {}
+    if recorded is None:
+        point_in_time_records = []
+        for record in taxonomy_raw["records"]:
+            if not _covers(record, day):
+                continue
+            info = confirmed(_public_record(record)) if confirmed else None
+            if info is not None and _parse_utc(info["committed_at_utc"]) <= _parse_utc(available_at):
+                point_in_time_records.append(_public_record(record))
+    else:
+        current = {_record_key(r) for r in taxonomy_raw["records"]}
+        point_in_time_records = recorded["point_in_time_records"]
+        for item in point_in_time_records + recorded["resolving_records"]:
+            if _record_key(item) not in current:
+                _fail("RECORDED_CLASSIFICATION_NOT_IN_SOURCE", f"{as_of}:{item['canonical_asset_id']}")
+    pit, pit_view_sha = _transform_with_view(snapshot, paths, _taxonomy_view(taxonomy_raw, day, point_in_time_records, []))
+    if pit["status"] != "UNKNOWN" or pit["unknown_reason"] != config["eligible_point_in_time_unknown_reason"]:
+        return {"status": "NOT_ELIGIBLE_POINT_IN_TIME", "as_of_date": as_of,
+                "point_in_time_status": pit["status"], "point_in_time_unknown_reason": pit["unknown_reason"]}
+    if recorded is None:
+        covered = {record["canonical_asset_id"] for record in point_in_time_records}
         candidates = []
         for asset_id, records in sorted(taxonomy["_records_by_asset"].items()):
-            if BREADTH.taxonomy_category(asset_id, day, taxonomy) is not None:
+            if asset_id in covered:
                 continue
             for record in records:
-                if record["_start"] <= day:
+                if record["_end"] is not None and record["_end"] < day:
                     continue
-                info = confirmed(_public_record(record)) if confirmed else None
+                public = _public_record(record)
+                info = confirmed(public) if confirmed else None
                 if info is None or (now is not None and _parse_utc(info["committed_at_utc"]) > now):
                     continue
-                candidates.append(_public_record(record) | {"confirmation": info})
+                if record["_start"] <= day and _parse_utc(info["committed_at_utc"]) <= _parse_utc(available_at):
+                    continue  # would already be point in time (cannot happen for an uncovered asset)
+                candidates.append(public | {
+                    "kind": "BACKDATED_COMMITTED_AFTER_SNAPSHOT" if record["_start"] <= day else "EFFECTIVE_AFTER_DAY",
+                })
+                confirmations[asset_id] = info
                 break
-        first, _ = _transform_with_overlay(snapshot, paths, _overlay_taxonomy(taxonomy_raw, day, candidates))
+        first, _ = _transform_with_view(snapshot, paths, _taxonomy_view(taxonomy_raw, day, point_in_time_records, candidates))
         if first["status"] != "OBSERVED_UNCLASSIFIED":
             return {
                 "status": "STILL_UNKNOWN_AFTER_CONFIRMED_CLASSIFICATIONS", "as_of_date": as_of,
-                "unknown_reason": first["unknown_reason"],
-                "unclassified_assets_before_cutoff": [
-                    {"canonical_asset_id": u["canonical_asset_id"], "rank_before_taxonomy": u["rank_before_taxonomy"]}
-                    for u in first["universe"]["taxonomy_unknown_before_cutoff"]
-                ],
+                "unknown_reason": first["unknown_reason"], "unclassified_assets_before_cutoff": _unknown_assets(first),
             }
         visited = _visited_assets(first)
         resolving = [item for item in candidates if item["canonical_asset_id"] in visited]
     else:
-        current = {(r["canonical_asset_id"], r["category"], r["effective_from"], r["effective_to"]) for r in taxonomy_raw["records"]}
-        for item in resolving:
-            if (item["canonical_asset_id"], item["category"], item["effective_from"], item["effective_to"]) not in current:
-                _fail("RESOLVING_RECORD_NOT_IN_CLASSIFICATION_SOURCE", item["canonical_asset_id"])
-            if item["effective_from"] <= as_of:
-                _fail("RESOLVING_RECORD_NOT_LATER_THAN_DAY", item["canonical_asset_id"])
-    overlay = _overlay_taxonomy(taxonomy_raw, day, resolving)
-    point, overlay_sha = _transform_with_overlay(snapshot, paths, overlay)
+        resolving = recorded["resolving_records"]
+    for item in resolving:
+        if item["effective_to"] is not None and item["effective_to"] < as_of:
+            _fail("RESOLVING_RECORD_ENDS_BEFORE_DAY", f"{as_of}:{item['canonical_asset_id']}")
+    point, view_sha = _transform_with_view(snapshot, paths, _taxonomy_view(taxonomy_raw, day, point_in_time_records, resolving))
     if point["status"] != "OBSERVED_UNCLASSIFIED":
         return {"status": "STILL_UNKNOWN_AFTER_CONFIRMED_CLASSIFICATIONS", "as_of_date": as_of,
-                "unknown_reason": point["unknown_reason"], "unclassified_assets_before_cutoff": []}
+                "unknown_reason": point["unknown_reason"], "unclassified_assets_before_cutoff": _unknown_assets(point)}
     manifest_sha = file_sha256(Path(snapshot) / "_manifest.json")
     if point["lineage"]["manifest_sha256"] != manifest_sha or pit["lineage"]["manifest_sha256"] != manifest_sha:
         _fail("RECALC_SNAPSHOT_MANIFEST_MISMATCH", as_of)
+    if point["lineage"]["available_at"] != available_at:
+        _fail("RECALC_SNAPSHOT_AVAILABLE_AT_MISMATCH", as_of)
     latest_days = sorted({m["latest_finalized_day"] for m in point["universe"]["members"]})
     if latest_days and latest_days[-1] > as_of:
         _fail("RECALC_PRICE_LOOKAHEAD", as_of)
@@ -352,7 +395,8 @@ def derive_point_body(root: Path, config: dict, snapshot: Path, resolving: Optio
             "path": f"{RAW_RELATIVE_ROOT}/{Path(snapshot).name}",
             "vintage_date": vintage.isoformat(),
             "manifest_sha256": manifest_sha,
-            "available_at": point["lineage"]["available_at"],
+            "available_at": available_at,
+            "identity_exceptions_sha256": point["lineage"]["identity_policy_sha256"],
         },
         "prices_point_in_time": {
             "policy": config["prices"],
@@ -360,23 +404,22 @@ def derive_point_body(root: Path, config: dict, snapshot: Path, resolving: Optio
             "same_manifest_as_point_in_time_point": True,
         },
         "point_in_time": {
+            "definition": "RECORDS_EFFECTIVE_ON_DAY_AND_COMMITTED_AT_OR_BEFORE_SNAPSHOT_AVAILABLE_AT",
             "status": pit["status"],
             "unknown_reason": pit["unknown_reason"],
-            "taxonomy_unknown_before_cutoff": [
-                {"canonical_asset_id": u["canonical_asset_id"], "rank_before_taxonomy": u["rank_before_taxonomy"]}
-                for u in pit["universe"]["taxonomy_unknown_before_cutoff"]
-            ],
-            "evaluated_with_classification_policy_sha256": pit["universe"]["taxonomy"]["policy_sha256"],
+            "taxonomy_unknown_before_cutoff": _unknown_assets(pit),
+            "view_sha256": pit_view_sha,
         },
+        "point_in_time_records": sorted(point_in_time_records, key=lambda r: (r["canonical_asset_id"], r["effective_from"])),
         "resolving_records": [
-            {key: item[key] for key in ("canonical_asset_id", "category", "effective_from", "effective_to", "reason")}
+            {key: item[key] for key in RECORD_FIELDS + ("kind",)}
             for item in sorted(resolving, key=lambda r: r["canonical_asset_id"])
         ],
-        "overlay_taxonomy_sha256": overlay_sha,
+        "recalculated_view_sha256": view_sha,
         "recalculated_source_point": point,
     }
     return {"status": "RECALCULATED", "as_of_date": as_of, "body": body,
-            "confirmations": {item["canonical_asset_id"]: item.get("confirmation") for item in resolving}}
+            "confirmations": {item["canonical_asset_id"]: confirmations.get(item["canonical_asset_id"]) for item in resolving}}
 
 
 def committed_rotation_dates(root: Path) -> list:
@@ -389,7 +432,7 @@ def recalculate(root: Path = REPO_ROOT, *, write: bool = False, dates: Optional[
     root = Path(root)
     config = load_config(root)
     now = dt.datetime.now(dt.timezone.utc) if now is None else now.astimezone(dt.timezone.utc)
-    confirmed = git_confirmations(root) if confirmed is None else confirmed
+    lookup = [confirmed]
     raw = root / RAW_RELATIVE_ROOT
     snapshots = sorted(p for p in raw.iterdir() if p.is_dir()) if raw.is_dir() else []
     wanted = None if dates is None else set(dates)
@@ -409,7 +452,9 @@ def recalculate(root: Path = REPO_ROOT, *, write: bool = False, dates: Optional[
             report["days"].append({"as_of_date": as_of, "status": "REFUSED_ALREADY_RECALCULATED",
                                    "path": target.relative_to(root).as_posix()})
             continue
-        result = derive_point_body(root, config, snapshot, confirmed=confirmed, now=now)
+        if lookup[0] is None:  # resolved only when a day is not refused; refuses shallow clones
+            lookup[0] = git_confirmations(root)
+        result = derive_point_body(root, config, snapshot, confirmed=lookup[0], now=now)
         if result["status"] != "RECALCULATED":
             report["days"].append({k: v for k, v in result.items() if k != "body"})
             continue
@@ -419,6 +464,8 @@ def recalculate(root: Path = REPO_ROOT, *, write: bool = False, dates: Optional[
             info = result["confirmations"][item["canonical_asset_id"]]
             if info is None or _parse_utc(info["committed_at_utc"]) > now:
                 _fail("CLASSIFICATION_NOT_CONFIRMED_BEFORE_RECALCULATION", f"{as_of}:{item['canonical_asset_id']}")
+            if info.get("history_shallow") is not False:
+                _fail("REFUSED_SHALLOW_HISTORY", f"{as_of}:{item['canonical_asset_id']}")
             confirmations.append({"canonical_asset_id": item["canonical_asset_id"]} | info)
         next_date = (dt.date.fromisoformat(committed[-1]) + dt.timedelta(days=1)).isoformat() if committed else None
         point = body | {
@@ -444,6 +491,7 @@ def recalculate(root: Path = REPO_ROOT, *, write: bool = False, dates: Optional[
         report["days"].append({
             "as_of_date": as_of, "status": "RECALCULATED" if write else "WOULD_RECALCULATE",
             "resolving_assets": [r["canonical_asset_id"] for r in body["resolving_records"]],
+            "backdated_assets": [r["canonical_asset_id"] for r in body["resolving_records"] if r["kind"] == "BACKDATED_COMMITTED_AFTER_SNAPSHOT"],
             "path": target.relative_to(root).as_posix(),
         })
     report["refused_already_recalculated"] = refused
@@ -481,7 +529,7 @@ def committed_points(root: Path, config: dict) -> dict:
 
 
 def verify(root: Path = REPO_ROOT) -> list:
-    """Re-derive every committed point; an empty list means all points reproduce."""
+    """Re-derive every committed point from its recorded records; empty list = all reproduce."""
     root = Path(root)
     config = load_config(root)
     problems = []
@@ -491,19 +539,26 @@ def verify(root: Path = REPO_ROOT) -> list:
         if not snapshot.is_dir():
             problems.append(f"SNAPSHOT_MISSING:{as_of}")
             continue
-        result = derive_point_body(root, config, snapshot, resolving=point["resolving_records"])
+        try:
+            result = derive_point_body(root, config, snapshot, recorded=point)
+        except CoverageRecalcError as exc:
+            problems.append(f"NOT_REPRODUCED:{as_of}:{exc}")
+            continue
         if result["status"] != "RECALCULATED":
             problems.append(f"NOT_REPRODUCED:{as_of}:{result['status']}")
             continue
-        body = {k: point[k] for k in result["body"]}
+        body = {k: point.get(k) for k in result["body"]}
         if payload_sha256(result["body"]) != point["body_sha256"] or body != result["body"]:
             problems.append(f"BODY_MISMATCH:{as_of}")
         recalculated_at = _parse_utc(point["recalculation"]["recalculated_at_utc"])
+        available_at = _parse_utc(point["snapshot"]["available_at"])
         confirmed_assets = {c["canonical_asset_id"]: c for c in point["classification_confirmations"]}
         for record in point["resolving_records"]:
             info = confirmed_assets.get(record["canonical_asset_id"])
-            if info is None or _parse_utc(info["committed_at_utc"]) > recalculated_at:
-                problems.append(f"CONFIRMATION_AFTER_RECALCULATION:{as_of}:{record['canonical_asset_id']}")
+            if info is None or _parse_utc(info["committed_at_utc"]) > recalculated_at or info.get("history_shallow") is not False:
+                problems.append(f"CONFIRMATION_INVALID:{as_of}:{record['canonical_asset_id']}")
+            elif record["kind"] == "BACKDATED_COMMITTED_AFTER_SNAPSHOT" and _parse_utc(info["committed_at_utc"]) <= available_at:
+                problems.append(f"BACKDATED_KIND_INVALID:{as_of}:{record['canonical_asset_id']}")
     return problems
 
 
@@ -588,6 +643,15 @@ def recalculated_primary_window(root: Path, as_of: str, natural_packet: dict, na
             return None
         used.append(item)
     paths = _paths(root)
+    identity_sha = file_sha256(paths["identity_exceptions"])
+    taxonomy_raw = _read_json(paths["exclusion_taxonomy"])
+    current_records = {_record_key(r) for r in taxonomy_raw["records"]}
+    for item in used:
+        point = item["point"]
+        if point["snapshot"]["identity_exceptions_sha256"] != identity_sha:
+            return None
+        if any(_record_key(r) not in current_records for r in point["point_in_time_records"] + point["resolving_records"]):
+            return None
     policies = natural_packet.get("policies") or {}
     if (
         (policies.get("universe") or {}).get("policy_sha256") != file_sha256(paths["universe"])
@@ -626,6 +690,10 @@ def recalculated_primary_window(root: Path, as_of: str, natural_packet: dict, na
         return None
     if window.get("status") != "OBSERVED_UNCLASSIFIED":
         return None
+    window_records = sorted(
+        (_public_record(r) for r in taxonomy_raw["records"] if any(_covers(r, day) for day in days)),
+        key=lambda r: (r["canonical_asset_id"], r["effective_from"]),
+    )
     mark = {
         "rule_id": RULE_ID,
         "ratification_record_sha256": config["ratification_record"]["sha256"],
@@ -644,6 +712,17 @@ def recalculated_primary_window(root: Path, as_of: str, natural_packet: dict, na
             for item in sorted(used, key=lambda i: i["point"]["as_of_date"])
         ],
         "window_bucket_payload_sha256": payload_sha256(window["group_relative_strength"]["bucket"]),
+        # Inputs the rebuild was bound to. A later change to any of them for these
+        # window days changes this mark, so an already committed packet fails the
+        # append-only replay loudly instead of silently changing its strength input.
+        "rebuild_bindings": {
+            "exclusion_taxonomy_window_records_sha256": payload_sha256(window_records),
+            "identity_exceptions_sha256": identity_sha,
+            "universe_policy_sha256": file_sha256(paths["universe"]),
+            "leadership_policy_sha256": file_sha256(paths["leadership_policy"]),
+            "leadership_contract_sha256": file_sha256(paths["leadership_contract"]),
+            "sector_taxonomy_sha256": file_sha256(paths["sector_taxonomy"]),
+        },
     }
     return {"window": window, "mark": mark}
 

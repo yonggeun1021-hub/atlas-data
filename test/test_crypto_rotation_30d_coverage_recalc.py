@@ -77,7 +77,43 @@ def exclusion_taxonomy(new_effective=NEW_EFFECTIVE) -> dict:
 
 
 def confirmed_all(record):
-    return {"commit": "f" * 40, "committed_at_utc": "2026-09-01T00:00:00Z", "history_shallow": False}
+    """Base records confirmed long before every snapshot; NEW confirmed 2026-08-24 00:00Z (not backdated)."""
+    return confirmed_new_at("2026-08-24T00:00:00Z")(record)
+
+
+def confirmed_new_at(new_committed: str):
+    def lookup(record):
+        committed = new_committed if record["canonical_asset_id"] == "NEW" else "2025-12-31T00:00:00Z"
+        return {"commit": "f" * 40, "committed_at_utc": committed, "history_shallow": False}
+    return lookup
+
+
+PINNED_POINT_SHA256 = {
+    "2026-08-21": "12062baf98756f56df05df3b147090b621eb7f915f6697917f85a9b195d0f163",
+    "2026-08-22": "b2a7b7e0b9b3c6f0def29f620c78f1584bda43fb2b911cd4f2214afb3bf82d1d",
+    "2026-08-23": "7c868fa845d144b1690aceac7bdb63725ec5adbef0fc439e8ba6efcaf3051676",
+    "2026-08-24": "7db5cd5713b7876cb6c88d21e43a15a51a7d27e843850b5f1b8843a94205e7f8",
+    "2026-08-25": "64465dcc84b6009fba8037f80117d52e10ac787bfdc65356869c7a3cbc20e594",
+    "2026-08-26": "41b5ebe27d539f3017451093b3a81c125815267ca0463412bf8ad9d4afad3c1f",
+    "2026-08-28": "53ff60375bf1481c41c014b4ab09a665644e1b7e60ce20238ad3dba1b45d51a0",
+    "2026-08-31": "504a86a91f60a0aadf98244018661b8033e0c30b71717efd0d5a2a64c38c145b",
+    "2026-09-01": "55974fa00b5aabc70b75e7e3f4470f3f3c25c6114ac9b83ad5a048b44440e20a",
+    "2026-09-02": "1323cd32727d4fe9b7913d56a90c3e6d18fb4b4797b09bbba9e7c670b862cc1e",
+    "2026-09-03": "db89e40cf2705d9c11b2ae5dcc9649cc237c002abd29222f8b90dcebfc08dbfa",
+    "2026-09-04": "2c6c5edb36e05cb59bae355dd91fcd1aacba69179cf10a217cf961a00ecc22f7",
+    "2026-09-05": "24bcacccd4ea80bd113e62abebcc2b24f85fb1a87382dcd1e6c8510714f80e7b",
+    "2026-09-06": "c00f32cdc54bff41b4532064cdce1cff91c3e3effae0d7e6a1f64e18028ee58b",
+    "2026-09-07": "5337cca3689bea89eaec7ab22aed7645d1d77a02181b5311b7e45dbcbaf51f5e",
+}
+
+
+def append_taxonomy_record(root: Path, asset: str, effective_from: str) -> None:
+    path = root / R.CONFIG_PATHS["exclusion_taxonomy"]
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["records"].append({"canonical_asset_id": asset, "category": "eligible_crypto", "effective_from": effective_from,
+                             "effective_to": None, "reason": "unrelated later addition"})
+    value["records"].sort(key=lambda r: (r["canonical_asset_id"], r["effective_from"]))
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def natural_packet(root: Path, end: str) -> dict:
@@ -216,15 +252,18 @@ class RecalculationTests(FixtureCase):
         self.assertEqual(point["point_in_time"]["unknown_reason"], "TAXONOMY_COVERAGE_UNKNOWN")
         self.assertEqual([r["canonical_asset_id"] for r in point["resolving_records"]], ["NEW"])
         self.assertEqual(point["resolving_records"][0]["effective_from"], NEW_EFFECTIVE)
+        self.assertEqual(point["resolving_records"][0]["kind"], "EFFECTIVE_AFTER_DAY")
+        self.assertEqual({r["canonical_asset_id"] for r in point["point_in_time_records"]}, {"BTC", "ETH", "SOL"})
         self.assertEqual(point["classification_source"]["sha256"], R.file_sha256(self.root / R.CONFIG_PATHS["exclusion_taxonomy"]))
         self.assertEqual(point["recalculation"]["recalculated_at_utc"], "2026-09-15T01:00:00Z")
-        self.assertEqual(point["classification_confirmations"][0]["committed_at_utc"], "2026-09-01T00:00:00Z")
+        self.assertEqual(point["classification_confirmations"][0]["committed_at_utc"], "2026-08-24T00:00:00Z")
         self.assertEqual(point["recalculated_source_point"]["status"], "OBSERVED_UNCLASSIFIED")
         self.assertIn("NEW", {m["canonical_asset_id"] for m in point["recalculated_source_point"]["universe"]["members"]})
 
     def test_unconfirmed_or_later_confirmed_classification_is_not_used(self):
         report = self.recalc(confirmed=lambda record: None)
-        self.assertEqual({d["status"] for d in report["days"] if d["as_of_date"] >= "2026-08-19" and d["as_of_date"] < NEW_EFFECTIVE},
+        self.assertNotIn("RECALCULATED", {d["status"] for d in report["days"]})
+        self.assertEqual({d["status"] for d in report["days"] if "2026-08-19" <= d["as_of_date"] < NEW_EFFECTIVE},
                          {"STILL_UNKNOWN_AFTER_CONFIRMED_CLASSIFICATIONS"})
         late = lambda record: {"commit": "e" * 40, "committed_at_utc": "2026-09-16T00:00:00Z", "history_shallow": False}
         report = self.recalc(confirmed=late)
@@ -252,6 +291,52 @@ class RecalculationTests(FixtureCase):
         tampered["payload_sha256"] = R.payload_sha256(tampered)
         path.write_bytes(R.render_json(tampered))
         self.assertIn("BODY_MISMATCH:2026-08-21", R.verify(self.root))
+
+    def test_backdated_record_committed_after_snapshot_is_later_confirmed(self):
+        # NEW effective 2026-08-19 (backdated) but committed 2026-09-01 -> not point in time before that.
+        write_json(self.root / R.CONFIG_PATHS["exclusion_taxonomy"], exclusion_taxonomy("2026-08-19"))
+        report = self.recalc(confirmed=confirmed_new_at("2026-09-01T00:00:00Z"))
+        statuses = {d["as_of_date"]: d for d in report["days"]}
+        self.assertEqual(statuses["2026-08-25"]["status"], "RECALCULATED")
+        self.assertEqual(statuses["2026-08-25"]["backdated_assets"], ["NEW"])
+        self.assertEqual(statuses["2026-08-30"]["status"], "RECALCULATED")   # vintage 08-31 00:30Z < commit
+        self.assertEqual(statuses["2026-08-31"]["status"], "NOT_ELIGIBLE_POINT_IN_TIME")  # vintage 09-01 00:30Z > commit
+        point = R.load_point(R.point_path(self.root, R.load_config(self.root), "2026-08-25"))
+        self.assertEqual(point["resolving_records"][0]["kind"], "BACKDATED_COMMITTED_AFTER_SNAPSHOT")
+        self.assertEqual(point["classification_confirmations"][0]["committed_at_utc"], "2026-09-01T00:00:00Z")
+        self.assertNotIn("NEW", {r["canonical_asset_id"] for r in point["point_in_time_records"]})
+        self.assertEqual(R.verify(self.root), [])
+
+    def test_unrelated_later_classification_addition_keeps_verify_and_packets(self):
+        self.recalc()
+        before = {d: RC.render_json(p) for d, p in crypto_packets(self.root).items()}
+        append_taxonomy_record(self.root, "ZZZ", "2026-12-01")
+        R._TRANSFORM_CACHE.clear()
+        self.assertEqual(R.verify(self.root), [])
+        after = {d: RC.render_json(p) for d, p in crypto_packets(self.root).items()}
+        self.assertEqual(after, before)
+
+    def test_shallow_or_missing_history_is_refused(self):
+        with self.assertRaisesRegex(R.CoverageRecalcError, "CLASSIFICATION_HISTORY_UNAVAILABLE"):
+            R.recalculate(self.root, write=True, now=NOW)
+        import subprocess
+        origin = Path(self.tmp.name) / "origin"
+        (origin / "config").mkdir(parents=True)
+        shutil.copyfile(self.root / R.CONFIG_PATHS["exclusion_taxonomy"], origin / R.CONFIG_PATHS["exclusion_taxonomy"])
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+               "PATH": __import__("os").environ.get("PATH", "")}
+        for args in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "a"]):
+            subprocess.run(["git", "-C", str(origin), *args], check=True, env=env, capture_output=True)
+        (origin / "x.txt").write_text("x", encoding="utf-8")
+        for args in (["add", "."], ["commit", "-q", "-m", "b"]):
+            subprocess.run(["git", "-C", str(origin), *args], check=True, env=env, capture_output=True)
+        shallow = Path(self.tmp.name) / "shallow"
+        subprocess.run(["git", "clone", "-q", "--depth", "1", origin.as_uri(), str(shallow)], check=True, env=env, capture_output=True)
+        with self.assertRaisesRegex(R.CoverageRecalcError, "REFUSED_SHALLOW_HISTORY"):
+            R.git_confirmations(shallow)
+        full = R.git_confirmations(origin)
+        info = full({"canonical_asset_id": "NEW", "category": "eligible_crypto", "effective_from": NEW_EFFECTIVE, "effective_to": None})
+        self.assertIs(info["history_shallow"], False)
 
     def test_no_price_lookahead(self):
         self.recalc()
@@ -299,6 +384,10 @@ class RotationReadPathTests(FixtureCase):
                          ["2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"])
         self.assertTrue(all(d["recalculated_at_utc"] == "2026-09-15T01:00:00Z" for d in mark["recalculated_days"]))
         self.assertTrue(any(s["path"].endswith("2026-08-19/point.json") for s in first["sources"]))
+        bindings = mark["rebuild_bindings"]
+        self.assertEqual(bindings["identity_exceptions_sha256"], R.file_sha256(self.root / R.CONFIG_PATHS["identity_exceptions"]))
+        self.assertEqual(set(bindings), {"exclusion_taxonomy_window_records_sha256", "identity_exceptions_sha256", "universe_policy_sha256",
+                                         "leadership_policy_sha256", "leadership_contract_sha256", "sector_taxonomy_sha256"})
         # The recalculated window equals the unmodified CR-07 window with NEW classified all along.
         reference_root = Path(self.tmp.name) / "reference"
         shutil.copytree(self.root, reference_root)
@@ -415,6 +504,16 @@ class RepositoryEvidenceTests(unittest.TestCase):
         ])
         self.assertTrue(all(p["point"]["recalculated"] is True and p["point"]["mark_ko"] == "재계산" for p in points.values()))
         self.assertEqual(R.verify(ROOT), [])
+
+    def test_committed_point_bytes_are_pinned_append_only(self):
+        config = R.load_config(ROOT)
+        actual = {p.parent.name: R.file_sha256(p) for p in (ROOT / config["evidence_root"]).glob("*/point.json")}
+        self.assertEqual(actual, PINNED_POINT_SHA256)
+        for day in ("2026-09-06", "2026-09-07"):
+            point = R.load_point(R.point_path(ROOT, config, day))
+            self.assertEqual(sorted(r["canonical_asset_id"] for r in point["resolving_records"] if r["kind"] == "BACKDATED_COMMITTED_AFTER_SNAPSHOT"),
+                             ["CHIP", "QUID", "SN8"])
+            self.assertTrue(all(c["history_shallow"] is False for c in point["classification_confirmations"]))
 
     def test_regime_leadership_axis_is_byte_identical_without_recalc_evidence(self):
         from regime import crypto_paper_runtime_publication as PUB
