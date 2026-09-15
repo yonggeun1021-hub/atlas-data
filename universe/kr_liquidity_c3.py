@@ -33,7 +33,10 @@ What the record says for KR, and how each clause is applied:
   ``UNKNOWN``. Any window session the store does not hold as OK (never stored,
   EMPTY, not yet available at the instant, calendar year missing), a row gap
   inside or at the end of the window, or a flag result for another
-  session/symbol are all UNKNOWN. No age threshold is invented.
+  session/symbol are all UNKNOWN. No age threshold is invented: through
+  ``evaluate_from_store`` the required session must be exactly the latest
+  session whose earliest collection instant (collector contract) is at or
+  before the evaluation instant; anything else is stale -> UNKNOWN.
 
 Status combination (same order as ``universe/us_liquidity_sip_source.py``):
 ``FAIL`` beats ``UNKNOWN`` beats ``PASS``.
@@ -326,6 +329,35 @@ def evaluate_symbol(
     return result
 
 
+def _unknown_without_window(short_code: str, required_session: str, reason: str) -> dict:
+    return {
+        "schema_version": RESULT_SCHEMA_VERSION, "rule_id": RULE_ID, "market": MARKET,
+        "short_code": short_code, "required_session": required_session,
+        "status": "UNKNOWN", "reasons": [reason],
+        "ratification_id": RATIFICATION_ID, "ratification_sha256": RATIFICATION_SHA256,
+        "distribution": "PRIVATE_DERIVED_FROM_KRX_OPENAPI_ROWS",
+        "authority": {"candidate_authorized": False, "order_authorized": False, "real_capital_authorized": False},
+    }
+
+
+def latest_collectable_session(store: Any, as_of_utc: str) -> str:
+    """The latest official open session whose earliest collection instant is at
+    or before ``as_of_utc`` -- the only ``required_session`` that is not stale.
+
+    Uses the pinned collector's own helpers: ``forward_target_session`` gives
+    the latest open session before the as-of local date (the as-of day's own
+    session is never collectable yet); if that session's
+    ``earliest_collection_instant`` is still in the future, the open session
+    before it is the latest collectable one.
+    """
+    collector, contract, root = store.collector, store.contract, store.code_root
+    instant = collector.parse_utc(as_of_utc, "AS_OF_INVALID")
+    previous = collector.forward_target_session(instant, contract, market=MARKET, root=root)
+    if collector.earliest_collection_instant(previous, contract, MARKET) <= instant:
+        return previous
+    return collector.open_sessions_ending(previous, 2, contract, market=MARKET, root=root)[0]
+
+
 def evaluate_from_store(
     store: Any,
     short_code: str,
@@ -337,21 +369,26 @@ def evaluate_from_store(
 ) -> dict:
     """``evaluate_symbol`` fed from a ``universe.price_history_store.PriceHistoryStore``.
 
-    A calendar that cannot resolve the window (no committed capture for a
-    year, ``required_session`` not an open session) is missing history ->
-    UNKNOWN, not an exception.
+    ``required_session`` must be the latest session collectable at
+    ``as_of_utc`` (see :func:`latest_collectable_session`); an older one is
+    stale data and a newer one is not yet published -- both UNKNOWN, before
+    any row is read.  A calendar that cannot resolve the sessions (no
+    committed capture for a year, ``required_session`` not an open session)
+    is missing history -> UNKNOWN, not an exception.
     """
     try:
-        window = store.calendar_window(MARKET, WINDOW_SESSIONS, required_session, as_of_utc)
+        latest = latest_collectable_session(store, as_of_utc)
     except ValueError as exc:  # PriceHistoryError / PriceHistoryStoreError are ValueErrors
-        return {
-            "schema_version": RESULT_SCHEMA_VERSION, "rule_id": RULE_ID, "market": MARKET,
-            "short_code": short_code, "required_session": required_session,
-            "status": "UNKNOWN", "reasons": [f"CALENDAR_WINDOW_UNAVAILABLE:{exc}"],
-            "ratification_id": RATIFICATION_ID, "ratification_sha256": RATIFICATION_SHA256,
-            "distribution": "PRIVATE_DERIVED_FROM_KRX_OPENAPI_ROWS",
-            "authority": {"candidate_authorized": False, "order_authorized": False, "real_capital_authorized": False},
-        }
+        return _unknown_without_window(short_code, required_session, f"CALENDAR_WINDOW_UNAVAILABLE:{exc}")
+    if required_session != latest:
+        return _unknown_without_window(
+            short_code, required_session,
+            f"REQUIRED_SESSION_NOT_LATEST_COLLECTABLE:required={required_session}:latest={latest}",
+        )
+    try:
+        window = store.calendar_window(MARKET, WINDOW_SESSIONS, required_session, as_of_utc)
+    except ValueError as exc:
+        return _unknown_without_window(short_code, required_session, f"CALENDAR_WINDOW_UNAVAILABLE:{exc}")
     sessions = window["sessions"]
     available = [day for day in sessions if day not in set(window["missing"])]
     return evaluate_symbol(
