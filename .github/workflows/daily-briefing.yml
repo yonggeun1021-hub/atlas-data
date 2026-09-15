@@ -64,10 +64,14 @@ jobs:
     needs: briefing
     if: always()
     runs-on: [self-hosted, Linux, X64, atlas-data]
-    # The provenance-heavy identity checks repeatedly walk full git history.
-    # They complete well inside this bound on the isolated runner, but can
-    # exceed the former GitHub-hosted 15-minute budget on a cold checkout.
-    timeout-minutes: 30
+    # The provenance-heavy identity checks repeatedly walk full git history,
+    # and their cost grows with the review queue and history length. The suite
+    # took 18.6-26.6 min on CI through 09-05 and has been cut off at 30 min on
+    # every run since 09-06 (projected ~35 min), which marked every briefing
+    # run "cancelled" even though the briefing job itself succeeded. 60 min
+    # restores the regression signal with headroom; the git-walk cost itself
+    # is a separate follow-up.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

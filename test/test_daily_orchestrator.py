@@ -3097,6 +3097,8 @@ class DailyOrchestratorTest(unittest.TestCase):
         regression_job = WF["jobs"]["offline-regression"]
         self.assertEqual(regression_job["needs"], "briefing")
         self.assertEqual(regression_job["if"], "always()")
+        # The suite outgrew 30 min; a cut-off marks every briefing run cancelled.
+        self.assertGreaterEqual(regression_job["timeout-minutes"], 60)
         regression_steps = regression_job["steps"]
         regression = next(
             step for step in regression_steps
