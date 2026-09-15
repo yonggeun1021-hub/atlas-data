@@ -64,6 +64,7 @@ RULE_D5 = "RULE.EXEC.ALLOCATION_REDUCTION.V1"
 RULE_D6 = "RULE.EXEC.MULTI_MARKET_REALLOCATION.V1"
 RULE_DD = "RULE.RISK.NAV_DRAWDOWN_LIFT.V1"
 RULE_D4 = "RULE.EXEC.DATA_FAILURE_PRIORITY.V1"
+RULE_PACE = "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1"
 RULE_KR_HEDGE = "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1"
 EVIDENCE_MODES = ("NATURAL", "FIXED_INPUT_REPLAY")
 FAIL_CLOSED = "FAIL_CLOSED"
@@ -365,6 +366,36 @@ def _tiers(core, holdings: list) -> list:
     return tiers
 
 
+def _two_session_amount(core, progress, excess: Fraction) -> Fraction:
+    """D5-b pace: half of the excess at the trigger in session 1, the remainder
+    (bounded by the current excess, D5-a) in session 2.
+
+    RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1 ratifies this same pace
+    for the UNKNOWN cap and NAV drawdown overrides; its registry parameters must
+    equal the downgrade rule's, so a drift fails closed instead of diverging.
+    """
+    sessions = core.param("downgrade_reduction")["sessions"]
+    fraction = CORE.frac(core.interpretations["downgrade_split"]["fraction_session_1"])
+    if "unknown_drawdown_reduction_pace" not in core.unavailable:
+        pace = core.param("unknown_drawdown_reduction_pace")
+        same_as = core.param("unknown_drawdown_reduction_same_as")
+        if pace.get("sessions") != sessions or CORE.frac(pace.get("session_1_fraction_of_excess")) != fraction \
+                or pace.get("session_2") != "REMAINDER" \
+                or same_as != {"rule_id": RULE_D5, "key_parameter": "downgrade_reduction"}:
+            CORE.fail("REDUCTION_PACE_DIFFERS_FROM_DOWNGRADE_PACE")
+    progress = progress or {}
+    if set(progress) != {"session_index", "excess_at_trigger_krw", "reduced_krw"} \
+            or progress["session_index"] not in range(1, sessions + 1):
+        CORE.fail("DOWNGRADE_PROGRESS_INVALID")
+    at_trigger = CORE.frac(progress["excess_at_trigger_krw"])
+    reduced = CORE.frac(progress["reduced_krw"])
+    if progress["session_index"] == 1:
+        if reduced != 0 or at_trigger != excess:
+            CORE.fail("DOWNGRADE_SESSION_1_MUST_START_AT_CURRENT_EXCESS")
+        return excess * fraction
+    return max(Fraction(0), min(excess, at_trigger - reduced))
+
+
 def reduction_plan(
     core, *, market: str, trigger: str, decision_at_utc: str, cap_krw, long_holdings: list,
     open_buy_orders: list, evidence_mode: str, downgrade_progress=None, market_blocked: dict | None = None,
@@ -406,6 +437,7 @@ def reduction_plan(
     excess = max(Fraction(0), long_total - cap)
     flags = []
     amount = None
+    pace_used = False
     status = "PLANNED"
     obligation = excess > 0 or trigger == "STRESS"
     if kr_fail_closed:
@@ -422,19 +454,14 @@ def reduction_plan(
             CORE.fail("STRESS_CAP_MUST_BE_ZERO")
         amount = long_total
     elif trigger == "DOWNGRADE":
-        sessions = core.param("downgrade_reduction")["sessions"]
-        progress = downgrade_progress or {}
-        if set(progress) != {"session_index", "excess_at_trigger_krw", "reduced_krw"} \
-                or progress["session_index"] not in range(1, sessions + 1):
-            CORE.fail("DOWNGRADE_PROGRESS_INVALID")
-        at_trigger = CORE.frac(progress["excess_at_trigger_krw"])
-        reduced = CORE.frac(progress["reduced_krw"])
-        if progress["session_index"] == 1:
-            if reduced != 0 or at_trigger != excess:
-                CORE.fail("DOWNGRADE_SESSION_1_MUST_START_AT_CURRENT_EXCESS")
-            amount = excess * CORE.frac(core.interpretations["downgrade_split"]["fraction_session_1"])
-        else:
-            amount = max(Fraction(0), min(excess, at_trigger - reduced))
+        amount = _two_session_amount(core, downgrade_progress, excess)
+    elif RULE_PACE in core.context.rules and market in core.context.rules[RULE_PACE]["markets"]:
+        # UNKNOWN_CAP / DRAWDOWN_OVERRIDE: RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1 ratifies
+        # the D5-b downgrade pace (progress input shared with DOWNGRADE).
+        if trigger not in core.param("unknown_drawdown_reduction_triggers"):
+            CORE.fail("REDUCTION_PACE_TRIGGER_UNEXPECTED", trigger)
+        amount = _two_session_amount(core, downgrade_progress, excess)
+        pace_used = True
     else:
         pending = "UNKNOWN_CAP_REDUCTION_PACE" if trigger == "UNKNOWN_CAP" else "DRAWDOWN_OVERRIDE_REDUCTION_PACE"
         if pending not in core.not_defined_ids():
@@ -468,6 +495,8 @@ def reduction_plan(
                               "full_position": sell == h["value"], "execution": exec_status})
             needed -= take
     pairs = [(RULE_D5, "EXITED_BY"), (RULE_ALLOC, "APPLIED"), (RULE_D4, "APPLIED")]
+    if pace_used:
+        pairs.append((RULE_PACE, "EXITED_BY"))
     record = {
         "schema_version": REDUCTION_SCHEMA_VERSION,
         "market": market,

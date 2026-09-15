@@ -180,3 +180,19 @@ Decisions `/1-/3` keep producing request `/3` (and `/2` replays) unchanged.
 * `/4` packets record `crypto_paper_wiring.t_cut_utc`; validation checks the
   packet's own value and that the configuration still names the same T_cut
   (immutable once set).
+
+## 9. T_cut set (crypto PAPER v2 operation record)
+
+* `USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915` (sha256 `ccc846a3…`)
+  is byte-copied to `evidence/authority/` and registered as five rows
+  (ledger genesis, order type, T_cut, reduction pace, portal projection /2).
+* `decision_snapshot_v4_cutover.t_cut_utc = 2026-09-18T07:00:00Z`
+  (`ACTIVE_FROM_T_CUT`, `source_record` = that record). The loader checks the
+  registry decision cycle, the record bytes and that the record's
+  RULE.CRYPTO.PAPER_V2_TCUT.V1 names the same instant. Packets before T_cut
+  stay `/3`. Blocking old-path (/3) new buys before T_cut is the private
+  runtime's job (PR4).
+* Execution core: for CRYPTO, UNKNOWN-cap and NAV-drawdown-override reductions
+  use RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1 = the D5-b downgrade
+  pace (half of the excess in session 1, the remainder in session 2; the
+  `downgrade_progress` input is shared). KR/US stay NOT_DEFINED (record scope).

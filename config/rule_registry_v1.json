@@ -5498,6 +5498,401 @@
       "resolved_by": null,
       "implementation_bindings": [],
       "pending_basis": null
+    },
+    {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_LEDGER_GENESIS.V1",
+      "version": 1,
+      "lineage_key": "RULE.CRYPTO.PAPER_V2_LEDGER_GENESIS",
+      "status": "RATIFIED",
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "title_ko": "코인 PAPER v2 새 원장: 거래 없는 옛 원장 보관, 시작 현금 2억 원",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "original_filename": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56",
+          "bytes": 2673
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T08:15:22Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "Archive old ledger (no trades); start a new crypto PAPER ledger with initial cash KRW 200,000,000."
+        },
+        "archived_ledger_id": {
+          "source": 0,
+          "record_pointer": "/s0_facts/old_ledger_id",
+          "match": "EXACT",
+          "text": null,
+          "value": "PAPER.UPBIT.KRW.MAC_A.20260829"
+        },
+        "initial_cash_krw": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "initial cash KRW 200,000,000",
+          "value": 200000000
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "governance",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "amends": null,
+      "amended_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null,
+      "resolved_by": null
+    },
+    {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_ORDER_TYPE.V1",
+      "version": 1,
+      "lineage_key": "RULE.CRYPTO.PAPER_V2_ORDER_TYPE",
+      "status": "RATIFIED",
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "title_ko": "코인 PAPER v2 주문: 판단 시점 호가 기준 지정가, 슬리피지 150bp 이내 수량",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "original_filename": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56",
+          "bytes": 2673
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T08:15:22Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/1/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "Limit order at decision-time order book with quantity bounded by 150bp slippage (D3)."
+        },
+        "order_type": {
+          "source": 0,
+          "record_pointer": "/rules/1/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "Limit order at decision-time order book",
+          "value": "LIMIT_AT_DECISION_TIME_ORDER_BOOK"
+        },
+        "quantity_bound": {
+          "source": 0,
+          "record_pointer": "/rules/1/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "quantity bounded by 150bp slippage (D3)",
+          "value": {
+            "slippage_bp": 150,
+            "rule": "RULE.EXEC.QUALITY_LAYERS.V1"
+          }
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "gate",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "amends": null,
+      "amended_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null,
+      "resolved_by": null
+    },
+    {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_TCUT.V1",
+      "version": 1,
+      "lineage_key": "RULE.CRYPTO.PAPER_V2_TCUT",
+      "status": "RATIFIED",
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "title_ko": "코인 PAPER 새 규칙 전환 시각 2026-09-18 07:00Z, 그 전 옛 방식 신규 매수 금지",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "original_filename": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56",
+          "bytes": 2673
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T08:15:22Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "New-rule cutover t_cut_utc = 2026-09-18T07:00:00Z; old-path (/3) new buys blocked until then."
+        },
+        "t_cut_utc": {
+          "source": 0,
+          "record_pointer": "/rules/2/t_cut_utc",
+          "match": "EXACT",
+          "text": null,
+          "value": "2026-09-18T07:00:00Z"
+        },
+        "old_path_new_buys_before_t_cut": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "old-path (/3) new buys blocked until then",
+          "value": "BLOCKED"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "governance",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "amends": null,
+      "amended_by": null,
+      "implementation_bindings": [
+        {
+          "path": "config/crypto_paper_wiring_v2.json",
+          "binds_record_sha256": true
+        }
+      ],
+      "pending_basis": null,
+      "resolved_by": null
+    },
+    {
+      "rule_id": "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1",
+      "version": 1,
+      "lineage_key": "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN",
+      "status": "RATIFIED",
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "title_ko": "UNKNOWN 연속 2회 한도·NAV 낙폭 단계 초과분 축소 속도 = 하향 판정과 같음(첫 세션 절반, 다음 세션 나머지)",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "original_filename": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56",
+          "bytes": 2673
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T08:15:22Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/3/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "Excess over the UNKNOWN consecutive-2 cap and over NAV drawdown stage caps is reduced at the downgrade pace: half of the excess in the first session, the remainder in the next session (same as D5-b)."
+        },
+        "triggers": {
+          "source": 0,
+          "record_pointer": "/rules/3/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "Excess over the UNKNOWN consecutive-2 cap and over NAV drawdown stage caps",
+          "value": [
+            "UNKNOWN_CAP",
+            "DRAWDOWN_OVERRIDE"
+          ]
+        },
+        "pace": {
+          "source": 0,
+          "record_pointer": "/rules/3/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "half of the excess in the first session, the remainder in the next session",
+          "value": {
+            "sessions": 2,
+            "session_1_fraction_of_excess": "1/2",
+            "session_2": "REMAINDER"
+          }
+        },
+        "same_as": {
+          "source": 0,
+          "record_pointer": "/rules/3/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "same as D5-b",
+          "value": {
+            "rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1",
+            "key_parameter": "downgrade_reduction"
+          }
+        },
+        "amends_text": {
+          "source": 0,
+          "record_pointer": "/rules/3/amends",
+          "match": "EXACT",
+          "text": null,
+          "value": "USER_RATIFICATION_PAPER_EXECUTION_CONTRACT_D1_D3_D5_D11_20260915.json D5 (pace previously NOT_DEFINED); USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915.json NAV drawdown stages"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "allocation",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "amends": null,
+      "amended_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null,
+      "resolved_by": null
+    },
+    {
+      "rule_id": "RULE.PORTAL.CRYPTO_PAPER_PROJECTION_V2.V1",
+      "version": 1,
+      "lineage_key": "RULE.PORTAL.CRYPTO_PAPER_PROJECTION_V2",
+      "status": "RATIFIED",
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "title_ko": "포털은 코인 PAPER 투영 /2 새 상태 표시 사용",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "original_filename": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+          "sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56",
+          "bytes": 2673
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T08:15:22Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/4/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "Portal uses crypto PAPER projection /2 status display."
+        },
+        "projection": {
+          "source": 0,
+          "record_pointer": "/rules/4/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "crypto PAPER projection /2 status display",
+          "value": "CRYPTO_PAPER_PROJECTION_2"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "governance",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "amends": null,
+      "amended_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null,
+      "resolved_by": null
     }
   ]
 }

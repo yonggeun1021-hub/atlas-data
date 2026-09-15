@@ -25,6 +25,9 @@
     "btc_eth_cap": {"rule_id": "RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1", "key_parameter": "cap"},
     "price_drift_over_cap": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "price_drift_over_cap"},
     "downgrade_reduction": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "downgrade_reduction"},
+    "unknown_drawdown_reduction_pace": {"rule_id": "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1", "key_parameter": "pace"},
+    "unknown_drawdown_reduction_triggers": {"rule_id": "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1", "key_parameter": "triggers"},
+    "unknown_drawdown_reduction_same_as": {"rule_id": "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1", "key_parameter": "same_as"},
     "stress_reduction": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "stress_reduction"},
     "reduction_order": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "reduction_order"},
     "unknown_cap_start": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "unknown_cap_start"},
@@ -262,14 +265,14 @@
     {
       "id": "UNKNOWN_CAP_REDUCTION_PACE",
       "item": "speed of reductions to the UNKNOWN 0.5 cap",
-      "handling": "excess computed, reduction amount NOT_DEFINED",
-      "pending": "D5 states a 2-session split for judgment downgrades and immediate full reduction for STRESS only"
+      "handling": "CRYPTO: RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1 (USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915, sha256 ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56): same pace as D5-b, half of the excess in the first session and the remainder in the next; KR/US: excess computed, reduction amount NOT_DEFINED",
+      "pending": "KR/US pace only (the crypto PAPER v2 operation record is scoped to crypto)"
     },
     {
       "id": "DRAWDOWN_OVERRIDE_REDUCTION_PACE",
       "item": "speed of reductions caused by the -5%/-10% NAV drawdown overrides",
-      "handling": "caps applied to new buys; reduction amount NOT_DEFINED",
-      "pending": "D5 speed rules name judgment downgrades and STRESS only"
+      "handling": "CRYPTO: RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1 (same record): same pace as D5-b; KR/US: caps applied to new buys, reduction amount NOT_DEFINED",
+      "pending": "KR/US pace only (the crypto PAPER v2 operation record is scoped to crypto)"
     },
     {
       "id": "DRAWDOWN_STEP_BEYOND_RISK_OFF_OR_UNKNOWN",

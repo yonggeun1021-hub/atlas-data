@@ -1,0 +1,48 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "id": "USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915",
+  "recorded_at_utc": "2026-09-15T08:15:22Z",
+  "ratified_by": "USER (chat, verbatim)",
+  "recommended_by": "CLAUDE_CIO",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "user_sentence_verbatim": "코인 PAPER v2 운영을 다음과 같이 확정한다. ① 기존 원장(PAPER.UPBIT.KRW.MAC_A.20260829, 시작 1,000만 원, 거래 없음)은 보관하고 시작 현금 2억 원의 새 원장으로 시작한다. ② 주문은 판단 시점 호가 기준 지정가(슬리피지 150bp 이내 수량)로 낸다. ③ 새 규칙 전환 시각은 2026-09-18 07:00Z로 하고, 그 전까지 옛 방식 신규 매수는 막는다. ④ UNKNOWN 연속 2회 한도와 NAV 낙폭 단계 초과분은 하향 판정과 같은 속도(첫 세션 초과분의 절반, 다음 세션 나머지)로 줄인다. ⑤ 포털에는 새 상태 표시를 쓴다.",
+  "status": "RATIFIED",
+  "scope": "INTERNAL_VIRTUAL_PAPER crypto (Upbit KRW)",
+  "s0_facts": {
+    "old_ledger_id": "PAPER.UPBIT.KRW.MAC_A.20260829",
+    "old_initial_cash_krw": 10000000,
+    "old_ledger_events": 1,
+    "fills": 0,
+    "open_orders": 0,
+    "observed_utc": "2026-09-15T08:15:22Z"
+  },
+  "rules": [
+    {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_LEDGER_GENESIS.V1",
+      "decision": "Archive old ledger (no trades); start a new crypto PAPER ledger with initial cash KRW 200,000,000."
+    },
+    {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_ORDER_TYPE.V1",
+      "decision": "Limit order at decision-time order book with quantity bounded by 150bp slippage (D3)."
+    },
+    {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_TCUT.V1",
+      "decision": "New-rule cutover t_cut_utc = 2026-09-18T07:00:00Z; old-path (/3) new buys blocked until then.",
+      "t_cut_utc": "2026-09-18T07:00:00Z"
+    },
+    {
+      "rule_id": "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1",
+      "decision": "Excess over the UNKNOWN consecutive-2 cap and over NAV drawdown stage caps is reduced at the downgrade pace: half of the excess in the first session, the remainder in the next session (same as D5-b).",
+      "amends": "USER_RATIFICATION_PAPER_EXECUTION_CONTRACT_D1_D3_D5_D11_20260915.json D5 (pace previously NOT_DEFINED); USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915.json NAV drawdown stages"
+    },
+    {
+      "rule_id": "RULE.PORTAL.CRYPTO_PAPER_PROJECTION_V2.V1",
+      "decision": "Portal uses crypto PAPER projection /2 status display."
+    }
+  ],
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

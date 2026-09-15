@@ -47,7 +47,7 @@ REGISTRY_PATH = ROOT / REGISTRY_RELATIVE_PATH
 PINS_RELATIVE_PATH = "config/rule_registry_v1_parsed_pins.json"
 # Changing any parsed quote/value requires changing the pin file *and* this
 # constant -- a deliberate two-place edit visible in review.
-PARSED_PINS_SHA256 = "ebcd7cf32ddebfcd9932bceee7912ae3d2a190dda99632be09ee4ad6f89af320"
+PARSED_PINS_SHA256 = "e6f72bacc3296639d496248b183db369e09ede5308f4c9f6fbcd70655b5c402c"
 SCHEMA_VERSION = "atlas_rule_registry/1"
 PINS_SCHEMA_VERSION = "atlas_rule_registry_parsed_pins/1"
 AUTHORITY_DIR = "evidence/authority/"
@@ -106,6 +106,12 @@ REQUIRED_RULE_IDS = (
     "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1",
     "RULE.GOVERNANCE.COOLING_OFF.V1",
     "RULE.ROTATION.MAX_OBSERVATION_GAP.V1",
+    # Crypto PAPER v2 operation (2026-09-15T08:15:22Z).
+    "RULE.CRYPTO.PAPER_V2_LEDGER_GENESIS.V1",
+    "RULE.CRYPTO.PAPER_V2_ORDER_TYPE.V1",
+    "RULE.CRYPTO.PAPER_V2_TCUT.V1",
+    "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1",
+    "RULE.PORTAL.CRYPTO_PAPER_PROJECTION_V2.V1",
     # Items a ratification record explicitly left undecided.  They carry no
     # parameters and can never be cited in rule_refs; RESOLVED ones name the
     # ratified rows that later decided them.

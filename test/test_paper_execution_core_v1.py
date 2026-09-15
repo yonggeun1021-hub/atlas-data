@@ -18,6 +18,7 @@ import sys
 import tempfile
 import tokenize
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -361,11 +362,44 @@ class ReductionTests(unittest.TestCase):
         tie = {l["instrument"]: F(l["sell_value_krw"]) for l in partial["lines"]}
         self.assertEqual(tie, {"KRW-R3A": F(5, 2), "KRW-R3B": F(15, 2)})  # pro rata inside the rank-3 tier
 
-    def test_unknown_cap_and_drawdown_pace_not_defined(self):
+    def test_unknown_cap_and_drawdown_pace_follows_the_downgrade_pace_for_crypto(self):
+        """RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1 (crypto PAPER v2 operation record):
+        half of the excess in the first session, the remainder in the next (same as D5-b)."""
+        holdings = [lh("KRW-A", "100")]
         for trigger in ("UNKNOWN_CAP", "DRAWDOWN_OVERRIDE"):
-            plan = self.plan(trigger, "50", [lh("KRW-A", "100")])
+            with self.subTest(trigger=trigger):
+                first = self.plan(trigger, "50", holdings, downgrade_progress={
+                    "session_index": 1, "excess_at_trigger_krw": "50", "reduced_krw": "0"})
+                downgrade = self.plan("DOWNGRADE", "50", holdings, downgrade_progress={
+                    "session_index": 1, "excess_at_trigger_krw": "50", "reduced_krw": "0"})
+                self.assertEqual((first["status"], first["reduction_amount_krw"]), ("PLANNED", "25"))
+                self.assertEqual(first["reduction_amount_krw"], downgrade["reduction_amount_krw"])
+                self.assertIn(("RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1", "EXITED_BY"),
+                              {(r["rule_id"], r["role"]) for r in first["rule_refs"]})
+                second = self.plan(trigger, "75", [lh("KRW-A", "100")], downgrade_progress={
+                    "session_index": 2, "excess_at_trigger_krw": "50", "reduced_krw": "25"})
+                self.assertEqual(second["reduction_amount_krw"], "25")
+                with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "DOWNGRADE_PROGRESS_INVALID"):
+                    self.plan(trigger, "50", holdings)
+        # KR/US are outside the record's crypto scope: still NOT_DEFINED.
+        for market in ("KR", "US"):
+            plan = self.plan("UNKNOWN_CAP", "50", holdings, market=market)
             self.assertEqual((plan["status"], plan["reduction_amount_krw"], plan["lines"]), ("NOT_DEFINED", None, []))
-            self.assertEqual(plan["excess_krw"], "50")
+        self.assertIn("UNKNOWN_CAP_REDUCTION_PACE", self.core.not_defined_ids())
+
+    def test_reduction_pace_rule_must_equal_the_downgrade_pace(self):
+        real = self.core.param
+
+        def drifted(alias):
+            value = real(alias)
+            if alias == "unknown_drawdown_reduction_pace":
+                value = dict(value, session_1_fraction_of_excess="1/3")
+            return value
+
+        with mock.patch.object(self.core, "param", side_effect=drifted), \
+                self.assertRaisesRegex(CORE.PaperExecutionCoreError, "REDUCTION_PACE_DIFFERS_FROM_DOWNGRADE_PACE"):
+            self.plan("UNKNOWN_CAP", "50", [lh("KRW-A", "100")], downgrade_progress={
+                "session_index": 1, "excess_at_trigger_krw": "50", "reduced_krw": "0"})
 
 
 class SessionBudgetTests(unittest.TestCase):
