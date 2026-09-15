@@ -2392,6 +2392,9 @@ APPROVED_TESTS = [
     #      same convention as test_crypto_paper_buy_eligibility.py above so
     #      it is not silently hidden from the test-set comparison.
     "test/test_crypto_paper_decision_snapshot.py",
+    # ★ Hotfix 2026-09-15 -- leadership lineage manifests are verified in the
+    #   capture-vintage folder raw/<as_of+1>/ (crypto_leadership.py convention).
+    "test/test_crypto_leadership_manifest_vintage.py",
     # ★ P5-10 Crypto 5-axis entry/exit bridge -- the exact revalidated
     #   decision generation is projected into per-symbol entry and exit
     #   contexts. Missing axes or the unratified aggregate policy cap every
