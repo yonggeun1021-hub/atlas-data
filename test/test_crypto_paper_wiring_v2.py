@@ -995,58 +995,93 @@ class RuntimeRequestV4Tests(unittest.TestCase):
         self.assertEqual(blocked["sell_requests"], [])
         self.assertIn("EXIT_SELL_ORDER_ALREADY_OPEN:KRW-ETH", blocked["blockers"])
 
-    def test_sell_validity_is_capped_at_the_session_and_reissued_next_session(self):
-        # 06:40Z decision: slot bound 07:30Z is capped at the 07:00Z session end (canon 2-3).
+    def exit_orders_at(self, generated_at: str, value) -> tuple:
+        """``_exit_orders`` for the natural book re-stamped at another decision instant (test-only)."""
+        decision = dict(self.lifted, generated_at=generated_at)
+        marks = BRIDGE.latest_mark_prices_by_market(self.lifted, ["KRW-ETH"])
+        state = SIMULATOR.build_account_state_per_market(
+            value, observed_at=generated_at, mark_prices=marks["marks"], mark_status=marks["mark_status"],
+            mark_source_ref=marks["source_ref"], mark_source_sha256=marks["source_sha256"],
+        )
+        intents = {e["order_id"]: e["payload"]["intent"] for e in value["events"] if e["event_type"] == "ORDER_SUBMITTED"}
+        core = CORE.load_core()
+        bounds = SB.session_bounds(core, SB.crypto_session_id(core, generated_at))
+        return BRIDGE._exit_orders(
+            decision, exit_intents=[{"intent": self.exit_intent(), "remaining_quantity": "1"}], checked_account=state,
+            intent_by_order_id=intents, config=config(), threshold_bp=150, regime_status="PASS",
+            source_root=ROOT, session_order_valid_before=bounds["order_valid_before_utc"],
+        )
+
+    def test_sell_cut_short_by_the_session_is_deferred_to_the_next_session(self):
         self.assertEqual(BRIDGE.sell_order_valid_before("2026-09-15T06:40:00Z", "2026-09-15T07:00:00Z"),
                          "2026-09-15T07:00:00Z")
         self.assertEqual(BRIDGE.sell_order_valid_before("2026-09-14T23:43:42Z", "2026-09-15T07:00:00Z"),
                          "2026-09-15T00:30:00Z")
-        intent = self.exit_intent()
-        sell = SIMULATOR.build_intent(
-            order_id="PAPER.SELL.KRW-ETH.0630.SLOT", idempotency_key="PAPER.SUBMIT.SELL.KRW-ETH.0630.SLOT",
-            market="KRW-ETH", side="SELL", order_type="LIMIT", quantity="1", limit_price="1000",
-            fee_rate="0", queue_fraction="1", submitted_at="2026-09-15T06:40:00Z",
-            expires_at=BRIDGE.sell_order_valid_before("2026-09-15T06:40:00Z", "2026-09-15T07:00:00Z"),
-            market_regime_status="PASS", source_plan_ref="test://plan", source_plan_sha256="b" * 64,
-            source_evidence_ref="test://book", source_evidence_sha256="c" * 64,
-        )
-        value = SIMULATOR.submit_order(ledger(eth_position=True), sell)
-        next_capture = SIMULATOR.build_snapshot(
-            snapshot_id="TEST.KRW-ETH.0706", market="KRW-ETH", captured_at="2026-09-15T07:06:00Z",
-            freshness_status="FRESH", ask_levels=[{"price": "5010000", "quantity": "5"}],
-            bid_levels=[{"price": "5000000", "quantity": "5"}], source_ref="test://book", source_sha256="e" * 64,
-        )
-        with self.assertRaisesRegex(SIMULATOR.CryptoPaperSimulatorError, "SNAPSHOT_AT_OR_AFTER_EXPIRY"):
-            SIMULATOR.match_order(value, order_id=sell["order_id"], snapshot=next_capture,
-                                  event_at="2026-09-15T07:06:00Z", idempotency_key="PAPER.MATCH.0706.TEST")
-        # The 07:10Z decision (next session) re-issues the sell on its own book.
-        decision_0710 = dict(self.lifted, generated_at="2026-09-15T07:10:00Z")
-        marks = BRIDGE.latest_mark_prices_by_market(self.lifted, ["KRW-ETH"])
-        state = SIMULATOR.build_account_state_per_market(
-            value, observed_at="2026-09-15T07:10:00Z", mark_prices=marks["marks"], mark_status=marks["mark_status"],
-            mark_source_ref=marks["source_ref"], mark_source_sha256=marks["source_sha256"],
-        )
-        intents = {e["order_id"]: e["payload"]["intent"] for e in value["events"] if e["event_type"] == "ORDER_SUBMITTED"}
-        bounds = SB.session_bounds(CORE.load_core(), SB.crypto_session_id(CORE.load_core(), "2026-09-15T07:10:00Z"))
-        sells, _cancels, blockers, _markets = BRIDGE._exit_orders(
-            decision_0710, exit_intents=[{"intent": intent, "remaining_quantity": "1"}], checked_account=state,
-            intent_by_order_id=intents, config=config(), threshold_bp=150, regime_status="PASS",
-            source_root=ROOT, session_order_valid_before=bounds["order_valid_before_utc"],
-        )
-        self.assertNotIn("EXIT_SELL_ORDER_ALREADY_OPEN:KRW-ETH", blockers)
+        value = ledger(eth_position=True)
+        # 06:40Z (06:30 slot): the 07:30Z slot bound would be cut to 07:00Z -> no sell, deferred.
+        sells, _cancels, blockers, markets = self.exit_orders_at("2026-09-15T06:40:00Z", value)
+        self.assertEqual(sells, [])
+        self.assertIn("EXIT_SELL_DEFERRED_TO_NEXT_SESSION:KRW-ETH", blockers)
+        self.assertEqual(markets, {"KRW-ETH"})
+        # 06:10Z (06:00 slot): the slot bound equals the session end -> issued, expires 07:00Z.
+        sells, _cancels, blockers, _markets = self.exit_orders_at("2026-09-15T06:10:00Z", value)
+        self.assertEqual(sells[0]["intent"]["expires_at"], "2026-09-15T07:00:00Z")
+        # 07:10Z: the next session's first decision issues it.
+        sells, _cancels, blockers, _markets = self.exit_orders_at("2026-09-15T07:10:00Z", value)
+        self.assertNotIn("EXIT_SELL_DEFERRED_TO_NEXT_SESSION:KRW-ETH", blockers)
         self.assertEqual(len(sells), 1)
         self.assertEqual(sells[0]["intent"]["expires_at"], "2026-09-15T08:00:00Z")
 
-    def test_integrity_failures_on_the_buy_side_still_abort_when_sells_exist(self):
+    def test_stale_or_mismatched_private_buy_inputs_let_exits_proceed(self):
         self.assertEqual(BRIDGE.BUY_SIDE_FAILURES_EXITS_MAY_PROCEED, {
-            "ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME", "RECORDED_SESSION_BUDGET_STATE_NOT_DECISION_REGIME",
+            "ALLOCATION_ENVELOPE_NOT_THIS_DECISION", "ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME",
+            "RECORDED_SESSION_BUDGET_NOT_THIS_SESSION", "RECORDED_SESSION_BUDGET_STATE_NOT_DECISION_REGIME",
         })
-        other_session = budget_record()
+        generated = self.lifted["generated_at"]
+        cases = {
+            "missing": ({"allocation_envelope": None}, "RUNTIME_INPUT_MISSING:ALLOCATION_ENVELOPE"),
+            "state": ({"allocation_envelope": envelope(generated, "NEUTRAL")},
+                      "BUY_SIDE_BLOCKED_EXITS_PROCEED:ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME"),
+            "stale": ({"allocation_envelope": envelope("2026-09-14T23:13:00Z")},
+                      "BUY_SIDE_BLOCKED_EXITS_PROCEED:ALLOCATION_ENVELOPE_NOT_THIS_DECISION"),
+            "other_session_record": ({"recorded_session_budget": budget_record()},
+                                     "BUY_SIDE_BLOCKED_EXITS_PROCEED:RECORDED_SESSION_BUDGET_NOT_THIS_SESSION"),
+        }
+        for name, (overrides, blocker) in cases.items():
+            with self.subTest(case=name), lifted_regime_and_rotation():
+                packet = request(self.lifted, account_state=account(self.lifted, eth_position=True),
+                                 exit_intents=[{"intent": self.exit_intent(), "remaining_quantity": "1"}], **overrides)
+                self.assertEqual(BRIDGE.validate_runtime_request(packet), packet)
+                self.assertEqual(packet["status"], "PAPER_INTENTS_READY")
+                self.assertEqual(len(packet["sell_requests"]), 1)
+                self.assertEqual(packet["requests"], [])
+                self.assertIn(blocker, packet["blockers"])
         with lifted_regime_and_rotation(), self.assertRaisesRegex(
-            BRIDGE.CryptoPaperRuntimeBridgeError, "^RECORDED_SESSION_BUDGET_NOT_THIS_SESSION$",
+            BRIDGE.CryptoPaperRuntimeBridgeError, "^ALLOCATION_ENVELOPE_NOT_THIS_DECISION$",
         ):
-            self.run_request(account_state=account(self.lifted, eth_position=True), exits=[self.exit_intent()],
-                             recorded=other_session)
+            request(self.lifted, allocation_envelope=envelope("2026-09-14T23:13:00Z"))  # no sells: still raises
+
+    def test_integrity_failures_on_the_buy_side_still_abort_when_sells_exist(self):
+        tampered = copy.deepcopy(budget_record())
+        tampered["allocation"][0]["allocated_krw"] = "1"
+        tampered = CORE.sign({k: v for k, v in tampered.items() if k != "record_sha256"}, "record_sha256")
+        with lifted_regime_and_rotation(), self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError, "^EXECUTION_CORE_REJECTED:",
+        ):
+            request(self.lifted, account_state=account(self.lifted, eth_position=True),
+                    exit_intents=[{"intent": self.exit_intent(), "remaining_quantity": "1"}],
+                    recorded_session_budget=tampered)
+        real_rebuild = BRIDGE._promotion_packet_v4
+
+        def inconsistent(decision, **kwargs):
+            packet = real_rebuild(decision, **kwargs)
+            packet["candidates"][0]["promotion_state"] = "BLOCKED" if packet["candidates"][0]["promotion_state"] != "BLOCKED" else "WATCH"
+            return packet
+
+        with lifted_regime_and_rotation(), mock.patch.object(BRIDGE, "_promotion_packet_v4", side_effect=inconsistent), \
+                self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError, "^PROMOTION_REBUILD_INCONSISTENT_WITH_DECISION:"):
+            request(self.lifted, account_state=account(self.lifted, eth_position=True),
+                    exit_intents=[{"intent": self.exit_intent(), "remaining_quantity": "1"}])
 
     def test_open_buys_in_an_exit_market_are_cancelled_first(self):
         intent = self.exit_intent()

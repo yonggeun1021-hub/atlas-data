@@ -1898,16 +1898,19 @@ def sell_order_valid_before(generated_at: str, session_order_valid_before: str |
     return bound.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-# Buy-side failures that only mean "this decision's private buy inputs disagree
-# with its market state" (a caller-supplied envelope, or a recorded session
-# budget from a runtime decision republished within the session).  They touch
-# neither the decision packet, whose full re-derivation already passed, nor the
-# exit intents, account or books the sells are built from, so exits proceed.
-# Every other buy-side failure (record for another session, tampered record or
-# envelope rejected by the execution core, promotion rebuild inconsistent with
-# the decision) is an integrity fault and aborts the whole request.
+# Buy-side failures that only mean "this decision's private buy inputs are
+# stale or disagree with its market state": a caller envelope for another
+# decision instant or state, or a validly signed recorded session budget for
+# another session or regime.  They touch neither the decision packet, whose
+# full re-derivation already passed, nor the exit intents, account or books
+# the sells are built from, so exits proceed.  Every other buy-side failure
+# (a record or envelope the execution core rejects as tampered or not
+# re-derivable, a promotion rebuild inconsistent with the decision) is an
+# integrity fault and aborts the whole request.
 BUY_SIDE_FAILURES_EXITS_MAY_PROCEED = frozenset({
+    "ALLOCATION_ENVELOPE_NOT_THIS_DECISION",
     "ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME",
+    "RECORDED_SESSION_BUDGET_NOT_THIS_SESSION",
     "RECORDED_SESSION_BUDGET_STATE_NOT_DECISION_REGIME",
 })
 
@@ -1938,6 +1941,11 @@ def _exit_orders(
         held = positions.get(market)
         if held is None or Decimal(held["quantity"]) < Decimal(row["remaining_quantity"]):
             blockers.append(f"EXIT_INTENT_POSITION_QUANTITY_MISMATCH:{market}")
+            continue
+        if sell_order_valid_before(generated, session_order_valid_before) != sell_order_valid_before(generated):
+            # The session end would cut this sell's one match opportunity short
+            # (last slot before 07:00Z): the next session's first decision issues it.
+            blockers.append(f"EXIT_SELL_DEFERRED_TO_NEXT_SESSION:{market}")
             continue
         live_sells = [
             order for order in open_orders
@@ -2039,6 +2047,8 @@ def _buy_side(
         # verbatim; lines whose idempotency key is already known are BLOCKED by
         # the duplicate guard, the rest are (re)submitted.
     elif books:
+        if envelope.get("decision_at_utc") != generated:
+            raise CryptoPaperRuntimeBridgeError("ALLOCATION_ENVELOPE_NOT_THIS_DECISION")
         if envelope["markets"]["CRYPTO"]["confirmed_state"] != regime:
             raise CryptoPaperRuntimeBridgeError("ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME")
         nav_snapshot, nav_blockers = _nav_snapshot_from_account(
