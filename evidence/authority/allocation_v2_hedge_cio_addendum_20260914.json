@@ -1,0 +1,27 @@
+{
+  "schema_version": "atlas_cio_addendum/1",
+  "addendum_id": "CIO-ADDENDUM-ALLOCATION-V2-HEDGE-20260914",
+  "created_at_utc": "2026-09-13T16:20:00Z",
+  "by": "CLAUDE_CIO",
+  "records": {
+    "allocation_v2": {
+      "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json",
+      "sha256": "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8"
+    },
+    "active_inverse_hedge": {
+      "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/USER_RATIFICATION_PAPER_ACTIVE_INVERSE_HEDGE_20260913.json",
+      "sha256": "b24b38a34aa2ed34d98bf8ade6c1334268034e4e4d5718bac8450970ed5577f2"
+    }
+  },
+  "correction_1": "allocation_v2.hedge.pending_user_decision is superseded: the ACTIVE_INVERSE_HEDGE proposal was ratified by the user in the companion record (PAPER-ACTIVE-INVERSE-HEDGE-V1-20260913). Consumers must read hedge rules from the companion record. The ratified files are not edited.",
+  "interpretation_2": {
+    "question": "Meaning of 'all markets STRESS' when crypto regime is UNKNOWN or not STRESS",
+    "decision": "The 30% tier (KR 114800 15% + US SH 15%) applies when BOTH equity markets with an inverse instrument (KR and US) are confirmed STRESS, regardless of crypto state, because crypto's hedge instrument is cash only. If only one of KR/US is confirmed STRESS, the single-market cap (<=10% in that market) applies. UNKNOWN in KR or US never triggers any inverse.",
+    "rationale": "Crypto cannot contribute an inverse leg and is structurally UNKNOWN for now; requiring it would disable the equity-wide stress defense the user asked for. Flagged to user for visibility."
+  },
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "ratification_id": "CRYPTO-BREADTH-TAXONOMY-ADDITIONS-20260914",
+  "ratified_at_utc": "2026-09-14T08:35:00Z",
+  "ratified_by": "USER (explicit instruction: '코인 분류 8종 채택, LIGHTER는 확인 후 등록')",
+  "recommended_by": "CLAUDE_CIO",
+  "basis": {
+    "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/CLAUDE_CIO_CRYPTO_LEADERSHIP_COVERAGE_DIAGNOSIS_20260914.md",
+    "sha256": "2337e29e2b840cce5cafd190732053b6aaa58d5fb2e8cba19002ff605e0834b8"
+  },
+  "amends": "config/crypto_breadth_exclusion_taxonomy.json (follow PR #568 Lane P pattern incl. companion hash refresh)",
+  "additions": [
+    {
+      "asset": "LSK",
+      "classification": "eligible_crypto",
+      "effective_date": "2026-09-14",
+      "identity_note": "Lisk (LSK) as listed on Kraken; Klayr (KLY) is a distinct asset"
+    },
+    {
+      "asset": "SUSHI",
+      "classification": "eligible_crypto",
+      "effective_date": "2026-09-15"
+    },
+    {
+      "asset": "VSN",
+      "classification": "eligible_crypto",
+      "effective_date": "2026-09-15"
+    },
+    {
+      "asset": "TRIA",
+      "classification": "eligible_crypto",
+      "effective_date": "2026-09-15"
+    },
+    {
+      "asset": "ZORA",
+      "classification": "eligible_crypto",
+      "effective_date": "2026-09-15"
+    },
+    {
+      "asset": "XTZ",
+      "classification": "eligible_crypto",
+      "effective_date": "2026-09-15"
+    },
+    {
+      "asset": "KII",
+      "classification": "eligible_crypto",
+      "effective_date": "2026-09-15"
+    },
+    {
+      "asset": "0G",
+      "classification": "eligible_crypto",
+      "effective_date": "2026-09-15"
+    }
+  ],
+  "conditional": {
+    "asset": "LIGHTER",
+    "classification": "eligible_crypto",
+    "effective_date_latest": "2026-09-16",
+    "condition": "CIO confirms the Kraken LIGHTER asset identity (Lighter DEX token) from an official Kraken source before registering; if unconfirmed, do not register and report."
+  },
+  "not_changed": "breadth thresholds, top-100 30-day turnover rule, fail-closed TAXONOMY_COVERAGE_UNKNOWN behavior",
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

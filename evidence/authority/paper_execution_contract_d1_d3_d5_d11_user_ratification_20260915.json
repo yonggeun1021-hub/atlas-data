@@ -1,0 +1,51 @@
+{
+ "schema": "user_ratification/1",
+ "id": "USER_RATIFICATION_PAPER_EXECUTION_CONTRACT_D1_D3_D5_D11_20260915",
+ "recorded_by": "CLAUDE_CIO",
+ "recorded_at_kst": "2026-09-15T08:01+09:00",
+ "user_sentence_verbatim": "PAPER 실행 계약 정본(2026-09-15)의 D1·D3·D5·D6·D7·D8·D9·D10·D11을 다음과 같이 확정한다.\n① D1: 관측·자료 도착·판단·주문·체결 시각을 분리하고, \"첫 허용 체결 시각\"을 쓰며, 체결 창은 한국 09:15~15:20, 미국 09:45~15:50 ET, 코인은 07:00Z 판단 주기로 한다. 넥스트레이드·KRX 애프터마켓·미국 연장시간 체결은 제외하고, 한국 종가는 정규장 공식 종가로 한다.\n② D3: 실행 품질은 연구 가정·후보 필터·주문 한도의 세 층으로 나눈다. 한국·미국 스프레드는 25bp, 호가 나이는 기존 확정 정책값을 쓴다. 코인은 실제 주문 금액 기준 슬리피지가 150bp를 넘으면 수량을 줄인다.\n③ D5: 가격 상승으로 한도를 초과한 경우는 매도하지 않는다. 판정 하향에 따른 축소는 2세션에 나눠 하고, STRESS는 첫 허용 체결 시각에 전량 축소한다. 축소 순서는 강세 해제 종목, 순위 낮은 종목, 비례 순이다. UNKNOWN 상한은 2회 연속 UNKNOWN부터 적용한다.\n④ D6: 여러 시장이 추가 배분을 받을 수 있으면 기준 배분 비율대로 나누되, 시장별 상한을 넘지 않게 한다.\n⑤ D7: 같은 판단 패킷에서 판 뒤 다시 사지 않는다. 강세 해제 매도나 코인 21일 시간 손절 뒤에는 새 강세 확정이 나올 때만 재진입하고, 배분 축소 뒤 재진입은 허용한다.\n⑥ D8: 보충 매수는 포지션 단위로 관리한다. 보유 기간은 첫 체결부터 센다.\n⑦ D9: 손절은 프로그램 감시 방식으로 모사한다. 체결은 감시 주기 기준 첫 허용 가격, 갭 하락은 시가로 하고, 감시 공백은 따로 기록한다. 그림자 비교 손절에도 같은 방식을 적용한다.\n⑧ D10: PAPER_VALIDATED는 경로 체크리스트와 운영 안전 기준을 통과한 \"기계 검증 완료\"만 뜻한다. KRX 9-8의 성과 기준은 판정이 아니라 표시로만 쓴다.\n⑨ D11: 성적표는 하나의 계약으로 통일한다. 강세 에피소드 단위로 묶어 평가하고, 정해진 점검 시점에만 판정하며, 최소 표본은 검토 시작 기준으로 쓴다. 위험 정책은 비용 대비 꼬리 손실 개선으로 평가한다.",
+ "source_document": {
+  "path": "outputs/CLAUDE_CIO_PAPER_EXECUTION_CONTRACT_CANON_20260915.md",
+  "sha256": "7a26907f9c05935278ae9232e4de90bb0d23e39447a57c22f66484642a35127c",
+  "sections": "§1-§9, §10-1"
+ },
+ "related_prior_decisions": {
+  "D2": "USER_RATIFICATION_PAPER_SESSION_SIZE_WORDING_CORRECTION_20260915.json",
+  "D4": "USER_RATIFICATION_PAPER_DATA_FAILURE_RISK_REDUCTION_PRIORITY_C_20260915.json",
+  "exits": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915.json"
+ },
+ "rule_ids": {
+  "RULE.EXEC.TIME_CONTRACT.V1": "D1",
+  "RULE.EXEC.QUALITY_LAYERS.V1": "D3",
+  "RULE.EXEC.ALLOCATION_REDUCTION.V1": "D5",
+  "RULE.EXEC.MULTI_MARKET_REALLOCATION.V1": "D6",
+  "RULE.EXEC.REENTRY.V1": "D7",
+  "RULE.EXEC.TOPUP_POSITION_LEVEL.V1": "D8",
+  "RULE.EXEC.MONITORED_STOP_FILL_MODEL.V1": "D9",
+  "RULE.VALIDATION.MECHANICAL_ONLY.V1": "D10",
+  "RULE.SCORECARD.SINGLE_CONTRACT.V1": "D11"
+ },
+ "new_numbers": [
+  "KR window 09:15-15:20 KST",
+  "US window 09:45-15:50 ET",
+  "KR/US spread 25bp",
+  "crypto actual-size slippage 150bp quantity reduction",
+  "downgrade reduction over 2 sessions",
+  "UNKNOWN cap from 2 consecutive UNKNOWN cycles"
+ ],
+ "adaptations_vs_canon": "D7 adapted to ratified exits (no disaster stop in defaults): re-entry after release sell or crypto 21-day time stop only on a new strength confirmation; D9 applies to shadow-control stops",
+ "cio_follow_up_no_decision": [
+  "record corrections (crypto 24h->30-day average; SR 11-7 -> SR 26-2)",
+  "replace multi-candidate cancel with session budget allocation",
+  "session_budget_record, episode ids, status fields (위험 평가·집행 불확실 / 집행 불가(시장) / 감시 공백)",
+  "exclude inverse hedge from long holdings",
+  "KR decision close = regular-session official close",
+  "operational safety threshold calculator and path checklist"
+ ],
+ "not_changed": [
+  "allocation v2 numbers",
+  "hedge rules",
+  "REAL/order/payment/secret authority"
+ ],
+ "correction_note": "recorded_at_kst corrected by CIO on 2026-09-15 08:1x KST from '2026-09-15T10:30+09:00' (CIO clock-estimation error) to the file creation time; previous file sha256 a14b4a441965b04fd578c64f873150ee5388f11cea21af8714c3b5694ac3ec53; decision content unchanged."
+}
