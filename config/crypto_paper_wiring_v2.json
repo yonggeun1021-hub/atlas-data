@@ -51,8 +51,8 @@
       "source": "execution contract canon 2-2 allocation step 4 (quantities floored to the trading unit; coin 8 decimal places), applied to /4 orders and session budget lines only; level capacity keeps the simulator decimal_scale; a sell of the whole remaining quantity is not floored"
     },
     "sell_order_validity": {
-      "value": "THROUGH_THE_NEXT_DECISION_SLOT",
-      "source": "exit sells get one match opportunity at the next capture and are re-sized on a fresh book by the decision after it; slot length = decision/crypto_paper_decision_snapshot.py SCHEDULED_SLOT_MINUTES (the realtime capture cron)"
+      "value": "THROUGH_THE_NEXT_DECISION_SLOT_CAPPED_AT_THE_SESSION_ORDER_VALIDITY",
+      "source": "exit sells get one match opportunity at the next capture and are re-sized on a fresh book by the decision after it; slot length = decision/crypto_paper_decision_snapshot.py SCHEDULED_SLOT_MINUTES (the realtime capture cron); expiry = min(slot bound, session order_valid_before = next 07:00Z) so no order outlives its decision cycle (execution contract canon 2-3), and a sell issued in the last slot before 07:00Z is re-issued by the next session's first decision"
     },
     "open_buys_on_exit": {
       "value": "CANCEL_BEFORE_EXIT_ORDER",

@@ -995,6 +995,59 @@ class RuntimeRequestV4Tests(unittest.TestCase):
         self.assertEqual(blocked["sell_requests"], [])
         self.assertIn("EXIT_SELL_ORDER_ALREADY_OPEN:KRW-ETH", blocked["blockers"])
 
+    def test_sell_validity_is_capped_at_the_session_and_reissued_next_session(self):
+        # 06:40Z decision: slot bound 07:30Z is capped at the 07:00Z session end (canon 2-3).
+        self.assertEqual(BRIDGE.sell_order_valid_before("2026-09-15T06:40:00Z", "2026-09-15T07:00:00Z"),
+                         "2026-09-15T07:00:00Z")
+        self.assertEqual(BRIDGE.sell_order_valid_before("2026-09-14T23:43:42Z", "2026-09-15T07:00:00Z"),
+                         "2026-09-15T00:30:00Z")
+        intent = self.exit_intent()
+        sell = SIMULATOR.build_intent(
+            order_id="PAPER.SELL.KRW-ETH.0630.SLOT", idempotency_key="PAPER.SUBMIT.SELL.KRW-ETH.0630.SLOT",
+            market="KRW-ETH", side="SELL", order_type="LIMIT", quantity="1", limit_price="1000",
+            fee_rate="0", queue_fraction="1", submitted_at="2026-09-15T06:40:00Z",
+            expires_at=BRIDGE.sell_order_valid_before("2026-09-15T06:40:00Z", "2026-09-15T07:00:00Z"),
+            market_regime_status="PASS", source_plan_ref="test://plan", source_plan_sha256="b" * 64,
+            source_evidence_ref="test://book", source_evidence_sha256="c" * 64,
+        )
+        value = SIMULATOR.submit_order(ledger(eth_position=True), sell)
+        next_capture = SIMULATOR.build_snapshot(
+            snapshot_id="TEST.KRW-ETH.0706", market="KRW-ETH", captured_at="2026-09-15T07:06:00Z",
+            freshness_status="FRESH", ask_levels=[{"price": "5010000", "quantity": "5"}],
+            bid_levels=[{"price": "5000000", "quantity": "5"}], source_ref="test://book", source_sha256="e" * 64,
+        )
+        with self.assertRaisesRegex(SIMULATOR.CryptoPaperSimulatorError, "SNAPSHOT_AT_OR_AFTER_EXPIRY"):
+            SIMULATOR.match_order(value, order_id=sell["order_id"], snapshot=next_capture,
+                                  event_at="2026-09-15T07:06:00Z", idempotency_key="PAPER.MATCH.0706.TEST")
+        # The 07:10Z decision (next session) re-issues the sell on its own book.
+        decision_0710 = dict(self.lifted, generated_at="2026-09-15T07:10:00Z")
+        marks = BRIDGE.latest_mark_prices_by_market(self.lifted, ["KRW-ETH"])
+        state = SIMULATOR.build_account_state_per_market(
+            value, observed_at="2026-09-15T07:10:00Z", mark_prices=marks["marks"], mark_status=marks["mark_status"],
+            mark_source_ref=marks["source_ref"], mark_source_sha256=marks["source_sha256"],
+        )
+        intents = {e["order_id"]: e["payload"]["intent"] for e in value["events"] if e["event_type"] == "ORDER_SUBMITTED"}
+        bounds = SB.session_bounds(CORE.load_core(), SB.crypto_session_id(CORE.load_core(), "2026-09-15T07:10:00Z"))
+        sells, _cancels, blockers, _markets = BRIDGE._exit_orders(
+            decision_0710, exit_intents=[{"intent": intent, "remaining_quantity": "1"}], checked_account=state,
+            intent_by_order_id=intents, config=config(), threshold_bp=150, regime_status="PASS",
+            source_root=ROOT, session_order_valid_before=bounds["order_valid_before_utc"],
+        )
+        self.assertNotIn("EXIT_SELL_ORDER_ALREADY_OPEN:KRW-ETH", blockers)
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0]["intent"]["expires_at"], "2026-09-15T08:00:00Z")
+
+    def test_integrity_failures_on_the_buy_side_still_abort_when_sells_exist(self):
+        self.assertEqual(BRIDGE.BUY_SIDE_FAILURES_EXITS_MAY_PROCEED, {
+            "ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME", "RECORDED_SESSION_BUDGET_STATE_NOT_DECISION_REGIME",
+        })
+        other_session = budget_record()
+        with lifted_regime_and_rotation(), self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError, "^RECORDED_SESSION_BUDGET_NOT_THIS_SESSION$",
+        ):
+            self.run_request(account_state=account(self.lifted, eth_position=True), exits=[self.exit_intent()],
+                             recorded=other_session)
+
     def test_open_buys_in_an_exit_market_are_cancelled_first(self):
         intent = self.exit_intent()
         with lifted_regime_and_rotation():
