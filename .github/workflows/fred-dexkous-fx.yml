@@ -1,14 +1,27 @@
 name: FRED DEXKOUS FX Capture
 
 # RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 evidence capture
-# (collectors/fred_dexkous_fx.py). Manual only in this PR -- workflow_dispatch
-# is the sole trigger; no schedule is enabled here.
+# (collectors/fred_dexkous_fx.py).
 #
-# Proposed cron (NOT enabled by this workflow -- see the PR body for the
-# exact Korean approval sentence needed before it is added):
+# User approval 2026-09-15: daily schedule activation approved (first live
+# workflow_dispatch run 34926979498 FAILED on a push race with the SPDR
+# workflow -- no retry existed; rerun 34927048776 SUCCEEDED, see the
+# bounded push-retry step below for the fix). Schedule timing:
 #   '40 21 * * 0-5'  # ~06:40 KST Mon-Sat, right after free-market-data.yml's
 #                     # existing 06:35 KST FRED VIX capture, so both FRED
-#                     # captures land in the same daily window.
+#                     # captures land in the same established daily window.
+# Re-justified against the source's own publication cadence: the Federal
+# Reserve's H.10 release is a WEEKLY release (published Mondays, ~4:15pm
+# ET, covering the preceding week's daily rates retroactively) -- 21:40 UTC
+# is 17:40 ET, i.e. after that Monday release, so the very next scheduled
+# run already picks up a fresh week's data same day. Running daily anyway
+# (not just Mondays) is deliberate and harmless, not wasteful: most days
+# genuinely have nothing new (the bounded write window in
+# collectors/fred_dexkous_fx.py's compute_write_from_date() makes an
+# unchanged re-observation a no-op), and daily cadence means we are never
+# more than one day late picking up whatever FRED's public API/CSV
+# actually exposes, regardless of the exact intraday time the weekly
+# release itself propagates there.
 #
 # Uses the FRED_API_KEY secret this repo already provisions for
 # collectors/free_market_data.py / collectors/fred_vix_provenance.py -- no
@@ -16,6 +29,8 @@ name: FRED DEXKOUS FX Capture
 # to the public CSV endpoint (fred.stlouisfed.org), which needs no key.
 
 on:
+  schedule:
+    - cron: '40 21 * * 0-5'
   workflow_dispatch:
     inputs:
       backfill:
@@ -51,11 +66,29 @@ jobs:
           else
             python3 collectors/fred_dexkous_fx.py
           fi
-      - name: Commit append-only evidence
+      - name: Commit append-only evidence (bounded push retry)
+        # 2026-09-15 incident: the first live run of this workflow and the
+        # first live run of spdr-sector-holdings.yml raced each other --
+        # SPDR pushed first, this run's plain `git push` then failed with
+        # no retry at all, and the run failed outright even though its
+        # commit was perfectly good locally. `git pull --rebase` replays
+        # this run's one commit on top of whatever landed on main first,
+        # then retries the push; bounded at 3 attempts so a real, non-race
+        # failure (auth, network) still fails the job instead of looping.
         run: |
           git config user.name "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
           git add evidence/fred_dexkous_fx
           if git diff --staged --quiet; then exit 0; fi
           git commit -m "data: FRED DEXKOUS FX evidence $(date -u +%Y-%m-%d)"
-          git push
+          attempt=1
+          max_attempts=3
+          until git push; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "push failed after $max_attempts attempts" >&2
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
+            git pull --rebase
+          done

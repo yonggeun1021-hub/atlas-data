@@ -1,35 +1,27 @@
 name: SPDR Sector Holdings Capture
 
 # RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 evidence capture
-# (collectors/spdr_sector_holdings.py). Manual only in this PR --
-# workflow_dispatch is the sole trigger; no schedule is enabled here.
+# (collectors/spdr_sector_holdings.py).
 #
-# ⚠ Unlike a price or FX series, a fund's holdings on a given day are never
-#   published again once that day passes -- this data is physically
-#   time-gated and cannot be backfilled (see the collector's module
-#   docstring). Every day this schedule stays off is a day of point-in-time
-#   sector evidence that can never be recovered later. This PR recommends
-#   enabling the proposed daily schedule below immediately once this
-#   workflow's first manual dispatch confirms the SSGA holdings URL/layout
-#   actually work (see "First dispatch is also verification" below) --
-#   see the PR body for the exact Korean approval sentences needed for
-#   (1) enabling the schedule and (2) the first live dispatch itself.
-#
-# Proposed cron (NOT enabled by this workflow):
-#   '0 22 * * 1-5'  # ~07:00 KST Tue-Sat, i.e. after each US trading day's
-#                    # close and well after SSGA's own next-business-day
-#                    # holdings refresh, Mon-Fri UTC (covers Mon-Fri US
-#                    # sessions; Monday's capture reflects Friday's holdings
-#                    # file if SSGA has not refreshed yet -- acceptable
-#                    # since the reader always records the actual capture
-#                    # date, never assumes same-day freshness).
-#
-# First dispatch is also verification: collectors/spdr_sector_holdings.py's
-# HOLDINGS_URL_TEMPLATE and workbook layout parsing were never exercised
-# against the real SSGA endpoint before this PR (no live network call was
-# made building it -- see the collector's module docstring, "URL pattern"
-# section). Treat the first real run of this workflow as that check, not
-# as a routine capture: read its logs before trusting the commit.
+# User approval 2026-09-15: daily schedule activation approved. First live
+# workflow_dispatch run 34926977666 SUCCEEDED -- complete 11-ETF batch, 515
+# symbols resolved, 0 multi-holder; the previously-unverified
+# HOLDINGS_URL_TEMPLATE/workbook layout is now confirmed working against
+# the real SSGA endpoint. Schedule timing:
+#   '0 22 * * 1-5'  # ~07:00 KST Tue-Sat.
+# Re-justified against the source's own publication timing: SSGA refreshes
+# each fund's daily holdings file overnight for the *prior* completed
+# trading day, typically available well before the next US market open;
+# 22:00 UTC is 18:00 ET (6pm Eastern, in EDT) -- 2 hours after the 4pm ET
+# close, comfortably inside SSGA's overnight refresh window and still same
+# calendar day in the US, so the file this captures is expected to already
+# reflect that day's close by the time the run executes. Unlike a price or
+# FX series, a fund's holdings on a given day are never published again
+# once that day passes -- this data is physically time-gated and cannot be
+# backfilled (see the collector's module docstring) -- so daily capture is
+# not merely convenient here, it is the only way this evidence can exist
+# at all; every day this schedule had stayed off was evidence that could
+# never be recovered later.
 #
 # No new secret: this collector needs no credential (SSGA's daily holdings
 # download is public). Derived-only storage: the downloaded workbook itself
@@ -37,6 +29,8 @@ name: SPDR Sector Holdings Capture
 # -- only a derived symbol/sector/rank mapping plus capture metadata/hash.
 
 on:
+  schedule:
+    - cron: '0 22 * * 1-5'
   workflow_dispatch:
     inputs:
       tickers:
@@ -84,11 +78,28 @@ jobs:
           else
             python3 collectors/spdr_sector_holdings.py
           fi
-      - name: Commit derived evidence and latest pointer
+      - name: Commit derived evidence and latest pointer (bounded push retry)
+        # 2026-09-15 incident: this workflow's first live run and
+        # fred-dexkous-fx.yml's first live run raced each other -- this one
+        # pushed first, and the FRED run's plain `git push` then failed
+        # outright with no retry. `git pull --rebase` replays this run's
+        # one commit on top of whatever landed on main first, then retries
+        # the push; bounded at 3 attempts so a real, non-race failure
+        # (auth, network) still fails the job instead of looping.
         run: |
           git config user.name "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
           git add evidence/spdr_sector_holdings data/latest_spdr_sector_holdings.json
           if git diff --staged --quiet; then exit 0; fi
           git commit -m "data: SPDR sector holdings evidence $(date -u +%Y-%m-%d)"
-          git push
+          attempt=1
+          max_attempts=3
+          until git push; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "push failed after $max_attempts attempts" >&2
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
+            git pull --rebase
+          done

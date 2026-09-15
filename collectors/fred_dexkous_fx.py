@@ -40,6 +40,30 @@ writes a *separate* CAPTURED record for that same (date, value) pair (a
 different content-addressed path), so the backfill row is never silently
 promoted or overwritten.
 
+Normal captures are bounded, not full-history (CIO incident 2026-09-15)
+--------------------------------------------------------------------------
+The FRED CSV/API response always contains the *entire* DEXKOUS series
+(1981-present) whether or not it changed. A normal (non-``--backfill``)
+capture run originally turned every one of those ~11,000+ historical
+observations into a new CAPTURED record every single day -- correct in the
+narrow sense that "this row was seen no later than now" is true, but an
+operationally pointless full-history rewrite each run (this repo's first
+live FRED run did exactly that: 11,352 files in one commit). ``main()`` now
+computes a bounded write window before calling ``build_capture``:
+``write_observations_from`` = ``min(latest already-committed CAPTURED
+observation_date, today - RECENT_WINDOW_DAYS)`` (or just the window start if
+nothing is committed yet). Only observations on/after that date become new
+CAPTURED records; everything older is parsed (so the manifest's
+``observation_count``/``observation_date_range`` still describe the full
+raw response for audit) but never written as a file. This still catches
+two real cases correctly: a genuinely new day's value (date advances past
+whatever was last committed), and FRED revising a recent value within the
+window (content-addressing makes an unchanged re-observation a no-op and a
+genuine revision a new file, exactly as before) -- while never touching the
+untouched decades of history again. ``--backfill`` is unaffected and still
+writes the complete parsed history in one deliberate, explicit run.
+
+
 Source
 ------
 Uses the FRED public API (``api.stlouisfed.org/fred/series/observations``)
@@ -84,6 +108,14 @@ RAW_RETENTION = "APPEND_ONLY_CONTENT_ADDRESSED"
 STALENESS_MAX_BUSINESS_DAYS = 10
 STALENESS_DISPLAY = "NAV 일부 미검증"
 STALENESS_CLOCK_KIND = "CIO_INTERPRETATION_NOT_USER_RATIFIED"
+
+# Bounded write window for normal (non-backfill) captures -- see module
+# docstring, "Normal captures are bounded, not full-history". 30 calendar
+# days comfortably covers any plausible late revision to a recent H.10
+# value and any reasonable gap in the daily schedule running; a genuinely
+# larger gap is still covered exactly (not just within this window) by
+# comparing against the latest already-committed CAPTURED date.
+RECENT_WINDOW_DAYS = 30
 
 AUTHORITY = {
     "evidence_capture_only": True,
@@ -297,15 +329,35 @@ def _value_hash(value: str) -> str:
 
 
 def build_capture(
-    captured_at: dt.datetime, raw: bytes, source_kind: str, *, is_backfill: bool = False
+    captured_at: dt.datetime, raw: bytes, source_kind: str, *,
+    is_backfill: bool = False, write_observations_from: str | None = None,
 ) -> dict:
+    """``write_observations_from`` (ISO date, inclusive) bounds which parsed
+    observations become new per-observation files -- see module docstring,
+    "Normal captures are bounded, not full-history". The manifest's
+    ``observation_count``/``observation_date_range`` always describe the
+    full parsed response regardless of this bound (full-history audit
+    trail stays in the one raw archive, never lost); only the number of
+    files actually written is bounded. Not accepted together with
+    ``is_backfill=True`` -- a backfill run always writes everything parsed.
+    """
     if captured_at.tzinfo is None:
         fail("CAPTURE_TIME_NAIVE")
+    if is_backfill and write_observations_from is not None:
+        fail("BACKFILL_WITH_WRITE_FROM_NOT_ALLOWED")
     captured_at_utc = captured_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     _parse_utc(captured_at_utc, "CAPTURE_TIME_INVALID")
 
     observations = parse_observations(raw, source_kind)
     raw_sha256 = sha256_bytes(raw)
+
+    records_source = observations
+    if write_observations_from is not None:
+        cutoff = _parse_date(write_observations_from, "WRITE_FROM_DATE_INVALID")
+        records_source = [
+            obs for obs in observations
+            if dt.date.fromisoformat(obs["observation_date"]) >= cutoff
+        ]
 
     manifest_basis = {
         "schema_version": BATCH_SCHEMA_VERSION,
@@ -318,6 +370,8 @@ def build_capture(
         "observation_date_range": [
             observations[0]["observation_date"], observations[-1]["observation_date"],
         ],
+        "written_observation_count": len(records_source),
+        "write_observations_from": write_observations_from,
     }
     revision_id = sha256_bytes(canonical_bytes(manifest_basis))
     day = captured_at.astimezone(UTC).date().isoformat()
@@ -341,7 +395,7 @@ def build_capture(
     availability_kind = "UNKNOWN_BACKFILL" if is_backfill else "CAPTURED"
     availability_captured_at_utc = None if is_backfill else captured_at_utc
     observation_records = []
-    for obs in observations:
+    for obs in records_source:
         record = {
             "schema_version": OBSERVATION_SCHEMA_VERSION,
             "series_id": SERIES_ID,
@@ -387,6 +441,52 @@ def _write_once(path: Path, data: bytes) -> bool:
     return True
 
 
+def _write_observation_once(path: Path, data: bytes) -> bool:
+    """Write an observation record only if this exact (observation_date,
+    value, kind_suffix) path has never been written before.
+
+    Unlike ``_write_once`` (used for the raw archive/manifest, where the
+    path itself IS the content hash so any existing file is guaranteed
+    byte-identical), an observation record's path is derived from only
+    ``observation_date`` + a hash of ``value`` -- deliberately excluding
+    ``availability_captured_at_utc``/``batch_revision_id``, which differ
+    every time the *same* (date, value) pair is legitimately re-observed
+    on a later day (exactly what the bounded write window in
+    ``compute_write_from_date`` does every run for its trailing window).
+    Re-observing something already on disk is therefore expected and
+    harmless, not a tamper signal: this function silently keeps the
+    existing file (its earlier, tighter ``availability_captured_at_utc``)
+    and never rewrites it. A genuine byte-for-byte identical write is also
+    a no-op. Neither case raises ``APPEND_ONLY_COLLISION`` -- that error is
+    reserved for the raw archive/manifest path, where any mismatch really
+    would mean tampering.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        if not path.is_file():
+            fail("APPEND_ONLY_COLLISION")
+        try:
+            existing = json.loads(path.read_bytes())
+            incoming = json.loads(data)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            fail("APPEND_ONLY_COLLISION")
+        identity_fields = (
+            "series_id", "observation_date", "value", "availability_kind", "source_kind",
+        )
+        if any(existing.get(f) != incoming.get(f) for f in identity_fields):
+            # The path is derived from observation_date + a hash of value,
+            # so this should be unreachable outside a hash collision or
+            # direct file corruption -- treat it exactly like a genuine
+            # append-only tamper, unlike the expected/harmless case above
+            # where only availability_captured_at_utc/batch_revision_id
+            # differ across two legitimate re-observations of the same
+            # (date, value) pair.
+            fail("APPEND_ONLY_COLLISION")
+        return False
+    path.write_bytes(data)
+    return True
+
+
 def _safe_evidence_path(root: Path, value: object, prefix: str) -> Path:
     if not isinstance(value, str) or Path(value).is_absolute() or ".." in Path(value).parts:
         fail("EVIDENCE_PATH_INVALID")
@@ -414,7 +514,7 @@ def publish_capture(root: Path, capture: dict) -> dict:
         record_path = _safe_evidence_path(
             root, entry["record_path"], f"{EVIDENCE_ROOT}/observations/"
         )
-        if _write_once(record_path, entry["record_bytes"]):
+        if _write_observation_once(record_path, entry["record_bytes"]):
             new_paths.append(entry["record_path"])
 
     return {
@@ -456,6 +556,38 @@ def _load_observation_records(root: Path) -> list[dict]:
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             fail("OBSERVATION_RECORD_UNREADABLE")
     return records
+
+
+def latest_committed_captured_date(root: Path) -> str | None:
+    """Max ``observation_date`` among already-written ``CAPTURED`` records,
+    or ``None`` if none exist yet. Used to bound a normal capture's write
+    window -- see ``compute_write_from_date``."""
+    dates = [
+        r["observation_date"] for r in _load_observation_records(root)
+        if r.get("availability_kind") == "CAPTURED"
+    ]
+    return max(dates) if dates else None
+
+
+def compute_write_from_date(
+    today: dt.date, latest_committed: str | None, *, window_days: int = RECENT_WINDOW_DAYS
+) -> str:
+    """Earliest observation_date (inclusive) a normal capture should write.
+
+    ``min(latest_committed, today - window_days)`` when something is
+    already committed -- this reaches all the way back to the day after
+    the last commit even if that is further back than the window (so a
+    genuine gap in the daily schedule is never silently skipped), while
+    still re-considering the trailing window every run to catch a late
+    revision to a recently published value. With nothing committed yet,
+    it is just the window start -- a normal run never reaches for full
+    history; only ``--backfill`` does that, deliberately.
+    """
+    window_start = today - dt.timedelta(days=window_days)
+    if latest_committed is None:
+        return window_start.isoformat()
+    latest_committed_date = _parse_date(latest_committed, "LATEST_COMMITTED_DATE_INVALID")
+    return min(latest_committed_date, window_start).isoformat()
 
 
 def latest_available(root: Path, decision_at: str) -> dict:
@@ -523,15 +655,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--backfill", action="store_true",
         help="Mark every captured observation availability_kind=UNKNOWN_BACKFILL "
-             "instead of CAPTURED (one-time historical seed only).",
+             "instead of CAPTURED (one-time historical seed only). Writes the "
+             "full parsed history, ignoring --window-days.",
     )
     parser.add_argument("--observation-start", default=None, help="FRED API only.")
+    parser.add_argument(
+        "--window-days", type=int, default=RECENT_WINDOW_DAYS,
+        help="Normal (non-backfill) capture only -- see compute_write_from_date().",
+    )
     args = parser.parse_args(argv)
 
     api_key = os.getenv("FRED_API_KEY", "").strip() or None
     captured_at = dt.datetime.now(tz=UTC)
-    raw, source_kind = fetch_dexkous(api_key, observation_start=args.observation_start)
-    capture = build_capture(captured_at, raw, source_kind, is_backfill=args.backfill)
+
+    if args.backfill:
+        raw, source_kind = fetch_dexkous(api_key, observation_start=args.observation_start)
+        capture = build_capture(captured_at, raw, source_kind, is_backfill=True)
+    else:
+        latest_committed = latest_committed_captured_date(ROOT)
+        write_from = compute_write_from_date(
+            captured_at.date(), latest_committed, window_days=args.window_days
+        )
+        observation_start = args.observation_start or write_from
+        raw, source_kind = fetch_dexkous(api_key, observation_start=observation_start)
+        capture = build_capture(
+            captured_at, raw, source_kind, is_backfill=False, write_observations_from=write_from,
+        )
+
     summary = publish_capture(ROOT, capture)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
