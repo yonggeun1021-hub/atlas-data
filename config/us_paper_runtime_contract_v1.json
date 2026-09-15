@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "contract_version": "us_paper_runtime_contract/v1",
+  "policy_status": "CODE_CONTRACT_NOT_AN_ADOPTION",
+  "market": "US",
+  "scope": "US_INTERNAL_VIRTUAL_PAPER_ONLY",
+  "note": "U4 producer contract (CLAUDE_CIO_US_CRYPTO_REGIME_GAP_DIAGNOSIS_20260914 sec. 3 U4). This file ratifies nothing and adds no number. It pins the already-ratified identities the US PAPER runtime consumes and the shapes of the three artifacts a later CIO technical adoption (U5) must bind. Until config/us_paper_runtime_adoption_v1.json exists, is active, and binds a US PIT_ACCEPTED acceptance record and an official session calendar, every decision is UNKNOWN.",
+  "ratified_bindings": {
+    "normalization": {
+      "path": "config/paper_runtime_normalization_v1.json",
+      "contract_version": "paper_runtime_normalization/v1",
+      "sha256": "cb6945225cd4f972825aaa3a6fb300ab440bd9b0d247bd0edb216e8513335385",
+      "ratifying_commit": "ba82906a1e438247070cba96a08c9b9469fcfce5",
+      "us_block_payload_sha256": "766ab14531682c133d900299dbb66a71a7c83f0cec73e7e140455c8b57e39419",
+      "note": "The diagnosis cites 'ba82906a' for the US normalization block. That is the git commit (PR #670) that ratified the file; the file bytes are unchanged since. The US block must also equal markets.US of config/paper_regime_reference_policy_v1.json, whose thresholds regime.paper_regime_reference.build_us executes."
+    },
+    "semantic_freshness": {
+      "path": "config/regime_semantic_freshness_policy_v1.json",
+      "contract_version": "regime_semantic_freshness_policy/v1",
+      "sha256": "0194dd4647b9a42b5183977c822eb8125320d32e93ef4e7f4efda364db6ff193"
+    },
+    "pit_acceptance_contract": {
+      "path": "config/market_scoped_pit_acceptance_contract_v1.json",
+      "contract_version": "market_scoped_pit_acceptance_contract/v1",
+      "sha256": "c13006da3da69df4a94ab494942045c988bd6e7d6c51c0fe57c12c889ab45712"
+    },
+    "reference_policy": {
+      "path": "config/paper_regime_reference_policy_v1.json",
+      "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350"
+    },
+    "free_market_data_contract": {
+      "path": "config/free_market_data_contract.json",
+      "sha256": "a0c59a7097fe2830171374bfb7c59352768a9a9a65734355fb13ca8f8c2ab83a"
+    },
+    "common_v1": {
+      "consumed_via": "regime.decision_authority.replay_common_v1 (unmodified)",
+      "binding_payload_sha256": "44e13d9176270a45a8426970726d67ceeb5fda559653dcbe2711811bac37207e"
+    }
+  },
+  "axis_rules": {
+    "arithmetic": "regime.paper_regime_reference.build_us (unmodified) over the committed free_market_data_capture/5 packet",
+    "session_based_axes": {
+      "axes": ["TREND", "BREADTH", "LEADERSHIP"],
+      "freshness": "regime.regime_semantic_freshness.evaluate_axis_freshness SESSION_EXACT_MATCH against the session being decided"
+    },
+    "release_based_axes": {
+      "RISK_VOL": "FRED VIXCLS from the same capture; raw bytes re-derived by collectors/fred_vix_provenance.validate_evidence; ALFRED realtime_start must not be after the capture UTC date; observation_date must not be after realtime_start or after the decided session; never coerced to an ETF session date",
+      "LIQUIDITY": "FRED WRESBAL and TOTBKCR from the same capture; derived_payload_sha256 and response hashes must reproduce; realtime_start must not be after the capture UTC date; previous_observation_date < observation_date <= realtime_start and observation_date <= decided session; change must equal value - previous_value"
+    },
+    "missing_invalid_or_stale_axis": "IMMEDIATE_UNKNOWN_NO_CARRY"
+  },
+  "session_rules": {
+    "calendar": "official US session calendar bound by the adoption identity; weekday inference is prohibited (config/regime_source_owner_registry_v2.json markets.US official_calendar)",
+    "context_session": "latest official session whose close is at or before evaluation_at",
+    "source_window": "a capture for session S counts only if S close <= observed_at_utc < close of the next official session and observed_at_utc <= evaluation_at; the latest such capture is used and an invalid latest capture is never replaced by an earlier one",
+    "expiry": "a published decision expires at the close of the official session after its context session",
+    "chain": "accepted historical common-v1 sequence, then one step per official session after history_last_session_date through the context session; a session without a valid capture is an UNDEFINED step"
+  },
+  "adoption_identity": {
+    "active_path": "config/us_paper_runtime_adoption_v1.json",
+    "template_path": "config/us_paper_runtime_adoption_v1.TEMPLATE.json",
+    "contract_version": "us_paper_runtime_adoption/v1",
+    "identity": "US_PAPER_RUNTIME_ADOPTION_V1",
+    "active_status": "CIO_TECHNICAL_ADOPTED",
+    "template_status": "TEMPLATE_NOT_ACTIVE",
+    "evidence_class": "LIVE_NATURAL",
+    "implementation_paths": [
+      "regime/us_paper_runtime.py",
+      "regime/us_paper_runtime_publication.py",
+      "regime/decision_authority.py",
+      "regime/paper_regime_reference.py",
+      "regime/regime_semantic_freshness.py",
+      "regime/market_scoped_pit_acceptance.py",
+      "regime/us_historical_replay_population.py",
+      "config/us_historical_pit_replay_identity_v1.json",
+      "collectors/free_market_data.py",
+      "collectors/fred_vix_provenance.py"
+    ]
+  },
+  "acceptance_record": {
+    "schema_version": "us_pit_acceptance_record/1",
+    "required_fields": ["schema_version", "market", "bundle_sha256", "evaluation"],
+    "evaluation": "byte-identical canonical output of regime.market_scoped_pit_acceptance.evaluate_market_pit_acceptance('US', bundle); must be PIT_ACCEPTED on every re-evaluation",
+    "bundle_validation": "regime.us_historical_replay_population.validate_population(bundle) must pass on every evaluation"
+  },
+  "session_calendar": {
+    "schema_version": "us_official_session_calendar/1",
+    "required_fields": ["schema_version", "market", "timezone", "source", "coverage_start", "coverage_end", "sessions"],
+    "timezone": "America/New_York",
+    "allowed_close_times_et": ["16:00", "13:00"]
+  },
+  "decision": {
+    "schema_version": "us_paper_runtime_decision/1",
+    "required_fields": [
+      "schema_version", "market", "scope", "evaluation_at", "code_revision", "evidence_class",
+      "decision_status", "paper_regime", "runtime_regime", "direction", "confidence",
+      "runtime_decision_available", "session", "bindings", "adoption", "pit_acceptance",
+      "current_observation", "latest_source_diagnostic", "chain", "aggregation", "reasons",
+      "caveats", "authority", "basis_sha256", "decision_id"
+    ],
+    "latest_path": "data/latest_us_paper_runtime_decision.json",
+    "evidence_copy_path": "evidence/regime/us_paper_runtime/<publication_key>/<sha256>.json"
+  },
+  "authority": {
+    "paper_runtime_display_authorized_only_when_classified": true,
+    "strategy_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_authorized": false
+  }
+}
