@@ -47,7 +47,7 @@ REGISTRY_PATH = ROOT / REGISTRY_RELATIVE_PATH
 PINS_RELATIVE_PATH = "config/rule_registry_v1_parsed_pins.json"
 # Changing any parsed quote/value requires changing the pin file *and* this
 # constant -- a deliberate two-place edit visible in review.
-PARSED_PINS_SHA256 = "b6398408a8f4da8192d28e24331dee421e91465b85388ea2556a715da74e7847"
+PARSED_PINS_SHA256 = "58aaf759268f9f63324618c65dff0c5e5edb1625d46c63493ede56b8d4457193"
 SCHEMA_VERSION = "atlas_rule_registry/1"
 PINS_SCHEMA_VERSION = "atlas_rule_registry_parsed_pins/1"
 AUTHORITY_DIR = "evidence/authority/"
@@ -97,6 +97,15 @@ REQUIRED_RULE_IDS = (
     "RULE.LIQUIDITY.US_SIP_SOURCE.V1",
     # Rotation interpretation: observation-count confirmation and data gaps (08:13 KST).
     "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1",
+    # Build plan section 9 P1-P6 (2026-09-15T00:27:55Z) and the rotation
+    # maximum observation gap numbers (00:28:45Z).
+    "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1",
+    "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1",
+    "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1",
+    "RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1",
+    "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1",
+    "RULE.GOVERNANCE.COOLING_OFF.V1",
+    "RULE.ROTATION.MAX_OBSERVATION_GAP.V1",
     # Items a ratification record explicitly left undecided.  They carry no
     # parameters and can never be cited in rule_refs; RESOLVED ones name the
     # ratified rows that later decided them.
@@ -147,6 +156,8 @@ KST_MINUTE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})\+09:00$")
 # A CIO timestamp correction keeps the decision and records the replaced file
 # hash in ``correction_note``; later records may still name that earlier hash.
 PREVIOUS_SHA_RE = re.compile(r"previous file sha256 ([0-9a-f]{64})(?![0-9a-f])")
+# "<RECORD_ID or FILENAME.json> (<hex prefix>…)" citation of another record.
+ABBREVIATED_CITATION_RE = re.compile(r"([A-Z][A-Z0-9_]{2,160}(?:\.json)?) \(([0-9a-f]{8,63})\u2026\)")
 
 TOP_FIELDS = {
     "schema_version", "registry_id", "description", "scope_note",
@@ -604,9 +615,27 @@ def _source_index(item: dict, documents: list, rule_id: str) -> int:
     return source
 
 
-def _primary_names_any(root: Path, row: dict, identities: set) -> bool:
+def _primary_names_any(root: Path, row: dict, identities: set, target: dict | None = None) -> bool:
+    """Whether the row's primary record names one of the target record identities.
+
+    A full 64-hex hash anywhere in the record bytes names it.  An abbreviated
+    citation ``<record id or original filename> (<8+ hex prefix>\u2026)`` also
+    names it, but only when the cited name is the target's own record id or
+    original filename and the prefix starts one of its identities -- later
+    ratification records cite earlier ones that way (2026-09-15 P1-P6 and
+    max observation gap records).
+    """
     raw = (Path(root) / row["source_records"][0]["repo_path"]).read_bytes()
-    return any(identity.encode("ascii") in raw for identity in identities)
+    if any(identity.encode("ascii") in raw for identity in identities):
+        return True
+    if target is None:
+        return False
+    names = {target["record_id"], target["original_filename"]}
+    text = raw.decode("utf-8")
+    for name, prefix in ABBREVIATED_CITATION_RE.findall(text):
+        if name in names and any(identity.startswith(prefix) for identity in identities):
+            return True
+    return False
 
 
 def validate_registry(registry: dict, root: Path = ROOT) -> dict:
@@ -665,7 +694,7 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
         primary = old["source_records"][0]
         if supersedes["sha256"] != primary["sha256"] or supersedes["record_id"] != primary["record_id"]:
             _fail("SUPERSEDES_RECORD_MISMATCH", row["rule_id"])
-        if not _primary_names_any(root, row, _source_identities(root, primary)):
+        if not _primary_names_any(root, row, _source_identities(root, primary), primary):
             _fail("SUPERSEDES_NOT_NAMED_BY_PRIMARY_RECORD", row["rule_id"])
     # SUPERSEDED <-> superseded_by <-> successor.supersedes must agree exactly.
     for row in rows:
@@ -704,7 +733,7 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
             primary = target["source_records"][0]
             if item["sha256"] != primary["sha256"] or item["record_id"] != primary["record_id"]:
                 _fail("SUPERSEDES_PARTS_RECORD_MISMATCH", row["rule_id"])
-            if not _primary_names_any(root, row, _source_identities(root, primary)):
+            if not _primary_names_any(root, row, _source_identities(root, primary), primary):
                 _fail("SUPERSEDES_PARTS_NOT_NAMED_BY_PRIMARY_RECORD", row["rule_id"])
             if target["effective_from"]["utc"] >= row["effective_from"]["utc"]:
                 _fail("SUPERSEDES_PARTS_NOT_BACKWARD", row["rule_id"])
@@ -737,7 +766,7 @@ def validate_registry(registry: dict, root: Path = ROOT) -> dict:
             target_source = next((s for s in target["source_records"] if s["sha256"] == item["sha256"]), None)
             if target_source is None:
                 _fail("AMENDED_RECORD_NOT_A_SOURCE_OF_TARGET", row["rule_id"])
-            if not _primary_names_any(root, row, _source_identities(root, target_source)):
+            if not _primary_names_any(root, row, _source_identities(root, target_source), target_source):
                 _fail("AMENDED_RECORD_NOT_NAMED_BY_PRIMARY_RECORD", row["rule_id"])
             if target["effective_from"]["utc"] >= row["effective_from"]["utc"]:
                 _fail("AMENDS_NOT_BACKWARD", row["rule_id"])

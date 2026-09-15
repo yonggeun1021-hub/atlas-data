@@ -1658,6 +1658,22 @@
             "record_id": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915",
             "sha256": "47276abe432102c33b208a5c3a5d10b30c3c30c79fcb809bb1283c97efb95619"
           }
+        },
+        {
+          "key_parameter": "rules_text",
+          "superseded_by": {
+            "rule_id": "RULE.EXIT.RELEASE_FULL_SELL.V1",
+            "record_id": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915",
+            "sha256": "47276abe432102c33b208a5c3a5d10b30c3c30c79fcb809bb1283c97efb95619"
+          }
+        },
+        {
+          "key_parameter": "user_sentence",
+          "superseded_by": {
+            "rule_id": "RULE.EXIT.RELEASE_FULL_SELL.V1",
+            "record_id": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915",
+            "sha256": "47276abe432102c33b208a5c3a5d10b30c3c30c79fcb809bb1283c97efb95619"
+          }
         }
       ],
       "status_source": {
@@ -1786,10 +1802,24 @@
       "supersedes": null,
       "superseded_by": null,
       "supersedes_parts": null,
-      "superseded_parts": null,
+      "superseded_parts": [
+        {
+          "key_parameter": "cooling_off_period",
+          "superseded_by": {
+            "rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1",
+            "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+            "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd"
+          }
+        }
+      ],
       "status_source": null,
       "amends": null,
-      "amended_by": null,
+      "amended_by": [
+        {
+          "rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1",
+          "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd"
+        }
+      ],
       "resolved_by": null,
       "implementation_bindings": [],
       "pending_basis": null
@@ -3020,6 +3050,18 @@
         {
           "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
           "key_parameter": "held_positions",
+          "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+          "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
+        },
+        {
+          "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
+          "key_parameter": "rules_text",
+          "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+          "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
+        },
+        {
+          "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
+          "key_parameter": "user_sentence",
           "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
           "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
         }
@@ -4628,6 +4670,807 @@
           "record_pointer": "/decision/gap_lapse",
           "match": "PARSED_FROM_TEXT",
           "text": "when a strong state lapses because data exceeds the max gap: not a release"
+        }
+      ],
+      "amended_by": [
+        {
+          "rule_id": "RULE.ROTATION.MAX_OBSERVATION_GAP.V1",
+          "sha256": "d65f58c60eb7b78f5e8fa2e054497e17903cf290a517b5b9a246e0419b199903"
+        }
+      ],
+      "resolved_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null
+    },
+    {
+      "rule_id": "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1",
+      "version": 1,
+      "lineage_key": "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE",
+      "status": "RATIFIED",
+      "title_ko": "코인 로테이션 30일 강도: 나중 확정 분류로 커버리지가 채워진 과거 관측일(2026-08-19 이후) 1회 재계산·'재계산' 표시 (시장 판정 LEADERSHIP 축 제외)",
+      "markets": [
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "original_filename": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd",
+          "bytes": 5388
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T00:27:55Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "Crypto rotation 30-day strength only: past observation days on/after 2026-08-19 whose taxonomy coverage becomes complete through later-confirmed classification additions are recalculated exactly once after classification confirmation, and marked '재계산'. Not applied to the LEADERSHIP axis of the crypto market regime."
+        },
+        "known_limitation": {
+          "source": 0,
+          "record_pointer": "/rules/0/known_limitation",
+          "match": "EXACT",
+          "text": null,
+          "value": "Later-confirmed classification applied to past days is a mild look-ahead in taxonomy (not prices); results depending on recalculated days carry the '재계산' mark in scorecards."
+        },
+        "plan_item": {
+          "source": 0,
+          "record_pointer": "/rules/0/plan_item",
+          "match": "EXACT",
+          "text": null,
+          "value": "P1"
+        },
+        "scope": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "Crypto rotation 30-day strength only",
+          "value": "CRYPTO_ROTATION_30D_STRENGTH_ONLY"
+        },
+        "observation_days_from": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "past observation days on/after 2026-08-19",
+          "value": {
+            "on_or_after": "2026-08-19"
+          }
+        },
+        "recalculation_count": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "recalculated exactly once after classification confirmation",
+          "value": {
+            "times": 1,
+            "after": "CLASSIFICATION_CONFIRMATION"
+          }
+        },
+        "mark": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "marked '재계산'",
+          "value": "재계산"
+        },
+        "excluded": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "Not applied to the LEADERSHIP axis of the crypto market regime",
+          "value": "CRYPTO_MARKET_REGIME_LEADERSHIP_AXIS"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "gate",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "amends": null,
+      "amended_by": null,
+      "resolved_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null
+    },
+    {
+      "rule_id": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1",
+      "version": 1,
+      "lineage_key": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS",
+      "status": "RATIFIED",
+      "title_ko": "PAPER 합산 NAV 달러 환산: 판단 시각 전 공개된 최신 연준 H.10 원/달러(FRED DEXKOUS), 관측일 기록, 10영업일 넘게 새 값 없으면 'NAV 일부 미검증'",
+      "markets": [
+        "US",
+        "KR",
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "original_filename": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd",
+          "bytes": 5388
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T00:27:55Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/1/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "Combined PAPER NAV converts USD holdings with the latest Federal Reserve H.10 KRW/USD rate (FRED DEXKOUS) published before the decision time; record the observation date; if no new value for more than 10 business days, display 'NAV 일부 미검증'."
+        },
+        "plan_item": {
+          "source": 0,
+          "record_pointer": "/rules/1/plan_item",
+          "match": "EXACT",
+          "text": null,
+          "value": "P2"
+        },
+        "rate_source": {
+          "source": 0,
+          "record_pointer": "/rules/1/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "latest Federal Reserve H.10 KRW/USD rate (FRED DEXKOUS)",
+          "value": {
+            "publisher": "FEDERAL_RESERVE_H10",
+            "series": "FRED:DEXKOUS",
+            "quote": "KRW_PER_USD",
+            "selection": "LATEST"
+          }
+        },
+        "availability": {
+          "source": 0,
+          "record_pointer": "/rules/1/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "published before the decision time",
+          "value": "PUBLISHED_BEFORE_DECISION_TIME"
+        },
+        "record_observation_date": {
+          "source": 0,
+          "record_pointer": "/rules/1/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "record the observation date",
+          "value": true
+        },
+        "staleness": {
+          "source": 0,
+          "record_pointer": "/rules/1/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "if no new value for more than 10 business days, display 'NAV 일부 미검증'",
+          "value": {
+            "max_business_days_without_new_value": 10,
+            "comparison": "MORE_THAN",
+            "display": "NAV 일부 미검증"
+          }
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "data-source",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "amends": null,
+      "amended_by": null,
+      "resolved_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null
+    },
+    {
+      "rule_id": "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1",
+      "version": 1,
+      "lineage_key": "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS",
+      "status": "RATIFIED",
+      "title_ko": "한국·미국 그림자 비교 단위: 1-B는 해제만, 시간 손절 14거래일, 부분 익절 1R = 일봉 ATR14×3, 재난 손절 ATR14×5 (기록 전용)",
+      "markets": [
+        "KR",
+        "US"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "original_filename": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd",
+          "bytes": 5388
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T00:27:55Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "KR/US shadow controls: 1-B replaced by release-only; time stop 14 trading days; partial take-profit 1R = 3x daily ATR14; disaster stop = 5x daily ATR14; record-only. When a lagging definition is confirmed, 1-B reverts to its original definition."
+        },
+        "plan_item": {
+          "source": 0,
+          "record_pointer": "/rules/2/plan_item",
+          "match": "EXACT",
+          "text": null,
+          "value": "P3"
+        },
+        "extends_rule": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "KR/US shadow controls",
+          "value": {
+            "rule_id": "RULE.EXIT.SHADOW_CONTROLS.V1",
+            "markets": [
+              "KR",
+              "US"
+            ],
+            "relation": "UNITS_FOR_KR_US"
+          }
+        },
+        "control_1b": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "1-B replaced by release-only",
+          "value": "RELEASE_ONLY"
+        },
+        "time_stop": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "time stop 14 trading days",
+          "value": {
+            "value": 14,
+            "unit": "TRADING_DAYS"
+          }
+        },
+        "partial_take_profit_1r": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "partial take-profit 1R = 3x daily ATR14",
+          "value": {
+            "r_atr_multiple": "3",
+            "atr_period": 14,
+            "bars": "DAILY"
+          }
+        },
+        "disaster_stop": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "disaster stop = 5x daily ATR14",
+          "value": {
+            "atr_multiple": "5",
+            "atr_period": 14,
+            "bars": "DAILY"
+          }
+        },
+        "record_only": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "record-only",
+          "value": true
+        },
+        "revert_condition": {
+          "source": 0,
+          "record_pointer": "/rules/2/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "When a lagging definition is confirmed, 1-B reverts to its original definition",
+          "value": "LAGGING_DEFINITION_CONFIRMED"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "exit",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "amends": null,
+      "amended_by": null,
+      "resolved_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null
+    },
+    {
+      "rule_id": "RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1",
+      "version": 1,
+      "lineage_key": "RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING",
+      "status": "RATIFIED",
+      "title_ko": "미국 개별주 섹터 소속: 판단일 전 최신 SPDR 섹터 ETF 공식 보유 명단, 복수면 최대 비중 ETF, 없으면 UNKNOWN(T2 없음), 섹터 ETF는 자기 섹터",
+      "markets": [
+        "US"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "original_filename": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd",
+          "bytes": 5388
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T00:27:55Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/3/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "US individual stock sector membership = latest official SPDR sector ETF holdings published before the decision date; if held by more than one, the ETF with the largest weight; if in none, UNKNOWN (no T2). A sector ETF maps to its own sector."
+        },
+        "plan_item": {
+          "source": 0,
+          "record_pointer": "/rules/3/plan_item",
+          "match": "EXACT",
+          "text": null,
+          "value": "P4"
+        },
+        "membership_source": {
+          "source": 0,
+          "record_pointer": "/rules/3/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "latest official SPDR sector ETF holdings published before the decision date",
+          "value": {
+            "source": "SPDR_SECTOR_ETF_OFFICIAL_HOLDINGS",
+            "selection": "LATEST_PUBLISHED_BEFORE_DECISION_DATE"
+          }
+        },
+        "multiple_holders": {
+          "source": 0,
+          "record_pointer": "/rules/3/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "if held by more than one, the ETF with the largest weight",
+          "value": "LARGEST_WEIGHT_ETF"
+        },
+        "not_held": {
+          "source": 0,
+          "record_pointer": "/rules/3/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "if in none, UNKNOWN (no T2)",
+          "value": "UNKNOWN_NO_T2"
+        },
+        "sector_etf_self": {
+          "source": 0,
+          "record_pointer": "/rules/3/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "A sector ETF maps to its own sector",
+          "value": "OWN_SECTOR"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "gate",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "amends": null,
+      "amended_by": null,
+      "resolved_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null
+    },
+    {
+      "rule_id": "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1",
+      "version": 1,
+      "lineage_key": "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM",
+      "status": "RATIFIED",
+      "title_ko": "한국 STRESS 조건 확정 전: 한국 인버스 헤지 끔, 한국 STRESS 축소 경로는 고정 입력 재생으로만 검증",
+      "markets": [
+        "KR"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "original_filename": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd",
+          "bytes": 5388
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T00:27:55Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/4/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "Until a KR STRESS condition is confirmed: KR inverse hedge stays off; the KR STRESS reduction path is validated by fixed-input replay only."
+        },
+        "plan_item": {
+          "source": 0,
+          "record_pointer": "/rules/4/plan_item",
+          "match": "EXACT",
+          "text": null,
+          "value": "P5"
+        },
+        "until": {
+          "source": 0,
+          "record_pointer": "/rules/4/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "Until a KR STRESS condition is confirmed",
+          "value": "KR_STRESS_CONDITION_CONFIRMED"
+        },
+        "kr_inverse_hedge": {
+          "source": 0,
+          "record_pointer": "/rules/4/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "KR inverse hedge stays off",
+          "value": "OFF"
+        },
+        "kr_stress_reduction_validation": {
+          "source": 0,
+          "record_pointer": "/rules/4/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "the KR STRESS reduction path is validated by fixed-input replay only",
+          "value": "FIXED_INPUT_REPLAY_ONLY"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "hedge",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "amends": null,
+      "amended_by": null,
+      "resolved_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null
+    },
+    {
+      "rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1",
+      "version": 1,
+      "lineage_key": "RULE.GOVERNANCE.COOLING_OFF",
+      "status": "RATIFIED",
+      "title_ko": "성과 사유 재조정 냉각기간: 새 규칙 버전 효력일부터 한국·미국 20거래일·코인 30일과 최소 표본 재충족일 중 늦은 날까지 제안 금지 (버그·명확화·새 증거·충돌 해결은 막지 않음)",
+      "markets": [
+        "US",
+        "KR",
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "original_filename": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+          "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd",
+          "bytes": 5388
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T00:27:55Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/5/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "Performance-reason (scorecard below standard) re-adjustment proposals are not raised until the later of: KR/US 20 trading days or crypto 30 days from the new rule version's effective date, and the day that rule's minimum sample is refilled with post-effective data. Bug fixes, clarifications, new evidence and conflict resolution are not blocked."
+        },
+        "plan_item": {
+          "source": 0,
+          "record_pointer": "/rules/5/plan_item",
+          "match": "EXACT",
+          "text": null,
+          "value": "P6"
+        },
+        "applies_to": {
+          "source": 0,
+          "record_pointer": "/rules/5/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "Performance-reason (scorecard below standard) re-adjustment proposals",
+          "value": "PERFORMANCE_REASON_READJUSTMENT_PROPOSALS"
+        },
+        "calendar_minimum": {
+          "source": 0,
+          "record_pointer": "/rules/5/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "KR/US 20 trading days or crypto 30 days from the new rule version's effective date",
+          "value": {
+            "KR": {
+              "value": 20,
+              "unit": "TRADING_DAYS"
+            },
+            "US": {
+              "value": 20,
+              "unit": "TRADING_DAYS"
+            },
+            "CRYPTO": {
+              "value": 30,
+              "unit": "DAYS"
+            },
+            "from": "NEW_RULE_VERSION_EFFECTIVE_DATE"
+          }
+        },
+        "sample_condition": {
+          "source": 0,
+          "record_pointer": "/rules/5/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "the day that rule's minimum sample is refilled with post-effective data",
+          "value": "MINIMUM_SAMPLE_REFILLED_WITH_POST_EFFECTIVE_DATA"
+        },
+        "combine": {
+          "source": 0,
+          "record_pointer": "/rules/5/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "not raised until the later of",
+          "value": "LATER_OF"
+        },
+        "not_blocked": {
+          "source": 0,
+          "record_pointer": "/rules/5/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "Bug fixes, clarifications, new evidence and conflict resolution are not blocked",
+          "value": [
+            "BUG_FIX",
+            "CLARIFICATION",
+            "NEW_EVIDENCE",
+            "CONFLICT_RESOLUTION"
+          ]
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "governance",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": [
+        {
+          "rule_id": "RULE.GOVERNANCE.EVIDENCE_GATED.V1",
+          "key_parameter": "cooling_off_period",
+          "record_id": "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915",
+          "sha256": "4e08b945238badfae5f28ad412aa1f7d01a85ea4a0c6e508554a29521877cbcc"
+        }
+      ],
+      "superseded_parts": null,
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "amends": [
+        {
+          "rule_id": "RULE.GOVERNANCE.EVIDENCE_GATED.V1",
+          "relation": "FILLS_CONDITION",
+          "sha256": "4e08b945238badfae5f28ad412aa1f7d01a85ea4a0c6e508554a29521877cbcc",
+          "source": 0,
+          "record_pointer": "/rules/5/amends",
+          "match": "PARSED_FROM_TEXT",
+          "text": "cooling-off period left for later confirmation"
+        }
+      ],
+      "amended_by": null,
+      "resolved_by": null,
+      "implementation_bindings": [],
+      "pending_basis": null
+    },
+    {
+      "rule_id": "RULE.ROTATION.MAX_OBSERVATION_GAP.V1",
+      "version": 1,
+      "lineage_key": "RULE.ROTATION.MAX_OBSERVATION_GAP",
+      "status": "RATIFIED",
+      "title_ko": "로테이션 연속 확인 허용 공백: 코인 2일·미국 4일·한국 7일(달력일), 더 긴 공백은 판정 공백",
+      "markets": [
+        "US",
+        "KR",
+        "CRYPTO"
+      ],
+      "modes": {
+        "PAPER": "APPLIES:INTERNAL_VIRTUAL_PAPER",
+        "REAL": "NOT_AUTHORIZED:REAL_REQUIRES_SEPARATE_DECISION"
+      },
+      "source_records": [
+        {
+          "role": "USER_RATIFICATION",
+          "record_id": "USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_20260915",
+          "repo_path": "evidence/authority/USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_20260915.json",
+          "original_filename": "USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_20260915.json",
+          "sha256": "d65f58c60eb7b78f5e8fa2e054497e17903cf290a517b5b9a246e0419b199903",
+          "bytes": 1560
+        }
+      ],
+      "effective_from": {
+        "source": 0,
+        "record_pointer": "/recorded_at_utc",
+        "utc": "2026-09-15T00:28:45Z",
+        "basis": "UTC_EXACT"
+      },
+      "key_parameters": {
+        "decision": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "EXACT",
+          "text": null,
+          "value": "Maximum observation gap for consecutive confirmation: crypto 2, US 4, KR 7 calendar days. Longer gaps are handled as 판정 공백 per RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1."
+        },
+        "values_match_config": {
+          "source": 0,
+          "record_pointer": "/rules/0/values_match_config",
+          "match": "EXACT",
+          "text": null,
+          "value": "config/rotation_confirmation_policy_v1.json maximum_observation_gap_days (PR #752) — status changes from IMPLEMENTATION_CONFIG_NOT_USER_STATED_NUMBER to USER_RATIFIED; chain_break reset semantics remain superseded for gaps by the interpretation rule (implemented in exit policy layer PR #756)"
+        },
+        "corrects": {
+          "source": 0,
+          "record_pointer": "/corrects",
+          "match": "EXACT",
+          "text": null,
+          "value": "USER_RATIFICATION_ROTATION_INTERPRETATION_OBSERVATION_GAP_20260915.json (ed2ca92d…) mislabelled these numbers as ratified before this record"
+        },
+        "max_gap_days": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "crypto 2, US 4, KR 7 calendar days",
+          "value": {
+            "CRYPTO": 2,
+            "US": 4,
+            "KR": 7,
+            "unit": "CALENDAR_DAYS"
+          }
+        },
+        "longer_gap": {
+          "source": 0,
+          "record_pointer": "/rules/0/decision",
+          "match": "PARSED_FROM_TEXT",
+          "text": "Longer gaps are handled as 판정 공백 per RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1",
+          "value": {
+            "handling": "JUDGMENT_GAP",
+            "rule_id": "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1"
+          }
+        },
+        "label_correction": {
+          "source": 0,
+          "record_pointer": "/corrects",
+          "match": "PARSED_FROM_TEXT",
+          "text": "mislabelled these numbers as ratified before this record",
+          "value": "NUMBERS_NOT_USER_RATIFIED_BEFORE_THIS_RECORD"
+        }
+      },
+      "evidence_level_at_decision": {
+        "level": "NOT_STATED_IN_RECORD"
+      },
+      "review_triggers": null,
+      "trigger_pending_user_confirmation": true,
+      "scorecard_metric_family": "gate",
+      "minimum_sample": null,
+      "supersedes": null,
+      "superseded_by": null,
+      "supersedes_parts": null,
+      "superseded_parts": null,
+      "status_source": {
+        "source": 0,
+        "record_pointer": "/status",
+        "record_value": "RATIFIED"
+      },
+      "amends": [
+        {
+          "rule_id": "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1",
+          "relation": "FILLS_CONDITION",
+          "sha256": "ed2ca92d9b9cfe6b2e912c686f874c62f664fe25b0b20814264a853366c2487a",
+          "source": 0,
+          "record_pointer": "/corrects",
+          "match": "PARSED_FROM_TEXT",
+          "text": "USER_RATIFICATION_ROTATION_INTERPRETATION_OBSERVATION_GAP_20260915.json (ed2ca92d…) mislabelled these numbers as ratified"
         }
       ],
       "amended_by": null,

@@ -950,6 +950,34 @@ def late_older_evidence_dates(market: str, root: Path = ROOT, policy: Optional[d
     return select_append_observations(EXTRACTORS[market](policy, root), committed_as_of_dates(root, market))[1]
 
 
+LATE_EVIDENCE_NOTICE_SCHEMA_VERSION = "rotation_confirmation_late_older_evidence/1"
+
+
+def late_evidence_notice_path(root: Path, market: str) -> Path:
+    return Path(root) / f"data/rotation_confirmation_late_older_evidence_{market.lower()}.json"
+
+
+def late_evidence_notice(market: str, root: Path = ROOT, policy: Optional[dict] = None) -> dict:
+    """Persistent notice of observations excluded because committed packets are preferred.
+
+    No wall-clock field: the content changes only when the excluded set changes.
+    """
+    policy = load_policy(root) if policy is None else policy
+    observations = EXTRACTORS[market](policy, root)
+    late = set(select_append_observations(observations, committed_as_of_dates(root, market))[1])
+    notice = {
+        "schema_version": LATE_EVIDENCE_NOTICE_SCHEMA_VERSION,
+        "market": market,
+        "handling": "COMMITTED_PACKETS_PREFERRED_LATE_OLDER_EVIDENCE_NOT_REPLAYED",
+        "late_older_evidence_not_replayed": [
+            {"as_of_date": o["as_of_date"], "observation_status": o["status"], "sources": o["sources"]}
+            for o in observations if o["as_of_date"] in late
+        ],
+    }
+    notice["payload_sha256"] = payload_sha256(notice)
+    return notice
+
+
 def build_market(market: str, root: Path = ROOT, policy: Optional[dict] = None) -> list:
     if market not in MARKETS:
         _fail("MARKET_UNSUPPORTED", market)
@@ -1082,6 +1110,8 @@ def run(argv=None) -> int:
     build = sub.add_parser("build", help="replay committed evidence and write append-only packets")
     build.add_argument("--market", action="append", choices=MARKETS, required=True)
     build.add_argument("--write", action="store_true")
+    build.add_argument("--no-portal", action="store_true",
+                       help="do not rebuild the shared portal projection (the workflow runs `portal --write` once at the end)")
     build.add_argument("--root", type=Path, default=ROOT)
     verify = sub.add_parser("verify", help="rebuild and compare with committed packets")
     verify.add_argument("--market", action="append", choices=MARKETS)
@@ -1113,7 +1143,14 @@ def run(argv=None) -> int:
     if args.command == "build":
         for market in args.market:
             try:
-                late = late_older_evidence_dates(market, args.root, policy)
+                notice = late_evidence_notice(market, args.root, policy)
+                late = [item["as_of_date"] for item in notice["late_older_evidence_not_replayed"]]
+                if args.write:
+                    notice_path = late_evidence_notice_path(args.root, market)
+                    notice_path.parent.mkdir(parents=True, exist_ok=True)
+                    notice_path.write_bytes(render_json(notice))
+                    if late:
+                        print(f"::warning::late older {market} evidence not replayed: {','.join(late)}", file=sys.stderr)
                 packets = build_market(market, args.root, policy)
                 latest = packets[-1] if packets else None
                 if args.write:
@@ -1129,7 +1166,7 @@ def run(argv=None) -> int:
             except RotationConfirmationError as exc:
                 failed.append(market)
                 print(f"Rotation confirmation failed for {market}: {exc}", file=sys.stderr)
-        if args.write:
+        if args.write and not args.no_portal:
             try:
                 portal = Path(args.root) / PORTAL_RELATIVE_PATH
                 portal.parent.mkdir(parents=True, exist_ok=True)

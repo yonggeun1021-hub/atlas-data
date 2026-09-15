@@ -43,8 +43,7 @@ def position(**overrides):
     return value | overrides
 
 
-def flat_bars(days=20, high="104", low="100", close="102"):
-    start = dt.date(2026, 9, 18)
+def flat_bars(days=20, high="104", low="100", close="102", start=dt.date(2026, 9, 18)):
     bars = []
     for i in range(days):
         day = start + dt.timedelta(days=i)
@@ -125,17 +124,20 @@ class DefinitionTests(unittest.TestCase):
         self.assertEqual(set(row["authority"].values()), {False})
         EXIT.verify_payload_sha(row, "START_SHA")
 
-    def test_kr_us_are_not_defined_never_guessed(self):
+    def test_kr_us_units_from_p3_record(self):
         for market, scope, entity in (("KR", "KOSPI", "KOSPI.SECTOR.18"), ("US", "SPY", "XLK")):
             row = SC.start_shadow_controls(POLICY, position(market=market, rotation_scope_id=scope, rotation_entity_id=entity),
                                            first_fill_price="100", entry_decision_at=ENTRY_DECISION, atr=atr_record())
-            self.assertEqual({c["status"] for c in row["controls"]}, {"NOT_DEFINED"})
-            self.assertTrue(all("P3" in c["reason"] for c in row["controls"]))
-            self.assertIsNone(row["atr14"])
-            self.assertTrue(all(c["levels"] is None for c in row["controls"]))
-            result = evaluate(row, as_of="2026-12-01T00:00:00Z")
-            self.assertEqual({c["status"] for c in result["controls"]}, {"NOT_DEFINED"})
-            self.assertEqual(result["default_exit"], None)
+            by_id = {c["control_id"]: c for c in row["controls"]}
+            self.assertEqual(row["units_ratification"], {
+                "rule_id": "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1", "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+                "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd",
+                "registry_status": "NOT_YET_IN_RULE_REGISTRY_CITED_BY_RECORD"})
+            self.assertEqual(by_id["1-B"]["status"], "DEFINED_EQUALS_DEFAULT_RELEASE_ONLY")
+            self.assertEqual(by_id["TS14"]["levels"]["trading_days"], 14)
+            self.assertEqual(by_id["DS5"]["levels"], {"stop_price": "80"})          # P1 - 5 x daily ATR14
+            self.assertEqual(by_id["PTP1"]["levels"]["limit_price"], "112")         # P1 + 1R, R = 3 x daily ATR14
+            self.assertNotIn("NOT_DEFINED", {c["status"] for c in row["controls"]})
 
     def test_wilder_atr14_matches_study_formula_and_ignores_later_bars(self):
         bars = flat_bars(days=14, high="110", low="100", close="105")
@@ -170,7 +172,7 @@ class MonitoredStopTests(unittest.TestCase):
         leg = ds5["legs"][0]
         self.assertEqual((leg["price"], leg["t_fill"], leg["gap_down"], leg["quantity"]), ("83", at(FIRST_FILL, minutes=150), False, "2"))
         self.assertEqual(leg["stop_minus_fill"], "-3")
-        self.assertEqual(leg["study_v2_gap_primary_reference_price"], "80")
+        self.assertIsNone(leg["study_v2_gap_primary_reference_price"])  # study GAP model is bar-based only
         self.assertEqual(ds5["component"]["trigger"]["observation_id"], "T")
 
     def test_gap_down_fills_at_open_and_stale_is_never_a_fill(self):
@@ -183,6 +185,27 @@ class MonitoredStopTests(unittest.TestCase):
         leg = ds5["legs"][0]
         self.assertEqual((leg["price"], leg["gap_down"], leg["fill_basis"]), ("70", True, "D9_FIRST_ALLOWED_BAR_AFTER_TRIGGER"))
         self.assertEqual(leg["stop_minus_fill"], "10")
+
+    def test_back_to_back_bars_fill_at_next_bar_open_at_trigger_bar_end(self):
+        # B1 [+60m, +120m) crosses the stop; B2 starts exactly at B1's end and is the first price after the trigger
+        obs = regular_snapshots(FIRST_FILL, 6, price="95") + [
+            bar("B1", at(FIRST_FILL, minutes=60), "95", "96", "79"),
+            bar("B2", at(FIRST_FILL, minutes=120), "84", "86", "83"),
+        ]
+        ds5 = control(evaluate(start(), as_of=at(FIRST_FILL, hours=4), observations=obs), "DS5")
+        leg = ds5["legs"][0]
+        self.assertEqual((leg["price"], leg["t_fill"], leg["fill_basis"]), ("84", at(FIRST_FILL, minutes=120), "D9_FIRST_ALLOWED_BAR_AFTER_TRIGGER"))
+        self.assertEqual((leg["gap_down"], leg["stop_minus_fill"]), (False, "-4"))
+        self.assertEqual(leg["study_v2_gap_primary_reference_price"], "80")  # min(stop 80, next open 84)
+        gapped = obs[:-1] + [bar("B2", at(FIRST_FILL, minutes=120), "70", "72", "65")]
+        leg = control(evaluate(start(), as_of=at(FIRST_FILL, hours=4), observations=gapped), "DS5")["legs"][0]
+        self.assertEqual((leg["price"], leg["gap_down"], leg["study_v2_gap_primary_reference_price"]), ("70", True, "70"))
+        # a snapshot captured exactly at the bar end is not strictly after the trigger and is not used
+        snapshot_at_end = regular_snapshots(FIRST_FILL, 1, price="95") + [
+            bar("B1", at(FIRST_FILL, minutes=30), "95", "96", "79"),
+            snap("SAME", at(FIRST_FILL, minutes=90), "88"), snap("NEXT", at(FIRST_FILL, minutes=100), "87")]
+        leg = control(evaluate(start(), as_of=at(FIRST_FILL, hours=2), observations=snapshot_at_end), "DS5")["legs"][0]
+        self.assertEqual(leg["price"], "87")
 
     def test_no_trigger_from_observations_at_or_before_entry(self):
         obs = [snap("PRE", FIRST_FILL, "70"), bar("ENTRYBAR", at(FIRST_FILL, minutes=-6), "100", "101", "60")] + regular_snapshots(FIRST_FILL, 4)
@@ -208,6 +231,78 @@ class MonitoredStopTests(unittest.TestCase):
         obs = [snap("S1", at(FIRST_FILL, minutes=30), "79")]
         ds5 = control(evaluate(start(), as_of=at(FIRST_FILL, minutes=40), observations=obs), "DS5")
         self.assertEqual((ds5["status"], ds5["legs"]), ("TRIGGERED_AWAITING_FIRST_ALLOWED_PRICE", []))
+
+
+def kr_calendar():
+    begin = dt.date(2026, 9, 21)
+    holidays = {"2026-09-25", "2026-10-09"}
+    sessions = {}
+    for i in range(60):
+        day = begin + dt.timedelta(days=i)
+        sessions[day.isoformat()] = "CLOSED" if day.weekday() >= 5 or day.isoformat() in holidays else "OPEN"
+    return {"market": "KR", "source": {"fixture": True}, "sessions": sessions}
+
+
+def kr_bar(oid, kst_start, open_, high, low, freshness="FRESH"):
+    local = dt.datetime.fromisoformat(kst_start).replace(tzinfo=dt.timezone(dt.timedelta(hours=9)))
+    t = EXIT.stamp(local)
+    return {"observation_id": oid, "kind": "BAR", "t_obs": t, "bar_end": at(t, minutes=15), "open": open_, "high": high,
+            "low": low, "freshness": freshness}
+
+
+class KrUsShadowTests(unittest.TestCase):
+    FILL = "2026-09-24T01:00:00Z"  # 10:00 KST Thursday
+
+    def kr_start(self):
+        return SC.start_shadow_controls(POLICY, position(market="KR", symbol="005930", rotation_scope_id="KOSPI",
+                                                         rotation_entity_id="KOSPI.SECTOR.18", first_fill_at=self.FILL),
+                                        first_fill_price="100", entry_decision_at="2026-09-23T22:00:00Z", atr=SC.wilder_atr14(
+                                            POLICY, flat_bars(start=dt.date(2026, 9, 1)), "2026-09-23T22:00:00Z"))
+
+    def evaluate(self, *, as_of, observations=(), snapshots=(), default_fills=(), calendar="default"):
+        return SC.evaluate_shadow_controls(
+            POLICY, self.kr_start(), as_of=as_of, lots=[{"t_fill": self.FILL, "quantity": "10"}],
+            price_observations=list(observations), decision_snapshots=list(snapshots), rotation_packets=[],
+            default_exit_fills=list(default_fills), expected_monitoring_interval_seconds=900,
+            calendar=kr_calendar() if calendar == "default" else calendar)
+
+    def test_ts14_counts_open_sessions_and_fills_in_next_window(self):
+        # OPEN sessions after 09-24 (09-25 holiday): 09-28..10-02 (5), 10-05..10-08 (9, 10-09 holiday), 10-12..10-16 (14)
+        snapshots = [{"snapshot_id": "K1", "captured_at": "2026-10-16T06:19:00Z", "decision_at": "2026-10-16T06:19:30Z", "freshness": "FRESH"},
+                     {"snapshot_id": "K2", "captured_at": "2026-10-16T07:10:00Z", "decision_at": "2026-10-16T07:10:30Z", "freshness": "FRESH"}]
+        obs = [kr_bar("NXT", "2026-10-19T08:30:00", "98", "99", "97"),        # NXT pre-market: never a fill
+               kr_bar("OPEN", "2026-10-19T09:15:00", "97", "98", "96")]
+        ts = next(c for c in self.evaluate(as_of="2026-10-19T01:00:00Z", observations=obs, snapshots=snapshots)["controls"]
+                  if c["control_id"] == "TS14")
+        self.assertEqual((ts["component"]["deadline_session_date"], ts["component"]["deadline_at"]), ("2026-10-16", "2026-10-16T06:20:00Z"))
+        self.assertEqual(ts["component"]["decision_snapshot_id"], "K2")
+        self.assertEqual((ts["status"], ts["legs"][0]["price"], ts["legs"][0]["leg"]), ("CLOSED", "97", "TIME_STOP_14_TRADING_DAYS"))
+        unknown = next(c for c in self.evaluate(as_of="2026-10-19T01:00:00Z", calendar=None)["controls"] if c["control_id"] == "TS14")
+        self.assertEqual((unknown["status"], unknown["reason"]), ("UNKNOWN", "SESSION_CALENDAR_NOT_SUPPLIED"))
+
+    def test_ds5_last_bar_trigger_fills_at_next_session_open_without_overnight_gap(self):
+        obs = [kr_bar(f"B{i}", f"2026-09-24T{10 + i // 4:02d}:{(i % 4) * 15:02d}:00", "100", "101", "99") for i in range(20)]
+        obs += [kr_bar("LAST", "2026-09-24T15:05:00", "90", "91", "79"),       # completes 15:20: stop crossed
+                kr_bar("AFTER", "2026-09-24T15:30:00", "78", "78", "77"),      # after-market: not an allowed price
+                kr_bar("NEXT", "2026-09-28T09:15:00", "75", "76", "74")]       # next OPEN session open (gap)
+        result = self.evaluate(as_of="2026-09-28T00:40:00Z", observations=obs)
+        ds5 = next(c for c in result["controls"] if c["control_id"] == "DS5")
+        leg = ds5["legs"][0]
+        self.assertEqual((ds5["status"], leg["price"], leg["t_fill"], leg["gap_down"]), ("CLOSED", "75", "2026-09-28T00:15:00Z", True))
+        self.assertFalse(ds5["component"]["trigger_in_monitoring_gap"])
+        self.assertEqual([g for g in result["monitoring_gaps"] if g["from"] < "2026-09-28T00:15:00Z" and not g["open_at_as_of"]], [])
+        # an after-market print below the stop alone never triggers
+        quiet = obs[:20] + [kr_bar("AM", "2026-09-24T16:30:00", "70", "71", "60")]
+        ds5 = next(c for c in self.evaluate(as_of="2026-09-24T09:00:00Z", observations=quiet)["controls"] if c["control_id"] == "DS5")
+        self.assertEqual(ds5["component"]["status"], "NOT_TRIGGERED")
+
+    def test_1b_release_only_equals_default_exit(self):
+        exit_fill = {"t_fill": "2026-09-29T00:30:00Z", "quantity": "10", "price": "103", "reason_code": "RELEASE_CONFIRMED"}
+        result = self.evaluate(as_of="2026-09-30T00:00:00Z", default_fills=[exit_fill])
+        lag = next(c for c in result["controls"] if c["control_id"] == "1-B")
+        self.assertEqual((lag["status"], lag["shadow_minus_default_gross_proceeds"], lag["reason"]),
+                         ("CLOSED", "0", "KR_US_1B_RELEASE_ONLY_UNTIL_LAGGING_DEFINITION_CONFIRMED"))
+        self.assertEqual(result["units_ratification"]["rule_id"], "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1")
 
 
 class ComponentTests(unittest.TestCase):

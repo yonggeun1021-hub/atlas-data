@@ -65,6 +65,8 @@ ORIGINAL_RECORD_SHA256 = {
     "USER_RATIFICATION_PAPER_EXECUTION_CONTRACT_D1_D3_D5_D11_20260915.json": "10de02bf98fd4e5776ed77c09daad36de914e03942675cbe960c121e5dbd668c",
     "USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_20260915.json": "6631506766c56793087a9f38360050e28148a40b47871a77514417aef61d3ca2",
     "USER_RATIFICATION_ROTATION_INTERPRETATION_OBSERVATION_GAP_20260915.json": "ed2ca92d9b9cfe6b2e912c686f874c62f664fe25b0b20814264a853366c2487a",
+    "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd",
+    "USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_20260915.json": "d65f58c60eb7b78f5e8fa2e054497e17903cf290a517b5b9a246e0419b199903",
 }
 # Hashes recorded before the CIO timestamp corrections; the corrected files name
 # them in correction_note, so later records that cite them still resolve.
@@ -122,7 +124,7 @@ class CommittedRegistryTests(unittest.TestCase):
         registry = REG.load_registry()
         ids = [row["rule_id"] for row in registry["rules"]]
         self.assertEqual(sorted(ids), sorted(REG.REQUIRED_RULE_IDS))
-        self.assertEqual(len(ids), 41)
+        self.assertEqual(len(ids), 48)
         status = {row["rule_id"]: row["status"] for row in registry["rules"]}
         self.assertEqual({k for k, v in status.items() if v == "PENDING_USER_DECISION"}, PENDING_IDS)
         self.assertEqual({k for k, v in status.items() if v == "RESOLVED"}, UNDECIDED_IDS - PENDING_IDS)
@@ -231,11 +233,28 @@ class CommittedRegistryTests(unittest.TestCase):
         release = _row(registry, "RULE.ROTATION.RELEASE_HANDLING.V1")
         full_sell = _row(registry, "RULE.EXIT.RELEASE_FULL_SELL.V1")
         self.assertIsNone(release["superseded_by"])
+        # Every key parameter still carrying the old held-position wording
+        # (the parsed part, the full rules text and the verbatim sentence) is
+        # a superseded part; only the parsed new-buy stop stays in force.
+        pointer = {"rule_id": full_sell["rule_id"], "record_id": full_sell["source_records"][0]["record_id"],
+                   "sha256": full_sell["source_records"][0]["sha256"]}
         self.assertEqual(release["superseded_parts"],
-                         [{"key_parameter": "held_positions", "superseded_by": {
-                             "rule_id": full_sell["rule_id"], "record_id": full_sell["source_records"][0]["record_id"],
-                             "sha256": full_sell["source_records"][0]["sha256"]}}])
-        self.assertEqual(full_sell["supersedes_parts"][0]["key_parameter"], "held_positions")
+                         [{"key_parameter": key, "superseded_by": pointer}
+                          for key in ("held_positions", "rules_text", "user_sentence")])
+        self.assertEqual([p["key_parameter"] for p in full_sell["supersedes_parts"]],
+                         ["held_positions", "rules_text", "user_sentence"])
+        for key in ("rules_text", "user_sentence"):
+            self.assertIn("손절·익절" if key == "user_sentence" else "stop-loss/take-profit",
+                          release["key_parameters"][key]["text"] or release["key_parameters"][key]["value"])
+            self.assertTrue(REG.part_in_force_at(release, key, "2026-09-14T22:56:59Z", registry))
+            self.assertFalse(REG.part_in_force_at(release, key, "2026-09-14T22:57:00Z", registry))
+        in_force_after = sorted(k for k in release["key_parameters"]
+                                if REG.part_in_force_at(release, k, "2026-09-15T12:00:00Z", registry))
+        for key in in_force_after:
+            blob = json.dumps(release["key_parameters"][key], ensure_ascii=False)
+            self.assertNotIn("stop-loss/take-profit", blob)
+            self.assertNotIn("손절·익절", blob)
+        self.assertIn("on_release_new_buys", in_force_after)
         self.assertIsNone(full_sell["supersedes"])
         self.assertTrue(REG.in_force_at(release, "2026-09-15T12:00:00Z", registry))
         self.assertTrue(REG.part_in_force_at(release, "on_release_new_buys", "2026-09-15T12:00:00Z", registry))
@@ -244,6 +263,34 @@ class CommittedRegistryTests(unittest.TestCase):
         self.assertEqual(release["key_parameters"]["on_release_new_buys"]["value"], "STOP_NEW_BUYS_ONLY")
         ctx = REFS.RegistryContext.load()
         self.assertEqual(REFS.make_rule_ref(ctx, v1["rule_id"], "SIZED_BY")["version"], 1)
+
+    def test_build_plan_p1_p6_and_max_gap_rows(self):
+        registry = _registry()
+        p16 = ORIGINAL_RECORD_SHA256["USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json"]
+        gap_sha = ORIGINAL_RECORD_SHA256["USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_20260915.json"]
+        for rule_id in ("RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1", "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1",
+                        "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1", "RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1",
+                        "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1", "RULE.GOVERNANCE.COOLING_OFF.V1"):
+            row = _row(registry, rule_id)
+            self.assertEqual((row["status"], row["source_records"][0]["sha256"]), ("RATIFIED", p16))
+            self.assertEqual(row["effective_from"]["utc"], "2026-09-15T00:27:55Z")
+        nav = _row(registry, "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1")["key_parameters"]
+        self.assertEqual(nav["staleness"]["value"]["max_business_days_without_new_value"], 10)
+        self.assertEqual(nav["rate_source"]["value"]["series"], "FRED:DEXKOUS")
+        cool = _row(registry, "RULE.GOVERNANCE.COOLING_OFF.V1")
+        self.assertEqual(cool["key_parameters"]["calendar_minimum"]["value"]["CRYPTO"], {"value": 30, "unit": "DAYS"})
+        gov = _row(registry, "RULE.GOVERNANCE.EVIDENCE_GATED.V1")
+        self.assertEqual(gov["amended_by"], [{"rule_id": cool["rule_id"], "sha256": p16}])
+        self.assertTrue(REG.part_in_force_at(gov, "cooling_off_period", "2026-09-15T00:27:54Z", registry))
+        self.assertFalse(REG.part_in_force_at(gov, "cooling_off_period", "2026-09-15T00:27:55Z", registry))
+        self.assertTrue(REG.part_in_force_at(gov, "judge_only_after_minimum_sample", "2026-09-16T00:00:00Z", registry))
+        gap = _row(registry, "RULE.ROTATION.MAX_OBSERVATION_GAP.V1")
+        self.assertEqual((gap["source_records"][0]["sha256"], gap["effective_from"]["utc"]), (gap_sha, "2026-09-15T00:28:45Z"))
+        self.assertEqual(gap["key_parameters"]["max_gap_days"]["value"],
+                         {"CRYPTO": 2, "US": 4, "KR": 7, "unit": "CALENDAR_DAYS"})
+        interp = _row(registry, "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1")
+        self.assertEqual(interp["amended_by"], [{"rule_id": gap["rule_id"], "sha256": gap_sha}])
+        self.assertEqual(_row(registry, "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1")["key_parameters"]["kr_inverse_hedge"]["value"], "OFF")
 
     def test_amendment_links_do_not_change_amended_parameters(self):
         registry = _registry()
@@ -508,6 +555,27 @@ class RegistryTamperTests(TmpRootCase):
         _row(self.registry, "RULE.EXIT.RELEASE_FULL_SELL.V1")["supersedes_parts"][0]["key_parameter"] = "nope"
         self.assertInvalid(self.registry, "PART_SUPERSEDED_PARAMETER_MISSING")
 
+    def test_abbreviated_citation_needs_matching_name_and_prefix(self):
+        # The P1-P6 and max-gap records cite earlier records as "<FILE>.json (<8 hex>…)".
+        cool = _row(self.registry, "RULE.GOVERNANCE.COOLING_OFF.V1")
+        path = self.root / cool["source_records"][0]["repo_path"]
+        original = path.read_bytes()
+        for old, new in ((b"(4e08b945\xe2\x80\xa6)", b"(4e08b946\xe2\x80\xa6)"),
+                         (b"USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json (4e08",
+                          b"USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260916.json (4e08")):
+            self.assertIn(old, original)
+            path.write_bytes(original.replace(old, new))
+            old_sha = cool["source_records"][0]["sha256"]
+            tampered = json.loads(json.dumps(self.registry).replace(old_sha, hashlib.sha256(path.read_bytes()).hexdigest()))
+            for row in tampered["rules"]:
+                for source in row["source_records"]:
+                    if source["repo_path"] == cool["source_records"][0]["repo_path"]:
+                        source["bytes"] = len(path.read_bytes())
+            with self.assertRaises(REG.RuleRegistryError) as ctx:
+                REG.validate_registry(tampered, self.root)
+            self.assertIn("NOT_NAMED_BY_PRIMARY_RECORD", str(ctx.exception))
+        path.write_bytes(original)
+
     def test_amendment_must_name_target_record(self):
         _row(self.registry, "RULE.EXEC.DATA_FAILURE_PRIORITY.V1")["amends"][0]["sha256"] = \
             _row(self.registry, "RULE.US.SESSION_CALENDAR.V1")["source_records"][0]["sha256"]
@@ -530,6 +598,11 @@ class RuleRefsTests(unittest.TestCase):
             tampered = dict(ref, **{field: bad})
             with self.assertRaises(REFS.RuleLineageError):
                 REFS.validate_rule_refs([tampered], self.ctx)
+
+    def test_superseded_by_role_is_additive(self):
+        ref = REFS.make_rule_ref(self.ctx, "RULE.EXIT.RELEASE_FULL_SELL.V1", "SUPERSEDED_BY")
+        self.assertEqual(REFS.validate_rule_refs([ref], self.ctx), [ref])
+        self.assertEqual(REFS.ROLES[:4], ("APPLIED", "BLOCKED_BY", "SIZED_BY", "EXITED_BY"))
 
     def test_unknown_rule_role_and_duplicates_fail(self):
         with self.assertRaises(REFS.RuleLineageError):

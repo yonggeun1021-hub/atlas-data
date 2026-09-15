@@ -91,6 +91,19 @@ class CommittedPacketsPreferredTests(unittest.TestCase):
             RC.write_market("US", preferred, root)
             self.assertEqual({p.parent.name: p.read_bytes() for p in (root / RC.EVIDENCE_RELATIVE_ROOT / "US").glob("*/packet.json")}, committed)
             self.assertEqual(RC.verify_market("US", preferred, root), [])
+            # the exclusion is persisted as a notice file (no wall-clock field, rewritten identically)
+            code, _out, err = run_cli(RC, ["build", "--market", "US", "--write", "--no-portal", "--root", str(root)])
+            self.assertEqual(code, 0)
+            self.assertIn("::warning::late older US evidence not replayed: 2026-09-03", err)
+            notice_path = RC.late_evidence_notice_path(root, "US")
+            notice = json.loads(notice_path.read_text(encoding="utf-8"))
+            self.assertEqual(notice["schema_version"], "rotation_confirmation_late_older_evidence/1")
+            self.assertEqual([(i["as_of_date"], i["sources"][0]["path"]) for i in notice["late_older_evidence_not_replayed"]],
+                             [("2026-09-03", "evidence/free_market_data/derived/2026-09-05/manifest.json")])
+            first_bytes = notice_path.read_bytes()
+            run_cli(RC, ["build", "--market", "US", "--write", "--no-portal", "--root", str(root)])
+            self.assertEqual(notice_path.read_bytes(), first_bytes)
+            self.assertFalse((root / RC.PORTAL_RELATIVE_PATH).exists())  # --no-portal
             # newer evidence still appends on top of the committed chain
             us_manifest(root, "2026-09-08", "2026-09-08", ["XLE"])
             appended = RC.build_market("US", root, POLICY)
@@ -127,7 +140,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_per_market_build_and_push_retry(self):
         self.assertIn("for market in US KR CRYPTO; do", self.run)
-        for command in ("rotation/rotation_confirmation.py build --market \"$market\" --write",
+        for command in ("rotation/rotation_confirmation.py build --market \"$market\" --write --no-portal",
                         "rotation/rotation_confirmation.py verify --market \"$market\"",
                         "rotation/rotation_opportunity_ledger.py build --market \"$market\" --write",
                         "rotation/rotation_opportunity_ledger.py verify --market \"$market\"",
@@ -137,6 +150,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("git pull --rebase origin main && git push origin HEAD:main", self.run)
         self.assertIn("git rebase --abort", self.run)
         self.assertLess(self.run.index("git push origin HEAD:main"), self.run.index('if [ -n "$failed" ]'))
+
+    def test_portal_failure_does_not_block_market_commit_and_notices_are_kept(self):
+        portal = self.run.index("if python3 rotation/rotation_confirmation.py portal --write; then")
+        self.assertIn("portal_failed=1", self.run)
+        self.assertLess(portal, self.run.index('git commit -m "data: rotation confirmation'))
+        self.assertLess(self.run.index("git push origin HEAD:main"), self.run.index('if [ "$portal_failed" -ne 0 ]'))
+        self.assertIn('notice="data/rotation_confirmation_late_older_evidence_$lower.json"', self.run)
+        self.assertLess(self.run.index('git add -- "$notice"'), self.run.index('git commit -m "data: rotation confirmation'))
+        # the per-market clean-up of a failed market never touches the notice file
+        loop = self.run[self.run.index("for market in US KR CRYPTO; do"):self.run.index("done")]
+        self.assertNotIn("late_older_evidence", loop)
 
     def test_no_cron_no_secret_and_pinned_sources_untouched(self):
         triggers = self.workflow.get("on", self.workflow.get(True))

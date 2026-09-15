@@ -9,7 +9,7 @@ blocked, sized or exited a decision.  It never computes a decision itself.
 
     {"rule_id", "version", "registry_sha256", "source_record_sha256", "role"}
 
-* ``role`` is one of APPLIED | BLOCKED_BY | SIZED_BY | EXITED_BY;
+* ``role`` is one of APPLIED | BLOCKED_BY | SIZED_BY | EXITED_BY | SUPERSEDED_BY;
 * ``version`` and ``source_record_sha256`` must equal the registry row;
 * ``registry_sha256`` is the sha256 of the exact registry file bytes;
 * the canonical list is sorted by (rule_id, role) with no duplicate pair.
@@ -48,7 +48,11 @@ if str(ROOT) not in sys.path:
 from governance import rule_registry as REGISTRY  # noqa: E402
 
 
-ROLES = ("APPLIED", "BLOCKED_BY", "SIZED_BY", "EXITED_BY")
+# SUPERSEDED_BY (additive, 2026-09-15): cites the successor rule when a
+# consumer displays wording that a later rule replaced (e.g. PR #756 overlays
+# the rotation policy's old held-position action with
+# RULE.EXIT.RELEASE_FULL_SELL.V1).  It never marks a decision as applied.
+ROLES = ("APPLIED", "BLOCKED_BY", "SIZED_BY", "EXITED_BY", "SUPERSEDED_BY")
 EVENT_TYPES = ("DECISION", "BLOCK", "ORDER", "FILL", "EXIT")
 EVENT_SCHEMA_VERSION = "rule_lineage_event/1"
 SIDECAR_SCHEMA_VERSION = "rule_lineage_sidecar/1"
