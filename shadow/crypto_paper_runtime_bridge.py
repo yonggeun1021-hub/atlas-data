@@ -1593,7 +1593,8 @@ def validate_runtime_request(
 #
 # Pure and offline, like the rest of this module.
 
-V4_REQUEST_EXTRA_FIELDS = frozenset({"session_budget_record", "sell_requests", "wiring"})
+V4_REQUEST_EXTRA_FIELDS = frozenset({"session_budget_record", "sell_requests", "cancel_requests", "wiring"})
+V4_CANCEL_ROW_FIELDS = frozenset({"market", "order_id", "exit_intent_id", "reason_code"})
 V4_REQUEST_FIELDS = REQUEST_FIELDS | V4_REQUEST_EXTRA_FIELDS
 V4_SOURCE_INPUT_FIELDS = frozenset({
     "decision", "public_code_commit_sha", "observation_root", "observation_commit_sha",
@@ -1670,9 +1671,19 @@ def _walk(levels: list, *, side: str, quantity: Fraction) -> tuple:
     return gross, limit
 
 
+def crypto_quantity_decimal_places() -> int:
+    """Crypto order quantity step (canon 2-2 allocation step 4: coin quantities
+    at 8 decimal places), carried by config/crypto_paper_wiring_v2.json."""
+    value = DECISION.load_wiring_config()["cio_interpretations"]["quantity_step"]["decimal_places"]
+    if type(value) is not int or not 0 <= value <= SIMULATOR.load_contract()["decimal_scale"]:
+        raise CryptoPaperRuntimeBridgeError("QUANTITY_DECIMAL_PLACES_INVALID")
+    return value
+
+
 def marketable_limit_sizing(
     snapshot: dict, *, side: str, fee_rate: str, queue_fraction: str, threshold_bp: int,
     budget_krw: Fraction | None = None, max_quantity: Fraction | None = None,
+    quantity_decimal_places: int | None = None,
 ) -> dict:
     """Largest quantity on the decision snapshot book whose consumption VWAP
     stays within ``threshold_bp`` of the best price, capped by the budget
@@ -1680,10 +1691,14 @@ def marketable_limit_sizing(
     the limit price is the worst level that quantity needs.
 
     Level capacity is floor(level quantity x queue_fraction) at the simulator
-    decimal scale, exactly as the simulator fills.
+    decimal scale, exactly as the simulator fills.  The order quantity is
+    floored to ``quantity_decimal_places`` (default: the crypto quantity step);
+    a SELL whose whole remaining quantity fits the bounds sells it exactly, so
+    no sub-step remainder is left behind.
     """
     checked = SIMULATOR.validate_snapshot(snapshot)
-    scale = SIMULATOR.load_contract()["decimal_scale"]
+    capacity_scale = SIMULATOR.load_contract()["decimal_scale"]
+    scale = crypto_quantity_decimal_places() if quantity_decimal_places is None else quantity_decimal_places
     if side not in ("BUY", "SELL"):
         raise CryptoPaperRuntimeBridgeError("SIZING_SIDE_INVALID")
     if (side == "BUY") == (budget_krw is None):
@@ -1692,7 +1707,7 @@ def marketable_limit_sizing(
     queue = Fraction(Decimal(_format_decimal(queue_fraction, "SIZING_QUEUE_INVALID", positive=True)))
     raw_levels = checked["ask_levels"] if side == "BUY" else checked["bid_levels"]
     levels = [
-        (Fraction(Decimal(row["price"])), _floor_scale(Fraction(Decimal(row["quantity"])) * queue, scale))
+        (Fraction(Decimal(row["price"])), _floor_scale(Fraction(Decimal(row["quantity"])) * queue, capacity_scale))
         for row in raw_levels
     ]
     best = levels[0][0]
@@ -1719,6 +1734,8 @@ def marketable_limit_sizing(
             gross += price * take
             if take < capacity:
                 break
+        if side == "SELL" and max_quantity is not None and filled == max_quantity:
+            return filled
         return _floor_scale(filled, scale)
 
     unbounded = largest(False)
@@ -1727,8 +1744,8 @@ def marketable_limit_sizing(
     reasons = []
     if quantity < unbounded:
         reasons.append("QUANTITY_REDUCED_ACTUAL_NOTIONAL_SLIPPAGE_ABOVE_THRESHOLD")
-    book_depth = _floor_scale(sum((capacity for _price, capacity in levels), Fraction(0)), scale)
-    if quantity == book_depth and quantity > 0:
+    book_depth = sum((capacity for _price, capacity in levels), Fraction(0))
+    if quantity > 0 and book_depth - quantity < Fraction(1, 10 ** scale):
         reasons.append("QUANTITY_LIMITED_BY_DECISION_SNAPSHOT_DEPTH")
     if quantity == 0:
         reasons.append("QUANTITY_ZERO")
@@ -1742,8 +1759,9 @@ def marketable_limit_sizing(
         "threshold_bp": threshold_bp,
         "best_price": _format_decimal(Decimal(best.numerator) / Decimal(best.denominator), "SIZING_PRICE_INVALID"),
         "slippage_bound_price": _fraction_text(bound),
-        "quantity": _decimal_text_exact(quantity, scale),
-        "quantity_without_slippage_bound": _decimal_text_exact(unbounded, scale),
+        "quantity": _decimal_text_exact(quantity, capacity_scale),
+        "quantity_without_slippage_bound": _decimal_text_exact(unbounded, capacity_scale),
+        "quantity_decimal_places": scale,
         "limit_price": None if limit is None else _format_decimal(
             Decimal(limit.numerator) / Decimal(limit.denominator), "SIZING_PRICE_INVALID",
         ),
@@ -1821,12 +1839,13 @@ def _normalize_exit_intents(value: object) -> list | None:
     return sorted(normalized, key=lambda row: row["intent"]["symbol"])
 
 
-def _nav_snapshot_from_account(checked_account: dict, intent_by_order_id: dict) -> tuple:
+def _nav_snapshot_from_account(checked_account: dict, intent_by_order_id: dict, *, excluded_order_ids=frozenset()) -> tuple:
     """Crypto-ledger NAV snapshot for the session budget (build plan 2-3 principle 4)."""
     blockers = []
     reservations = []
     for order in checked_account["orders"]:
-        if order["status"] not in {"OPEN", "PARTIALLY_FILLED"} or order["side"] != "BUY":
+        if order["status"] not in {"OPEN", "PARTIALLY_FILLED"} or order["side"] != "BUY" \
+                or order["order_id"] in excluded_order_ids:
             continue
         intent = intent_by_order_id.get(order["order_id"])
         if intent is None:
@@ -1859,28 +1878,54 @@ def _nav_snapshot_from_account(checked_account: dict, intent_by_order_id: dict) 
     return snapshot, blockers
 
 
-def _exit_sell_requests(
-    decision: dict, *, exit_intents: list, checked_account: dict, config: dict,
-    threshold_bp: int, regime_status: str, expires_at: str, source_root: Path,
+def sell_order_valid_before(generated_at: str) -> str:
+    """Exit sells are valid through the next decision slot only.
+
+    Decision slots follow the realtime capture schedule
+    (``DECISION.SCHEDULED_SLOT_MINUTES``): a sell issued in slot N can be matched
+    by the capture of slot N+1 and expires at the end of that slot, so the
+    decision after it re-sizes the remainder on a fresh book instead of leaving
+    a stale limit open until the next 07:00Z.
+    """
+    slot = dt.timedelta(minutes=DECISION.SCHEDULED_SLOT_MINUTES)
+    start = DECISION._floor_to_schedule_slot(_parse_utc(generated_at, "DECISION_GENERATED_AT_INVALID"))
+    return (start + 2 * slot).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _exit_orders(
+    decision: dict, *, exit_intents: list, checked_account: dict, intent_by_order_id: dict,
+    config: dict, threshold_bp: int, regime_status: str, source_root: Path,
 ) -> tuple:
-    requests, blockers, stopped_markets = [], [], set()
+    """SELL requests for open exit intents and cancel requests for the open
+    buys in those markets (canon 1-4: open buy remainders are cancelled before
+    the exit order)."""
+    requests, cancels, blockers, stopped_markets = [], [], [], set()
     positions = {row["market"]: row for row in checked_account["positions"]}
-    open_sells = {
-        order["market"] for order in checked_account["orders"]
-        if order["status"] in {"OPEN", "PARTIALLY_FILLED"} and order["side"] == "SELL"
-    }
     generated = decision["generated_at"]
+    open_orders = [order for order in checked_account["orders"] if order["status"] in {"OPEN", "PARTIALLY_FILLED"}]
     for row in exit_intents:
         intent = row["intent"]
         market = intent["symbol"]
         stopped_markets.add(market)
         if intent["timestamps"]["t_dec"] > generated:
             raise CryptoPaperRuntimeBridgeError(f"EXIT_INTENT_DECIDED_AFTER_DECISION:{market}")
+        for order in open_orders:
+            if order["market"] == market and order["side"] == "BUY":
+                cancels.append({
+                    "market": market, "order_id": order["order_id"], "exit_intent_id": intent["intent_id"],
+                    "reason_code": "OPEN_BUY_CANCELLED_BEFORE_EXIT_ORDER",
+                })
         held = positions.get(market)
         if held is None or Decimal(held["quantity"]) < Decimal(row["remaining_quantity"]):
             blockers.append(f"EXIT_INTENT_POSITION_QUANTITY_MISMATCH:{market}")
             continue
-        if market in open_sells:
+        live_sells = [
+            order for order in open_orders
+            if order["market"] == market and order["side"] == "SELL"
+            and _parse_utc(intent_by_order_id[order["order_id"]]["expires_at"], "OPEN_ORDER_EXPIRY_INVALID")
+            > _parse_utc(generated, "DECISION_GENERATED_AT_INVALID")
+        ]
+        if live_sells:
             blockers.append(f"EXIT_SELL_ORDER_ALREADY_OPEN:{market}")
             continue
         try:
@@ -1903,7 +1948,7 @@ def _exit_sell_requests(
             market=market, side="SELL", order_type="LIMIT",
             quantity=sizing["quantity"], limit_price=sizing["limit_price"],
             fee_rate=config["fee_rate"], queue_fraction=config["queue_fraction"],
-            submitted_at=generated, expires_at=expires_at,
+            submitted_at=generated, expires_at=sell_order_valid_before(generated),
             market_regime_status=regime_status,
             source_plan_ref=f"public://paper-exit-intent/{intent['intent_id']}",
             source_plan_sha256=intent["payload_sha256"],
@@ -1914,7 +1959,137 @@ def _exit_sell_requests(
             "market": market, "exit_intent_id": intent["intent_id"], "exit_reason_code": intent["reason_code"],
             "intent": order, "source_snapshot": snapshot, "execution_sizing": sizing,
         })
-    return requests, blockers, stopped_markets
+    return requests, sorted(cancels, key=lambda row: row["order_id"]), blockers, stopped_markets
+
+
+def _buy_side(
+    decision: dict, *, promotion: dict, regime: str, regime_status: str, view: dict, core, session_id: str,
+    checked_account: dict, config: dict, envelope: dict, recorded_session_budget: dict | None, fills: list,
+    normalized_keys: list, exit_markets: set, excluded_order_ids: set, intent_by_order_id: dict,
+    slippage: dict, source_root: Path,
+) -> dict:
+    budget_module = _v4_modules()["BUDGET"]
+    generated = decision["generated_at"]
+    result = {"eligibility": None, "record": None, "requests": [], "blockers": [],
+              "allocation_blocked": False, "reservation_blocked": False, "market_blocked": False, "reused": False}
+    blockers = result["blockers"]
+    common = {
+        "evaluation_as_of": promotion["evaluation_as_of"], "decision_at_utc": generated,
+        "decision_packet_id": decision["generation_id"], "known_idempotency_keys": normalized_keys,
+        "position_fills": fills, "fee_rate": config["fee_rate"],
+    }
+    decision_states = {row["market"]: row["p5_08"]["promotion_state"] for row in decision["candidates"]}
+    for row in promotion["candidates"]:
+        if decision_states.get(row["market"]) != row["promotion_state"]:
+            raise CryptoPaperRuntimeBridgeError(f"PROMOTION_REBUILD_INCONSISTENT_WITH_DECISION:{row['market']}")
+    phase_one = ELIGIBILITY.build_eligibility_packet_v3(promotion, **common)
+    result["eligibility"] = phase_one
+    books = {}
+    for row in phase_one["candidates"]:
+        if row["eligibility_state"] != ELIGIBILITY.STATE_WAIT:
+            continue
+        market = row["market"]
+        blocker = _per_market_entry_blocker(view, market)
+        if blocker is None and market in exit_markets:
+            blocker = f"NEW_BUY_STOPPED_BY_OPEN_EXIT_INTENT:{market}"
+        if blocker is not None:
+            result["market_blocked"] = True
+            blockers.append(blocker)
+            continue
+        try:
+            books[market] = orderbook_snapshot(decision, market=market, observation_root=source_root, per_market=True)
+        except MarketEvidenceUnavailableError as exc:
+            result["market_blocked"] = True
+            blockers.append(f"ENTRY_SNAPSHOT_UNAVAILABLE:{market}:{exc}")
+    record = None
+    if recorded_session_budget is not None:
+        recorded = _core_call(budget_module.validate_session_budget_record, copy.deepcopy(recorded_session_budget))
+        if recorded["key"]["market"] != "CRYPTO" or recorded["key"]["session_id"] != session_id:
+            raise CryptoPaperRuntimeBridgeError("RECORDED_SESSION_BUDGET_NOT_THIS_SESSION")
+        if recorded["inputs"]["envelope"]["markets"]["CRYPTO"]["confirmed_state"] != regime:
+            raise CryptoPaperRuntimeBridgeError("RECORDED_SESSION_BUDGET_STATE_NOT_DECISION_REGIME")
+        record = recorded
+        result["record"] = recorded
+        result["reused"] = True
+        if recorded["decision_at_utc"] != generated:
+            result["allocation_blocked"] = True
+            blockers.append(f"SESSION_BUDGET_ALREADY_ALLOCATED:{session_id}")
+            return result
+        # Same decision re-run (restart): the recorded allocation is reused
+        # verbatim; lines whose idempotency key is already known are BLOCKED by
+        # the duplicate guard, the rest are (re)submitted.
+    elif books:
+        if envelope["markets"]["CRYPTO"]["confirmed_state"] != regime:
+            raise CryptoPaperRuntimeBridgeError("ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME")
+        nav_snapshot, nav_blockers = _nav_snapshot_from_account(
+            checked_account, intent_by_order_id, excluded_order_ids=excluded_order_ids,
+        )
+        if nav_blockers:
+            blockers.extend(nav_blockers)
+            result["reservation_blocked"] = True
+            return result
+        places = crypto_quantity_decimal_places()
+        candidates = [
+            {
+                "instrument": market,
+                "avg_traded_value": floor_row["krw_30d_avg_turnover"],
+                "adv_window": "30_DAYS",
+                "adv_source": "decision.candidates.realtime_liquidity_floor.krw_30d_avg_turnover",
+                "limit_price": books[market]["ask_levels"][0]["price"],
+                "quantity_step": _fraction_text(Fraction(1, 10 ** places)),
+                "fee_rate": config["fee_rate"],
+            }
+            for market, floor_row in sorted(
+                (row["market"], row["realtime_liquidity_floor"]) for row in decision["candidates"]
+                if row["market"] in books
+            )
+        ]
+        record = _core_call(
+            budget_module.build_session_budget_record, core, market="CRYPTO", session_id=session_id,
+            decision_at_utc=generated, nav_snapshot=nav_snapshot, envelope=envelope, candidates=candidates,
+        )
+        result["record"] = record
+    if record is None:
+        return result
+    eligibility = ELIGIBILITY.build_eligibility_packet_v3(promotion, **common, session_budget_record=record)
+    result["eligibility"] = eligibility
+    for row in eligibility["candidates"]:
+        market = row["market"]
+        if row["eligibility_state"] != ELIGIBILITY.STATE_PAPER_BUY_ELIGIBLE:
+            if market in books and row["eligibility_state"] == ELIGIBILITY.STATE_WAIT:
+                blockers.append(f"SESSION_BUDGET_NO_QUANTITY:{market}")
+            continue
+        if market not in books:
+            blockers.append(f"ENTRY_SNAPSHOT_NOT_AVAILABLE_FOR_RECORDED_LINE:{market}")
+            continue
+        draft = row["order_draft"]
+        sizing = marketable_limit_sizing(
+            books[market], side="BUY", fee_rate=config["fee_rate"], queue_fraction=config["queue_fraction"],
+            threshold_bp=slippage["threshold_bp"], budget_krw=Fraction(draft["allocated_krw"]),
+        )
+        if sizing["quantity"] == "0":
+            blockers.append(f"ORDER_QUANTITY_ZERO_AFTER_SLIPPAGE_LIMIT:{market}")
+            continue
+        guard = draft["duplicate_guard_key"]
+        intent = SIMULATOR.build_intent(
+            order_id=f"PAPER.BUY.{market}.{hashlib.sha256(guard.encode()).hexdigest()[:24].upper()}",
+            idempotency_key=guard,
+            market=market, side="BUY", order_type="LIMIT",
+            quantity=sizing["quantity"], limit_price=sizing["limit_price"],
+            fee_rate=config["fee_rate"], queue_fraction=config["queue_fraction"],
+            submitted_at=generated, expires_at=draft["expires_at"],
+            market_regime_status=regime_status,
+            source_plan_ref=f"public://crypto-paper-decision/{decision['generation_id']}",
+            source_plan_sha256=decision["payload_sha256"],
+            source_evidence_ref=books[market]["source_ref"],
+            source_evidence_sha256=books[market]["source_sha256"],
+        )
+        result["requests"].append({
+            "market": market, "planned_loss": copy.deepcopy(draft["planned_loss"]),
+            "order_draft": copy.deepcopy(draft), "intent": intent,
+            "source_snapshot": books[market], "execution_sizing": sizing,
+        })
+    return result
 
 
 def _derive_runtime_request_v4(
@@ -1975,23 +2150,36 @@ def _derive_runtime_request_v4(
     promotion = _promotion_packet_v4(decision, observation_root=source_root)
     regime = effective_market_regime(promotion) if promotion is not None else DECISION.UNKNOWN
     regime_status = simulator_market_regime_status(regime)
-    eligibility = None
-    record = None
-    requests, sell_requests = [], []
-    allocation_blocked = market_blocked = reservation_blocked = False
+    intent_by_order_id = (
+        {
+            event["order_id"]: event["payload"]["intent"]
+            for event in checked_account["source_ledger"]["events"]
+            if event["event_type"] == "ORDER_SUBMITTED"
+        }
+        if checked_account is not None else {}
+    )
+    sell_requests, cancel_requests, exit_markets = [], [], set()
+    if checked_account is not None and config is not None and exits is not None:
+        sell_requests, cancel_requests, exit_blockers, exit_markets = _exit_orders(
+            decision, exit_intents=exits, checked_account=checked_account, intent_by_order_id=intent_by_order_id,
+            config=config, threshold_bp=slippage["threshold_bp"], regime_status=regime_status,
+            source_root=source_root,
+        )
+        blockers.extend(exit_blockers)
+        cancelled = {row["order_id"] for row in cancel_requests}
+        if cancelled:
+            # A buy remainder being cancelled for an exit is neither matched nor reserved.
+            match_snapshots = [
+                dict(row, order_ids=[order_id for order_id in row["order_ids"] if order_id not in cancelled])
+                for row in match_snapshots
+            ]
+            match_snapshots = [row for row in match_snapshots if row["order_ids"]]
     nav_unknown_markets = (
         sorted(row["market"] for row in checked_account["positions"] if row.get("mark_status") == "UNKNOWN")
         if checked_account is not None and checked_account["total_nav"] is None else []
     )
-    exit_markets = set()
-    if checked_account is not None and config is not None and exits is not None:
-        sell_requests, exit_blockers, exit_markets = _exit_sell_requests(
-            decision, exit_intents=exits, checked_account=checked_account, config=config,
-            threshold_bp=slippage["threshold_bp"], regime_status=regime_status,
-            expires_at=bounds["order_valid_before_utc"], source_root=source_root,
-        )
-        blockers.extend(exit_blockers)
-
+    buy = {"eligibility": None, "record": None, "requests": [], "blockers": [],
+           "allocation_blocked": False, "reservation_blocked": False, "market_blocked": False, "reused": False}
     if promotion is None:
         blockers.append("PROMOTION_PACKET_UNAVAILABLE")
     elif missing:
@@ -1999,114 +2187,26 @@ def _derive_runtime_request_v4(
     elif nav_unknown_markets:
         blockers.append("PAPER_ACCOUNT_NAV_UNKNOWN:" + ",".join(nav_unknown_markets))
     else:
-        common = {
-            "evaluation_as_of": promotion["evaluation_as_of"], "decision_at_utc": generated,
-            "decision_packet_id": decision["generation_id"], "known_idempotency_keys": normalized_keys,
-            "position_fills": fills, "fee_rate": config["fee_rate"],
-        }
-        phase_one = ELIGIBILITY.build_eligibility_packet_v3(promotion, **common)
-        decision_states = {row["market"]: row["p5_08"]["promotion_state"] for row in decision["candidates"]}
-        for row in promotion["candidates"]:
-            if decision_states.get(row["market"]) != row["promotion_state"]:
-                raise CryptoPaperRuntimeBridgeError(f"PROMOTION_REBUILD_INCONSISTENT_WITH_DECISION:{row['market']}")
-        eligibility = phase_one
-        books = {}
-        for row in phase_one["candidates"]:
-            if row["eligibility_state"] != ELIGIBILITY.STATE_WAIT:
-                continue
-            market = row["market"]
-            blocker = _per_market_entry_blocker(view, market)
-            if blocker is None and market in exit_markets:
-                blocker = f"NEW_BUY_STOPPED_BY_OPEN_EXIT_INTENT:{market}"
-            if blocker is not None:
-                market_blocked = True
-                blockers.append(blocker)
-                continue
-            try:
-                books[market] = orderbook_snapshot(decision, market=market, observation_root=source_root, per_market=True)
-            except MarketEvidenceUnavailableError as exc:
-                market_blocked = True
-                blockers.append(f"ENTRY_SNAPSHOT_UNAVAILABLE:{market}:{exc}")
-        intent_by_order_id = {
-            event["order_id"]: event["payload"]["intent"]
-            for event in checked_account["source_ledger"]["events"]
-            if event["event_type"] == "ORDER_SUBMITTED"
-        }
-        if recorded_session_budget is not None:
-            recorded = _core_call(budget_module.validate_session_budget_record, copy.deepcopy(recorded_session_budget))
-            if recorded["key"]["market"] != "CRYPTO" or recorded["key"]["session_id"] != session_id:
-                raise CryptoPaperRuntimeBridgeError("RECORDED_SESSION_BUDGET_NOT_THIS_SESSION")
-            if recorded["decision_at_utc"] != generated:
-                allocation_blocked = True
-                record = recorded
-                blockers.append(f"SESSION_BUDGET_ALREADY_ALLOCATED:{session_id}")
-        if not allocation_blocked and books:
-            nav_snapshot, nav_blockers = _nav_snapshot_from_account(checked_account, intent_by_order_id)
-            if nav_blockers:
-                blockers.extend(nav_blockers)
-                reservation_blocked = True
-            else:
-                candidates = [
-                    {
-                        "instrument": market,
-                        "avg_traded_value": view_row["krw_30d_avg_turnover"],
-                        "adv_window": "30_DAYS",
-                        "adv_source": "decision.candidates.realtime_liquidity_floor.krw_30d_avg_turnover",
-                        "limit_price": books[market]["ask_levels"][0]["price"],
-                        "quantity_step": _fraction_text(Fraction(1, 10 ** SIMULATOR.load_contract()["decimal_scale"])),
-                        "fee_rate": config["fee_rate"],
-                    }
-                    for market, view_row in sorted(
-                        (row["market"], row["realtime_liquidity_floor"]) for row in decision["candidates"]
-                        if row["market"] in books
-                    )
-                ]
-                record = _core_call(
-                    budget_module.build_session_budget_record, core, market="CRYPTO", session_id=session_id,
-                    decision_at_utc=generated, nav_snapshot=nav_snapshot, envelope=envelope, candidates=candidates,
-                )
-                if envelope["markets"]["CRYPTO"]["confirmed_state"] != regime:
-                    raise CryptoPaperRuntimeBridgeError("ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME")
-                if recorded_session_budget is not None and canonical_json(record) != canonical_json(recorded_session_budget):
-                    raise CryptoPaperRuntimeBridgeError("RECORDED_SESSION_BUDGET_CONFLICT")
-                eligibility = ELIGIBILITY.build_eligibility_packet_v3(
-                    promotion, **common, session_budget_record=record,
-                )
-        for row in eligibility["candidates"] if not (allocation_blocked or reservation_blocked) else []:
-            if row["eligibility_state"] != ELIGIBILITY.STATE_PAPER_BUY_ELIGIBLE:
-                if row["market"] in books and row["eligibility_state"] == ELIGIBILITY.STATE_WAIT:
-                    blockers.append(f"SESSION_BUDGET_NO_QUANTITY:{row['market']}")
-                continue
-            market = row["market"]
-            draft = row["order_draft"]
-            sizing = marketable_limit_sizing(
-                books[market], side="BUY", fee_rate=config["fee_rate"], queue_fraction=config["queue_fraction"],
-                threshold_bp=slippage["threshold_bp"], budget_krw=Fraction(draft["allocated_krw"]),
+        try:
+            buy = _buy_side(
+                decision, promotion=promotion, regime=regime, regime_status=regime_status, view=view,
+                core=core, session_id=session_id, checked_account=checked_account, config=config,
+                envelope=envelope, recorded_session_budget=recorded_session_budget, fills=fills,
+                normalized_keys=normalized_keys, exit_markets=exit_markets,
+                excluded_order_ids={row["order_id"] for row in cancel_requests},
+                intent_by_order_id=intent_by_order_id, slippage=slippage, source_root=source_root,
             )
-            if sizing["quantity"] == "0":
-                blockers.append(f"ORDER_QUANTITY_ZERO_AFTER_SLIPPAGE_LIMIT:{market}")
-                continue
-            guard = draft["duplicate_guard_key"]
-            intent = SIMULATOR.build_intent(
-                order_id=f"PAPER.BUY.{market}.{hashlib.sha256(guard.encode()).hexdigest()[:24].upper()}",
-                idempotency_key=guard,
-                market=market, side="BUY", order_type="LIMIT",
-                quantity=sizing["quantity"], limit_price=sizing["limit_price"],
-                fee_rate=config["fee_rate"], queue_fraction=config["queue_fraction"],
-                submitted_at=generated, expires_at=draft["expires_at"],
-                market_regime_status=regime_status,
-                source_plan_ref=f"public://crypto-paper-decision/{decision['generation_id']}",
-                source_plan_sha256=decision["payload_sha256"],
-                source_evidence_ref=books[market]["source_ref"],
-                source_evidence_sha256=books[market]["source_sha256"],
-            )
-            requests.append({
-                "market": market, "planned_loss": copy.deepcopy(draft["planned_loss"]),
-                "order_draft": copy.deepcopy(draft), "intent": intent,
-                "source_snapshot": books[market], "execution_sizing": sizing,
-            })
+        except CryptoPaperRuntimeBridgeError as exc:
+            if not sell_requests:
+                raise
+            # Exits still go out when the buy side cannot be derived.
+            buy["blockers"] = [f"BUY_SIDE_BLOCKED_EXITS_PROCEED:{exc}"]
+    blockers.extend(buy["blockers"])
+    requests = buy["requests"]
+    eligibility = buy["eligibility"]
+    record = buy["record"]
 
-    if requests or sell_requests:
+    if requests or sell_requests or cancel_requests:
         status = "PAPER_INTENTS_READY"
     elif match_snapshots:
         status = "PAPER_MATCHES_READY"
@@ -2116,11 +2216,11 @@ def _derive_runtime_request_v4(
         status = "WAIT_RUNTIME_INPUTS_MISSING"
     elif nav_unknown_markets:
         status = "WAIT_ACCOUNT_NAV_UNKNOWN"
-    elif allocation_blocked:
+    elif buy["allocation_blocked"]:
         status = "WAIT_SESSION_BUDGET_ALLOCATED"
-    elif reservation_blocked:
+    elif buy["reservation_blocked"]:
         status = "WAIT_OPEN_ORDER_RESERVATION_UNKNOWN"
-    elif market_blocked:
+    elif buy["market_blocked"]:
         status = "WAIT_MARKET_EVIDENCE_OR_CAP"
     else:
         status = "NO_ELIGIBLE_CANDIDATE"
@@ -2138,6 +2238,7 @@ def _derive_runtime_request_v4(
         "eligibility": eligibility,
         "requests": requests,
         "sell_requests": sell_requests,
+        "cancel_requests": cancel_requests,
         "match_snapshots": match_snapshots,
         "session_budget_record": record,
         "blockers": sorted(blockers),
@@ -2156,7 +2257,9 @@ def _derive_runtime_request_v4(
             "order_price_rule": ORDER_PRICE_RULE,
             "crypto_slippage_rule": slippage,
             "runtime_config_order_fields_superseded_by": RULE_QUALITY_LAYERS,
-            "session_budget_record_reused": bool(allocation_blocked and record is not None),
+            "session_budget_record_reused": buy["reused"],
+            "sell_order_valid_before_utc": sell_order_valid_before(generated),
+            "quantity_decimal_places": crypto_quantity_decimal_places(),
         },
         "source_inputs": {
             "decision": copy.deepcopy(decision),
@@ -2213,7 +2316,12 @@ def _validate_runtime_request_v4(
         intent = SIMULATOR.validate_intent(row["intent"])
         if intent["market"] != row["market"] or intent["side"] != "SELL":
             raise CryptoPaperRuntimeBridgeError(f"RUNTIME_REQUEST_SELL_ROW_MARKET_MISMATCH:{index}")
-    if value["status"] == "PAPER_INTENTS_READY" and not (value["requests"] or value["sell_requests"]):
+    for index, row in enumerate(value.get("cancel_requests") or []):
+        if not isinstance(row, dict) or set(row) != V4_CANCEL_ROW_FIELDS:
+            raise CryptoPaperRuntimeBridgeError(f"RUNTIME_REQUEST_CANCEL_ROW_FIELDS_INVALID:{index}")
+    if value["status"] == "PAPER_INTENTS_READY" and not (
+        value["requests"] or value["sell_requests"] or value["cancel_requests"]
+    ):
         raise CryptoPaperRuntimeBridgeError("RUNTIME_REQUEST_READY_WITHOUT_INTENTS")
     source_inputs = value.get("source_inputs")
     if not isinstance(source_inputs, dict) or set(source_inputs) != V4_SOURCE_INPUT_FIELDS:

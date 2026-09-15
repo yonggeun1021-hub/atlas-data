@@ -1997,6 +1997,8 @@ def build_snapshot(
         generation_basis["schema_version"] = schema_version
         generation_basis["realtime_per_market_policy_sha256"] = per_market_policy["packet_sha256"]
     if v4_mode:
+        t_cut = v4_cutover_at()
+        generation_basis["t_cut_utc"] = None if t_cut is None else t_cut.strftime("%Y-%m-%dT%H:%M:%SZ")
         generation_basis["crypto_paper_runtime_decision"] = (
             {"date": runtime_decision_entry["date"], "file_sha256": _file_sha256(runtime_decision_entry["path"])}
             if runtime_decision_entry else None
@@ -2132,6 +2134,7 @@ def build_snapshot(
         rotation_record = rotation_entry["record"] if rotation_entry else None
         packet["crypto_paper_wiring"] = {
             "wiring_schema_version": WIRING_CONFIG_SCHEMA_VERSION,
+            "t_cut_utc": generation_basis["t_cut_utc"],
             "promotion_contract_version": PROMOTION.load_contract_v3()["contract_version"],
             "eligibility_contract_version": ELIGIBILITY.load_contract_v3()["contract_version"],
             "crypto_paper_runtime_decision": (
@@ -2216,11 +2219,18 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
                 "OUTPUT_SCHEMA_VERSION_NOT_EFFECTIVE_FOR_GENERATED_AT"
             )
         if v4_packet:
-            cutover = v4_cutover_at()
-            if cutover is None or _parse_utc(packet.get("generated_at"), "generated_at") < cutover:
+            recorded_cut = (packet.get("crypto_paper_wiring") or {}).get("t_cut_utc")
+            if recorded_cut is None or _parse_utc(packet.get("generated_at"), "generated_at") < _parse_utc(
+                recorded_cut, "crypto_paper_wiring.t_cut_utc",
+            ):
                 raise CryptoPaperDecisionSnapshotError(
                     "OUTPUT_SCHEMA_VERSION_NOT_EFFECTIVE_FOR_GENERATED_AT"
                 )
+            cutover = v4_cutover_at()
+            if cutover is None or cutover.strftime("%Y-%m-%dT%H:%M:%SZ") != recorded_cut:
+                # T_cut is immutable once set: a packet names the cutover it was
+                # emitted under and the configuration may never move it.
+                raise CryptoPaperDecisionSnapshotError("V4_T_CUT_CHANGED_OR_INACTIVE")
         rows = packet.get("candidates")
         if not isinstance(rows, list) or any(
             not isinstance(row, dict)

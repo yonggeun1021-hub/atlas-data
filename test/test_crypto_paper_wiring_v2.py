@@ -113,6 +113,14 @@ def replay(schema_version: str, *, v4_sources: bool = True, generated_at: str | 
         generated_at = BRIDGE_REPLAY_AT
     if v4_sources and schema_version == DECISION.V4_OUTPUT_SCHEMA_VERSION:
         kwargs.update(runtime_decision_entry=file_entry(RUNTIME_PATH), rotation_entry=file_entry(ROTATION_PATH))
+    stack = contextlib.ExitStack()
+    if schema_version == DECISION.V4_OUTPUT_SCHEMA_VERSION and not isinstance(DECISION.v4_cutover_at, mock.Mock):
+        stack.enter_context(cutover())  # /4 records the cutover it was emitted under
+    with stack:
+        return _build_replay(packet, kwargs, schema_version, generated_at)
+
+
+def _build_replay(packet, kwargs, schema_version, generated_at):
     return DECISION.build_snapshot(
         generated_at=generated_at or packet["generated_at"], source_commit=packet["source_commit"],
         previous_entry=packet["previous_state_reference"],
@@ -314,11 +322,34 @@ class CutoverTests(unittest.TestCase):
         self.assertEqual(DECISION.canonical_json(replay(DECISION.PER_MARKET_OUTPUT_SCHEMA_VERSION)),
                          DECISION.canonical_json(committed))
         v4 = replay(DECISION.V4_OUTPUT_SCHEMA_VERSION)
-        with self.assertRaisesRegex(DECISION.CryptoPaperDecisionSnapshotError, "NOT_EFFECTIVE_FOR_GENERATED_AT"):
+        self.assertEqual(v4["crypto_paper_wiring"]["t_cut_utc"], "2026-09-14T07:00:00Z")
+        with cutover():
+            self.assertEqual(DECISION.validate_output(v4), v4)
+        with self.assertRaisesRegex(DECISION.CryptoPaperDecisionSnapshotError, "V4_T_CUT_CHANGED_OR_INACTIVE"):
             DECISION.validate_output(v4)
-        with cutover(dt.datetime(2026, 9, 15, 7, 0, tzinfo=dt.timezone.utc)):
-            with self.assertRaisesRegex(DECISION.CryptoPaperDecisionSnapshotError, "NOT_EFFECTIVE_FOR_GENERATED_AT"):
+        # T_cut is immutable once set: moving it invalidates every /4 packet emitted under it.
+        with cutover(dt.datetime(2026, 9, 13, 7, 0, tzinfo=dt.timezone.utc)):
+            with self.assertRaisesRegex(DECISION.CryptoPaperDecisionSnapshotError, "V4_T_CUT_CHANGED_OR_INACTIVE"):
                 DECISION.validate_output(v4)
+        with cutover(None):
+            inactive = replay(DECISION.V4_OUTPUT_SCHEMA_VERSION)
+        self.assertIsNone(inactive["crypto_paper_wiring"]["t_cut_utc"])
+        with cutover(), self.assertRaisesRegex(DECISION.CryptoPaperDecisionSnapshotError, "NOT_EFFECTIVE_FOR_GENERATED_AT"):
+            DECISION.validate_output(inactive)
+
+    def test_committed_v4_packets_name_the_configured_t_cut(self):
+        """Immutability guard: once any /4 packet is committed, the config T_cut must equal its record."""
+        t_cut = DECISION.load_wiring_config()["decision_snapshot_v4_cutover"]["t_cut_utc"]
+        if t_cut is None:
+            self.assertEqual(DECISION.load_wiring_config()["decision_snapshot_v4_cutover"]["status"], "NOT_ACTIVE")
+            return
+        for day in sorted((ROOT / "evidence" / "crypto_paper_decision").glob("20*")):
+            if day.name < t_cut[:10]:
+                continue
+            for path in day.glob("*/*/packet.json"):
+                packet = json.loads(path.read_text(encoding="utf-8"))
+                if packet.get("schema_version") == DECISION.V4_OUTPUT_SCHEMA_VERSION:
+                    self.assertEqual(packet["crypto_paper_wiring"]["t_cut_utc"], t_cut, path)
 
     def test_frozen_schema_tuples_are_unchanged(self):
         self.assertEqual(DECISION.OUTPUT_SCHEMA_VERSIONS, (
@@ -695,7 +726,10 @@ class SizingTests(unittest.TestCase):
         quantity = Fraction(Decimal(sizing["quantity"]))
         vwap = (1000 + 1100 * (quantity - 1)) / quantity
         self.assertLessEqual(vwap, Fraction(1015))
-        self.assertGreater(vwap + Fraction(1, 10 ** 15), Fraction(1015) - Fraction(1, 10 ** 12))
+        # floored to the 8-decimal crypto quantity step, so VWAP sits just under the bound
+        self.assertGreater(vwap, Fraction(1015) - Fraction(1, 10 ** 4))
+        self.assertEqual(sizing["quantity_decimal_places"], 8)
+        self.assertEqual(len(sizing["quantity"].split(".")[1]), 8)
         self.assertEqual(sizing["limit_price"], "1100")
         self.assertIn("QUANTITY_REDUCED_ACTUAL_NOTIONAL_SLIPPAGE_ABOVE_THRESHOLD", sizing["reasons"])
         self.assertLess(quantity, Fraction(Decimal(sizing["quantity_without_slippage_bound"])))
@@ -872,6 +906,121 @@ class RuntimeRequestV4Tests(unittest.TestCase):
             over = request(self.lifted, account_state=account(self.lifted),
                            exit_intents=[{"intent": intent, "remaining_quantity": "1"}])
         self.assertIn("EXIT_INTENT_POSITION_QUANTITY_MISMATCH:KRW-ETH", over["blockers"])
+
+    # -- activation fixes (#763 review items 3-5) ---------------------------
+
+    @staticmethod
+    def exit_intent():
+        policy = EXIT.load_policy()
+        position = {"market": "CRYPTO", "symbol": "KRW-ETH", "position_episode_id": "PE-TEST-ETH",
+                    "rotation_scope_id": "BTC_RELATIVE_BUCKETS", "rotation_entity_id": "ETH",
+                    "entry_rotation_as_of_date": "2026-08-23", "first_fill_at": "2026-08-24T20:20:00Z",
+                    "quantity": "1"}
+        trigger = {"reason_code": EXIT.REASON_TIME_STOP, "fact": "CLOCK", "deadline_at": "2026-09-14T20:20:00Z",
+                   "decision_snapshot_id": "TEST.SNAPSHOT", "decision_snapshot_captured_at": "2026-09-14T23:43:00Z"}
+        return EXIT.build_exit_intent(policy, position, trigger, "2026-09-14T23:43:00Z")
+
+    def account_with(self, value) -> dict:
+        held = [row["market"] for row in SIMULATOR.build_account_state(
+            value, observed_at=self.lifted["generated_at"], mark_prices={"KRW-ETH": "1"} if self._has_eth(value) else {},
+            mark_freshness_status="FRESH", mark_source_ref="t", mark_source_sha256="d" * 64,
+        )["positions"]]
+        marks = BRIDGE.latest_mark_prices_by_market(self.lifted, held)
+        return SIMULATOR.build_account_state_per_market(
+            value, observed_at=self.lifted["generated_at"], mark_prices=marks["marks"],
+            mark_status=marks["mark_status"], mark_source_ref=marks["source_ref"],
+            mark_source_sha256=marks["source_sha256"],
+        )
+
+    @staticmethod
+    def _has_eth(value) -> bool:
+        return any(event["event_type"] == "FILL_APPLIED" for event in value["events"])
+
+    @staticmethod
+    def open_order(value, *, market, side, expires_at, submitted_at="2026-09-14T23:10:00Z", suffix="TEST"):
+        intent = SIMULATOR.build_intent(
+            order_id=f"PAPER.{side}.{market}.{suffix}", idempotency_key=f"PAPER.SUBMIT.{side}.{market}.{suffix}",
+            market=market, side=side, order_type="LIMIT", quantity="1" if side == "SELL" else "0.1",
+            limit_price="1000", fee_rate="0", queue_fraction="1", submitted_at=submitted_at,
+            expires_at=expires_at, market_regime_status="PASS", source_plan_ref="test://plan",
+            source_plan_sha256="b" * 64, source_evidence_ref="test://book", source_evidence_sha256="c" * 64,
+        )
+        return SIMULATOR.submit_order(value, intent)
+
+    def run_request(self, *, account_state, known=(), recorded=None, exits=(), envelope_state="RISK_ON"):
+        return BRIDGE.build_runtime_request(
+            self.lifted, expected_source_commit=self.lifted["source_commit"],
+            public_code_commit_sha=CODE_COMMIT, observation_commit_sha=OBSERVATION_COMMIT,
+            account_state=account_state, open_position_risk=None, runtime_config=config(),
+            known_idempotency_keys=list(known), allocation_envelope=envelope(self.lifted["generated_at"], envelope_state),
+            recorded_session_budget=recorded, position_fills=[],
+            exit_intents=[{"intent": intent, "remaining_quantity": "1"} for intent in exits],
+        )
+
+    def test_restart_after_partial_submission_submits_only_the_remaining_lines(self):
+        with lifted_regime_and_rotation():
+            first = request(self.lifted)
+            record = first["session_budget_record"]
+            submitted = first["requests"][:2]
+            value = ledger()
+            for row in submitted:
+                value = SIMULATOR.submit_order(value, row["intent"])
+            rerun = self.run_request(account_state=self.account_with(value), recorded=record,
+                                     known=[row["intent"]["idempotency_key"] for row in submitted])
+            self.assertEqual(BRIDGE.validate_runtime_request(rerun), rerun)
+            self.assertEqual(rerun["session_budget_record"], record)
+            self.assertTrue(rerun["wiring"]["session_budget_record_reused"])
+            self.assertEqual([row["intent"] for row in rerun["requests"]], [row["intent"] for row in first["requests"][2:]])
+            for row in first["requests"][2:]:
+                value = SIMULATOR.submit_order(value, row["intent"])
+            done = self.run_request(account_state=self.account_with(value), recorded=record,
+                                    known=[row["intent"]["idempotency_key"] for row in first["requests"]])
+        self.assertEqual(done["requests"], [])
+        self.assertEqual(done["session_budget_record"], record)
+        self.assertNotEqual(done["status"], "PAPER_INTENTS_READY")
+
+    def test_exit_sell_is_valid_through_the_next_slot_and_expired_sells_do_not_block_reissue(self):
+        intent = self.exit_intent()
+        with lifted_regime_and_rotation():
+            fresh = self.run_request(account_state=account(self.lifted, eth_position=True), exits=[intent])
+            stale_sell = self.open_order(ledger(eth_position=True), market="KRW-ETH", side="SELL",
+                                         expires_at="2026-09-14T23:40:00Z")
+            reissued = self.run_request(account_state=self.account_with(stale_sell), exits=[intent])
+            live_sell = self.open_order(ledger(eth_position=True), market="KRW-ETH", side="SELL",
+                                        expires_at="2026-09-15T00:00:00Z")
+            blocked = self.run_request(account_state=self.account_with(live_sell), exits=[intent])
+        self.assertEqual(fresh["sell_requests"][0]["intent"]["expires_at"], "2026-09-15T00:30:00Z")
+        self.assertEqual(fresh["wiring"]["sell_order_valid_before_utc"], "2026-09-15T00:30:00Z")
+        self.assertEqual(len(reissued["sell_requests"]), 1)
+        self.assertEqual(blocked["sell_requests"], [])
+        self.assertIn("EXIT_SELL_ORDER_ALREADY_OPEN:KRW-ETH", blocked["blockers"])
+
+    def test_open_buys_in_an_exit_market_are_cancelled_first(self):
+        intent = self.exit_intent()
+        with lifted_regime_and_rotation():
+            value = self.open_order(ledger(eth_position=True), market="KRW-ETH", side="BUY",
+                                    expires_at="2026-09-15T07:00:00Z", submitted_at="2026-09-14T23:00:00Z")
+            packet = self.run_request(account_state=self.account_with(value), exits=[intent])
+            self.assertEqual(BRIDGE.validate_runtime_request(packet), packet)
+        self.assertEqual(packet["cancel_requests"], [{
+            "market": "KRW-ETH", "order_id": "PAPER.BUY.KRW-ETH.TEST", "exit_intent_id": intent["intent_id"],
+            "reason_code": "OPEN_BUY_CANCELLED_BEFORE_EXIT_ORDER",
+        }])
+        self.assertFalse(any("PAPER.BUY.KRW-ETH.TEST" in row["order_ids"] for row in packet["match_snapshots"]))
+        reservations = packet["session_budget_record"]["inputs"]["nav_snapshot"]["open_buy_reservations"]
+        self.assertEqual(reservations, [])
+        self.assertEqual(len(packet["sell_requests"]), 1)
+
+    def test_buy_side_failure_does_not_stop_exits(self):
+        intent = self.exit_intent()
+        with lifted_regime_and_rotation():
+            packet = self.run_request(account_state=account(self.lifted, eth_position=True), exits=[intent],
+                                      envelope_state="NEUTRAL")
+            self.assertEqual(BRIDGE.validate_runtime_request(packet), packet)
+        self.assertEqual(packet["status"], "PAPER_INTENTS_READY")
+        self.assertEqual(len(packet["sell_requests"]), 1)
+        self.assertEqual(packet["requests"], [])
+        self.assertIn("BUY_SIDE_BLOCKED_EXITS_PROCEED:ALLOCATION_ENVELOPE_STATE_NOT_DECISION_REGIME", packet["blockers"])
 
     def test_envelope_state_must_match_the_decision_regime(self):
         with lifted_regime_and_rotation(), self.assertRaisesRegex(

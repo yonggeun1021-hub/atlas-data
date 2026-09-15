@@ -562,6 +562,35 @@ class UnchangedGatesTests(_RatifiedUniverseMixin, unittest.TestCase):
         source = (ROOT / "decision/crypto_paper_decision_snapshot.py").read_text(encoding="utf-8")
         self.assertEqual(source.count("v4_promotion_kwargs(runtime_decision_entry, rotation_entry) if v4_mode else {}"), 1)
 
+    def test_v3_decision_and_bridge_paths_request_contract_2_at_runtime(self):
+        """Behavioural /3 coverage: re-deriving a committed /3 decision packet and
+        the /3 bridge rebuild call P5-08 without any contract/3 argument and never
+        call P5-09 contract/3."""
+        path = ROOT / T2CurrentEvidenceTests.DECISION
+        if not path.exists():
+            self.skipTest("retained decision evidence not present in this checkout")
+        packet = json.loads(path.read_text(encoding="utf-8"))
+        bridge = _load("crypto_candidate_promotion_v3_bridge_caller_check", "shadow/crypto_paper_runtime_bridge.py")
+        decision = bridge.DECISION
+        calls = []
+        real_build = decision.PROMOTION.build_promotion_packet
+
+        def spy(*args, **kwargs):
+            calls.append(kwargs)
+            return real_build(*args, **kwargs)
+
+        forbidden = {"contract_version", "crypto_runtime_decision", "rotation_confirmation"}
+        with mock.patch.object(decision.PROMOTION, "build_promotion_packet", side_effect=spy), \
+                mock.patch.object(decision.ELIGIBILITY, "build_eligibility_packet_v3",
+                                  side_effect=AssertionError("contract/3 eligibility on the /3 path")):
+            self.assertEqual(decision.validate_output(copy.deepcopy(packet)), packet)
+            decision_calls = len(calls)
+            bridge._promotion_packet(packet)
+        self.assertGreaterEqual(decision_calls, 1)
+        self.assertGreater(len(calls), decision_calls)
+        for kwargs in calls:
+            self.assertFalse(forbidden & set(kwargs), kwargs)
+
 
 # ---------------------------------------------------------------------------
 # RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 (user-ratified B2)

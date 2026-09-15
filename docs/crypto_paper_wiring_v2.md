@@ -143,3 +143,26 @@ Decisions `/1-/3` keep producing request `/3` (and `/2` replays) unchanged.
   decision step writes the stamped `generated_at` to `GITHUB_OUTPUT`, and the
   capture-gap guard accepts a packet stamped exactly +1s only when a realtime
   input lies inside that second.
+
+## 8. Activation fixes (#763 review)
+
+* Restart: a `recorded_session_budget` from the same decision is reused
+  verbatim (no re-build, no conflict abort); lines whose idempotency key is
+  already known are blocked by the duplicate guard and the rest are
+  (re)submitted; an all-submitted re-run still returns the recorded record.
+  A record from an earlier decision in the session still blocks new buys.
+* Exit sells: valid through the next decision slot
+  (`sell_order_valid_before`, slot = `SCHEDULED_SLOT_MINUTES`) and re-sized on a
+  fresh book by the following decision; an open sell already past its validity
+  does not block re-issue. Buy-side derivation failures become a
+  `BUY_SIDE_BLOCKED_EXITS_PROCEED:*` blocker when sells exist.
+* Open buys in a market with an exit intent are emitted as `cancel_requests`
+  (canon 1-4), excluded from match snapshots and budget reservations.
+  Request `/4` gains the `cancel_requests` field
+  (`market, order_id, exit_intent_id, reason_code`).
+* Crypto quantities (/4 orders and session budget lines) are floored to 8
+  decimal places (canon 2-2 step 4; config `quantity_step.decimal_places`);
+  a sell of the whole remaining quantity is not floored. `/3` unchanged.
+* `/4` packets record `crypto_paper_wiring.t_cut_utc`; validation checks the
+  packet's own value and that the configuration still names the same T_cut
+  (immutable once set).

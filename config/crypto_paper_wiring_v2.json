@@ -46,15 +46,24 @@
       "source": "RULE.EXEC.QUALITY_LAYERS.V1 names orders without a side; exit sells keep their remaining quantity in the persistent paper_exit_intent/1 and continue at the next decision slot"
     },
     "quantity_step": {
-      "value": "SIMULATOR_CONTRACT_DECIMAL_SCALE",
-      "source": "config/crypto_paper_simulator_contract.json decimal_scale (no Upbit volume precision record exists in this repository)"
+      "value": "CRYPTO_QUANTITY_DECIMAL_PLACES",
+      "decimal_places": 8,
+      "source": "execution contract canon 2-2 allocation step 4 (quantities floored to the trading unit; coin 8 decimal places), applied to /4 orders and session budget lines only; level capacity keeps the simulator decimal_scale; a sell of the whole remaining quantity is not floored"
+    },
+    "sell_order_validity": {
+      "value": "THROUGH_THE_NEXT_DECISION_SLOT",
+      "source": "exit sells get one match opportunity at the next capture and are re-sized on a fresh book by the decision after it; slot length = decision/crypto_paper_decision_snapshot.py SCHEDULED_SLOT_MINUTES (the realtime capture cron)"
+    },
+    "open_buys_on_exit": {
+      "value": "CANCEL_BEFORE_EXIT_ORDER",
+      "source": "execution contract canon 1-4 (open buy remainder cancelled before the exit order)"
     },
     "session_budget_nav_mode": {
       "value": "CRYPTO_LEDGER_ONLY_WHILE_KR_US_HOLD_NOTHING",
       "source": "build plan 2-3 principle 4 and section 9 CIO note 3 (NAV0 = virtual capital + crypto ledger P&L while KR/US hold nothing)"
     },
     "one_allocation_per_session": {
-      "value": "RECORD_AT_THE_FIRST_DECISION_OF_THE_SESSION_WITH_AT_LEAST_ONE_ALLOCATION_CANDIDATE_A_RECORD_FROM_AN_EARLIER_DECISION_BLOCKS_NEW_BUYS_THE_SAME_DECISION_REDERIVES_THE_SAME_RECORD",
+      "value": "RECORD_AT_THE_FIRST_DECISION_OF_THE_SESSION_WITH_AT_LEAST_ONE_ALLOCATION_CANDIDATE_A_RECORD_FROM_AN_EARLIER_DECISION_BLOCKS_NEW_BUYS_THE_SAME_DECISION_REUSES_THE_RECORD_VERBATIM_AND_SUBMITS_ONLY_LINES_WITH_UNKNOWN_IDEMPOTENCY_KEYS",
       "source": "canon 2-3 and 2-4; build plan C2 (block only when the same market and session already has an allocation record). A decision without an allocation candidate writes no record: an empty record would allocate nothing yet close the session (for example before the day's 07:15Z runtime decision publication)"
     },
     "planned_loss_record_basis": {
