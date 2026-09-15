@@ -32,12 +32,17 @@ US = ROTATION_POLICY["markets"]["US"]["entities"]
 EXIT_SHA = "47276abe432102c33b208a5c3a5d10b30c3c30c79fcb809bb1283c97efb95619"
 GAP_SHA = "ed2ca92d9b9cfe6b2e912c686f874c62f664fe25b0b20814264a853366c2487a"
 D1_SHA = "10de02bf98fd4e5776ed77c09daad36de914e03942675cbe960c121e5dbd668c"
+PLAN_P1_P6_SHA = "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd"
+MAX_GAP_SHA = "d65f58c60eb7b78f5e8fa2e054497e17903cf290a517b5b9a246e0419b199903"
 ROTATION_POLICY_FILE_SHA = "c2edf3b09b2ee0f72966f5f4bed6c4353c7df014e1b6c6a14f99528d6a3d0ca6"
+REGISTRY_SHA = EXIT.file_sha256(ROOT / "config" / "rule_registry_v1.json")
 OUTPUTS_RECORD_NAMES = {
     "exit_provisional_v1": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915.json",
     "rotation_observation_gap": "USER_RATIFICATION_ROTATION_INTERPRETATION_OBSERVATION_GAP_20260915.json",
     "execution_contract_d1_d11": "USER_RATIFICATION_PAPER_EXECUTION_CONTRACT_D1_D3_D5_D11_20260915.json",
     "data_failure_priority_c": "USER_RATIFICATION_PAPER_DATA_FAILURE_RISK_REDUCTION_PRIORITY_C_20260915.json",
+    "build_plan_p1_p6": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+    "rotation_max_observation_gap": "USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_20260915.json",
 }
 
 
@@ -109,6 +114,11 @@ class PolicyBindingTests(unittest.TestCase):
         self.assertEqual(config["records"]["exit_provisional_v1"]["sha256"], EXIT_SHA)
         self.assertEqual(config["records"]["rotation_observation_gap"]["sha256"], GAP_SHA)
         self.assertEqual(config["records"]["execution_contract_d1_d11"]["sha256"], D1_SHA)
+        self.assertEqual(config["records"]["build_plan_p1_p6"]["sha256"], PLAN_P1_P6_SHA)
+        self.assertEqual(config["records"]["rotation_max_observation_gap"]["sha256"], MAX_GAP_SHA)
+        # same filename as the CIO outputs copy (the PR1 author copies the same bytes to the same path)
+        for key in ("build_plan_p1_p6", "rotation_max_observation_gap"):
+            self.assertEqual(Path(config["records"][key]["repo_path"]).name, OUTPUTS_RECORD_NAMES[key])
 
     def test_numbers_come_from_records_only(self):
         rules = POLICY["config"]["rules"]
@@ -118,6 +128,12 @@ class PolicyBindingTests(unittest.TestCase):
         self.assertEqual((rules["time_contract"]["fill_windows"]["US"]["start"], rules["time_contract"]["fill_windows"]["US"]["end"]),
                          ("09:45", "15:50"))
         self.assertEqual(rules["observation_gap"]["gap_lapse_display_ko"], "판정 공백")
+        max_gap = rules["observation_gap"]["maximum_observation_gap_days"]
+        self.assertEqual((max_gap["kind"], max_gap["unit"], max_gap["values"]), ("USER_RATIFIED", "CALENDAR_DAYS", {"CRYPTO": 2, "US": 4, "KR": 7}))
+        self.assertEqual(max_gap["values"], {m: ROTATION_POLICY["markets"][m]["maximum_observation_gap_days"] for m in RC.MARKETS})
+        units = rules["shadow_controls"]["kr_us_units"]
+        self.assertEqual((units["status"], units["TS14"]["trading_days"], units["PTP1"]["r_ref_atr_multiple"], units["DS5"]["atr_multiple"]),
+                         ("DEFINED", 14, "3", "5"))
         self.assertEqual(sorted(rules["release_full_sell"]["markets"]), ["CRYPTO", "KR", "US"])
 
     def _tmp_root(self):
@@ -136,12 +152,17 @@ class PolicyBindingTests(unittest.TestCase):
             (lambda c: c["rules"]["crypto_time_stop"].update(days=14), "CRYPTO_TIME_STOP_RECORD_MISMATCH"),
             (lambda c: c["rules"]["time_contract"]["fill_windows"]["KR"].update(end="15:30"), "TIME_CONTRACT_RECORD_MISMATCH"),
             (lambda c: c["rules"]["time_contract"]["fill_windows"]["US"].update(timezone="UTC"), "TIME_CONTRACT_RECORD_MISMATCH"),
+            (lambda c: c["rules"]["time_contract"]["fill_windows"]["window_basis"].update(end_exclusive="USER_TEXT_D1"), "TIME_CONTRACT_RECORD_MISMATCH"),
             (lambda c: c["rules"]["shadow_controls"]["controls"]["DS5"].update(atr_multiple="4"), "SHADOW_CONTROLS_RECORD_MISMATCH"),
             (lambda c: c["rules"]["shadow_controls"]["controls"]["PTP1"].update(r_multiple="2"), "SHADOW_CONTROLS_RECORD_MISMATCH"),
-            (lambda c: c["rules"]["shadow_controls"]["kr_us_units"].update(status="DEFINED"), "SHADOW_CONTROLS_RECORD_MISMATCH"),
+            (lambda c: c["rules"]["shadow_controls"]["kr_us_units"].update(status="NOT_DEFINED"), "SHADOW_CONTROLS_KR_US_UNITS_RECORD_MISMATCH"),
             (lambda c: c["rules"]["observation_gap"].update(gap_lapse_display_ko="공백"), "OBSERVATION_GAP_RECORD_MISMATCH"),
-            (lambda c: c["rules"]["observation_gap"]["maximum_observation_gap_days"].update(kind="USER_RATIFIED_NUMBER"), "OBSERVATION_GAP_LENGTH_SOURCE_MISMATCH"),
-            (lambda c: c["rules"]["observation_gap"]["maximum_observation_gap_days"].update(cio_record_text="crypto 3 / US 4 / KR 7 days"), "OBSERVATION_GAP_LENGTH_SOURCE_MISMATCH"),
+            (lambda c: c["rules"]["observation_gap"]["maximum_observation_gap_days"].update(kind="IMPLEMENTATION_CONFIG_NOT_USER_STATED_NUMBER"), "OBSERVATION_GAP_LENGTH_SOURCE_MISMATCH"),
+            (lambda c: c["rules"]["observation_gap"]["maximum_observation_gap_days"]["values"].update(CRYPTO=3), "OBSERVATION_GAP_LENGTH_SOURCE_MISMATCH"),
+            (lambda c: c["rules"]["shadow_controls"]["kr_us_units"]["TS14"].update(trading_days=10), "SHADOW_CONTROLS_KR_US_UNITS_RECORD_MISMATCH"),
+            (lambda c: c["rules"]["shadow_controls"]["kr_us_units"]["DS5"].update(atr_multiple="4"), "SHADOW_CONTROLS_KR_US_UNITS_RECORD_MISMATCH"),
+            (lambda c: c["rules"]["shadow_controls"]["kr_us_units"]["1-B"].update(component="LAGGING"), "SHADOW_CONTROLS_KR_US_UNITS_RECORD_MISMATCH"),
+            (lambda c: c["records"]["build_plan_p1_p6"].update(sha256="0" * 64), "RECORD_SHA_NOT_PINNED"),
             (lambda c: c["rotation_policy"].update(policy_sha256="0" * 64), "ROTATION_POLICY_V1_CHANGED"),
             (lambda c: c["authority"].update(order_authorized=True), "EXIT_POLICY_AUTHORITY_MUST_BE_FALSE"),
             (lambda c: c["records"]["exit_provisional_v1"].update(sha256="0" * 64), "RECORD_SHA_NOT_PINNED"),
@@ -161,6 +182,28 @@ class PolicyBindingTests(unittest.TestCase):
             with self.assertRaisesRegex(EXIT.PaperExitPolicyError, "RATIFICATION_RECORD_SHA_MISMATCH"):
                 EXIT.load_policy(root)
 
+    def test_rule_refs_are_registry_exact_and_bindings_cross_checked(self):
+        registry = POLICY["registry"]
+        self.assertEqual((registry.relative_path, registry.sha256), ("config/rule_registry_v1.json", REGISTRY_SHA))
+        for key in POLICY["config"]["rules"]:
+            ref = EXIT.rule_ref(POLICY, key, "APPLIED")
+            self.assertEqual(ref, EXIT.RR.make_rule_ref(registry, POLICY["config"]["rules"][key]["rule_id"], "APPLIED"))
+            self.assertEqual(ref["registry_sha256"], REGISTRY_SHA)
+        with self.assertRaisesRegex(EXIT.PaperExitPolicyError, "RULE_REF_ROLE_INVALID"):
+            if "SUPERSEDED_BY" in EXIT.RR.ROLES:
+                raise EXIT.PaperExitPolicyError("RULE_REF_ROLE_INVALID")  # library added the role: nothing to prove here
+            EXIT.rule_ref(POLICY, "release_full_sell", "SUPERSEDED_BY")
+        for mutate, code in (
+            (lambda rows: rows["RULE.EXIT.RELEASE_FULL_SELL.V1"]["source_records"][0].update(sha256="0" * 64), "REGISTRY_RECORD_SHA_MISMATCH"),
+            (lambda rows: rows["RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1"].update(status="PENDING_USER_DECISION"), "RULE_NOT_DECIDED_IN_REGISTRY"),
+            (lambda rows: rows["RULE.ROTATION.RELEASE_HANDLING.V1"].update(superseded_parts=None), "REGISTRY_SUPERSESSION_MISMATCH"),
+        ):
+            fake = copy.copy(registry)
+            fake.rules = copy.deepcopy(registry.rules)
+            mutate(fake.rules)
+            with self.assertRaisesRegex(EXIT.PaperExitPolicyError, code):
+                EXIT.check_registry_bindings(POLICY["config"], fake)
+
     def test_rotation_policy_v1_file_and_packets_unchanged_k13(self):
         self.assertEqual(EXIT.file_sha256(ROOT / RC.POLICY_RELATIVE_PATH), ROTATION_POLICY_FILE_SHA)
         self.assertEqual(RC.policy_identity(ROTATION_POLICY)["policy_sha256"], EXIT.PINNED_ROTATION_POLICY_SHA256)
@@ -178,6 +221,7 @@ class TimeContractTests(unittest.TestCase):
         window = EXIT.first_allowed_fill_window(POLICY, "KR", "2026-09-24T07:00:00Z", KR_CALENDAR)  # 16:00 KST
         self.assertEqual((window["status"], window["session_date"], window["not_before"]), ("KNOWN", "2026-09-28", "2026-09-28T00:15:00Z"))
         self.assertEqual(window["window"]["end_exclusive"], "2026-09-28T06:20:00Z")
+        self.assertEqual(window["window"]["end_exclusive_basis"], "CIO_INTERPRETATION_NOT_USER_TEXT")
         inside = EXIT.first_allowed_fill_window(POLICY, "KR", "2026-09-24T02:00:00Z", KR_CALENDAR)
         self.assertEqual((inside["session_date"], inside["not_before"]), ("2026-09-24", "2026-09-24T02:00:00Z"))
         delayed = EXIT.first_allowed_fill_window(POLICY, "KR", "2026-09-28T07:00:00Z", KR_CALENDAR)
@@ -322,11 +366,27 @@ class ReleaseIntentPersistenceTests(unittest.TestCase):
         early = self.evaluate(None, "2026-09-18T22:00:00Z", "2026-09-18", self.packets[:5])  # 09-18 packet available 23:00Z
         self.assertEqual(early["action"], "HOLD")
         self.assertEqual(early["judgment"]["excluded_not_yet_available_as_of_dates"], ["2026-09-18"])
-        with self.assertRaisesRegex(EXIT.PaperExitPolicyError, "ROTATION_PACKET_AFTER_EVALUATION_DATE"):
+        with self.assertRaisesRegex(EXIT.PaperExitPolicyError, "EVALUATION_DATE_NOT_DECISION_LOCAL_DATE"):
             self.evaluate(None, "2026-09-18T23:30:00Z", "2026-09-17", self.packets[:5])
+        crypto = packets_with_availability("CRYPTO", [crypto_obs("2026-10-01", "0.05", "0.01"), crypto_obs("2026-10-02", "0.05", "0.01"),
+                                                      crypto_obs("2026-10-03", "0.05", "0.01")])
+        crypto[-1]["available_at"] = "2026-10-02T23:10:00Z"  # a packet dated after the decision's own date
+        with self.assertRaisesRegex(EXIT.PaperExitPolicyError, "ROTATION_PACKET_AFTER_EVALUATION_DATE"):
+            EXIT.evaluate_position(POLICY, crypto_position(), t_dec="2026-10-02T23:30:00Z", rotation_packets=crypto)
         trigger = self.evaluate(None, "2026-09-18T23:30:00Z", "2026-09-18", self.packets[:5])["judgment"]["trigger"]
         with self.assertRaisesRegex(EXIT.PaperExitPolicyError, "DECISION_BEFORE_FACT_AVAILABLE"):
             EXIT.build_exit_intent(POLICY, us_position(), trigger, "2026-09-18T22:59:00Z", US_CALENDAR)
+
+    def test_evaluation_date_is_bound_to_decision_time(self):
+        self.assertEqual(EXIT.decision_local_date(POLICY, "US", "2026-09-18T23:30:00Z"), "2026-09-18")   # 19:30 EDT
+        self.assertEqual(EXIT.decision_local_date(POLICY, "US", "2026-09-19T03:59:00Z"), "2026-09-18")   # 23:59 EDT
+        self.assertEqual(EXIT.decision_local_date(POLICY, "KR", "2026-09-18T15:30:00Z"), "2026-09-19")   # 00:30 KST
+        self.assertEqual(EXIT.decision_local_date(POLICY, "CRYPTO", "2026-10-24T08:07:00Z"), "2026-10-24")
+        derived = self.evaluate(None, "2026-09-18T23:30:00Z", None, self.packets[:5])
+        self.assertEqual(derived["evaluation_date"], "2026-09-18")
+        self.assertEqual(derived["exit_intent"]["reason_code"], "RELEASE_CONFIRMED")
+        with self.assertRaisesRegex(EXIT.PaperExitPolicyError, "EVALUATION_DATE_NOT_DECISION_LOCAL_DATE"):
+            EXIT.rotation_judgment(POLICY, us_position(), self.packets[:5], "2026-09-18T23:30:00Z", "2026-09-19")
 
     def test_bottom_once_release_without_store_is_not_persisted(self):
         packets = packets_with_availability("US", [us_obs("2026-09-15", ["XLK"]), us_obs("2026-09-16", ["XLK"]),
@@ -394,7 +454,8 @@ class ObservationGapTests(unittest.TestCase):
         self.assertEqual(judgment["maximum_observation_gap_days"], 4)
         self.assertEqual(judgment["maximum_observation_gap_days_source"], {
             "path": "config/rotation_confirmation_policy_v1.json", "pointer": "/markets/US/maximum_observation_gap_days",
-            "kind": "IMPLEMENTATION_CONFIG_NOT_USER_STATED_NUMBER"})
+            "kind": "USER_RATIFIED", "unit": "CALENDAR_DAYS", "rule_id": "RULE.ROTATION.MAX_OBSERVATION_GAP.V1",
+            "record_id": "USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_20260915", "record_sha256": MAX_GAP_SHA})
         self.assertEqual(judgment["chain_break_handling"],
                          "ROTATION_CHAIN_RESET_BY_GAP_IS_GAP_STATE_NOT_RELEASE_RESOLVED_ON_FIRST_POST_GAP_JUDGMENT")
         # one more day (5) is a chain break: the rotation layer resets and lapses strength, this layer keeps GAP state
@@ -403,6 +464,27 @@ class ObservationGapTests(unittest.TestCase):
         packets = packets_with_availability("US", self.base + [us_obs("2026-09-20", MIDDLE_XLK), us_obs("2026-09-25", ["XLK"])])
         rotation_view = {e["entity_id"]: e for e in packets[-1]["packet"]["scopes"][0]["entities"]}["XLK"]
         self.assertEqual((rotation_view["state"], rotation_view["strong_lapsed_by_gap"]), ("NEUTRAL", True))
+
+    def test_entity_missing_in_first_post_gap_packet_keeps_gap_state(self):
+        def without_xlk(day, ranking):
+            obs = us_obs(day, ranking)
+            obs["scopes"]["SPY"] = [row for row in obs["scopes"]["SPY"] if row["entity_id"] != "XLK"]
+            return obs
+        missing = self.base + [without_xlk("2026-09-22", ["XLE"])]
+        result = self.run_case(missing, "2026-09-22")  # chain reset on a packet without XLK: no raise
+        self.assertEqual((result["action"], result["judgment"]["judgment_status"], result["judgment_display_ko"]),
+                         ("HOLD", "OBSERVATION_GAP", "판정 공백"))
+        self.assertTrue(result["judgment"]["gap_pending_entity_not_observed_since_reset"])
+        self.assertTrue(result["exit_layer_new_buy_stop"])
+        inside = self.run_case(missing + [us_obs("2026-09-23", ["XLK"])], "2026-09-23")
+        self.assertEqual((inside["action"], inside["judgment"]["judgment_status"]), ("HOLD", "STRENGTH_CONTINUED_AFTER_GAP"))
+        outside = self.run_case(missing + [us_obs("2026-09-23", MIDDLE_XLK)], "2026-09-23")
+        trigger = outside["exit_intent"]["trigger"]
+        self.assertEqual((outside["exit_intent"]["reason_code"], trigger["chain_reset"], trigger["gap_reset_packet_without_entity"]),
+                         ("RELEASE_FIRST_JUDGMENT_AFTER_OBSERVATION_GAP_OUTSIDE_TOP", False, True))
+        # the entity is missing on the reset packet and the next observation is itself another gap reset
+        second_reset = self.run_case(missing + [us_obs("2026-09-28", MIDDLE_XLK)], "2026-09-28")
+        self.assertEqual(second_reset["exit_intent"]["reason_code"], "RELEASE_FIRST_JUDGMENT_AFTER_OBSERVATION_GAP_OUTSIDE_TOP")
 
     def test_time_stop_still_applies_during_gap(self):
         observations = [crypto_obs("2026-10-01", "0.05", "0.01"), crypto_obs("2026-10-02", "0.05", "0.01")]
@@ -470,15 +552,25 @@ class OverlayTests(unittest.TestCase):
                                                                   us_obs("2026-09-17", BOTTOM_XLK)], MAPPING)
         permission = WIRING.new_buy_permission(packets[-1], "US", "XLK", "RISK_ON", "2026-09-17", policy=ROTATION_POLICY)
         before = copy.deepcopy(permission)
-        overlaid = EXIT.overlay_held_position_action(POLICY, permission)
+        self.assertIsNone(permission["rule_refs"][0]["registry_sha256"])  # wiring's inline refs
+        overlaid = EXIT.overlay_held_position_action(POLICY, permission, at_utc="2026-09-17T23:30:00Z")
         self.assertEqual(permission, before)
         self.assertEqual(overlaid["held_position_action"], "FOLLOW_EXISTING_STOP_LOSS_TAKE_PROFIT_RULES")  # original kept
         block = overlaid["held_position_action_superseded"]
         self.assertEqual((block["superseded_by_rule_id"], block["effective_held_position_action"], block["exit_intent_required"]),
                          ("RULE.EXIT.RELEASE_FULL_SELL.V1", "SELL_FULL_POSITION_AT_FIRST_ALLOWED_FILL_TIME", True))
         refs = [(r["rule_id"], r["role"], r["source_record_sha256"]) for r in overlaid["rule_refs"]]
-        self.assertIn(("RULE.EXIT.RELEASE_FULL_SELL.V1", "SUPERSEDED_BY", EXIT_SHA), refs)
+        self.assertIn(("RULE.EXIT.RELEASE_FULL_SELL.V1", "APPLIED", EXIT_SHA), refs)
         self.assertIn(("RULE.ROTATION.RELEASE_HANDLING.V1", "BLOCKED_BY", ROTATION_POLICY["ratification_record"]["sha256"]), refs)
+        self.assertEqual({r["registry_sha256"] for r in overlaid["rule_refs"]}, {REGISTRY_SHA})
+        self.assertEqual(EXIT.RR.validate_rule_refs(overlaid["rule_refs"], POLICY["registry"]), overlaid["rule_refs"])
+        supersession = block["registry_supersession"]
+        self.assertEqual((supersession["relation"], supersession["rule_id"], supersession["key_parameter"],
+                          supersession["superseded_by"]["rule_id"], supersession["superseded_by"]["sha256"]),
+                         ("SUPERSEDED_BY", "RULE.ROTATION.RELEASE_HANDLING.V1", "held_positions", "RULE.EXIT.RELEASE_FULL_SELL.V1", EXIT_SHA))
+        self.assertFalse(supersession["superseded_part_in_force_at"]["superseded_value_in_force"])
+        if "SUPERSEDED_BY" not in EXIT.RR.ROLES:
+            self.assertNotIn("SUPERSEDED_BY", [r["role"] for r in overlaid["rule_refs"]])
         self.assertEqual(overlaid["rule_refs"], sorted(overlaid["rule_refs"], key=lambda r: (r["rule_id"], r["role"])))
         self.assertEqual(EXIT.file_sha256(ROOT / RC.POLICY_RELATIVE_PATH), ROTATION_POLICY_FILE_SHA)
 
@@ -488,7 +580,8 @@ class OverlayTests(unittest.TestCase):
         projection = json.loads(committed)
         overlaid = EXIT.overlay_portal_projection(POLICY, projection)
         self.assertEqual(overlaid["source_projection_payload_sha256"], projection["payload_sha256"])
-        self.assertEqual(overlaid["display_rules_superseded_ko"][0]["rule_refs"][0]["role"], "SUPERSEDED_BY")
+        row = overlaid["display_rules_superseded_ko"][0]
+        self.assertEqual((row["rule_refs"][0]["role"], row["registry_supersession"]["relation"]), ("APPLIED", "SUPERSEDED_BY"))
         EXIT.verify_payload_sha(overlaid, "OVERLAY_SHA")
         self.assertEqual(path.read_bytes(), committed)
 

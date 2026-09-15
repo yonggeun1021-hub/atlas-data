@@ -33,9 +33,15 @@ position (release full sell, crypto 21-day time stop). A component that has
 not fired before the first default exit fill leaves the shadow identical to
 the default.
 
-KR / US: the units (calendar vs session days, ATR, lagging definition) are
-undecided (build plan P3; study v2 section 12 says the crypto numbers are not
-inheritable). Every KR/US control is emitted as NOT_DEFINED -- never guessed.
+KR / US units (RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1, user ratification
+``USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915`` sha 2a94be2b..., P3):
+1-B is replaced by release-only (identical to the default release sell) until
+a lagging definition is confirmed; the time stop is 14 trading days (caller-
+supplied official session calendar); partial take-profit 1R with R = 3 x daily
+ATR14; disaster stop 5 x daily ATR14; record-only. KR/US prices count only
+inside the D1 fill windows of OPEN sessions, and monitoring gaps are measured
+inside those windows. CIO interpretations are listed in the config
+(``kr_us_units.cio_interpretations``).
 """
 from __future__ import annotations
 
@@ -83,7 +89,7 @@ def _shadow_rule(policy: dict) -> dict:
 def _refs(policy: dict, *extra: tuple) -> list:
     refs = [EXIT.rule_ref(policy, "shadow_controls", "APPLIED")]
     refs += [EXIT.rule_ref(policy, key, role) for key, role in extra]
-    return EXIT._sorted_refs(refs)
+    return EXIT._sorted_refs(refs, policy)
 
 
 # ---------------------------------------------------------------------------
@@ -148,10 +154,6 @@ def wilder_atr14(policy: dict, daily_bars: list, decision_at: str) -> dict:
 # Start rows (at entry)
 # ---------------------------------------------------------------------------
 
-def _not_defined(policy: dict, control_id: str, reason: str) -> dict:
-    return {"control_id": control_id, "status": "NOT_DEFINED", "reason": reason, "levels": None}
-
-
 def start_shadow_controls(policy: dict, position: dict, *, first_fill_price: str, entry_decision_at: str,
                           atr: Optional[dict] = None) -> dict:
     """Shadow start row for one position episode (recorded at the first fill)."""
@@ -164,13 +166,24 @@ def start_shadow_controls(policy: dict, position: dict, *, first_fill_price: str
     if decision > first_fill:
         _fail("ENTRY_DECISION_AFTER_FIRST_FILL")
     controls = {}
+    cfg = rule["controls"]
+    kr_us = rule["kr_us_units"]
+    units_ratification = None
     if market != "CRYPTO":
-        reason = f"{rule['kr_us_units']['reason']}:{rule['kr_us_units']['pending_decision']}"
-        controls = {cid: _not_defined(policy, cid, reason) for cid in CONTROL_IDS}
-        atr_block = None
+        units_ratification = {
+            "rule_id": kr_us["rule_id"],
+            "record_id": policy["config"]["records"][kr_us["record"]]["record_id"],
+            "sha256": policy["config"]["records"][kr_us["record"]]["sha256"],
+            "registry_status": kr_us["registry_status"],
+        }
+        controls["TS14"] = {"control_id": "TS14", "status": "DEFINED", "reason": None,
+                            "levels": {"trading_days": kr_us["TS14"]["trading_days"], "calendar": kr_us["TS14"]["calendar"]}}
+        controls["1-B"] = {"control_id": "1-B", "status": "DEFINED_EQUALS_DEFAULT_RELEASE_ONLY",
+                           "reason": "KR_US_1B_RELEASE_ONLY_UNTIL_LAGGING_DEFINITION_CONFIRMED",
+                           "levels": {"component": kr_us["1-B"]["component"]}}
+        r_ref_multiple, ptp_multiple, ds_multiple = kr_us["PTP1"]["r_ref_atr_multiple"], kr_us["PTP1"]["r_multiple"], kr_us["DS5"]["atr_multiple"]
     else:
         units = rule["crypto_units"]
-        cfg = rule["controls"]
         ts_deadline = first_fill + dt.timedelta(hours=cfg["TS14"]["days"] * cfg["TS14"]["day_length_hours"])
         controls["TS14"] = {"control_id": "TS14", "status": "DEFINED", "reason": None,
                             "levels": {"deadline_at": stamp(ts_deadline)}}
@@ -181,33 +194,34 @@ def start_shadow_controls(policy: dict, position: dict, *, first_fill_price: str
             "reason": "LAGGING_NOT_DEFINED_FOR_BENCHMARK_BUCKET" if bucket_is_benchmark else None,
             "levels": {"lagging_source": cfg["1-B"]["lagging_source"], "entity_id": position["rotation_entity_id"]},
         }
-        if atr is None:
-            atr_block = None
+        r_ref_multiple, ptp_multiple, ds_multiple = units["r_ref_atr_multiple"], cfg["PTP1"]["r_multiple"], cfg["DS5"]["atr_multiple"]
+    if atr is None:
+        atr_block = None
+        for cid in ("PTP1", "DS5"):
+            controls[cid] = {"control_id": cid, "status": "UNKNOWN", "reason": "ATR14_NOT_SUPPLIED", "levels": None}
+    else:
+        atr = EXIT.verify_payload_sha(atr, "ATR_RECORD_SHA_MISMATCH")
+        if parse_utc(atr["decision_at"]) != decision:
+            _fail("ATR_DECISION_TIME_MISMATCH")
+        atr_block = copy.deepcopy(atr)
+        if atr["status"] != "OBSERVED":
             for cid in ("PTP1", "DS5"):
-                controls[cid] = {"control_id": cid, "status": "UNKNOWN", "reason": "ATR14_NOT_SUPPLIED", "levels": None}
+                controls[cid] = {"control_id": cid, "status": "UNKNOWN", "reason": f"ATR14_{atr['reason']}", "levels": None}
         else:
-            atr = EXIT.verify_payload_sha(atr, "ATR_RECORD_SHA_MISMATCH")
-            if parse_utc(atr["decision_at"]) != decision:
-                _fail("ATR_DECISION_TIME_MISMATCH")
-            atr_block = copy.deepcopy(atr)
-            if atr["status"] != "OBSERVED":
-                for cid in ("PTP1", "DS5"):
-                    controls[cid] = {"control_id": cid, "status": "UNKNOWN", "reason": f"ATR14_{atr['reason']}", "levels": None}
-            else:
-                value = parse_decimal(atr["atr14"], "ATR14_INVALID", positive=True)
-                r_ref = Decimal(units["r_ref_atr_multiple"]) * value
-                ptp_level = p1 + Decimal(cfg["PTP1"]["r_multiple"]) * r_ref
-                ds_level = p1 - Decimal(cfg["DS5"]["atr_multiple"]) * value
-                controls["PTP1"] = {"control_id": "PTP1", "status": "DEFINED", "reason": None, "levels": {
-                    "limit_price": _q(ptp_level), "quantity_fraction": cfg["PTP1"]["quantity_fraction"],
-                    "r_ref": _q(r_ref),
-                }}
-                controls["DS5"] = {
-                    "control_id": "DS5",
-                    "status": "DEFINED" if ds_level > 0 else "DEFINED_STOP_LEVEL_NOT_POSITIVE",
-                    "reason": None if ds_level > 0 else "STOP_LEVEL_AT_OR_BELOW_ZERO_CANNOT_TRIGGER",
-                    "levels": {"stop_price": _q(ds_level)},
-                }
+            value = parse_decimal(atr["atr14"], "ATR14_INVALID", positive=True)
+            r_ref = Decimal(r_ref_multiple) * value
+            ptp_level = p1 + Decimal(ptp_multiple) * r_ref
+            ds_level = p1 - Decimal(ds_multiple) * value
+            controls["PTP1"] = {"control_id": "PTP1", "status": "DEFINED", "reason": None, "levels": {
+                "limit_price": _q(ptp_level), "quantity_fraction": cfg["PTP1"]["quantity_fraction"],
+                "r_ref": _q(r_ref),
+            }}
+            controls["DS5"] = {
+                "control_id": "DS5",
+                "status": "DEFINED" if ds_level > 0 else "DEFINED_STOP_LEVEL_NOT_POSITIVE",
+                "reason": None if ds_level > 0 else "STOP_LEVEL_AT_OR_BELOW_ZERO_CANNOT_TRIGGER",
+                "levels": {"stop_price": _q(ds_level)},
+            }
     start = {
         "schema_version": START_SCHEMA_VERSION,
         "market": market,
@@ -221,6 +235,7 @@ def start_shadow_controls(policy: dict, position: dict, *, first_fill_price: str
         "atr14": atr_block,
         "controls": [controls[cid] for cid in CONTROL_IDS],
         "definition_source": copy.deepcopy(policy["config"]["source_documents"]["exit_study_v2"]),
+        "units_ratification": units_ratification,
         "record_only": True,
         "rule_refs": _refs(policy),
         "authority": EXIT.authority(policy),
@@ -285,13 +300,26 @@ def _in_gap(moment: dt.datetime, gaps: list) -> bool:
     return any(parse_utc(g["from"]) < moment < parse_utc(g["to"]) for g in gaps)
 
 
-def _first_fresh_price_after(observations: list, after: dt.datetime, gaps: list) -> Optional[dict]:
+def _first_fresh_price_after(observations: list, after: dt.datetime, gaps: list, *,
+                             bar_open_at_boundary: bool = False) -> Optional[dict]:
+    return _first_allowed_price_after(observations, after, gaps, bar_open_at_boundary=bar_open_at_boundary)
+
+
+def _first_allowed_price_after(observations: list, after: dt.datetime, gaps: list, *,
+                               bar_open_at_boundary: bool = False) -> Optional[dict]:
     """First allowed price strictly after ``after``: SNAPSHOT price or BAR open.
+
+    ``bar_open_at_boundary``: a trigger read from a completed bar is known at
+    that bar's end, and the next bar's open at exactly that instant is the
+    first price after it (back-to-back bars), so a BAR starting at ``after``
+    is allowed. Decision-driven fills keep the strict ``t_obs > t_ord`` rule.
 
     Nothing inside a monitoring gap is an allowed price (no fill is created
     during a gap; the first price after recovery is used instead)."""
     for row in observations:
-        if row["freshness"] == "FRESH" and row["t_obs"] > after and not _in_gap(row["t_obs"], gaps):
+        if row["freshness"] != "FRESH" or not row.get("allowed", True) or _in_gap(row["t_obs"], gaps):
+            continue
+        if row["t_obs"] > after or (bar_open_at_boundary and row["kind"] == "BAR" and row["t_obs"] == after):
             return row
     return None
 
@@ -380,6 +408,66 @@ def monitoring_gaps(policy: dict, observations: list, start: dt.datetime, end: d
     return gaps
 
 
+def _session_windows(policy: dict, market: str, calendar: dict, start: dt.datetime, end: dt.datetime) -> list:
+    zone = EXIT.ZoneInfo(policy["config"]["rules"]["time_contract"]["fill_windows"][market]["timezone"])
+    day = start.astimezone(zone).date()
+    last = end.astimezone(zone).date()
+    windows = []
+    while day <= last:
+        if calendar["sessions"].get(day.isoformat()) == "OPEN":
+            w_start, w_end = EXIT._window_bounds(policy, market, day)
+            if w_end > start and w_start < end:
+                windows.append((max(w_start, start), min(w_end, end)))
+        day += dt.timedelta(days=1)
+    return windows
+
+
+def monitoring_gaps_in_windows(policy: dict, market: str, calendar: dict, observations: list, start: dt.datetime,
+                               end: dt.datetime, expected_interval_seconds: int) -> list:
+    """KR/US: gaps are measured only inside D1 fill windows of OPEN sessions (closed hours are not gaps).
+    The monitoring feed is every FRESH allowed observation (completed bars or quote snapshots)."""
+    if type(expected_interval_seconds) is not int or expected_interval_seconds <= 0:
+        _fail("EXPECTED_MONITORING_INTERVAL_INVALID")
+    multiple = Decimal(policy["config"]["rules"]["monitored_stop_fill_model"]["monitoring_gap_interval_multiple"])
+    limit = dt.timedelta(seconds=float(multiple * expected_interval_seconds))
+    gaps = []
+    for w_start, w_end in _session_windows(policy, market, calendar, start, end):
+        times = [w_start] + [row["known_at"] for row in observations
+                             if row["freshness"] == "FRESH" and w_start < row["known_at"] <= w_end] + [w_end]
+        for previous, current in zip(times, times[1:]):
+            if current - previous > limit:
+                gaps.append({"from": stamp(previous), "to": stamp(current), "seconds": int((current - previous).total_seconds()),
+                             "open_at_as_of": current == end})
+    return gaps
+
+
+def _ts14_due_kr_us(policy: dict, market: str, calendar: Optional[dict], first_fill: dt.datetime, trading_days: int) -> dict:
+    """Due at the end of the D1 fill window of the Nth OPEN session after the first-fill session (CIO interpretation)."""
+    if calendar is None:
+        return {"status": "UNKNOWN", "reason": "SESSION_CALENDAR_NOT_SUPPLIED"}
+    calendar = EXIT.validate_session_calendar(calendar, market)
+    zone = EXIT.ZoneInfo(policy["config"]["rules"]["time_contract"]["fill_windows"][market]["timezone"])
+    day = first_fill.astimezone(zone).date()
+    if calendar["sessions"].get(day.isoformat()) != "OPEN":
+        return {"status": "UNKNOWN", "reason": "FIRST_FILL_SESSION_NOT_OPEN_IN_CALENDAR"}
+    first_session, counted = day, 0
+    last = max(EXIT.parse_date(d) for d in calendar["sessions"])
+    while counted < trading_days:
+        day += dt.timedelta(days=1)
+        if day > last:
+            return {"status": "UNKNOWN", "reason": "SESSION_CALENDAR_EXHAUSTED"}
+        status = calendar["sessions"].get(day.isoformat())
+        if status is None:
+            return {"status": "UNKNOWN", "reason": f"SESSION_CALENDAR_DATE_UNKNOWN:{day.isoformat()}"}
+        if status == "OPEN":
+            counted += 1
+        elif status != "CLOSED":
+            return {"status": "UNKNOWN", "reason": f"NON_REGULAR_SESSION_NOT_RATIFIED:{status}"}
+    _start, window_end = EXIT._window_bounds(policy, market, day)
+    return {"status": "KNOWN", "reason": None, "first_fill_session_date": first_session.isoformat(),
+            "deadline_session_date": day.isoformat(), "due_at": window_end, "trading_days": trading_days}
+
+
 def monitored_stop(policy: dict, stop_price: Decimal, observations: list, entry_fill_at: dt.datetime,
                    before: Optional[dt.datetime], gaps: list) -> dict:
     """Trigger and fill under RULE.EXEC.MONITORED_STOP_FILL_MODEL.V1 (D9)."""
@@ -387,6 +475,8 @@ def monitored_stop(policy: dict, stop_price: Decimal, observations: list, entry_
     for row in observations:
         if row["freshness"] != "FRESH" or (row["kind"] == "SNAPSHOT" and row["t_obs"] <= entry_fill_at):
             continue
+        if not row.get("allowed", True):
+            continue  # KR/US: prices outside the regular-session D1 window neither trigger nor fill
         if row["kind"] == "BAR" and row["t_obs"] < entry_fill_at:
             continue  # a bar overlapping the entry fill never triggers
         if before is not None and row["known_at"] >= before:
@@ -397,13 +487,23 @@ def monitored_stop(policy: dict, stop_price: Decimal, observations: list, entry_
             break
     if trigger is None:
         return {"status": "NOT_TRIGGERED", "trigger": None, "fill": None}
-    fill = _first_fresh_price_after(observations, trigger["known_at"], gaps)
+    fill = _first_fresh_price_after(observations, trigger["known_at"], gaps,
+                                    bar_open_at_boundary=trigger["kind"] == "BAR")
     trigger_out = {"observation_id": trigger["observation_id"], "kind": trigger["kind"], "t_obs": stamp(trigger["t_obs"]),
                    "known_at": stamp(trigger["known_at"]),
                    "observed_price": _q(trigger["price"] if trigger["kind"] == "SNAPSHOT" else trigger["low"])}
     if fill is None:
         return {"status": "TRIGGERED_AWAITING_FIRST_ALLOWED_PRICE", "trigger": trigger_out, "fill": None}
     price = _obs_price(fill)
+    # Study v2 pre-registration 3 GAP (reference only): a completed-bar trigger
+    # sells at the open of the next existing bar, fill = min(stop, that open).
+    # Not defined for a snapshot trigger.
+    study_reference = None
+    if trigger["kind"] == "BAR":
+        next_bar = next((row for row in observations if row["kind"] == "BAR" and row["freshness"] == "FRESH"
+                         and row["t_obs"] >= trigger["known_at"]), None)
+        if next_bar is not None:
+            study_reference = _q(min(stop_price, next_bar["open"]))
     return {
         "status": "FILLED",
         "trigger": trigger_out,
@@ -411,7 +511,7 @@ def monitored_stop(policy: dict, stop_price: Decimal, observations: list, entry_
             "observation_id": fill["observation_id"], "kind": fill["kind"], "t_obs": stamp(fill["t_obs"]),
             "price": price, "gap_down": price < stop_price,
             "stop_minus_fill": _q(stop_price - price),
-            "study_v2_gap_primary_reference_price": _q(min(stop_price, price)),
+            "study_v2_gap_primary_reference_price": study_reference,
         },
     }
 
@@ -431,8 +531,11 @@ def _decision_after(snapshots: list, not_before: dt.datetime, before: Optional[d
 
 def evaluate_shadow_controls(policy: dict, start: dict, *, as_of: str, lots: list, price_observations: list,
                              decision_snapshots: list, rotation_packets: list, default_exit_fills: list,
-                             expected_monitoring_interval_seconds: int) -> dict:
-    """Record-only shadow result rows up to ``as_of`` for one position episode."""
+                             expected_monitoring_interval_seconds: int, calendar: Optional[dict] = None) -> dict:
+    """Record-only shadow result rows up to ``as_of`` for one position episode.
+
+    KR/US need the caller-supplied official session ``calendar``: prices count
+    only inside D1 fill windows, and TS14 counts OPEN sessions."""
     start = EXIT.verify_payload_sha(start, "SHADOW_START_SHA_MISMATCH")
     if start.get("schema_version") != START_SCHEMA_VERSION:
         _fail("SHADOW_START_SCHEMA_INVALID")
@@ -448,35 +551,51 @@ def evaluate_shadow_controls(policy: dict, start: dict, *, as_of: str, lots: lis
         "record_only": True,
         "authority": EXIT.authority(policy),
     }
-    if start["market"] != "CRYPTO":
-        rows = [{"control_id": cid, "status": "NOT_DEFINED", "reason": controls[cid]["reason"], "legs": []} for cid in CONTROL_IDS]
-        return EXIT.with_payload_sha(base_result | {"controls": rows, "default_exit": None, "monitoring_gaps": [],
-                                                    "rule_refs": _refs(policy)})
+    market = start["market"]
     first_fill = parse_utc(start["first_fill_at"])
     p1 = Decimal(start["first_fill_price"])
     lot_rows = _lots(lots, first_fill)
     observations = _price_observations(price_observations, cutoff)
+    if market != "CRYPTO":
+        if calendar is not None:
+            calendar = EXIT.validate_session_calendar(calendar, market)
+        for row in observations:
+            row["allowed"] = calendar is not None and EXIT.is_allowed_fill_time(policy, market, stamp(row["t_obs"]), calendar)[0]
     snapshots = _decision_snapshots(decision_snapshots, cutoff)
     default = _default_exit(default_exit_fills, lot_rows)
     default_cut = default["first_fill_at"]
-    gaps = monitoring_gaps(policy, observations, first_fill, cutoff if default_cut is None else min(cutoff, default_cut),
-                           expected_monitoring_interval_seconds)
+    gap_end = cutoff if default_cut is None else min(cutoff, default_cut)
+    if market == "CRYPTO":
+        gaps = monitoring_gaps(policy, observations, first_fill, gap_end, expected_monitoring_interval_seconds)
+    elif calendar is None:
+        gaps = []
+    else:
+        gaps = monitoring_gaps_in_windows(policy, market, calendar, observations, first_fill, gap_end,
+                                          expected_monitoring_interval_seconds)
     rows = []
 
     # TS14
     ts = controls["TS14"]
-    deadline = parse_utc(ts["levels"]["deadline_at"])
-    decision = _decision_after(snapshots, deadline, default_cut)
-    ts_row = {"control_id": "TS14", "status": None, "reason": None, "component": {"deadline_at": stamp(deadline)}, "legs": []}
+    if market == "CRYPTO":
+        due = {"status": "KNOWN", "reason": None, "due_at": parse_utc(ts["levels"]["deadline_at"])}
+    else:
+        due = _ts14_due_kr_us(policy, market, calendar, first_fill, ts["levels"]["trading_days"])
+    ts_row = {"control_id": "TS14", "status": None, "reason": due["reason"], "legs": [],
+              "component": {k: (stamp(v) if isinstance(v, dt.datetime) else v) for k, v in due.items() if k not in ("status", "reason")}}
+    if "due_at" in ts_row["component"]:
+        ts_row["component"]["deadline_at"] = ts_row["component"].pop("due_at")
     remaining = _qty_at(lot_rows, cutoff if default_cut is None else default_cut)
-    if decision is not None:
+    decision = None if due["status"] != "KNOWN" else _decision_after(snapshots, due["due_at"], default_cut)
+    if due["status"] != "KNOWN" and default["status"] != "EXITED":
+        ts_row["status"] = "UNKNOWN"
+    elif decision is not None:
         fill = _first_fresh_price_after(observations, decision["decision_at"], gaps)
         ts_row["component"].update(decision_snapshot_id=decision["snapshot_id"], t_dec=stamp(decision["decision_at"]))
         if fill is None:
             ts_row["status"] = "COMPONENT_TRIGGERED_AWAITING_FIRST_ALLOWED_PRICE"
         else:
             qty = _qty_at(lot_rows, decision["decision_at"])
-            ts_row["legs"] = [_leg("TIME_STOP_14D", qty, _obs_price(fill), fill["t_obs"], p1, f"FIRST_FRESH_{fill['kind']}_AFTER_DECISION")]
+            ts_row["legs"] = [_leg("TIME_STOP_14D" if market == "CRYPTO" else "TIME_STOP_14_TRADING_DAYS", qty, _obs_price(fill), fill["t_obs"], p1, f"FIRST_FRESH_{fill['kind']}_AFTER_DECISION")]
             ts_row["status"] = "CLOSED"
     if ts_row["status"] is None:
         ts_row["legs"], ts_row["status"] = _close_with_default([], remaining, default, p1)
@@ -534,7 +653,7 @@ def evaluate_shadow_controls(policy: dict, start: dict, *, as_of: str, lots: lis
         fraction = Decimal(ptp["levels"]["quantity_fraction"])
         tp_fill = None
         for row in observations:
-            if row["freshness"] != "FRESH" or (default_cut is not None and row["known_at"] >= default_cut):
+            if row["freshness"] != "FRESH" or not row.get("allowed", True) or (default_cut is not None and row["known_at"] >= default_cut):
                 continue
             if row["kind"] == "SNAPSHOT" and row["t_obs"] > first_fill and row["price"] > level:
                 tp_fill = (row, level, "RESTING_LIMIT_PRICE_SNAPSHOT_ABOVE_LEVEL")
@@ -599,6 +718,7 @@ def evaluate_shadow_controls(policy: dict, start: dict, *, as_of: str, lots: lis
             else:
                 row["shadow_quantity_differs_from_default"] = _q(quantity)
     result = base_result | {
+        "units_ratification": copy.deepcopy(start.get("units_ratification")),
         "controls": rows,
         "default_exit": default_out,
         "monitoring_gaps": gaps,

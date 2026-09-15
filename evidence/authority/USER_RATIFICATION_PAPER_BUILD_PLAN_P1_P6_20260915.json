@@ -1,0 +1,56 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+  "recorded_at_utc": "2026-09-15T00:27:55Z",
+  "recorded_at_kst": "2026-09-15 09:27",
+  "ratified_by": "USER (chat, verbatim sentence below, typed by user in reply to CIO recommended sentences from CLAUDE_CIO_PAPER_EXECUTION_V1_BUILD_PLAN_20260915.md §9)",
+  "recommended_by": "CLAUDE_CIO",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "source_plan": "CLAUDE_CIO_PAPER_EXECUTION_V1_BUILD_PLAN_20260915.md (sha256 11f3d3422378cc152ae2af555cfb62926e3fe6779f2de0125c1bd811ebf6412a) §9 P1-P6",
+  "user_sentence_verbatim": "코인 로테이션 30일 강도에 한해, 나중에 확정된 분류 추가로 커버리지가 채워지는 과거 관측일(2026-08-19 이후)은 분류 확정 뒤 한 번만 재계산해 쓰고 '재계산' 표시를 남긴다. 코인 시장 판정의 LEADERSHIP 축에는 적용하지 않는다. PAPER 합산 NAV의 달러 보유 환산은 판단 시각 전에 공개된 최신 연준 H.10 원/달러 환율(FRED DEXKOUS)을 쓰고, 관측일을 함께 기록하며, 10영업일 넘게 새 값이 없으면 'NAV 일부 미검증'으로 표시한다. 한국·미국 그림자 비교는 1-B를 해제만으로 대신하고, 시간 손절은 14 거래일, 부분 익절 1R과 재난 손절은 일봉 ATR14의 3배·5배로 기록한다. 뒤처짐 정의가 확정되면 1-B를 원래 정의로 바꾼다. 미국 개별주의 섹터 소속은 판단일 이전 최신 SPDR 섹터 ETF 공식 보유 명단에서 정하고, 둘 이상이면 비중이 가장 큰 ETF, 명단에 없으면 UNKNOWN(T2 없음)으로 한다. 섹터 ETF 자신은 자기 섹터로 본다. 한국 STRESS 조건이 확정되기 전까지 한국 인버스 헤지는 켜지 않고, 한국 STRESS 축소 경로는 고정 입력 재생으로만 검증한다. 성과 사유(규칙 성적표 기준 미달)의 재조정 제안은 새 규칙 버전 효력일부터 한국·미국 20거래일·코인 30일과 그 규칙 최소 표본을 효력일 이후 자료로 다시 채우는 날 중 늦은 날까지 올리지 않는다. 버그 수정·명확화·새 증거·충돌 해결은 막지 않는다.",
+  "status": "RATIFIED",
+  "scope": "INTERNAL_VIRTUAL_PAPER (applies to PAPER; REAL requires separate decision)",
+  "rules": [
+    {
+      "rule_id": "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1",
+      "plan_item": "P1",
+      "decision": "Crypto rotation 30-day strength only: past observation days on/after 2026-08-19 whose taxonomy coverage becomes complete through later-confirmed classification additions are recalculated exactly once after classification confirmation, and marked '재계산'. Not applied to the LEADERSHIP axis of the crypto market regime.",
+      "known_limitation": "Later-confirmed classification applied to past days is a mild look-ahead in taxonomy (not prices); results depending on recalculated days carry the '재계산' mark in scorecards."
+    },
+    {
+      "rule_id": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1",
+      "plan_item": "P2",
+      "decision": "Combined PAPER NAV converts USD holdings with the latest Federal Reserve H.10 KRW/USD rate (FRED DEXKOUS) published before the decision time; record the observation date; if no new value for more than 10 business days, display 'NAV 일부 미검증'."
+    },
+    {
+      "rule_id": "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1",
+      "plan_item": "P3",
+      "decision": "KR/US shadow controls: 1-B replaced by release-only; time stop 14 trading days; partial take-profit 1R = 3x daily ATR14; disaster stop = 5x daily ATR14; record-only. When a lagging definition is confirmed, 1-B reverts to its original definition."
+    },
+    {
+      "rule_id": "RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1",
+      "plan_item": "P4",
+      "decision": "US individual stock sector membership = latest official SPDR sector ETF holdings published before the decision date; if held by more than one, the ETF with the largest weight; if in none, UNKNOWN (no T2). A sector ETF maps to its own sector."
+    },
+    {
+      "rule_id": "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1",
+      "plan_item": "P5",
+      "decision": "Until a KR STRESS condition is confirmed: KR inverse hedge stays off; the KR STRESS reduction path is validated by fixed-input replay only."
+    },
+    {
+      "rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1",
+      "plan_item": "P6",
+      "decision": "Performance-reason (scorecard below standard) re-adjustment proposals are not raised until the later of: KR/US 20 trading days or crypto 30 days from the new rule version's effective date, and the day that rule's minimum sample is refilled with post-effective data. Bug fixes, clarifications, new evidence and conflict resolution are not blocked.",
+      "amends": "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915.json (4e08b945…) cooling-off period left for later confirmation"
+    }
+  ],
+  "not_included": [
+    "Rotation max observation gap numbers (crypto 2 / US 4 / KR 7) remain implementation config, not user-confirmed (CLAUDE_CIO_CORRECTION_ROTATION_MAX_GAP_LABEL_20260915.md)",
+    "Server dispatcher blob_sha update (separate approval)"
+  ],
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}
