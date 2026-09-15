@@ -244,7 +244,7 @@ def entity_rule_refs(policy: dict, market: str, state: str) -> list:
 
 def _entry_gate_view(policy: dict, market: str, flat: list) -> list:
     return [
-        {
+        _with_coverage_recalculation({
             "scope_id": scope_id,
             "entity_id": e["entity_id"],
             "label": e["source_identity"],
@@ -256,9 +256,24 @@ def _entry_gate_view(policy: dict, market: str, flat: list) -> list:
             "release_new_buy_stop": e["release_new_buy_stop"],
             "forced_exit": False,
             "rule_refs": entity_rule_refs(policy, market, e["state"]),
-        }
+        }, e.get("coverage_recalculation"))
         for scope_id, e in flat
     ]
+
+
+def _with_coverage_recalculation(gate: dict, mark: Optional[dict]) -> dict:
+    """Rows resting on recalculated observations carry the '재계산' mark and the P1 rule lineage."""
+    if mark is None:
+        return gate
+    gate["coverage_recalculation"] = copy.deepcopy(mark)
+    gate["rule_refs"] = sorted(
+        gate["rule_refs"] + [{
+            "rule_id": mark["rule_id"], "version": RULE_REF_VERSION, "registry_sha256": None,
+            "source_record_sha256": mark["ratification_record_sha256"], "role": "APPLIED",
+        }],
+        key=lambda r: (r["rule_id"], r["role"]),
+    )
+    return gate
 
 
 def market_rule_refs(policy: dict, market: str) -> list:
@@ -285,6 +300,7 @@ def crypto_observations(policy: dict, root: Path = ROOT) -> list:
     cfg = policy["markets"]["CRYPTO"]
     source = cfg["source"]
     result = []
+    _coverage_recalc_module().reset_notices(root)
     for path in sorted(glob.glob(str(Path(root) / source["root"] / "*" / "packet.json"))):
         path = Path(path)
         packet = _read_json(path)
@@ -302,11 +318,39 @@ def crypto_observations(policy: dict, root: Path = ROOT) -> list:
             continue
         window = windows[0]
         aux = {"daily_points": _crypto_daily_points(window, cfg)}
+        recalculation = None
         if window.get("status") != "OBSERVED_UNCLASSIFIED":
-            item = _unknown(as_of, f"WINDOW_{window.get('unknown_reason') or 'UNKNOWN'}", sources)
-            item["aux"] = aux
-            result.append(item)
-            continue
+            # RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1: the 30-day strength input only
+            # (never the regime LEADERSHIP axis). Recalculated days never feed ``aux``.
+            outcome = _crypto_coverage_recalc_outcome(root, as_of, packet, window)
+            if outcome["kind"] in ("NATURAL", "UNKNOWN"):
+                reason = outcome.get("unknown_reason") or f"WINDOW_{window.get('unknown_reason') or 'UNKNOWN'}"
+                item = _unknown(as_of, reason, sources)
+                item["aux"] = aux
+                result.append(item)
+                continue
+            if outcome["kind"] == "COMMITTED":
+                # Committed packets are preferred: a later edit elsewhere never changes their replay.
+                committed = outcome["packet"]
+                result.append({
+                    "as_of_date": as_of, "status": "OBSERVED", "unknown_reason": None,
+                    "sources": copy.deepcopy(committed["observation"]["sources"]),
+                    "scopes": {
+                        scope["scope_id"]: [
+                            {"entity_id": e["entity_id"], "source_identity": e["source_identity"], "strength": e["strength"]}
+                            for e in scope["entities"]
+                        ]
+                        for scope in committed["scopes"]
+                    },
+                    "aux": aux,
+                    "coverage_recalculation": copy.deepcopy(committed["observation"]["coverage_recalculation"]),
+                })
+                continue
+            window, recalculation = outcome["window"], outcome["mark"]
+            sources = sources + [
+                {"path": day["point_path"], "sha256": file_sha256(Path(root) / day["point_path"])}
+                for day in recalculation["recalculated_days"]
+            ]
         rows = {row.get("group_id"): row for row in (window.get("group_relative_strength") or {}).get("bucket") or []}
         entities = []
         reason = None
@@ -322,11 +366,44 @@ def crypto_observations(policy: dict, root: Path = ROOT) -> list:
             item["aux"] = aux
             result.append(item)
             continue
-        result.append({
+        observed = {
             "as_of_date": as_of, "status": "OBSERVED", "unknown_reason": None,
             "sources": sources, "scopes": {cfg["scope_id"]: entities}, "aux": aux,
-        })
+        }
+        if recalculation is not None:
+            observed["coverage_recalculation"] = recalculation
+        result.append(observed)
     return result
+
+
+_COVERAGE_RECALC_MODULE: list = []
+
+
+def _coverage_recalc_module():
+    if not _COVERAGE_RECALC_MODULE:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "atlas_crypto_rotation_30d_coverage_recalc", Path(__file__).resolve().parent / "crypto_rotation_30d_coverage_recalc.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _COVERAGE_RECALC_MODULE.append(module)
+    return _COVERAGE_RECALC_MODULE[0]
+
+
+def _crypto_coverage_recalc_outcome(root: Path, as_of: str, packet: dict, window: dict) -> dict:
+    """RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1 decision; never raises (drift -> crypto notice file)."""
+    committed_path = evidence_path(root, "CRYPTO", as_of)
+    committed = None
+    if committed_path.exists():
+        committed = _read_json(committed_path)
+        if "coverage_recalculation" in (committed.get("observation") or {}):
+            validate_packet(committed)  # a tampered committed packet is not drift
+    return _coverage_recalc_module().rotation_override(root, as_of, packet, window, committed)
+
+
+CRYPTO_COVERAGE_RECALC_NOTICE_RELATIVE_PATH = "data/rotation_confirmation_crypto_coverage_recalc_notice.json"
 
 
 def _crypto_daily_points(window: dict, cfg: dict) -> list:
@@ -532,6 +609,7 @@ def _fresh_tracker() -> dict:
         "top_streak": 0, "non_top_streak": 0, "strong": False, "strong_since": None,
         "strong_observations": 0, "state": None, "state_since": None, "state_observations": 0,
         "last_bucket": None, "ranks": [], "last_release_on": None,
+        "top_recalc": [], "non_top_recalc": [], "episode_recalc": [],
     }
 
 
@@ -601,6 +679,7 @@ def build_market_packets(policy: dict, market: str, observations: list, mapping:
     chain_index = -1
     chain_inputs = []
     crypto_daily = {}
+    recalculation_refs = {}
     packets = []
     for observation in observations:
         as_of = observation["as_of_date"]
@@ -634,6 +713,10 @@ def build_market_packets(policy: dict, market: str, observations: list, mapping:
             "rule_refs": copy.deepcopy(refs),
             "authority": copy.deepcopy(policy["authority"]),
         }
+        recalculation = observation.get("coverage_recalculation")
+        if recalculation is not None:  # only recalculated observations carry the key (others stay byte-identical)
+            packet["observation"]["coverage_recalculation"] = copy.deepcopy(recalculation)
+        recalc_date = as_of if recalculation is not None else None
         if observation["status"] != "OBSERVED":
             packet["chain"] = {
                 "chain_start_date": chain_start, "observation_index": None,
@@ -658,6 +741,8 @@ def build_market_packets(policy: dict, market: str, observations: list, mapping:
         else:
             chain_index += 1
         lagging = _crypto_lagging(crypto_daily, as_of, cfg) if market == "CRYPTO" else None
+        if recalculation is not None:
+            recalculation_refs[as_of] = {"rule_id": recalculation["rule_id"], "sha256": recalculation["ratification_record_sha256"]}
         scopes_out = []
         for scope_id in sorted(observation["scopes"]):
             rows = observation["scopes"][scope_id]
@@ -675,6 +760,9 @@ def build_market_packets(policy: dict, market: str, observations: list, mapping:
                 is_top = bucket == "TOP"
                 tracker["top_streak"] = tracker["top_streak"] + 1 if is_top else 0
                 tracker["non_top_streak"] = 0 if is_top else tracker["non_top_streak"] + 1
+                today_recalc = [recalc_date] if recalc_date else []
+                tracker["top_recalc"] = tracker["top_recalc"] + today_recalc if is_top else []
+                tracker["non_top_recalc"] = [] if is_top else tracker["non_top_recalc"] + today_recalc
                 confirmed_today = released_today = False
                 if tracker["strong"]:
                     if bucket == "BOTTOM" or tracker["non_top_streak"] >= policy["confirmation"]["release_consecutive_non_top_observations"]:
@@ -722,6 +810,19 @@ def build_market_packets(policy: dict, market: str, observations: list, mapping:
                     state_since = as_of
                 tracker["state"] = state
                 tracker["last_bucket"] = bucket
+                # '재계산' dependency: recalculated observations the state rests on
+                # (confirmation streak + strong episode; release adds the release streak).
+                if released_today:
+                    dependency = tracker["episode_recalc"] + tracker["non_top_recalc"]
+                    tracker["episode_recalc"] = []
+                elif confirmed_today:
+                    tracker["episode_recalc"] = list(tracker["top_recalc"])
+                    dependency = tracker["episode_recalc"]
+                elif tracker["strong"]:
+                    tracker["episode_recalc"] = tracker["episode_recalc"] + today_recalc
+                    dependency = tracker["episode_recalc"]
+                else:
+                    dependency = today_recalc
                 entity_out = {
                     "entity_id": row["entity_id"],
                     "source_identity": row["source_identity"],
@@ -746,6 +847,8 @@ def build_market_packets(policy: dict, market: str, observations: list, mapping:
                     "release_new_buy_stop": released_today,
                     "forced_exit": False,
                 }
+                if dependency:
+                    entity_out["coverage_recalculation"] = _coverage_recalculation_mark(recalculation_refs, dependency)
                 entities_out.append(entity_out)
             scopes_out.append({"scope_id": scope_id, "entities": entities_out})
         packet["chain"] = {
@@ -763,6 +866,21 @@ def build_market_packets(policy: dict, market: str, observations: list, mapping:
         packets.append(packet)
         previous_observed = as_of
     return packets
+
+
+def _coverage_recalculation_mark(refs: dict, dates: list) -> dict:
+    dates = sorted(set(dates))
+    sources = {(refs[d]["rule_id"], refs[d]["sha256"]) for d in dates}
+    if len(sources) != 1:
+        _fail("COVERAGE_RECALCULATION_RULE_SOURCE_AMBIGUOUS")
+    rule_id, sha = sources.pop()
+    return {
+        "recalculated": True,
+        "mark_ko": "재계산",
+        "rule_id": rule_id,
+        "ratification_record_sha256": sha,
+        "depends_on_recalculated_observation_dates": dates,
+    }
 
 
 def _summary(flat: list) -> dict:
@@ -933,7 +1051,7 @@ def _projection_rows(packet: dict, states: tuple) -> list:
     for scope in packet["scopes"]:
         for entity in scope["entities"]:
             if entity["state"] in states:
-                rows.append({
+                row = {
                     "scope_id": scope["scope_id"],
                     "entity_id": entity["entity_id"],
                     "label": entity["source_identity"],
@@ -942,7 +1060,10 @@ def _projection_rows(packet: dict, states: tuple) -> list:
                     "state_since_date": entity["state_since_date"],
                     "observations_in_state": entity["observations_in_state"],
                     "calendar_days_in_state": entity["calendar_days_in_state"],
-                })
+                }
+                if entity.get("coverage_recalculation"):
+                    row["mark_ko"] = entity["coverage_recalculation"]["mark_ko"]
+                rows.append(row)
     return sorted(rows, key=lambda r: (r["scope_id"], r["rank"] if r["rank"] is not None else 0, r["entity_id"]))
 
 
@@ -1052,6 +1173,13 @@ def run(argv=None) -> int:
                     notice_path.write_bytes(render_json(notice))
                     if late:
                         print(f"::warning::late older {market} evidence not replayed: {','.join(late)}", file=sys.stderr)
+                    if market == "CRYPTO":  # crypto-only coverage recalculation notice (drift is never raised)
+                        recalc_notice = _coverage_recalc_module().notice_document(args.root)
+                        recalc_path = Path(args.root) / CRYPTO_COVERAGE_RECALC_NOTICE_RELATIVE_PATH
+                        recalc_path.parent.mkdir(parents=True, exist_ok=True)
+                        recalc_path.write_bytes(render_json(recalc_notice))
+                        if recalc_notice["notices"] or recalc_notice["point_classification_drift"]:
+                            print("::warning::crypto coverage recalculation notice written", file=sys.stderr)
                 packets = build_market(market, args.root, policy)
                 latest = packets[-1] if packets else None
                 if args.write:
