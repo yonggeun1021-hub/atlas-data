@@ -489,7 +489,6 @@ def publish(*, bundle_dir: Path, provenance_raw: bytes, evaluation_at: str,
     if not _is_open(context, root) or previous_open_session(context, root).isoformat() != previous:
         fail("SOURCE_PAIR_NOT_ADJACENT_OPEN_SESSIONS")
     validate_provenance(provenance_raw, record, current)
-    execution = next_open_session(context, root)
     validation_raw = validation_record(record_raw, bundle, provenance_raw)
 
     root_session = current == record["history_root"]["context_session_date"]
@@ -501,7 +500,11 @@ def publish(*, bundle_dir: Path, provenance_raw: bytes, evaluation_at: str,
     }
     result = None
     reason = None
+    execution = None
     try:
+        # Inside the try: a missing calendar packet (e.g. no 2027 capture yet)
+        # records the observation with runtime UNKNOWN instead of losing it.
+        execution = next_open_session(context, root)
         history_raw, receipt_raw, rolled = history_through(previous, record, root, require_bot_chain)
         qualification_raw = derive_qualification(
             record, record_raw, bundle, history_raw, receipt_raw, context, execution,
@@ -529,7 +532,7 @@ def publish(*, bundle_dir: Path, provenance_raw: bytes, evaluation_at: str,
         files["decision.json"] = pretty(result)
         if not _decision_is_display(result):
             reason = (result.get("reasons") or ["RUNTIME_NOT_AVAILABLE"])[0]
-    except AdoptionError as exc:
+    except (AdoptionError, PACKETS.CalendarPacketError) as exc:
         reason = str(exc)
 
     latest_updated = False
@@ -546,7 +549,7 @@ def publish(*, bundle_dir: Path, provenance_raw: bytes, evaluation_at: str,
         "adoption_id": ADOPTION_ID,
         "context_session_date": current,
         "previous_session_date": previous,
-        "execution_session_date": execution.isoformat(),
+        "execution_session_date": execution.isoformat() if execution else None,
         "evaluation_at": evaluation_at,
         "code_revision": code_revision,
         "status": "PUBLISHED_KR_PAPER_DISPLAY_ONLY" if reason is None

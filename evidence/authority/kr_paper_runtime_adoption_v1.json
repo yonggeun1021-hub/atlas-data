@@ -68,10 +68,12 @@
   },
   "requalification_rule": "Any change to a pinned implementation, policy or contract byte fails closed with ADOPTION_PIN_DRIFT_REQUALIFICATION_REQUIRED until a new adoption record with updated pins is CIO-adopted.",
   "rolling_history_extension": {
-    "confirmation_ref": null,
+    "confirmation_class": "USER_RATIFIED",
+    "confirmation_record_path": "evidence/authority/USER_RATIFICATION_KR_PAPER_RUNTIME_ROLLING_28_SESSION_EXTENSION_20260915.json",
+    "confirmation_ref": "7941596678d83bea00411eae2d7ce7b1d320039f58ff64456398d4728845484d",
     "implementation": "regime/kr_paper_runtime_history_extension.py",
     "method": "ROLLING_28_SESSION_COMMON_V1_EXTENSION_V1",
-    "status": "PROPOSED_PENDING_CIO_CONFIRMATION",
+    "status": "CIO_CONFIRMED",
     "why_confirmation": "The unchanged bridge accepts exactly 28 historical steps accepted by a kr_contiguous_historical_pit_receipt/1. Rolling that window forward mints a derived PIT_ACCEPTED receipt each session; the 2026-09-14 decision adopts per-session evidence bundles but does not name this derivation explicitly."
   },
   "schema_version": "kr_paper_runtime_adoption/1",

@@ -70,3 +70,23 @@ supplies its `/5` side:
   half that is not eligible (`BASELINE_MARKET_HALF_INELIGIBLE`) also blocks.
 - Consequence: a canary entry needs both sources available and agreeing. v1
   policy (not frozen) should consume `/5` only.
+
+## Operational notes
+
+- **2027 calendar**: packets exist through 2026-12-31. D = 2026-12-30 needs an
+  execution session in 2027; without a committed 2027 official capture and
+  packets the observation is recorded with `CALENDAR_PACKET_MISSING` and the
+  runtime stays UNKNOWN. Commit the 2027 capture/packets before 2026-12-29.
+- **Failed capture runs** keep the raw bundle as a 3-day workflow artifact
+  (never committed) so the session can still be admitted via artifact mode.
+- **Rotation ledger proof pin**: `.github/scripts/korea_capital_rotation_ledger_proof.py`
+  `REVIEWED_PAPER_RUNTIME_RELEASE` pins the #696 pointer bytes (sha
+  `a5f76eb6…`, commit `b08c5db2`). Its PAPER consumption mode fails closed
+  (`PAPER_RUNTIME_REVIEWED_PUBLICATION_BINDING_MISMATCH`) for any source commit
+  after the first daily publication advances the pointer. Kept intentional:
+  each consumed display release needs an independently reviewed pin update
+  (`publication_commit`, `publication_merged_at`, `sha256`, `code_revision`,
+  `evaluation_at`, `qualification_sha256`, taken from the dated
+  `evidence/regime/kr_information_system/<D>/decision.json` and its bot
+  commit). The current-ratified rotation mode used by
+  `p2-03-korea-observation-pair.yml` does not read the pointer.

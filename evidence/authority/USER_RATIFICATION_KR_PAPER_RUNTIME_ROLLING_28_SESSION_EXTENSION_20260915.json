@@ -1,0 +1,23 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "id": "USER_RATIFICATION_KR_PAPER_RUNTIME_ROLLING_28_SESSION_EXTENSION_20260915",
+  "recorded_at_utc": "2026-09-15T05:34:13Z",
+  "ratified_by": "USER (chat, verbatim)",
+  "recommended_by": "CLAUDE_CIO (independent review of atlas-data #770)",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "user_sentence_verbatim": "KR_PAPER_RUNTIME_ADOPTION_V1의 28세션 이력은 직전 창이 기존 브리지 검증기를 통과하고, 새 세션이 같은 채택 규칙으로 게시 워크플로가 커밋한 검증 번들일 때에만 가장 오래된 1세션을 빼고 1세션을 붙여 기계적으로 굴린다. 임계값·가중치·정규화·히스테리시스는 바꾸지 않고, 원본 KRX 행은 커밋하지 않으며 해시로만 묶는다. 세션이 하나라도 빠지면 판정은 UNKNOWN으로 멈추고, 30일 안의 기존 수집 산출물 반영 또는 새 연속 이력 수집과 새 채택 기록으로만 다시 잇는다. PAPER 표시 권한만 있으며 전략·자본·주문·REAL 권한은 없다.",
+  "status": "RATIFIED",
+  "rules": [
+    {
+      "rule_id": "RULE.REGIME.KR_PAPER_RUNTIME_ROLLING_28_SESSION_EXTENSION.V1",
+      "applies_to": "KR_PAPER_RUNTIME_ADOPTION_V1 rolling_history_extension (ROLLING_28_SESSION_COMMON_V1_EXTENSION_V1)",
+      "authority": "PAPER display only; no strategy/capital/order/REAL authority"
+    }
+  ],
+  "activation_condition": "Apply (set CIO_CONFIRMED with confirmation_ref = this record sha) only after atlas-data #770 H1 test-isolation fix is merged",
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

@@ -247,6 +247,19 @@ jobs:
           if git status --porcelain | grep -q .; then
             python3 -m regime.kr_paper_runtime_adoption_v1 check-latest
           fi
+      - name: Keep raw capture bundle on failure (capture mode, not committed)
+        # A capture can only observe the last completed pair, so a failed later
+        # step would otherwise lose the session. The bundle (raw provider rows)
+        # goes to a short-retention workflow artifact only, never to git.
+        # Artifacts of a public repository are readable with repository read
+        # access; retention is kept minimal for that reason.
+        if: failure() && inputs.mode == 'capture' && steps.pair.outputs.skip != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kr-paper-runtime-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bundle
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Commit and push
         if: inputs.mode == 'artifact' || steps.pair.outputs.skip != 'true'
         env:

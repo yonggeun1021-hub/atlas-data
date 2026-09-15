@@ -70,6 +70,10 @@ class AdoptionRecordTests(unittest.TestCase):
                       {"PROPOSED_PENDING_CIO_CONFIRMATION", "CIO_CONFIRMED"})
         self.assertEqual(ADOPTION.rolling_confirmed(record),
                          record["rolling_history_extension"]["status"] == "CIO_CONFIRMED")
+        rolling = record["rolling_history_extension"]
+        if rolling["status"] == "CIO_CONFIRMED":
+            self.assertEqual(rolling["confirmation_ref"],
+                             ADOPTION.sha256((ROOT / rolling["confirmation_record_path"]).read_bytes()))
 
     def test_pin_drift_authority_and_status_fail_closed(self):
         raw = (ROOT / ADOPTION.ADOPTION_PATH).read_bytes()
@@ -124,9 +128,15 @@ class PublishTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.tmp = Path(self.directory.name)
         self.root = self.tmp / "repo"
-        for relative in (ADOPTION.ADOPTION_PATH, "data/latest_kr_paper_runtime_decision.json"):
-            (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / relative, self.root / relative)
+        # Never depend on live state: the rolling gate is set explicitly in the
+        # temp record and the pointer is seeded from the frozen #696 bytes.
+        (self.root / "data").mkdir(parents=True)
+        shutil.copyfile(ROOT / ROOT_DAY / "decision.json", self.root / ADOPTION.OUTPUT_PATH)
+        (self.root / ADOPTION.ADOPTION_PATH).parent.mkdir(parents=True)
+        record = json.loads((ROOT / ADOPTION.ADOPTION_PATH).read_bytes())
+        record["rolling_history_extension"]["status"] = "PROPOSED_PENDING_CIO_CONFIRMATION"
+        record["rolling_history_extension"]["confirmation_ref"] = None
+        (self.root / ADOPTION.ADOPTION_PATH).write_bytes(BRIDGE.pretty_bytes(record))
         shutil.copytree(ROOT / ADOPTION.PACKETS.CALENDAR_ROOT, self.root / ADOPTION.PACKETS.CALENDAR_ROOT)
         day = self.root / ROOT_DAY
         (day / "source-capture").mkdir(parents=True)
@@ -230,6 +240,23 @@ class PublishTests(unittest.TestCase):
         self.assertFalse(again["latest_pointer_updated"])
         self.assertEqual((self.root / ADOPTION.OUTPUT_PATH).read_bytes(), pointer)
 
+    def test_missing_calendar_packet_records_failure(self):
+        self.confirm_rolling()
+        for day in ("2026-09-15", "2026-09-16"):
+            for path in ADOPTION.PACKETS.packet_paths(dt.date.fromisoformat(day)):
+                (self.root / path).unlink()
+        before = (self.root / ADOPTION.OUTPUT_PATH).read_bytes()
+        result = self.publish(self.bundle("20260911", "20260914", "2026-09-14T09:40:05Z"),
+                              "2026-09-14T22:00:00Z")
+        self.assertEqual(result["status"], "EVIDENCE_RECORDED_RUNTIME_UNKNOWN")
+        self.assertEqual(result["reason"], "CALENDAR_PACKET_MISSING:2026-09-15")
+        self.assertIsNone(result["execution_session_date"])
+        self.assertTrue((self.dated("2026-09-14") / "validation.json").is_file())
+        self.assertEqual((self.root / ADOPTION.OUTPUT_PATH).read_bytes(), before)
+
+    def test_frozen_pointer_matches_dated_decision(self):
+        self.assertEqual(ADOPTION.check_latest(self.root)["status"], "LATEST_MATCHES_DATED_DECISION")
+
     def test_missing_session_breaks_chain_closed(self):
         self.confirm_rolling()
         result = self.publish(self.bundle("20260915", "20260916", "2026-09-16T09:40:05Z"),
@@ -301,10 +328,6 @@ class PublishTests(unittest.TestCase):
 
 
 class CommittedPointerAndWorkflowTests(unittest.TestCase):
-    def test_committed_latest_pointer_matches_dated_decision(self):
-        result = ADOPTION.check_latest()
-        self.assertEqual(result["status"], "LATEST_MATCHES_DATED_DECISION")
-
     @unittest.skipIf(yaml is None, "PyYAML not installed")
     def test_workflow_is_dispatch_only_and_bounded(self):
         raw = WORKFLOW.read_text(encoding="utf-8")
@@ -316,6 +339,10 @@ class CommittedPointerAndWorkflowTests(unittest.TestCase):
         runs = "\n".join(step.get("run", "") for step in steps)
         self.assertIn('MAX_ATTEMPTS: "3"', raw)
         self.assertIn("RESPONSE_ROW_SCHEMA_INVALID", runs)
+        failure_upload = [step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@")]
+        self.assertEqual(len(failure_upload), 1)
+        self.assertIn("failure()", failure_upload[0]["if"])
+        self.assertLessEqual(int(failure_upload[0]["with"]["retention-days"]), 3)
         self.assertIn("non-transient capture failure", runs)
         self.assertIn('assert "/responses/" not in path', runs)
         self.assertNotIn("echo \"$KRX", runs)
