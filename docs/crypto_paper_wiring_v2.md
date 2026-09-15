@@ -157,12 +157,16 @@ Decisions `/1-/3` keep producing request `/3` (and `/2` replays) unchanged.
   (`sell_order_valid_before`, slot = `SCHEDULED_SLOT_MINUTES`), capped at the
   session's `order_valid_before` (07:00Z, canon 2-3), and re-sized on a fresh
   book by the following decision; an open sell already past its validity does
-  not block re-issue. When sells exist, only the buy-side state mismatches in
-  `BUY_SIDE_FAILURES_EXITS_MAY_PROCEED` (envelope or recorded budget regime
-  differs from the decision regime) become a `BUY_SIDE_BLOCKED_EXITS_PROCEED:*`
-  blocker; integrity faults (record for another session, record/envelope
-  rejected by the execution core, promotion rebuild inconsistent with the
-  decision) still abort the request.
+  not block re-issue. A sell whose slot bound the session end would cut short
+  (decisions in the last slot before 07:00Z) is not issued
+  (`EXIT_SELL_DEFERRED_TO_NEXT_SESSION:{market}`); the next session's first
+  decision issues it. The envelope must be for this decision instant
+  (`ALLOCATION_ENVELOPE_NOT_THIS_DECISION`). When sells exist, only the stale or
+  mismatched private buy inputs in `BUY_SIDE_FAILURES_EXITS_MAY_PROCEED`
+  (envelope for another instant or state, signed record for another session or
+  regime) become a `BUY_SIDE_BLOCKED_EXITS_PROCEED:*` blocker; integrity faults
+  (record/envelope rejected by the execution core, promotion rebuild
+  inconsistent with the decision) still abort the request.
 * Open buys in a market with an exit intent are emitted as `cancel_requests`
   (canon 1-4), excluded from match snapshots and budget reservations.
   Request `/4` gains the `cancel_requests` field
