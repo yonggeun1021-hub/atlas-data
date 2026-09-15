@@ -886,6 +886,10 @@ APPROVED_TESTS = [
     #   committed official capture and the rolling 28-session common-v1
     #   history window (unchanged bridge validator; gaps fail closed).
     "test/test_kr_paper_runtime_daily_evidence.py",
+    # KC3 KR_PAPER_RUNTIME_ADOPTION_V1 daily publisher: adoption pins,
+    #   per-session qualification derivation, validated observation chain,
+    #   dispatch-only workflow boundary (raw rows never committed).
+    "test/test_kr_paper_runtime_adoption_v1.py",
     "test/test_kr_internal_paper_theme_application.py",
     "test/test_kr_internal_paper_theme_next_session_v4.py",
     "test/test_us_paper_policy_binding.py",
