@@ -1,0 +1,61 @@
+name: FRED DEXKOUS FX Capture
+
+# RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 evidence capture
+# (collectors/fred_dexkous_fx.py). Manual only in this PR -- workflow_dispatch
+# is the sole trigger; no schedule is enabled here.
+#
+# Proposed cron (NOT enabled by this workflow -- see the PR body for the
+# exact Korean approval sentence needed before it is added):
+#   '40 21 * * 0-5'  # ~06:40 KST Mon-Sat, right after free-market-data.yml's
+#                     # existing 06:35 KST FRED VIX capture, so both FRED
+#                     # captures land in the same daily window.
+#
+# Uses the FRED_API_KEY secret this repo already provisions for
+# collectors/free_market_data.py / collectors/fred_vix_provenance.py -- no
+# new secret is added. If FRED_API_KEY is absent, the collector falls back
+# to the public CSV endpoint (fred.stlouisfed.org), which needs no key.
+
+on:
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "One-time historical seed (availability_kind=UNKNOWN_BACKFILL, never used as point-in-time evidence). Leave unchecked for a normal capture."
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-fred-dexkous-fx
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline contract regression (fake HTTP layer, no network, no secrets)
+        run: |
+          python3 test/test_fred_dexkous_fx.py
+      - name: Capture FRED DEXKOUS evidence
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          if [ "${{ inputs.backfill }}" = "true" ]; then
+            python3 collectors/fred_dexkous_fx.py --backfill
+          else
+            python3 collectors/fred_dexkous_fx.py
+          fi
+      - name: Commit append-only evidence
+        run: |
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add evidence/fred_dexkous_fx
+          if git diff --staged --quiet; then exit 0; fi
+          git commit -m "data: FRED DEXKOUS FX evidence $(date -u +%Y-%m-%d)"
+          git push

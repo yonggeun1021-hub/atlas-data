@@ -547,12 +547,20 @@ class UnchangedGatesTests(_RatifiedUniverseMixin, unittest.TestCase):
         self.assertEqual(PROMO.validate_output(default), default)
 
     def test_production_callers_still_request_contract_2(self):
-        for relative in ("decision/crypto_paper_decision_snapshot.py", "shadow/crypto_paper_runtime_bridge.py",
-                         "universe/crypto_paper_buy_eligibility.py"):
-            with self.subTest(module=relative):
-                source = (ROOT / relative).read_text(encoding="utf-8")
-                self.assertNotIn("contract_version=3", source)
-                self.assertNotIn("crypto_runtime_decision", source)
+        """Crypto PAPER wiring v2 (build plan PR3) requests contract/3 only for
+        decision snapshot /4, which is emitted from the configured cutover
+        T_cut; the committed config keeps it inactive, so every /1-/3 caller
+        still requests contract/2."""
+        decision = _load("crypto_candidate_promotion_v3_caller_check", "decision/crypto_paper_decision_snapshot.py")
+        self.assertIsNone(decision.v4_cutover_at())
+        for instant in ("2026-09-14T23:43:41Z", "2026-09-20T07:40:00Z"):
+            with self.subTest(instant=instant):
+                self.assertNotEqual(
+                    decision.schema_version_for(decision._parse_utc(instant, "t")),
+                    decision.V4_OUTPUT_SCHEMA_VERSION,
+                )
+        source = (ROOT / "decision/crypto_paper_decision_snapshot.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("v4_promotion_kwargs(runtime_decision_entry, rotation_entry) if v4_mode else {}"), 1)
 
 
 # ---------------------------------------------------------------------------

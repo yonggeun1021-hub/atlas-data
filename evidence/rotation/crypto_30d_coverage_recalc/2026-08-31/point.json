@@ -1,0 +1,2819 @@
+{
+  "as_of_date": "2026-08-31",
+  "body_sha256": "7a67329a5c7efdb81971c3cb4d63a449c443e7f9ca281823ca9e91e89f9628ad",
+  "classification_confirmations": [
+    {
+      "canonical_asset_id": "HNT",
+      "commit": "a223ec5f55e5b123cbd89e84832b7414a70ee40a",
+      "committed_at_utc": "2026-09-03T21:09:08Z",
+      "history_shallow": false
+    },
+    {
+      "canonical_asset_id": "SKR",
+      "commit": "a223ec5f55e5b123cbd89e84832b7414a70ee40a",
+      "committed_at_utc": "2026-09-03T21:09:08Z",
+      "history_shallow": false
+    }
+  ],
+  "classification_source": {
+    "path": "config/crypto_breadth_exclusion_taxonomy.json",
+    "sha256": "2df9db61e1495c36137c5ecfc9d4d123340950edc94aee8c4c2f46dd5179a36e"
+  },
+  "classification_view_header": {
+    "approval_status": "RATIFIED",
+    "effective_from": "2026-08-19",
+    "eligible_category": "eligible_crypto",
+    "excluded_categories": [
+      "commodity_linked",
+      "fiat",
+      "stablecoin",
+      "staked",
+      "unverified_identity",
+      "wrapped"
+    ],
+    "policy_version": "crypto_breadth_exclusion_taxonomy/v2",
+    "schema_version": 1,
+    "source_name": "kraken_spot_market_data",
+    "unknown_asset_policy": "fail_closed_unknown"
+  },
+  "mark_ko": "재계산",
+  "market": "CRYPTO",
+  "not_applied_to": [
+    "CRYPTO_MARKET_REGIME_LEADERSHIP_AXIS",
+    "CRYPTO_MARKET_REGIME_BREADTH_AXIS",
+    "CRYPTO_LEADERSHIP_PACKETS_DATA_OBSERVATIONS",
+    "PILOT_7D_WINDOW",
+    "ROTATION_LAGGING_WARNING_DAILY_POINTS"
+  ],
+  "payload_sha256": "612c9948795939c6f51f9f59e204daae1dc520393c8d45f0825ff7087ff0dbf6",
+  "point_in_time": {
+    "definition": "RECORDS_EFFECTIVE_ON_DAY_AND_COMMITTED_AT_OR_BEFORE_SNAPSHOT_AVAILABLE_AT",
+    "status": "UNKNOWN",
+    "taxonomy_unknown_before_cutoff": [
+      {
+        "canonical_asset_id": "SKR",
+        "rank_before_taxonomy": 87
+      },
+      {
+        "canonical_asset_id": "HNT",
+        "rank_before_taxonomy": 90
+      }
+    ],
+    "unknown_reason": "TAXONOMY_COVERAGE_UNKNOWN",
+    "view_sha256": "11970369f465cb41c2289c8af77f806bb066d2486a126578525ab229a8c5270d"
+  },
+  "point_in_time_records": [
+    {
+      "canonical_asset_id": "AAVE",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Aave native asset"
+    },
+    {
+      "canonical_asset_id": "ACU",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Acurast decentralized compute network token (retained Kraken online USD pair + Acurast official docs)"
+    },
+    {
+      "canonical_asset_id": "ADA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Cardano native asset"
+    },
+    {
+      "canonical_asset_id": "AERO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Aerodrome Finance -- Base-chain DEX governance token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "AKE",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Akedo -- AI game-creation platform token on BNB Chain (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "AKT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Akash Network -- decentralized cloud compute marketplace token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "ALGO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Algorand native asset"
+    },
+    {
+      "canonical_asset_id": "APR",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "aPriori / Capricorn -- order-flow coordination protocol token, rebranded post-listing (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "APT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Aptos L1 native token (retained Kraken online USD pair + Aptos Foundation tokenomics)"
+    },
+    {
+      "canonical_asset_id": "ARB",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Arbitrum governance token (retained Kraken online USD pair + Arbitrum Foundation docs)"
+    },
+    {
+      "canonical_asset_id": "ASTER",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Aster decentralized exchange ecosystem token (retained Kraken online USD pair + Aster official docs)"
+    },
+    {
+      "canonical_asset_id": "ATOM",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Cosmos Hub native asset"
+    },
+    {
+      "canonical_asset_id": "AUD",
+      "category": "fiat",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "Australian dollar"
+    },
+    {
+      "canonical_asset_id": "AVAX",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Avalanche native asset"
+    },
+    {
+      "canonical_asset_id": "BABY",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Babylon Genesis native token (retained Kraken online USD pair + Babylon Labs official docs)"
+    },
+    {
+      "canonical_asset_id": "BABYSHARK",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Baby Shark Universe token, 1:1 successor to BSU (retained Kraken online USD pair/migration notice + project docs)"
+    },
+    {
+      "canonical_asset_id": "BCH",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Bitcoin Cash native asset"
+    },
+    {
+      "canonical_asset_id": "BICO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Biconomy -- account abstraction infrastructure token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "BILL",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Billions Network -- ZK identity-verification infrastructure token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "BLESS",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Bless Network -- DePIN distributed computing platform token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "BLUAI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Bluwhale -- AI agent/data orchestration network token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "BMT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Bubblemaps -- onchain analytics/supply-visualization token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "BNB",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "BNB Chain native asset"
+    },
+    {
+      "canonical_asset_id": "BONK",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Bonk Solana ecosystem token (retained Kraken online USD pair + Bonk official project paper)"
+    },
+    {
+      "canonical_asset_id": "BTC",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "native crypto asset; reference-only after universe selection"
+    },
+    {
+      "canonical_asset_id": "BTR",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-29",
+      "effective_to": null,
+      "reason": "Bitlayer Bitcoin L2 governance token (retained Kraken enabled asset + online BTR/USD pair, Kraken official listing notice + Bitlayer official BTR token documentation)"
+    },
+    {
+      "canonical_asset_id": "CAD",
+      "category": "fiat",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "Canadian dollar"
+    },
+    {
+      "canonical_asset_id": "CAP",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Cap -- onchain institutional credit protocol token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "CC",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Canton -- privacy-focused smart contract L1 native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "CHF",
+      "category": "fiat",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "Swiss franc"
+    },
+    {
+      "canonical_asset_id": "COTI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "COTI -- privacy/payments blockchain native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "CRV",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Curve DAO Token -- Curve Finance AMM governance token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "CSPR",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Casper Network -- proof-of-stake L1 native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "CVX",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Convex Finance governance and reward token (retained Kraken online USD pair + Convex official docs)"
+    },
+    {
+      "canonical_asset_id": "DAI",
+      "category": "stablecoin",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "USD-pegged stablecoin"
+    },
+    {
+      "canonical_asset_id": "DASH",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Dash native asset"
+    },
+    {
+      "canonical_asset_id": "DCR",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Decred native token (retained Kraken online USD pair + Decred official docs)"
+    },
+    {
+      "canonical_asset_id": "DOG",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Dog Bitcoin Rune #3, formerly DOG-GO-TO-THE-MOON (retained Kraken online USD pair + exact Rune identity sources)"
+    },
+    {
+      "canonical_asset_id": "DOGE",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Dogecoin native asset"
+    },
+    {
+      "canonical_asset_id": "DOT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Polkadot native asset"
+    },
+    {
+      "canonical_asset_id": "EIGEN",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "EigenLayer governance and intersubjective work token, not a staked receipt (retained Kraken online USD pair + Eigen Foundation docs)"
+    },
+    {
+      "canonical_asset_id": "ENA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Ethena -- synthetic dollar protocol governance token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "ESP",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Espresso Network token (retained Kraken online USD pair + Espresso Foundation docs)"
+    },
+    {
+      "canonical_asset_id": "ESPORTS",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Yooldo Games -- AI-native Web3 gaming platform token on BNB Chain (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "ETH",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "native crypto asset"
+    },
+    {
+      "canonical_asset_id": "ETHFI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Ether.fi governance token, not a liquid-staking receipt (retained Kraken online USD pair + Ether.fi official docs)"
+    },
+    {
+      "canonical_asset_id": "EUL",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Euler -- permissionless lending protocol governance token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "EUR",
+      "category": "fiat",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "Euro"
+    },
+    {
+      "canonical_asset_id": "EURC",
+      "category": "stablecoin",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Circle EUR-pegged stablecoin"
+    },
+    {
+      "canonical_asset_id": "EVAA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "EVAA Protocol -- TON-native lending protocol token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "FARTCOIN",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Fartcoin -- Solana meme token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "FET",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Artificial Superintelligence Alliance (Fetch.ai) -- AI agent network token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "FIL",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Filecoin native asset"
+    },
+    {
+      "canonical_asset_id": "FLOKI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Floki ecosystem token (retained Kraken online USD pair + Floki official whitepaper)"
+    },
+    {
+      "canonical_asset_id": "FLR",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Flare Network native asset"
+    },
+    {
+      "canonical_asset_id": "GBP",
+      "category": "fiat",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "British pound"
+    },
+    {
+      "canonical_asset_id": "GWEI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "ETHGas -- blockspace/order-flow governance token, distinct from the 'gwei' gas unit (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "HBAR",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Hedera native asset"
+    },
+    {
+      "canonical_asset_id": "HFT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Hashflow -- multichain DEX governance token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "HYPE",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Hyperliquid -- L1 blockchain/perp DEX native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "ICNT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Impossible Cloud Network utility token (retained Kraken online USD pair + ICN official economics docs)"
+    },
+    {
+      "canonical_asset_id": "ICP",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Internet Computer native asset"
+    },
+    {
+      "canonical_asset_id": "INJ",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Injective native asset"
+    },
+    {
+      "canonical_asset_id": "JASMY",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Jasmy IoT data platform token (retained Kraken online USD pair + Jasmy official whitepaper)"
+    },
+    {
+      "canonical_asset_id": "JPY",
+      "category": "fiat",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "Japanese yen"
+    },
+    {
+      "canonical_asset_id": "JTO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Jito governance token (retained Kraken online USD pair + Jito official governance docs)"
+    },
+    {
+      "canonical_asset_id": "JUP",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Jupiter -- Solana DEX aggregator governance token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "KAITO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Kaito -- InfoFi/AI attention-economy token on Base (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "KAS",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Kaspa native asset"
+    },
+    {
+      "canonical_asset_id": "KNTQ",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Kinetiq governance token (retained Kraken online USD pair + Kinetiq official docs)"
+    },
+    {
+      "canonical_asset_id": "KTA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Keeta network native token (retained Kraken online USD pair + Keeta official protocol docs)"
+    },
+    {
+      "canonical_asset_id": "LDO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Lido DAO -- liquid staking protocol governance token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "LINK",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Chainlink native asset"
+    },
+    {
+      "canonical_asset_id": "LIT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Litentry token identity preceding the HEI migration (retained Kraken online USD pair + Litentry/Heima official migration docs)"
+    },
+    {
+      "canonical_asset_id": "LTC",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Litecoin native asset"
+    },
+    {
+      "canonical_asset_id": "LUNA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Terra 2.0 native token, distinct from Terra Classic (LUNC); confirmed separate Kraken listing (blog.kraken.com Terra 2.0 LUNA2 + Cointelegraph)"
+    },
+    {
+      "canonical_asset_id": "M",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "MemeCore L1 native token, not the M0 dollar token (retained Kraken online USD pair + MemeCore official docs)"
+    },
+    {
+      "canonical_asset_id": "MANA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Decentraland ERC-20 ecosystem token (retained Kraken online USD pair + Decentraland official contract/whitepaper)"
+    },
+    {
+      "canonical_asset_id": "MELANIA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Melania Meme Solana token (retained Kraken online USD pair + project official contract FAQ)"
+    },
+    {
+      "canonical_asset_id": "MINA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Mina Protocol native token (retained Kraken online USD pair + Mina Foundation docs)"
+    },
+    {
+      "canonical_asset_id": "MON",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Monad -- high-performance EVM-compatible L1 native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "MORPHO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Morpho -- DeFi lending protocol governance token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "NEAR",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "NEAR Protocol native asset"
+    },
+    {
+      "canonical_asset_id": "NIGHT",
+      "category": "unverified_identity",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Ticker collision between two unrelated, unaffiliated real projects both trading as NIGHT -- no single canonical on-chain/project identity confirmed by two independent sources as of this ratification. Conservatively excluded from source-coverage universe, not an investability claim."
+    },
+    {
+      "canonical_asset_id": "NIL",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Nillion network token under the official NIL migration (retained Kraken online USD pair + Nillion migration docs)"
+    },
+    {
+      "canonical_asset_id": "ONDO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Ondo Finance -- RWA/DeFi protocol native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "OP",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Optimism governance token (retained Kraken online USD pair + OP Stack governance specification)"
+    },
+    {
+      "canonical_asset_id": "PAXG",
+      "category": "commodity_linked",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "gold-linked token"
+    },
+    {
+      "canonical_asset_id": "PENDLE",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Pendle protocol governance token (retained Kraken online USD pair + Pendle official tokenomics docs)"
+    },
+    {
+      "canonical_asset_id": "PENGU",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Pudgy Penguins -- multi-chain meme/NFT ecosystem token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "PEPE",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Pepe -- Ethereum meme token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "PLAY",
+      "category": "unverified_identity",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "No canonical on-chain/project identity confirmed by two independent sources as of this ratification. Kraken's own AssetPairs/Assets metadata carries no chain/contract/genesis identity field to disambiguate. Conservatively excluded from source-coverage universe, not an investability claim."
+    },
+    {
+      "canonical_asset_id": "PLUME",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Plume Network native token (retained Kraken online USD pair + Plume official token docs)"
+    },
+    {
+      "canonical_asset_id": "POL",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Polygon network token, official 1:1 upgrade of MATIC (Sept 2024, polygon.technology + exchange announcements)"
+    },
+    {
+      "canonical_asset_id": "POPCAT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Popcat Solana memecoin, mint 7GCiZwtH4g2tWkq7RzZxjS1a3mJdrrqJcXWcdo7GW2hr (retained Kraken online USD pair + independent exact-contract asset report)"
+    },
+    {
+      "canonical_asset_id": "PROS",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Pharos Network -- RealFi Layer-1 blockchain native token (Kraken blog listing + CoinGecko/pharosnetwork.xyz)"
+    },
+    {
+      "canonical_asset_id": "PTB",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Portal to Bitcoin -- custody-less Bitcoin interoperability protocol token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "PUMP",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Pump.fun -- Solana memecoin launchpad native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "PYTH",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Pyth Network governance token (retained Kraken online USD pair + Pyth official docs)"
+    },
+    {
+      "canonical_asset_id": "PYUSD",
+      "category": "stablecoin",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "USD-pegged stablecoin"
+    },
+    {
+      "canonical_asset_id": "QNT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Quant Network native asset"
+    },
+    {
+      "canonical_asset_id": "RE",
+      "category": "unverified_identity",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "No canonical on-chain/project identity confirmed by two independent sources as of this ratification. Kraken's own AssetPairs/Assets metadata carries no chain/contract/genesis identity field to disambiguate. Conservatively excluded from source-coverage universe, not an investability claim."
+    },
+    {
+      "canonical_asset_id": "RENDER",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Render Network native asset"
+    },
+    {
+      "canonical_asset_id": "RIZE",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "RIZE network token (retained Kraken online USD pair + project official MiCA whitepaper)"
+    },
+    {
+      "canonical_asset_id": "RLUSD",
+      "category": "stablecoin",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "USD-pegged stablecoin"
+    },
+    {
+      "canonical_asset_id": "SCRT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Secret Network native token (retained Kraken online USD pair + Secret Network official docs)"
+    },
+    {
+      "canonical_asset_id": "SEI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Sei Network native asset"
+    },
+    {
+      "canonical_asset_id": "SHIB",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Shiba Inu -- Ethereum meme token ecosystem (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "SKY",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Sky Ecosystem governance token, official successor to MakerDAO's MKR at 1:24000 (kraken.com support article + multi-exchange announcements)"
+    },
+    {
+      "canonical_asset_id": "SOL",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "native crypto asset"
+    },
+    {
+      "canonical_asset_id": "SPX",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "SPX6900 -- meme token parody of S&P 500, explicitly not a security/index product (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "STRK",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Starknet native governance and staking token, not a staked receipt (retained Kraken online USD pair + Starknet official docs)"
+    },
+    {
+      "canonical_asset_id": "STX",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Stacks network native token (retained Kraken online USD pair + Stacks official docs)"
+    },
+    {
+      "canonical_asset_id": "SUI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Sui Network native asset"
+    },
+    {
+      "canonical_asset_id": "SYN",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Synapse Protocol -- cross-chain bridge governance token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "SYRUP",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Maple Finance governance token, distinct from syrupUSDC/syrupUSDT/stSYRUP (retained Kraken online USD pair + Maple official docs)"
+    },
+    {
+      "canonical_asset_id": "TAO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Bittensor native asset"
+    },
+    {
+      "canonical_asset_id": "TBTC",
+      "category": "wrapped",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "tokenized Bitcoin representation"
+    },
+    {
+      "canonical_asset_id": "TIA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Celestia native token (retained Kraken online USD pair + Celestia official docs)"
+    },
+    {
+      "canonical_asset_id": "TON",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "The Open Network native asset"
+    },
+    {
+      "canonical_asset_id": "TRUMP",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Official Trump -- Solana PolitiFi meme token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "TRX",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Tron native asset"
+    },
+    {
+      "canonical_asset_id": "UAI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "UnifAI Network -- AI agent infrastructure token on BNB Chain (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "UNI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Uniswap native asset"
+    },
+    {
+      "canonical_asset_id": "US",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Talus Network -- AI agent infrastructure on Sui, native token (Kraken blog listing + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "USDC",
+      "category": "stablecoin",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "USD-pegged stablecoin"
+    },
+    {
+      "canonical_asset_id": "USDE",
+      "category": "stablecoin",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "USD-pegged synthetic dollar"
+    },
+    {
+      "canonical_asset_id": "USDG",
+      "category": "stablecoin",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "USD-pegged stablecoin"
+    },
+    {
+      "canonical_asset_id": "USDS",
+      "category": "stablecoin",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "USD-pegged stablecoin"
+    },
+    {
+      "canonical_asset_id": "USDT",
+      "category": "stablecoin",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "USD-pegged stablecoin"
+    },
+    {
+      "canonical_asset_id": "USELESS",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "USELESS COIN -- Solana meme token via Pump.fun (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "VELVET",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Velvet Capital -- AI-powered onchain trading/portfolio platform token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "VIRTUAL",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Virtuals Protocol ecosystem token (retained Kraken online USD pair + Virtuals official whitepaper)"
+    },
+    {
+      "canonical_asset_id": "VVV",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Venice Token -- Venice AI platform utility token on Base (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "WBTC",
+      "category": "wrapped",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "wrapped Bitcoin representation"
+    },
+    {
+      "canonical_asset_id": "WEMIX",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "WEMIX -- Wemade gaming L1 blockchain native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "WIF",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Dogwifhat Solana memecoin (retained Kraken online USD pair + project identity source)"
+    },
+    {
+      "canonical_asset_id": "WLD",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Worldcoin -- identity/financial network native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "WLFI",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "World Liberty Financial -- DeFi governance token, native project asset not a wrapped representation (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "XAN",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Anoma native token (retained Kraken online USD pair + Anoma official announcement/code)"
+    },
+    {
+      "canonical_asset_id": "XAUT",
+      "category": "commodity_linked",
+      "effective_from": "2026-08-19",
+      "effective_to": null,
+      "reason": "gold-linked token"
+    },
+    {
+      "canonical_asset_id": "XCN",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Onyxcoin -- multi-asset ledger infrastructure token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "XDC",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "XDC Network -- trade-finance-focused L1 native token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "XLM",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Stellar native asset"
+    },
+    {
+      "canonical_asset_id": "XMR",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Monero native asset"
+    },
+    {
+      "canonical_asset_id": "XNY",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Codatta protocol token, BNB Chain 0xE322F77453F31B4997cA76788d035D4B21d28ab9 (retained Kraken online USD pair + Codatta official docs)"
+    },
+    {
+      "canonical_asset_id": "XPL",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "Plasma L1 native token (retained Kraken online USD pair + Plasma official launch docs)"
+    },
+    {
+      "canonical_asset_id": "XRP",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "XRP Ledger native asset (Ripple)"
+    },
+    {
+      "canonical_asset_id": "ZAMA",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Zama -- Fully Homomorphic Encryption (FHE) privacy infrastructure token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "ZBCN",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Zebec Network -- Solana payments/DePIN infrastructure token (Kraken + CoinGecko)"
+    },
+    {
+      "canonical_asset_id": "ZEC",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-22",
+      "effective_to": null,
+      "reason": "Zcash native asset"
+    },
+    {
+      "canonical_asset_id": "ZRO",
+      "category": "eligible_crypto",
+      "effective_from": "2026-08-27",
+      "effective_to": null,
+      "reason": "LayerZero governance token (retained Kraken online USD pair + LayerZero official docs)"
+    }
+  ],
+  "policy_id": "CRYPTO_ROTATION_30D_COVERAGE_RECALC_ONCE_V1",
+  "prices_point_in_time": {
+    "latest_finalized_day_max": "2026-08-31",
+    "policy": "POINT_IN_TIME_SAME_SNAPSHOT_ONLY",
+    "same_manifest_as_point_in_time_point": true
+  },
+  "ratification_record": {
+    "plan_item": "P1",
+    "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+    "repo_path": "evidence/authority/USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+    "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd"
+  },
+  "recalculated": true,
+  "recalculated_source_point": {
+    "alt_participation": {
+      "advance_fraction": "0.787878787879",
+      "advancing_count": 78,
+      "asset_count": 99,
+      "classification": "UNDEFINED",
+      "decline_fraction": "0.20202020202",
+      "declining_count": 20,
+      "thresholds_applied": false,
+      "unchanged_count": 1,
+      "unchanged_fraction": "0.010101010101"
+    },
+    "as_of_date": "2026-08-31",
+    "breadth_classification_authorized": false,
+    "btc_reference": {
+      "canonical_asset_id": "BTC",
+      "direction": "ADVANCE",
+      "latest_close": "78566.1",
+      "latest_finalized_day": "2026-08-31",
+      "pair_id": "BTC/USD",
+      "previous_close": "77681.6",
+      "previous_finalized_day": "2026-08-30",
+      "rank_before_taxonomy": 2,
+      "selected_rank": 1,
+      "source_asset_id": "BTC",
+      "taxonomy_category": "eligible_crypto",
+      "trailing_30d_usd_turnover": "4438967095.413260396"
+    },
+    "current_candle": {
+      "date": "2026-09-01",
+      "excluded_for_every_member": true,
+      "reason": "source_documents_not_yet_committed_timeframe"
+    },
+    "lineage": {
+      "available_at": "2026-09-01T00:53:33Z",
+      "capture_version": "crypto-breadth-capture/v2",
+      "historical_universe_policy": "as_captured_append_only_no_current_state_backfill",
+      "identity_policy_sha256": "5d6d0574d3f002c80c9c918300f559a98add6a92aa8692fc877a2b494340338c",
+      "identity_policy_version": "crypto_asset_identity_exceptions/v1",
+      "manifest_sha256": "2e0771d6019a97a4ce59f3b9240fd3377276d1dc5513e5bd637612b59a729807",
+      "pit_status": "qualified_as_captured_universe",
+      "vintage_date": "2026-09-01"
+    },
+    "market": "CRYPTO",
+    "measurement": "raw_alt_participation",
+    "previous_date": "2026-08-30",
+    "production_wiring_authorized": false,
+    "regime_score_authorized": false,
+    "schema_version": 2,
+    "status": "OBSERVED_UNCLASSIFIED",
+    "threshold_authorized": false,
+    "trading_action_authorized": false,
+    "transform_version": "crypto_breadth_observation/v2",
+    "universe": {
+      "approval_status": "RATIFIED",
+      "coverage_complete": true,
+      "effective_from": "2026-08-19",
+      "kind": "breadth_source_coverage_not_investable",
+      "known_eligible_count_so_far": null,
+      "members": [
+        {
+          "canonical_asset_id": "AAVE",
+          "direction": "ADVANCE",
+          "latest_close": "124.05",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "AAVE/USD",
+          "previous_close": "122.67",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 27,
+          "selected_rank": 22,
+          "source_asset_id": "AAVE",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "49816473.5914341951"
+        },
+        {
+          "canonical_asset_id": "ACU",
+          "direction": "DECLINE",
+          "latest_close": "0.1191",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ACU/USD",
+          "previous_close": "0.1227",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 103,
+          "selected_rank": 92,
+          "source_asset_id": "ACU",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5469358.878708545"
+        },
+        {
+          "canonical_asset_id": "ADA",
+          "direction": "ADVANCE",
+          "latest_close": "0.197826",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ADA/USD",
+          "previous_close": "0.192926",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 10,
+          "selected_rank": 7,
+          "source_asset_id": "ADA",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "248059305.672056320122"
+        },
+        {
+          "canonical_asset_id": "AERO",
+          "direction": "DECLINE",
+          "latest_close": "0.4728",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "AERO/USD",
+          "previous_close": "0.4804",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 78,
+          "selected_rank": 67,
+          "source_asset_id": "AERO",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "9216040.083917947"
+        },
+        {
+          "canonical_asset_id": "AKE",
+          "direction": "ADVANCE",
+          "latest_close": "0.00809486",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "AKE/USD",
+          "previous_close": "0.00794396",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 28,
+          "selected_rank": 23,
+          "source_asset_id": "AKE",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "49400428.743238925966"
+        },
+        {
+          "canonical_asset_id": "AKT",
+          "direction": "ADVANCE",
+          "latest_close": "0.5099",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "AKT/USD",
+          "previous_close": "0.5047",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 88,
+          "selected_rank": 77,
+          "source_asset_id": "AKT",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "7273870.870446772482"
+        },
+        {
+          "canonical_asset_id": "ALGO",
+          "direction": "ADVANCE",
+          "latest_close": "0.08564",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ALGO/USD",
+          "previous_close": "0.08478",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 55,
+          "selected_rank": 48,
+          "source_asset_id": "ALGO",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "15005246.818836364741"
+        },
+        {
+          "canonical_asset_id": "APR",
+          "direction": "ADVANCE",
+          "latest_close": "0.19095",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "APR/USD",
+          "previous_close": "0.19",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 101,
+          "selected_rank": 90,
+          "source_asset_id": "APR",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5572466.2469917966"
+        },
+        {
+          "canonical_asset_id": "APT",
+          "direction": "ADVANCE",
+          "latest_close": "0.5352",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "APT/USD",
+          "previous_close": "0.5168",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 107,
+          "selected_rank": 96,
+          "source_asset_id": "APT",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5073831.910699543718"
+        },
+        {
+          "canonical_asset_id": "ARB",
+          "direction": "ADVANCE",
+          "latest_close": "0.1095",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ARB/USD",
+          "previous_close": "0.0843",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 104,
+          "selected_rank": 93,
+          "source_asset_id": "ARB",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5309280.581814148"
+        },
+        {
+          "canonical_asset_id": "ASTER",
+          "direction": "ADVANCE",
+          "latest_close": "0.701",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ASTER/USD",
+          "previous_close": "0.68148",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 60,
+          "selected_rank": 52,
+          "source_asset_id": "ASTER",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "12274660.2935127584"
+        },
+        {
+          "canonical_asset_id": "ATOM",
+          "direction": "ADVANCE",
+          "latest_close": "1.4696",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ATOM/USD",
+          "previous_close": "1.4579",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 80,
+          "selected_rank": 69,
+          "source_asset_id": "ATOM",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "8701452.366018978155"
+        },
+        {
+          "canonical_asset_id": "AVAX",
+          "direction": "ADVANCE",
+          "latest_close": "7.234",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "AVAX/USD",
+          "previous_close": "7.122",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 22,
+          "selected_rank": 17,
+          "source_asset_id": "AVAX",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "61383641.72539092363"
+        },
+        {
+          "canonical_asset_id": "BCH",
+          "direction": "ADVANCE",
+          "latest_close": "247.18",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "BCH/USD",
+          "previous_close": "243.56",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 35,
+          "selected_rank": 30,
+          "source_asset_id": "BCH",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "28996210.7969134967"
+        },
+        {
+          "canonical_asset_id": "BICO",
+          "direction": "ADVANCE",
+          "latest_close": "0.02342",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "BICO/USD",
+          "previous_close": "0.02172",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 52,
+          "selected_rank": 45,
+          "source_asset_id": "BICO",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "16948461.166724477401"
+        },
+        {
+          "canonical_asset_id": "BLESS",
+          "direction": "DECLINE",
+          "latest_close": "0.010494",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "BLESS/USD",
+          "previous_close": "0.011004",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 69,
+          "selected_rank": 59,
+          "source_asset_id": "BLESS",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "10542839.50107363357"
+        },
+        {
+          "canonical_asset_id": "BMT",
+          "direction": "DECLINE",
+          "latest_close": "0.02007",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "BMT/USD",
+          "previous_close": "0.02092",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 76,
+          "selected_rank": 65,
+          "source_asset_id": "BMT",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "9705877.6292662495"
+        },
+        {
+          "canonical_asset_id": "BNB",
+          "direction": "ADVANCE",
+          "latest_close": "691.14",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "BNB/USD",
+          "previous_close": "685.16",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 33,
+          "selected_rank": 28,
+          "source_asset_id": "BNB",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "31885341.3420771"
+        },
+        {
+          "canonical_asset_id": "BONK",
+          "direction": "ADVANCE",
+          "latest_close": "0.000002998",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "BONK/USD",
+          "previous_close": "0.000002805",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 95,
+          "selected_rank": 84,
+          "source_asset_id": "BONK",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "6112327.771153731268"
+        },
+        {
+          "canonical_asset_id": "BTC",
+          "direction": "ADVANCE",
+          "latest_close": "78566.1",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "BTC/USD",
+          "previous_close": "77681.6",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 2,
+          "selected_rank": 1,
+          "source_asset_id": "BTC",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "4438967095.413260396"
+        },
+        {
+          "canonical_asset_id": "BTR",
+          "direction": "DECLINE",
+          "latest_close": "0.09528",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "BTR/USD",
+          "previous_close": "0.16133",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 72,
+          "selected_rank": 61,
+          "source_asset_id": "BTR",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "10328259.2249972933"
+        },
+        {
+          "canonical_asset_id": "CAP",
+          "direction": "ADVANCE",
+          "latest_close": "0.068538",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "CAP/USD",
+          "previous_close": "0.068164",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 48,
+          "selected_rank": 41,
+          "source_asset_id": "CAP",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "19923736.94039220527"
+        },
+        {
+          "canonical_asset_id": "CC",
+          "direction": "ADVANCE",
+          "latest_close": "0.12069",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "CC/USD",
+          "previous_close": "0.11607",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 34,
+          "selected_rank": 29,
+          "source_asset_id": "CC",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "31509279.2477266588"
+        },
+        {
+          "canonical_asset_id": "COTI",
+          "direction": "ADVANCE",
+          "latest_close": "0.01324",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "COTI/USD",
+          "previous_close": "0.01303",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 96,
+          "selected_rank": 85,
+          "source_asset_id": "COTI",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "6110995.662005167912"
+        },
+        {
+          "canonical_asset_id": "CRV",
+          "direction": "ADVANCE",
+          "latest_close": "0.33838",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "CRV/USD",
+          "previous_close": "0.29574",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 23,
+          "selected_rank": 18,
+          "source_asset_id": "CRV",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "55529329.078844921892"
+        },
+        {
+          "canonical_asset_id": "CSPR",
+          "direction": "ADVANCE",
+          "latest_close": "0.0027932",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "CSPR/USD",
+          "previous_close": "0.002631",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 37,
+          "selected_rank": 32,
+          "source_asset_id": "CSPR",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "23432254.114087742092"
+        },
+        {
+          "canonical_asset_id": "CVX",
+          "direction": "ADVANCE",
+          "latest_close": "2.241",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "CVX/USD",
+          "previous_close": "2.197",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 98,
+          "selected_rank": 87,
+          "source_asset_id": "CVX",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5881524.71418026331"
+        },
+        {
+          "canonical_asset_id": "DASH",
+          "direction": "ADVANCE",
+          "latest_close": "44.774",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "DASH/USD",
+          "previous_close": "41.708",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 38,
+          "selected_rank": 33,
+          "source_asset_id": "DASH",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "23137987.80019625482"
+        },
+        {
+          "canonical_asset_id": "DCR",
+          "direction": "ADVANCE",
+          "latest_close": "14.538",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "DCR/USD",
+          "previous_close": "14.067",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 111,
+          "selected_rank": 100,
+          "source_asset_id": "DCR",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "4725819.08755759"
+        },
+        {
+          "canonical_asset_id": "DOGE",
+          "direction": "ADVANCE",
+          "latest_close": "0.0828015",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "DOGE/USD",
+          "previous_close": "0.0820843",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 11,
+          "selected_rank": 8,
+          "source_asset_id": "DOGE",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "205220547.287998556688"
+        },
+        {
+          "canonical_asset_id": "DOT",
+          "direction": "ADVANCE",
+          "latest_close": "0.8395",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "DOT/USD",
+          "previous_close": "0.8201",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 59,
+          "selected_rank": 51,
+          "source_asset_id": "DOT",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "13193276.514258073827"
+        },
+        {
+          "canonical_asset_id": "ENA",
+          "direction": "ADVANCE",
+          "latest_close": "0.1496",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ENA/USD",
+          "previous_close": "0.1484",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 20,
+          "selected_rank": 15,
+          "source_asset_id": "ENA",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "72665529.719661756"
+        },
+        {
+          "canonical_asset_id": "ESPORTS",
+          "direction": "ADVANCE",
+          "latest_close": "0.0177",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ESPORTS/USD",
+          "previous_close": "0.0152",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 47,
+          "selected_rank": 40,
+          "source_asset_id": "ESPORTS",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "20589620.212025319"
+        },
+        {
+          "canonical_asset_id": "ETH",
+          "direction": "ADVANCE",
+          "latest_close": "2467.12",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ETH/USD",
+          "previous_close": "2416.95",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 4,
+          "selected_rank": 2,
+          "source_asset_id": "ETH",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "1418831260.2608648582"
+        },
+        {
+          "canonical_asset_id": "ETHFI",
+          "direction": "ADVANCE",
+          "latest_close": "0.5668",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ETHFI/USD",
+          "previous_close": "0.5246",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 100,
+          "selected_rank": 89,
+          "source_asset_id": "ETHFI",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5667404.130200554"
+        },
+        {
+          "canonical_asset_id": "FARTCOIN",
+          "direction": "ADVANCE",
+          "latest_close": "0.1757",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "FARTCOIN/USD",
+          "previous_close": "0.1751",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 30,
+          "selected_rank": 25,
+          "source_asset_id": "FARTCOIN",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "39062950.122677892"
+        },
+        {
+          "canonical_asset_id": "FET",
+          "direction": "ADVANCE",
+          "latest_close": "0.1535",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "FET/USD",
+          "previous_close": "0.1487",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 42,
+          "selected_rank": 36,
+          "source_asset_id": "FET",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "22333686.382735672387"
+        },
+        {
+          "canonical_asset_id": "FIL",
+          "direction": "ADVANCE",
+          "latest_close": "0.684",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "FIL/USD",
+          "previous_close": "0.662",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 86,
+          "selected_rank": 75,
+          "source_asset_id": "FIL",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "7556131.01472673929"
+        },
+        {
+          "canonical_asset_id": "FLR",
+          "direction": "ADVANCE",
+          "latest_close": "0.00706",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "FLR/USD",
+          "previous_close": "0.00632",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 84,
+          "selected_rank": 73,
+          "source_asset_id": "FLR",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "7992241.63460411687"
+        },
+        {
+          "canonical_asset_id": "GWEI",
+          "direction": "ADVANCE",
+          "latest_close": "0.025009",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "GWEI/USD",
+          "previous_close": "0.023757",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 68,
+          "selected_rank": 58,
+          "source_asset_id": "GWEI",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "10730361.682698990288"
+        },
+        {
+          "canonical_asset_id": "HBAR",
+          "direction": "ADVANCE",
+          "latest_close": "0.07363",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "HBAR/USD",
+          "previous_close": "0.07356",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 46,
+          "selected_rank": 39,
+          "source_asset_id": "HBAR",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "20601675.8301742616"
+        },
+        {
+          "canonical_asset_id": "HFT",
+          "direction": "ADVANCE",
+          "latest_close": "0.0069",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "HFT/USD",
+          "previous_close": "0.00636",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 65,
+          "selected_rank": 55,
+          "source_asset_id": "HFT",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "10967370.879939931802"
+        },
+        {
+          "canonical_asset_id": "HNT",
+          "direction": "DECLINE",
+          "latest_close": "0.6466",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "HNT/USD",
+          "previous_close": "0.7742",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 90,
+          "selected_rank": 79,
+          "source_asset_id": "HNT",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "6982091.09516521"
+        },
+        {
+          "canonical_asset_id": "HYPE",
+          "direction": "ADVANCE",
+          "latest_close": "84.19",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "HYPE/USD",
+          "previous_close": "80.08",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 9,
+          "selected_rank": 6,
+          "source_asset_id": "HYPE",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "365157526.9822611665"
+        },
+        {
+          "canonical_asset_id": "ICP",
+          "direction": "ADVANCE",
+          "latest_close": "2.401",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ICP/USD",
+          "previous_close": "2.349",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 43,
+          "selected_rank": 37,
+          "source_asset_id": "ICP",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "22053544.92091882647"
+        },
+        {
+          "canonical_asset_id": "INJ",
+          "direction": "DECLINE",
+          "latest_close": "4.929",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "INJ/USD",
+          "previous_close": "4.976",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 44,
+          "selected_rank": 38,
+          "source_asset_id": "INJ",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "21832980.85892389189"
+        },
+        {
+          "canonical_asset_id": "JUP",
+          "direction": "ADVANCE",
+          "latest_close": "0.22344",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "JUP/USD",
+          "previous_close": "0.20521",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 58,
+          "selected_rank": 50,
+          "source_asset_id": "JUP",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "13202617.7782003479"
+        },
+        {
+          "canonical_asset_id": "KAITO",
+          "direction": "ADVANCE",
+          "latest_close": "0.3004",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "KAITO/USD",
+          "previous_close": "0.2971",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 82,
+          "selected_rank": 71,
+          "source_asset_id": "KAITO",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "8521539.294191429"
+        },
+        {
+          "canonical_asset_id": "KAS",
+          "direction": "ADVANCE",
+          "latest_close": "0.02791",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "KAS/USD",
+          "previous_close": "0.02709",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 54,
+          "selected_rank": 47,
+          "source_asset_id": "KAS",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "15655648.842618545"
+        },
+        {
+          "canonical_asset_id": "KTA",
+          "direction": "ADVANCE",
+          "latest_close": "0.0848",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "KTA/USD",
+          "previous_close": "0.0684",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 105,
+          "selected_rank": 94,
+          "source_asset_id": "KTA",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5157006.300902313"
+        },
+        {
+          "canonical_asset_id": "LDO",
+          "direction": "ADVANCE",
+          "latest_close": "0.357",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "LDO/USD",
+          "previous_close": "0.352",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 108,
+          "selected_rank": 97,
+          "source_asset_id": "LDO",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5034684.08500141108"
+        },
+        {
+          "canonical_asset_id": "LINK",
+          "direction": "ADVANCE",
+          "latest_close": "11.32294",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "LINK/USD",
+          "previous_close": "11.16119",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 14,
+          "selected_rank": 11,
+          "source_asset_id": "LINK",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "122422302.57818421899"
+        },
+        {
+          "canonical_asset_id": "LTC",
+          "direction": "ADVANCE",
+          "latest_close": "48.55",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "LTC/USD",
+          "previous_close": "47.98",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 21,
+          "selected_rank": 16,
+          "source_asset_id": "LTC",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "67384343.0815744053"
+        },
+        {
+          "canonical_asset_id": "LUNA",
+          "direction": "DECLINE",
+          "latest_close": "0.00005057",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "LUNA/USD",
+          "previous_close": "0.00005061",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 85,
+          "selected_rank": 74,
+          "source_asset_id": "LUNA",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "7975566.41622828963"
+        },
+        {
+          "canonical_asset_id": "MINA",
+          "direction": "ADVANCE",
+          "latest_close": "0.06695",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "MINA/USD",
+          "previous_close": "0.06402",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 102,
+          "selected_rank": 91,
+          "source_asset_id": "MINA",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5559774.680171027932"
+        },
+        {
+          "canonical_asset_id": "MON",
+          "direction": "DECLINE",
+          "latest_close": "0.02644",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "MON/USD",
+          "previous_close": "0.02657",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 51,
+          "selected_rank": 44,
+          "source_asset_id": "MON",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "17736637.2758817003"
+        },
+        {
+          "canonical_asset_id": "MORPHO",
+          "direction": "ADVANCE",
+          "latest_close": "2.51291",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "MORPHO/USD",
+          "previous_close": "2.44089",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 77,
+          "selected_rank": 66,
+          "source_asset_id": "MORPHO",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "9648636.3016284197"
+        },
+        {
+          "canonical_asset_id": "NEAR",
+          "direction": "ADVANCE",
+          "latest_close": "1.918",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "NEAR/USD",
+          "previous_close": "1.8224",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 24,
+          "selected_rank": 19,
+          "source_asset_id": "NEAR",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "54130104.329142021505"
+        },
+        {
+          "canonical_asset_id": "ONDO",
+          "direction": "ADVANCE",
+          "latest_close": "0.34603",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ONDO/USD",
+          "previous_close": "0.34491",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 31,
+          "selected_rank": 26,
+          "source_asset_id": "ONDO",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "34923093.0861492644"
+        },
+        {
+          "canonical_asset_id": "PENDLE",
+          "direction": "ADVANCE",
+          "latest_close": "1.76",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "PENDLE/USD",
+          "previous_close": "1.694",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 109,
+          "selected_rank": 98,
+          "source_asset_id": "PENDLE",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "4969115.18313344"
+        },
+        {
+          "canonical_asset_id": "PENGU",
+          "direction": "ADVANCE",
+          "latest_close": "0.008731",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "PENGU/USD",
+          "previous_close": "0.008613",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 32,
+          "selected_rank": 27,
+          "source_asset_id": "PENGU",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "32535729.16772822113"
+        },
+        {
+          "canonical_asset_id": "PEPE",
+          "direction": "ADVANCE",
+          "latest_close": "0.000003556",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "PEPE/USD",
+          "previous_close": "0.000003411",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 25,
+          "selected_rank": 20,
+          "source_asset_id": "PEPE",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "53354431.65998233585"
+        },
+        {
+          "canonical_asset_id": "POL",
+          "direction": "DECLINE",
+          "latest_close": "0.09062",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "POL/USD",
+          "previous_close": "0.09716",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 39,
+          "selected_rank": 34,
+          "source_asset_id": "POL",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "23077507.0306839801"
+        },
+        {
+          "canonical_asset_id": "PROS",
+          "direction": "DECLINE",
+          "latest_close": "0.4106",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "PROS/USD",
+          "previous_close": "0.4203",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 89,
+          "selected_rank": 78,
+          "source_asset_id": "PROS",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "7032396.141534999"
+        },
+        {
+          "canonical_asset_id": "PTB",
+          "direction": "ADVANCE",
+          "latest_close": "0.000764",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "PTB/USD",
+          "previous_close": "0.000734",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 99,
+          "selected_rank": 88,
+          "source_asset_id": "PTB",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5875836.57953213456"
+        },
+        {
+          "canonical_asset_id": "PUMP",
+          "direction": "DECLINE",
+          "latest_close": "0.004449",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "PUMP/USD",
+          "previous_close": "0.004471",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 15,
+          "selected_rank": 12,
+          "source_asset_id": "PUMP",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "107985477.97266759529"
+        },
+        {
+          "canonical_asset_id": "QNT",
+          "direction": "ADVANCE",
+          "latest_close": "61.12",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "QNT/USD",
+          "previous_close": "59.89",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 94,
+          "selected_rank": 83,
+          "source_asset_id": "QNT",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "6119899.8760496045"
+        },
+        {
+          "canonical_asset_id": "RENDER",
+          "direction": "ADVANCE",
+          "latest_close": "1.425",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "RENDER/USD",
+          "previous_close": "1.4",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 66,
+          "selected_rank": 56,
+          "source_asset_id": "RENDER",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "10865465.42392885"
+        },
+        {
+          "canonical_asset_id": "SEI",
+          "direction": "ADVANCE",
+          "latest_close": "0.04441",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "SEI/USD",
+          "previous_close": "0.044",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 91,
+          "selected_rank": 80,
+          "source_asset_id": "SEI",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "6802720.7563494434"
+        },
+        {
+          "canonical_asset_id": "SHIB",
+          "direction": "ADVANCE",
+          "latest_close": "0.000005066",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "SHIB/USD",
+          "previous_close": "0.000004964",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 53,
+          "selected_rank": 46,
+          "source_asset_id": "SHIB",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "15930962.956528923339"
+        },
+        {
+          "canonical_asset_id": "SKR",
+          "direction": "ADVANCE",
+          "latest_close": "0.028508",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "SKR/USD",
+          "previous_close": "0.025333",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 87,
+          "selected_rank": 76,
+          "source_asset_id": "SKR",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "7499014.509830001855"
+        },
+        {
+          "canonical_asset_id": "SOL",
+          "direction": "ADVANCE",
+          "latest_close": "103.04",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "SOL/USD",
+          "previous_close": "101.8",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 6,
+          "selected_rank": 4,
+          "source_asset_id": "SOL",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "717102721.4262729536"
+        },
+        {
+          "canonical_asset_id": "SPX",
+          "direction": "ADVANCE",
+          "latest_close": "0.5538",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "SPX/USD",
+          "previous_close": "0.5396",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 49,
+          "selected_rank": 42,
+          "source_asset_id": "SPX",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "19501845.848540968"
+        },
+        {
+          "canonical_asset_id": "STX",
+          "direction": "ADVANCE",
+          "latest_close": "0.2509",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "STX/USD",
+          "previous_close": "0.2341",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 73,
+          "selected_rank": 62,
+          "source_asset_id": "STX",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "10324178.769213332665"
+        },
+        {
+          "canonical_asset_id": "SUI",
+          "direction": "ADVANCE",
+          "latest_close": "0.7262",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "SUI/USD",
+          "previous_close": "0.7115",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 13,
+          "selected_rank": 10,
+          "source_asset_id": "SUI",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "158980449.493537424"
+        },
+        {
+          "canonical_asset_id": "SYN",
+          "direction": "DECLINE",
+          "latest_close": "0.0951",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "SYN/USD",
+          "previous_close": "0.0955",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 74,
+          "selected_rank": 63,
+          "source_asset_id": "SYN",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "10035872.801427376534"
+        },
+        {
+          "canonical_asset_id": "TAO",
+          "direction": "ADVANCE",
+          "latest_close": "230.3663",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "TAO/USD",
+          "previous_close": "227.828",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 12,
+          "selected_rank": 9,
+          "source_asset_id": "TAO",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "168348918.453765215"
+        },
+        {
+          "canonical_asset_id": "TON",
+          "direction": "ADVANCE",
+          "latest_close": "1.391",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "TON/USD",
+          "previous_close": "1.338",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 57,
+          "selected_rank": 49,
+          "source_asset_id": "TON",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "13251201.64205432"
+        },
+        {
+          "canonical_asset_id": "TRUMP",
+          "direction": "ADVANCE",
+          "latest_close": "2.413",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "TRUMP/USD",
+          "previous_close": "2.343",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 26,
+          "selected_rank": 21,
+          "source_asset_id": "TRUMP",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "53100936.33818219"
+        },
+        {
+          "canonical_asset_id": "TRX",
+          "direction": "DECLINE",
+          "latest_close": "0.332456",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "TRX/USD",
+          "previous_close": "0.336108",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 36,
+          "selected_rank": 31,
+          "source_asset_id": "TRX",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "27114532.987359508861"
+        },
+        {
+          "canonical_asset_id": "UAI",
+          "direction": "DECLINE",
+          "latest_close": "0.37502",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "UAI/USD",
+          "previous_close": "0.38245",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 79,
+          "selected_rank": 68,
+          "source_asset_id": "UAI",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "8887619.2152823749"
+        },
+        {
+          "canonical_asset_id": "UNI",
+          "direction": "ADVANCE",
+          "latest_close": "5.2336",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "UNI/USD",
+          "previous_close": "5.1417",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 29,
+          "selected_rank": 24,
+          "source_asset_id": "UNI",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "46638932.483501804862"
+        },
+        {
+          "canonical_asset_id": "US",
+          "direction": "DECLINE",
+          "latest_close": "0.01655",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "US/USD",
+          "previous_close": "0.01665",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 81,
+          "selected_rank": 70,
+          "source_asset_id": "US",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "8634196.8366451625"
+        },
+        {
+          "canonical_asset_id": "USELESS",
+          "direction": "ADVANCE",
+          "latest_close": "0.08983",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "USELESS/USD",
+          "previous_close": "0.06814",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 61,
+          "selected_rank": 53,
+          "source_asset_id": "USELESS",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "11879048.9856684856"
+        },
+        {
+          "canonical_asset_id": "VELVET",
+          "direction": "DECLINE",
+          "latest_close": "0.0942",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "VELVET/USD",
+          "previous_close": "0.0948",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 106,
+          "selected_rank": 95,
+          "source_asset_id": "VELVET",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "5150702.444598206"
+        },
+        {
+          "canonical_asset_id": "VIRTUAL",
+          "direction": "ADVANCE",
+          "latest_close": "0.6959",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "VIRTUAL/USD",
+          "previous_close": "0.6649",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 83,
+          "selected_rank": 72,
+          "source_asset_id": "VIRTUAL",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "8228726.456524271"
+        },
+        {
+          "canonical_asset_id": "VVV",
+          "direction": "DECLINE",
+          "latest_close": "16.74",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "VVV/USD",
+          "previous_close": "16.99",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 41,
+          "selected_rank": 35,
+          "source_asset_id": "VVV",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "22652063.99920354"
+        },
+        {
+          "canonical_asset_id": "WEMIX",
+          "direction": "DECLINE",
+          "latest_close": "0.2036",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "WEMIX/USD",
+          "previous_close": "0.2079",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 97,
+          "selected_rank": 86,
+          "source_asset_id": "WEMIX",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "6083040.031264724"
+        },
+        {
+          "canonical_asset_id": "WIF",
+          "direction": "ADVANCE",
+          "latest_close": "0.1976",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "WIF/USD",
+          "previous_close": "0.1891",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 92,
+          "selected_rank": 81,
+          "source_asset_id": "WIF",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "6407145.605985672"
+        },
+        {
+          "canonical_asset_id": "WLD",
+          "direction": "ADVANCE",
+          "latest_close": "0.3654",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "WLD/USD",
+          "previous_close": "0.3619",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 50,
+          "selected_rank": 43,
+          "source_asset_id": "WLD",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "18950152.929140733"
+        },
+        {
+          "canonical_asset_id": "WLFI",
+          "direction": "ADVANCE",
+          "latest_close": "0.0573",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "WLFI/USD",
+          "previous_close": "0.0559",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 93,
+          "selected_rank": 82,
+          "source_asset_id": "WLFI",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "6186839.584241827"
+        },
+        {
+          "canonical_asset_id": "XCN",
+          "direction": "ADVANCE",
+          "latest_close": "0.00341",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "XCN/USD",
+          "previous_close": "0.00337",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 67,
+          "selected_rank": 57,
+          "source_asset_id": "XCN",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "10830754.486274731475"
+        },
+        {
+          "canonical_asset_id": "XDC",
+          "direction": "ADVANCE",
+          "latest_close": "0.02762",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "XDC/USD",
+          "previous_close": "0.02737",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 75,
+          "selected_rank": 64,
+          "source_asset_id": "XDC",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "9929082.0444116124"
+        },
+        {
+          "canonical_asset_id": "XLM",
+          "direction": "ADVANCE",
+          "latest_close": "0.1773",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "XLM/USD",
+          "previous_close": "0.174615",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 18,
+          "selected_rank": 14,
+          "source_asset_id": "XLM",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "74411428.822229834246"
+        },
+        {
+          "canonical_asset_id": "XMR",
+          "direction": "ADVANCE",
+          "latest_close": "520",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "XMR/USD",
+          "previous_close": "487.5",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 16,
+          "selected_rank": 13,
+          "source_asset_id": "XMR",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "103257947.8118180791"
+        },
+        {
+          "canonical_asset_id": "XPL",
+          "direction": "UNCHANGED",
+          "latest_close": "0.0841",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "XPL/USD",
+          "previous_close": "0.0841",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 63,
+          "selected_rank": 54,
+          "source_asset_id": "XPL",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "11484400.798905477"
+        },
+        {
+          "canonical_asset_id": "XRP",
+          "direction": "ADVANCE",
+          "latest_close": "1.37943",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "XRP/USD",
+          "previous_close": "1.35751",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 5,
+          "selected_rank": 3,
+          "source_asset_id": "XRP",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "1404398432.793032219373"
+        },
+        {
+          "canonical_asset_id": "ZBCN",
+          "direction": "ADVANCE",
+          "latest_close": "0.001872",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ZBCN/USD",
+          "previous_close": "0.001824",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 110,
+          "selected_rank": 99,
+          "source_asset_id": "ZBCN",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "4933295.84428186762"
+        },
+        {
+          "canonical_asset_id": "ZEC",
+          "direction": "ADVANCE",
+          "latest_close": "848.46",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ZEC/USD",
+          "previous_close": "836.02",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 8,
+          "selected_rank": 5,
+          "source_asset_id": "ZEC",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "453908383.3243311417"
+        },
+        {
+          "canonical_asset_id": "ZRO",
+          "direction": "DECLINE",
+          "latest_close": "1.025",
+          "latest_finalized_day": "2026-08-31",
+          "pair_id": "ZRO/USD",
+          "previous_close": "1.031",
+          "previous_finalized_day": "2026-08-30",
+          "rank_before_taxonomy": 70,
+          "selected_rank": 60,
+          "source_asset_id": "ZRO",
+          "taxonomy_category": "eligible_crypto",
+          "trailing_30d_usd_turnover": "10409059.4019755"
+        }
+      ],
+      "minimum_observation_coverage_bps": 9000,
+      "missing_observation_members": [],
+      "observation_coverage_bps": 10000,
+      "observed_asset_count": 100,
+      "policy_sha256": "b9189e59ae697b1c5cb2cefa68a96601b2fefe38b365b8fbc7328e196c894aa7",
+      "policy_version": "crypto_breadth_universe/v1",
+      "quote_currency": "USD",
+      "ranked_candidate_count": 625,
+      "ranking_end_policy": "previous_day_before_observation_as_of",
+      "ranking_ineligible": [
+        {
+          "canonical_asset_id": "ALIGN",
+          "pair_id": "ALIGN/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "AVL",
+          "pair_id": "AVL/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "DGAI",
+          "pair_id": "DGAI/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "DOS",
+          "pair_id": "DOS/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "FOLD",
+          "pair_id": "FOLD/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "KII",
+          "pair_id": "KII/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "LIGHTER",
+          "pair_id": "LIGHTER/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "PWT",
+          "pair_id": "PWT/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "QUID",
+          "pair_id": "QUID/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "SODA",
+          "pair_id": "SODA/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "TMX",
+          "pair_id": "TMX/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "USDGO",
+          "pair_id": "USDGO/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        },
+        {
+          "canonical_asset_id": "USDSM",
+          "pair_id": "USDSM/USD",
+          "reason": "INSUFFICIENT_EXACT_30D_HISTORY"
+        }
+      ],
+      "ranking_ineligible_count": 13,
+      "ranking_lookback_finalized_days": 30,
+      "ranking_metric": "sum_daily_vwap_times_base_volume",
+      "selected_asset_count": 100,
+      "selection_rule": "trailing_30d_usd_turnover_top_n_after_explicit_taxonomy",
+      "target_asset_count": 100,
+      "taxonomy": {
+        "approval_status": "RATIFIED",
+        "effective_from": "2026-08-19",
+        "eligible_category": "eligible_crypto",
+        "excluded_categories": [
+          "commodity_linked",
+          "fiat",
+          "stablecoin",
+          "staked",
+          "unverified_identity",
+          "wrapped"
+        ],
+        "policy_sha256": "85024474a29a849cd6a802037cbcf623f2afecc00f795b94736c12a9b95c2d74",
+        "policy_version": "crypto_breadth_exclusion_taxonomy/v2"
+      },
+      "taxonomy_excluded_before_cutoff": [
+        {
+          "canonical_asset_id": "USDT",
+          "category": "stablecoin",
+          "pair_id": "USDT/USD",
+          "rank_before_taxonomy": 1,
+          "trailing_usd_turnover": "4729220217.399737562078"
+        },
+        {
+          "canonical_asset_id": "USDC",
+          "category": "stablecoin",
+          "pair_id": "USDC/USD",
+          "rank_before_taxonomy": 3,
+          "trailing_usd_turnover": "1681212600.856712360356"
+        },
+        {
+          "canonical_asset_id": "EUR",
+          "category": "fiat",
+          "pair_id": "EUR/USD",
+          "rank_before_taxonomy": 7,
+          "trailing_usd_turnover": "549468490.221860201752"
+        },
+        {
+          "canonical_asset_id": "GBP",
+          "category": "fiat",
+          "pair_id": "GBP/USD",
+          "rank_before_taxonomy": 17,
+          "trailing_usd_turnover": "97426599.795814641978"
+        },
+        {
+          "canonical_asset_id": "PAXG",
+          "category": "commodity_linked",
+          "pair_id": "PAXG/USD",
+          "rank_before_taxonomy": 19,
+          "trailing_usd_turnover": "73994441.7988689659"
+        },
+        {
+          "canonical_asset_id": "USDG",
+          "category": "stablecoin",
+          "pair_id": "USDG/USD",
+          "rank_before_taxonomy": 40,
+          "trailing_usd_turnover": "22814933.200782335"
+        },
+        {
+          "canonical_asset_id": "AUD",
+          "category": "fiat",
+          "pair_id": "AUD/USD",
+          "rank_before_taxonomy": 45,
+          "trailing_usd_turnover": "20850377.042487134975"
+        },
+        {
+          "canonical_asset_id": "EURC",
+          "category": "stablecoin",
+          "pair_id": "EURC/USD",
+          "rank_before_taxonomy": 56,
+          "trailing_usd_turnover": "14142481.115671566751"
+        },
+        {
+          "canonical_asset_id": "XAUT",
+          "category": "commodity_linked",
+          "pair_id": "XAUT/USD",
+          "rank_before_taxonomy": 62,
+          "trailing_usd_turnover": "11531589.50459997"
+        },
+        {
+          "canonical_asset_id": "RE",
+          "category": "unverified_identity",
+          "pair_id": "RE/USD",
+          "rank_before_taxonomy": 64,
+          "trailing_usd_turnover": "11128307.9699684752"
+        },
+        {
+          "canonical_asset_id": "NIGHT",
+          "category": "unverified_identity",
+          "pair_id": "NIGHT/USD",
+          "rank_before_taxonomy": 71,
+          "trailing_usd_turnover": "10390668.4157982904"
+        }
+      ],
+      "taxonomy_unknown_before_cutoff": []
+    },
+    "unknown_reason": null
+  },
+  "recalculated_view_sha256": "85024474a29a849cd6a802037cbcf623f2afecc00f795b94736c12a9b95c2d74",
+  "recalculation": {
+    "applies_to_rotation_as_of_from": "2026-09-15",
+    "recalculated_at_utc": "2026-09-15T01:44:51Z",
+    "rotation_packets_committed_through": "2026-09-14"
+  },
+  "resolving_records": [
+    {
+      "canonical_asset_id": "HNT",
+      "category": "eligible_crypto",
+      "effective_from": "2026-09-04",
+      "effective_to": null,
+      "kind": "EFFECTIVE_AFTER_DAY",
+      "reason": "Helium Network native token (retained Kraken online USD pair + Helium official documentation)"
+    },
+    {
+      "canonical_asset_id": "SKR",
+      "category": "eligible_crypto",
+      "effective_from": "2026-09-04",
+      "effective_to": null,
+      "kind": "EFFECTIVE_AFTER_DAY",
+      "reason": "Solana Mobile Seeker ecosystem token (retained Kraken online USD pair + Solana Mobile official documentation)"
+    }
+  ],
+  "rule_id": "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1",
+  "schema_version": "crypto_rotation_30d_coverage_recalc_point/1",
+  "scope": "ROTATION_CONFIRMATION_CRYPTO_30D_STRENGTH_INPUT_ONLY",
+  "snapshot": {
+    "available_at": "2026-09-01T00:53:33Z",
+    "identity_exceptions_sha256": "5d6d0574d3f002c80c9c918300f559a98add6a92aa8692fc877a2b494340338c",
+    "manifest_sha256": "2e0771d6019a97a4ce59f3b9240fd3377276d1dc5513e5bd637612b59a729807",
+    "path": "evidence/crypto/breadth/raw/2026-09-01",
+    "vintage_date": "2026-09-01"
+  }
+}

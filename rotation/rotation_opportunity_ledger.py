@@ -280,6 +280,10 @@ def build_market_days(market: str, root: Path = ROOT, config: Optional[dict] = N
                 "forward_tracking": _forward_tracking(config, market),
                 "rule_refs": sorted(refs, key=lambda r: (r["rule_id"], r["role"])),
             }
+            if gate.get("coverage_recalculation"):
+                # RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1: scorecard rows derived
+                # from recalculated observations carry the '재계산' mark.
+                row["coverage_recalculation"] = copy.deepcopy(gate["coverage_recalculation"])
             row["opportunity_id"] = RC.payload_sha256({
                 "market": market, "as_of": as_of, "scope_id": gate["scope_id"], "entity_id": gate["entity_id"],
                 "entry_rule_sha256": config["entry_rule"]["sha256"],
@@ -308,6 +312,8 @@ def build_market_days(market: str, root: Path = ROOT, config: Optional[dict] = N
             },
             "authority": copy.deepcopy(config["authority"]),
         }
+        if "coverage_recalculation" in packet["observation"]:
+            day["confirmation"]["coverage_recalculation"] = copy.deepcopy(packet["observation"]["coverage_recalculation"])
         day["payload_sha256"] = RC.payload_sha256(day)
         days.append(day)
     return days

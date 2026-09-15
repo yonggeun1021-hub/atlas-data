@@ -2471,6 +2471,14 @@ APPROVED_TESTS = [
     #   its own blocker, never a whole-request abort; issued /2 requests keep
     #   rebuilding byte-identically. No order/exchange/REAL authority.
     "test/test_crypto_paper_runtime_bridge_per_market.py",
+    # ★ Crypto PAPER wiring v2 (build plan PR3): decision snapshot /4 behind
+    #   the config cutover T_cut (inactive by default, /3 byte-identical),
+    #   promotion contract/3 rotation source, buy eligibility contract/3
+    #   (session budget size, record-only features/planned loss, R1 key,
+    #   07:00Z expiry), runtime request /4 (multi-candidate session budget,
+    #   marketable limit + registry 150bp quantity reduction, market-state
+    #   mapping, exit-intent sells). No order/exchange/REAL authority.
+    "test/test_crypto_paper_wiring_v2.py",
     # ★ D1 per-market account marks (crypto_paper_account_state/2): a stale
     #   held market is valued UNKNOWN instead of freezing FRESH markets'
     #   exits; unknown NAV blocks new entries only. /1 unchanged.
@@ -2575,6 +2583,15 @@ APPROVED_TESTS = [
     #   definitions): 1-B, TS14, PTP1, DS5 with the D9 monitored stop fill model
     #   and monitoring gaps; KR/US emitted NOT_DEFINED (P3 undecided).
     "test/test_paper_shadow_controls.py",
+    # ★ Crypto rotation 30d strength one-time coverage recalculation
+    #   (RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1, user ratification P1
+    #   USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915 sha 2a94be2b…): write-once
+    #   recalculated CR-06 points for days >= 2026-08-19 using confirmed later
+    #   classifications (prices from the same as-captured snapshot), idempotent
+    #   verify, '재계산' mark into rotation packets / entry gate / opportunity rows,
+    #   committed packets preferred; regime LEADERSHIP axis, natural leadership
+    #   packets and current_catalog_backfill_authorized untouched.
+    "test/test_crypto_rotation_30d_coverage_recalc.py",
     # ★ Alpaca historical SIP daily-bar access probe (user approval
     #   2026-09-15: "Alpaca 과거 SIP 데이터 접근 확인 테스트 승인"). Answers, once,
     #   on request: can the existing dedicated ALPACA_MARKET_DATA_API_KEY/
@@ -2679,17 +2696,67 @@ APPROVED_TESTS = [
     #   cooling-off. Undecided items are emitted as NOT_DEFINED.
     "test/test_paper_execution_core_v1.py",
     "test/test_paper_execution_core_v1_episodes_validation.py",
+    # ★ RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 evidence capture
+    #   (collectors/fred_dexkous_fx.py) + reader (latest_available).
+    #   FRED_API_KEY-or-public-CSV fetch, append-only per-observation
+    #   capture keyed by this run's own wall-clock time (availability_
+    #   captured_at_utc), UNKNOWN_BACKFILL rows for the one-time historical
+    #   seed never usable as point-in-time evidence, business-day staleness
+    #   clock (CIO interpretation, > 10 business days -> 'NAV 일부 미검증'
+    #   display only, never blocks allocation). Fully offline / mocked-HTTP;
+    #   no network call, no trading/allocation authority (every
+    #   *_authorized field stays False).
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_fred_dexkous_fx.py",
+    "test/test_fred_dexkous_fx_workflow.py",
+    # ★ RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 evidence capture
+    #   (collectors/spdr_sector_holdings.py) + reader
+    #   (universe/us_spdr_sector_mapping.py). Daily holdings for the 11
+    #   SPDR Select Sector ETFs (XLB XLC XLE XLF XLI XLK XLP XLRE XLU XLV
+    #   XLY, verified against config/free_market_data_contract.json); the
+    #   downloaded workbook itself is never committed (licensing) -- only a
+    #   per-ETF derived symbol/weight-rank/weight-bucket mapping plus
+    #   capture metadata/hash. CIO review 2026-09-15 (PR #761): the rule's
+    #   cross-fund "largest weight ETF" tie-break is resolved from EXACT
+    #   weights held only in memory at capture time, and only when a single
+    #   run covers all 11 ETFs (a "complete batch") -- per symbol, only the
+    #   outcome (primary_sector_etf / holder_etf_count / tie flag) is
+    #   committed, never the exact weight. An incomplete batch (an ETF
+    #   fetch failed) resolves nothing that day; the reader falls back to
+    #   the most recent earlier complete batch rather than trust a partial
+    #   one. UNKNOWN (no T2) for an unheld symbol, own-sector for a sector
+    #   ETF, and NO_POINT_IN_TIME_CAPTURE_AVAILABLE (distinct from UNKNOWN)
+    #   when no complete capture yet exists -- holdings history is
+    #   physically time-gated and cannot be backfilled. Fully offline: a
+    #   small in-memory fixture .xlsx workbook and a fake HTTP layer only;
+    #   the real SSGA endpoint is never contacted by this suite, and the
+    #   untrusted workflow_dispatch ticker-list input is passed through
+    #   env:/a quoted shell variable, never substituted directly into the
+    #   run: script, then split and validated against the 11-ticker
+    #   allowlist in Python before any HTTP request. Every *_authorized
+    #   field stays False.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_spdr_sector_holdings.py",
+    "test/test_spdr_sector_holdings_workflow.py",
+    "test/test_us_spdr_sector_mapping.py",
     # ★ TKT-2 (W1) KR full-universe daily price history (#718): market-agnostic
     #   price_history_session/1 contract, KR collector (no default opener, no
-    #   pre-close collection, calendar-only session selection, EMPTY never
-    #   stored as data), store reader, optional evaluator input. Zero price
-    #   bytes tracked publicly. Offline fixtures only.
+    #   collection before next-morning publication, calendar-only session
+    #   selection, EMPTY never stored as data but repairable to OK), store
+    #   reader + calendar window, optional evaluator input with a
+    #   PRIVATE_ONLY public-write guard. Zero price bytes tracked publicly.
     "test/test_krx_price_history.py",
     "test/test_korea_population_price_history_input.py",
     # ★ KR T2 C3 liquidity evaluator: thresholds read from the sha-verified
     #   evidence/authority/paper_liquidity_kr_us_user_ratification_20260914.json
-    #   (no number in code); <20 sessions -> NOT_EVALUATED, missing/stale/flag
-    #   gaps -> UNKNOWN; per-symbol results private, public summary counts only.
+    #   (no number in code); window = calendar's last 20 sessions ending at the
+    #   required session; any missing/EMPTY session, gap or flag gap -> UNKNOWN;
+    #   NOT_EVALUATED only for <20 sessions of listing history; per-symbol
+    #   results private, public summary counts only.
     "test/test_kr_liquidity_c3.py",
 ]
 

@@ -1,6 +1,11 @@
 pykrx>=1.2.8
 requests>=2.31.0
 pandas>=2.0.0
+# collectors/spdr_sector_holdings.py -- official SSGA/State Street SPDR
+# sector ETF holdings downloads are .xlsx. openpyxl is the parser; the
+# collector never retains the raw workbook bytes (see module docstring for
+# the licensing rationale), only a derived symbol/sector/rank mapping.
+openpyxl>=3.1.0
 # P9-06 -- Upbit public realtime WebSocket capture
 # (.github/scripts/upbit_realtime_capture.py). No API key/secret; public
 # market-data channels only (ticker/trade/orderbook/candle.*). Imported
