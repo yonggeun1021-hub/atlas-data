@@ -29,6 +29,9 @@ sys.path.insert(0, str(ROOT))
 from collectors import krx_price_history as COLLECTOR  # noqa: E402
 from decision import korea_population_symbol_observation as ADAPTER  # noqa: E402
 from universe import price_history_store as STORE  # noqa: E402
+if str(ROOT / "test") not in sys.path:
+    sys.path.insert(0, str(ROOT / "test"))
+import rolling_pointer_snapshot as SNAPSHOT  # noqa: E402
 
 CORE = ADAPTER.CORE
 COMMIT = "0" * 40
@@ -57,6 +60,12 @@ def provider_payload(codes, bas_dd, part):
 class KoreaPopulationPriceHistoryInputTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Rolling pointers (stage_history, briefing/krx, bounded review) are
+        # rewritten by separately scheduled workflows; read the same frozen
+        # snapshot test_population_symbol_observation.py uses.
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.snapshot = SNAPSHOT.materialize(Path(cls.tmp.name) / "snapshot")
+        assert SNAPSHOT.kr_inputs(cls.snapshot)["session_date"] == SESSION
         cls.contract = CORE.load_contract()
         cls.price_contract = COLLECTOR.load_contract()
         packet = json.loads(
@@ -67,7 +76,7 @@ class KoreaPopulationPriceHistoryInputTests(unittest.TestCase):
             record["primary_symbol"] for record in packet["asset_master"]["records"]
         ]
         watchlist = {
-            path.stem for path in (ROOT / "data" / "briefing" / "krx").glob("*.json")
+            path.stem for path in Path(SNAPSHOT.kr_inputs(cls.snapshot)["watchlist_root"]).glob("*.json")
         }
         cls.subject_code = next(
             code for code in cls.population if code not in watchlist
@@ -106,10 +115,15 @@ class KoreaPopulationPriceHistoryInputTests(unittest.TestCase):
 
     def context(self, price_history_root):
         inputs = ADAPTER.default_inputs(ROOT, session_date=SESSION)
+        inputs.update(SNAPSHOT.kr_inputs(self.snapshot))
         inputs["price_history_root"] = price_history_root
         return ADAPTER.load_context(
             inputs, generated_at=GENERATED_AT, contract=self.contract
         )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
 
     def test_default_has_no_store_and_leaves_the_packet_unchanged(self):
         self.assertIsNone(ADAPTER.default_inputs(ROOT, session_date=SESSION)["price_history_root"])
