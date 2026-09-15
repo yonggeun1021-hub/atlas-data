@@ -583,6 +583,42 @@ class FrozenReplayTests(FixtureCase):
         self.assertEqual({row["as_of_date"] for row in drift}, {"2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"})
         self.assertIn("RECORDED_CLASSIFICATION_CHANGED_LATER", {n["code"] for n in notices(self.root)["notices"]})
 
+    def test_altered_committed_strengths_are_never_reused_silently(self):
+        self.recalc()
+        committed = self.commit_all_crypto_packets()
+        path = RC.evidence_path(self.root, "CRYPTO", "2026-09-18")
+        packet = json.loads(committed["2026-09-18"])
+        self.assertTrue(packet["observation"]["coverage_recalculation"]["entity_strengths_sha256"])
+        # Tamper: change an entity strength and recompute the payload sha.
+        packet["scopes"][0]["entities"][0]["strength"] = "9.999999999999"
+        packet.pop("payload_sha256")
+        packet["payload_sha256"] = RC.payload_sha256(packet)
+        path.write_bytes(RC.render_json(packet))
+        reset_caches()
+        rebuilt = {p["as_of_date"]: p for p in RC.build_market("CRYPTO", self.root)}
+        self.assertNotEqual(RC.render_json(rebuilt["2026-09-18"]), path.read_bytes())  # rebuilt live, not reused
+        codes = {n["code"] for n in notices(self.root)["notices"]}
+        self.assertIn("COMMITTED_RECALCULATED_PACKET_INCONSISTENT", codes)
+        with redirect_stdout(io.StringIO()), self.assertRaisesRegex(RC.RotationConfirmationError, "APPEND_ONLY_EVIDENCE_CONFLICT"):
+            RC.write_market("CRYPTO", list(rebuilt.values()), self.root)
+
+    def test_live_strength_difference_on_reuse_writes_notice(self):
+        self.recalc()
+        self.commit_all_crypto_packets()
+        # A consistent committed packet whose live rebuild now differs (a snapshot-level change) -> notice only.
+        path = RC.evidence_path(self.root, "CRYPTO", "2026-09-18")
+        packet = json.loads(path.read_text(encoding="utf-8"))
+        packet["scopes"][0]["entities"][0]["strength"] = "9.999999999999"
+        mark = packet["observation"]["coverage_recalculation"]
+        mark["entity_strengths_sha256"] = RC.payload_sha256(R.committed_entity_strengths(packet))
+        packet.pop("payload_sha256")
+        packet["payload_sha256"] = RC.payload_sha256(packet)
+        path.write_bytes(RC.render_json(packet))
+        reset_caches()
+        RC.build_market("CRYPTO", self.root)
+        codes = {n["code"] for n in notices(self.root)["notices"]}
+        self.assertIn("COMMITTED_RECALCULATED_PACKET_STRENGTH_DRIFT", codes)
+
     def test_history_unavailable_is_explicit_crypto_unknown_and_committed_packets_stay(self):
         self.recalc()
         committed = self.commit_all_crypto_packets()

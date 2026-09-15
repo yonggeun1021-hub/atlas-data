@@ -854,6 +854,8 @@ def recalculated_primary_window(root: Path, as_of: str, natural_packet: dict, na
             for item in sorted(used, key=lambda i: i["point"]["as_of_date"])
         ],
         "window_bucket_payload_sha256": payload_sha256(window["group_relative_strength"]["bucket"]),
+        # Judgment-bearing input of the rotation packet: checked whenever a committed packet is reused.
+        "entity_strengths_sha256": payload_sha256(window_entity_strengths(window)),
         # Frozen inputs: classifications of the assets each day's scan visited (recalculated
         # days from the committed point, other days from the file as committed before the
         # snapshot). Later reason / effective_to / unrelated edits do not change it.
@@ -864,6 +866,32 @@ def recalculated_primary_window(root: Path, as_of: str, natural_packet: dict, na
         },
     }
     return {"window": window, "mark": mark}
+
+
+def window_entity_strengths(window: dict) -> list:
+    return sorted([row["group_id"], row["relative_strength_vs_btc"]] for row in window["group_relative_strength"]["bucket"])
+
+
+def committed_entity_strengths(packet: dict) -> list:
+    return sorted([e["entity_id"], e["strength"]] for scope in packet.get("scopes") or [] for e in scope["entities"])
+
+
+def committed_packet_problems(root: Path, config: Optional[dict], packet: dict) -> list:
+    """Why a committed marked packet must not be reused (empty list = consistent)."""
+    mark = packet["observation"]["coverage_recalculation"]
+    problems = []
+    if mark.get("entity_strengths_sha256") != payload_sha256(committed_entity_strengths(packet)):
+        problems.append("ENTITY_STRENGTHS_SHA_MISMATCH")
+    if config is not None:
+        try:
+            points = committed_points(root, config)
+        except Exception as exc:  # noqa: BLE001
+            return problems + [f"POINTS_UNREADABLE:{exc}"]
+        for day in mark.get("recalculated_days") or []:
+            item = points.get(day.get("as_of_date"))
+            if item is None or item["point"]["payload_sha256"] != day.get("point_payload_sha256"):
+                problems.append(f"RECALCULATED_POINT_MISMATCH:{day.get('as_of_date')}")
+    return problems
 
 
 def rotation_override(root: Path, as_of: str, natural_packet: dict, natural_window: dict,
@@ -884,20 +912,31 @@ def rotation_override(root: Path, as_of: str, natural_packet: dict, natural_wind
     if committed_packet is not None and committed_mark is None:
         reason = (committed_packet.get("observation") or {}).get("unknown_reason") or ""
         return {"kind": "UNKNOWN", "unknown_reason": reason} if reason == UNAVAILABLE_REASON else {"kind": "NATURAL"}
+    problems = [] if committed_mark is None else committed_packet_problems(root, config, committed_packet)
+    if problems:  # never reused silently; the rebuilt packet then fails the CRYPTO append-only write loudly
+        _notice(root, as_of, "COMMITTED_RECALCULATED_PACKET_INCONSISTENT", problems)
     if config is None:
-        if committed_mark is not None:
+        if committed_mark is not None and not problems:
             return {"kind": "COMMITTED", "packet": committed_packet}
-        return {"kind": "NATURAL"}
+        return {"kind": "UNKNOWN", "unknown_reason": UNAVAILABLE_REASON} if committed_mark is not None else {"kind": "NATURAL"}
     live, error = None, None
     try:
         live = recalculated_primary_window(root, as_of, natural_packet, natural_window, config)
     except Exception as exc:  # noqa: BLE001 - crypto-only notice, never aborts other markets
         error = str(exc)
-    if committed_mark is not None:
+    if committed_mark is not None and not problems:
         if error is not None:
             _notice(root, as_of, "COMMITTED_RECALCULATED_PACKET_DRIFT_CHECK_UNAVAILABLE", error)
-        elif live is None or live["mark"] != committed_mark:
-            _notice(root, as_of, "COMMITTED_RECALCULATED_PACKET_DRIFT", None if live is None else "MARK_CHANGED")
+        elif live is None:
+            _notice(root, as_of, "COMMITTED_RECALCULATED_PACKET_DRIFT", "LIVE_REBUILD_NOT_APPLICABLE")
+        else:
+            live_strengths = window_entity_strengths(live["window"])
+            committed_strengths = committed_entity_strengths(committed_packet)
+            if live_strengths != committed_strengths:
+                _notice(root, as_of, "COMMITTED_RECALCULATED_PACKET_STRENGTH_DRIFT",
+                        {"committed": committed_strengths, "live": live_strengths})
+            elif live["mark"] != committed_mark:
+                _notice(root, as_of, "COMMITTED_RECALCULATED_PACKET_DRIFT", "MARK_CHANGED")
         return {"kind": "COMMITTED", "packet": committed_packet}
     if error is not None:
         _notice(root, as_of, UNAVAILABLE_REASON, error)
