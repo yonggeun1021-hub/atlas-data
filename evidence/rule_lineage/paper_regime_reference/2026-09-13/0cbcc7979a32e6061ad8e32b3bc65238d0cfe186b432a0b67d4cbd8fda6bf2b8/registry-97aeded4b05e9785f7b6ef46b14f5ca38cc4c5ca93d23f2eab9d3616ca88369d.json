@@ -1,0 +1,124 @@
+{
+  "decision_outcome_changed": false,
+  "events": [
+    {
+      "decision_id": "paper_regime_reference:2a5e8f93849dfc33ebfc3fe1b4fd2919411b45c5fb2100177a536cb6125583c4:CRYPTO",
+      "event_id": "1b0257486693bd505c1dc9355ce46317b1f1d66985ebc69707938f9ed67bf7e3",
+      "event_type": "DECISION",
+      "gate": "paper_market_risk_reference",
+      "inputs_sha256": "bf0e7fa15fbb75745cf14ab0ca0191f7a642ebb911f9dd39ca4be549e4edf327",
+      "instrument": null,
+      "market": "CRYPTO",
+      "outcome": {
+        "as_of_date": "2026-09-13",
+        "candidate_regime": "NEUTRAL",
+        "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+        "runtime_regime": "UNKNOWN",
+        "score": 0
+      },
+      "producer": "regime/paper_regime_reference.py",
+      "rule_refs": [],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/regime/paper_reference/2026-09-13/2a5e8f93849dfc33ebfc3fe1b4fd2919411b45c5fb2100177a536cb6125583c4/packet.json",
+        "payload_sha256": "0cbcc7979a32e6061ad8e32b3bc65238d0cfe186b432a0b67d4cbd8fda6bf2b8",
+        "schema_version": "paper_regime_reference/v2"
+      },
+      "timestamp_utc": "2026-09-13T14:47:46Z",
+      "unapplied_rules": [
+        {
+          "reason_code": "ALLOCATION_MULTIPLIER_NOT_COMPUTED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.ALLOCATION.V2"
+        },
+        {
+          "reason_code": "REFERENCE_USES_DESCRIPTIVE_NORMALIZATION_NOT_RUNTIME_V1",
+          "rule_id": "RULE.CRYPTO.RUNTIME.V1"
+        },
+        {
+          "reason_code": "HEDGE_NOT_COMPUTED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.HEDGE.INVERSE.V1"
+        }
+      ]
+    },
+    {
+      "decision_id": "paper_regime_reference:2a5e8f93849dfc33ebfc3fe1b4fd2919411b45c5fb2100177a536cb6125583c4:KR",
+      "event_id": "18bd3ceb57ae0e78715858bfd50e088097a558649c4905d5e4d3dd2292aabd94",
+      "event_type": "DECISION",
+      "gate": "paper_market_risk_reference",
+      "inputs_sha256": "3892b2559bd20c7d9a34c9fbb1c7ac31bc506293503a961d5720e0cf472ad364",
+      "instrument": null,
+      "market": "KR",
+      "outcome": {
+        "as_of_date": "2026-09-10",
+        "candidate_regime": "NEUTRAL",
+        "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+        "runtime_regime": "UNKNOWN",
+        "score": 2
+      },
+      "producer": "regime/paper_regime_reference.py",
+      "rule_refs": [],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/regime/paper_reference/2026-09-13/2a5e8f93849dfc33ebfc3fe1b4fd2919411b45c5fb2100177a536cb6125583c4/packet.json",
+        "payload_sha256": "0cbcc7979a32e6061ad8e32b3bc65238d0cfe186b432a0b67d4cbd8fda6bf2b8",
+        "schema_version": "paper_regime_reference/v2"
+      },
+      "timestamp_utc": "2026-09-13T14:47:46Z",
+      "unapplied_rules": [
+        {
+          "reason_code": "ALLOCATION_MULTIPLIER_NOT_COMPUTED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.ALLOCATION.V2"
+        },
+        {
+          "reason_code": "HEDGE_NOT_COMPUTED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.HEDGE.INVERSE.V1"
+        }
+      ]
+    },
+    {
+      "decision_id": "paper_regime_reference:2a5e8f93849dfc33ebfc3fe1b4fd2919411b45c5fb2100177a536cb6125583c4:US",
+      "event_id": "9b6929d41720350c23450448e55add5f2da039eba4650c889cc29d3dbd0b4a9b",
+      "event_type": "DECISION",
+      "gate": "paper_market_risk_reference",
+      "inputs_sha256": "5282eb3ae604261d0fba06f8d4eecd7f2cb40ae213fc90205c94734281a30b4b",
+      "instrument": null,
+      "market": "US",
+      "outcome": {
+        "as_of_date": "2026-09-11",
+        "candidate_regime": "NEUTRAL",
+        "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+        "runtime_regime": "UNKNOWN",
+        "score": 0
+      },
+      "producer": "regime/paper_regime_reference.py",
+      "rule_refs": [],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/regime/paper_reference/2026-09-13/2a5e8f93849dfc33ebfc3fe1b4fd2919411b45c5fb2100177a536cb6125583c4/packet.json",
+        "payload_sha256": "0cbcc7979a32e6061ad8e32b3bc65238d0cfe186b432a0b67d4cbd8fda6bf2b8",
+        "schema_version": "paper_regime_reference/v2"
+      },
+      "timestamp_utc": "2026-09-13T14:47:46Z",
+      "unapplied_rules": [
+        {
+          "reason_code": "ALLOCATION_MULTIPLIER_NOT_COMPUTED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.ALLOCATION.V2"
+        },
+        {
+          "reason_code": "HEDGE_NOT_COMPUTED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.HEDGE.INVERSE.V1"
+        }
+      ]
+    }
+  ],
+  "payload_sha256": "ca3f7201d92b163b496d4c2933b1ee1a2a562292f18edce607f333824b4dbc4d",
+  "producer": "regime/paper_regime_reference.py",
+  "registry_path": "config/rule_registry_v1.json",
+  "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+  "schema_version": "rule_lineage_sidecar/1",
+  "source_packet": {
+    "path": "evidence/regime/paper_reference/2026-09-13/2a5e8f93849dfc33ebfc3fe1b4fd2919411b45c5fb2100177a536cb6125583c4/packet.json",
+    "payload_sha256": "0cbcc7979a32e6061ad8e32b3bc65238d0cfe186b432a0b67d4cbd8fda6bf2b8",
+    "schema_version": "paper_regime_reference/v2"
+  }
+}
