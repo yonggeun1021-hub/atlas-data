@@ -1,6 +1,6 @@
 {
   "as_of_date": "2026-08-23",
-  "body_sha256": "c976f9de2df5ab41803b5a4ea3ec98d8861d1932d0e638398fa910f8c8587ec0",
+  "body_sha256": "5610fa0cc72e47ef7cf70b1387567f677c4b737e4cb6dd12d16b3d1b3f606170",
   "classification_confirmations": [
     {
       "canonical_asset_id": "ACU",
@@ -85,6 +85,23 @@
     "path": "config/crypto_breadth_exclusion_taxonomy.json",
     "sha256": "2df9db61e1495c36137c5ecfc9d4d123340950edc94aee8c4c2f46dd5179a36e"
   },
+  "classification_view_header": {
+    "approval_status": "RATIFIED",
+    "effective_from": "2026-08-19",
+    "eligible_category": "eligible_crypto",
+    "excluded_categories": [
+      "commodity_linked",
+      "fiat",
+      "stablecoin",
+      "staked",
+      "unverified_identity",
+      "wrapped"
+    ],
+    "policy_version": "crypto_breadth_exclusion_taxonomy/v2",
+    "schema_version": 1,
+    "source_name": "kraken_spot_market_data",
+    "unknown_asset_policy": "fail_closed_unknown"
+  },
   "mark_ko": "재계산",
   "market": "CRYPTO",
   "not_applied_to": [
@@ -94,7 +111,7 @@
     "PILOT_7D_WINDOW",
     "ROTATION_LAGGING_WARNING_DAILY_POINTS"
   ],
-  "payload_sha256": "7971a9a46c84596ef2c6677d59df775798e1d96478352e2134bc128bc3076cda",
+  "payload_sha256": "569bfb95ba9dd7375b9e85100d061e4da84c8cf5ebf8a799455fdab3860a10a3",
   "point_in_time": {
     "definition": "RECORDS_EFFECTIVE_ON_DAY_AND_COMMITTED_AT_OR_BEFORE_SNAPSHOT_AVAILABLE_AT",
     "status": "UNKNOWN",
@@ -4588,9 +4605,9 @@
   },
   "recalculated_view_sha256": "d07c4b054b3e9c71039e832c35a6574542f515df7f53cc9a5dc77e91f7af7c1b",
   "recalculation": {
-    "applies_to_rotation_as_of_from": "2026-09-14",
-    "recalculated_at_utc": "2026-09-15T01:12:28Z",
-    "rotation_packets_committed_through": "2026-09-13"
+    "applies_to_rotation_as_of_from": "2026-09-15",
+    "recalculated_at_utc": "2026-09-15T01:44:51Z",
+    "rotation_packets_committed_through": "2026-09-14"
   },
   "resolving_records": [
     {

@@ -1,6 +1,6 @@
 {
   "as_of_date": "2026-09-02",
-  "body_sha256": "0700f229113d6751470f40ebf3b1aa08c6a88b58d5ea70b1d552bade5d15cd61",
+  "body_sha256": "0e5e8233c8d0e2388907f062982fc7f9b3be58c7622c7f6215ef446e65547cea",
   "classification_confirmations": [
     {
       "canonical_asset_id": "HNT",
@@ -25,6 +25,23 @@
     "path": "config/crypto_breadth_exclusion_taxonomy.json",
     "sha256": "2df9db61e1495c36137c5ecfc9d4d123340950edc94aee8c4c2f46dd5179a36e"
   },
+  "classification_view_header": {
+    "approval_status": "RATIFIED",
+    "effective_from": "2026-08-19",
+    "eligible_category": "eligible_crypto",
+    "excluded_categories": [
+      "commodity_linked",
+      "fiat",
+      "stablecoin",
+      "staked",
+      "unverified_identity",
+      "wrapped"
+    ],
+    "policy_version": "crypto_breadth_exclusion_taxonomy/v2",
+    "schema_version": 1,
+    "source_name": "kraken_spot_market_data",
+    "unknown_asset_policy": "fail_closed_unknown"
+  },
   "mark_ko": "재계산",
   "market": "CRYPTO",
   "not_applied_to": [
@@ -34,7 +51,7 @@
     "PILOT_7D_WINDOW",
     "ROTATION_LAGGING_WARNING_DAILY_POINTS"
   ],
-  "payload_sha256": "d4be98fddd42fbfd501719f6a9be85e255593b5b4f825d75e2d36977ad5aed24",
+  "payload_sha256": "2fdf4ce361b8e6f36cba28c9b42e9d1cbe17c2319f6be53be520171c6ee3601c",
   "point_in_time": {
     "definition": "RECORDS_EFFECTIVE_ON_DAY_AND_COMMITTED_AT_OR_BEFORE_SNAPSHOT_AVAILABLE_AT",
     "status": "UNKNOWN",
@@ -2782,9 +2799,9 @@
   },
   "recalculated_view_sha256": "6937b36b0067f279a966ee286fede6e3a91b1f925176baf017c78d438af178b5",
   "recalculation": {
-    "applies_to_rotation_as_of_from": "2026-09-14",
-    "recalculated_at_utc": "2026-09-15T01:12:28Z",
-    "rotation_packets_committed_through": "2026-09-13"
+    "applies_to_rotation_as_of_from": "2026-09-15",
+    "recalculated_at_utc": "2026-09-15T01:44:51Z",
+    "rotation_packets_committed_through": "2026-09-14"
   },
   "resolving_records": [
     {

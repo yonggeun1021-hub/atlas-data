@@ -300,6 +300,7 @@ def crypto_observations(policy: dict, root: Path = ROOT) -> list:
     cfg = policy["markets"]["CRYPTO"]
     source = cfg["source"]
     result = []
+    _coverage_recalc_module().reset_notices(root)
     for path in sorted(glob.glob(str(Path(root) / source["root"] / "*" / "packet.json"))):
         path = Path(path)
         packet = _read_json(path)
@@ -321,13 +322,31 @@ def crypto_observations(policy: dict, root: Path = ROOT) -> list:
         if window.get("status") != "OBSERVED_UNCLASSIFIED":
             # RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1: the 30-day strength input only
             # (never the regime LEADERSHIP axis). Recalculated days never feed ``aux``.
-            recalculated = _crypto_coverage_recalculated_window(root, as_of, packet, window)
-            if recalculated is None:
-                item = _unknown(as_of, f"WINDOW_{window.get('unknown_reason') or 'UNKNOWN'}", sources)
+            outcome = _crypto_coverage_recalc_outcome(root, as_of, packet, window)
+            if outcome["kind"] in ("NATURAL", "UNKNOWN"):
+                reason = outcome.get("unknown_reason") or f"WINDOW_{window.get('unknown_reason') or 'UNKNOWN'}"
+                item = _unknown(as_of, reason, sources)
                 item["aux"] = aux
                 result.append(item)
                 continue
-            window, recalculation = recalculated["window"], recalculated["mark"]
+            if outcome["kind"] == "COMMITTED":
+                # Committed packets are preferred: a later edit elsewhere never changes their replay.
+                committed = outcome["packet"]
+                result.append({
+                    "as_of_date": as_of, "status": "OBSERVED", "unknown_reason": None,
+                    "sources": copy.deepcopy(committed["observation"]["sources"]),
+                    "scopes": {
+                        scope["scope_id"]: [
+                            {"entity_id": e["entity_id"], "source_identity": e["source_identity"], "strength": e["strength"]}
+                            for e in scope["entities"]
+                        ]
+                        for scope in committed["scopes"]
+                    },
+                    "aux": aux,
+                    "coverage_recalculation": copy.deepcopy(committed["observation"]["coverage_recalculation"]),
+                })
+                continue
+            window, recalculation = outcome["window"], outcome["mark"]
             sources = sources + [
                 {"path": day["point_path"], "sha256": file_sha256(Path(root) / day["point_path"])}
                 for day in recalculation["recalculated_days"]
@@ -360,14 +379,7 @@ def crypto_observations(policy: dict, root: Path = ROOT) -> list:
 _COVERAGE_RECALC_MODULE: list = []
 
 
-def _crypto_coverage_recalculated_window(root: Path, as_of: str, packet: dict, window: dict) -> Optional[dict]:
-    """Recalculated crypto primary_30d window (+ '재계산' mark) or None.
-
-    A committed rotation packet without the mark is preferred and never rewritten.
-    """
-    committed = evidence_path(root, "CRYPTO", as_of)
-    if committed.exists() and "coverage_recalculation" not in (_read_json(committed).get("observation") or {}):
-        return None
+def _coverage_recalc_module():
     if not _COVERAGE_RECALC_MODULE:
         import importlib.util
 
@@ -377,11 +389,21 @@ def _crypto_coverage_recalculated_window(root: Path, as_of: str, packet: dict, w
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         _COVERAGE_RECALC_MODULE.append(module)
-    recalc = _COVERAGE_RECALC_MODULE[0]
-    try:
-        return recalc.recalculated_primary_window(root, as_of, packet, window)
-    except recalc.CoverageRecalcError as exc:
-        _fail("CRYPTO_COVERAGE_RECALC_INVALID", str(exc))
+    return _COVERAGE_RECALC_MODULE[0]
+
+
+def _crypto_coverage_recalc_outcome(root: Path, as_of: str, packet: dict, window: dict) -> dict:
+    """RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1 decision; never raises (drift -> crypto notice file)."""
+    committed_path = evidence_path(root, "CRYPTO", as_of)
+    committed = None
+    if committed_path.exists():
+        committed = _read_json(committed_path)
+        if "coverage_recalculation" in (committed.get("observation") or {}):
+            validate_packet(committed)  # a tampered committed packet is not drift
+    return _coverage_recalc_module().rotation_override(root, as_of, packet, window, committed)
+
+
+CRYPTO_COVERAGE_RECALC_NOTICE_RELATIVE_PATH = "data/rotation_confirmation_crypto_coverage_recalc_notice.json"
 
 
 def _crypto_daily_points(window: dict, cfg: dict) -> list:
@@ -1151,6 +1173,13 @@ def run(argv=None) -> int:
                     notice_path.write_bytes(render_json(notice))
                     if late:
                         print(f"::warning::late older {market} evidence not replayed: {','.join(late)}", file=sys.stderr)
+                    if market == "CRYPTO":  # crypto-only coverage recalculation notice (drift is never raised)
+                        recalc_notice = _coverage_recalc_module().notice_document(args.root)
+                        recalc_path = Path(args.root) / CRYPTO_COVERAGE_RECALC_NOTICE_RELATIVE_PATH
+                        recalc_path.parent.mkdir(parents=True, exist_ok=True)
+                        recalc_path.write_bytes(render_json(recalc_notice))
+                        if recalc_notice["notices"] or recalc_notice["point_classification_drift"]:
+                            print("::warning::crypto coverage recalculation notice written", file=sys.stderr)
                 packets = build_market(market, args.root, policy)
                 latest = packets[-1] if packets else None
                 if args.write:

@@ -1,6 +1,6 @@
 {
   "as_of_date": "2026-08-28",
-  "body_sha256": "23167c42abc35a54e6d8660e516fe8d5235fe27ae7fca9c109f8e9b6c808ae6a",
+  "body_sha256": "05799ce15e5659a4f270b1dac1772ff871ba92b41240254574acef42e7fa1e47",
   "classification_confirmations": [
     {
       "canonical_asset_id": "BTR",
@@ -13,6 +13,23 @@
     "path": "config/crypto_breadth_exclusion_taxonomy.json",
     "sha256": "2df9db61e1495c36137c5ecfc9d4d123340950edc94aee8c4c2f46dd5179a36e"
   },
+  "classification_view_header": {
+    "approval_status": "RATIFIED",
+    "effective_from": "2026-08-19",
+    "eligible_category": "eligible_crypto",
+    "excluded_categories": [
+      "commodity_linked",
+      "fiat",
+      "stablecoin",
+      "staked",
+      "unverified_identity",
+      "wrapped"
+    ],
+    "policy_version": "crypto_breadth_exclusion_taxonomy/v2",
+    "schema_version": 1,
+    "source_name": "kraken_spot_market_data",
+    "unknown_asset_policy": "fail_closed_unknown"
+  },
   "mark_ko": "재계산",
   "market": "CRYPTO",
   "not_applied_to": [
@@ -22,7 +39,7 @@
     "PILOT_7D_WINDOW",
     "ROTATION_LAGGING_WARNING_DAILY_POINTS"
   ],
-  "payload_sha256": "0b3d01077552a80cda3f38a7dbbeadacd57fa3d6a427de2b5a2f796b68aec6f7",
+  "payload_sha256": "7bfb96e7ec619427cbcf6075e2a198561552c5e7d88437764ffe3e9bf39a29fa",
   "point_in_time": {
     "definition": "RECORDS_EFFECTIVE_ON_DAY_AND_COMMITTED_AT_OR_BEFORE_SNAPSHOT_AVAILABLE_AT",
     "status": "UNKNOWN",
@@ -2772,9 +2789,9 @@
   },
   "recalculated_view_sha256": "b6ac0020920e3503185cbfcb84eab2fed47a3466d3f2d9994ca4a858a06bf621",
   "recalculation": {
-    "applies_to_rotation_as_of_from": "2026-09-14",
-    "recalculated_at_utc": "2026-09-15T01:12:28Z",
-    "rotation_packets_committed_through": "2026-09-13"
+    "applies_to_rotation_as_of_from": "2026-09-15",
+    "recalculated_at_utc": "2026-09-15T01:44:51Z",
+    "rotation_packets_committed_through": "2026-09-14"
   },
   "resolving_records": [
     {

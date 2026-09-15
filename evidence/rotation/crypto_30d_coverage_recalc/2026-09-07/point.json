@@ -1,6 +1,6 @@
 {
   "as_of_date": "2026-09-07",
-  "body_sha256": "4d24e8ce916d65625cc7e915122b20e53e47019c1abba033c3f92aa66c8947dd",
+  "body_sha256": "9895361120b31344df7a976cc31924c1ced0397c16c115ba299a247e8cabb4f3",
   "classification_confirmations": [
     {
       "canonical_asset_id": "CHIP",
@@ -37,6 +37,23 @@
     "path": "config/crypto_breadth_exclusion_taxonomy.json",
     "sha256": "2df9db61e1495c36137c5ecfc9d4d123340950edc94aee8c4c2f46dd5179a36e"
   },
+  "classification_view_header": {
+    "approval_status": "RATIFIED",
+    "effective_from": "2026-08-19",
+    "eligible_category": "eligible_crypto",
+    "excluded_categories": [
+      "commodity_linked",
+      "fiat",
+      "stablecoin",
+      "staked",
+      "unverified_identity",
+      "wrapped"
+    ],
+    "policy_version": "crypto_breadth_exclusion_taxonomy/v2",
+    "schema_version": 1,
+    "source_name": "kraken_spot_market_data",
+    "unknown_asset_policy": "fail_closed_unknown"
+  },
   "mark_ko": "재계산",
   "market": "CRYPTO",
   "not_applied_to": [
@@ -46,7 +63,7 @@
     "PILOT_7D_WINDOW",
     "ROTATION_LAGGING_WARNING_DAILY_POINTS"
   ],
-  "payload_sha256": "0e5cf3b1459f135f8544d0c2ccc39c600a65efa384ba047d8954e70d595fb204",
+  "payload_sha256": "e68bdf0d1b23deca845358531a631fbea744c102fc6ee9885bdf1f16dda8dd2a",
   "point_in_time": {
     "definition": "RECORDS_EFFECTIVE_ON_DAY_AND_COMMITTED_AT_OR_BEFORE_SNAPSHOT_AVAILABLE_AT",
     "status": "UNKNOWN",
@@ -2825,9 +2842,9 @@
   },
   "recalculated_view_sha256": "874d32b45b6105b412cae9f9af789eced65f7e3ec2227e27814e1ba04667f3db",
   "recalculation": {
-    "applies_to_rotation_as_of_from": "2026-09-14",
-    "recalculated_at_utc": "2026-09-15T01:12:28Z",
-    "rotation_packets_committed_through": "2026-09-13"
+    "applies_to_rotation_as_of_from": "2026-09-15",
+    "recalculated_at_utc": "2026-09-15T01:44:51Z",
+    "rotation_packets_committed_through": "2026-09-14"
   },
   "resolving_records": [
     {

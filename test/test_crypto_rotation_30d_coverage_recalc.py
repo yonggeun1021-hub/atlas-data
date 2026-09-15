@@ -89,21 +89,21 @@ def confirmed_new_at(new_committed: str):
 
 
 PINNED_POINT_SHA256 = {
-    "2026-08-21": "12062baf98756f56df05df3b147090b621eb7f915f6697917f85a9b195d0f163",
-    "2026-08-22": "b2a7b7e0b9b3c6f0def29f620c78f1584bda43fb2b911cd4f2214afb3bf82d1d",
-    "2026-08-23": "7c868fa845d144b1690aceac7bdb63725ec5adbef0fc439e8ba6efcaf3051676",
-    "2026-08-24": "7db5cd5713b7876cb6c88d21e43a15a51a7d27e843850b5f1b8843a94205e7f8",
-    "2026-08-25": "64465dcc84b6009fba8037f80117d52e10ac787bfdc65356869c7a3cbc20e594",
-    "2026-08-26": "41b5ebe27d539f3017451093b3a81c125815267ca0463412bf8ad9d4afad3c1f",
-    "2026-08-28": "53ff60375bf1481c41c014b4ab09a665644e1b7e60ce20238ad3dba1b45d51a0",
-    "2026-08-31": "504a86a91f60a0aadf98244018661b8033e0c30b71717efd0d5a2a64c38c145b",
-    "2026-09-01": "55974fa00b5aabc70b75e7e3f4470f3f3c25c6114ac9b83ad5a048b44440e20a",
-    "2026-09-02": "1323cd32727d4fe9b7913d56a90c3e6d18fb4b4797b09bbba9e7c670b862cc1e",
-    "2026-09-03": "db89e40cf2705d9c11b2ae5dcc9649cc237c002abd29222f8b90dcebfc08dbfa",
-    "2026-09-04": "2c6c5edb36e05cb59bae355dd91fcd1aacba69179cf10a217cf961a00ecc22f7",
-    "2026-09-05": "24bcacccd4ea80bd113e62abebcc2b24f85fb1a87382dcd1e6c8510714f80e7b",
-    "2026-09-06": "c00f32cdc54bff41b4532064cdce1cff91c3e3effae0d7e6a1f64e18028ee58b",
-    "2026-09-07": "5337cca3689bea89eaec7ab22aed7645d1d77a02181b5311b7e45dbcbaf51f5e",
+    "2026-08-21": "5a1bdfa8e381006cabbc32936d0296c5ab5931026d24632e885e5916d373e29a",
+    "2026-08-22": "2c78e4ce2b7c143a7fedfa3f1e2facafb41360dac8956ce2021d3e12de422475",
+    "2026-08-23": "ed19682888e606b4f46c8f3ffd67f7d48e5a0c5569a6bbc99b67dfa620baf2ca",
+    "2026-08-24": "c59ef1abb9285648e25ec5f2315252b91488417c6f3fb592761a3a9941229719",
+    "2026-08-25": "e116b7e3b424c4a147c001af5b695cacd4aad66a7109a15e7de8a24370ba53a2",
+    "2026-08-26": "4960421461f6f7b0b34faf466c73cf5c2816efb7b53e8b8b68bffde310269f8d",
+    "2026-08-28": "c0b48385dbe616ab60e9b15089063828fc35306e85eb051b7a22a06f031685a3",
+    "2026-08-31": "d4a09ec4d7969a0de0622c4ec80f1ddad888a8def9e318e041e5eb62ebbbe41e",
+    "2026-09-01": "870a1fb8d13dfd18d18fb29e975cae3a97684b5b735724737e92a829bd43d48e",
+    "2026-09-02": "7c7e5becfbd72e0d90a42c4097bf06b0b4394d7c5ab2d4ab58a79e3a1f105900",
+    "2026-09-03": "2f99340d0527470ce174d50a8a93dc4669dd1d60edd578e2d173a6dcbacb46d9",
+    "2026-09-04": "477eb68a9a2ad34ccb4a01749cbf16f382b8424fca212a83825782d577adb4a5",
+    "2026-09-05": "d044438c9efe3e0287a5b497e1327ae7de345c657f76333bd9ede3d7d8cf7a82",
+    "2026-09-06": "d1646c9aade9c99ea15e30e6ef76a92532191a7fc2ab07b0dd91e52d48915441",
+    "2026-09-07": "4e5535a36eb5fd2df0284f116f40cbf46dba3d6f92660072dfa5736f6ed223b2",
 }
 
 
@@ -142,7 +142,14 @@ def build_fixture(root: Path, first=FIRST_AS_OF, last=LAST_AS_OF, packets_from="
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / relative, root / relative)
     BREADTH_FIXTURE.write_policy(root / R.CONFIG_PATHS["universe"], target=4)
+    # Classification history: base records committed 2025-12-31, NEW committed 2026-08-24 00:00Z.
+    base = exclusion_taxonomy()
+    base["records"] = [r for r in base["records"] if r["canonical_asset_id"] != "NEW"]
+    write_json(root / R.CONFIG_PATHS["exclusion_taxonomy"], base)
+    git(root, "init", "-q")
+    commit_taxonomy(root, "base classifications", "2025-12-31T00:00:00Z")
     write_json(root / R.CONFIG_PATHS["exclusion_taxonomy"], exclusion_taxonomy())
+    commit_taxonomy(root, "NEW classification", "2026-08-24T00:00:00Z")
     raw = root / R.RAW_RELATIVE_ROOT
     raw.mkdir(parents=True, exist_ok=True)
     day, k = first, 1
@@ -158,6 +165,40 @@ def build_fixture(root: Path, first=FIRST_AS_OF, last=LAST_AS_OF, packets_from="
         target = root / "data/observations/crypto_leadership" / day.isoformat() / "packet.json"
         CL.write_output(natural_packet(root, day.isoformat()), target)
         day += dt.timedelta(days=1)
+
+
+def git(root: Path, *args, date: str = "2026-09-20T00:00:00Z") -> None:
+    import os
+    import subprocess
+
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t",
+               GIT_AUTHOR_DATE=date, GIT_COMMITTER_DATE=date)
+    subprocess.run(["git", "-C", str(root), *args], check=True, env=env, capture_output=True)
+
+
+def commit_taxonomy(root: Path, message: str, date: str) -> None:
+    git(root, "add", R.CONFIG_PATHS["exclusion_taxonomy"], date=date)
+    git(root, "commit", "-q", "-m", message, date=date)
+
+
+def edit_taxonomy(root: Path, mutate, date: str = "2026-09-20T00:00:00Z") -> None:
+    path = root / R.CONFIG_PATHS["exclusion_taxonomy"]
+    value = json.loads(path.read_text(encoding="utf-8"))
+    mutate(value["records"])
+    value["records"].sort(key=lambda r: (r["canonical_asset_id"], r["effective_from"]))
+    write_json(path, value)
+    commit_taxonomy(root, "later edit", date)
+
+
+def reset_caches() -> None:
+    for module in (R, RC._coverage_recalc_module()):
+        module._TRANSFORM_CACHE.clear()
+        module._HISTORIES.clear()
+
+
+def notices(root: Path) -> dict:
+    """The notice document of the module instance the rotation layer actually uses."""
+    return RC._coverage_recalc_module().notice_document(root)
 
 
 def crypto_packets(root: Path) -> dict:
@@ -183,7 +224,7 @@ class FixtureCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name) / "root"
         shutil.copytree(self.template, self.root)
-        R._TRANSFORM_CACHE.clear()
+        reset_caches()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -311,12 +352,13 @@ class RecalculationTests(FixtureCase):
         self.recalc()
         before = {d: RC.render_json(p) for d, p in crypto_packets(self.root).items()}
         append_taxonomy_record(self.root, "ZZZ", "2026-12-01")
-        R._TRANSFORM_CACHE.clear()
+        reset_caches()
         self.assertEqual(R.verify(self.root), [])
         after = {d: RC.render_json(p) for d, p in crypto_packets(self.root).items()}
         self.assertEqual(after, before)
 
     def test_shallow_or_missing_history_is_refused(self):
+        shutil.rmtree(self.root / ".git")
         with self.assertRaisesRegex(R.CoverageRecalcError, "CLASSIFICATION_HISTORY_UNAVAILABLE"):
             R.recalculate(self.root, write=True, now=NOW)
         import subprocess
@@ -386,8 +428,7 @@ class RotationReadPathTests(FixtureCase):
         self.assertTrue(any(s["path"].endswith("2026-08-19/point.json") for s in first["sources"]))
         bindings = mark["rebuild_bindings"]
         self.assertEqual(bindings["identity_exceptions_sha256"], R.file_sha256(self.root / R.CONFIG_PATHS["identity_exceptions"]))
-        self.assertEqual(set(bindings), {"exclusion_taxonomy_window_records_sha256", "identity_exceptions_sha256", "universe_policy_sha256",
-                                         "leadership_policy_sha256", "leadership_contract_sha256", "sector_taxonomy_sha256"})
+        self.assertEqual(set(bindings), {"classification_view", "visited_classifications_sha256", "identity_exceptions_sha256"})
         # The recalculated window equals the unmodified CR-07 window with NEW classified all along.
         reference_root = Path(self.tmp.name) / "reference"
         shutil.copytree(self.root, reference_root)
@@ -488,6 +529,98 @@ class RotationReadPathTests(FixtureCase):
         for day, data in before.items():
             self.assertEqual(R.render_json(natural_packet(self.root, day)), data)
         self.assertEqual({p: p.read_bytes() for p in committed}, committed)
+
+
+class FrozenReplayTests(FixtureCase):
+    def commit_all_crypto_packets(self):
+        packets = RC.build_market("CRYPTO", self.root)
+        with redirect_stdout(io.StringIO()):
+            RC.write_market("CRYPTO", packets, self.root)
+        return {p.parent.name: p.read_bytes() for p in (self.root / RC.EVIDENCE_RELATIVE_ROOT / "CRYPTO").glob("*/packet.json")}
+
+    def test_later_taxonomy_edits_keep_replay_and_verify_green(self):
+        self.recalc()
+        committed = self.commit_all_crypto_packets()
+        self.assertIn("coverage_recalculation", json.loads(committed["2026-09-18"])["observation"])
+        fresh_before = {d: RC.render_json(p) for d, p in crypto_packets(Path(shutil.copytree(self.root, Path(self.tmp.name) / "fresh0",
+                        ignore=shutil.ignore_patterns("confirmation")))).items()}
+        self.assertIn("coverage_recalculation", json.loads(fresh_before["2026-09-18"])["observation"])
+        edits = (
+            ("backdated unrelated addition", lambda records: records.append({
+                "canonical_asset_id": "ZZZ", "category": "stablecoin", "effective_from": "2026-08-01",
+                "effective_to": None, "reason": "backdated unrelated"})),
+            ("future closure", lambda records: next(r for r in records if r["canonical_asset_id"] == "SOL").update(effective_to="2027-12-31")),
+            ("reason-only edit", lambda records: next(r for r in records if r["canonical_asset_id"] == "BTC").update(reason="edited reason")),
+            ("NEW future closure", lambda records: next(r for r in records if r["canonical_asset_id"] == "NEW").update(effective_to="2027-06-30")),
+        )
+        for label, mutate in edits:
+            with self.subTest(label):
+                edit_taxonomy(self.root, mutate)
+                reset_caches()
+                rebuilt = RC.build_market("CRYPTO", self.root)
+                with redirect_stdout(io.StringIO()):
+                    RC.write_market("CRYPTO", rebuilt, self.root)  # no APPEND_ONLY_EVIDENCE_CONFLICT
+                self.assertEqual({p["as_of_date"]: RC.render_json(p) for p in rebuilt}, committed)
+                self.assertEqual(R.verify(self.root), [])
+                self.assertEqual(R.classification_drift(self.root), [])
+                document = notices(self.root)
+                self.assertEqual(document["notices"], [], label)
+                # A fresh replay without committed packets is frozen too (history before each snapshot).
+                fresh = Path(self.tmp.name) / f"fresh-{len(label)}"
+                shutil.copytree(self.root, fresh, ignore=shutil.ignore_patterns("confirmation"))
+                reset_caches()
+                self.assertEqual({d: RC.render_json(p) for d, p in crypto_packets(fresh).items()}, fresh_before)
+
+    def test_real_classification_drift_is_a_notice_not_a_failure(self):
+        self.recalc()
+        committed = self.commit_all_crypto_packets()
+        edit_taxonomy(self.root, lambda records: next(r for r in records if r["canonical_asset_id"] == "NEW").update(category="stablecoin"))
+        reset_caches()
+        rebuilt = {p["as_of_date"]: RC.render_json(p) for p in RC.build_market("CRYPTO", self.root)}
+        self.assertEqual(rebuilt, committed)
+        self.assertEqual(R.verify(self.root), [])
+        drift = R.classification_drift(self.root)
+        self.assertEqual({row["as_of_date"] for row in drift}, {"2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"})
+        self.assertIn("RECORDED_CLASSIFICATION_CHANGED_LATER", {n["code"] for n in notices(self.root)["notices"]})
+
+    def test_history_unavailable_is_explicit_crypto_unknown_and_committed_packets_stay(self):
+        self.recalc()
+        committed = self.commit_all_crypto_packets()
+        shutil.rmtree(self.root / ".git")
+        reset_caches()
+        rebuilt = {p["as_of_date"]: RC.render_json(p) for p in RC.build_market("CRYPTO", self.root)}
+        self.assertEqual(rebuilt, committed)
+        fresh = Path(self.tmp.name) / "nohistory"
+        shutil.copytree(self.root, fresh, ignore=shutil.ignore_patterns("confirmation"))
+        reset_caches()
+        packets = crypto_packets(fresh)
+        self.assertEqual(packets["2026-09-17"]["observation"]["unknown_reason"], R.UNAVAILABLE_REASON)
+        self.assertIn(R.UNAVAILABLE_REASON, {n["code"] for n in notices(fresh)["notices"]})
+
+    def test_crypto_drift_cannot_fail_kr_us_builds(self):
+        policy = RC.load_policy()
+        us = policy["markets"]["US"]["entities"]
+        for day in ("2026-09-16", "2026-09-17", "2026-09-18"):
+            etfs = [{"symbol": s, "as_of_session_date": day, "available_session_count": 60,
+                     "relative_to_spy_pct": {"20_session_pct": str(20 - i)}} for i, s in enumerate(us)]
+            write_json(self.root / "evidence/free_market_data/derived" / day / "manifest.json",
+                       {"us_market_reference": {"sector_etfs": etfs, "payload_sha256": "0" * 64}})
+        self.recalc()
+        # Crypto-side trouble: corrupt a recalculated point and drop the classification history.
+        point = R.point_path(self.root, R.load_config(self.root), "2026-08-21")
+        point.write_text(point.read_text(encoding="utf-8").replace('"mark_ko": "재계산"', '"mark_ko": "x"', 1), encoding="utf-8")
+        shutil.rmtree(self.root / ".git")
+        reset_caches()
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            code = RC.run(["build", "--market", "US", "--market", "KR", "--market", "CRYPTO", "--write", "--no-portal", "--root", str(self.root)])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(list((self.root / RC.EVIDENCE_RELATIVE_ROOT / "US").glob("*/packet.json"))), 3)
+        notice = json.loads((self.root / RC.CRYPTO_COVERAGE_RECALC_NOTICE_RELATIVE_PATH).read_text(encoding="utf-8"))
+        self.assertEqual(notice["market"], "CRYPTO")
+        self.assertTrue(notice["notices"])
+        for market in ("US", "KR", "CRYPTO"):
+            RC.build_market(market, self.root)  # the shared replay does not raise
 
 
 class RepositoryEvidenceTests(unittest.TestCase):

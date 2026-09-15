@@ -312,12 +312,13 @@ def derive_point_body(root: Path, config: dict, snapshot: Path, recorded: Option
     if as_of < config["eligible_observation_from"]:
         return {"status": "IGNORED_BEFORE_ELIGIBLE_FROM", "as_of_date": as_of}
     available_at = BREADTH.downloaded_at(Path(snapshot), vintage)
-    taxonomy_raw = _read_json(paths["exclusion_taxonomy"])
-    taxonomy = BREADTH.load_exclusion_taxonomy(paths["exclusion_taxonomy"])
-    if taxonomy["approval_status"] != "RATIFIED":
-        _fail("CLASSIFICATION_SOURCE_UNRATIFIED")
     confirmations = {}
     if recorded is None:
+        taxonomy_raw = _read_json(paths["exclusion_taxonomy"])
+        taxonomy = BREADTH.load_exclusion_taxonomy(paths["exclusion_taxonomy"])
+        if taxonomy["approval_status"] != "RATIFIED":
+            _fail("CLASSIFICATION_SOURCE_UNRATIFIED")
+        header = {key: copy.deepcopy(value) for key, value in taxonomy_raw.items() if key != "records"}
         point_in_time_records = []
         for record in taxonomy_raw["records"]:
             if not _covers(record, day):
@@ -326,11 +327,11 @@ def derive_point_body(root: Path, config: dict, snapshot: Path, recorded: Option
             if info is not None and _parse_utc(info["committed_at_utc"]) <= _parse_utc(available_at):
                 point_in_time_records.append(_public_record(record))
     else:
-        current = {_record_key(r) for r in taxonomy_raw["records"]}
+        # Frozen: only the point's own recorded view; later edits to the classification
+        # file are reported by ``classification_drift`` and never change the body.
+        header = copy.deepcopy(recorded["classification_view_header"])
         point_in_time_records = recorded["point_in_time_records"]
-        for item in point_in_time_records + recorded["resolving_records"]:
-            if _record_key(item) not in current:
-                _fail("RECORDED_CLASSIFICATION_NOT_IN_SOURCE", f"{as_of}:{item['canonical_asset_id']}")
+    taxonomy_raw = header | {"records": []}
     pit, pit_view_sha = _transform_with_view(snapshot, paths, _taxonomy_view(taxonomy_raw, day, point_in_time_records, []))
     if pit["status"] != "UNKNOWN" or pit["unknown_reason"] != config["eligible_point_in_time_unknown_reason"]:
         return {"status": "NOT_ELIGIBLE_POINT_IN_TIME", "as_of_date": as_of,
@@ -410,6 +411,7 @@ def derive_point_body(root: Path, config: dict, snapshot: Path, recorded: Option
             "taxonomy_unknown_before_cutoff": _unknown_assets(pit),
             "view_sha256": pit_view_sha,
         },
+        "classification_view_header": header,
         "point_in_time_records": sorted(point_in_time_records, key=lambda r: (r["canonical_asset_id"], r["effective_from"])),
         "resolving_records": [
             {key: item[key] for key in RECORD_FIELDS + ("kind",)}
@@ -562,16 +564,157 @@ def verify(root: Path = REPO_ROOT) -> list:
     return problems
 
 
+def _visited_classifications(point: dict) -> list:
+    """(asset, category) for every asset the CR-06 scan visited in one day's snapshot."""
+    universe = point["universe"]
+    rows = {item["canonical_asset_id"]: item["taxonomy_category"] for item in universe["members"]}
+    for item in universe["missing_observation_members"]:
+        rows.setdefault(item["canonical_asset_id"], "eligible_crypto")
+    for item in universe["taxonomy_excluded_before_cutoff"]:
+        rows[item["canonical_asset_id"]] = item["category"]
+    for item in universe["taxonomy_unknown_before_cutoff"]:
+        rows[item["canonical_asset_id"]] = "UNKNOWN"
+    return sorted([asset, category] for asset, category in rows.items())
+
+
+def _compatible(recorded: dict, current: list, day: str) -> bool:
+    """Same classification still in force: reason edits and an effective_to that still covers are compatible."""
+    threshold = max(day, recorded["effective_from"])
+    return any(
+        c["canonical_asset_id"] == recorded["canonical_asset_id"]
+        and c["category"] == recorded["category"]
+        and c["effective_from"] == recorded["effective_from"]
+        and (c["effective_to"] is None or c["effective_to"] >= threshold)
+        for c in current
+    )
+
+
+def point_classification_drift(point: dict, current_records: list) -> list:
+    visited = {asset for asset, _ in _visited_classifications(point["recalculated_source_point"])}
+    drift = []
+    for record in point["point_in_time_records"] + point["resolving_records"]:
+        if record["canonical_asset_id"] in visited and not _compatible(record, current_records, point["as_of_date"]):
+            drift.append(record["canonical_asset_id"])
+    return sorted(set(drift))
+
+
+def classification_drift(root: Path = REPO_ROOT) -> list:
+    """Notice rows (never failures): visited-asset classifications of committed points changed later."""
+    root = Path(root)
+    config = load_config(root)
+    current = _read_json(Path(root) / CONFIG_PATHS["exclusion_taxonomy"])["records"]
+    rows = []
+    for as_of, item in committed_points(root, config).items():
+        assets = point_classification_drift(item["point"], current)
+        if assets:
+            rows.append({"as_of_date": as_of, "code": "RECORDED_CLASSIFICATION_CHANGED_LATER", "assets": assets})
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Rotation read path (crypto primary_30d strength input only)
 # ---------------------------------------------------------------------------
 
-class _BreadthProxy:
-    """CR-06 helper that serves committed recalculated points for their snapshots only."""
+NOTICE_SCHEMA_VERSION = "crypto_rotation_30d_coverage_recalc_notice/1"
+NOTICE_RELATIVE_PATH = "data/rotation_confirmation_crypto_coverage_recalc_notice.json"
+UNAVAILABLE_REASON = "WINDOW_COVERAGE_RECALC_UNAVAILABLE"
+_NOTICES: dict = {}
+_HISTORIES: dict = {}
+_TRANSFORM_CACHE: dict = {}
+_LEADERSHIP_MODULE: list = []
+_HISTORY_TMP: list = []
 
-    def __init__(self, recalculated_by_snapshot: dict, cache: dict):
+
+def reset_notices(root: Path) -> None:
+    _NOTICES[Path(root).as_posix()] = {}
+
+
+def _notice(root: Path, as_of: str, code: str, detail=None) -> None:
+    rows = _NOTICES.setdefault(Path(root).as_posix(), {}).setdefault(as_of, [])
+    row = {"code": code, "detail": detail}
+    if row not in rows:
+        rows.append(row)
+
+
+def notice_document(root: Path) -> dict:
+    """Deterministic crypto-only notice (no wall clock): drift is reported here, never raised."""
+    rows = _NOTICES.get(Path(root).as_posix(), {})
+    document = {
+        "schema_version": NOTICE_SCHEMA_VERSION,
+        "market": "CRYPTO",
+        "rule_id": RULE_ID,
+        "handling": "COMMITTED_PACKETS_PREFERRED_DRIFT_REPORTED_NOT_RAISED",
+        "notices": [dict(row, as_of_date=as_of) for as_of in sorted(rows) for row in rows[as_of]],
+    }
+    try:
+        document["point_classification_drift"] = classification_drift(root) if load_config(root, required=False) else []
+    except Exception as exc:  # noqa: BLE001 - notices never raise
+        document["point_classification_drift"] = [{"code": "DRIFT_CHECK_FAILED", "detail": str(exc)}]
+    document["payload_sha256"] = payload_sha256(document)
+    return document
+
+
+class _ClassificationHistory:
+    """The classification file exactly as committed (first-parent) at a given time."""
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+        self.error = None
+        self.commits = []
+        self.paths = {}
+        relative = CONFIG_PATHS["exclusion_taxonomy"]
+        try:
+            run = lambda *args: subprocess.run(["git", "-C", str(self.root), *args], capture_output=True, text=True, check=True).stdout
+            if run("rev-parse", "--is-shallow-repository").strip() == "true":
+                self.error = "CLASSIFICATION_HISTORY_SHALLOW"
+                return
+            for line in run("log", "--first-parent", "--format=%H %cI", "HEAD", "--", relative).splitlines():
+                if line:
+                    sha, committed = line.split(" ", 1)
+                    self.commits.append((dt.datetime.fromisoformat(committed).astimezone(dt.timezone.utc), sha))
+        except (OSError, subprocess.CalledProcessError):
+            self.error = "CLASSIFICATION_HISTORY_UNAVAILABLE"
+            return
+        self.commits.sort()
+        if not self.commits:
+            self.error = "CLASSIFICATION_HISTORY_UNAVAILABLE"
+
+    def path_at(self, when: dt.datetime) -> Path:
+        if self.error:
+            _fail(self.error)
+        eligible = [sha for committed, sha in self.commits if committed <= when]
+        if not eligible:
+            _fail("CLASSIFICATION_NOT_COMMITTED_BEFORE_SNAPSHOT", _utc_text(when))
+        sha = eligible[-1]
+        if sha not in self.paths:
+            if not _HISTORY_TMP:
+                _HISTORY_TMP.append(tempfile.TemporaryDirectory(prefix="crypto_recalc_history_"))
+            data = subprocess.run(["git", "-C", str(self.root), "show", f"{sha}:{CONFIG_PATHS['exclusion_taxonomy']}"],
+                                  capture_output=True, check=True).stdout
+            path = Path(_HISTORY_TMP[0].name) / f"{sha}.json"
+            path.write_bytes(data)
+            self.paths[sha] = path
+        return self.paths[sha]
+
+
+def _history(root: Path) -> _ClassificationHistory:
+    key = Path(root).resolve().as_posix()
+    if key not in _HISTORIES:
+        _HISTORIES[key] = _ClassificationHistory(root)
+    return _HISTORIES[key]
+
+
+class _BreadthProxy:
+    """CR-06 helper for the window rebuild with a frozen classification view.
+
+    Recalculated days: exactly the committed point. Other days: the classification
+    file as committed at or before that day's snapshot ``available_at``.
+    """
+
+    def __init__(self, recalculated_by_snapshot: dict, history: _ClassificationHistory):
         self._recalculated = recalculated_by_snapshot
-        self._cache = cache
+        self._history = history
+        self.outputs = {}
 
     def __getattr__(self, name):
         return getattr(BREADTH, name)
@@ -579,21 +722,17 @@ class _BreadthProxy:
     def build_transform(self, snapshot_dir, **kwargs):
         key = Path(snapshot_dir).as_posix()
         if key in self._recalculated:
-            return copy.deepcopy(self._recalculated[key])
-        cache_key = (key, tuple(sorted((k, str(v)) for k, v in kwargs.items())))
-        if cache_key not in self._cache:
-            try:
-                self._cache[cache_key] = ("ok", BREADTH.build_transform(snapshot_dir, **kwargs))
-            except BREADTH.BreadthError as exc:
-                self._cache[cache_key] = ("error", exc)
-        kind, value = self._cache[cache_key]
-        if kind == "error":
-            raise value
-        return copy.deepcopy(value)
-
-
-_TRANSFORM_CACHE: dict = {}
-_LEADERSHIP_MODULE: list = []
+            output = copy.deepcopy(self._recalculated[key])
+        else:
+            vintage = dt.date.fromisoformat(Path(snapshot_dir).name)
+            frozen = self._history.path_at(_parse_utc(BREADTH.downloaded_at(Path(snapshot_dir), vintage)))
+            kwargs = dict(kwargs, exclusion_taxonomy_path=frozen)
+            cache_key = (Path(snapshot_dir).resolve().as_posix(), tuple(sorted((k, str(v)) for k, v in kwargs.items())))
+            if cache_key not in _TRANSFORM_CACHE:
+                _TRANSFORM_CACHE[cache_key] = BREADTH.build_transform(snapshot_dir, **kwargs)
+            output = copy.deepcopy(_TRANSFORM_CACHE[cache_key])
+        self.outputs[key] = output
+        return output
 
 
 def _leadership_module():
@@ -605,95 +744,98 @@ def _leadership_module():
     return _LEADERSHIP_MODULE[0]
 
 
-def recalculated_primary_window(root: Path, as_of: str, natural_packet: dict, natural_window: dict,
-                                config: Optional[dict] = None) -> Optional[dict]:
-    """Rebuilt ``primary_30d`` window + mark, or ``None`` (the natural UNKNOWN stands)."""
-    root = Path(root)
-    config = load_config(root, required=False) if config is None else config
-    if config is None or natural_window.get("window_id") != config["applies_to"]["window_id"]:
-        return None
-    if (
-        natural_window.get("status") != "UNKNOWN"
-        or natural_window.get("unknown_reason") != "SOURCE_POINT_UNKNOWN"
-        or [b.get("code") for b in natural_window.get("blockers") or []] != ["SOURCE_POINT_UNKNOWN"]
-    ):
-        return None
+def _eligible_natural_window(config: dict, as_of: str, natural_window: dict) -> bool:
     descriptor = natural_window.get("window") or {}
     unknown_points = natural_window.get("source_unknown_points") or []
-    if (
-        not unknown_points
-        or descriptor.get("end_date") != as_of
-        or descriptor.get("missing_dates")
-        or str(descriptor.get("start_date")) < config["eligible_observation_from"]
-    ):
+    return (
+        natural_window.get("window_id") == config["applies_to"]["window_id"]
+        and natural_window.get("status") == "UNKNOWN"
+        and natural_window.get("unknown_reason") == "SOURCE_POINT_UNKNOWN"
+        and [b.get("code") for b in natural_window.get("blockers") or []] == ["SOURCE_POINT_UNKNOWN"]
+        and bool(unknown_points)
+        and descriptor.get("end_date") == as_of
+        and not descriptor.get("missing_dates")
+        and str(descriptor.get("start_date")) >= config["eligible_observation_from"]
+        and all(p.get("unknown_reason") == config["eligible_point_in_time_unknown_reason"] for p in unknown_points)
+    )
+
+
+def recalculated_primary_window(root: Path, as_of: str, natural_packet: dict, natural_window: dict,
+                                config: Optional[dict] = None) -> Optional[dict]:
+    """Live rebuild: ``{"window", "mark"}`` or ``None`` (not applicable). May raise CoverageRecalcError."""
+    root = Path(root)
+    config = load_config(root, required=False) if config is None else config
+    if config is None or not _eligible_natural_window(config, as_of, natural_window):
         return None
-    if any(p.get("unknown_reason") != config["eligible_point_in_time_unknown_reason"] for p in unknown_points):
-        return None
+    descriptor = natural_window["window"]
     points = committed_points(root, config)
     used = []
-    for unknown in unknown_points:
+    for unknown in natural_window["source_unknown_points"]:
         item = points.get(unknown.get("as_of_date"))
         if item is None:
             return None
         point = item["point"]
         applies_from = point["recalculation"]["applies_to_rotation_as_of_from"]
         if point["snapshot"]["manifest_sha256"] != unknown.get("manifest_sha256"):
+            _notice(root, as_of, "RECALCULATED_POINT_MANIFEST_MISMATCH", point["as_of_date"])
             return None
         if applies_from is not None and as_of < applies_from:
             return None
         used.append(item)
     paths = _paths(root)
     identity_sha = file_sha256(paths["identity_exceptions"])
-    taxonomy_raw = _read_json(paths["exclusion_taxonomy"])
-    current_records = {_record_key(r) for r in taxonomy_raw["records"]}
+    current_records = _read_json(paths["exclusion_taxonomy"])["records"]
     for item in used:
-        point = item["point"]
-        if point["snapshot"]["identity_exceptions_sha256"] != identity_sha:
-            return None
-        if any(_record_key(r) not in current_records for r in point["point_in_time_records"] + point["resolving_records"]):
-            return None
+        if item["point"]["snapshot"]["identity_exceptions_sha256"] != identity_sha:
+            _fail("IDENTITY_EXCEPTIONS_CHANGED_SINCE_RECALCULATION", item["point"]["as_of_date"])
+        drift = point_classification_drift(item["point"], current_records)
+        if drift:  # the committed point is still used as recorded (frozen); reported only
+            _notice(root, as_of, "RECORDED_CLASSIFICATION_CHANGED_LATER", {"day": item["point"]["as_of_date"], "assets": drift})
     policies = natural_packet.get("policies") or {}
     if (
         (policies.get("universe") or {}).get("policy_sha256") != file_sha256(paths["universe"])
         or (policies.get("leadership") or {}).get("policy_sha256") != file_sha256(paths["leadership_policy"])
         or (policies.get("taxonomy") or {}).get("policy_sha256") != file_sha256(paths["sector_taxonomy"])
     ):
-        return None
+        _fail("NATURAL_PACKET_POLICY_SHA_MISMATCH", as_of)
     leadership_module = _leadership_module()
-    raw = root / RAW_RELATIVE_ROOT
-    snapshots = leadership_module.discover_snapshot_map(raw)
-    recalculated_by_snapshot = {}
-    for item in used:
-        snapshot = (root / item["point"]["snapshot"]["path"]).as_posix()
-        recalculated_by_snapshot[snapshot] = item["point"]["recalculated_source_point"]
-    leadership_module.BREADTH = _BreadthProxy(recalculated_by_snapshot, _TRANSFORM_CACHE)
+    snapshots = leadership_module.discover_snapshot_map(root / RAW_RELATIVE_ROOT)
+    recalculated_by_snapshot = {
+        (root / item["point"]["snapshot"]["path"]).as_posix(): item["point"]["recalculated_source_point"] for item in used
+    }
+    proxy = _BreadthProxy(recalculated_by_snapshot, _history(root))
+    leadership_module.BREADTH = proxy
     contract = leadership_module.load_contract(paths["leadership_contract"])
     leadership = leadership_module.load_leadership_policy(paths["leadership_policy"])
     leadership_module.require_ratified_leadership_policy(leadership)
     taxonomy = leadership_module.load_taxonomy(paths["sector_taxonomy"])
     specs = [s for s in leadership["windows"] if s["window_id"] == config["applies_to"]["window_id"]]
     if len(specs) != 1:
-        return None
+        _fail("WINDOW_SPEC_MISSING")
     start = dt.date.fromisoformat(descriptor["start_date"])
     days = [start + dt.timedelta(days=i) for i in range(specs[0]["lookback_calendar_days"])]
     if days[-1].isoformat() != as_of or any(day not in snapshots for day in days):
-        return None
+        _fail("WINDOW_SNAPSHOTS_MISSING", as_of)
     for day in days:  # prices point in time: each day's own as-captured snapshot only
         if snapshots[day].name != (day + dt.timedelta(days=1)).isoformat():
-            return None
+            _fail("WINDOW_SNAPSHOT_NOT_POINT_IN_TIME", day.isoformat())
     try:
         window = leadership_module.build_observed_window(
             specs[0], copy.deepcopy(descriptor), [(day, snapshots[day]) for day in days], contract, leadership,
             taxonomy, paths["universe"], paths["exclusion_taxonomy"], paths["identity_exceptions"],
         )
-    except (leadership_module.LeadershipError, BREADTH.BreadthError):
-        return None
+    except (leadership_module.LeadershipError, BREADTH.BreadthError) as exc:
+        _fail("WINDOW_REBUILD_FAILED", str(exc))
     if window.get("status") != "OBSERVED_UNCLASSIFIED":
+        _notice(root, as_of, "WINDOW_REBUILD_NOT_OBSERVED", {
+            "unknown_reason": window.get("unknown_reason"),
+            "source_unknown_points": [p["as_of_date"] for p in window.get("source_unknown_points") or []],
+        })
         return None
-    window_records = sorted(
-        (_public_record(r) for r in taxonomy_raw["records"] if any(_covers(r, day) for day in days)),
-        key=lambda r: (r["canonical_asset_id"], r["effective_from"]),
-    )
+    visited = [
+        {"as_of_date": day.isoformat(), "classifications": _visited_classifications(proxy.outputs[snapshots[day].as_posix()])}
+        for day in days
+    ]
     mark = {
         "rule_id": RULE_ID,
         "ratification_record_sha256": config["ratification_record"]["sha256"],
@@ -712,19 +854,57 @@ def recalculated_primary_window(root: Path, as_of: str, natural_packet: dict, na
             for item in sorted(used, key=lambda i: i["point"]["as_of_date"])
         ],
         "window_bucket_payload_sha256": payload_sha256(window["group_relative_strength"]["bucket"]),
-        # Inputs the rebuild was bound to. A later change to any of them for these
-        # window days changes this mark, so an already committed packet fails the
-        # append-only replay loudly instead of silently changing its strength input.
+        # Frozen inputs: classifications of the assets each day's scan visited (recalculated
+        # days from the committed point, other days from the file as committed before the
+        # snapshot). Later reason / effective_to / unrelated edits do not change it.
         "rebuild_bindings": {
-            "exclusion_taxonomy_window_records_sha256": payload_sha256(window_records),
+            "classification_view": "RECALCULATED_POINTS_AND_FILE_AS_COMMITTED_BEFORE_EACH_SNAPSHOT",
+            "visited_classifications_sha256": payload_sha256(visited),
             "identity_exceptions_sha256": identity_sha,
-            "universe_policy_sha256": file_sha256(paths["universe"]),
-            "leadership_policy_sha256": file_sha256(paths["leadership_policy"]),
-            "leadership_contract_sha256": file_sha256(paths["leadership_contract"]),
-            "sector_taxonomy_sha256": file_sha256(paths["sector_taxonomy"]),
         },
     }
     return {"window": window, "mark": mark}
+
+
+def rotation_override(root: Path, as_of: str, natural_packet: dict, natural_window: dict,
+                      committed_packet: Optional[dict]) -> dict:
+    """Decision for one crypto as-of date whose natural 30d window is not observed. Never raises.
+
+    ``{"kind": "NATURAL"}`` natural UNKNOWN stands; ``{"kind": "UNKNOWN", "unknown_reason"}``
+    explicit fail-closed status; ``{"kind": "COMMITTED", "packet"}`` reuse the committed
+    marked packet's observation (replay never changes it); ``{"kind": "LIVE", "window", "mark"}``.
+    """
+    root = Path(root)
+    try:
+        config = load_config(root, required=False)
+    except Exception as exc:  # noqa: BLE001
+        _notice(root, as_of, "RECALC_CONFIG_INVALID", str(exc))
+        config = None
+    committed_mark = ((committed_packet or {}).get("observation") or {}).get("coverage_recalculation")
+    if committed_packet is not None and committed_mark is None:
+        reason = (committed_packet.get("observation") or {}).get("unknown_reason") or ""
+        return {"kind": "UNKNOWN", "unknown_reason": reason} if reason == UNAVAILABLE_REASON else {"kind": "NATURAL"}
+    if config is None:
+        if committed_mark is not None:
+            return {"kind": "COMMITTED", "packet": committed_packet}
+        return {"kind": "NATURAL"}
+    live, error = None, None
+    try:
+        live = recalculated_primary_window(root, as_of, natural_packet, natural_window, config)
+    except Exception as exc:  # noqa: BLE001 - crypto-only notice, never aborts other markets
+        error = str(exc)
+    if committed_mark is not None:
+        if error is not None:
+            _notice(root, as_of, "COMMITTED_RECALCULATED_PACKET_DRIFT_CHECK_UNAVAILABLE", error)
+        elif live is None or live["mark"] != committed_mark:
+            _notice(root, as_of, "COMMITTED_RECALCULATED_PACKET_DRIFT", None if live is None else "MARK_CHANGED")
+        return {"kind": "COMMITTED", "packet": committed_packet}
+    if error is not None:
+        _notice(root, as_of, UNAVAILABLE_REASON, error)
+        return {"kind": "UNKNOWN", "unknown_reason": UNAVAILABLE_REASON}
+    if live is None:
+        return {"kind": "NATURAL"}
+    return {"kind": "LIVE", "window": live["window"], "mark": live["mark"]}
 
 
 def run(argv=None) -> int:
@@ -748,6 +928,8 @@ def run(argv=None) -> int:
         problems = verify(args.root)
         for problem in problems:
             print(problem)
+        for row in classification_drift(args.root):
+            print(f"NOTICE:{json.dumps(row, ensure_ascii=False, sort_keys=True)}")
         return 1 if problems else 0
     except (CoverageRecalcError, BREADTH.BreadthError) as exc:
         print(f"Crypto 30d coverage recalculation failed: {exc}", file=sys.stderr)

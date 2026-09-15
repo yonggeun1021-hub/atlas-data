@@ -86,6 +86,10 @@ jobs:
               git add -- "$notice"
             fi
           done
+          # Crypto-only coverage recalculation notice (RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1).
+          if [ -f data/rotation_confirmation_crypto_coverage_recalc_notice.json ]; then
+            git add -- data/rotation_confirmation_crypto_coverage_recalc_notice.json
+          fi
           # A portal projection failure must not block committing the markets that succeeded.
           portal_failed=0
           if python3 rotation/rotation_confirmation.py portal --write; then
