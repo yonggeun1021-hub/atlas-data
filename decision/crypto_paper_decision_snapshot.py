@@ -42,8 +42,8 @@ verbatim:
   ``leadership_output=None`` behavior P5-08 already had -- never a
   fabricated/neutral substitute. A packet's own
   ``lineage.manifest_sha256_by_date`` is cross-verified against the real,
-  already-committed ``evidence/crypto/breadth/raw/<date>/_manifest.json``
-  files on disk before use, so a manually authored or replayed (not
+  already-committed ``evidence/crypto/breadth/raw/<as_of+1>/_manifest.json``
+  (capture-vintage folder) files on disk before use, so a manually authored or replayed (not
   naturally produced) packet is rejected, never silently trusted.
 * ``universe/crypto_candidate_promotion.py`` (P5-08) and
   ``universe/crypto_paper_buy_eligibility.py`` (P5-09) -- run verbatim,
@@ -813,6 +813,20 @@ def find_latest_realtime_run(
 CRYPTO_BREADTH_RAW_ROOT = ROOT / "evidence" / "crypto" / "breadth" / "raw"
 
 
+def leadership_manifest_vintage_folder(as_of_date: str) -> str:
+    """Raw breadth snapshot folder whose ``_manifest.json`` backs one
+    leadership lineage ``as_of_date``.
+
+    ``.github/scripts/crypto_leadership.py::discover_snapshot_map`` maps the
+    capture-vintage folder ``raw/<vintage>/`` to ``as_of = vintage - 1 day``
+    and lineage records that as-of date, so the folder is ``as_of + 1 day``.
+    Duplicated (not imported) because ``crypto_leadership.py`` is sha-pinned
+    and exposes only a whole-directory scan; ``test/
+    test_crypto_leadership_manifest_vintage.py`` asserts both agree.
+    """
+    return (dt.date.fromisoformat(as_of_date) + dt.timedelta(days=1)).isoformat()
+
+
 def find_latest_leadership_packet(
     data_root: Path = LEADERSHIP_DATA_ROOT, *, not_after: dt.datetime | None = None,
 ):
@@ -871,7 +885,8 @@ def _validate_leadership_entry(entry: dict | None) -> None:
     * "natural, not manual/replay" -- every ``(as_of_date, manifest_sha256)``
       pair the packet's own ``lineage.manifest_sha256_by_date`` claims must
       match the real, already-committed
-      ``evidence/crypto/breadth/raw/<as_of_date>/_manifest.json`` file's
+      ``evidence/crypto/breadth/raw/<as_of_date + 1 day>/_manifest.json``
+      (capture-vintage folder) file's
       actual sha256 on disk. A manually authored or replayed packet would
       have to reproduce every one of those real, independently-committed
       hashes exactly to pass this -- at which point it *is* the natural
@@ -917,7 +932,11 @@ def _validate_leadership_entry(entry: dict | None) -> None:
             or not isinstance(claimed, str) or not SHA256_RE.fullmatch(claimed)
         ):
             raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_ENTRY_INVALID")
-        manifest_path = CRYPTO_BREADTH_RAW_ROOT / source_date / "_manifest.json"
+        try:
+            vintage_folder = leadership_manifest_vintage_folder(source_date)
+        except ValueError as exc:
+            raise CryptoPaperDecisionSnapshotError("LEADERSHIP_LINEAGE_ENTRY_INVALID") from exc
+        manifest_path = CRYPTO_BREADTH_RAW_ROOT / vintage_folder / "_manifest.json"
         # Retained lineage must stay inside the verified evidence checkout.
         try:
             parts = manifest_path.relative_to(ROOT).parts
