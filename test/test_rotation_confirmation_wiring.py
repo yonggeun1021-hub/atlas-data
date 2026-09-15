@@ -161,16 +161,25 @@ class NewBuyPermissionTests(unittest.TestCase):
 class OtherComponentsUnchangedTests(unittest.TestCase):
     PINNED_RUNTIME_DIRS = ("shadow", "decision", "universe", "realtime", "portfolio", "regime", "private_evidence")
 
+    # New PAPER exit policy v1 layer (build plan PR2). It is not part of the pinned
+    # runtime chain; the second pattern proves no existing module imports it.
+    NEW_EXIT_LAYER_MODULES = ("portfolio/paper_exit_policy_v1.py", "portfolio/paper_shadow_controls.py")
+
     def test_no_existing_producer_or_pinned_runtime_module_imports_the_confirmation_layer(self):
         pattern = re.compile(r"rotation_confirmation")
+        exit_layer = re.compile(r"paper_exit_policy_v1|paper_shadow_controls")
         offenders = []
         for directory in self.PINNED_RUNTIME_DIRS + ("briefing", "discovery", ".github/scripts"):
             base = ROOT / directory
             if not base.exists():
                 continue
             for path in base.rglob("*.py"):
-                if pattern.search(path.read_text(encoding="utf-8", errors="ignore")):
-                    offenders.append(path.relative_to(ROOT).as_posix())
+                relative = path.relative_to(ROOT).as_posix()
+                if relative in self.NEW_EXIT_LAYER_MODULES:
+                    continue
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                if pattern.search(text) or exit_layer.search(text):
+                    offenders.append(relative)
         self.assertEqual(offenders, [])
 
     def test_existing_rotation_contracts_still_load_unchanged(self):

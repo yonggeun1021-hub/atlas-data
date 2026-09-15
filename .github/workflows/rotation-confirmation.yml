@@ -54,19 +54,52 @@ jobs:
           set -euo pipefail
           git config user.name "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
-          python3 rotation/rotation_confirmation.py build --market US --market KR --market CRYPTO --write
-          python3 rotation/rotation_opportunity_ledger.py build --write
-          python3 rotation/rotation_confirmation.py verify
-          python3 rotation/rotation_opportunity_ledger.py verify
-          git add evidence/rotation/confirmation evidence/rotation/opportunity_ledger \
-            data/latest_rotation_confirmation_us.json data/latest_rotation_confirmation_kr.json \
-            data/latest_rotation_confirmation_crypto.json data/latest_rotation_confirmation_portal_ch02.json \
-            data/latest_rotation_opportunity_ledger_us.json data/latest_rotation_opportunity_ledger_kr.json \
-            data/latest_rotation_opportunity_ledger_crypto.json
+          # Per-market build: each market is built, written and verified on its
+          # own, so one market's failure (for example an append-only conflict)
+          # never blocks the others. Committed packets are preferred: older
+          # evidence that arrives late is reported by the build, not replayed.
+          failed=""
+          for market in US KR CRYPTO; do
+            lower="$(echo "$market" | tr '[:upper:]' '[:lower:]')"
+            paths="evidence/rotation/confirmation/$market evidence/rotation/opportunity_ledger/$market data/latest_rotation_confirmation_$lower.json data/latest_rotation_opportunity_ledger_$lower.json"
+            if python3 rotation/rotation_confirmation.py build --market "$market" --write \
+              && python3 rotation/rotation_confirmation.py verify --market "$market" \
+              && python3 rotation/rotation_opportunity_ledger.py build --market "$market" --write \
+              && python3 rotation/rotation_opportunity_ledger.py verify --market "$market"; then
+              # shellcheck disable=SC2086
+              git add -- $paths
+            else
+              echo "::warning::rotation confirmation build failed for $market; other markets continue"
+              failed="$failed $market"
+              for path in $paths; do
+                git checkout HEAD -- "$path" 2>/dev/null || true
+              done
+              # shellcheck disable=SC2086
+              git clean -fdq -- $paths
+            fi
+          done
+          python3 rotation/rotation_confirmation.py portal --write
+          git add -- data/latest_rotation_confirmation_portal_ch02.json
           if git diff --staged --quiet; then
             echo "no rotation confirmation change"
-            exit 0
+          else
+            git commit -m "data: rotation confirmation and opportunity ledger $(date -u +%Y-%m-%d)"
+            pushed=0
+            for attempt in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then
+                pushed=1
+                break
+              fi
+              git rebase --abort 2>/dev/null || true
+              echo "push attempt $attempt failed; retrying" >&2
+              sleep $((attempt * 15))
+            done
+            if [ "$pushed" -ne 1 ]; then
+              echo "STOP: push failed after 5 attempts" >&2
+              exit 1
+            fi
           fi
-          git commit -m "data: rotation confirmation and opportunity ledger $(date -u +%Y-%m-%d)"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          if [ -n "$failed" ]; then
+            echo "STOP: rotation confirmation failed for:$failed (the other markets were committed)" >&2
+            exit 3
+          fi

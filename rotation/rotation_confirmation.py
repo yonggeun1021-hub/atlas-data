@@ -821,11 +821,44 @@ def latest_path(root: Path, market: str) -> Path:
     return Path(root) / f"data/latest_rotation_confirmation_{market.lower()}.json"
 
 
+def committed_as_of_dates(root: Path, market: str) -> set:
+    base = Path(root) / EVIDENCE_RELATIVE_ROOT / market
+    return {path.parent.name for path in base.glob("*/packet.json")} if base.is_dir() else set()
+
+
+def select_append_observations(observations: list, committed_dates: set) -> tuple:
+    """Committed packets are preferred: ``(kept, late_excluded_dates)``.
+
+    Every replayed observation produces exactly one committed packet, so an
+    observation dated on or before the newest committed packet without a
+    packet of its own arrived late (older evidence committed afterwards).
+    Replaying it would rewrite every later committed packet and fail the
+    append-only check, so it is excluded from the replay and reported instead.
+    With no committed packet (fresh root) nothing is excluded.
+    """
+    if not committed_dates:
+        return list(observations), []
+    newest = max(committed_dates)
+    kept, late = [], []
+    for observation in observations:
+        as_of = observation["as_of_date"]
+        if as_of <= newest and as_of not in committed_dates:
+            late.append(as_of)
+        else:
+            kept.append(observation)
+    return kept, late
+
+
+def late_older_evidence_dates(market: str, root: Path = ROOT, policy: Optional[dict] = None) -> list:
+    policy = load_policy(root) if policy is None else policy
+    return select_append_observations(EXTRACTORS[market](policy, root), committed_as_of_dates(root, market))[1]
+
+
 def build_market(market: str, root: Path = ROOT, policy: Optional[dict] = None) -> list:
     if market not in MARKETS:
         _fail("MARKET_UNSUPPORTED", market)
     policy = load_policy(root) if policy is None else policy
-    observations = EXTRACTORS[market](policy, root)
+    observations, _late = select_append_observations(EXTRACTORS[market](policy, root), committed_as_of_dates(root, market))
     return build_market_packets(policy, market, observations, load_state_mapping(root))
 
 
@@ -954,11 +987,34 @@ def run(argv=None) -> int:
     verify = sub.add_parser("verify", help="rebuild and compare with committed packets")
     verify.add_argument("--market", action="append", choices=MARKETS)
     verify.add_argument("--root", type=Path, default=ROOT)
+    portal_cmd = sub.add_parser("portal", help="rebuild the ch02 portal projection from the latest per-market packets")
+    portal_cmd.add_argument("--write", action="store_true")
+    portal_cmd.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args(argv)
     try:
         policy = load_policy(args.root)
-        if args.command == "build":
-            for market in args.market:
+    except RotationConfirmationError as exc:
+        print(f"Rotation confirmation failed: {exc}", file=sys.stderr)
+        return 2
+    # Per-market isolation: one market's failure (e.g. an append-only conflict)
+    # never blocks the other markets' packets; the run still exits non-zero.
+    failed = []
+    if args.command == "portal":
+        try:
+            data = render_json(build_portal_projection(args.root, policy))
+        except RotationConfirmationError as exc:
+            print(f"Rotation confirmation portal projection failed: {exc}", file=sys.stderr)
+            return 2
+        portal = Path(args.root) / PORTAL_RELATIVE_PATH
+        if args.write:
+            portal.parent.mkdir(parents=True, exist_ok=True)
+            portal.write_bytes(data)
+            return 0
+        return 0 if portal.exists() and portal.read_bytes() == data else 1
+    if args.command == "build":
+        for market in args.market:
+            try:
+                late = late_older_evidence_dates(market, args.root, policy)
                 packets = build_market(market, args.root, policy)
                 latest = packets[-1] if packets else None
                 if args.write:
@@ -969,24 +1025,40 @@ def run(argv=None) -> int:
                     "as_of_date": None if latest is None else latest["as_of_date"],
                     "observation_status": None if latest is None else latest["observation"]["status"],
                     "counts": None if latest is None else latest["summary"]["counts"],
+                    "late_older_evidence_not_replayed": late,
                 }, ensure_ascii=False))
-            if args.write:
+            except RotationConfirmationError as exc:
+                failed.append(market)
+                print(f"Rotation confirmation failed for {market}: {exc}", file=sys.stderr)
+        if args.write:
+            try:
                 portal = Path(args.root) / PORTAL_RELATIVE_PATH
                 portal.parent.mkdir(parents=True, exist_ok=True)
                 portal.write_bytes(render_json(build_portal_projection(args.root, policy)))
-            return 0
-        problems = []
-        for market in args.market or MARKETS:
+            except RotationConfirmationError as exc:
+                print(f"Rotation confirmation portal projection failed: {exc}", file=sys.stderr)
+                return 2
+        return 3 if failed else 0
+    problems = []
+    for market in args.market or MARKETS:
+        try:
             problems += verify_market(market, build_market(market, args.root, policy), args.root)
-        portal = Path(args.root) / PORTAL_RELATIVE_PATH
-        if not portal.exists() or portal.read_bytes() != render_json(build_portal_projection(args.root, policy)):
-            problems.append(f"PORTAL_PROJECTION_MISMATCH:{PORTAL_RELATIVE_PATH}")
-        for problem in problems:
-            print(problem)
-        return 1 if problems else 0
-    except RotationConfirmationError as exc:
-        print(f"Rotation confirmation failed: {exc}", file=sys.stderr)
-        return 2
+        except RotationConfirmationError as exc:
+            failed.append(market)
+            print(f"Rotation confirmation verify failed for {market}: {exc}", file=sys.stderr)
+    if not args.market:  # the shared portal projection is checked on a full verify only
+        try:
+            portal = Path(args.root) / PORTAL_RELATIVE_PATH
+            if not portal.exists() or portal.read_bytes() != render_json(build_portal_projection(args.root, policy)):
+                problems.append(f"PORTAL_PROJECTION_MISMATCH:{PORTAL_RELATIVE_PATH}")
+        except RotationConfirmationError as exc:
+            print(f"Rotation confirmation portal projection failed: {exc}", file=sys.stderr)
+            return 2
+    for problem in problems:
+        print(problem)
+    if failed:
+        return 3
+    return 1 if problems else 0
 
 
 if __name__ == "__main__":
