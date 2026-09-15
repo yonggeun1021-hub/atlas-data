@@ -2591,6 +2591,18 @@ APPROVED_TESTS = [
     #   reference packet reproduce each decision verbatim, lineage steps
     #   never raise and the packets still revalidate byte-for-byte.
     "test/test_rule_registry_and_lineage.py",
+    # ★ PAPER execution core v1 (CLAUDE_CIO build plan PR1): pure library, no
+    #   runtime wiring. Every ratified number resolves from
+    #   config/rule_registry_v1.json through config/paper_execution_core_v1.json
+    #   (sha-pinned); session budget (NAV0, Room/3, water-filling,
+    #   session_budget_record/1, restart reuse), allocation envelope (v2 caps,
+    #   D6 base-ratio reallocation, D5 reductions, UNKNOWN 2-cycle cap,
+    #   combined-NAV drawdown without peak reset, KR STRESS fixture-only),
+    #   DEXKOUS FX staleness, position episodes / D7 re-entry, D4 status
+    #   vocabulary and delay-loss rows, D10 checklist, D11 scorecard + P6
+    #   cooling-off. Undecided items are emitted as NOT_DEFINED.
+    "test/test_paper_execution_core_v1.py",
+    "test/test_paper_execution_core_v1_episodes_validation.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

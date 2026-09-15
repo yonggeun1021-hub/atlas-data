@@ -5,7 +5,7 @@
 
 ## 한 줄 요약
 
-- **규칙 대장** `config/rule_registry_v1.json` (41줄): 사용자가 결정한 규칙 36줄(그중 1줄은 뒤 결정으로 대체된 `SUPERSEDED`, 1줄은 일부만 대체)과, 확정 기록이 "이번에 정하지 않는다"고 적었다가 뒤에 결정된 항목 5줄(`RESOLVED`). 줄마다 원본 기록(바이트 그대로 복사본과 sha256), 효력 시각, 기계가 읽는 핵심 값, 결정 당시 근거 수준, 사전 등록 트리거, 성적표 유형, 최소 표본, 대체·보완 연결이 있습니다.
+- **규칙 대장** `config/rule_registry_v1.json` (48줄): 사용자가 결정한 규칙 43줄(그중 1줄은 뒤 결정으로 대체된 `SUPERSEDED`, 1줄은 일부만 대체)과, 확정 기록이 "이번에 정하지 않는다"고 적었다가 뒤에 결정된 항목 5줄(`RESOLVED`). 줄마다 원본 기록(바이트 그대로 복사본과 sha256), 효력 시각, 기계가 읽는 핵심 값, 결정 당시 근거 수준, 사전 등록 트리거, 성적표 유형, 최소 표본, 대체·보완 연결이 있습니다.
 - **판단 계보** `governance/rule_refs.py`: 판단 하나마다 "어떤 규칙이 적용·차단·크기·청산했는지"를 `rule_refs`로 남기는 형식과 검증기입니다.
 - **지금 연결한 곳**: 코인 PAPER 판단 스냅샷(종목별 신선도 관문, 종목별 유동성 하한 관문, 후보 상태)과 PAPER 시장 위험 참고값. **판단 패킷도, 생산자 코드도 1바이트도 바꾸지 않고**, 생산자가 패킷을 쓴 뒤 별도 단계가 옆에 계보 파일(사이드카)을 씁니다.
 
@@ -13,7 +13,7 @@
 
 ## 1. 규칙 대장
 
-### 1-A. 결정된 규칙 36줄
+### 1-A. 결정된 규칙 43줄
 
 효력 시각은 UTC입니다(한국 시각 − 9시간).
 
@@ -81,12 +81,16 @@
 ### 1-D. 대체와 보완
 
 - **세션 크기 V1 → V2**: 오전 문구는 글자 그대로 읽으면 세션 매수 합계 전체를 NAV 5%로 묶었습니다(CIO 작성 오류). V2는 "시장별 세션 매수 합계 ≤ 시장 몫 남은 여유 1/3"과 "종목별 누적 보유 ≤ NAV 5% 이면서 ≤ 평균 거래대금 1%"로 나눕니다. V1은 2026-09-14 22:22 ~ 22:51 UTC, V2는 그 뒤에 효력이 있습니다.
-- **강세 해제 처리 → 전량 매도 (일부 대체)**: 청산 임시값 기록이 로테이션 확정의 "보유분은 기존 손절·익절" 부분만 "첫 허용 체결 시각에 전량 매도"로 바꿨습니다. 그래서 `RULE.ROTATION.RELEASE_HANDLING.V1`은 **확정(RATIFIED) 그대로** 두고, 핵심 값 `held_positions`에만 `superseded_parts`(→ `RULE.EXIT.RELEASE_FULL_SELL.V1`, 22:57 UTC부터)를 달았습니다. `on_release_new_buys`(신규 매수 중단)는 로테이션 기록의 확정 상태로 계속 효력이 있습니다. 후속 규칙 쪽은 `supersedes_parts`로 같은 연결을 적고, 검증기가 양쪽 일치·대상 값 존재·기록 해시·효력 순서를 확인합니다. 값 하나의 효력은 `REG.part_in_force_at(row, key_parameter, 시각, 대장)`으로 봅니다.
+- **강세 해제 처리 → 전량 매도 (일부 대체)**: 청산 임시값 기록이 로테이션 확정의 "보유분은 기존 손절·익절" 부분만 "첫 허용 체결 시각에 전량 매도"로 바꿨습니다. 그래서 `RULE.ROTATION.RELEASE_HANDLING.V1`은 **확정(RATIFIED) 그대로** 두고, 옛 보유분 문구를 담은 핵심 값 셋(`held_positions`, 기록 원문 `rules_text`, 사용자 문장 `user_sentence`)에 `superseded_parts`(→ `RULE.EXIT.RELEASE_FULL_SELL.V1`, 22:57 UTC부터)를 달았습니다. 그래서 그 뒤 시각에는 `part_in_force_at`이 옛 보유분 문구를 효력 있음으로 보고하지 않습니다. `on_release_new_buys`(신규 매수 중단)는 로테이션 기록의 확정 상태로 계속 효력이 있습니다. 후속 규칙 쪽은 `supersedes_parts`로 같은 연결을 적고, 검증기가 양쪽 일치·대상 값 존재·기록 해시·효력 순서를 확인합니다. 값 하나의 효력은 `REG.part_in_force_at(row, key_parameter, 시각, 대장)`으로 봅니다.
 - **로테이션 해석 (관측 공백)**: `RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1`은 로테이션 3개 시장 규칙과 해제 전량 매도 규칙을 `INTERPRETS`로 연결합니다(값 변경 없음). 연속 확인은 허용 공백(코인 2 / 미국 4 / 한국 7일) 안의 연속 관측으로 세고, 데이터 공백으로 강세가 소멸하면 해제가 아니라 보유 유지·신규 매수 중단·"판정 공백" 표시입니다. 데이터 복귀 뒤 첫 판정이 상위권 밖이면 해제로 보고 매도합니다.
 - **보완(값은 바꾸지 않음)**:
   - `RULE.EXEC.DATA_FAILURE_PRIORITY.V1` → 코인 신선도 규칙의 STALE 보류를 "일반 청산"으로 좁힘(`NARROWS_SCOPE`). 신선도 규칙의 20초/3초 등 값은 그대로.
   - `RULE.RISK.NAV_DRAWDOWN_LIFT.V1` → 배분 v2의 낙폭 규칙 해제 조건을 채움(`FILLS_CONDITION`). 배분 숫자는 그대로.
   - `RULE.LIQUIDITY.US_SIP_SOURCE.V1` → 한국·미국 유동성 규칙의 미국 자료 출처·대체 규칙을 정함(`SPECIFIES_DATA_SOURCE`). 기준값은 그대로. 근거 점검에서 SPY/MSFT가 0개를 반환했고 점검은 페이지 넘김을 따라가지 않았다는 한계를 `probe_limitation`에 적었습니다.
+- **구현 계획 P1~P6 확정(2026-09-15 00:27:55 UTC)과 로테이션 허용 공백 숫자 확정(00:28:45 UTC)**: 7줄을 더했습니다(대장 48줄). `RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1`(P1), `RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1`(P2, 10영업일 넘게 새 값 없으면 "NAV 일부 미검증"), `RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1`(P3), `RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1`(P4), `RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1`(P5, 한국 인버스 헤지 끔·한국 STRESS 축소는 고정 입력 재생만), `RULE.GOVERNANCE.COOLING_OFF.V1`(P6), `RULE.ROTATION.MAX_OBSERVATION_GAP.V1`(코인 2·미국 4·한국 7 달력일).
+  - P6은 거버넌스 규칙의 냉각기간 조건을 채우고(`FILLS_CONDITION`), 거버넌스 규칙의 `cooling_off_period`(확정 대기 값)는 00:27:55 UTC부터 `superseded_parts`로 P6에 넘어갑니다.
+  - 허용 공백 기록은 해석 기록이 이 숫자를 "확정"이라 적은 표기를 바로잡습니다(`FILLS_CONDITION`, `label_correction`). 그 전 시각의 숫자는 구현 설정값이었습니다.
+  - 두 기록은 앞 기록을 `파일명.json (sha 앞 8자리…)`로 인용합니다. 검증기는 이 줄임 인용을 **인용한 이름이 대상 기록의 id·원본 파일명과 같고, 앞자리가 대상 해시로 시작할 때만** 인정합니다(전체 64자 해시 인용은 전과 같음).
 - **청산 연구 C등급 표시 범위**: 청산 기록의 근거 문장은 청산에 관한 것이라 해제 전량 매도·21일 시간 손절·그림자 비교에만 붙였고, BTC/ETH 한도·계획손실 기록·NAV 낙폭 해제에는 붙이지 않았습니다(기록에 없음).
 - **해시로 묶지 못한 연결**: 실행 계약 D5의 "UNKNOWN 상한은 2회 연속 UNKNOWN부터"는 배분 v2의 UNKNOWN 처리 시점에 영향을 주지만, 실행 계약 기록이 배분 기록 해시를 적지 않아 `amends`로 묶지 않았습니다(값만 `RULE.EXEC.ALLOCATION_REDUCTION.V1`에 있음).
 
@@ -96,7 +100,7 @@
 
 `python3 governance/rule_registry.py` → `PASS_RULE_REGISTRY_VALID`
 
-- ID 41개가 고정 목록과 정확히 같고 중복이 없어야 합니다.
+- ID 48개가 고정 목록과 정확히 같고 중복이 없어야 합니다.
 - 줄마다 사용자 확정 기록이 첫 번째 원본이어야 합니다. 원본 없는 규칙은 거부합니다.
 - 복사본의 sha256·바이트 길이가 대장과 같아야 합니다.
 - 기록 안의 ID가 대장과 같아야 하고, 기록 본문이 `rule_id`를 적고 있으면 줄 ID와 같아야 합니다.
@@ -118,7 +122,7 @@
  "role": "BLOCKED_BY"}
 ```
 
-- `role`: `APPLIED`(적용) · `BLOCKED_BY`(차단) · `SIZED_BY`(크기 결정) · `EXITED_BY`(청산 결정)
+- `role`: `APPLIED`(적용) · `BLOCKED_BY`(차단) · `SIZED_BY`(크기 결정) · `EXITED_BY`(청산 결정) · `SUPERSEDED_BY`(대체된 옛 문구를 표시할 때 후속 규칙 인용, 판단 적용 아님)
 - 버전·원본 해시는 대장과 정확히 같아야 하고, (rule_id, role) 순 정렬, 같은 쌍 중복 금지입니다. `RESOLVED`/`PENDING_USER_DECISION` 줄은 인용할 수 없고, `SUPERSEDED` 줄은 그 효력 기간의 판단에서 인용할 수 있습니다.
 
 ### rule_lineage_event/1
