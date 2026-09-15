@@ -6,10 +6,22 @@ resolution (all 22 approved symbols, never a hardcoded/expanded list),
 per-symbol requests, ``page_token`` pagination, a bounded request budget
 with retry-once-on-transient-failure, the SIP->IEX fallback when SIP is
 denied, a 0-bar symbol (the exact SPY/MSFT multi-symbol-probe failure mode,
-now avoided by per-symbol requests), the 15-minute-past-close freshness
-embargo, the derived-only output (never a raw open/high/low/close/volume/
-vwap field, never a raw bar), and that no secret ever appears in the
-output or in any place other than the two auth headers.
+now avoided by per-symbol requests) -- reported as ``NOT_EVALUATED``, the
+15-minute-past-close freshness embargo, the derived-only output (never a
+raw open/high/low/close/volume/vwap field or per-day bar -- ``last_close_usd``
+is the one deliberate scalar exception, required by the ratified price-floor
+condition itself), and that no secret ever appears in the output or in any
+place other than the two auth headers.
+
+★ 2026-09-15 correction: the ratified threshold is now bound via the real
+committed ``config/us_liquidity_sip_source_policy.json`` (sha256-verified
+against ``evidence/authority/``) -- most tests here call
+``run_collection(..., policy=None)``, which loads that REAL policy (not a
+mock), so ``volume_status``/``price_status`` below reflect genuine
+PASS/FAIL arithmetic against the real $10,000,000 / $5 numbers.
+``otc_exclusion_status`` stays honestly ``UNKNOWN`` throughout (no listing
+source is wired into this collector -- see
+``universe/us_liquidity_sip_source.py``'s module docstring).
 """
 from __future__ import annotations
 
@@ -118,6 +130,14 @@ class FreshnessEmbargoTests(unittest.TestCase):
 
 class FullPipelineTests(unittest.TestCase):
     def test_sip_full_window_used_no_iex_request_needed(self):
+        # close=$100, volume=1,000,000/day -> avg $100,000,000/day, well
+        # above the real committed $10,000,000 threshold; close $100 is
+        # also above the real $5 price floor. The threshold IS bound now
+        # (2026-09-15 correction) -- volume_status/price_status really are
+        # PASS. Only otc_exclusion_status is honestly UNKNOWN (no listing
+        # source wired into this collector), so the overall status stays
+        # UNKNOWN, not because the threshold is missing but because one
+        # specific, clearly-named input is.
         rows = [_bar(d, 100.0, 1_000_000.0) for d in FULL_WINDOW_DATES]
         opener = ScriptedOpener({"sip": [(200, _body(rows))]})
         summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
@@ -125,11 +145,28 @@ class FullPipelineTests(unittest.TestCase):
         self.assertEqual(row["source_feed"], "sip")
         self.assertEqual(row["session_count"], LIQ.REQUIRED_SESSION_WINDOW)
         self.assertEqual(row["avg_traded_value_usd"], "100000000.00")
-        self.assertEqual(row["status"], "UNKNOWN")  # no committed policy today
-        self.assertIn("LIQUIDITY_THRESHOLD_POLICY_ABSENT_FROM_REPO", row["reasons"])
+        self.assertEqual(row["last_close_usd"], "100.00")
+        self.assertEqual(row["volume_status"], "PASS")
+        self.assertEqual(row["price_status"], "PASS")
+        self.assertEqual(row["otc_exclusion_status"], "UNKNOWN")
+        self.assertEqual(row["status"], "UNKNOWN")
+        self.assertIn("EXCHANGE_LISTING_STATUS_UNAVAILABLE", row["reasons"])
+        self.assertEqual(summary["policy_status"], "RATIFIED")
         # SIP alone was enough: no request for this symbol carried feed=iex
         spy_calls = [url for url, _ in opener.calls if "SPY" in url]
         self.assertTrue(all("feed=sip" in url for url in spy_calls))
+
+    def test_close_confirmed_below_price_floor_fails(self):
+        # close=$2 is a confirmed, real bar-derived close below the real
+        # $5 price floor -- a definite FAIL, computed with no mocked policy.
+        rows = [_bar(d, 2.0, 10_000_000.0) for d in FULL_WINDOW_DATES]  # volume high enough that only price fails
+        opener = ScriptedOpener({"sip": [(200, _body(rows))]})
+        summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
+        row = summary["per_symbol"]["SPY"]
+        self.assertEqual(row["last_close_usd"], "2.00")
+        self.assertEqual(row["price_status"], "FAIL")
+        self.assertEqual(row["status"], "FAIL")
+        self.assertIn("LAST_CLOSE_BELOW_PRICE_FLOOR", row["reasons"])
 
     def test_sip_denied_falls_back_to_iex(self):
         rows = [_bar(d, 5.0, 400_000.0) for d in FULL_WINDOW_DATES]  # avg 2,000,000/day
@@ -142,15 +179,18 @@ class FullPipelineTests(unittest.TestCase):
         self.assertEqual(row["session_count"], LIQ.REQUIRED_SESSION_WINDOW)
         self.assertTrue(row["sip_feed_ok"] is False or row["sip_bar_count"] == 0)
 
-    def test_zero_bar_symbol_both_feeds_is_unknown_not_a_crash(self):
+    def test_zero_bar_symbol_both_feeds_is_not_evaluated_not_a_crash(self):
         # This is exactly the alpaca-sip-access-probe finding (run 34907066300):
         # a symbol can come back with zero bars without an HTTP error. The
-        # per-symbol endpoint here must handle that as UNKNOWN, not crash.
+        # per-symbol endpoint here must handle that as NOT_EVALUATED (the
+        # base record's own vocabulary for "fewer than 20 sessions -- no
+        # T2 yet"), not crash and not UNKNOWN (UNKNOWN is reserved for a
+        # real-but-inconclusive/missing input, which this isn't).
         opener = ScriptedOpener({"sip": [(200, _body([]))], "iex": [(200, _body([]))]})
         summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
         row = summary["per_symbol"]["SPY"]
         self.assertIsNone(row["source_feed"])
-        self.assertEqual(row["status"], "UNKNOWN")
+        self.assertEqual(row["status"], "NOT_EVALUATED")
         self.assertEqual(row["sip_bar_count"], 0)
         self.assertEqual(row["iex_bar_count"], 0)
 
@@ -213,7 +253,13 @@ class FullPipelineTests(unittest.TestCase):
 
 
 class DerivedOnlyOutputTests(unittest.TestCase):
-    def test_no_raw_bar_field_or_secret_reaches_the_summary(self):
+    def test_no_raw_bar_series_or_secret_reaches_the_summary(self):
+        # ``last_close_usd`` (the ratified price-floor check's own input)
+        # is a deliberate, single-scalar exception to "no price ever
+        # appears" -- it is required by RULE.LIQUIDITY.US_SIP_SOURCE.V1's
+        # own last_close_usd_min condition, not a leaked raw vendor row.
+        # What must never appear is the raw per-day VOLUME figure (never
+        # reported in any form, aggregate or otherwise) or a secret.
         rows = [_bar(d, 123.45, 987_654.0) for d in FULL_WINDOW_DATES]
         opener = ScriptedOpener({"sip": [(200, _body(rows))]})
         summary = M.run_collection(CREDENTIALS, opener=opener, clock=lambda: NOW, contract=CONTRACT, policy=None)
@@ -221,8 +267,9 @@ class DerivedOnlyOutputTests(unittest.TestCase):
         blob = json.dumps(summary)
         self.assertNotIn(SECRET_KEY, blob)
         self.assertNotIn(SECRET_SECRET, blob)
-        self.assertNotIn("123.45", blob)  # no raw close price
-        self.assertNotIn("987654", blob)  # no raw volume
+        self.assertNotIn("987654", blob)  # raw per-day volume never appears in any form
+        row = summary["per_symbol"]["SPY"]
+        self.assertEqual(row["last_close_usd"], "123.45")  # the one deliberate exception
         self.assertTrue(any(h.get("APCA-API-SECRET-KEY") == SECRET_SECRET for _, h in opener.calls))
 
     def test_forbidden_raw_field_is_rejected_by_the_guard(self):

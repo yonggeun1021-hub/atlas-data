@@ -31,11 +31,19 @@ recent 20 eligible sessions -- probe evidence
 (run 34907066300, XLK 10-session vwap/close notional ratio ~1.0002) showed
 vwap*volume differs from close*volume by ~0.02%, immaterial at this
 metric's threshold scale, so close*volume is the one formula used here),
-the session count actually used, which feed produced it, the
-RULE.LIQUIDITY.US_SIP_SOURCE.V1 status via
-``universe/us_liquidity_sip_source.py``, and lineage (window_end, reasons).
-No per-day bar (open/high/low/close/volume/vwap/trade_count) is ever
-written to disk or committed; ``assert_no_raw_bar_fields`` re-checks that
+the most recent eligible session's own close (``last_close_usd`` -- the
+ratified price-floor condition's own input, the one deliberate single-price
+exception to "no raw price ever appears"), the session count actually
+used, which feed produced it, and the composite
+RULE.LIQUIDITY.US_SIP_SOURCE.V1 verdict via
+``universe/us_liquidity_sip_source.py`` (``status`` plus its three
+sub-checks ``volume_status``/``price_status``/``otc_exclusion_status``,
+and lineage: window_end, reasons). ``otc_exclusion_status`` is always
+``UNKNOWN`` today -- this collector has no exchange/listing-venue input to
+give the evaluator (see that module's docstring for a committed listing
+source found elsewhere in this repo that a follow-up could wire in). No
+per-day bar (open/high/low/close/volume/vwap/trade_count) is ever written
+to disk or committed; ``assert_no_raw_bar_fields`` re-checks that
 mechanically before anything is written, mirroring the existing probe's
 ``assert_no_forbidden_fields`` pattern.
 
@@ -317,6 +325,7 @@ def build_observation(feed: str, bars: list[dict], now: dt.datetime, source_ref:
     return {
         "feed": feed,
         "avg_traded_value_usd": _format_usd(avg),
+        "last_close_usd": _format_usd(recent[-1]["close"]),
         "session_count": len(recent),
         "window_end": recent[-1]["date"],
         "notional_formula": "CLOSE_TIMES_VOLUME",
@@ -366,6 +375,14 @@ def run_collection(
     budget = RequestBudget(limit=len(symbols) * len(FEEDS) * MAX_PAGES_PER_REQUEST * MAX_ATTEMPTS_PER_PAGE)
     policy = LIQ.load_policy() if policy is None else policy
 
+    # Honest, not assumed (2026-09-15 CIO correction): Alpaca's historical
+    # daily-bars response carries no exchange/listing-venue field, so this
+    # collector cannot supply RULE.LIQUIDITY.US_SIP_SOURCE.V1's
+    # exchange_listing_status input. Every symbol's otc_exclusion_status is
+    # therefore UNKNOWN today -- see universe/us_liquidity_sip_source.py's
+    # module docstring for the committed listing source found elsewhere in
+    # this repo (data/observations/us_global_universe/) that a follow-up
+    # could wire in instead of leaving this None.
     per_symbol: dict[str, dict] = {}
     for symbol in symbols:
         collected = collect_symbol(symbol, window, credentials, opener, budget, now)
@@ -375,10 +392,14 @@ def run_collection(
             "symbol": symbol,
             "source_feed": result["source_feed_used"],
             "avg_traded_value_usd": result["avg_traded_value_usd"],
+            "last_close_usd": result["last_close_usd"],
             "session_count": result["session_count"],
             "window_end": result["window_end"],
             "notional_formula": "CLOSE_TIMES_VOLUME",
             "status": result["status"],
+            "volume_status": result["volume_status"],
+            "price_status": result["price_status"],
+            "otc_exclusion_status": result["otc_exclusion_status"],
             "reasons": result["reasons"],
             "sip_feed_ok": collected["feed_reports"]["sip"]["ok"],
             "sip_bar_count": collected["feed_reports"]["sip"]["bar_count"],
@@ -386,6 +407,7 @@ def run_collection(
             "iex_bar_count": collected["feed_reports"].get("iex", {}).get("bar_count"),
         }
 
+    policy_diagnostic = LIQ.describe_policy()
     summary = {
         "schema_version": SCHEMA_VERSION,
         "rule_id": LIQ.RULE_ID,
@@ -399,7 +421,8 @@ def run_collection(
         },
         "min_session_window": LIQ.REQUIRED_SESSION_WINDOW,
         "policy_id": policy["policy_id"] if policy else None,
-        "policy_status": "RATIFIED" if policy else "ABSENT_FROM_REPO",
+        "policy_status": policy_diagnostic["status"],
+        "policy_problems": policy_diagnostic["problems"],
         "request_budget": budget.limit,
         "requests_used": budget.used,
         "per_symbol": per_symbol,

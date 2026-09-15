@@ -2584,32 +2584,43 @@ APPROVED_TESTS = [
     "test/test_alpaca_sip_access_probe_workflow.py",
     # ★ US T2 C3 liquidity, RULE.LIQUIDITY.US_SIP_SOURCE.V1 (user
     #   ratification 2026-09-15, USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_
-    #   20260915): Alpaca historical SIP daily bars (>=15 minutes past
-    #   regular-session close only) for the 22 already-approved
+    #   20260915 + base record PAPER-LIQUIDITY-KR-US-V1-20260914): Alpaca
+    #   historical SIP daily bars (>=15 minutes past regular-session close
+    #   only) for the 22 already-approved
     #   config/free_market_data_contract.json alpaca.symbols (per-symbol
     #   requests with bounded page_token pagination -- the multi-symbol
     #   endpoint silently dropped SPY/MSFT in the prior probe, run
     #   34907066300); feed=iex is the fallback only when SIP is denied/
     #   empty for a symbol. Public output is derived-only per symbol:
-    #   20-session average traded value (close*volume), session count,
-    #   source feed, and the rule's PASS/FAIL/UNKNOWN status -- never a raw
-    #   open/high/low/close/volume/vwap/trade_count field.
+    #   20-session average traded value (close*volume), the selected
+    #   feed's own last close (the one deliberate single-price exception,
+    #   required by the ratified price-floor condition itself), session
+    #   count, source feed, and the composite status plus its three
+    #   sub-checks (volume_status/price_status/otc_exclusion_status) --
+    #   never a raw open/high/low/close/volume/vwap/trade_count field.
     #   universe/us_liquidity_sip_source.py is the pure rule evaluator: SIP
     #   with a full window is authoritative (PASS/FAIL); IEX fallback is
-    #   PASS or UNKNOWN, never FAIL. ★ The ratified USD threshold
-    #   ($10,000,000 20-session average, $5 min close --
-    #   outputs/USER_RATIFICATION_PAPER_LIQUIDITY_KR_US_20260914.json) is
-    #   NOT committed anywhere in this repository as of this PR (searched;
-    #   every liquidity-threshold surface here says ABSENT/UNRATIFIED) --
-    #   load_policy() returns None and every symbol's status is UNKNOWN /
-    #   LIQUIDITY_THRESHOLD_POLICY_ABSENT_FROM_REPO in production today;
-    #   this is asserted as a regression, not worked around. A future PR
-    #   that commits config/us_liquidity_sip_source_policy.json activates
-    #   real PASS/FAIL with no code change. Workflow: dispatch only (no
-    #   cron -- scheduling needs separate approval), contents: write,
-    #   secrets in exactly one step env, commits ONLY the two derived data
-    #   paths, guarded on an actual staged diff. Offline mocked-HTTP
-    #   regression only; no network call from tests.
+    #   PASS or UNKNOWN, never FAIL; fewer than 20 sessions on every feed
+    #   is NOT_EVALUATED (the base record's own vocabulary), not UNKNOWN.
+    #   ★ 2026-09-15 correction: the ratified USD threshold ($10,000,000
+    #   20-session average, $5 min close) is now BOUND via the committed
+    #   config/us_liquidity_sip_source_policy.json, sha256-cross-checked
+    #   against byte-identical copies at evidence/authority/
+    #   paper_liquidity_kr_us_user_ratification_20260914.json and
+    #   evidence/authority/us_liquidity_sip_source_user_ratification_
+    #   20260915.json (both also landing via #753) -- load_policy() fails
+    #   closed to None (every sub-check UNKNOWN) only if that policy file
+    #   or either cited evidence file is missing/tampered, never by
+    #   default. otc_exclusion_status stays honestly UNKNOWN in production
+    #   today: Alpaca's bars response has no listing-venue field, and this
+    #   collector does not assume "obviously exchange-listed" -- a
+    #   committed listing source was found elsewhere in this repo
+    #   (data/observations/us_global_universe/) for a deliberate follow-up
+    #   to wire in instead. Workflow: dispatch only (no cron -- scheduling
+    #   needs separate approval), contents: write, secrets in exactly one
+    #   step env, commits ONLY the two derived data paths, guarded on an
+    #   actual staged diff. Offline mocked-HTTP regression only; no
+    #   network call from tests.
     "test/test_us_liquidity_sip_source.py",
     "test/test_alpaca_sip_daily_bars.py",
     "test/test_alpaca_sip_daily_bars_workflow.py",
