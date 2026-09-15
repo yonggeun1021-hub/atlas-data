@@ -121,3 +121,50 @@ Decisions `/1-/3` keep producing request `/3` (and `/2` replays) unchanged.
 * Runtime config `/1` `order_type` / `limit_price_source` are not used by `/4`
   (superseded by RULE.EXEC.QUALITY_LAYERS.V1); `fee_rate`, `queue_fraction`
   still are. `open_position_risk` is optional (record-only planned loss).
+
+## 7. Follow-up: /4 consumers and the decision time bound
+
+* `portfolio/crypto_paper_stale_hold.py` accepts `/4` (same per-market layout).
+* `governance/rule_lineage_producers.py` accepts `/4`: adds `promotion_t2_required`
+  and `buy_eligibility` events from the candidates' `rule_refs`; `/1-/3`
+  sidecars are unchanged.
+* `briefing/crypto_funnel_briefing.py` contract `/4` (sources `/1-/4`); issued
+  contract `/3` briefings revalidate under the frozen `/3` contract. `/4`
+  briefings add the runtime decision / rotation reference and T2 state per row.
+* Decision time: the workflow samples `generated_at` after the capture and
+  truncates it to the second, so the last realtime message could postdate it
+  (bridge `REALTIME_*_FUTURE_DATED`). `populate()` now stamps new packets
+  (`/3` and `/4`) with `decision_time_not_before_inputs`: the first whole second
+  no realtime input postdates (at most +1s; nothing uncaptured is admitted and
+  freshness is judged at the later instant). `/4` build rejects any realtime
+  input after `generated_at`. Committed packets keep their own `generated_at`
+  and re-derive byte-identically (they are not re-stamped, so a committed
+  packet like 2026-09-14 23:43:41 still cannot seed a bridge request). The
+  decision step writes the stamped `generated_at` to `GITHUB_OUTPUT`, and the
+  capture-gap guard accepts a packet stamped exactly +1s only when a realtime
+  input lies inside that second. If the +1s bound would cross into the next UTC
+  date, the slot writes no packet (`WAIT:DECISION_TIME_BOUND_CROSSES_UTC_DATE`,
+  NOT_EVALUATED) instead of filing sampled-day inputs under the next day.
+
+## 8. Activation fixes (#763 review)
+
+* Restart: a `recorded_session_budget` from the same decision is reused
+  verbatim (no re-build, no conflict abort); lines whose idempotency key is
+  already known are blocked by the duplicate guard and the rest are
+  (re)submitted; an all-submitted re-run still returns the recorded record.
+  A record from an earlier decision in the session still blocks new buys.
+* Exit sells: valid through the next decision slot
+  (`sell_order_valid_before`, slot = `SCHEDULED_SLOT_MINUTES`) and re-sized on a
+  fresh book by the following decision; an open sell already past its validity
+  does not block re-issue. Buy-side derivation failures become a
+  `BUY_SIDE_BLOCKED_EXITS_PROCEED:*` blocker when sells exist.
+* Open buys in a market with an exit intent are emitted as `cancel_requests`
+  (canon 1-4), excluded from match snapshots and budget reservations.
+  Request `/4` gains the `cancel_requests` field
+  (`market, order_id, exit_intent_id, reason_code`).
+* Crypto quantities (/4 orders and session budget lines) are floored to 8
+  decimal places (canon 2-2 step 4; config `quantity_step.decimal_places`);
+  a sell of the whole remaining quantity is not floored. `/3` unchanged.
+* `/4` packets record `crypto_paper_wiring.t_cut_utc`; validation checks the
+  packet's own value and that the configuration still names the same T_cut
+  (immutable once set).

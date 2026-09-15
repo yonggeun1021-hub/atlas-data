@@ -1138,6 +1138,57 @@ def find_latest_rotation_confirmation(
     return {"date": directory_name, "path": path, "record": _read_json(path)}
 
 
+def _input_instant(value: object) -> dt.datetime | None:
+    """A realtime input instant in second or microsecond UTC form (None if absent)."""
+    if not isinstance(value, str):
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return dt.datetime.strptime(value, fmt).replace(tzinfo=dt.timezone.utc)
+        except ValueError:
+            continue
+    raise CryptoPaperDecisionSnapshotError(f"REALTIME_INPUT_INSTANT_INVALID:{value}")
+
+
+def realtime_inputs_latest_at(realtime_record: dict | None) -> dt.datetime | None:
+    """Latest instant carried by a realtime capture run: run end, gate status,
+    every retained latest public message and every message-log receipt."""
+    run = (realtime_record or {}).get("run")
+    if not isinstance(run, dict):
+        return None
+    instants = [_input_instant(run.get("ended_at")), _input_instant((run.get("status") or {}).get("generated_at"))]
+    instants += [_input_instant((row or {}).get("received_at")) for row in (run.get("latest_public_messages") or {}).values()]
+    instants += [_input_instant((row or {}).get("received_at")) for row in (run.get("message_log") or [])]
+    instants = [value for value in instants if value is not None]
+    return max(instants) if instants else None
+
+
+def decision_time_not_before_inputs(generated_at: str, realtime_entry: dict | None) -> str:
+    """The decision instant, at the packet's whole-second resolution, that no
+    realtime input postdates.
+
+    The workflow samples ``generated_at`` after the bounded capture has ended
+    and truncates it to the second, so a message received in that same second
+    (e.g. 23:43:41.166 for a decision stamped 23:43:41) looked later than the
+    decision and the runtime bridge rejected it as future-dated.  The true
+    decision instant S satisfies ``latest input <= S < generated_at + 1s``; the
+    smallest whole second not before the latest input is therefore at most one
+    second after ``generated_at`` and never precedes any input (no lookahead:
+    nothing is admitted that was not already captured; freshness is judged at
+    the later instant, which can only age evidence).  Applied when a new
+    packet is populated; a committed packet keeps its own ``generated_at`` and
+    re-derives byte-identically.
+    """
+    decision = _parse_utc(generated_at, "generated_at")
+    latest = realtime_inputs_latest_at((realtime_entry or {}).get("record"))
+    if latest is None or latest <= decision:
+        return generated_at
+    bound = latest.replace(microsecond=0) + (dt.timedelta(seconds=1) if latest.microsecond else dt.timedelta(0))
+    if bound - decision > dt.timedelta(seconds=1):
+        raise CryptoPaperDecisionSnapshotError("REALTIME_INPUT_MORE_THAN_ONE_SECOND_AFTER_DECISION")
+    return bound.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _validate_runtime_decision_entry(entry: dict | None, *, generated_dt: dt.datetime) -> None:
     if entry is None:
         return
@@ -1515,6 +1566,13 @@ def build_snapshot(
             raise CryptoPaperDecisionSnapshotError("REALTIME_EVIDENCE_FUTURE_DATED")
     _validate_runtime_decision_entry(runtime_decision_entry, generated_dt=generated_dt)
     _validate_rotation_entry(rotation_entry, capture_date=capture_date)
+    if v4_mode and realtime_entry is not None:
+        # /4 only: committed /3 packets (e.g. 2026-09-14 23:43) predate this
+        # invariant and must keep re-deriving; populate() stamps new packets
+        # with decision_time_not_before_inputs().
+        latest_input = realtime_inputs_latest_at(realtime_entry["record"])
+        if latest_input is not None and latest_input > generated_dt:
+            raise CryptoPaperDecisionSnapshotError("REALTIME_INPUT_AFTER_DECISION")
 
     # -- P3-12 universe freshness -------------------------------------
     universe_policy = UNIVERSE.load_policy()
@@ -1939,6 +1997,8 @@ def build_snapshot(
         generation_basis["schema_version"] = schema_version
         generation_basis["realtime_per_market_policy_sha256"] = per_market_policy["packet_sha256"]
     if v4_mode:
+        t_cut = v4_cutover_at()
+        generation_basis["t_cut_utc"] = None if t_cut is None else t_cut.strftime("%Y-%m-%dT%H:%M:%SZ")
         generation_basis["crypto_paper_runtime_decision"] = (
             {"date": runtime_decision_entry["date"], "file_sha256": _file_sha256(runtime_decision_entry["path"])}
             if runtime_decision_entry else None
@@ -2074,6 +2134,7 @@ def build_snapshot(
         rotation_record = rotation_entry["record"] if rotation_entry else None
         packet["crypto_paper_wiring"] = {
             "wiring_schema_version": WIRING_CONFIG_SCHEMA_VERSION,
+            "t_cut_utc": generation_basis["t_cut_utc"],
             "promotion_contract_version": PROMOTION.load_contract_v3()["contract_version"],
             "eligibility_contract_version": ELIGIBILITY.load_contract_v3()["contract_version"],
             "crypto_paper_runtime_decision": (
@@ -2158,11 +2219,18 @@ def validate_output(packet: dict, *, allow_external_sources: bool = False) -> di
                 "OUTPUT_SCHEMA_VERSION_NOT_EFFECTIVE_FOR_GENERATED_AT"
             )
         if v4_packet:
-            cutover = v4_cutover_at()
-            if cutover is None or _parse_utc(packet.get("generated_at"), "generated_at") < cutover:
+            recorded_cut = (packet.get("crypto_paper_wiring") or {}).get("t_cut_utc")
+            if recorded_cut is None or _parse_utc(packet.get("generated_at"), "generated_at") < _parse_utc(
+                recorded_cut, "crypto_paper_wiring.t_cut_utc",
+            ):
                 raise CryptoPaperDecisionSnapshotError(
                     "OUTPUT_SCHEMA_VERSION_NOT_EFFECTIVE_FOR_GENERATED_AT"
                 )
+            cutover = v4_cutover_at()
+            if cutover is None or cutover.strftime("%Y-%m-%dT%H:%M:%SZ") != recorded_cut:
+                # T_cut is immutable once set: a packet names the cutover it was
+                # emitted under and the configuration may never move it.
+                raise CryptoPaperDecisionSnapshotError("V4_T_CUT_CHANGED_OR_INACTIVE")
         rows = packet.get("candidates")
         if not isinstance(rows, list) or any(
             not isinstance(row, dict)
@@ -2405,6 +2473,28 @@ def populate(
     leadership_entry = find_latest_leadership_packet(
         leadership_data_root, not_after=generated_dt,
     )
+    # Every input (the /4 runtime decision below included) is selected at the
+    # sampled instant; the packet is stamped at the first whole second no
+    # realtime input postdates (<= +1s).
+    sampled_at, sampled_dt = generated_at, generated_dt
+    generated_at = decision_time_not_before_inputs(generated_at, realtime_entry)
+    generated_dt = _parse_utc(generated_at, "generated_at")
+    if generated_at[:10] != sampled_at[:10]:
+        # The +1s bound would move the packet into the next UTC day while its
+        # inputs belong to the sampled day's vintage: never file it under the
+        # next day. This slot writes no packet; the next slot evaluates normally.
+        return {
+            "outcome": "not_evaluated",
+            "generated_at": sampled_at,
+            "evaluation_status": "NOT_EVALUATED",
+            "decision_state": "WAIT",
+            "reason": "WAIT:DECISION_TIME_BOUND_CROSSES_UTC_DATE",
+            "path": None,
+            "payload_sha256": None,
+            "generation_id": None,
+            "last_evaluated": find_previous_packet(output_root, sampled_at[:10], sampled_at[11:13] + sampled_at[14:16]),
+            "record": None,
+        }
 
     capture_date = generated_at[:10]
     capture_hhmm = generated_at[11:13] + generated_at[14:16]
@@ -2421,6 +2511,7 @@ def populate(
         if wait_reasons:
             return {
                 "outcome": "not_evaluated",
+                "generated_at": generated_at,
                 "evaluation_status": "NOT_EVALUATED",
                 "decision_state": "WAIT",
                 "reason": "WAIT:VINTAGE_NOT_READY:" + "|".join(wait_reasons),
@@ -2439,7 +2530,7 @@ def populate(
     if schema_version_for(generated_dt) == V4_OUTPUT_SCHEMA_VERSION:
         v4_entries = {
             "runtime_decision_entry": retain_source(
-                find_latest_runtime_decision(runtime_decision_root, not_after=generated_dt), output_root,
+                find_latest_runtime_decision(runtime_decision_root, not_after=sampled_dt), output_root,
             ),
             "rotation_entry": retain_source(
                 find_latest_rotation_confirmation(rotation_confirmation_root, before_date=capture_date),
@@ -2484,7 +2575,7 @@ def populate(
         if existing != record:
             raise PopulationError(f"EXISTING_PACKET_DRIFT_OR_TAMPER:{target}")
         return {
-            "outcome": "verified_existing", "reason": None, "path": str(target),
+            "outcome": "verified_existing", "generated_at": generated_at, "reason": None, "path": str(target),
             "payload_sha256": record["payload_sha256"], "generation_id": record["generation_id"],
             "evaluation_status": "EVALUATED", "decision_state": None,
             "last_evaluated": previous_entry,
@@ -2500,7 +2591,7 @@ def populate(
         if temp.exists():
             temp.unlink()
     return {
-        "outcome": "populated", "reason": None, "path": str(target),
+        "outcome": "populated", "generated_at": generated_at, "reason": None, "path": str(target),
         "payload_sha256": record["payload_sha256"], "generation_id": record["generation_id"],
         "evaluation_status": "EVALUATED", "decision_state": None,
         "last_evaluated": previous_entry,
@@ -2521,6 +2612,13 @@ def _write_github_output(result: dict) -> None:
         f"path={single_line(result.get('path'))}",
         f"payload_sha256={single_line(result.get('payload_sha256'))}",
         f"generation_id={single_line(result.get('generation_id'))}",
+    ]
+    if result.get("generated_at"):
+        # The decision instant actually stamped on the packet
+        # (decision_time_not_before_inputs); written after the workflow's own
+        # sampled value so step outputs name the packet's instant.
+        lines.append(f"generated_at={single_line(result['generated_at'])}")
+    lines += [
         f"last_evaluated_generation_id={single_line((result.get('last_evaluated') or {}).get('generation_id'))}",
         f"last_evaluated_payload_sha256={single_line((result.get('last_evaluated') or {}).get('payload_sha256'))}",
     ]

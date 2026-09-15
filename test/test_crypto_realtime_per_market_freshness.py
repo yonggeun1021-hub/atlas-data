@@ -632,8 +632,10 @@ class SchemaVersionAndRevalidationTests(unittest.TestCase):
 
     def test_briefing_contract_accepts_every_decision_schema_and_freezes_issued_contracts(self):
         contract = BRIEFING.load_contract()
-        self.assertEqual(contract["contract_version"], "crypto_funnel_briefing_contract/3")
-        self.assertEqual(contract["source_schema_versions"], [V1, V2_ISSUED, VPM])
+        # contract/4 (crypto PAPER wiring v2) adds decision /4; contract/3 is frozen for issued briefings.
+        self.assertEqual(contract["contract_version"], "crypto_funnel_briefing_contract/4")
+        self.assertEqual(contract["source_schema_versions"], [V1, V2_ISSUED, VPM, CPDS.V4_OUTPUT_SCHEMA_VERSION])
+        self.assertEqual(BRIEFING._expected_v3_contract()["source_schema_versions"], [V1, V2_ISSUED, VPM])
         self.assertEqual(BRIEFING._expected_legacy_contract()["source_schema_version"], V1)
         self.assertEqual(BRIEFING._expected_v2_contract()["source_schema_versions"], [V1, V2_ISSUED])
 
