@@ -2624,6 +2624,15 @@ APPROVED_TESTS = [
     "test/test_us_liquidity_sip_source.py",
     "test/test_alpaca_sip_daily_bars.py",
     "test/test_alpaca_sip_daily_bars_workflow.py",
+    # ★ Rule registry v1 + decision lineage (CLAUDE_CIO 2026-09-15, user
+    #   ratification RULE-GOVERNANCE-EVIDENCE-GATED-ADJUSTMENT). Offline only:
+    #   config/rule_registry_v1.json validates against byte-exact authority
+    #   record copies (hash, ids, pointer-bound parameters/triggers, monotone
+    #   versions); rule_refs / rule_lineage_event/1 tamper checks; additive
+    #   sidecars for every committed crypto PAPER decision packet and PAPER
+    #   reference packet reproduce each decision verbatim, lineage steps
+    #   never raise and the packets still revalidate byte-for-byte.
+    "test/test_rule_registry_and_lineage.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
