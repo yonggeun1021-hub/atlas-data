@@ -223,13 +223,90 @@ def session_status(
 def earliest_collection_instant(
     bas_dd: str, contract: Mapping[str, Any], market: str = "KR"
 ) -> dt.datetime:
-    """Official close plus the market settle offset, as an aware instant."""
+    """Provider publication plus the market settle offset, as an aware instant.
+
+    KR: the session's daily rows are not served on the session day itself (a
+    same-day 18:13 KST request came back EMPTY; the next morning it had rows),
+    so the earliest collection is the next calendar day at ``publication_local``
+    plus ``settle_offset_minutes`` -- 09:10 KST.
+    """
     source = market_source(contract, market)
     zone = ZoneInfo(str(source["session_timezone"]))
-    hour, minute = (int(part) for part in str(source["official_close_local"]).split(":"))
-    day = dt.date.fromisoformat(bas_dd_to_iso(bas_dd))
-    close = dt.datetime(day.year, day.month, day.day, hour, minute, tzinfo=zone)
-    return close + dt.timedelta(minutes=int(source["settle_offset_minutes"]))
+    hour, minute = (int(part) for part in str(source["publication_local"]).split(":"))
+    day = dt.date.fromisoformat(bas_dd_to_iso(bas_dd)) + dt.timedelta(
+        days=int(source["publication_day_offset_calendar_days"])
+    )
+    published = dt.datetime(day.year, day.month, day.day, hour, minute, tzinfo=zone)
+    return published + dt.timedelta(minutes=int(source["settle_offset_minutes"]))
+
+
+def _is_open(
+    bas_dd: str, contract: Mapping[str, Any], market: str, root: Path,
+    cache: dict[str, tuple[bytes, str]],
+) -> bool:
+    year = validate_bas_dd(bas_dd)[0:4]
+    if year not in cache:
+        path = resolve_calendar_capture(bas_dd, contract, market, root)
+        try:
+            ref = path.relative_to(Path(root)).as_posix()
+        except ValueError:
+            ref = path.as_posix()
+        cache[year] = (path.read_bytes(), ref)
+    raw, ref = cache[year]
+    verdict = session_status(bas_dd, raw, source_ref=ref, contract=contract,
+                             market=market, root=root)
+    return verdict["status"] == market_source(contract, market)["calendar_open_status"]
+
+
+def forward_target_session(
+    now_utc: dt.datetime,
+    contract: Mapping[str, Any],
+    *,
+    market: str = "KR",
+    root: Path = ROOT,
+    max_lookback_days: int = 14,
+) -> str:
+    """The session a forward run collects: the latest official open session
+    strictly before the run's local date (Monday -> Friday, after a holiday ->
+    the last open day), decided by the official calendar alone."""
+    if now_utc.tzinfo is None:
+        raise PriceHistoryError("NOW_NOT_TIMEZONE_AWARE")
+    source = market_source(contract, market)
+    local_day = now_utc.astimezone(ZoneInfo(str(source["session_timezone"]))).date()
+    cache: dict[str, tuple[bytes, str]] = {}
+    for back in range(1, max_lookback_days + 1):
+        bas_dd = (local_day - dt.timedelta(days=back)).strftime("%Y%m%d")
+        if _is_open(bas_dd, contract, market, root, cache):
+            return bas_dd
+    raise PriceHistoryError("FORWARD_TARGET_SESSION_NOT_FOUND")
+
+
+def open_sessions_ending(
+    end_bas_dd: str,
+    count: int,
+    contract: Mapping[str, Any],
+    *,
+    market: str = "KR",
+    root: Path = ROOT,
+) -> list[str]:
+    """The ``count`` official open sessions ending at (and including) ``end_bas_dd``,
+    ascending.  ``end_bas_dd`` itself must be open.  A year without a committed
+    calendar capture raises ``CALENDAR_CAPTURE_MISSING:<year>``."""
+    if not isinstance(count, int) or count <= 0:
+        raise PriceHistoryError("SESSION_COUNT_INVALID")
+    day = dt.date.fromisoformat(bas_dd_to_iso(end_bas_dd))
+    cache: dict[str, tuple[bytes, str]] = {}
+    if not _is_open(end_bas_dd, contract, market, root, cache):
+        raise PriceHistoryError(f"END_SESSION_NOT_OPEN:{validate_bas_dd(end_bas_dd)}")
+    found: list[str] = []
+    for _ in range(count * 4 + 40):
+        bas_dd = day.strftime("%Y%m%d")
+        if _is_open(bas_dd, contract, market, root, cache):
+            found.append(bas_dd)
+            if len(found) == count:
+                return sorted(found)
+        day -= dt.timedelta(days=1)
+    raise PriceHistoryError("SESSION_WALK_EXHAUSTED")
 
 
 def assert_collectable(
@@ -246,8 +323,9 @@ def assert_collectable(
 
     Rejects, in order: a malformed date, a year with no official calendar
     capture, a closed session (weekend or listed holiday), and any instant
-    before the official close plus the settle offset.  There is no flag,
-    argument, or environment variable that permits a pre-close collection.
+    before the provider publication instant plus the settle offset (KR: next
+    calendar day 08:00 + 70 min = 09:10 KST).  There is no flag, argument, or
+    environment variable that permits an earlier collection.
     """
     contract = contract or load_contract()
     day = validate_bas_dd(bas_dd)
@@ -265,7 +343,7 @@ def assert_collectable(
         raise PriceHistoryError(f"SESSION_CLOSED:{day}:{verdict['reason']}")
     earliest = earliest_collection_instant(day, contract, market)
     if now_utc.astimezone(dt.timezone.utc) < earliest.astimezone(dt.timezone.utc):
-        raise PriceHistoryError(f"PRE_CLOSE_COLLECTION_REFUSED:{day}")
+        raise PriceHistoryError(f"PRE_PUBLICATION_COLLECTION_REFUSED:{day}")
     return {
         **verdict,
         "earliest_collection_at_utc": utc_text(earliest),

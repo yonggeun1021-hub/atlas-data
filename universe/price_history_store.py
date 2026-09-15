@@ -189,10 +189,57 @@ class PriceHistoryStore:
     def session_window(
         self, market: str, n: int, t: str | dt.datetime
     ) -> list[str]:
-        """The sessions ``series`` would draw on -- the denominator for gaps."""
+        """The last ``n`` *stored OK* sessions at ``t`` -- the sessions ``series`` draws on.
+
+        Not calendar-aligned: an EMPTY or never-stored session inside the span
+        is skipped, so the result can reach back more than ``n`` official
+        sessions.  A rule defined over "the last n completed sessions" must use
+        :meth:`calendar_window` instead.
+        """
         if not isinstance(n, int) or n <= 0:
             raise PriceHistoryStoreError("SERIES_LENGTH_INVALID")
         return self.sessions_available_at(market, t)[-n:]
+
+    def calendar_window(
+        self, market: str, n: int, end_bas_dd: str, t: str | dt.datetime
+    ) -> dict:
+        """The official calendar's last ``n`` open sessions ending at ``end_bas_dd``,
+        and which of them the store actually holds as OK at ``t``.
+
+        ``missing`` lists every calendar session that is not available at
+        ``t`` -- never stored, stored EMPTY, or first observed after ``t``.
+        Nothing is skipped or back-filled from an older session.
+        """
+        if not isinstance(n, int) or n <= 0:
+            raise PriceHistoryStoreError("SERIES_LENGTH_INVALID")
+        sessions = self.collector.open_sessions_ending(
+            end_bas_dd, n, self.contract, market=market, root=self.code_root
+        )
+        available = set(self.sessions_available_at(market, t))
+        stored = set(self.stored_sessions(market))
+        missing = [day for day in sessions if day not in available]
+        return {
+            "market": market,
+            "end_bas_dd": sessions[-1],
+            "sessions": sessions,
+            "missing": missing,
+            "empty": [day for day in missing if day in stored
+                      and self.manifest(market, day)["status"] == "EMPTY"],
+        }
+
+    def rows_on_sessions(
+        self, market: str, code: str, sessions: Iterable[str], t: str | dt.datetime
+    ) -> list[dict]:
+        """Stored rows for ``code`` on exactly ``sessions`` that are available at ``t``."""
+        available = set(self.sessions_available_at(market, t))
+        rows = []
+        for day in sorted(set(sessions)):
+            if day not in available:
+                continue
+            row = self.session_index(market, day).get(code)
+            if row is not None:
+                rows.append({"bas_dd": day, **row})
+        return rows
 
     # -------------------------------------------------------- SMA readiness
 
@@ -443,13 +490,27 @@ class PriceHistoryStore:
         A recorded ``EMPTY`` is the honest statement "the provider returned no
         rows for this officially open session"; it is deliberately not a data
         commit, and it never becomes a holiday claim.
+
+        Re-attempts of an ``EMPTY`` session are allowed: the stored attempts
+        are kept and the new attempts are appended (renumbered after them).
+        A later ``OK`` upgrades the session -- its rows are written and
+        ``first_available_observed_at_utc`` is the OK attempt's retrieval.
+        An ``OK`` session is never overwritten.  Read the stored manifest back
+        with :meth:`manifest` after writing.
         """
         checked = self.collector.validate_manifest(manifest, self.contract)
         directory = self.session_dir(market, checked["bas_dd"])
-        if (directory / "manifest.json").exists():
-            raise PriceHistoryStoreError(
-                f"SESSION_ALREADY_STORED:{market}:{checked['bas_dd']}"
-            )
+        manifest_path = directory / "manifest.json"
+        if manifest_path.exists():
+            prior = self.manifest(market, checked["bas_dd"])
+            if prior["status"] == "OK":
+                raise PriceHistoryStoreError(
+                    f"SESSION_ALREADY_STORED:{market}:{checked['bas_dd']}"
+                )
+            attempts = [copy.deepcopy(dict(item)) for item in prior["attempts"]]
+            for item in checked["attempts"]:
+                attempts.append({**copy.deepcopy(dict(item)), "attempt_no": len(attempts) + 1})
+            checked = self.collector.validate_manifest({**checked, "attempts": attempts}, self.contract)
         directory.mkdir(parents=True, exist_ok=True)
         if checked["status"] == "OK":
             if digest(bytes(compact)) != checked["compact_sha256"]:
@@ -466,7 +527,8 @@ class PriceHistoryStore:
             (directory / "compact.jsonl.gz").write_bytes(
                 gzip.compress(bytes(compact), mtime=0)
             )
-        (directory / "manifest.json").write_bytes(canonical_bytes(checked) + b"\n")
+        # The manifest is written last: it is the commit point of the session.
+        manifest_path.write_bytes(canonical_bytes(checked) + b"\n")
         return directory
 
     # ------------------------------------------------------------ helpers

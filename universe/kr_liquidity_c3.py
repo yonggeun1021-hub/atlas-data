@@ -23,15 +23,17 @@ What the record says for KR, and how each clause is applied:
   private ``kr_c3_status_exclusion_result/1`` produced from the KIS masters
   (atlas-private-evidence ``private_evidence/kis_master_status_flags.py``).
   ``CLEAR`` -> PASS, ``EXCLUDED`` -> FAIL, anything else or absent -> UNKNOWN.
-* ``window`` -- "fewer than 20 sessions of history -> NOT_EVALUATED". Applied
-  when the store itself holds fewer than 20 sessions at the instant, or when
-  the symbol's rows start inside the window and are contiguous to its end
-  (listed inside the window).
+* ``window`` -- the official KRX calendar's last 20 open sessions ending at
+  ``required_session`` (the last completed session). Never the last 20
+  *stored* sessions: an EMPTY or missing session is not skipped over.
+  "fewer than 20 sessions of history -> NOT_EVALUATED" applies only to the
+  symbol's own listing history -- every window session is stored and the
+  symbol's rows start inside the window and run to its end.
 * ``fail_closed`` -- missing price history, a missing flag, or stale data ->
-  ``UNKNOWN``. A row missing inside or at the end of the window, a store whose
-  latest session is not the calendar-resolved ``required_session``, or a flag
-  result for another session/symbol are all UNKNOWN. No age threshold is
-  invented: the caller passes the session that must be present.
+  ``UNKNOWN``. Any window session the store does not hold as OK (never stored,
+  EMPTY, not yet available at the instant, calendar year missing), a row gap
+  inside or at the end of the window, or a flag result for another
+  session/symbol are all UNKNOWN. No age threshold is invented.
 
 Status combination (same order as ``universe/us_liquidity_sip_source.py``):
 ``FAIL`` beats ``UNKNOWN`` beats ``PASS``.
@@ -201,34 +203,39 @@ def _status_exclusion(value: object, short_code: str, required_session: str) -> 
 def evaluate_symbol(
     short_code: str,
     *,
-    window_sessions: Iterable[str],
+    calendar_sessions: Iterable[str],
+    available_sessions: Iterable[str],
     rows: Iterable[Mapping[str, Any]],
     required_session: str,
     status_exclusion: Optional[Mapping[str, Any]],
-    rule: Optional[Mapping[str, Any]],
+    rule_root: Path = ROOT,
 ) -> dict:
     """Apply KR T2 C3 to one symbol.
 
-    ``window_sessions`` is ``PriceHistoryStore.session_window("KR", 20, t)``;
-    ``rows`` is ``PriceHistoryStore.series("KR", short_code, 20, t)``;
-    ``required_session`` (``YYYYMMDD``) is the last completed KRX session the
-    official calendar says must be present at ``t``; ``status_exclusion`` is
-    the private KIS-master result for the same symbol and session; ``rule`` is
-    ``load_ratified_kr_rule()``.
+    ``calendar_sessions`` are the official calendar's last 20 open sessions
+    ending at ``required_session`` (``YYYYMMDD``, the last completed session at
+    evaluation time); ``available_sessions`` are the sessions the store holds
+    as OK at the evaluation instant; ``rows`` are the symbol's stored rows on
+    those sessions; ``status_exclusion`` is the private KIS-master result for
+    the same symbol and session.  The rule is always re-read from the
+    sha-verified record under ``rule_root`` -- a caller cannot pass thresholds.
     """
     if not isinstance(short_code, str) or not _SHORT_CODE_RE.fullmatch(short_code):
         raise KrLiquidityC3Error("SHORT_CODE_INVALID")
     required_session = _bas_dd(required_session, "REQUIRED_SESSION_INVALID")
-    window = [_bas_dd(day, "WINDOW_SESSION_INVALID") for day in window_sessions]
+    window = [_bas_dd(day, "WINDOW_SESSION_INVALID") for day in calendar_sessions]
     if window != sorted(set(window)):
         raise KrLiquidityC3Error("WINDOW_NOT_ASCENDING_UNIQUE")
-    rows = [dict(row) for row in rows]
+    if len(window) != WINDOW_SESSIONS or window[-1] != required_session:
+        raise KrLiquidityC3Error("CALENDAR_WINDOW_NOT_LAST_20_ENDING_AT_REQUIRED_SESSION")
+    available = {_bas_dd(day, "AVAILABLE_SESSION_INVALID") for day in available_sessions}
     by_day: dict[str, dict] = {}
     for row in rows:
+        row = dict(row)
         day = _bas_dd(row.get("bas_dd"), "ROW_BAS_DD_INVALID")
         if row.get("code") != short_code:
             raise KrLiquidityC3Error("ROW_CODE_MISMATCH")
-        if day in by_day or day not in window:
+        if day in by_day or day not in window or day not in available:
             raise KrLiquidityC3Error("ROW_OUTSIDE_WINDOW_OR_DUPLICATE")
         by_day[day] = row
 
@@ -238,9 +245,10 @@ def evaluate_symbol(
         "market": MARKET,
         "short_code": short_code,
         "required_session": required_session,
-        "window_first_session": window[0] if window else None,
-        "window_last_session": window[-1] if window else None,
+        "window_first_session": window[0],
+        "window_last_session": window[-1],
         "window_session_count": len(window),
+        "missing_sessions": [],
         "symbol_session_count": len(by_day),
         "avg_traded_value_krw": None,
         "last_close_krw": None,
@@ -255,38 +263,32 @@ def evaluate_symbol(
         "authority": {"candidate_authorized": False, "order_authorized": False, "real_capital_authorized": False},
     }
 
+    rule = load_ratified_kr_rule(rule_root)
     if rule is None:
         result["reasons"] = ["RATIFIED_RULE_UNAVAILABLE"]
         return result
-    if (rule.get("ratification_sha256") != RATIFICATION_SHA256
-            or rule.get("window_sessions") != WINDOW_SESSIONS):
-        result["reasons"] = ["RATIFIED_RULE_NOT_BOUND"]
-        return result
-    need = int(rule["window_sessions"])
 
-    # Store-level staleness first: a window that does not end on the required
-    # session is stale data, whatever its length.
-    if window and window[-1] != required_session:
-        result["reasons"] = [
-            "PRICE_HISTORY_STALE" if window[-1] < required_session else "PRICE_HISTORY_AHEAD_OF_REQUIRED_SESSION"
-        ]
+    # Store-level completeness: every calendar session of the window must be
+    # held as OK.  Missing, EMPTY or not-yet-available sessions are missing
+    # history -> UNKNOWN; the window is never stretched to older sessions.
+    missing = [day for day in window if day not in available]
+    if missing:
+        result["missing_sessions"] = missing
+        result["reasons"] = ["PRICE_HISTORY_SESSION_MISSING:" + ",".join(missing)]
         return result
-    if len(window) < need:
-        result["status"] = "NOT_EVALUATED"
-        result["reasons"] = ["STORE_HISTORY_SHORTER_THAN_WINDOW" if window else "STORE_HISTORY_EMPTY"]
-        return result
-    if len(window) != need:
-        raise KrLiquidityC3Error("WINDOW_LENGTH_NOT_RULE_WINDOW")
 
     present = [day for day in window if day in by_day]
     if not present:
         result["reasons"] = ["SYMBOL_NOT_IN_PRICE_HISTORY"]
         return result
-    if len(present) < need:
+    if len(present) < WINDOW_SESSIONS:
         first = window.index(present[0])
         if present == window[first:]:
+            # Every session is stored and the symbol's rows start inside the
+            # window and run to its end: its own listing history is shorter
+            # than 20 sessions.
             result["status"] = "NOT_EVALUATED"
-            result["reasons"] = ["SYMBOL_HISTORY_SHORTER_THAN_WINDOW"]
+            result["reasons"] = ["SYMBOL_LISTING_HISTORY_SHORTER_THAN_WINDOW"]
             return result
         result["reasons"] = ["SYMBOL_SESSION_ROW_MISSING"]
         return result
@@ -298,7 +300,7 @@ def evaluate_symbol(
         traded_value_status = "UNKNOWN"
         reasons.append("TRADED_VALUE_MISSING")
     else:
-        avg = sum(values, Decimal(0)) / Decimal(need)
+        avg = sum(values, Decimal(0)) / Decimal(WINDOW_SESSIONS)
         result["avg_traded_value_krw"] = format(avg, "f")
         traded_value_status = "PASS" if avg >= Decimal(rule["avg_traded_value_krw_min"]) else "FAIL"
         if traded_value_status == "FAIL":
@@ -331,17 +333,35 @@ def evaluate_from_store(
     as_of_utc: str,
     required_session: str,
     status_exclusion: Optional[Mapping[str, Any]],
-    rule: Optional[Mapping[str, Any]],
+    rule_root: Path = ROOT,
 ) -> dict:
-    """``evaluate_symbol`` fed from a ``universe.price_history_store.PriceHistoryStore``."""
-    need = WINDOW_SESSIONS
+    """``evaluate_symbol`` fed from a ``universe.price_history_store.PriceHistoryStore``.
+
+    A calendar that cannot resolve the window (no committed capture for a
+    year, ``required_session`` not an open session) is missing history ->
+    UNKNOWN, not an exception.
+    """
+    try:
+        window = store.calendar_window(MARKET, WINDOW_SESSIONS, required_session, as_of_utc)
+    except ValueError as exc:  # PriceHistoryError / PriceHistoryStoreError are ValueErrors
+        return {
+            "schema_version": RESULT_SCHEMA_VERSION, "rule_id": RULE_ID, "market": MARKET,
+            "short_code": short_code, "required_session": required_session,
+            "status": "UNKNOWN", "reasons": [f"CALENDAR_WINDOW_UNAVAILABLE:{exc}"],
+            "ratification_id": RATIFICATION_ID, "ratification_sha256": RATIFICATION_SHA256,
+            "distribution": "PRIVATE_DERIVED_FROM_KRX_OPENAPI_ROWS",
+            "authority": {"candidate_authorized": False, "order_authorized": False, "real_capital_authorized": False},
+        }
+    sessions = window["sessions"]
+    available = [day for day in sessions if day not in set(window["missing"])]
     return evaluate_symbol(
         short_code,
-        window_sessions=store.session_window(MARKET, need, as_of_utc),
-        rows=store.series(MARKET, short_code, need, as_of_utc),
+        calendar_sessions=sessions,
+        available_sessions=available,
+        rows=store.rows_on_sessions(MARKET, short_code, available, as_of_utc),
         required_session=required_session,
         status_exclusion=status_exclusion,
-        rule=rule,
+        rule_root=rule_root,
     )
 
 

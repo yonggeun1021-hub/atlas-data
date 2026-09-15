@@ -52,10 +52,14 @@ can always be shown to be what its raw response says it is.
 
 ## Fail-closed rules
 
-* **No pre-market collection, ever.** `assert_collectable()` refuses any
-  instant before the official close plus the market settle offset (KR:
-  15:30 + 70 minutes = 16:40 KST).  There is no flag, argument or environment
-  variable that permits an earlier collection.
+* **No collection before publication.** `assert_collectable()` refuses any
+  instant before the provider publication plus the settle offset (KR: next
+  calendar day 08:00 + 70 minutes = 09:10 KST).  A same-day 18:13 KST request
+  returned zero rows; the next morning (10:47 KST) the same session had rows.
+  Forward capture therefore runs on weekday mornings (09:10, retry 11:10 KST)
+  and targets `forward_target_session()`: the latest official open session
+  strictly before the run's local date (Monday -> Friday).  There is no flag,
+  argument or environment variable that permits an earlier collection.
 * **A holiday request is refused.** Open/closed comes only from the official
   KRX calendar capture, through the existing
   `market_data/krx_official_holiday_calendar.py`.
@@ -68,10 +72,25 @@ can always be shown to be what its raw response says it is.
   officially open session, and nothing more.
 * **A partial session fails closed.** One part returning rows while another
   returns none raises `PART_ROW_COUNT_ZERO`.
-* **A session is never overwritten.** `write_session()` refuses an existing
-  directory; a differing re-receipt is appended to the index as
+* **An OK session is never overwritten; EMPTY can be repaired.**
+  `write_session()` refuses to replace an `OK` session.  A later attempt on an
+  `EMPTY` session appends its attempt to the stored attempts; if it returns
+  rows the session becomes `OK` and `first_available_observed_at_utc` is that
+  attempt's retrieval time.  A differing re-receipt is appended to the index as
   `REVISION_OBSERVED` beside the original, and an identical re-receipt adds
   no row.
+* **Rules over "the last n sessions" use the calendar.**
+  `calendar_window(market, n, end_bas_dd, t)` returns the official calendar's
+  last `n` open sessions ending at `end_bas_dd` and lists every one the store
+  does not hold as OK at `t` (never stored, EMPTY, or observed later).
+  `session_window()` is the last `n` *stored* sessions and can reach back past
+  an EMPTY session; KR T2 C3 (`universe/kr_liquidity_c3.py`) uses the calendar
+  window and returns UNKNOWN for any missing session.
+* **Private per-symbol fields never reach the public population packet.**
+  With `ATLAS_PRICE_HISTORY_ROOT` set, the KR population context is
+  `PRIVATE_ONLY_KRX_OPENAPI_DERIVED`; `population_symbol_observation.build()`
+  refuses to write that packet or its work chunks anywhere inside this
+  repository, and a store located inside this repository is refused.
 * **Gaps stay gaps.** `series()` returns exactly the rows on disk. A session
   with no row for a code contributes nothing; nothing is carried forward,
   interpolated or padded. `session_window()` exposes the denominator so the

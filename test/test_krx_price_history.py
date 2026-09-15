@@ -301,26 +301,48 @@ class SessionDerivationTests(unittest.TestCase):
             )
             self.assertEqual(open_day["status"], "OPEN_REGULAR")
 
-    def test_pre_close_collection_is_refused(self):
-        """No pre-market path exists: 16:39 KST on an open session is still refused."""
+    def test_pre_publication_collection_is_refused(self):
+        """Same-day evening is refused; next morning 09:10 KST is the earliest collection."""
         self.assertEqual(
             SUBJECT.earliest_collection_instant("20260910", self.contract).isoformat(),
-            "2026-09-10T16:40:00+09:00",
+            "2026-09-11T09:10:00+09:00",
         )
-        too_early = dt.datetime(2026, 9, 10, 7, 39, tzinfo=dt.timezone.utc)  # 16:39 KST
-        with self.assertRaisesRegex(SUBJECT.PriceHistoryError, "PRE_CLOSE_COLLECTION_REFUSED"):
-            SUBJECT.assert_collectable(
-                "20260910", now_utc=too_early,
-                calendar_capture_raw=self.calendar,
-                calendar_source_ref=self.calendar_ref, contract=self.contract,
-            )
+        for too_early in (
+            dt.datetime(2026, 9, 10, 9, 13, tzinfo=dt.timezone.utc),  # 18:13 KST same day
+            dt.datetime(2026, 9, 11, 0, 9, tzinfo=dt.timezone.utc),   # 09:09 KST next day
+        ):
+            with self.assertRaisesRegex(SUBJECT.PriceHistoryError, "PRE_PUBLICATION_COLLECTION_REFUSED"):
+                SUBJECT.assert_collectable(
+                    "20260910", now_utc=too_early,
+                    calendar_capture_raw=self.calendar,
+                    calendar_source_ref=self.calendar_ref, contract=self.contract,
+                )
         allowed = SUBJECT.assert_collectable(
             "20260910",
-            now_utc=dt.datetime(2026, 9, 10, 7, 40, tzinfo=dt.timezone.utc),
+            now_utc=dt.datetime(2026, 9, 11, 0, 10, tzinfo=dt.timezone.utc),  # 09:10 KST
             calendar_capture_raw=self.calendar,
             calendar_source_ref=self.calendar_ref, contract=self.contract,
         )
         self.assertTrue(allowed["collectable"])
+
+    def test_forward_target_is_previous_open_session_by_calendar(self):
+        kst = dt.timezone(dt.timedelta(hours=9))
+        cases = {
+            dt.datetime(2026, 9, 11, 9, 10, tzinfo=kst): "20260910",  # Fri -> Thu
+            dt.datetime(2026, 9, 14, 9, 10, tzinfo=kst): "20260911",  # Mon -> Fri
+            dt.datetime(2026, 8, 18, 9, 10, tzinfo=kst): "20260814",  # Tue after 08-17 holiday -> Fri
+        }
+        for now, expected in cases.items():
+            self.assertEqual(SUBJECT.forward_target_session(now, self.contract), expected, now)
+
+    def test_open_sessions_ending_follows_the_official_calendar(self):
+        window = SUBJECT.open_sessions_ending("20260914", 20, self.contract)
+        self.assertEqual(len(window), 20)
+        self.assertEqual(window[-1], "20260914")
+        self.assertEqual(window[0], "20260818")  # 08-17 substitute holiday skipped
+        self.assertIn("20260901", window)
+        with self.assertRaisesRegex(SUBJECT.PriceHistoryError, "END_SESSION_NOT_OPEN"):
+            SUBJECT.open_sessions_ending("20260913", 20, self.contract)
 
     def test_partial_part_emptiness_fails_closed(self):
         raw = self.raw("20260910")

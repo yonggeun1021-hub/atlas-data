@@ -186,6 +186,32 @@ class KoreaPopulationPriceHistoryInputTests(unittest.TestCase):
             self.assertNotEqual(row["evaluation"].get("row_source"),
                                 "price_history_session_store")
 
+    def test_private_store_packet_is_marked_and_cannot_be_written_into_public_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.build_store(tmp, [self.subject_code])
+            ctx = self.context(Path(tmp))
+            self.assertEqual(ctx["distribution"], ADAPTER.PRIVATE_ONLY_DISTRIBUTION)
+            self.assertEqual(ctx["sources"]["price_history_store"]["distribution"],
+                             ADAPTER.PRIVATE_ONLY_DISTRIBUTION)
+            inputs = ADAPTER.default_inputs(ROOT, session_date=SESSION)
+            inputs.update(SNAPSHOT.kr_inputs(self.snapshot))
+            inputs["price_history_root"] = Path(tmp)
+            public_target = ROOT / "data" / "observations" / "korea_population_symbol_observation" / "_guard_probe"
+            for kwargs in ({}, {"output_dir": public_target},
+                           {"output_dir": Path(tmp) / "out", "work_dir": public_target}):
+                with self.assertRaisesRegex(CORE.PopulationSymbolObservationError,
+                                            "PRIVATE_ONLY_PACKET_PUBLIC_WRITE_REFUSED"):
+                    CORE.build("KR", generated_at=GENERATED_AT, inputs=inputs, **kwargs)
+            self.assertFalse(public_target.exists())
+
+    def test_default_packet_stays_public(self):
+        self.assertEqual(self.context(None)["distribution"], "PUBLIC")
+
+    def test_store_inside_public_repository_is_refused(self):
+        with self.assertRaisesRegex(CORE.PopulationSymbolObservationError,
+                                    "KR_PRICE_HISTORY_STORE_INSIDE_PUBLIC_REPOSITORY"):
+            self.context(ROOT / "data")
+
     def test_point_in_time_withholds_a_session_not_yet_available(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.build_store(tmp, [self.subject_code], available="2027-01-01T00:00:00Z")

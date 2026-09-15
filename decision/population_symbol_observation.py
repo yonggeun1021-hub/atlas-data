@@ -572,6 +572,15 @@ def _write_receipt(work_dir: Path, receipt: dict) -> None:
     _atomic_write(Path(work_dir) / "run_receipt.json", json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
 
 
+def inside_public_repository(path: Path) -> bool:
+    """True when ``path`` resolves inside this public repository checkout."""
+    try:
+        Path(path).resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def build(
     market: str,
     *,
@@ -607,6 +616,12 @@ def build(
     session = ctx["session_date"]
     output_dir = Path(output_dir) if output_dir else DEFAULT_OUTPUT_ROOTS[market] / session
     work_dir = Path(work_dir) if work_dir else output_dir / "work"
+    if ctx.get("distribution", "PUBLIC") != "PUBLIC":
+        # A packet carrying private per-symbol vendor fields may be built in
+        # memory or written outside this repository, never into it -- not the
+        # default output root, not an explicit path under it, not work chunks.
+        if inside_public_repository(work_dir) or (write and inside_public_repository(output_dir)):
+            _fail("PRIVATE_ONLY_PACKET_PUBLIC_WRITE_REFUSED", ctx["distribution"])
     gen_id = generation_id(market, session, ctx["input_refs"])
     symbols = ctx["population_symbols"]
     rows, resume_report = run_chunks(

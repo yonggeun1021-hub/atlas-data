@@ -129,6 +129,9 @@ def default_inputs(root: Path = ROOT, *, session_date: str | None = None) -> dic
     }
 
 
+PRIVATE_ONLY_DISTRIBUTION = "PRIVATE_ONLY_KRX_OPENAPI_DERIVED"
+
+
 def price_history_root() -> Path | None:
     """Root of the private ``price_history_session/1`` store, when configured.
 
@@ -154,6 +157,8 @@ def _load_price_history(inputs: dict, snapshot_at: str) -> dict:
             "status": "NOT_CONFIGURED", "window": [], "by_code": {},
             "sma_sessions": None, "sma_report": None, "latest_bas_dd": None,
         }
+    if CORE.inside_public_repository(Path(root)):
+        _fail("KR_PRICE_HISTORY_STORE_INSIDE_PUBLIC_REPOSITORY", str(root))
     store_module = load_module("population_price_history_store", "universe/price_history_store.py")
     try:
         store = store_module.PriceHistoryStore(root)
@@ -326,9 +331,15 @@ def load_context(inputs: dict, *, generated_at: str, contract: dict) -> dict:
                 "sma_computable_symbol_count"
             ),
             "sma_readiness_status": (price_history["sma_report"] or {}).get("status"),
+            "distribution": PRIVATE_ONLY_DISTRIBUTION,
         }
     return {
         "market": "KR",
+        # Per-symbol KRX Open API fields (close, return, traded value, market
+        # cap, SMA) flow into rows only when the private store is loaded; the
+        # core builder refuses to persist such a packet inside this public
+        # repository (KRX Open API terms: no redistribution).
+        "distribution": PRIVATE_ONLY_DISTRIBUTION if price_history["status"] == "LOADED" else "PUBLIC",
         "session_date": session,
         "session_compact": compact,
         "price_history": price_history,

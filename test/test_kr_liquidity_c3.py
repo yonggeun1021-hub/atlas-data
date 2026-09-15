@@ -8,6 +8,7 @@ sessions) vs UNKNOWN (missing/stale input) vs FAIL (confirmed negative).
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 from pathlib import Path
 import shutil
@@ -18,7 +19,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from collectors import krx_price_history as COLLECTOR  # noqa: E402
 from universe import kr_liquidity_c3 as M  # noqa: E402
+from universe import price_history_store as STORE  # noqa: E402
 
 # 20 open KRX sessions ending 2026-09-14 (2026 official capture: no holiday in
 # this span; weekends skipped).
@@ -85,20 +88,23 @@ class RatifiedRuleBindingTests(unittest.TestCase):
         self.assertIsNone(M.load_ratified_kr_rule(self._temp_root(remove=True)))
 
     def test_no_rule_means_unknown_even_with_perfect_data(self):
-        out = M.evaluate_symbol(CODE, window_sessions=WINDOW, rows=rows("9" * 12, "99999"),
-                                required_session=REQUIRED, status_exclusion=flags(), rule=None)
+        out = M.evaluate_symbol(CODE, calendar_sessions=WINDOW, available_sessions=WINDOW,
+                                rows=rows("9" * 12, "99999"), required_session=REQUIRED,
+                                status_exclusion=flags(), rule_root=self._temp_root(remove=True))
         self.assertEqual(out["status"], "UNKNOWN")
         self.assertEqual(out["reasons"], ["RATIFIED_RULE_UNAVAILABLE"])
 
+    def test_caller_cannot_pass_thresholds(self):
+        import inspect
+        params = inspect.signature(M.evaluate_symbol).parameters
+        self.assertNotIn("rule", params)
+        self.assertNotIn("rule", inspect.signature(M.evaluate_from_store).parameters)
+
 
 class EvaluationTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.rule = M.load_ratified_kr_rule()
-
     def run_case(self, **kw):
-        args = dict(window_sessions=WINDOW, rows=rows(), required_session=REQUIRED,
-                    status_exclusion=flags(), rule=self.rule)
+        args = dict(calendar_sessions=WINDOW, available_sessions=WINDOW, rows=rows(),
+                    required_session=REQUIRED, status_exclusion=flags())
         args.update(kw)
         return M.evaluate_symbol(CODE, **args)
 
@@ -143,31 +149,33 @@ class EvaluationTests(unittest.TestCase):
         out = self.run_case(rows=rows(close="999"), status_exclusion=None)
         self.assertEqual(out["status"], "FAIL")
 
-    def test_fewer_than_twenty_store_sessions_is_not_evaluated(self):
-        out = self.run_case(window_sessions=WINDOW[1:], rows=rows(days=WINDOW[1:]))
-        self.assertEqual(out["status"], "NOT_EVALUATED")
-        self.assertEqual(out["reasons"], ["STORE_HISTORY_SHORTER_THAN_WINDOW"])
-        self.assertEqual(self.run_case(window_sessions=[], rows=[])["status"], "NOT_EVALUATED")
+    def test_missing_store_session_is_unknown_not_not_evaluated(self):
+        # empty store, short store, one EMPTY session inside: all missing history
+        for available in ([], WINDOW[5:], WINDOW[:10] + WINDOW[11:]):
+            out = self.run_case(available_sessions=available,
+                                rows=rows(days=available))
+            self.assertEqual(out["status"], "UNKNOWN", available)
+            self.assertTrue(out["reasons"][0].startswith("PRICE_HISTORY_SESSION_MISSING:"))
+            self.assertIsNone(out["avg_traded_value_krw"])
 
     def test_symbol_listed_inside_window_is_not_evaluated(self):
         out = self.run_case(rows=rows(days=WINDOW[5:]))
         self.assertEqual(out["status"], "NOT_EVALUATED")
+        self.assertEqual(out["reasons"], ["SYMBOL_LISTING_HISTORY_SHORTER_THAN_WINDOW"])
         self.assertIsNone(out["avg_traded_value_krw"])
 
-    def test_interior_or_trailing_gap_is_unknown_never_averaged(self):
+    def test_interior_or_trailing_symbol_gap_is_unknown_never_averaged(self):
         for days in (WINDOW[:7] + WINDOW[8:], WINDOW[:-1]):
             out = self.run_case(rows=rows(days=days))
             self.assertEqual(out["status"], "UNKNOWN")
             self.assertIsNone(out["avg_traded_value_krw"])
         self.assertEqual(self.run_case(rows=[])["reasons"], ["SYMBOL_NOT_IN_PRICE_HISTORY"])
 
-    def test_stale_store_is_unknown(self):
-        out = self.run_case(required_session="20260915")
-        self.assertEqual(out["status"], "UNKNOWN")
-        self.assertEqual(out["reasons"], ["PRICE_HISTORY_STALE"])
-        # stale beats short: a short stale store is still UNKNOWN, not NOT_EVALUATED
-        out = self.run_case(window_sessions=WINDOW[:5], rows=rows(days=WINDOW[:5]))
-        self.assertEqual(out["status"], "UNKNOWN")
+    def test_window_must_be_last_twenty_ending_at_required_session(self):
+        with self.assertRaisesRegex(M.KrLiquidityC3Error, "CALENDAR_WINDOW_NOT_LAST_20"):
+            self.run_case(required_session="20260915")
+        with self.assertRaisesRegex(M.KrLiquidityC3Error, "CALENDAR_WINDOW_NOT_LAST_20"):
+            self.run_case(calendar_sessions=WINDOW[1:], available_sessions=WINDOW[1:], rows=rows(days=WINDOW[1:]))
 
     def test_unparseable_provider_value_is_unknown(self):
         data = rows()
@@ -180,28 +188,10 @@ class EvaluationTests(unittest.TestCase):
         with self.assertRaises(M.KrLiquidityC3Error):
             self.run_case(rows=rows(code="000660"))
         with self.assertRaises(M.KrLiquidityC3Error):
-            self.run_case(window_sessions=list(reversed(WINDOW)))
+            self.run_case(calendar_sessions=list(reversed(WINDOW)))
         with self.assertRaises(M.KrLiquidityC3Error):
-            M.evaluate_symbol("bad code", window_sessions=WINDOW, rows=[], required_session=REQUIRED,
-                              status_exclusion=None, rule=self.rule)
-
-    def test_evaluate_from_store_uses_window_and_series(self):
-        class FakeStore:
-            calls = []
-
-            def session_window(self, market, n, t):
-                self.calls.append(("window", market, n, t))
-                return list(WINDOW)
-
-            def series(self, market, code, n, t):
-                self.calls.append(("series", market, code, n, t))
-                return rows()
-
-        store = FakeStore()
-        out = M.evaluate_from_store(store, CODE, as_of_utc="2026-09-14T08:00:00Z",
-                                    required_session=REQUIRED, status_exclusion=flags(), rule=self.rule)
-        self.assertEqual(out["status"], "PASS")
-        self.assertEqual(store.calls[0], ("window", "KR", 20, "2026-09-14T08:00:00Z"))
+            M.evaluate_symbol("bad code", calendar_sessions=WINDOW, available_sessions=WINDOW, rows=[],
+                              required_session=REQUIRED, status_exclusion=None)
 
     def test_public_summary_is_counts_only(self):
         results = [self.run_case(), self.run_case(rows=rows(close="999")), self.run_case(status_exclusion=None)]
@@ -214,6 +204,117 @@ class EvaluationTests(unittest.TestCase):
 
     def test_authority_all_false(self):
         self.assertTrue(all(v is False for v in self.run_case()["authority"].values()))
+
+
+def provider_payload(codes, bas_dd, *, empty=False, value="1000000000"):
+    rows_ = [] if empty else [{
+        "BAS_DD": bas_dd, "ISU_CD": code, "ISU_NM": f"FIXTURE{code}", "MKT_NM": "KOSPI",
+        "SECT_TP_NM": "", "TDD_CLSPRC": "1000", "CMPPREVDD_PRC": "5", "FLUC_RT": "0.50",
+        "TDD_OPNPRC": "995", "TDD_HGPRC": "1010", "TDD_LWPRC": "990", "ACC_TRDVOL": "1000000",
+        "ACC_TRDVAL": value, "MKTCAP": "8941100000", "LIST_SHRS": "8941100",
+    } for code in codes]
+    return json.dumps({"OutBlock_1": rows_}, separators=(",", ":")).encode("utf-8")
+
+
+class RealStoreCalendarWindowTests(unittest.TestCase):
+    """20260901-EMPTY reproduction on a real store with the real 2026 calendar."""
+
+    AS_OF = "2026-09-15T01:00:00Z"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.contract = COLLECTOR.load_contract()
+
+    def write(self, store, bas_dd, *, empty=False, value="1000000000", retrieved="2026-09-15T00:30:00Z"):
+        raw = {"kospi": provider_payload([CODE], bas_dd, empty=empty, value=value)}
+        status = COLLECTOR.classify(raw, bas_dd)
+        rows_ = COLLECTOR.derive_compact_rows(raw, bas_dd, self.contract) if status == "OK" else []
+        compact = COLLECTOR.compact_bytes(rows_)
+        parts = [{
+            "part_id": "kospi", "endpoint": "https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd",
+            "http_status": 200, "row_count": len(rows_), "raw_relpath": "raw/kospi.json.gz",
+            "raw_sha256": COLLECTOR.digest(raw["kospi"]), "raw_byte_count": len(raw["kospi"]),
+        }]
+        manifest = COLLECTOR.build_manifest(
+            market="KR", bas_dd=bas_dd, status=status, parts=parts, compact=compact,
+            compact_row_count=len(rows_), pit_class="HISTORICAL_BACKFILL",
+            attempts=[{"attempt_no": 1, "kind": "BACKFILL", "requested_at_utc": retrieved,
+                       "retrieved_at_utc": retrieved, "http_status": 200,
+                       "row_count": len(rows_), "outcome": status}],
+            public_code_commit="0" * 40, contract=self.contract,
+            first_available_observed_at_utc=retrieved if status == "OK" else None,
+        )
+        store.write_session("KR", manifest, raw_by_part=raw, compact=compact)
+
+    def build(self, tmp):
+        store = STORE.PriceHistoryStore(tmp, contract=self.contract)
+        # 21 calendar sessions ending 20260914, with 20260901 EMPTY and a very
+        # large 20260817-side session that would enter a stretched window.
+        sessions = COLLECTOR.open_sessions_ending(REQUIRED, 21, self.contract)
+        self.assertEqual(sessions[1:], WINDOW)
+        for day in sessions:
+            if day == "20260901":
+                self.write(store, day, empty=True, retrieved="2026-09-01T09:13:00Z")
+            elif day == sessions[0]:
+                self.write(store, day, value="999999999999")
+            else:
+                self.write(store, day)
+        return store
+
+    def test_empty_session_inside_window_is_unknown_not_stretched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self.build(tmp)
+            stretched = store.session_window("KR", 20, self.AS_OF)
+            self.assertNotIn("20260901", stretched)
+            self.assertEqual(stretched[0], "20260814")  # what the old window averaged over
+            out = M.evaluate_from_store(store, CODE, as_of_utc=self.AS_OF, required_session=REQUIRED,
+                                        status_exclusion=flags())
+            self.assertEqual(out["status"], "UNKNOWN", out)
+            self.assertEqual(out["missing_sessions"], ["20260901"])
+            self.assertIsNone(out["avg_traded_value_krw"])
+
+    def test_empty_session_upgraded_to_ok_then_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self.build(tmp)
+            self.write(store, "20260901", retrieved="2026-09-02T01:47:00Z")
+            manifest = store.manifest("KR", "20260901")
+            self.assertEqual(manifest["status"], "OK")
+            self.assertEqual([a["outcome"] for a in manifest["attempts"]], ["EMPTY", "OK"])
+            self.assertEqual([a["attempt_no"] for a in manifest["attempts"]], [1, 2])
+            self.assertEqual(manifest["first_available_observed_at_utc"], "2026-09-02T01:47:00Z")
+            out = M.evaluate_from_store(store, CODE, as_of_utc=self.AS_OF, required_session=REQUIRED,
+                                        status_exclusion=flags())
+            self.assertEqual(out["status"], "PASS", out)
+            self.assertEqual(out["avg_traded_value_krw"], "1000000000")
+            # OK is never overwritten
+            with self.assertRaisesRegex(STORE.PriceHistoryStoreError, "SESSION_ALREADY_STORED"):
+                self.write(store, "20260901", value="1")
+
+    def test_empty_reattempt_appends_attempt_and_stays_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self.build(tmp)
+            self.write(store, "20260901", empty=True, retrieved="2026-09-01T09:40:00Z")
+            manifest = store.manifest("KR", "20260901")
+            self.assertEqual(manifest["status"], "EMPTY")
+            self.assertEqual(len(manifest["attempts"]), 2)
+            self.assertIsNone(manifest["first_available_observed_at_utc"])
+
+    def test_session_not_yet_available_at_instant_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self.build(tmp)
+            self.write(store, "20260901", retrieved="2026-09-15T02:00:00Z")
+            out = M.evaluate_from_store(store, CODE, as_of_utc=self.AS_OF, required_session=REQUIRED,
+                                        status_exclusion=flags())
+            self.assertEqual(out["status"], "UNKNOWN")
+            self.assertEqual(out["missing_sessions"], ["20260901"])
+
+    def test_calendar_gap_is_unknown_not_exception(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = STORE.PriceHistoryStore(tmp, contract=self.contract)
+            out = M.evaluate_from_store(store, CODE, as_of_utc=self.AS_OF, required_session="20260913",
+                                        status_exclusion=flags())
+            self.assertEqual(out["status"], "UNKNOWN")
+            self.assertTrue(out["reasons"][0].startswith("CALENDAR_WINDOW_UNAVAILABLE:"))
 
 
 if __name__ == "__main__":
