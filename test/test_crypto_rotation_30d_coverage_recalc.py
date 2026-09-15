@@ -1,0 +1,439 @@
+"""RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1 regression (user ratification P1, 2026-09-15).
+
+Covers: record binding, eligible days only (>= 2026-08-19), confirmed classifications
+only, the write-once guard with idempotent verify, no price look-ahead, the rotation
+30d strength read path with '재계산' mark propagation into packets / entry gate /
+opportunity ledger rows, committed packets preferred, and the crypto regime
+LEADERSHIP axis plus the natural leadership packets left byte-identical.
+"""
+from __future__ import annotations
+
+import copy
+import datetime as dt
+from decimal import Decimal
+import importlib.util
+import io
+import json
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+import shutil
+import sys
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+R = load_module("crypto_rotation_30d_coverage_recalc_under_test", ROOT / "rotation" / "crypto_rotation_30d_coverage_recalc.py")
+OL = load_module("rotation_opportunity_ledger_for_recalc_test", ROOT / "rotation" / "rotation_opportunity_ledger.py")
+RC = OL.RC
+CL = load_module("crypto_leadership_for_recalc_test", ROOT / ".github" / "scripts" / "crypto_leadership.py")
+BREADTH_FIXTURE = load_module("crypto_breadth_fixture_for_recalc_test", ROOT / "test" / "test_crypto_breadth.py")
+
+RECORD_SHA = "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd"
+RECORD_PATH = "evidence/authority/USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json"
+NOW = dt.datetime(2026, 9, 15, 1, 0, tzinfo=dt.timezone.utc)
+FIRST_AS_OF = dt.date(2026, 8, 18)   # one day before the eligible start
+LAST_AS_OF = dt.date(2026, 9, 19)
+NEW_EFFECTIVE = "2026-08-24"         # NEW is unclassified (point in time) on as_of 08-18..08-23
+
+
+def write_json(path: Path, value) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def price(asset: str, k: int) -> str:
+    base = {"BTC": Decimal(100) + k, "ETH": Decimal(200) + k, "SOL": Decimal(300) + k,
+            "NEW": (Decimal(150) * Decimal("1.03") ** k).quantize(Decimal("0.0001"))}
+    return format(base[asset], "f")
+
+
+def exclusion_taxonomy(new_effective=NEW_EFFECTIVE) -> dict:
+    records = [
+        {"canonical_asset_id": a, "category": "eligible_crypto", "effective_from": "2026-01-01",
+         "effective_to": None, "reason": "fixture"}
+        for a in ("BTC", "ETH", "SOL")
+    ] + [{"canonical_asset_id": "NEW", "category": "eligible_crypto", "effective_from": new_effective,
+          "effective_to": None, "reason": "fixture later-confirmed classification"}]
+    return {
+        "schema_version": 1, "policy_version": "crypto_breadth_exclusion_taxonomy/v2", "approval_status": "RATIFIED",
+        "source_name": "kraken_spot_market_data", "effective_from": "2026-01-01", "eligible_category": "eligible_crypto",
+        "excluded_categories": ["commodity_linked", "fiat", "stablecoin", "staked", "unverified_identity", "wrapped"],
+        "unknown_asset_policy": "fail_closed_unknown",
+        "records": sorted(records, key=lambda r: (r["canonical_asset_id"], r["effective_from"])),
+    }
+
+
+def confirmed_all(record):
+    return {"commit": "f" * 40, "committed_at_utc": "2026-09-01T00:00:00Z", "history_shallow": False}
+
+
+def natural_packet(root: Path, end: str) -> dict:
+    return CL.build_transform(
+        root / R.RAW_RELATIVE_ROOT,
+        contract_path=root / R.CONFIG_PATHS["leadership_contract"],
+        universe_policy_path=root / R.CONFIG_PATHS["universe"],
+        exclusion_taxonomy_path=root / R.CONFIG_PATHS["exclusion_taxonomy"],
+        leadership_policy_path=root / R.CONFIG_PATHS["leadership_policy"],
+        taxonomy_path=root / R.CONFIG_PATHS["sector_taxonomy"],
+        identity_exceptions_path=root / R.CONFIG_PATHS["identity_exceptions"],
+        end_date=end,
+    )
+
+
+def build_fixture(root: Path, first=FIRST_AS_OF, last=LAST_AS_OF, packets_from="2026-09-16") -> None:
+    policy = RC.load_policy()
+    config = OL.load_config()
+    for relative in {
+        R.CONFIG_RELATIVE_PATH, RECORD_PATH, RC.POLICY_RELATIVE_PATH, RC.STATE_MAPPING_RELATIVE_PATH,
+        policy["ratification_record"]["repo_path"], policy["markets"]["KR"]["source"]["sector_policy_path"],
+        OL.CONFIG_RELATIVE_PATH, config["entry_rule"]["repo_path"],
+        R.CONFIG_PATHS["leadership_contract"], R.CONFIG_PATHS["identity_exceptions"],
+        R.CONFIG_PATHS["leadership_policy"], R.CONFIG_PATHS["sector_taxonomy"],
+    }:
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, root / relative)
+    BREADTH_FIXTURE.write_policy(root / R.CONFIG_PATHS["universe"], target=4)
+    write_json(root / R.CONFIG_PATHS["exclusion_taxonomy"], exclusion_taxonomy())
+    raw = root / R.RAW_RELATIVE_ROOT
+    raw.mkdir(parents=True, exist_ok=True)
+    day, k = first, 1
+    while day <= last:
+        BREADTH_FIXTURE.write_snapshot(
+            raw, vintage=(day + dt.timedelta(days=1)).isoformat(),
+            prices={a: (price(a, k - 1), price(a, k), "9999") for a in ("BTC", "ETH", "SOL", "NEW")},
+        )
+        day += dt.timedelta(days=1)
+        k += 1
+    day = dt.date.fromisoformat(packets_from)
+    while day <= last:
+        target = root / "data/observations/crypto_leadership" / day.isoformat() / "packet.json"
+        CL.write_output(natural_packet(root, day.isoformat()), target)
+        day += dt.timedelta(days=1)
+
+
+def crypto_packets(root: Path) -> dict:
+    return {p["as_of_date"]: p for p in RC.build_market("CRYPTO", root)}
+
+
+def crypto_entities(packet: dict) -> dict:
+    return {e["entity_id"]: e for scope in packet["scopes"] for e in scope["entities"]}
+
+
+class FixtureCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.template = Path(cls._tmp.name) / "template"
+        build_fixture(cls.template)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "root"
+        shutil.copytree(self.template, self.root)
+        R._TRANSFORM_CACHE.clear()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def recalc(self, root=None, **kwargs):
+        kwargs.setdefault("now", NOW)
+        kwargs.setdefault("confirmed", confirmed_all)
+        return R.recalculate(self.root if root is None else root, write=True, **kwargs)
+
+
+class RecordBindingTests(unittest.TestCase):
+    def test_record_is_byte_copied_and_config_is_bound(self):
+        self.assertEqual(R.file_sha256(ROOT / RECORD_PATH), RECORD_SHA)
+        config = R.load_config(ROOT)
+        self.assertEqual(config["ratification_record"]["sha256"], RECORD_SHA)
+        self.assertEqual(config["rule_id"], "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1")
+        self.assertIn("CRYPTO_MARKET_REGIME_LEADERSHIP_AXIS", config["not_applied_to"])
+        self.assertEqual(config["eligible_observation_from"], "2026-08-19")
+        self.assertFalse(config["current_catalog_backfill_authorized_changed"])
+
+    def test_tampered_config_or_record_fails_closed(self):
+        for mutate, code in (
+            (lambda c: c["ratification_record"].update(sha256="0" * 64), "RECALC_RATIFICATION_RECORD_SHA_MISMATCH"),
+            (lambda c: c.update(eligible_observation_from="2026-08-01"), "RECALC_ELIGIBLE_FROM_MISMATCH"),
+            (lambda c: c["not_applied_to"].remove("CRYPTO_MARKET_REGIME_LEADERSHIP_AXIS"), "RECALC_SCOPE_MISMATCH"),
+            (lambda c: c.update(write_once=False), "RECALC_WRITE_ONCE_OR_BACKFILL_FLAG_MISMATCH"),
+            (lambda c: c["mark"].update(label_ko="recalc"), "RECALC_MARK_MISMATCH"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                for relative in (R.CONFIG_RELATIVE_PATH, RECORD_PATH):
+                    (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(ROOT / relative, root / relative)
+                value = json.loads((root / R.CONFIG_RELATIVE_PATH).read_text(encoding="utf-8"))
+                mutate(value)
+                write_json(root / R.CONFIG_RELATIVE_PATH, value)
+                with self.assertRaisesRegex(R.CoverageRecalcError, code):
+                    R.load_config(root)
+
+    def test_global_backfill_flag_and_source_transforms_untouched(self):
+        for relative in (".github/scripts/crypto_leadership.py", ".github/scripts/crypto_breadth.py",
+                         "regime/crypto_paper_runtime.py", "regime/crypto_paper_runtime_publication.py"):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertNotIn("coverage_recalc", text, relative)
+        self.assertNotIn('"current_catalog_backfill_authorized": True', (ROOT / ".github/scripts/crypto_leadership.py").read_text(encoding="utf-8"))
+        universe = json.loads((ROOT / "config/crypto_global_universe_contract.json").read_text(encoding="utf-8"))
+        self.assertIn('"current_catalog_backfill_authorized": false', json.dumps(universe))
+
+
+class RecalculationTests(FixtureCase):
+    def test_only_eligible_days_on_or_after_2026_08_19_are_recalculated(self):
+        report = self.recalc()
+        statuses = {d["as_of_date"]: d["status"] for d in report["days"]}
+        self.assertEqual(statuses["2026-08-18"], "IGNORED_BEFORE_ELIGIBLE_FROM")
+        for day in ("2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"):
+            self.assertEqual(statuses[day], "RECALCULATED", day)
+        self.assertEqual(statuses["2026-08-24"], "NOT_ELIGIBLE_POINT_IN_TIME")
+        config = R.load_config(self.root)
+        written = sorted(p.parent.name for p in (self.root / config["evidence_root"]).glob("*/point.json"))
+        self.assertEqual(written, ["2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"])
+        self.assertFalse(R.point_path(self.root, config, "2026-08-18").exists())
+        point = R.load_point(R.point_path(self.root, config, "2026-08-19"))
+        self.assertIs(point["recalculated"], True)
+        self.assertEqual(point["mark_ko"], "재계산")
+        self.assertEqual(point["ratification_record"]["sha256"], RECORD_SHA)
+        self.assertEqual(point["point_in_time"]["unknown_reason"], "TAXONOMY_COVERAGE_UNKNOWN")
+        self.assertEqual([r["canonical_asset_id"] for r in point["resolving_records"]], ["NEW"])
+        self.assertEqual(point["resolving_records"][0]["effective_from"], NEW_EFFECTIVE)
+        self.assertEqual(point["classification_source"]["sha256"], R.file_sha256(self.root / R.CONFIG_PATHS["exclusion_taxonomy"]))
+        self.assertEqual(point["recalculation"]["recalculated_at_utc"], "2026-09-15T01:00:00Z")
+        self.assertEqual(point["classification_confirmations"][0]["committed_at_utc"], "2026-09-01T00:00:00Z")
+        self.assertEqual(point["recalculated_source_point"]["status"], "OBSERVED_UNCLASSIFIED")
+        self.assertIn("NEW", {m["canonical_asset_id"] for m in point["recalculated_source_point"]["universe"]["members"]})
+
+    def test_unconfirmed_or_later_confirmed_classification_is_not_used(self):
+        report = self.recalc(confirmed=lambda record: None)
+        self.assertEqual({d["status"] for d in report["days"] if d["as_of_date"] >= "2026-08-19" and d["as_of_date"] < NEW_EFFECTIVE},
+                         {"STILL_UNKNOWN_AFTER_CONFIRMED_CLASSIFICATIONS"})
+        late = lambda record: {"commit": "e" * 40, "committed_at_utc": "2026-09-16T00:00:00Z", "history_shallow": False}
+        report = self.recalc(confirmed=late)
+        self.assertNotIn("RECALCULATED", {d["status"] for d in report["days"]})
+        config = R.load_config(self.root)
+        self.assertEqual(list((self.root / config["evidence_root"]).glob("*/point.json")) if (self.root / config["evidence_root"]).exists() else [], [])
+
+    def test_one_time_guard_refuses_second_run_and_verify_is_idempotent(self):
+        self.recalc()
+        config = R.load_config(self.root)
+        path = R.point_path(self.root, config, "2026-08-21")
+        before = path.read_bytes()
+        again = self.recalc(now=NOW + dt.timedelta(days=1))
+        self.assertEqual(again["refused_already_recalculated"], ["2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"])
+        self.assertEqual(path.read_bytes(), before)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            code = R.run(["recalc", "--root", str(self.root), "--as-of", "2026-08-21", "--write"])
+        self.assertEqual(code, 4)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(R.verify(self.root), [])
+        self.assertEqual(R.verify(self.root), [])
+        tampered = json.loads(before)
+        tampered["recalculated_source_point"]["universe"]["members"][0]["latest_close"] = "1"
+        tampered.pop("payload_sha256")
+        tampered["payload_sha256"] = R.payload_sha256(tampered)
+        path.write_bytes(R.render_json(tampered))
+        self.assertIn("BODY_MISMATCH:2026-08-21", R.verify(self.root))
+
+    def test_no_price_lookahead(self):
+        self.recalc()
+        config = R.load_config(self.root)
+        # Same body when every snapshot after the day's own vintage is absent.
+        truncated = Path(self.tmp.name) / "truncated"
+        shutil.copytree(self.root, truncated)
+        shutil.rmtree(truncated / config["evidence_root"])
+        for snapshot in (truncated / R.RAW_RELATIVE_ROOT).iterdir():
+            if snapshot.name > "2026-08-22":
+                shutil.rmtree(snapshot)
+        report = self.recalc(root=truncated)
+        self.assertEqual([d["as_of_date"] for d in report["days"] if d["status"] == "RECALCULATED"],
+                         ["2026-08-19", "2026-08-20", "2026-08-21"])
+        full = R.load_point(R.point_path(self.root, config, "2026-08-21"))
+        cut = R.load_point(R.point_path(truncated, config, "2026-08-21"))
+        self.assertEqual(full["body_sha256"], cut["body_sha256"])
+        # Prices are the as-captured closes of vintage d+1 and never after d.
+        self.assertEqual(full["snapshot"]["vintage_date"], "2026-08-22")
+        self.assertLessEqual(full["prices_point_in_time"]["latest_finalized_day_max"], "2026-08-21")
+        k = (dt.date(2026, 8, 21) - FIRST_AS_OF).days + 1
+        closes = {m["canonical_asset_id"]: (m["previous_close"], m["latest_close"]) for m in full["recalculated_source_point"]["universe"]["members"]}
+        self.assertEqual(Decimal(closes["NEW"][1]), Decimal(price("NEW", k)))
+        self.assertEqual(Decimal(closes["BTC"][0]), Decimal(price("BTC", k - 1)))
+
+
+class RotationReadPathTests(FixtureCase):
+    def test_without_points_the_natural_unknown_stands(self):
+        packets = crypto_packets(self.root)
+        for day in ("2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19"):
+            self.assertEqual(packets[day]["observation"]["status"], "UNKNOWN", day)
+            self.assertNotIn("coverage_recalculation", packets[day]["observation"])
+
+    def test_recalculated_30d_strength_and_mark_propagation(self):
+        self.recalc()
+        packets = crypto_packets(self.root)
+        # Window starting before 2026-08-19 keeps its natural blockers (no mark).
+        self.assertEqual(packets["2026-09-16"]["observation"]["status"], "UNKNOWN")
+        self.assertNotIn("coverage_recalculation", packets["2026-09-16"]["observation"])
+        first = packets["2026-09-17"]["observation"]
+        self.assertEqual(first["status"], "OBSERVED")
+        mark = first["coverage_recalculation"]
+        self.assertEqual((mark["recalculated"], mark["mark_ko"], mark["ratification_record_sha256"]), (True, "재계산", RECORD_SHA))
+        self.assertEqual([d["as_of_date"] for d in mark["recalculated_days"]],
+                         ["2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"])
+        self.assertTrue(all(d["recalculated_at_utc"] == "2026-09-15T01:00:00Z" for d in mark["recalculated_days"]))
+        self.assertTrue(any(s["path"].endswith("2026-08-19/point.json") for s in first["sources"]))
+        # The recalculated window equals the unmodified CR-07 window with NEW classified all along.
+        reference_root = Path(self.tmp.name) / "reference"
+        shutil.copytree(self.root, reference_root)
+        write_json(reference_root / R.CONFIG_PATHS["exclusion_taxonomy"], exclusion_taxonomy("2026-01-01"))
+        reference = next(w for w in natural_packet(reference_root, "2026-09-17")["windows"] if w["window_id"] == "primary_30d")
+        self.assertEqual(reference["status"], "OBSERVED_UNCLASSIFIED")
+        strengths = {e["entity_id"]: e["strength"] for e in crypto_entities(packets["2026-09-17"]).values()}
+        self.assertEqual(strengths, {row["group_id"]: row["relative_strength_vs_btc"] for row in reference["group_relative_strength"]["bucket"]})
+
+        top = next(e for e in crypto_entities(packets["2026-09-18"]).values() if e["rank"] == 1)
+        self.assertEqual(top["state"], "STRONG_CONFIRMED")
+        self.assertEqual(top["coverage_recalculation"]["depends_on_recalculated_observation_dates"], ["2026-09-17", "2026-09-18"])
+        self.assertEqual(top["coverage_recalculation"]["mark_ko"], "재계산")
+        gate = next(g for g in packets["2026-09-18"]["entry_gate_view"] if g["entity_id"] == top["entity_id"])
+        self.assertEqual(gate["coverage_recalculation"], top["coverage_recalculation"])
+        self.assertIn(("RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1", RECORD_SHA),
+                      {(r["rule_id"], r["source_record_sha256"]) for r in gate["rule_refs"]})
+        held = crypto_entities(packets["2026-09-19"])[top["entity_id"]]
+        self.assertEqual(held["state"], "STRONG_HELD")
+        self.assertEqual(held["coverage_recalculation"]["depends_on_recalculated_observation_dates"],
+                         ["2026-09-17", "2026-09-18", "2026-09-19"])
+        # Recalculated daily points never feed the lagging warning.
+        self.assertEqual({e["lagging"]["status"] for e in crypto_entities(packets["2026-09-19"]).values()} - {"EXCLUDED_BENCHMARK"}, {"UNKNOWN"})
+        for packet in packets.values():
+            RC.validate_packet(packet)
+
+    def test_marks_follow_state_machine_semantics(self):
+        policy = RC.load_policy()
+        mapping = RC.load_state_mapping()
+        mark = {"rule_id": R.RULE_ID, "ratification_record_sha256": RECORD_SHA}
+
+        def obs(day, ranking, recalculated):
+            order = list(ranking)
+            item = {"as_of_date": day, "status": "OBSERVED", "unknown_reason": None, "sources": [],
+                    "scopes": {"BTC_RELATIVE_BUCKETS": [
+                        {"entity_id": e, "source_identity": e, "strength": str(3 - i)} for i, e in enumerate(order)]},
+                    "aux": {}}
+            if recalculated:
+                item["coverage_recalculation"] = dict(mark)
+            return item
+
+        observations = [
+            obs("2026-09-17", ["ALT", "ETH", "BTC"], True),
+            obs("2026-09-18", ["ALT", "ETH", "BTC"], False),
+            obs("2026-09-19", ["ALT", "ETH", "BTC"], False),
+            obs("2026-09-20", ["ETH", "BTC", "ALT"], False),
+            obs("2026-09-21", ["ETH", "ALT", "BTC"], False),
+            obs("2026-09-22", ["ETH", "ALT", "BTC"], False),
+        ]
+        packets = {p["as_of_date"]: p for p in RC.build_market_packets(policy, "CRYPTO", observations, mapping)}
+        alt = lambda day: crypto_entities(packets[day])["ALT"]
+        eth = lambda day: crypto_entities(packets[day])["ETH"]
+        self.assertEqual(alt("2026-09-18")["state"], "STRONG_CONFIRMED")
+        self.assertEqual(alt("2026-09-18")["coverage_recalculation"]["depends_on_recalculated_observation_dates"], ["2026-09-17"])
+        self.assertEqual(alt("2026-09-19")["coverage_recalculation"]["depends_on_recalculated_observation_dates"], ["2026-09-17"])
+        self.assertEqual(alt("2026-09-20")["state"], "STRONG_RELEASED")  # bottom once
+        self.assertEqual(alt("2026-09-20")["coverage_recalculation"]["depends_on_recalculated_observation_dates"], ["2026-09-17"])
+        self.assertNotIn("coverage_recalculation", alt("2026-09-21"))
+        self.assertEqual(eth("2026-09-21")["state"], "STRONG_CONFIRMED")  # natural observations only
+        self.assertNotIn("coverage_recalculation", eth("2026-09-21"))
+        self.assertNotIn("coverage_recalculation", packets["2026-09-18"]["observation"])
+        self.assertIn("coverage_recalculation", packets["2026-09-17"]["observation"])
+
+    def test_opportunity_ledger_rows_carry_the_mark(self):
+        self.recalc()
+        write_json(self.root / "evidence/regime/paper_reference/2026-09-20/2026-09-20T220000Z/packet.json", {
+            "generated_at": "2026-09-20T22:00:00Z", "generation_id": "g", "payload_sha256": "1" * 64,
+            "markets": [{"market": "CRYPTO", "as_of_date": d, "paper_reference": {"candidate_regime": "RISK_ON"}, "runtime_regime": "RISK_ON"}
+                        for d in ("2026-09-18", "2026-09-19", "2026-09-20")],
+        })
+        days = {d["as_of_date"]: d for d in OL.build_market_days("CRYPTO", self.root)}
+        rows = days["2026-09-18"]["opportunities"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["coverage_recalculation"]["mark_ko"], "재계산")
+        self.assertIn("RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1", {r["rule_id"] for r in rows[0]["rule_refs"]})
+        self.assertEqual(days["2026-09-18"]["confirmation"]["coverage_recalculation"]["mark_ko"], "재계산")
+        self.assertNotIn("coverage_recalculation", days["2026-09-16"]["confirmation"])
+
+    def test_committed_packets_without_mark_are_preferred(self):
+        packets = RC.build_market("CRYPTO", self.root)
+        with redirect_stdout(io.StringIO()):
+            RC.write_market("CRYPTO", [p for p in packets if p["as_of_date"] <= "2026-09-17"], self.root)
+        committed = RC.evidence_path(self.root, "CRYPTO", "2026-09-17").read_bytes()
+        self.recalc()
+        rebuilt = {p["as_of_date"]: p for p in RC.build_market("CRYPTO", self.root)}
+        self.assertEqual(RC.render_json(rebuilt["2026-09-17"]), committed)
+        with redirect_stdout(io.StringIO()):
+            RC.write_market("CRYPTO", list(rebuilt.values()), self.root)  # no append-only conflict
+        self.assertEqual(RC.evidence_path(self.root, "CRYPTO", "2026-09-17").read_bytes(), committed)
+        self.assertEqual(rebuilt["2026-09-18"]["observation"]["status"], "OBSERVED")
+        self.assertIn("coverage_recalculation", rebuilt["2026-09-18"]["observation"])
+
+    def test_natural_leadership_packets_and_regime_leadership_inputs_unchanged(self):
+        before = {day: R.render_json(natural_packet(self.root, day)) for day in ("2026-09-17", "2026-09-19")}
+        committed = {p: p.read_bytes() for p in (self.root / "data/observations/crypto_leadership").glob("*/packet.json")}
+        self.recalc()
+        RC.build_market("CRYPTO", self.root)
+        for day, data in before.items():
+            self.assertEqual(R.render_json(natural_packet(self.root, day)), data)
+        self.assertEqual({p: p.read_bytes() for p in committed}, committed)
+
+
+class RepositoryEvidenceTests(unittest.TestCase):
+    """Committed evidence: points reproduce and the regime LEADERSHIP axis inputs are untouched."""
+
+    def test_committed_points_verify(self):
+        config = R.load_config(ROOT)
+        points = R.committed_points(ROOT, config)
+        self.assertTrue(all(day >= "2026-08-19" for day in points))
+        # 2026-08-19/20 stay UNKNOWN: TLM, TRU, NANO, ADI have no confirmed classification.
+        self.assertEqual(sorted(points), [
+            "2026-08-21", "2026-08-22", "2026-08-23", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-28",
+            "2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", "2026-09-06", "2026-09-07",
+        ])
+        self.assertTrue(all(p["point"]["recalculated"] is True and p["point"]["mark_ko"] == "재계산" for p in points.values()))
+        self.assertEqual(R.verify(ROOT), [])
+
+    def test_regime_leadership_axis_is_byte_identical_without_recalc_evidence(self):
+        from regime import crypto_paper_runtime_publication as PUB
+
+        raw = ROOT / R.RAW_RELATIVE_ROOT
+        if not raw.is_dir():
+            self.skipTest("breadth raw snapshots not checked out")
+        latest = max(p.name for p in raw.iterdir() if p.is_dir())
+        decision = dt.date.fromisoformat(latest)
+        with tempfile.TemporaryDirectory() as tmp:
+            bare = Path(tmp)
+            (bare / R.RAW_RELATIVE_ROOT).parent.mkdir(parents=True)
+            (bare / R.RAW_RELATIVE_ROOT).symlink_to(raw, target_is_directory=True)
+            with_points = json.dumps(PUB._leadership(ROOT, decision), sort_keys=True)
+            without_points = json.dumps(PUB._leadership(bare, decision), sort_keys=True)
+            self.assertEqual(with_points, without_points)
+            self.assertEqual(json.dumps(PUB._breadth(ROOT, decision), sort_keys=True),
+                             json.dumps(PUB._breadth(bare, decision), sort_keys=True))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

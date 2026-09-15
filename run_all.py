@@ -2572,6 +2572,15 @@ APPROVED_TESTS = [
     #   definitions): 1-B, TS14, PTP1, DS5 with the D9 monitored stop fill model
     #   and monitoring gaps; KR/US emitted NOT_DEFINED (P3 undecided).
     "test/test_paper_shadow_controls.py",
+    # ★ Crypto rotation 30d strength one-time coverage recalculation
+    #   (RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1, user ratification P1
+    #   USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915 sha 2a94be2b…): write-once
+    #   recalculated CR-06 points for days >= 2026-08-19 using confirmed later
+    #   classifications (prices from the same as-captured snapshot), idempotent
+    #   verify, '재계산' mark into rotation packets / entry gate / opportunity rows,
+    #   committed packets preferred; regime LEADERSHIP axis, natural leadership
+    #   packets and current_catalog_backfill_authorized untouched.
+    "test/test_crypto_rotation_30d_coverage_recalc.py",
     # ★ Alpaca historical SIP daily-bar access probe (user approval
     #   2026-09-15: "Alpaca 과거 SIP 데이터 접근 확인 테스트 승인"). Answers, once,
     #   on request: can the existing dedicated ALPACA_MARKET_DATA_API_KEY/
