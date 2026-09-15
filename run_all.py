@@ -2555,6 +2555,23 @@ APPROVED_TESTS = [
     #   rule, byte-deterministic, append-only; chained workflow has no cron and
     #   no secret, and the sha-pinned source workflows stay untouched.
     "test/test_rotation_opportunity_ledger.py",
+    # ★ #752 robustness (CLAUDE_CIO PAPER execution v1 build plan PR2): per-market
+    #   build/verify isolation (exit 3), committed packets preferred so late older
+    #   evidence is reported instead of replayed, workflow push retry, and a
+    #   regression that post-session bars never enter record-only features.
+    "test/test_rotation_confirmation_robustness.py",
+    # ★ PAPER exit policy v1 (USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915
+    #   sha 47276abe…, observation-gap interpretation ed2ca92d…, D1 time contract
+    #   10de02bf…): persistent paper_exit_intent/1 on confirmed release (survives
+    #   the next day and restarts, append-only store), gap lapse = hold / new-buy
+    #   stop / 판정 공백 with the first post-gap judgment deciding, crypto 21-day
+    #   stop at the first FRESH decision snapshot, KR/US/crypto first allowed fill
+    #   time; rotation policy v1 file unchanged (superseded via rule_refs only).
+    "test/test_paper_exit_policy_v1.py",
+    # ★ Record-only shadow controls (RULE.EXIT.SHADOW_CONTROLS.V1, exit study v2
+    #   definitions): 1-B, TS14, PTP1, DS5 with the D9 monitored stop fill model
+    #   and monitoring gaps; KR/US emitted NOT_DEFINED (P3 undecided).
+    "test/test_paper_shadow_controls.py",
     # ★ Alpaca historical SIP daily-bar access probe (user approval
     #   2026-09-15: "Alpaca 과거 SIP 데이터 접근 확인 테스트 승인"). Answers, once,
     #   on request: can the existing dedicated ALPACA_MARKET_DATA_API_KEY/

@@ -364,8 +364,13 @@ def run(argv=None) -> int:
     try:
         config = load_config(args.root)
         policy = RC.load_policy(args.root)
-        problems = []
-        for market in args.market or RC.MARKETS:
+    except OpportunityLedgerError as exc:
+        print(f"Opportunity ledger failed: {exc}", file=sys.stderr)
+        return 2
+    # Per-market isolation: one market's failure never blocks the others.
+    problems, failed = [], []
+    for market in args.market or RC.MARKETS:
+        try:
             days = build_market_days(market, args.root, config, policy)
             if args.command == "build":
                 if args.write:
@@ -375,12 +380,14 @@ def run(argv=None) -> int:
                                   "counts": latest and latest["counts"]}, ensure_ascii=False))
             else:
                 problems += verify_market_days(market, days, args.root)
-        for problem in problems:
-            print(problem)
-        return 1 if problems else 0
-    except OpportunityLedgerError as exc:
-        print(f"Opportunity ledger failed: {exc}", file=sys.stderr)
-        return 2
+        except OpportunityLedgerError as exc:
+            failed.append(market)
+            print(f"Opportunity ledger failed for {market}: {exc}", file=sys.stderr)
+    for problem in problems:
+        print(problem)
+    if failed:
+        return 3
+    return 1 if problems else 0
 
 
 if __name__ == "__main__":
