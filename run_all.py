@@ -2696,6 +2696,53 @@ APPROVED_TESTS = [
     #   cooling-off. Undecided items are emitted as NOT_DEFINED.
     "test/test_paper_execution_core_v1.py",
     "test/test_paper_execution_core_v1_episodes_validation.py",
+    # ★ RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 evidence capture
+    #   (collectors/fred_dexkous_fx.py) + reader (latest_available).
+    #   FRED_API_KEY-or-public-CSV fetch, append-only per-observation
+    #   capture keyed by this run's own wall-clock time (availability_
+    #   captured_at_utc), UNKNOWN_BACKFILL rows for the one-time historical
+    #   seed never usable as point-in-time evidence, business-day staleness
+    #   clock (CIO interpretation, > 10 business days -> 'NAV 일부 미검증'
+    #   display only, never blocks allocation). Fully offline / mocked-HTTP;
+    #   no network call, no trading/allocation authority (every
+    #   *_authorized field stays False).
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_fred_dexkous_fx.py",
+    "test/test_fred_dexkous_fx_workflow.py",
+    # ★ RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 evidence capture
+    #   (collectors/spdr_sector_holdings.py) + reader
+    #   (universe/us_spdr_sector_mapping.py). Daily holdings for the 11
+    #   SPDR Select Sector ETFs (XLB XLC XLE XLF XLI XLK XLP XLRE XLU XLV
+    #   XLY, verified against config/free_market_data_contract.json); the
+    #   downloaded workbook itself is never committed (licensing) -- only a
+    #   per-ETF derived symbol/weight-rank/weight-bucket mapping plus
+    #   capture metadata/hash. CIO review 2026-09-15 (PR #761): the rule's
+    #   cross-fund "largest weight ETF" tie-break is resolved from EXACT
+    #   weights held only in memory at capture time, and only when a single
+    #   run covers all 11 ETFs (a "complete batch") -- per symbol, only the
+    #   outcome (primary_sector_etf / holder_etf_count / tie flag) is
+    #   committed, never the exact weight. An incomplete batch (an ETF
+    #   fetch failed) resolves nothing that day; the reader falls back to
+    #   the most recent earlier complete batch rather than trust a partial
+    #   one. UNKNOWN (no T2) for an unheld symbol, own-sector for a sector
+    #   ETF, and NO_POINT_IN_TIME_CAPTURE_AVAILABLE (distinct from UNKNOWN)
+    #   when no complete capture yet exists -- holdings history is
+    #   physically time-gated and cannot be backfilled. Fully offline: a
+    #   small in-memory fixture .xlsx workbook and a fake HTTP layer only;
+    #   the real SSGA endpoint is never contacted by this suite, and the
+    #   untrusted workflow_dispatch ticker-list input is passed through
+    #   env:/a quoted shell variable, never substituted directly into the
+    #   run: script, then split and validated against the 11-ticker
+    #   allowlist in Python before any HTTP request. Every *_authorized
+    #   field stays False.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_spdr_sector_holdings.py",
+    "test/test_spdr_sector_holdings_workflow.py",
+    "test/test_us_spdr_sector_mapping.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
