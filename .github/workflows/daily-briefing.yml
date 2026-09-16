@@ -542,7 +542,7 @@ jobs:
           git add data/briefing/chain_v2
           git diff --cached --quiet || {
             git commit -m "finalization seal ${{ steps.resolve.outputs.decision_date }} ${{ steps.resolve.outputs.slot }}"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           }
 
       # Record any verdict a previous run published but died before ingesting.
@@ -582,7 +582,7 @@ jobs:
           git add data/briefing/finalization
           git diff --cached --quiet || {
             git commit -m "machine validation ${{ steps.resolve.outputs.decision_date }} ${{ steps.resolve.outputs.slot }}"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           }
 
       # Final Notion SSOT projection is drain-only. The natural producer leaves
@@ -651,5 +651,5 @@ jobs:
           fi
           git diff --cached --quiet || {
             git commit -m "finalization ${{ steps.resolve.outputs.decision_date }}"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           }
