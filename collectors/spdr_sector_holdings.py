@@ -421,6 +421,39 @@ def _write_once(path: Path, data: bytes) -> bool:
     return True
 
 
+# The identity of a capture is the ETF and the exact source workbook it came
+# from -- not when this process happened to fetch it.  ``captured_at_utc``
+# (and therefore ``capture_id``, and any schema field added later) differ on
+# every run, so a re-run inside the same UTC capture day -- a retry after a
+# partial failure, or the server dispatcher catching up a missed slot -- used
+# to hit APPEND_ONLY_COLLISION on the tickers the earlier run had already
+# stored and fail the whole job (run 35031279570).  Re-observing the same
+# workbook is expected and harmless: keep the existing file (its earlier,
+# tighter ``captured_at_utc``) and never rewrite it.  A different workbook
+# under the same path is still a genuine append-only violation.
+_CAPTURE_IDENTITY_FIELDS = ("sector_etf", "raw_sha256", "raw_byte_length", "mapping")
+
+
+def _write_capture_once(path: Path, data: bytes) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        if not path.is_file():
+            fail("APPEND_ONLY_COLLISION")
+        existing_bytes = path.read_bytes()
+        if existing_bytes == data:
+            return False
+        try:
+            existing = json.loads(existing_bytes)
+            incoming = json.loads(data)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            fail("APPEND_ONLY_COLLISION")
+        if any(existing.get(f) != incoming.get(f) for f in _CAPTURE_IDENTITY_FIELDS):
+            fail("APPEND_ONLY_COLLISION")
+        return False
+    path.write_bytes(data)
+    return True
+
+
 def _safe_evidence_path(root: Path, value: str, prefix: str) -> Path:
     if not isinstance(value, str) or Path(value).is_absolute() or ".." in Path(value).parts:
         fail("EVIDENCE_PATH_INVALID")
@@ -435,7 +468,7 @@ def _safe_evidence_path(root: Path, value: str, prefix: str) -> Path:
 
 def publish_capture(root: Path, bundle: dict) -> dict:
     path = _safe_evidence_path(root, bundle["capture_path"], f"{EVIDENCE_ROOT}/derived/")
-    created = _write_once(path, bundle["capture_bytes"])
+    created = _write_capture_once(path, bundle["capture_bytes"])
     return {"capture_path": bundle["capture_path"], "created": created,
             "capture_id": bundle["capture"]["capture_id"]}
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib.util
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -247,6 +248,31 @@ class CaptureAndPublishTests(unittest.TestCase):
             (root / bundle["capture_path"]).write_bytes(b"tampered")
             with self.assertRaisesRegex(M.SpdrSectorHoldingsError, "APPEND_ONLY_COLLISION"):
                 M.publish_capture(root, bundle)
+
+    def test_same_workbook_recapture_later_the_same_day_is_a_no_op(self):
+        raw = fixture_workbook([("NVDA", "NVIDIA", 8.5)])
+        first_bundle = M.build_capture(NOW, "XLK", raw)
+        later = NOW + dt.timedelta(hours=6)
+        second_bundle = M.build_capture(later, "XLK", raw)
+        self.assertEqual(first_bundle["capture_path"], second_bundle["capture_path"])
+        self.assertNotEqual(first_bundle["capture_bytes"], second_bundle["capture_bytes"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            M.publish_capture(root, first_bundle)
+            result = M.publish_capture(root, second_bundle)
+            self.assertFalse(result["created"])
+            kept = json.loads((root / first_bundle["capture_path"]).read_bytes())
+            self.assertEqual(kept["captured_at_utc"], first_bundle["capture"]["captured_at_utc"])
+
+    def test_different_workbook_under_the_same_path_still_fails_closed(self):
+        first_bundle = M.build_capture(NOW, "XLK", fixture_workbook([("NVDA", "NVIDIA", 8.5)]))
+        second_bundle = M.build_capture(NOW, "XLK", fixture_workbook([("AMD", "AMD", 4.25)]))
+        self.assertEqual(first_bundle["capture_path"], second_bundle["capture_path"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            M.publish_capture(root, first_bundle)
+            with self.assertRaisesRegex(M.SpdrSectorHoldingsError, "APPEND_ONLY_COLLISION"):
+                M.publish_capture(root, second_bundle)
 
     def test_path_traversal_is_rejected(self):
         raw = fixture_workbook([("NVDA", "NVIDIA", 8.5)])
