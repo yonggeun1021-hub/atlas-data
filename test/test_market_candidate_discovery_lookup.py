@@ -960,6 +960,17 @@ class HelperTests(unittest.TestCase):
                 MODULE._latest_dated_packet(root, "as_of_date")
             self.assertIsNone(MODULE._latest_dated_packet(Path(tmp) / "missing", "as_of_date"))
 
+    def test_criterion_status_maps_to_a_classified_gap(self):
+        # A FAILED criterion is an evaluated exclusion by a ratified rule, not an
+        # unclassified reason: MATERIAL_BLOCKER:UPBIT_MARKET_EVENT_CAUTION_ACTIVE
+        # (an exchange caution flag) turned every CI run red on 2026-09-16.
+        self.assertEqual(MODULE.CRITERION_STATUS_CLASS["FAIL"], "EVALUATED_EXCLUDED_BY_RATIFIED_RULE")
+        self.assertEqual(MODULE.CRITERION_STATUS_CLASS["UNKNOWN"], "POLICY_UNDEFINED")
+        for klass in MODULE.CRITERION_STATUS_CLASS.values():
+            self.assertIn(klass, MODULE.GAP_CLASSES)
+        # An unexpected status stays unclassified rather than being guessed.
+        self.assertNotIn("PASS", MODULE.CRITERION_STATUS_CLASS)
+
     def test_stage_facts_track_first_seen_and_current_stage_since(self):
         history = {
             "2026-08-13": {"AAA": {"stage": None, "name": "A"}},
