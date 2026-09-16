@@ -1,0 +1,674 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "paper_reference_display_authorized": true,
+    "production_authorized": false,
+    "real_authorized": false,
+    "runtime_regime_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "trading_authorized": false
+  },
+  "mode": "PAPER_DIAGNOSTIC_NOT_RUNTIME",
+  "paper_reference": {
+    "as_of_date": "2026-09-16",
+    "axes": [
+      {
+        "axis": "TREND",
+        "direction": "POSITIVE",
+        "observed_value": {
+          "KOSDAQ": "0.439433",
+          "KOSPI": "1.368741"
+        },
+        "score": 1,
+        "summary_ko": "코스피 +1.37%, 코스닥 +0.44%로 두 지수가 모두 상승했습니다."
+      },
+      {
+        "axis": "BREADTH",
+        "direction": "NEGATIVE",
+        "observed_value": {
+          "advance_fraction": "0.377488"
+        },
+        "score": -1,
+        "summary_ko": "전체 종목 중 상승 비중은 37.7%입니다."
+      },
+      {
+        "axis": "RISK_VOL",
+        "direction": "NEUTRAL",
+        "observed_value": {
+          "mean_absolute_move_pct": "1.982769"
+        },
+        "score": 0,
+        "summary_ko": "종목 평균 절대 등락폭은 1.98%로 보통 구간입니다."
+      },
+      {
+        "axis": "LIQUIDITY",
+        "direction": "NEUTRAL",
+        "observed_value": {
+          "trading_value_change_pct": "-1.652549"
+        },
+        "score": 0,
+        "summary_ko": "거래대금은 이전 거래일보다 -1.7% 변했습니다."
+      },
+      {
+        "axis": "LEADERSHIP",
+        "direction": "NEGATIVE",
+        "observed_value": {
+          "positive_sectors": 13,
+          "total": 46
+        },
+        "score": -1,
+        "summary_ko": "업종 46개 중 13개가 상승했습니다."
+      }
+    ],
+    "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+    "coverage": {
+      "defined_count": 5,
+      "missing_axes": [],
+      "ratio": "5/5",
+      "required_count": 5
+    },
+    "market": "KR",
+    "paper_reference": {
+      "candidate_regime": "NEUTRAL",
+      "confidence": "0.4",
+      "explanation_ko": "좋은 신호와 약한 신호가 섞여 있습니다.",
+      "score": -1
+    },
+    "runtime_regime": "UNKNOWN"
+  },
+  "schema_version": "kr_paper_information_system_reference_candidate/1",
+  "source_packet": {
+    "as_of_date": "2026-09-16",
+    "authority": {
+      "action_authorized": false,
+      "buy_authorized": false,
+      "capital_authorized": false,
+      "order_authorized": false,
+      "paper_reference_display_authorized": true,
+      "production_authorized": false,
+      "real_authorized": false,
+      "runtime_regime_authorized": false,
+      "stage_authorized": false,
+      "strategy_authorized": false,
+      "trading_authorized": false
+    },
+    "available_at": "2026-09-16T23:51:30Z",
+    "axes": {
+      "BREADTH": {
+        "measurement": {
+          "combined": {
+            "advance_fraction": "0.377488",
+            "advancing_count": 1043,
+            "decline_fraction": "0.532392",
+            "declining_count": 1471,
+            "paired_count": 2763,
+            "unchanged_count": 249
+          },
+          "markets": {
+            "KOSDAQ": {
+              "advance_fraction": "0.406044",
+              "advancing_count": 739,
+              "decline_fraction": "0.490659",
+              "declining_count": 893,
+              "paired_count": 1820,
+              "unchanged_count": 188
+            },
+            "KOSPI": {
+              "advance_fraction": "0.322375",
+              "advancing_count": 304,
+              "decline_fraction": "0.612937",
+              "declining_count": 578,
+              "paired_count": 943,
+              "unchanged_count": 61
+            }
+          }
+        },
+        "status": "OBSERVED"
+      },
+      "LEADERSHIP": {
+        "measurement": {
+          "coverage": {
+            "KOSDAQ": {
+              "observed_sector_count": 22,
+              "ratified_identity_count": 23
+            },
+            "KOSPI": {
+              "observed_sector_count": 24,
+              "ratified_identity_count": 25
+            }
+          },
+          "investment_ranking_authorized": false,
+          "largest_relative_returns": [
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "2.321027",
+              "sector_name": "비금속",
+              "sector_return_pct": "2.760460"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "1.800531",
+              "sector_name": "기계·장비",
+              "sector_return_pct": "2.239964"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "1.443271",
+              "sector_name": "전기전자",
+              "sector_return_pct": "2.812012"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "1.262181",
+              "sector_name": "화학",
+              "sector_return_pct": "1.701614"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "1.144542",
+              "sector_name": "전기전자",
+              "sector_return_pct": "1.583975"
+            }
+          ],
+          "observations": [
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-2.176981",
+              "sector_name": "IT 서비스",
+              "sector_return_pct": "-1.737548"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-1.034435",
+              "sector_name": "건설",
+              "sector_return_pct": "-0.595002"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-0.903296",
+              "sector_name": "금속",
+              "sector_return_pct": "-0.463863"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-2.514489",
+              "sector_name": "금융",
+              "sector_return_pct": "-2.075056"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "1.800531",
+              "sector_name": "기계·장비",
+              "sector_return_pct": "2.239964"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-0.514187",
+              "sector_name": "기타제조",
+              "sector_return_pct": "-0.074754"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "2.321027",
+              "sector_name": "비금속",
+              "sector_return_pct": "2.760460"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-0.219411",
+              "sector_name": "섬유·의류",
+              "sector_return_pct": "0.220022"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-0.964412",
+              "sector_name": "오락·문화",
+              "sector_return_pct": "-0.524979"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-0.643665",
+              "sector_name": "운송·창고",
+              "sector_return_pct": "-0.204232"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-1.302057",
+              "sector_name": "운송장비·부품",
+              "sector_return_pct": "-0.862624"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "0.343190",
+              "sector_name": "유통",
+              "sector_return_pct": "0.782623"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-0.179384",
+              "sector_name": "음식료·담배",
+              "sector_return_pct": "0.260049"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-1.055478",
+              "sector_name": "의료·정밀기기",
+              "sector_return_pct": "-0.616045"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-0.937939",
+              "sector_name": "일반서비스",
+              "sector_return_pct": "-0.498506"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "1.144542",
+              "sector_name": "전기전자",
+              "sector_return_pct": "1.583975"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-1.681152",
+              "sector_name": "제약",
+              "sector_return_pct": "-1.241719"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "0.579128",
+              "sector_name": "제조",
+              "sector_return_pct": "1.018561"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-0.177573",
+              "sector_name": "종이·목재",
+              "sector_return_pct": "0.261860"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-2.839515",
+              "sector_name": "출판·매체복제",
+              "sector_return_pct": "-2.400082"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-4.531438",
+              "sector_name": "통신",
+              "sector_return_pct": "-4.092005"
+            },
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "1.262181",
+              "sector_name": "화학",
+              "sector_return_pct": "1.701614"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-3.532865",
+              "sector_name": "IT 서비스",
+              "sector_return_pct": "-2.164124"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-3.741506",
+              "sector_name": "건설",
+              "sector_return_pct": "-2.372765"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-2.335725",
+              "sector_name": "금속",
+              "sector_return_pct": "-0.966984"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-1.675706",
+              "sector_name": "금융",
+              "sector_return_pct": "-0.306965"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-2.702843",
+              "sector_name": "기계·장비",
+              "sector_return_pct": "-1.334102"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-1.969639",
+              "sector_name": "보험",
+              "sector_return_pct": "-0.600898"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-2.026263",
+              "sector_name": "부동산",
+              "sector_return_pct": "-0.657522"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-2.175878",
+              "sector_name": "비금속",
+              "sector_return_pct": "-0.807137"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-1.660496",
+              "sector_name": "섬유·의류",
+              "sector_return_pct": "-0.291755"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-3.042288",
+              "sector_name": "오락·문화",
+              "sector_return_pct": "-1.673547"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-2.555119",
+              "sector_name": "운송·창고",
+              "sector_return_pct": "-1.186378"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-3.032012",
+              "sector_name": "운송장비·부품",
+              "sector_return_pct": "-1.663271"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-0.360717",
+              "sector_name": "유통",
+              "sector_return_pct": "1.008024"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-2.219414",
+              "sector_name": "음식료·담배",
+              "sector_return_pct": "-0.850673"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "0.383290",
+              "sector_name": "의료·정밀기기",
+              "sector_return_pct": "1.752031"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-1.438014",
+              "sector_name": "일반서비스",
+              "sector_return_pct": "-0.069273"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-2.966844",
+              "sector_name": "전기·가스",
+              "sector_return_pct": "-1.598103"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "1.443271",
+              "sector_name": "전기전자",
+              "sector_return_pct": "2.812012"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-1.728724",
+              "sector_name": "제약",
+              "sector_return_pct": "-0.359983"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "0.551849",
+              "sector_name": "제조",
+              "sector_return_pct": "1.920590"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-1.423706",
+              "sector_name": "종이·목재",
+              "sector_return_pct": "-0.054965"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-2.647130",
+              "sector_name": "증권",
+              "sector_return_pct": "-1.278389"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-1.679238",
+              "sector_name": "통신",
+              "sector_return_pct": "-0.310497"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-2.453154",
+              "sector_name": "화학",
+              "sector_return_pct": "-1.084413"
+            }
+          ],
+          "smallest_relative_returns": [
+            {
+              "market": "KOSDAQ",
+              "relative_return_vs_benchmark_pct": "-4.531438",
+              "sector_name": "통신",
+              "sector_return_pct": "-4.092005"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-3.741506",
+              "sector_name": "건설",
+              "sector_return_pct": "-2.372765"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-3.532865",
+              "sector_name": "IT 서비스",
+              "sector_return_pct": "-2.164124"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-3.042288",
+              "sector_name": "오락·문화",
+              "sector_return_pct": "-1.673547"
+            },
+            {
+              "market": "KOSPI",
+              "relative_return_vs_benchmark_pct": "-3.032012",
+              "sector_name": "운송장비·부품",
+              "sector_return_pct": "-1.663271"
+            }
+          ]
+        },
+        "status": "OBSERVED"
+      },
+      "LIQUIDITY": {
+        "measurement": {
+          "combined": {
+            "current_trading_value_krw": "23259087508165",
+            "current_turnover_pct": "0.387669",
+            "previous_trading_value_krw": "23649913930690",
+            "previous_turnover_pct": "0.399532",
+            "trading_value_change_pct": "-1.652549"
+          },
+          "markets": {
+            "KOSDAQ": {
+              "current_trading_value_krw": "6573258383034",
+              "current_turnover_pct": "1.437861",
+              "previous_trading_value_krw": "6524334782617",
+              "previous_turnover_pct": "1.433650",
+              "trading_value_change_pct": "0.749863"
+            },
+            "KOSPI": {
+              "current_trading_value_krw": "16685829125131",
+              "current_turnover_pct": "0.301048",
+              "previous_trading_value_krw": "17125579148073",
+              "previous_turnover_pct": "0.313407",
+              "trading_value_change_pct": "-2.567797"
+            }
+          }
+        },
+        "status": "OBSERVED"
+      },
+      "RISK_VOL": {
+        "measurement": {
+          "combined_mean_absolute_stock_move_pct": "1.982769",
+          "markets": {
+            "KOSDAQ": {
+              "benchmark_absolute_move_pct": "0.439433",
+              "mean_absolute_stock_move_pct": "2.220588",
+              "stock_count": 1820
+            },
+            "KOSPI": {
+              "benchmark_absolute_move_pct": "1.368741",
+              "mean_absolute_stock_move_pct": "1.523775",
+              "stock_count": 943
+            }
+          }
+        },
+        "status": "OBSERVED"
+      },
+      "TREND": {
+        "measurement": {
+          "benchmarks": {
+            "KOSDAQ": {
+              "name": "코스닥",
+              "one_session_return_pct": "0.439433"
+            },
+            "KOSPI": {
+              "name": "코스피",
+              "one_session_return_pct": "1.368741"
+            }
+          }
+        },
+        "status": "OBSERVED"
+      }
+    },
+    "coverage": {
+      "observed_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "LEADERSHIP"
+      ],
+      "observed_count": 5,
+      "ratio": "5/5",
+      "required_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "LEADERSHIP"
+      ],
+      "required_count": 5
+    },
+    "generated_at": "2026-09-16T23:51:30Z",
+    "market": "KOREA",
+    "market_timezone": "Asia/Seoul",
+    "payload_sha256": "21332243b7411b1d7377c977d77eee11ed852985be0be7331fc69b1173526ffd",
+    "previous_date": "2026-09-15",
+    "schema_version": "korea_market_signals_information_system_candidate/1",
+    "source": {
+      "adapter_status": "CANDIDATE_NOT_RUNTIME_ADOPTED",
+      "authentication_boundary": {
+        "authentication_response_retained": false,
+        "captured_market_data_request_count": 8,
+        "credentials_retained": false,
+        "session_initialized_before_source_capture": true
+      },
+      "dependency_lock": {
+        "contract": "config/krx_information_system_source_candidate_v1.json",
+        "numpy": "2.2.6",
+        "pandas": "2.3.2",
+        "pykrx": "1.2.8",
+        "requests": "2.34.2",
+        "requirements": "requirements-korea-paper-source.lock"
+      },
+      "hash_semantics": "SHA256_OF_IN_MEMORY_NORMALIZED_DATAFRAME_CSV",
+      "name": "KRX_INFORMATION_DATA_SYSTEM_PYKRX",
+      "normalization_contract": {
+        "client_price_adjustment": "NONE",
+        "index_fields": [
+          "IDX_NM",
+          "CLSPRC_IDX"
+        ],
+        "index_name_regex": "[^-\\w\\.]",
+        "stock_fields": [
+          "TDD_CLSPRC",
+          "FLUC_RT",
+          "ACC_TRDVAL",
+          "MKTCAP"
+        ]
+      },
+      "normalized_frame_persistence": 0,
+      "per_security_persistence": 1,
+      "per_security_persistence_scope": "ORIGINAL_PROVIDER_RESPONSE_BYTES",
+      "requests": {
+        "index": {
+          "KOSDAQ": {
+            "current_fetched_at_utc": "2026-09-16T23:51:30Z",
+            "current_response_sha256": "d4cbc41684349385959f2c829debefd7b54ff311f800c705ae48f12d3640b78b",
+            "endpoint": "KRX_INFORMATION_DATA_SYSTEM_PYKRX_INDEX_FRAME",
+            "previous_fetched_at_utc": "2026-09-16T23:51:27Z",
+            "previous_response_sha256": "148c66cad096323494056b107203c9174513a15d45227ebf0a7978a2c3b78e22",
+            "time_semantics": "ACTUAL_RESPONSE_RECEIVED_AT_UTC"
+          },
+          "KOSPI": {
+            "current_fetched_at_utc": "2026-09-16T23:51:28Z",
+            "current_response_sha256": "a72a075e4533f7fddb4079444acbdd4e780a560419eec71de2e9e0677599b8b4",
+            "endpoint": "KRX_INFORMATION_DATA_SYSTEM_PYKRX_INDEX_FRAME",
+            "previous_fetched_at_utc": "2026-09-16T23:51:25Z",
+            "previous_response_sha256": "21beadd9eb6e2dab568d536d0ef28bda6c110ed9adf687fcebd3f3480f092068",
+            "time_semantics": "ACTUAL_RESPONSE_RECEIVED_AT_UTC"
+          }
+        },
+        "stock": {
+          "KOSDAQ": {
+            "current_fetched_at_utc": "2026-09-16T23:51:29Z",
+            "current_response_sha256": "0b02f0920b1d5070566f786f5023f4a13e249863e2fe5630fca12ad70c89224f",
+            "endpoint": "KRX_INFORMATION_DATA_SYSTEM_PYKRX_STOCK_FRAME",
+            "previous_fetched_at_utc": "2026-09-16T23:51:26Z",
+            "previous_response_sha256": "633bcbd5dc0db3d6346d828ba1b21491b286456cee96f73758358869f61447d7",
+            "time_semantics": "ACTUAL_RESPONSE_RECEIVED_AT_UTC"
+          },
+          "KOSPI": {
+            "current_fetched_at_utc": "2026-09-16T23:51:27Z",
+            "current_response_sha256": "bdaa62fcf229bd743912d6130adbb89c7982ece9ad116050fcbe53b967adb88a",
+            "endpoint": "KRX_INFORMATION_DATA_SYSTEM_PYKRX_STOCK_FRAME",
+            "previous_fetched_at_utc": "2026-09-16T23:51:24Z",
+            "previous_response_sha256": "eddd3443ee16c6536e36500a0361623b995cb024bcd372062c0bcf19d7699214",
+            "time_semantics": "ACTUAL_RESPONSE_RECEIVED_AT_UTC"
+          }
+        }
+      },
+      "session_calendar": {
+        "decision_at_utc": "2026-09-16T23:51:24Z",
+        "evidence_path": "evidence/market_calendar/krx_global_holiday/2026-09-09/capture-2026.json",
+        "evidence_sha256": "dac31a1006134c6c715f389e70f7966d1a0c0a9de2b66e8a8b322e774a144f9c",
+        "latest_completed_session": "20260916",
+        "previous_completed_session": "20260915",
+        "provider_id": "KRX_GLOBAL_MARKET_CLOSING_HOLIDAY_01023"
+      },
+      "source_capture": {
+        "cookies_retained": false,
+        "credentials_retained": false,
+        "manifest_path": "source-capture/manifest.json",
+        "manifest_payload_sha256": "e0688bc7e70a74db6ffb2c8983df54d541a19b8675eb48f76ba03a4e792e22b6",
+        "original_response_bytes_retained": true,
+        "provider_published_at_is_received_at": false,
+        "raw_to_normalized_frame_equivalence": "VERIFIED_FOR_ALL_REQUIRED_PROJECTIONS",
+        "record_count": 8,
+        "request_headers_retained": false
+      },
+      "tier": "Official"
+    },
+    "status": "OBSERVED_UNCLASSIFIED"
+  },
+  "status": "PAPER_REFERENCE_AVAILABLE_RUNTIME_UNKNOWN"
+}
