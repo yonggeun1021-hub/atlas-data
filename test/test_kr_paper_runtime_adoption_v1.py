@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -352,6 +353,13 @@ class CommittedPointerAndWorkflowTests(unittest.TestCase):
         self.assertIn("GITHUB_STEP_SUMMARY", failure[0]["run"])
         self.assertIn("non-transient capture failure", runs)
         self.assertIn('assert "/responses/" not in path', runs)
+        # Every dependency verification must write outside the checkout, or the
+        # commit-boundary step refuses artifact/dependency-verification.json.
+        verifications = re.findall(
+            r"verify_kr_paper_source_dependencies\.py(?:[^\n]*\\\n)*[^\n]*", runs)
+        self.assertTrue(verifications)
+        for call in verifications:
+            self.assertIn('--out "$RUNNER_TEMP/', call)
         self.assertNotIn("echo \"$KRX", runs)
         self.assertNotIn("set -x", runs)
         secret_steps = [step["name"] for step in steps if "secrets." in json.dumps(step.get("env", {}))]

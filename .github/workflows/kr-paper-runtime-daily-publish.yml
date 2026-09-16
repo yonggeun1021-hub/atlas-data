@@ -105,9 +105,14 @@ jobs:
             --out "$RUNNER_TEMP/dependency-wheel-verification.json"
           python3 -m pip install --no-index --find-links "$RUNNER_TEMP/dependency-wheels" \
             --only-binary=:all: --require-hashes -r requirements-korea-paper-source.lock
+          # --out must stay under RUNNER_TEMP: the script defaults to
+          # artifact/dependency-verification.json inside the checkout, which the
+          # commit-boundary step then refuses (run 35037411780, the first real
+          # capture-mode run).
           python3 .github/scripts/verify_kr_paper_source_dependencies.py \
             --contract config/krx_information_system_source_candidate_v1.json \
-            --wheel-dir "$RUNNER_TEMP/dependency-wheels"
+            --wheel-dir "$RUNNER_TEMP/dependency-wheels" \
+            --out "$RUNNER_TEMP/dependency-verification.json"
       - name: Capture with bounded retry (capture mode)
         if: (inputs.mode || 'capture') == 'capture' && steps.pair.outputs.skip != 'true'
         env:
