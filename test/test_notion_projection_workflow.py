@@ -53,6 +53,10 @@ class NotionProjectionWorkflowTests(unittest.TestCase):
         commit = self.named("Commit finalization artifacts")["run"]
         self.assertIn("git add data/briefing/finalization", commit)
         self.assertIn("[ -d data/briefing/finalization ]", commit)
+        # Collector commits land every few minutes, so every briefing push must
+        # rebase and retry instead of losing the race (runs 34913230305, 35038562866).
+        self.assertIn("push_to_default_branch.sh", commit)
+        self.assertNotIn('git push origin "HEAD:$DEFAULT_BRANCH"', commit)
 
     def test_no_schedule_or_action_dependency_was_added(self):
         self.assertEqual(self.text.count("- cron:"), 2)
