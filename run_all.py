@@ -2767,6 +2767,35 @@ APPROVED_TESTS = [
     "test/test_spdr_sector_holdings.py",
     "test/test_spdr_sector_holdings_workflow.py",
     "test/test_us_spdr_sector_mapping.py",
+    # ★ Macro event calendar (CIO decision 2026-09-16) --
+    #   collectors/macro_event_calendar.py. Evidence capture only: US FOMC
+    #   decision dates (Federal Reserve's own calendar page), US CPI
+    #   releases and nonfarm payrolls (BLS "Schedule of Releases" tables for
+    #   cpi.htm/empsit.htm), and Bank of Korea rate decisions (BOK "Meeting
+    #   Dates" page) -- each fetched and PARSED from its own official page,
+    #   never a hand-written date table. FOMC status (scheduled/released) is
+    #   SOURCE-STATED (a posted statement link, cross-checked against its
+    #   own embedded date); CPI/NFP/BOK carry no such marker on their pages
+    #   so status there is a coarse CIO clock inference, explicitly tagged
+    #   status_basis so the two are never confused. Bounded capture window
+    #   (like fred_dexkous_fx.py's RECENT_WINDOW_DAYS) keeps a normal run
+    #   from re-parsing a decade of FOMC/BOK history; append-only,
+    #   content-addressed observations (state_hash over status/time/
+    #   timezone/detail) mean an unchanged re-observation is a no-op and
+    #   only a genuine change (typically scheduled -> released) writes a
+    #   new file. This module opens no trading/direction/risk-day/buy-pause
+    #   authority (every *_authorized field stays False) and is not
+    #   imported by any briefing, decision, rule, or execution path in this
+    #   PR. Fully offline / fixture HTML only; no network call is ever made
+    #   by these two files. BLS's own bot manager blocks this dev sandbox's
+    #   IP outright (confirmed 2026-09-18); real GitHub Actions runner
+    #   reachability is UNVERIFIED until the workflow's first live run,
+    #   exactly like spdr_sector_holdings.py's URL template was.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_macro_event_calendar.py",
+    "test/test_macro_event_calendar_workflow.py",
     # ★ TKT-2 (W1) KR full-universe daily price history (#718): market-agnostic
     #   price_history_session/1 contract, KR collector (no default opener, no
     #   collection before next-morning publication, calendar-only session
