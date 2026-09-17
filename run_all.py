@@ -2782,6 +2782,20 @@ APPROVED_TESTS = [
     #   NOT_EVALUATED only for <20 sessions of listing history; per-symbol
     #   results private, public summary counts only.
     "test/test_kr_liquidity_c3.py",
+    # ★ CIO 확정 2026-09-18 (CLAUDE_CIO_ADVERSE_DISCLOSURE_CARD_20260916.md ·
+    #   USER_RATIFICATION_DECISION_BUNDLE_20260918.json 항목
+    #   2_adverse_disclosure) — collectors/dart.py 의 KEYWORDS 를 악재성
+    #   공시(Group A: 상장폐지·정리매매·감사의견거절/부적정/한정·회생·파산·
+    #   횡령·배임, Group B: 불성실공시법인·최대주주변경·경영권분쟁)까지
+    #   확대하고, 매칭 제목에 사실 기반 group(A/B/C) + matched_keyword 를
+    #   붙인다. 기존 Group C 7종은 그대로 유지(하위호환). 두 그룹 동시
+    #   매칭은 A>B>C 우선순위로 결정론적으로 정한다. 매칭 실패는 "C"로
+    #   조용히 떨어지지 않고 명시적으로 미분류(None)다.
+    #   ⛔ 매도/매수 차단 등 조치는 이 커밋에 없다 — 수집·분류만 한다.
+    #      runtime/decision/portfolio 모듈 미변경. 관리종목·투자경고·
+    #      단기과열·거래정지는 KIS 종목 마스터 전용으로 남겨 중복 수집하지
+    #      않는다. live DART API 호출 없음 — fixture 제목만 오프라인 검증.
+    "test/test_dart_adverse_filing_classification.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
