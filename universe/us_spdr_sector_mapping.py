@@ -122,12 +122,17 @@ def _load_batches_before(root: Path, decision: dt.datetime) -> list[dict]:
             fail("HOLDINGS_MANIFEST_UNREADABLE")
         captured_at = _parse_utc(manifest.get("captured_at_utc"), "CAPTURE_TIME_INVALID")
         if captured_at <= decision:
+            # The directory name is the batch's own key: the holdings as-of
+            # date when the workbook carried one, else the capture day
+            # (collectors/spdr_sector_holdings.py). Older batches predate the
+            # field, so fall back to the directory they were found in.
+            manifest.setdefault("evidence_day", manifest_path.parent.name)
             batches.append(manifest)
     return batches
 
 
-def _load_symbols(root: Path, capture_date_utc: str) -> list[dict]:
-    path = root / EVIDENCE_ROOT / "resolved" / capture_date_utc / "symbols.json"
+def _load_symbols(root: Path, evidence_day: str) -> list[dict]:
+    path = root / EVIDENCE_ROOT / "resolved" / evidence_day / "symbols.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -168,8 +173,11 @@ def sector_for_symbol(root: Path, symbol: str, decision_at: str) -> dict:
             ),
         }
 
-    latest = max(complete_batches, key=lambda b: b["capture_date_utc"])
-    symbols = _load_symbols(root, latest["capture_date_utc"])
+    # Latest by captured_at_utc: two batches can now share an evidence day
+    # (a re-fetch of the same as-of), and the later fetch is the one whose
+    # files are on disk under that key.
+    latest = max(complete_batches, key=lambda b: (b["captured_at_utc"], b["evidence_day"]))
+    symbols = _load_symbols(root, latest["evidence_day"])
     row = next((s for s in symbols if s["symbol"] == symbol), None)
 
     if row is None:

@@ -125,9 +125,9 @@ HOLDINGS_URL_TEMPLATE = (
     "fund-data/etfs/us/holdings-daily-us-en-{ticker_lower}.xlsx"
 )
 
-CAPTURE_SCHEMA_VERSION = "spdr_sector_holdings_capture/2"  # /2: + holdings_as_of_date
+CAPTURE_SCHEMA_VERSION = "spdr_sector_holdings_capture/3"  # /3: + evidence_day (as-of keyed path)
 MAPPING_ROW_SCHEMA_VERSION = "spdr_sector_holdings_mapping_row/1"
-RESOLVED_BATCH_SCHEMA_VERSION = "spdr_sector_holdings_resolved_batch/2"  # /2: + holdings_as_of_date(s)
+RESOLVED_BATCH_SCHEMA_VERSION = "spdr_sector_holdings_resolved_batch/3"  # /3: + evidence_day
 RESOLVED_SYMBOL_SCHEMA_VERSION = "spdr_sector_holdings_resolved_symbol/1"
 
 HOLDINGS_AS_OF_UNKNOWN = "UNKNOWN"
@@ -388,12 +388,22 @@ def build_capture(
     holdings_as_of_date = parse_holdings_as_of_date(raw) or HOLDINGS_AS_OF_UNKNOWN
 
     day = captured_at.astimezone(UTC).date().isoformat()
+    # Evidence is keyed by what the workbook describes, not by when this
+    # process fetched it. GitHub's schedule for this collector runs hours
+    # late, so two fetches can land on one UTC date (2026-09-17: 00:03Z with
+    # as-of 09-15, then 22:10Z with a newer as-of) and collide on the same
+    # path with different bytes -- APPEND_ONLY_COLLISION, a red run every
+    # day. The as-of date is the capture's real identity. When the workbook
+    # carries no parseable as-of, the capture day stays the key, exactly as
+    # before.
+    evidence_day = day if holdings_as_of_date == HOLDINGS_AS_OF_UNKNOWN else holdings_as_of_date
     capture = {
         "schema_version": CAPTURE_SCHEMA_VERSION,
         "sector_etf": ticker,
         "captured_at_utc": captured_at_utc,
         "capture_date_utc": day,
         "holdings_as_of_date": holdings_as_of_date,
+        "evidence_day": evidence_day,
         "source_url": source_url or holdings_url(ticker),
         "raw_sha256": raw_sha256,
         "raw_byte_length": len(raw),
@@ -407,7 +417,7 @@ def build_capture(
     capture_bytes = json.dumps(
         capture, ensure_ascii=False, indent=2, sort_keys=True
     ).encode("utf-8") + b"\n"
-    capture_path = f"{EVIDENCE_ROOT}/derived/{day}/{ticker}.json"
+    capture_path = f"{EVIDENCE_ROOT}/derived/{evidence_day}/{ticker}.json"
     return {"capture": capture, "capture_bytes": capture_bytes, "capture_path": capture_path}
 
 
@@ -432,9 +442,17 @@ def _write_once(path: Path, data: bytes) -> bool:
 # tighter ``captured_at_utc``) and never rewrite it.  A different workbook
 # under the same path is still a genuine append-only violation.
 _CAPTURE_IDENTITY_FIELDS = ("sector_etf", "raw_sha256", "raw_byte_length", "mapping")
+# The batch manifest's identity is which ETFs were captured, what they describe
+# and what was resolved from them -- not when this run fetched them. Two runs
+# that share an evidence_day (the same as-of re-fetched, which is exactly what
+# 2026-09-16 and 2026-09-17 did) must not collide on captured_at_utc alone.
+_BATCH_IDENTITY_FIELDS = (
+    "tickers_captured", "batch_complete", "resolved_symbol_count",
+    "holdings_as_of_dates", "holdings_as_of_date", "evidence_day",
+)
 
 
-def _write_capture_once(path: Path, data: bytes) -> bool:
+def _write_identity_once(path: Path, data: bytes, identity_fields: tuple[str, ...]) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         if not path.is_file():
@@ -447,7 +465,7 @@ def _write_capture_once(path: Path, data: bytes) -> bool:
             incoming = json.loads(data)
         except (UnicodeDecodeError, json.JSONDecodeError):
             fail("APPEND_ONLY_COLLISION")
-        if any(existing.get(f) != incoming.get(f) for f in _CAPTURE_IDENTITY_FIELDS):
+        if any(existing.get(f) != incoming.get(f) for f in identity_fields):
             fail("APPEND_ONLY_COLLISION")
         return False
     path.write_bytes(data)
@@ -468,7 +486,7 @@ def _safe_evidence_path(root: Path, value: str, prefix: str) -> Path:
 
 def publish_capture(root: Path, bundle: dict) -> dict:
     path = _safe_evidence_path(root, bundle["capture_path"], f"{EVIDENCE_ROOT}/derived/")
-    created = _write_capture_once(path, bundle["capture_bytes"])
+    created = _write_identity_once(path, bundle["capture_bytes"], _CAPTURE_IDENTITY_FIELDS)
     return {"capture_path": bundle["capture_path"], "created": created,
             "capture_id": bundle["capture"]["capture_id"]}
 
@@ -554,10 +572,13 @@ def build_batch(captured_at: dt.datetime, per_ticker_raw: dict[str, bytes]) -> d
     else:
         holdings_as_of_date = HOLDINGS_AS_OF_UNKNOWN
 
+    evidence_day = day if holdings_as_of_date == HOLDINGS_AS_OF_UNKNOWN else holdings_as_of_date
+
     manifest = {
         "schema_version": RESOLVED_BATCH_SCHEMA_VERSION,
         "captured_at_utc": captured_at_utc,
         "capture_date_utc": day,
+        "evidence_day": evidence_day,
         "tickers_captured": tickers_captured,
         "batch_complete": complete,
         "resolved_symbol_count": len(symbols_list),
@@ -568,7 +589,7 @@ def build_batch(captured_at: dt.datetime, per_ticker_raw: dict[str, bytes]) -> d
     manifest_bytes = json.dumps(
         manifest, ensure_ascii=False, indent=2, sort_keys=True
     ).encode("utf-8") + b"\n"
-    manifest_path = f"{EVIDENCE_ROOT}/resolved/{day}/manifest.json"
+    manifest_path = f"{EVIDENCE_ROOT}/resolved/{evidence_day}/manifest.json"
 
     symbols_bytes = None
     symbols_path = None
@@ -576,7 +597,7 @@ def build_batch(captured_at: dt.datetime, per_ticker_raw: dict[str, bytes]) -> d
         symbols_bytes = json.dumps(
             symbols_list, ensure_ascii=False, indent=2, sort_keys=True
         ).encode("utf-8") + b"\n"
-        symbols_path = f"{EVIDENCE_ROOT}/resolved/{day}/symbols.json"
+        symbols_path = f"{EVIDENCE_ROOT}/resolved/{evidence_day}/symbols.json"
 
     return {
         "per_ticker_capture": per_ticker_capture,
@@ -595,9 +616,10 @@ def publish_batch(root: Path, batch: dict) -> dict:
         per_ticker_summary[ticker] = publish_capture(root, bundle)
 
     manifest_path = _safe_evidence_path(root, batch["manifest_path"], f"{EVIDENCE_ROOT}/resolved/")
-    _write_once(manifest_path, batch["manifest_bytes"])
+    _write_identity_once(manifest_path, batch["manifest_bytes"], _BATCH_IDENTITY_FIELDS)
 
     if batch["symbols_bytes"] is not None:
+        # symbols.json carries no timestamp: byte equality is the identity.
         symbols_path = _safe_evidence_path(root, batch["symbols_path"], f"{EVIDENCE_ROOT}/resolved/")
         _write_once(symbols_path, batch["symbols_bytes"])
 
@@ -612,12 +634,13 @@ def publish_batch(root: Path, batch: dict) -> dict:
 
 def write_latest_pointer(root: Path, day: str, per_ticker: dict[str, dict]) -> Path:
     """data/latest_spdr_sector_holdings.json -- small, mutable pointer (like
-    this repo's other data/latest_*.json files) at the most recent capture
-    day, for convenience only; the append-only evidence under
+    this repo's other data/latest_*.json files) at the most recent evidence
+    day (the holdings as-of date when the workbook carries one), for
+    convenience only; the append-only evidence under
     evidence/spdr_sector_holdings/derived/ remains authoritative."""
     pointer = {
-        "schema_version": "spdr_sector_holdings_latest_pointer/1",
-        "capture_date_utc": day,
+        "schema_version": "spdr_sector_holdings_latest_pointer/2",
+        "evidence_day": day,
         "sector_etfs_captured": sorted(per_ticker),
         "complete": sorted(per_ticker) == sorted(SECTOR_ETFS),
         "capture_ids": {ticker: per_ticker[ticker]["capture_id"] for ticker in sorted(per_ticker)},
@@ -678,9 +701,9 @@ def main(argv: list[str] | None = None) -> int:
     summary = publish_batch(ROOT, batch)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
-    day = captured_at.date().isoformat()
     if summary["per_ticker"]:
-        write_latest_pointer(ROOT, day, summary["per_ticker"])
+        # Point at the directory the evidence actually went to (as-of keyed).
+        write_latest_pointer(ROOT, batch["manifest"]["evidence_day"], summary["per_ticker"])
     return 0
 
 
