@@ -29,18 +29,40 @@ to the pattern is worse than no test"). 아래 fixture 는 실제로 확인한 �
    (classify/is_relevant/KEYWORDS)만 검사한다. 모듈 최상단이 DART_API_KEY
    부재 시 sys.exit(1) 하므로, import 전에 임시 키를 환경변수로 준다
    (실제 API 호출은 발생하지 않음 — fetch()/build_corp_map() 은 호출하지 않는다).
+
+★ `승인 회귀 환경(requirements-ci.txt)`은 network 가 필요한 패키지(requests
+   포함)를 의도적으로 설치하지 않는다("승인 회귀는 fixture only" — 파일
+   상단 주석). collectors/dart.py 자신은 `requests` 를 build_corp_map()/
+   fetch() 안에서만 지연 import 하도록 고쳤지만(fetch 를 부르지 않는 이
+   회귀엔 필요 없다), `from common import ...` 가 그대로 실행되며
+   collectors/common.py 는 여전히 최상단에서 `import requests` 한다 —
+   그 경로는 이 파일이 손댈 범위 밖(공유 인프라)이다. 그래서 이 회귀가
+   실제로 검사하는 대상이 아닌 `common` 모듈은 import 전에 최소 stub 으로
+   sys.modules 에 등록해 그 경로를 완전히 건너뛴다 — 실제 common.py 코드를
+   흉내내지 않고, dart.py 가 요구하는 5개 이름만 no-op 으로 채운다.
 """
 from __future__ import annotations
 
 import inspect
 import os
 import sys
+import types
 import unittest
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "collectors"))
 os.environ.setdefault("DART_API_KEY", "offline-test-key")  # 모듈 최상단 fail-closed 가드용
+
+if "common" not in sys.modules:
+    _common_stub = types.ModuleType("common")
+    _common_stub.save = lambda *a, **k: None
+    _common_stub.save_incident = lambda *a, **k: None
+    _common_stub.load_universe = lambda *a, **k: []
+    _common_stub.today_kst = lambda: None
+    _common_stub.now_utc_iso = lambda: ""
+    sys.modules["common"] = _common_stub
+
 import dart as MODULE                                                # noqa: E402
 
 

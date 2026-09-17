@@ -40,9 +40,14 @@ import zipfile
 import datetime as dt
 import xml.etree.ElementTree as ET
 
-import requests
-
 from common import save, save_incident, load_universe, today_kst, now_utc_iso
+
+# `requests` is imported lazily inside build_corp_map()/fetch() (the only two
+# call sites), the same convention used for `websockets` in the Upbit
+# realtime capture script — so the offline classify()/is_relevant()/KEYWORDS
+# regression (test/test_dart_adverse_filing_classification.py) has zero
+# dependency on it. The approved-regression environment
+# (requirements-ci.txt) deliberately excludes network-capable packages.
 
 KEY = os.getenv("DART_API_KEY")
 if not KEY:
@@ -130,6 +135,8 @@ LOOKBACK_DAYS = 7
 
 def build_corp_map() -> dict:
     """전체 기업 고유번호 ZIP을 내려받아 {종목코드: corp_code} 생성."""
+    import requests  # 지연 import — 위 상단 주석 참조
+
     print("[dart] corp_map 생성 중...")
     r = requests.get(f"{BASE}/corpCode.xml", params={"crtfc_key": KEY}, timeout=60)
     r.raise_for_status()
@@ -161,6 +168,8 @@ def get_corp_map() -> dict:
 
 
 def fetch(corp_code: str, days: int = LOOKBACK_DAYS) -> list:
+    import requests  # 지연 import — 파일 상단 주석 참조
+
     end = today_kst()
     start = end - dt.timedelta(days=days)
     r = requests.get(f"{BASE}/list.json", params={
