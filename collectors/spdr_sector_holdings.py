@@ -442,9 +442,17 @@ def _write_once(path: Path, data: bytes) -> bool:
 # tighter ``captured_at_utc``) and never rewrite it.  A different workbook
 # under the same path is still a genuine append-only violation.
 _CAPTURE_IDENTITY_FIELDS = ("sector_etf", "raw_sha256", "raw_byte_length", "mapping")
+# The batch manifest's identity is which ETFs were captured, what they describe
+# and what was resolved from them -- not when this run fetched them. Two runs
+# that share an evidence_day (the same as-of re-fetched, which is exactly what
+# 2026-09-16 and 2026-09-17 did) must not collide on captured_at_utc alone.
+_BATCH_IDENTITY_FIELDS = (
+    "tickers_captured", "batch_complete", "resolved_symbol_count",
+    "holdings_as_of_dates", "holdings_as_of_date", "evidence_day",
+)
 
 
-def _write_capture_once(path: Path, data: bytes) -> bool:
+def _write_identity_once(path: Path, data: bytes, identity_fields: tuple[str, ...]) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         if not path.is_file():
@@ -457,7 +465,7 @@ def _write_capture_once(path: Path, data: bytes) -> bool:
             incoming = json.loads(data)
         except (UnicodeDecodeError, json.JSONDecodeError):
             fail("APPEND_ONLY_COLLISION")
-        if any(existing.get(f) != incoming.get(f) for f in _CAPTURE_IDENTITY_FIELDS):
+        if any(existing.get(f) != incoming.get(f) for f in identity_fields):
             fail("APPEND_ONLY_COLLISION")
         return False
     path.write_bytes(data)
@@ -478,7 +486,7 @@ def _safe_evidence_path(root: Path, value: str, prefix: str) -> Path:
 
 def publish_capture(root: Path, bundle: dict) -> dict:
     path = _safe_evidence_path(root, bundle["capture_path"], f"{EVIDENCE_ROOT}/derived/")
-    created = _write_capture_once(path, bundle["capture_bytes"])
+    created = _write_identity_once(path, bundle["capture_bytes"], _CAPTURE_IDENTITY_FIELDS)
     return {"capture_path": bundle["capture_path"], "created": created,
             "capture_id": bundle["capture"]["capture_id"]}
 
@@ -608,9 +616,10 @@ def publish_batch(root: Path, batch: dict) -> dict:
         per_ticker_summary[ticker] = publish_capture(root, bundle)
 
     manifest_path = _safe_evidence_path(root, batch["manifest_path"], f"{EVIDENCE_ROOT}/resolved/")
-    _write_once(manifest_path, batch["manifest_bytes"])
+    _write_identity_once(manifest_path, batch["manifest_bytes"], _BATCH_IDENTITY_FIELDS)
 
     if batch["symbols_bytes"] is not None:
+        # symbols.json carries no timestamp: byte equality is the identity.
         symbols_path = _safe_evidence_path(root, batch["symbols_path"], f"{EVIDENCE_ROOT}/resolved/")
         _write_once(symbols_path, batch["symbols_bytes"])
 

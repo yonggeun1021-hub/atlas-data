@@ -249,6 +249,36 @@ class CaptureAndPublishTests(unittest.TestCase):
             with self.assertRaisesRegex(M.SpdrSectorHoldingsError, "APPEND_ONLY_COLLISION"):
                 M.publish_capture(root, bundle)
 
+    def test_two_batches_sharing_an_evidence_day_do_not_collide(self):
+        # The as-of date does not move between every pair of scheduled runs:
+        # the 2026-09-16 and 2026-09-17 batches on main both carry as-of
+        # 2026-09-15. Re-publishing the same batch content under one
+        # evidence_day must be a no-op, not APPEND_ONLY_COLLISION, even though
+        # captured_at_utc differs.
+        raw = {ticker: fixture_workbook_with_preamble(
+            [["Holdings are as of 09/15/2026", None, None]], [("NVDA", "NVIDIA", 8.5)],
+        ) for ticker in M.SECTOR_ETFS}
+        first = M.build_batch(NOW, raw)
+        second = M.build_batch(NOW + dt.timedelta(hours=22), raw)
+        self.assertEqual(first["manifest_path"], second["manifest_path"])
+        self.assertNotEqual(first["manifest_bytes"], second["manifest_bytes"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            M.publish_batch(root, first)
+            M.publish_batch(root, second)  # no raise
+            stored = json.loads((root / first["manifest_path"]).read_bytes())
+            self.assertEqual(stored["captured_at_utc"], first["manifest"]["captured_at_utc"])
+
+    def test_a_different_batch_under_one_evidence_day_still_fails_closed(self):
+        as_of = [["Holdings are as of 09/15/2026", None, None]]
+        raw_a = {t: fixture_workbook_with_preamble(as_of, [("NVDA", "NVIDIA", 8.5)]) for t in M.SECTOR_ETFS}
+        raw_b = {t: fixture_workbook_with_preamble(as_of, [("AMD", "AMD", 4.25)]) for t in M.SECTOR_ETFS}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            M.publish_batch(root, M.build_batch(NOW, raw_a))
+            with self.assertRaisesRegex(M.SpdrSectorHoldingsError, "APPEND_ONLY_COLLISION"):
+                M.publish_batch(root, M.build_batch(NOW + dt.timedelta(hours=22), raw_b))
+
     def test_evidence_is_keyed_by_the_holdings_as_of_date(self):
         # Two fetches on one UTC day with different as-of dates must land in
         # different directories: GitHub fires this collector hours late, so
