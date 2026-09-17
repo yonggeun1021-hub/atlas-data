@@ -251,6 +251,57 @@ class OperationalDecisionLineageTests(unittest.TestCase):
             validated = MODULE.validate_record(record)
         self.assertEqual(validated["record_sha256"], record["record_sha256"])
 
+    def test_daily_checkout_cache_avoids_repeat_worktree_materialization(self):
+        """Pins the fix for `load_history()`'s O(records-ever-published)
+        growth: on every publish, it fully re-validates EVERY already-
+        published historical record, and the expensive step in that
+        validation is `_validate_daily_at_commit`'s exact-source-commit
+        worktree checkout (`_materialize_exact_commit`) -- previously redone,
+        unmemoized, for every historical record on every single run, growing
+        without bound as the record chain grows by roughly two records a
+        day. A wall-clock assertion here could pass by luck on a fast,
+        otherwise-idle disk and silently regress on a slower or busier one;
+        counting calls to the actual worktree-materializing function cannot.
+
+        The durable, content-addressed checkout cache is the only thing
+        that can make a *second, independent process* (simulated below by
+        clearing the in-memory `functools.lru_cache` on
+        `_validate_daily_at_commit`, which cannot itself survive a real
+        process boundary) skip that call for a record it already fully
+        verified once."""
+        record = json.loads(HISTORICAL_RECORDS[-1].read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temporary:
+            cache_root = Path(temporary) / "daily_checkout_cache"
+            with mock.patch.object(
+                MODULE, "VALIDATED_DAILY_CHECKOUT_CACHE_ROOT", cache_root
+            ), mock.patch.object(
+                MODULE, "_validate_daily_at_commit", side_effect=REAL_VALIDATE_DAILY_AT_COMMIT,
+            ), mock.patch.object(
+                MODULE, "_materialize_exact_commit",
+                side_effect=MODULE._materialize_exact_commit,
+            ) as materialize_spy:
+                REAL_VALIDATE_DAILY_AT_COMMIT.cache_clear()
+                MODULE.validate_record(record)
+                self.assertEqual(
+                    materialize_spy.call_count, 1,
+                    "first-ever validation of this record must still do the "
+                    "real exact-source-commit checkout",
+                )
+
+                # Simulate the SAME record being revalidated by a brand-new
+                # OS process on a later day: the in-memory lru_cache cannot
+                # have survived that process boundary, so drop it, but the
+                # durable cache directory (committed to git alongside the
+                # record) does.
+                REAL_VALIDATE_DAILY_AT_COMMIT.cache_clear()
+                materialize_spy.reset_mock()
+                MODULE.validate_record(record)
+                self.assertEqual(
+                    materialize_spy.call_count, 0,
+                    "a record already fully verified in a prior process must "
+                    "not repeat the exact-source-commit worktree checkout",
+                )
+
     def test_snapshot_source_ref_is_exact_repo_commit_path_only(self):
         with self.assertRaisesRegex(
             MODULE.OperationalDecisionLineageError,

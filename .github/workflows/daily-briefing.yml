@@ -354,6 +354,7 @@ jobs:
           LINEAGE_CHANGED=false
           LINEAGE_PATH=""
           LINEAGE_STATUS=PASS
+          DAILY_CHECKOUT_CACHE_PATH=""
           SHADOW_READINESS_CHANGED=false
           SHADOW_READINESS_PATH=""
           SHADOW_READINESS_STATUS=PASS
@@ -379,10 +380,12 @@ jobs:
               LINEAGE_PATH=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_path=//p')
               LINEAGE_CHANGED=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^record_created=//p')
               LINEAGE_STATUS=PASS
+              DAILY_CHECKOUT_CACHE_PATH=$(echo "$LINEAGE_OUTPUT" | sed -n 's/^daily_checkout_cache_path=//p')
             else
               LINEAGE_PATH=""
               LINEAGE_CHANGED=false
               LINEAGE_STATUS=BLOCKED_FAIL_CLOSED
+              DAILY_CHECKOUT_CACHE_PATH=""
               echo "::warning::Decision lineage sidecar blocked fail-closed; retrieval authority remains valid"
             fi
             set +e
@@ -426,6 +429,14 @@ jobs:
             fi
             if [ "$LINEAGE_CHANGED" = "true" ]; then
               git add "$LINEAGE_PATH"
+              # The exact-source-commit checkout cache the lineage script
+              # just grew a new entry under. Committed alongside the record
+              # itself so the runner's clean checkout on the next scheduled
+              # run does not throw it away and repeat the expensive
+              # per-historical-commit worktree checkout it recorded.
+              if [ -n "$DAILY_CHECKOUT_CACHE_PATH" ] && [ -d "$DAILY_CHECKOUT_CACHE_PATH" ]; then
+                git add "$DAILY_CHECKOUT_CACHE_PATH"
+              fi
             fi
             if [ "$SHADOW_READINESS_CHANGED" = "true" ]; then
               git add "$SHADOW_READINESS_PATH"

@@ -26,6 +26,35 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORD_ROOT = ROOT / "evidence" / "operational" / "decision_change_lineage" / "records"
+# CIO 2026-09-18: durable, content-addressed memo of the exact-source-commit
+# worktree checkout+validator pass performed by `_validate_daily_at_commit`
+# below.  `load_history()` re-validates the ENTIRE committed record chain on
+# every publish, and that chain grows by roughly two records per day, so the
+# unmemoized cost was O(records-ever-published) *and unbounded* -- 42 records
+# already cost ~85s locally, with each `git worktree add`/checkout/validator
+# subprocess pass around 0.5-1s locally (much more on the loaded self-hosted
+# runner), so this dominated the observed multi-minute-per-day growth in the
+# "Publish provider-free daily briefing packet" step.
+# This is a pure-function memoization, not a weakened check: every call still
+# freshly re-fetches the blob via `_git_blob` (which itself re-verifies the
+# commit is an immutable, current-HEAD-ancestor object) and re-runs every
+# cheap self-consistency check in `_validate_daily_at_commit` on every call,
+# every time. Only the expensive step -- materializing an isolated worktree
+# at `commit` and re-running that commit's OWN `unified_decision_contract.py`
+# validator inside it -- is skipped, and only once a hit is confirmed to
+# match the exact (commit, relative, blob_sha256) triple this function
+# already treats as its complete, sufficient input (its own in-memory
+# `functools.lru_cache` below uses the identical key). Since a commit's
+# content is immutable by construction, re-running that already-proven-pure
+# step for the same key can only ever reproduce the same result -- this can
+# never turn a would-be failure into a pass, only skip redundant confirmation
+# of an already-established one. Committed by the workflow next to the
+# lineage record it was produced for, so it survives the runner's clean
+# checkout between runs (a local, uncommitted cache would not).
+VALIDATED_DAILY_CHECKOUT_CACHE_ROOT = (
+    ROOT / "evidence" / "operational" / "decision_change_lineage"
+    / "validated_daily_checkout_cache"
+)
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -176,7 +205,23 @@ def _repo_relative(path: Path) -> str:
     return relative
 
 
+@functools.lru_cache(maxsize=None)
 def _git_blob(commit: str, relative: str) -> bytes:
+    """Fetch and re-verify one immutable blob at `commit`.
+
+    Memoized in-process by (commit, relative): `validate_record` calls this
+    directly and, for the same record, `_validate_daily_at_commit` and
+    `_validate_snapshot_at_source` each call it again for the identical
+    pair while validating one `load_history()` pass -- previously three
+    `git show` + `git rev-parse --verify` + `git merge-base --is-ancestor`
+    round trips per historical record for no new information. HEAD does not
+    move within one process's lifetime (this module never commits), so the
+    ancestor-of-HEAD and immutable-commit-object checks this function
+    performs cannot go stale between those calls; a cache hit is exactly as
+    strong as a fresh call would be. Exceptions are not cached (Python's
+    lru_cache never caches a raise), so a fail-closed rejection is never
+    memoized into a false pass.
+    """
     if not isinstance(commit, str) or FULL_SHA_RE.fullmatch(commit) is None:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_MUST_BE_FULL_SHA")
     completed = subprocess.run(
@@ -469,6 +514,91 @@ def _exact_commit_checkout(commit: str, payload_patterns: tuple[str, ...]):
                 _remove_exact_commit(checkout)
 
 
+def _daily_checkout_cache_key(commit: str, relative: str, blob_sha256: str) -> str:
+    """Same (commit, relative, blob_sha256) identity as the in-memory
+    ``functools.lru_cache`` on `_validate_daily_at_commit` -- the exact and
+    complete input that function's expensive worktree-checkout step depends
+    on. Hashed only to obtain a safe, fixed-length filename component."""
+    return hashlib.sha256(
+        canonical_json([commit, relative, blob_sha256]).encode("utf-8")
+    ).hexdigest()
+
+
+def _daily_checkout_already_validated(
+    commit: str, relative: str, blob_sha256: str,
+    *, cache_root: Path | None = None,
+) -> bool:
+    """True only if this exact (commit, relative, blob_sha256) triple's
+    exact-source-commit worktree checkout and validator run were already
+    durably recorded as having passed. A missing, unreadable, or
+    content-mismatched cache entry is always a miss -- this can only ever
+    cause extra (harmless) work, never a false pass.
+
+    `cache_root` defaults dynamically (looked up at call time, not baked in
+    as a bound default) so a test can patch the module-level
+    `VALIDATED_DAILY_CHECKOUT_CACHE_ROOT` and have every caller -- including
+    ones like `_validate_daily_at_commit` that never pass this parameter --
+    observe the patched location."""
+    if cache_root is None:
+        cache_root = VALIDATED_DAILY_CHECKOUT_CACHE_ROOT
+    path = cache_root / f"{_daily_checkout_cache_key(commit, relative, blob_sha256)}.json"
+    try:
+        entry = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(entry, dict)
+        and entry.get("schema_version") == "decision_change_lineage_daily_checkout_cache/1"
+        and entry.get("commit") == commit
+        and entry.get("relative") == relative
+        and entry.get("blob_sha256") == blob_sha256
+    )
+
+
+def _record_daily_checkout_validated(
+    commit: str, relative: str, blob_sha256: str,
+    *, cache_root: Path | None = None,
+) -> None:
+    """Durably record that (commit, relative, blob_sha256) already passed
+    the expensive exact-source-commit checkout+validator step, so a later
+    process (a later day's publish) can skip redoing it. Written the same
+    atomic-replace way as `write_record` uses for lineage records.
+
+    See `_daily_checkout_already_validated` for why `cache_root` resolves
+    dynamically instead of as a bound default."""
+    if cache_root is None:
+        cache_root = VALIDATED_DAILY_CHECKOUT_CACHE_ROOT
+    cache_root.mkdir(parents=True, exist_ok=True)
+    key = _daily_checkout_cache_key(commit, relative, blob_sha256)
+    path = cache_root / f"{key}.json"
+    entry = {
+        "schema_version": "decision_change_lineage_daily_checkout_cache/1",
+        "commit": commit,
+        "relative": relative,
+        "blob_sha256": blob_sha256,
+    }
+    encoded = (json.dumps(entry, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if path.exists():
+        if path.read_bytes() != encoded:
+            raise OperationalDecisionLineageError(
+                "DAILY_CHECKOUT_CACHE_COLLISION"
+            )
+        return
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(cache_root))
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 @functools.lru_cache(maxsize=16)
 def _validate_daily_at_commit(commit: str, relative: str, blob_sha256: str) -> dict:
     """Validate the immutable daily blob and its Unified Decision at source.
@@ -516,6 +646,16 @@ def _validate_daily_at_commit(commit: str, relative: str, blob_sha256: str) -> d
         raise OperationalDecisionLineageError(
             "DAILY_COMPONENT_NOT_VALIDATED:UNIFIED_DECISION"
         )
+    if _daily_checkout_already_validated(commit, relative, blob_sha256):
+        # This exact (commit, relative, blob_sha256) triple already passed
+        # the block below in a prior process (a prior day's publish, or the
+        # backfill that accompanied this cache). Every check above this
+        # point -- blob fetch/ancestry via `_git_blob`, the packet's own
+        # hash self-consistency, and its structural shape -- still ran fresh
+        # just now; only the worktree checkout + that historical commit's
+        # own validator subprocess, whose result cannot differ for the same
+        # input, is skipped.
+        return value
     with _exact_commit_checkout(
         commit, _exact_validator_payload_patterns(unified)
     ) as checkout:
@@ -546,6 +686,7 @@ module.validate_packet(json.load(sys.stdin))
             raise OperationalDecisionLineageError(
                 f"UNIFIED_DECISION_INVALID_AT_SOURCE_COMMIT:{completed.stdout.strip()}"
             )
+    _record_daily_checkout_validated(commit, relative, blob_sha256)
     return value
 
 
@@ -852,6 +993,17 @@ def run(briefing_path: Path, source_commit: str, recorded_at: str, root: Path = 
         print(f"record_created={'true' if created else 'false'}")
         print(f"record_sha256={record['record_sha256']}")
         print(f"change_type={record['lineage_packet']['entries'][0]['change_type']}")
+        # The exact-source-commit checkout cache is a plain directory (not a
+        # single content-addressed file the caller already knows), and only
+        # this run knows whether it just grew a new entry -- surface its
+        # path so the workflow can commit alongside the record. Printed even
+        # when nothing changed under it (a stable path is always safe to
+        # `git add`; `git commit` is a no-op if nothing is actually new).
+        if VALIDATED_DAILY_CHECKOUT_CACHE_ROOT.is_relative_to(ROOT):
+            print(
+                "daily_checkout_cache_path="
+                f"{VALIDATED_DAILY_CHECKOUT_CACHE_ROOT.relative_to(ROOT)}"
+            )
         return 0
     except (OperationalDecisionLineageError, OSError, TypeError, ValueError) as exc:
         print(f"Operational Decision lineage failed: {exc}")
