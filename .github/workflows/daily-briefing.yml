@@ -90,7 +90,12 @@ jobs:
 
   briefing:
     runs-on: [self-hosted, Linux, X64, atlas-data]
-    timeout-minutes: 15
+    # The evening round on 2026-09-17 was cut off at 15m46s inside "Run
+    # deterministic validator" (run 35233182670) after the publish steps had
+    # already succeeded; the morning round the same day took 11 minutes end to
+    # end. The work grew (rebase-and-retry pushes, a larger review queue) while
+    # the bound did not. 40 min keeps a real bound with headroom.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
