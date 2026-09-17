@@ -249,6 +249,34 @@ class CaptureAndPublishTests(unittest.TestCase):
             with self.assertRaisesRegex(M.SpdrSectorHoldingsError, "APPEND_ONLY_COLLISION"):
                 M.publish_capture(root, bundle)
 
+    def test_evidence_is_keyed_by_the_holdings_as_of_date(self):
+        # Two fetches on one UTC day with different as-of dates must land in
+        # different directories: GitHub fires this collector hours late, so
+        # 2026-09-17 saw 00:03Z (as-of 09-15) and 22:10Z (a newer as-of) and
+        # the second failed with APPEND_ONLY_COLLISION.
+        raw_old = fixture_workbook_with_preamble(
+            [["Holdings are as of 09/15/2026", None, None]], [("NVDA", "NVIDIA", 8.5)],
+        )
+        raw_new = fixture_workbook_with_preamble(
+            [["Holdings are as of 09/16/2026", None, None]], [("NVDA", "NVIDIA", 9.0)],
+        )
+        early = M.build_capture(NOW, "XLK", raw_old)
+        late = M.build_capture(NOW + dt.timedelta(hours=22), "XLK", raw_new)
+        self.assertNotEqual(early["capture_path"], late["capture_path"])
+        self.assertIn("2026-09-15", early["capture_path"])
+        self.assertIn("2026-09-16", late["capture_path"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertTrue(M.publish_capture(root, early)["created"])
+            self.assertTrue(M.publish_capture(root, late)["created"])
+
+    def test_capture_day_stays_the_key_when_the_as_of_date_is_unknown(self):
+        raw = fixture_workbook([("NVDA", "NVIDIA", 8.5)])
+        bundle = M.build_capture(NOW, "XLK", raw)
+        self.assertEqual(bundle["capture"]["holdings_as_of_date"], M.HOLDINGS_AS_OF_UNKNOWN)
+        self.assertEqual(bundle["capture"]["evidence_day"], bundle["capture"]["capture_date_utc"])
+        self.assertIn(bundle["capture"]["capture_date_utc"], bundle["capture_path"])
+
     def test_same_workbook_recapture_later_the_same_day_is_a_no_op(self):
         raw = fixture_workbook([("NVDA", "NVIDIA", 8.5)])
         first_bundle = M.build_capture(NOW, "XLK", raw)
