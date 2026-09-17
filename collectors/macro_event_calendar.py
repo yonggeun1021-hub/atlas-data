@@ -57,6 +57,17 @@ table)
         URL template and ``fred_dexkous_fx.py``'s ``cosd`` parameter, real
         reachability from the actual runner is UNVERIFIED until this
         workflow's first live ``workflow_dispatch`` run.
+        Independent review 2026-09-18 (pre-merge, PR #785): each ``<td>``
+        cell is read tolerantly of nested markup (``_cell_text``, shared
+        with the BOK parser below) rather than assuming a bare text node --
+        BLS is known to sometimes bold or link-wrap the next-upcoming
+        release's row, which would otherwise make that one row's regex
+        silently fail to match. ``parse_bls_release_table`` also cross-
+        checks the number of parsed rows against a raw ``<tr>`` count
+        inside the table's ``<tbody>`` and fails closed
+        (``BLS_ROW_COUNT_MISMATCH``) on any mismatch, so a row that still
+        cannot be parsed for some other reason is a loud failure, never a
+        quietly incomplete calendar.
         Neither BLS table states a timezone (BLS releases are Eastern Time
         by well-known convention, but that word never appears on either
         page) -- ``timezone`` is recorded as ``null`` for the same
@@ -243,6 +254,20 @@ def _parse_utc(value: object, code: str) -> dt.datetime:
         fail(code)
 
 
+_INNER_TAG = re.compile(r"<[^>]+>")
+
+
+def _cell_text(raw_cell: str) -> str:
+    """Text content of one table cell, tolerant of nested markup (e.g. a
+    source bolding/link-wrapping one particular row) -- strip every inner
+    tag, unescape entities, then collapse whitespace. Used by both the BLS
+    and BOK table parsers below so neither silently drops a cell whose
+    <td> is not a single bare text node."""
+    text = _INNER_TAG.sub(" ", raw_cell)
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # FOMC -- https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
 # ─────────────────────────────────────────────────────────────────────────
@@ -376,8 +401,16 @@ def parse_fomc_calendar(raw: bytes, *, year_min: int, year_max: int) -> list[dic
 _BLS_TABLE = re.compile(r'<table class="release-list">.*?</table>', re.S)
 _BLS_THEAD = re.compile(r'<thead>.*?</thead>', re.S)
 _BLS_TH = re.compile(r'<th>([^<]*)</th>')
+_BLS_TBODY = re.compile(r'<tbody>(.*?)</tbody>', re.S)
+_BLS_TR = re.compile(r'<tr\b')
+# ``(.*?)`` (not ``[^<]*``) tolerates a source wrapping one cell's content
+# in nested markup (e.g. bolding/linking the next-upcoming release row) --
+# see _cell_text, which strips whatever tags land inside each captured
+# group. A row this pattern still cannot match at all (e.g. a missing
+# <td>) is caught by the row-count cross-check in parse_bls_release_table,
+# not silently dropped.
 _BLS_ROW = re.compile(
-    r'<tr[^>]*>\s*<td>([^<]*)</td>\s*<td>([^<]*)</td>\s*<td>([^<]*)</td>\s*</tr>'
+    r'<tr[^>]*>\s*<td>(.*?)</td>\s*<td>(.*?)</td>\s*<td>(.*?)</td>\s*</tr>', re.S
 )
 _BLS_DATE = re.compile(r'^([A-Za-z]+)\.?\s+(\d{1,2}),\s*(\d{4})$')
 _BLS_TIME = re.compile(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$', re.IGNORECASE)
@@ -442,18 +475,32 @@ def parse_bls_release_table(raw: bytes, source_key: str) -> list[dict]:
     if headers != ["Reference Month", "Release Date", "Release Time"]:
         fail("BLS_TABLE_HEADER_UNEXPECTED")
 
-    rows = _BLS_ROW.findall(table)
+    tbody_match = _BLS_TBODY.search(table)
+    if not tbody_match:
+        fail("BLS_TBODY_NOT_FOUND")
+    tbody = tbody_match.group(1)
+
+    rows = _BLS_ROW.findall(tbody)
     if not rows:
         fail("BLS_TABLE_NO_ROWS")
+
+    # Row-count cross-check: an incomplete parse must be loud, not silent.
+    # If any <tr> inside tbody failed to match the 3-<td> row pattern above
+    # (e.g. a malformed row, a missing <td>), findall() would otherwise
+    # just return fewer rows and the run would report success with a
+    # quietly incomplete calendar.
+    tr_count = len(_BLS_TR.findall(tbody))
+    if len(rows) != tr_count:
+        fail("BLS_ROW_COUNT_MISMATCH")
 
     event_type = SOURCES[source_key]["event_type"]
     events = []
     for reference_text, date_text, time_text in rows:
         reference_period = _parse_bls_reference_month(
-            reference_text.strip(), "BLS_REFERENCE_MONTH_INVALID"
+            _cell_text(reference_text), "BLS_REFERENCE_MONTH_INVALID"
         )
-        scheduled_date = _parse_bls_date(date_text.strip(), "BLS_RELEASE_DATE_INVALID")
-        scheduled_time = _parse_bls_time(time_text.strip(), "BLS_RELEASE_TIME_INVALID")
+        scheduled_date = _parse_bls_date(_cell_text(date_text), "BLS_RELEASE_DATE_INVALID")
+        scheduled_time = _parse_bls_time(_cell_text(time_text), "BLS_RELEASE_TIME_INVALID")
         events.append({
             "event_type": event_type,
             "market": "US",
@@ -473,14 +520,7 @@ _BOK_YEAR = re.compile(r'<h3>(\d{4})</h3>')
 _BOK_TABLE = re.compile(r'<table>.*?</table>', re.S)
 _BOK_TH = re.compile(r'<th[^>]*><strong[^>]*>([^<]+)</strong></th>')
 _BOK_TD = re.compile(r'<td>(.*?)</td>', re.S)
-_BOK_TAG = re.compile(r'<[^>]+>')
 _BOK_CELL = re.compile(r'^([A-Za-z]+)\.?\s*(\d{1,2})\s*\(([A-Za-z]+)\)$')
-
-
-def _bok_cell_text(raw_cell: str) -> str:
-    text = _BOK_TAG.sub(" ", raw_cell)
-    text = html.unescape(text)
-    return re.sub(r"\s+", " ", text).strip()
 
 
 def parse_bok_calendar(raw: bytes, *, year_min: int, year_max: int) -> list[dict]:
@@ -510,7 +550,7 @@ def parse_bok_calendar(raw: bytes, *, year_min: int, year_max: int) -> list[dict
         table = table_match.group(0)
 
         months = [_month_number(m) for m in _BOK_TH.findall(table)]
-        cells = [_bok_cell_text(c) for c in _BOK_TD.findall(table)]
+        cells = [_cell_text(c) for c in _BOK_TD.findall(table)]
         if not months or len(cells) != len(months):
             fail("BOK_TABLE_SHAPE_INVALID")
 

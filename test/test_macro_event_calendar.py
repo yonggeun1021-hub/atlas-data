@@ -82,10 +82,19 @@ def fomc_html(panels: list[tuple[int, list[tuple[str, str, str | None]]]]) -> by
 
 
 def bls_html(heading: str, rows: list[tuple[str, str, str]]) -> bytes:
-    tr = "".join(
-        f"<tr><td>{ref}</td><td>{date}</td><td>{time}</td></tr>"
-        for ref, date, time in rows
-    )
+    """``rows`` entries are normally 3-tuples of plain text; a row can also
+    be a single pre-built ``<tr>...</tr>`` string (see
+    ``test_row_with_nested_markup_in_a_cell_is_still_parsed`` /
+    ``test_row_count_mismatch_fails_closed`` below) to model a source
+    wrapping a cell in nested markup, or a deliberately malformed row."""
+    tr_parts = []
+    for row in rows:
+        if isinstance(row, str):
+            tr_parts.append(row)
+        else:
+            ref, date, time = row
+            tr_parts.append(f"<tr><td>{ref}</td><td>{date}</td><td>{time}</td></tr>")
+    tr = "".join(tr_parts)
     return f'''<html><body>
 <h2>Schedule of Releases for the {heading}</h2>
 <table class="release-list">
@@ -95,18 +104,37 @@ def bls_html(heading: str, rows: list[tuple[str, str, str]]) -> bytes:
 </body></html>'''.encode("utf-8")
 
 
-def bok_year_block(year: int, months: list[str], cells: list[str]) -> str:
-    ths = "".join(f'<th scope="col"><strong class="fc1">{m}</strong></th>' for m in months)
-    tds = "".join(f'<td><p style="text-align: center;">{c}</p></td>' for c in cells)
+def bok_year_block(year: int, month_rows: list[list[str]], cell_rows: list[list[str]]) -> str:
+    """``month_rows``/``cell_rows`` are parallel lists of same-length rows,
+    matching the real page's shape of more than one <th>-row/<td>-row pair
+    per year (e.g. Jan/Feb/Apr/May then Jul/Aug/Oct/Nov -- BOK's real
+    8-meeting-a-year cadence)."""
+    pairs = []
+    for months, cells in zip(month_rows, cell_rows):
+        ths = "".join(f'<th scope="col"><strong class="fc1">{m}</strong></th>' for m in months)
+        tds = "".join(f'<td><p style="text-align: center;">{c}</p></td>' for c in cells)
+        pairs.append(f"<tr>{ths}</tr><tr>{tds}</tr>")
     return f'''<h3>{year}</h3>
 <div class="table table-view tac">
 <table>
 <tbody>
-<tr>{ths}</tr>
-<tr>{tds}</tr>
+{"".join(pairs)}
 </tbody>
 </table></div>
 '''
+
+
+def bok_full_year_block(year: int, dates: list[str]) -> str:
+    """8 meetings, BOK's standard Jan/Feb/Apr/May // Jul/Aug/Oct/Nov
+    cadence, as two <th>-row/<td>-row pairs -- the real page's shape."""
+    if len(dates) != 8:
+        raise ValueError("bok_full_year_block needs exactly 8 dates")
+    months = ["Jan.", "Feb.", "Apr.", "May.", "Jul.", "Aug.", "Oct.", "Nov."]
+    return bok_year_block(
+        year,
+        [months[:4], months[4:]],
+        [dates[:4], dates[4:]],
+    )
 
 
 def bok_html(blocks: list[str]) -> bytes:
@@ -137,8 +165,9 @@ NFP_RAW = bls_html("Employment Situation", [
 ])
 
 BOK_RAW = bok_html([
-    bok_year_block(2026, ["Jan.", "Feb.", "Apr.", "May."], [
+    bok_full_year_block(2026, [
         "Jan.15&nbsp;(Thu)", "Feb.26 (Thu)", "Apr.10 (Fri)", "May.28 (Thu)",
+        "Jul.16 (Thu)", "Aug.27 (Thu)", "Oct.22 (Thu)", "Nov.26 (Thu)",
     ]),
 ])
 
@@ -219,6 +248,36 @@ class BlsParsingTests(unittest.TestCase):
         self.assertEqual(events[0]["event_type"], "NONFARM_PAYROLLS")
         self.assertEqual(events[0]["scheduled_date"], "2026-09-04")
 
+    def test_row_with_nested_markup_in_a_cell_is_still_parsed(self):
+        # Independent review 2026-09-18 (PR #785): BLS sometimes bolds or
+        # link-wraps a cell (e.g. the next-upcoming release row). Before
+        # the fix this made _BLS_ROW simply not match that <tr> at all --
+        # a silently incomplete calendar, no error. Each cell here nests a
+        # different kind of markup (<strong>, <a href>, <span>).
+        raw = bls_html("Consumer Price Index", [
+            "<tr><td><strong>August 2026</strong></td>"
+            '<td><a href="/schedule/news_release/2026/09_sched.htm">Sep. 11, 2026</a></td>'
+            "<td><span class=\"next-release\">08:30 AM</span></td></tr>",
+            ("September 2026", "Oct. 14, 2026", "08:30 AM"),
+        ])
+        events = M.parse_bls_release_table(raw, "CPI")
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["scheduled_date"], "2026-09-11")
+        self.assertEqual(events[0]["scheduled_time"], "08:30")
+        self.assertEqual(events[0]["detail"]["reference_period"], "2026-08")
+
+    def test_row_count_mismatch_fails_closed(self):
+        # A row this malformed (a 2-cell <td> row) cannot match the 3-<td>
+        # row pattern at all -- findall() would otherwise just silently
+        # return one fewer row than the table actually has. The <tr> count
+        # cross-check must catch this and fail loudly instead.
+        raw = bls_html("Consumer Price Index", [
+            ("August 2026", "Sep. 11, 2026", "08:30 AM"),
+            "<tr><td>September 2026</td><td>Oct. 14, 2026</td></tr>",
+        ])
+        with self.assertRaisesRegex(M.MacroEventCalendarError, "BLS_ROW_COUNT_MISMATCH"):
+            M.parse_bls_release_table(raw, "CPI")
+
     def test_pm_time_conversion(self):
         raw = bls_html("Consumer Price Index", [("August 2026", "Sep. 11, 2026", "01:15 PM")])
         events = M.parse_bls_release_table(raw, "CPI")
@@ -262,30 +321,35 @@ class BlsParsingTests(unittest.TestCase):
 
 
 class BokParsingTests(unittest.TestCase):
-    def test_rows_parsed_with_weekday_label(self):
+    def test_full_year_all_eight_meetings_parsed_across_two_row_pairs(self):
+        # The real page lays out one year as TWO <th>-row/<td>-row pairs
+        # (Jan/Feb/Apr/May, then Jul/Aug/Oct/Nov) -- this stresses that
+        # multi-row-pair shape, not just a single 4-column row.
         events = M.parse_bok_calendar(BOK_RAW, year_min=2026, year_max=2026)
-        self.assertEqual(len(events), 4)
+        self.assertEqual(len(events), 8)
         jan = next(e for e in events if e["scheduled_date"] == "2026-01-15")
         self.assertEqual(jan["event_type"], "BOK_RATE_DECISION")
         self.assertEqual(jan["market"], "KR")
         self.assertEqual(jan["detail"]["weekday_label"], "Thu")
+        nov = next(e for e in events if e["scheduled_date"] == "2026-11-26")
+        self.assertEqual(nov["detail"]["weekday_label"], "Thu")
 
     def test_year_window_excludes_out_of_range_years(self):
         raw = bok_html([
-            bok_year_block(2020, ["Jan."], ["Jan.9 (Thu)"]),
-            bok_year_block(2026, ["Jan."], ["Jan.15 (Thu)"]),
+            bok_year_block(2020, [["Jan."]], [["Jan.9 (Thu)"]]),
+            bok_year_block(2026, [["Jan."]], [["Jan.15 (Thu)"]]),
         ])
         events = M.parse_bok_calendar(raw, year_min=2025, year_max=2027)
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["scheduled_date"], "2026-01-15")
 
     def test_blank_cell_is_skipped_not_a_failure(self):
-        raw = bok_html([bok_year_block(2026, ["Jan.", "Feb."], ["Jan.15 (Thu)", ""])])
+        raw = bok_html([bok_year_block(2026, [["Jan.", "Feb."]], [["Jan.15 (Thu)", ""]])])
         events = M.parse_bok_calendar(raw, year_min=2026, year_max=2026)
         self.assertEqual(len(events), 1)
 
     def test_month_mismatch_between_header_and_cell_fails_closed(self):
-        raw = bok_html([bok_year_block(2026, ["Feb."], ["Jan.15 (Thu)"])])
+        raw = bok_html([bok_year_block(2026, [["Feb."]], [["Jan.15 (Thu)"]])])
         with self.assertRaisesRegex(M.MacroEventCalendarError, "BOK_CELL_MONTH_MISMATCH"):
             M.parse_bok_calendar(raw, year_min=2026, year_max=2026)
 
