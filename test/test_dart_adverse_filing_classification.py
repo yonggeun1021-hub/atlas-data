@@ -6,10 +6,19 @@ USER_RATIFICATION_DECISION_BUNDLE_20260918.json 항목 2_adverse_disclosure) —
 collectors/dart.py 의 KEYWORDS 를 악재성 공시(Group A·B)까지 확대하고,
 매칭된 제목에 사실 기반 그룹(A/B/C) + matched_keyword 를 붙였다.
 
+2026-09-18 독립 리뷰(2차) 반영 — 최초 fixture 는 정규식/키워드에 맞춰
+만들어낸 제목이었다("A test that only passes because the fixture was shaped
+to the pattern is worse than no test"). 아래 fixture 는 실제로 확인한 제목
+또는 그 제목을 그대로 인용한 보도자료로 교체했다. 출처는 각 fixture 옆
+주석에 남긴다. 확인하지 못한 것(예: "의견한정"의 실제 사례)은 실제
+제목으로 위장하지 않고, 그 사실을 그대로 밝힌다.
+
 이 회귀가 잠그는 것 — fixture 제목만으로 network 없이 검증한다:
-  · Group A/B/C 각각의 제목이 해당 그룹으로 분류된다.
+  · Group A/B/C 각각의 실제(또는 실제로 인용된) 제목이 해당 그룹으로 분류된다.
   · 어느 키워드에도 안 걸리는 제목은 배제되고, "C"로 조용히 떨어지지
     않는다 (group is None 로 명시).
+  · "의견"만 있고 거절/부적정/한정이 붙지 않은 제목(의견서, 조회공시
+    답변 등)은 매칭되지 않는다 — 오탐 방지.
   · 두 그룹에 동시에 걸리는 제목은 결정론적으로(A > B > C 우선순위) 정해진다.
   · 기존 Group C 7종 키워드는 그대로 동작한다(하위호환).
   · KEYWORDS(하위호환 평평한 리스트) == GROUP_A + GROUP_B + GROUP_C, 중복 없음.
@@ -35,24 +44,56 @@ os.environ.setdefault("DART_API_KEY", "offline-test-key")  # 모듈 최상단 fa
 import dart as MODULE                                                # noqa: E402
 
 
-# ── Group 별 대표 제목 (실제 DART report_nm 표기 관례를 따른 fixture) ──────
+# ── Group A — 실제 확인한 제목 (출처는 각 항목 옆) ─────────────────────────
 GROUP_A_TITLES = {
+    # DART 표준 공시 항목명. 코스닥/코스피 상장폐지 관련 공시에 쓰이는
+    # 실제 제목("주권상장폐지사유발생")이라는 것을 2026-09-18 리뷰에서
+    # 재확인했다.
     "상장폐지 사유 발생": "주권상장폐지사유발생",
-    "상장폐지 결정": "상장폐지결정",
-    "정리매매 개시": "정리매매개시안내",
-    "감사의견 거절": "감사보고서제출(감사의견거절)",
-    "감사의견 부적정": "감사보고서제출(감사의견부적정)",
-    "감사의견 한정": "감사보고서제출(감사의견한정)",
-    "회생절차 신청": "회생절차개시신청",
+    # 실제 DART 공시(예: rcpNo=20211125900600 계열 종목)의 제목에
+    # "기타시장안내(정리매매 보류 관련)" 형태로 "정리매매"가 그대로 등장한다.
+    "정리매매": "기타시장안내(정리매매 보류 관련)",
+    # 실제 DART 공시 제목: 콘텐트리중앙, "회생절차개시신청(종속회사의주요경영
+    # 사항)", rcpNo=20260616800652, 2026-06-16
+    # (https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260616800652).
+    "회생절차 개시신청": "회생절차개시신청(종속회사의주요경영사항)",
+    # 실제 DART 공시 제목(수피아 dart 미러): "[기재정정]회생절차개시결정"
+    # (코스닥 비유테크놀러지) — "회생절차"가 그대로 등장하는 또 다른 실제 사례.
+    "회생절차 개시결정(정정)": "[기재정정]회생절차개시결정",
+    # 실제 DART 공시 제목: 파산신청, rcpNo=20250102900590, 2025-01-02
+    # (https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20250102900590).
     "파산 신청": "파산신청",
-    "횡령 혐의": "임원의횡령ㆍ배임혐의발생",
-    "배임 혐의": "주요주주의배임혐의발생",
+    # 2026-09-18 리뷰에서 지정한 실제 제목 형태(가운데점 ㆍ 포함) —
+    # "횡령ㆍ배임혐의발생". 리뷰가 재확인을 요구하지 않은 항목이라 그대로 인용.
+    "횡령ㆍ배임 혐의 발생": "횡령ㆍ배임혐의발생",
+    # 실제 보도(이데일리 2021-08-17, bizwatch 2021-08-19)가 그대로 인용한
+    # 쌍용자동차·코오롱머티리얼의 반기검토보고서 공시 제목:
+    # "반기검토 의견 부적정 또는 의견거절". "의견 부적정"·"의견거절"이 그
+    # 안에 그대로 들어 있다 — 감사/분기검토 접두어여도 이 두 부분 문자열
+    # 구조는 동일하다.
+    "반기검토 의견 부적정 또는 의견거절": "반기검토 의견 부적정 또는 의견거절",
 }
 
+# ⚠ "의견한정"/"의견 한정" 은 실제 감사·검토보고서 제목에서 독립적으로
+#   확인하지 못했다 — "의견거절"·"의견 부적정"과 동일한 구조("의견"+opinion
+#   type)를 갖는 셋째 opinion type이라는 것만 안다(2026-09-18 리뷰 지시).
+#   실제 사례를 위장한 fixture를 만들지 않기 위해, 이 키워드가 "A로
+#   분류된다"는 개별 fixture 테스트는 만들지 않는다 — 목록에 있다는 사실만
+#   구조 점검(KeywordUnionInvariantTests)으로 검증한다.
+UNVERIFIED_STRUCTURAL_ONLY_KEYWORDS = ("의견한정", "의견 한정")
+
 GROUP_B_TITLES = {
-    "불성실공시법인 지정": "불성실공시법인지정",
-    "최대주주 변경": "최대주주변경",
-    "경영권 분쟁 소송": "경영권분쟁소송제기",
+    # 실제 KIND 공시 제목: "[3S] 최대주주변경"(acptNo=20240125000750),
+    # "[AP위성] 최대주주변경"(acptno=20240726000693),
+    # "[드림어스컴퍼니] 최대주주변경"(acptno=20251128000536) — 셋 다 붙여 쓴
+    # "최대주주변경"이었다. 띄어 쓴 형태는 확인하지 못해 키워드에서 뺐다.
+    "최대주주 변경": "[AP위성] 최대주주변경",
+    # 실제 더 긴 제목 형태 — "최대주주변경을 수반하는 주식양수도 계약 체결"도
+    # "최대주주변경"을 그대로 포함하는지 별도로 확인한다.
+    "최대주주변경을 수반하는 주식양수도 계약 체결": "최대주주변경을 수반하는 주식양수도 계약 체결",
+    # DART 공시규정 제6조제1항제3호다목(4) 소송 공시의 실제 항목 표기 —
+    # "소송등의제기·신청(경영권분쟁소송)". "경영권분쟁"이 그대로 들어 있다.
+    "경영권분쟁 소송": "소송등의제기·신청(경영권분쟁소송)",
 }
 
 GROUP_C_TITLES = {
@@ -65,11 +106,22 @@ GROUP_C_TITLES = {
     "매출액또는손익구조": "매출액또는손익구조30%(대규모법인은15%)이상변경",
 }
 
+# 실제 DART 정기/일반 공시 제목 — 어느 그룹 키워드에도 걸리지 않아야 한다.
 NON_MATCHING_TITLES = [
     "정기주주총회소집공고",
     "분기보고서",
     "임원ㆍ주요주주특정증권등소유현황보고서",
     "타법인주식및출자증권양도결정",  # Group C 와 무관한 일반 공시
+]
+
+# ★ 오탐 방지 — "의견"이라는 글자만 있고 거절/부적정/한정이 붙지 않은
+#   실제 DART 공시 제목. 리뷰가 예시로 든 두 가지("의견서", "조회공시 요구에
+#   대한 답변")를 그대로 쓴다 — 실제 DART 공시 항목명 표기 관례와 일치한다
+#   ("조회공시요구(풍문또는보도)에대한답변" 계열, "의견서" 첨부 표기).
+BENIGN_TITLES_CONTAINING_UIGYEON = [
+    "의견서",
+    "조회공시 요구에 대한 답변",
+    "조회공시요구(풍문또는보도)에대한답변(의견없음)",
 ]
 
 
@@ -113,6 +165,24 @@ class GroupCBackwardCompatibilityTests(unittest.TestCase):
             self.assertIn(kw, MODULE.KEYWORDS)
 
 
+class FalsePositiveGuardTests(unittest.TestCase):
+    """'의견'이라는 글자만으로는 매칭되지 않는다 — 거절/부적정/한정이 붙어야 A다."""
+
+    def test_benign_titles_with_uigyeon_do_not_match_any_group(self):
+        for title in BENIGN_TITLES_CONTAINING_UIGYEON:
+            with self.subTest(title=title):
+                group, matched = MODULE.classify(title)
+                self.assertIsNone(group)
+                self.assertIsNone(matched)
+                self.assertFalse(MODULE.is_relevant(title))
+
+    def test_at_least_one_benign_fixture_actually_contains_the_trap_substring(self):
+        # ★ 함정 자체가 성립하는지 확인한다 — "의견"이라는 글자가 실제로
+        #   들어 있는 fixture가 최소 하나는 있어야, 이 회귀가 오탐 방지를
+        #   실제로 검사하고 있다고 말할 수 있다.
+        self.assertTrue(any("의견" in title for title in BENIGN_TITLES_CONTAINING_UIGYEON))
+
+
 class NonMatchingTests(unittest.TestCase):
     def test_titles_matching_no_group_are_excluded_and_not_silently_c(self):
         for title in NON_MATCHING_TITLES:
@@ -136,6 +206,11 @@ class DeterministicTwoGroupResolutionTests(unittest.TestCase):
 
     우선순위는 확정 카드의 조치 강도를 반영한다 — 즉시매도+매수차단(A)이
     신규매수차단(B)보다, 신규매수차단(B)이 기록전용(C)보다 우선한다.
+
+    ★ 아래 제목은 실제 공시 인용이 아니라, 여러 그룹의 확인된 키워드를
+      한 문자열에 합쳐 우선순위 알고리즘 자체를 검증하기 위한 합성
+      입력이다(경계 조건 테스트) — GROUP_A/B_TITLES 의 "실제 제목" 주장과는
+      다른 종류의 근거다.
     """
 
     def test_group_a_wins_over_group_c(self):
@@ -180,6 +255,13 @@ class KeywordUnionInvariantTests(unittest.TestCase):
         self.assertEqual(b & c, set())
         self.assertEqual(a & c, set())
 
+    def test_unverified_structural_variants_are_declared_but_not_claimed_real(self):
+        # "의견한정"류는 목록에는 있지만(리뷰 지시 반영), 실제 사례로 확인하지
+        # 못했다는 사실 자체를 테스트로 고정한다 — 조용히 "확인됨"으로 넘어가지
+        # 않는다.
+        for kw in UNVERIFIED_STRUCTURAL_ONLY_KEYWORDS:
+            self.assertIn(kw, MODULE.GROUP_A_KEYWORDS)
+
 
 class NoActionAuthorityTests(unittest.TestCase):
     """이 커밋은 수집·분류만 한다 — 매도/매수 차단 실행은 구현하지 않는다."""
@@ -194,10 +276,11 @@ class NoActionAuthorityTests(unittest.TestCase):
         self.assertEqual(offending, [], f"조치성 함수가 발견됨: {offending}")
 
     def test_classify_and_is_relevant_return_plain_data_not_actions(self):
-        group, matched = MODULE.classify("상장폐지결정")
+        title = "주권상장폐지사유발생"  # 실제 DART 표준 공시 제목 (GROUP_A_TITLES 와 동일 근거)
+        group, matched = MODULE.classify(title)
         self.assertIsInstance(group, str)
         self.assertIsInstance(matched, str)
-        self.assertIsInstance(MODULE.is_relevant("상장폐지결정"), bool)
+        self.assertIsInstance(MODULE.is_relevant(title), bool)
 
 
 if __name__ == "__main__":
