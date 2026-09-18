@@ -19,9 +19,11 @@ already-committed repository data and writes only to a temporary directory
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -36,6 +38,9 @@ RATIFIED_PRODUCER = ".github/scripts/korea_market_signals.py"
 POINTER_PATH = "data/latest_korea_market_signals.json"
 REVIEW_PATH = "data/latest_korea_symbol_market_review.json"
 KR_OBSERVATION = ROOT / "decision" / "korea_population_symbol_observation.py"
+REGISTRY = ROOT / "config" / "regime_source_owner_registry_v2.json"
+REGISTRY_SHA256 = "8dd2ad50f66e144aaca78ffc6a82615d814dee2b8f23f736cdbc85a56dba68bb"
+WRITER_OVERLAY = ROOT / "config" / "korea_five_signal_pointer_writer_v1.json"
 
 
 def _load_producer():
@@ -605,6 +610,138 @@ class FiveSignalPointerAdvancesKrPopulationTest(unittest.TestCase):
                 contract=self.CORE.load_contract(),
             )
         self.assertIn("KR_BOUNDED_REVIEW_NOT_REPRODUCIBLE", str(caught.exception))
+
+
+class FiveSignalWriterOverlayTest(unittest.TestCase):
+    """The additive record of the real production path.
+
+    config/regime_source_owner_registry_v2.json is byte-frozen: two live
+    runtimes fail closed with POLICY_BINDING_DRIFT on any byte change, and
+    the configs that pin it are themselves pinned by committed append-only
+    evidence. The accurate production path is therefore recorded in a
+    separate overlay -- the pattern config/paper_runtime_normalization_v1.json,
+    config/regime_semantic_freshness_policy_v1.json and
+    config/us_session_calendar_source_v1.json already use.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        cls.owner = cls.registry["markets"]["KRX"]["source_owner"]
+        cls.overlay = json.loads(WRITER_OVERLAY.read_text(encoding="utf-8"))
+        with WORKFLOW.open(encoding="utf-8") as stream:
+            cls.workflow = yaml.safe_load(stream)
+
+    def test_registry_bytes_are_unchanged_by_this_overlay(self):
+        self.assertEqual(
+            hashlib.sha256(REGISTRY.read_bytes()).hexdigest(), REGISTRY_SHA256
+        )
+        binding = self.overlay["registry_binding"]
+        self.assertEqual(binding["path"], "config/regime_source_owner_registry_v2.json")
+        self.assertEqual(binding["sha256"], REGISTRY_SHA256)
+        self.assertEqual(binding["mode"], "ADDITIVE_OVERLAY_REGISTRY_BYTES_UNCHANGED")
+
+    def test_registry_pins_still_hold_including_workflow_path(self):
+        # The same generic rule test_regime_decision_authority.py's
+        # assert_pins applies: every *_sha256 key is re-derived from its
+        # sibling *_path. workflow_path is machine-read -- as the address
+        # of a byte pin -- and this overlay must not disturb it.
+        checked = []
+        for key, expected in self.owner.items():
+            if not key.endswith("_sha256"):
+                continue
+            path_key = key.removesuffix("_sha256") + "_path"
+            if path_key not in self.owner:
+                continue
+            checked.append(path_key)
+            self.assertEqual(
+                hashlib.sha256((ROOT / self.owner[path_key]).read_bytes()).hexdigest(),
+                expected,
+                path_key,
+            )
+        self.assertEqual(
+            sorted(checked), ["contract_path", "producer_path", "workflow_path"]
+        )
+        self.assertEqual(
+            self.overlay["registry_workflow_path_semantics"]["recorded_value"],
+            self.owner["workflow_path"],
+        )
+        self.assertTrue(
+            self.overlay["registry_workflow_path_semantics"]["unchanged_by_this_record"]
+        )
+
+    def test_overlay_records_a_production_path_not_a_ratification(self):
+        # Nothing here may read as a new policy, status or authority.
+        self.assertEqual(
+            self.overlay["record_mode"],
+            "PRODUCTION_PATH_RECORD_ONLY_NO_RATIFICATION_NO_POLICY_CHANGE",
+        )
+        self.assertNotIn("policy_status", self.overlay)
+        self.assertNotIn("ratification", self.overlay)
+        self.assertNotIn("decision", self.overlay)
+        for key, value in self.overlay["authority"].items():
+            if key.endswith("_authorized"):
+                self.assertFalse(value, key)
+        self.assertTrue(self.overlay["authority"]["record_only"])
+        self.assertFalse(self.overlay["authority"]["registry_amendment_authorized"])
+        # The registry's own unchanged records are named as still standing.
+        kept = " ".join(self.overlay["does_not_supersede"])
+        self.assertIn("byte-freeze anchor", kept)
+        self.assertIn("producer_path", kept)
+        self.assertIn("forbidden_promotions", kept)
+
+    def test_overlay_writer_is_the_job_this_workflow_actually_runs(self):
+        writer = self.overlay["writer"]
+        self.assertEqual(
+            writer["workflow_path"], ".github/workflows/korea-leadership-live-proof.yml"
+        )
+        self.assertEqual(
+            (ROOT / writer["workflow_path"]).resolve(), WORKFLOW.resolve()
+        )
+        job = self.workflow["jobs"][writer["job"]]
+        self.assertEqual(job["permissions"], {"contents": "write"})
+        body = "\n".join(step.get("run", "") for step in job["steps"])
+        self.assertIn(writer["producer_path"], body)
+        for committed in writer["commits"]:
+            self.assertIn(committed.split("/<")[0], body)
+
+    def test_overlay_reuses_the_registrys_own_producer_and_contract(self):
+        writer = self.overlay["writer"]
+        self.assertEqual(writer["producer_path"], self.owner["producer_path"])
+        self.assertEqual(writer["producer_sha256"], self.owner["producer_sha256"])
+        self.assertEqual(writer["contract_path"], self.owner["contract_path"])
+        self.assertEqual(writer["contract_sha256"], self.owner["contract_sha256"])
+        self.assertEqual(writer["additional_provider_calls"], 1)
+        self.assertEqual(writer["idempotency_token"], "reused")
+        self.assertEqual(writer["raw_row_persistence"], 0)
+        self.assertEqual(writer["per_symbol_persistence"], 0)
+        self.assertFalse(writer["public_artifact_upload"])
+
+    def test_overlay_does_not_byte_freeze_the_new_writer(self):
+        # Recording a workflow_sha256 for the writer would recreate the very
+        # condition that left this pointer without one: a workflow frozen by
+        # a pin, so new work has to go somewhere else.
+        writer = self.overlay["writer"]
+        self.assertNotIn("workflow_sha256", writer)
+        self.assertEqual(writer["binding_mode"], "STRUCTURAL_NOT_BYTE_PINNED")
+
+    def test_overlay_pins_nothing_beyond_what_the_registry_already_pins(self):
+        # Every sha256 this overlay carries must already be a value the
+        # registry itself records. A new pin on any other file is how this
+        # record would quietly acquire a cascade of its own -- in particular
+        # onto config/crypto_paper_runtime_v1.json or
+        # config/us_session_calendar_source_v1.json, whose bytes committed
+        # append-only evidence hash-binds. Naming those files in prose is
+        # explanation; pinning their bytes would not be.
+        allowed = {
+            REGISTRY_SHA256,
+            self.owner["workflow_sha256"],
+            self.owner["producer_sha256"],
+            self.owner["contract_sha256"],
+        }
+        found = set(re.findall(r"\b[0-9a-f]{64}\b", WRITER_OVERLAY.read_text(encoding="utf-8")))
+        self.assertTrue(found)
+        self.assertEqual(found - allowed, set())
 
 
 if __name__ == "__main__":
