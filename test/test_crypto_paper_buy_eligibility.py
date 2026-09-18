@@ -541,7 +541,14 @@ class PaperRiskBudgetTests(unittest.TestCase):
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("SINGLE_ASSET_PAPER_EXPOSURE_CAP", result["reason"])
 
-    def test_fail_when_max_concurrent_positions_breached(self):
+    def test_old_max_concurrent_positions_cap_is_superseded_and_not_enforced(self):
+        """RATIFIED (build plan row C4, 2026-09-18): the old fixed
+        max_concurrent_paper_positions=3 cap is superseded ("옛 코인 3종목
+        한도 대체") -- NameRoom/aggregate-room bind instead. A 4th position
+        that would have tripped the old count-based cap must now PASS as
+        long as it stays within the (still-enforced) single-asset and
+        aggregate NAV caps.
+        """
         existing = [
             {"asset_id": f"X{i}", "planned_loss_nav_fraction": "0.0001", "portfolio_weight_nav_fraction": "0.01"}
             for i in range(3)
@@ -549,8 +556,14 @@ class PaperRiskBudgetTests(unittest.TestCase):
         result = P59.evaluate_paper_risk_budget(
             self._entry_invalidation(), self.policy, paper_account_state(open_positions=existing), 18,
         )
-        self.assertEqual(result["status"], "FAIL")
-        self.assertIn("MAX_CONCURRENT_PAPER_POSITIONS", result["reason"])
+        self.assertEqual(result["status"], "PASS")
+        self.assertNotIn("MAX_CONCURRENT_PAPER_POSITIONS", str(result))
+        self.assertEqual(result["projected_open_position_count"], 4)
+
+    def test_max_concurrent_paper_positions_field_removed_from_policy(self):
+        """Pins the ratified removal: the field must not silently reappear
+        without a matching ratification amending build plan row C4."""
+        self.assertNotIn("max_concurrent_paper_positions", self.policy["risk"])
 
     def test_total_crypto_cap_uses_exposure_not_planned_loss(self):
         existing = [
@@ -920,6 +933,72 @@ class ContractAndPolicyTests(unittest.TestCase):
         self.assertEqual(policy["baseline_label"], "PROPOSED_PAPER_BASELINE")
         self.assertTrue(policy["not_a_live_capital_limit"])
         self.assertNotEqual(policy["approval_status"], "RATIFIED")
+        self.assertEqual(
+            policy["approval_status"],
+            "PAPER_BASELINE_PARTIALLY_RATIFIED_PENDING_STATE_MULTIPLIER_AND_ADV_INPUT",
+        )
+
+    def test_ratified_risk_values_pinned(self):
+        """RATIFIED 2026-09-18 (build plan row C4 /
+        USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json): the
+        single-asset cap is 5% of NAV; the old fixed 3-position cap is gone.
+        The aggregate cap stays at the old, more conservative 5% flat value
+        because this module has no crypto market-state input to compute the
+        ratified NAV0 x 0.15 x state-multiplier formula -- see the config's
+        source_reference and the comment above `_paper_risk`.
+        """
+        policy = P59.load_policy()
+        self.assertEqual(policy["risk"]["single_asset_paper_exposure_nav_fraction"], "0.05")
+        self.assertEqual(policy["risk"]["total_crypto_paper_exposure_nav_fraction"], "0.05")
+        self.assertNotIn("max_concurrent_paper_positions", policy["risk"])
+
+    def test_paper_risk_reads_single_asset_cap_from_config_not_hardcoded(self):
+        """Proves `_paper_risk` enforces whatever the policy file says, not
+        a duplicated literal -- a config edit alone must move the gate.
+        Guards against the ratified 0.05 and the config drifting apart
+        again the way the old 0.02 baseline drifted from build plan C4.
+        """
+        from decimal import Decimal
+
+        policy = copy.deepcopy(P59.load_policy())
+        entry_price, stop_price = Decimal("105"), Decimal("100")
+        account = paper_account_state()
+
+        # At the shipped 5% cap, a ~9.5% position breaches.
+        baseline = P59._paper_risk(entry_price, stop_price, policy, account, 18)
+        self.assertIn("SINGLE_ASSET_PAPER_EXPOSURE_CAP", baseline["breaches"])
+
+        # Widening the config's single-asset cap alone (no code change)
+        # must make the same position pass -- proving the value is read
+        # from the policy dict, not hardcoded inside `_paper_risk`.
+        widened = copy.deepcopy(policy)
+        widened["risk"]["single_asset_paper_exposure_nav_fraction"] = "0.50"
+        widened_result = P59._paper_risk(entry_price, stop_price, widened, account, 18)
+        self.assertNotIn("SINGLE_ASSET_PAPER_EXPOSURE_CAP", widened_result["breaches"])
+
+        # Narrowing it below the same position's weight must (re)breach it.
+        narrowed = copy.deepcopy(policy)
+        narrowed["risk"]["single_asset_paper_exposure_nav_fraction"] = "0.001"
+        narrowed_result = P59._paper_risk(entry_price, stop_price, narrowed, account, 18)
+        self.assertIn("SINGLE_ASSET_PAPER_EXPOSURE_CAP", narrowed_result["breaches"])
+
+    def test_policy_risk_schema_rejects_reintroduced_max_concurrent_field(self):
+        """If a future edit re-adds `max_concurrent_paper_positions` to the
+        config without also updating `load_policy`'s schema (and thereby
+        without a matching ratification), loading must fail closed rather
+        than silently enforcing an unratified cap again."""
+        path = P59.POLICY_PATH
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["risk"]["max_concurrent_paper_positions"] = 3
+        tmp_path = path.parent / "_tmp_test_crypto_paper_buy_eligibility_policy.json"
+        tmp_path.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            with self.assertRaisesRegex(
+                P59.CryptoPaperBuyEligibilityError, "POLICY_RISK_FIELDS_INVALID",
+            ):
+                P59.load_policy(tmp_path)
+        finally:
+            tmp_path.unlink()
 
 
 if __name__ == "__main__":

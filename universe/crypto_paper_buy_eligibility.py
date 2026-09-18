@@ -256,7 +256,7 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
         raise CryptoPaperBuyEligibilityError("POLICY_BASELINE_LABEL_INVALID")
     if value.get("baseline_version") != "v1":
         raise CryptoPaperBuyEligibilityError("POLICY_BASELINE_VERSION_INVALID")
-    if value.get("approval_status") != "PROPOSED_PAPER_BASELINE_UNRATIFIED":
+    if value.get("approval_status") != "PAPER_BASELINE_PARTIALLY_RATIFIED_PENDING_STATE_MULTIPLIER_AND_ADV_INPUT":
         raise CryptoPaperBuyEligibilityError("POLICY_APPROVAL_STATUS_INVALID")
     if not isinstance(value.get("effective_date"), str) or not _DATE_RE.fullmatch(value["effective_date"]):
         raise CryptoPaperBuyEligibilityError("POLICY_EFFECTIVE_DATE_INVALID")
@@ -276,9 +276,14 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
         raise CryptoPaperBuyEligibilityError("POLICY_BREAKOUT_LOOKBACK_INVALID")
     _decimal(breakout["volume_ratio_min"], "POLICY_VOLUME_RATIO_INVALID", positive=True)
     risk = value["risk"]
+    # NOTE: "max_concurrent_paper_positions" is deliberately absent. The old
+    # fixed 3-position cap is superseded per ratification (build plan row
+    # C4 / USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json) --
+    # NameRoom (single-asset cap) and the crypto aggregate cap bind instead.
+    # Do not re-add a position-count field without a matching ratification.
     required_risk = {
         "per_trade_planned_loss_nav_fraction", "total_crypto_paper_exposure_nav_fraction",
-        "single_asset_paper_exposure_nav_fraction", "max_concurrent_paper_positions",
+        "single_asset_paper_exposure_nav_fraction",
     }
     if not isinstance(risk, dict) or set(risk) != required_risk:
         raise CryptoPaperBuyEligibilityError("POLICY_RISK_FIELDS_INVALID")
@@ -288,8 +293,6 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
         "single_asset_paper_exposure_nav_fraction",
     ):
         _decimal(risk[key], f"POLICY_RISK_VALUE_INVALID:{key}", positive=True, maximum=Decimal("1"))
-    if not isinstance(risk["max_concurrent_paper_positions"], int) or risk["max_concurrent_paper_positions"] < 1:
-        raise CryptoPaperBuyEligibilityError("POLICY_MAX_POSITIONS_INVALID")
     return copy.deepcopy(value)
 
 
@@ -685,13 +688,27 @@ def _paper_risk(
     per_trade_fraction = _decimal(
         policy["risk"]["per_trade_planned_loss_nav_fraction"], "POLICY_PER_TRADE_LOSS_INVALID", positive=True
     )
+    # RATIFIED (build plan row C4 / USER_RATIFICATION_PAPER_MARKET_ALLOCATION_
+    # V2_20260913.json): the crypto aggregate cap is NAV0 x 0.15 x the
+    # crypto market's own state multiplier (RISK_ON 1.00 / NEUTRAL 0.70 /
+    # RISK_OFF 0.25 / STRESS 0.00 / UNKNOWN hold-up-to-0.50-no-new-buys).
+    # This function has no crypto market-state input to look up that
+    # multiplier, so `total_crypto_paper_exposure_nav_fraction` below is
+    # read as-is from policy (still the old, strictly more conservative
+    # 0.05 flat baseline) rather than approximating the ratified formula.
+    # Wiring the true cap needs: (a) the crypto market's current regime
+    # state passed into this function/its caller, and (b) a state ->
+    # multiplier lookup keyed to that ratification record.
     total_cap = _decimal(
         policy["risk"]["total_crypto_paper_exposure_nav_fraction"], "POLICY_TOTAL_CAP_INVALID", positive=True
     )
+    # RATIFIED single-name cap: NAV 5% (build plan row C4). A further
+    # ratified liquidity cap -- 1% of 30-day average traded value (ADV) --
+    # is NOT enforced here: this function receives no 30-day ADV for the
+    # market, so no liquidity-room check is computed rather than guessed.
     single_cap = _decimal(
         policy["risk"]["single_asset_paper_exposure_nav_fraction"], "POLICY_SINGLE_CAP_INVALID", positive=True
     )
-    max_positions = policy["risk"]["max_concurrent_paper_positions"]
 
     planned_loss_krw = total_nav * per_trade_fraction
     stop_distance = entry_price - stop_price
@@ -701,14 +718,15 @@ def _paper_risk(
 
     projected_total_loss = existing_total_loss + per_trade_fraction
     projected_total_exposure = existing_total_exposure + position_weight
+    # Position count is retained for observability only. The old fixed
+    # max_concurrent_paper_positions=3 cap is superseded per ratification
+    # (build plan row C4: "옛 코인 3종목 한도 대체") and is not enforced.
     projected_position_count = len(open_positions) + 1
     breaches = []
     if projected_total_exposure > total_cap:
         breaches.append("TOTAL_CRYPTO_PAPER_EXPOSURE_CAP")
     if position_weight > single_cap:
         breaches.append("SINGLE_ASSET_PAPER_EXPOSURE_CAP")
-    if projected_position_count > max_positions:
-        breaches.append("MAX_CONCURRENT_PAPER_POSITIONS")
     return {
         "quantity": quantity,
         "planned_loss_krw": planned_loss_krw,
