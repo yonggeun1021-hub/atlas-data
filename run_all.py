@@ -2825,6 +2825,72 @@ APPROVED_TESTS = [
     #      단기과열·거래정지는 KIS 종목 마스터 전용으로 남겨 중복 수집하지
     #      않는다. live DART API 호출 없음 — fixture 제목만 오프라인 검증.
     "test/test_dart_adverse_filing_classification.py",
+    # ★ Benchmark ("simply bought and held") NAV series
+    #   (validation/paper_benchmark_nav_series.py +
+    #   config/paper_benchmark_nav_series_policy.json). Unblocks checkpoint B
+    #   (day 30) stop rules 1 (비용 차감 후 그냥 보유보다 낮다) and 5 (하락
+    #   구간에서 그냥 보유보다 더 깎였다), neither of which was computable:
+    #   validation/crypto_paper_counterfactual.py's only counterfactual is
+    #   no_trade_benchmark_pnl = "0", which is not holding. The anchor is the
+    #   product: anchor_utc is derived from the ledger's first FILL_APPLIED
+    #   event (a supplied value is only ever compared), the anchor price must
+    #   already have existed at that instant within the RATIFIED Upbit
+    #   orderbook staleness window, two eligible prices refuse as ambiguous,
+    #   the record must be written within one decision cycle of the fill, and
+    #   the pointer is created with open(..., "x") so a second different
+    #   anchor refuses. Both benchmark variants (EXPOSURE_MATCHED comparable
+    #   with the account's total NAV, ASSET_ONLY the sleeve alone) are emitted
+    #   and NEITHER is a verdict -- which one binds the stop rules is
+    #   RATIFICATION_VARIANT_BINDING. CIO decision 2026-09-18 (option c, card
+    #   CLAUDE_CIO_DECISION_BENCHMARK_NOTIONAL_BASIS_20260918.md): both notional
+    #   bases are emitted from ONE anchor, so four named series --
+    #   {FLAT_BASE_SHARE, MULTIPLIER_MATCHED} x {EXPOSURE_MATCHED, ASSET_ONLY}.
+    #   The mapping (rule 1 -> flat, rule 5 -> multiplier-matched) is
+    #   declared_stop_rule_binding in the policy, RATIFIED 2026-09-18 by the
+    #   user's own record (evidence/authority/
+    #   USER_RATIFICATION_BENCHMARK_NOTIONAL_BASIS_20260918.json, sha256
+    #   ae04aea2...) which load_policy resolves and HASHES rather than trusting
+    #   as a string -- a policy that claims a binding the record does not say is
+    #   refused. It is copied into every anchor and series record, so it cannot
+    #   be chosen at day 30 to suit the result. Ratifying the binding is NOT
+    #   authority to publish a verdict: verdict_authorized stays false, every
+    #   verdict stays NOT_EMITTED_RATIFICATION_REQUIRED, and the two disclosed
+    #   residuals (RATIFICATION_LEDGER_ATTESTATION,
+    #   RATIFICATION_CLOCK_ATTESTATION) stay open -- a policy marking either
+    #   resolved is refused.
+    #   The market state at the anchoring fill enters through exactly ONE named
+    #   function (read_market_state) with a documented contract and NO path of
+    #   this module's own -- the state-multiplier wiring has not settled on an
+    #   artifact yet (RATIFICATION_MARKET_STATE_SOURCE_BINDING). UNKNOWN at the
+    #   anchoring fill refuses outright rather than taking 0.50 from its ratified
+    #   sentence; RISK_OFF/STRESS refuse as states that deny new buys; an absent,
+    #   future or stale state (beyond the ratified crypto observation gap) refuses
+    #   rather than assuming RISK_ON. Fee rate and entry slippage come off the
+    #   account's own first fill (the simulator has no repository default for
+    #   fee); no cost constant is invented here. Fail closed: a missing mark
+    #   at a sample, an off-grid mark, a gap wider than the ratified rotation
+    #   gap, a null NAV. Review 2026-09-18 closed three forgery gaps, each with
+    #   its own regression: the ledger must be recovered from its published
+    #   append-only snapshot store and matched to a genesis pin (a bare
+    #   hash-consistent dict is refused), recorded_at_utc is bounded by an
+    #   independently observed post-fill clock witness instead of being taken on
+    #   trust, and the binding is read back out of append-only bindings markers
+    #   plus the content-addressed records, so deleting the pointer file no
+    #   longer lets a second anchor bind. Fully offline -- ledgers are built by the P10-11
+    #   simulator's own builders, prices are fixtures, no network and no
+    #   evidence directory outside a temporary one. Invoked by no workflow or
+    #   schedule in THIS repo (a test asserts that, and that the CLI is
+    #   dispatch-only). Its one caller is the private crypto PAPER runtime,
+    #   which derives the anchor after its own restart-verified ledger write and
+    #   cannot let a benchmark failure touch the fill; the former
+    #   test_this_module_is_wired_into_no_workflow was replaced by the three
+    #   properties that actually hold (no public caller; no anchor before a
+    #   fill; one binding per account, a second different anchor refuses).
+    #   Every *_authorized field stays False.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_paper_benchmark_nav_series.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
