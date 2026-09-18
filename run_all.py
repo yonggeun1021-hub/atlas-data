@@ -2747,6 +2747,21 @@ APPROVED_TESTS = [
     #      not silently hidden from the test-set comparison.
     "test/test_fred_dexkous_fx.py",
     "test/test_fred_dexkous_fx_workflow.py",
+    # ★ Evidence-loss guard for fred-dexkous-fx.yml's commit step
+    #   (collectors/verify_evidence_staged.py). Added after a 2026-09-17/18
+    #   investigation into an apparent FRED DEXKOUS FX observation gap that
+    #   turned out to be a log-reading false alarm (test/test_fred_dexkous_fx.py's
+    #   own offline end-to-end test prints a summary that looks like a real
+    #   write because it hardcodes the fixture date "2026-09-15", but it
+    #   runs against an isolated tempfile.TemporaryDirectory(), never the
+    #   real checkout). The real gap the investigation surfaced: nothing
+    #   would have caught it if a commit had genuinely dropped a file the
+    #   collector reported writing -- this test proves that shape now goes
+    #   red (exit 1) instead of green.
+    #   ⛔ CI-only git-staging check; runs entirely inside a throwaway local
+    #      `git init` repo it creates itself; no network, no trading/
+    #      allocation authority, never touches the real evidence tree.
+    "test/test_verify_evidence_staged.py",
     # ★ RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 evidence capture
     #   (collectors/spdr_sector_holdings.py) + reader
     #   (universe/us_spdr_sector_mapping.py). Daily holdings for the 11
