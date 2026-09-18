@@ -495,7 +495,300 @@ def _source_lag_cycles(spec: dict, root: Path, our_date: dt.date, source_date: d
     return len(missed_expected_days(spec["calendar"], our_date, source_date, root))
 
 
-def evaluate_file_item(spec: dict, root: Path, today: dt.date) -> dict:
+# ---------------------------------------------------------------------------
+# Run-conclusion axis ("is a non-red latest run hiding real failures?")
+# ---------------------------------------------------------------------------
+#
+# A workflow's *latest* run conclusion can be ``skipped`` while real failures
+# sit behind it, which makes every consumer of "latest run conclusion" -- the
+# badge, a dashboard, the portal status tile -- read non-red while the producer
+# has in fact been down. Observed 2026-09-18 on
+# ``.github/workflows/paper-regime-reference.yml``:
+#
+#   35295228731  01:25Z  failure
+#   35296380899  01:42Z  failure
+#   35296682372  01:46Z  skipped   <- newest terminal state
+#   35298736708  02:17Z  skipped
+#
+# The skips come from that workflow's job-level
+# ``if: ... || github.event.workflow_run.conclusion == 'success'``: the run was
+# a ``workflow_run`` trigger from an upstream that concluded ``cancelled``, so
+# its single ``build`` job never ran at all.
+#
+# This module still performs **no network call of its own**. Run history is
+# supplied as a JSON file (``--run-history``) that the workflow writes with
+# ``gh api`` using the token it already has; when the file is absent or
+# unreadable the axis fails closed to RUN_HISTORY_UNAVAILABLE and, critically,
+# never suppresses an output-staleness alarm. Output staleness is judged purely
+# from committed evidence and always stands on its own -- a producer whose
+# output is stale alarms even when no run failed.
+
+RUN_HISTORY_SCHEMA = "daily_producer_run_history/1"
+
+TERMINAL_CONCLUSIONS = {"success", "failure"}
+FAILED_CONCLUSIONS = {"failure", "cancelled", "timed_out", "startup_failure"}
+DEFAULT_TERMINAL_RUN_WINDOW_HOURS = 24
+
+RUN_STATUS_OK = "OK"
+RUN_STATUS_NO_WORKFLOW = "NO_WORKFLOW"
+RUN_STATUS_HISTORY_UNAVAILABLE = "RUN_HISTORY_UNAVAILABLE"
+RUN_STATUS_NO_RUNS_RECORDED = "NO_RUNS_RECORDED"
+
+
+def load_run_history(path: Path | None) -> dict | None:
+    """Read the run-history sidecar the workflow fetched, or None.
+
+    Fail-closed: a missing, unreadable, or wrong-schema file yields None, which
+    the caller reports as RUN_HISTORY_UNAVAILABLE rather than as "runs fine".
+    """
+    if path is None:
+        return None
+    payload = _read_json(path)
+    if payload is None:
+        return None
+    if payload.get("schema_version") != RUN_HISTORY_SCHEMA:
+        return None
+    workflows = payload.get("workflows")
+    return payload if isinstance(workflows, dict) else None
+
+
+def _parse_run_timestamp(value: object) -> dt.datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+
+
+def _sorted_runs(raw_runs: object) -> list[dict]:
+    """Completed runs, newest first, with a parsed timestamp attached."""
+    runs = []
+    for entry in raw_runs if isinstance(raw_runs, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        created = _parse_run_timestamp(entry.get("created_at"))
+        if created is None:
+            continue
+        runs.append({**entry, "_created": created})
+    runs.sort(key=lambda run: run["_created"], reverse=True)
+    return runs
+
+
+def _run_label(run: dict) -> str:
+    return f"run {run.get('id')} {run.get('created_at')} {run.get('conclusion')}"
+
+
+def evaluate_run_conclusions(
+    spec: dict,
+    history: dict | None,
+    now_utc: dt.datetime,
+    today_is_expected: bool,
+) -> dict:
+    """Classify a producer's recent run conclusions.
+
+    Returns ``run_status`` plus, when something is wrong, the candidate status
+    and a detail naming the *last actual failure* rather than the skip that
+    hides it.
+    """
+    workflow_file = spec.get("workflow_file")
+    if not workflow_file:
+        # Producers with no workflow at all (the population observations) have
+        # no run history to read; their silence is already covered by the
+        # NO_SCHEDULE axis.
+        return {"run_status": RUN_STATUS_NO_WORKFLOW}
+    if history is None:
+        return {"run_status": RUN_STATUS_HISTORY_UNAVAILABLE}
+
+    runs = _sorted_runs(history["workflows"].get(workflow_file))
+    if not runs:
+        return {"run_status": RUN_STATUS_NO_RUNS_RECORDED}
+
+    facts: dict = {
+        "run_status": RUN_STATUS_OK,
+        "latest_run_conclusion": runs[0].get("conclusion"),
+        "latest_run_id": runs[0].get("id"),
+        "latest_run_created_at": runs[0].get("created_at"),
+    }
+
+    # Runs since the last success -- the window in which a hidden failure lives.
+    since_success: list[dict] = []
+    for run in runs:
+        if run.get("conclusion") == "success":
+            facts["last_success_run_id"] = run.get("id")
+            facts["last_success_created_at"] = run.get("created_at")
+            break
+        since_success.append(run)
+
+    hidden_failures = [run for run in since_success if run.get("conclusion") in FAILED_CONCLUSIONS]
+    if runs[0].get("conclusion") == "skipped" and hidden_failures:
+        # Report the real failure, not the skip that became the newest state.
+        last_failure = hidden_failures[0]
+        facts["run_status"] = "SKIPPED_OVER_FAILURE"
+        facts["last_actual_failure"] = {
+            "id": last_failure.get("id"),
+            "created_at": last_failure.get("created_at"),
+            "conclusion": last_failure.get("conclusion"),
+        }
+        facts["candidate_status"] = "LATEST_RUN_SKIPPED_OVER_FAILURE"
+        facts["candidate_detail"] = (
+            f"latest run is skipped ({_run_label(runs[0])}) but the producer has been failing since "
+            f"{last_failure.get('created_at')}: last actual failure {_run_label(last_failure)}"
+            + (
+                f"; {len(hidden_failures)} failed run(s) since the last success "
+                f"({facts.get('last_success_created_at')})"
+                if facts.get("last_success_created_at")
+                else f"; {len(hidden_failures)} failed run(s) and no success on record"
+            )
+            + ". Anything reading 'latest run conclusion' sees a non-red state."
+        )
+        return facts
+
+    # Silence: an upstream-triggered producer that keeps being skipped never
+    # reaches a terminal state, so nothing goes red anywhere.
+    window_hours = spec.get("terminal_run_window_hours", DEFAULT_TERMINAL_RUN_WINDOW_HOURS)
+    cutoff = now_utc - dt.timedelta(hours=window_hours)
+    recent = [run for run in runs if run["_created"] >= cutoff]
+    terminal = [run for run in recent if run.get("conclusion") in TERMINAL_CONCLUSIONS]
+    facts["runs_in_window"] = len(recent)
+    facts["terminal_runs_in_window"] = len(terminal)
+    facts["terminal_run_window_hours"] = window_hours
+
+    if runs[0].get("conclusion") in FAILED_CONCLUSIONS:
+        # Recorded, not alarmed. A plain failing latest run is already visibly
+        # red on every badge and dashboard -- it is not a blindness case -- and
+        # whether it matters is decided by the output-staleness and
+        # classification axes, which do not depend on run metadata at all. But
+        # reporting it as run_status OK would be simply untrue.
+        facts["run_status"] = "LATEST_RUN_FAILED"
+        facts["failed_runs_since_last_success"] = len(hidden_failures)
+        return facts
+
+    if not terminal and today_is_expected:
+        facts["run_status"] = "SILENT_NO_TERMINAL_RUN"
+        facts["candidate_status"] = "PRODUCER_SILENT_NO_TERMINAL_RUN"
+        non_terminal = ", ".join(sorted({str(run.get("conclusion")) for run in recent})) or "none"
+        facts["candidate_detail"] = (
+            f"no run reached success or failure in the last {window_hours}h "
+            f"({len(recent)} run(s) recorded, conclusions: {non_terminal}); an upstream stall keeps "
+            f"this producer silent with no red state anywhere"
+        )
+    return facts
+
+
+# ---------------------------------------------------------------------------
+# Classification axis ("the pointer exists -- but is the state available?")
+# ---------------------------------------------------------------------------
+#
+# A pointer being present and dated today does not mean the state downstream
+# rules depend on is available. ``.github/workflows/crypto-regime-refresh-watchdog.yml``
+# checks only that ``data/latest_crypto_regime_refresh_status.json`` carries
+# today's 5/5 current-reference pointer, so it reports green while
+# ``official_decision.classification_status`` is a WAIT_* state and
+# ``runtime_regime`` is UNKNOWN because a required input is missing. Issue #511
+# has been open since 2026-08-31 on exactly that. This module therefore keys on
+# the producer's own declared *classification status*, never on pointer
+# presence -- and it does not try to fix that other workflow.
+#
+# Fail-closed in both directions that matter: a status nobody has declared is
+# an alarm (a new unrecognised state must not pass silently), and a status the
+# repo has deliberately parked as pending ratification is reported without
+# alarming, so a designed long-running state never becomes daily noise.
+
+CLASS_STATUS_NOT_DECLARED = "NOT_DECLARED"
+CLASS_STATUS_AVAILABLE = "AVAILABLE"
+CLASS_STATUS_EXPECTED_UNAVAILABLE = "EXPECTED_UNAVAILABLE"
+CLASS_STATUS_UNAVAILABLE = "UNAVAILABLE"
+CLASS_STATUS_UNDECLARED_VALUE = "UNDECLARED_STATUS_VALUE"
+CLASS_STATUS_FIELD_MISSING = "STATUS_FIELD_MISSING"
+
+
+def _classification_entries(spec: dict, parsed: dict) -> list[tuple[str, object, object]]:
+    """(scope label, status value, missing-inputs value) per classified scope.
+
+    ``per_market_field`` fans out over a list of per-market objects so each
+    market is judged on its own status rather than on a whole-file summary.
+    """
+    locator = spec["classification"]
+    per_market = locator.get("per_market_field")
+    if per_market:
+        markets = _get_nested(parsed, per_market)
+        entries = []
+        for market in markets if isinstance(markets, list) else []:
+            if not isinstance(market, dict):
+                continue
+            label = str(market.get(locator.get("market_label_field", "market"), "?"))
+            entries.append((
+                label,
+                _get_nested(market, locator["status_field"]),
+                _get_nested(market, locator["missing_inputs_field"]) if locator.get("missing_inputs_field") else None,
+            ))
+        return entries
+    return [(
+        "ALL",
+        _get_nested(parsed, locator["status_field"]),
+        _get_nested(parsed, locator["missing_inputs_field"]) if locator.get("missing_inputs_field") else None,
+    )]
+
+
+def evaluate_classification(spec: dict, parsed: dict | None) -> dict:
+    locator = spec.get("classification")
+    if locator is None:
+        return {"classification_status": CLASS_STATUS_NOT_DECLARED}
+    if parsed is None:
+        return {"classification_status": CLASS_STATUS_FIELD_MISSING}
+
+    entries = _classification_entries(spec, parsed)
+    if not entries:
+        return {"classification_status": CLASS_STATUS_FIELD_MISSING}
+
+    available = set(locator["available_statuses"])
+    expected_unavailable = set(locator.get("expected_unavailable_statuses", ()))
+    failure_markers = tuple(locator.get("failure_markers", ()))
+
+    observed: dict[str, str] = {}
+    problems: list[str] = []
+    parked: list[str] = []
+    for label, status, missing_inputs in entries:
+        observed[label] = status if isinstance(status, str) else None
+        missing_list = [str(item) for item in missing_inputs] if isinstance(missing_inputs, list) else []
+        if not isinstance(status, str):
+            problems.append(f"{label}: classification status field is absent or not a string")
+            continue
+        if any(marker in status for marker in failure_markers):
+            problems.append(f"{label}: {status} (declared failure state)")
+            continue
+        if missing_list:
+            problems.append(f"{label}: {status}, required input(s) missing: {', '.join(missing_list)}")
+            continue
+        if status in available:
+            continue
+        if status in expected_unavailable:
+            parked.append(f"{label}: {status}")
+            continue
+        problems.append(f"{label}: {status} (status not declared available or expected-pending)")
+
+    facts: dict = {"classification_observed": observed}
+    if problems:
+        facts["classification_status"] = CLASS_STATUS_UNAVAILABLE
+        facts["candidate_status"] = "CLASSIFICATION_UNAVAILABLE"
+        facts["candidate_detail"] = (
+            "the pointer is present but the state downstream rules depend on is not available -- "
+            + "; ".join(problems)
+            + f" (read from {locator['status_field']}, not from pointer presence)"
+        )
+        return facts
+    facts["classification_status"] = (
+        CLASS_STATUS_EXPECTED_UNAVAILABLE if parked else CLASS_STATUS_AVAILABLE
+    )
+    if parked:
+        facts["classification_parked"] = parked
+    return facts
+
+
+def evaluate_file_item(spec: dict, root: Path, today: dt.date,
+                       run_history: dict | None = None, now_utc: dt.datetime | None = None) -> dict:
     path = root / spec["path"]
     parsed = _read_json(path)
     if parsed is None:
@@ -519,14 +812,17 @@ def evaluate_file_item(spec: dict, root: Path, today: dt.date) -> dict:
     if not isinstance(declared_gap, int) or declared_gap < 0:
         declared_gap = None
 
-    return _classify(spec, root, today, last_date, declared_gap=declared_gap, parsed=parsed)
+    return _classify(spec, root, today, last_date, declared_gap=declared_gap, parsed=parsed,
+                     run_history=run_history, now_utc=now_utc)
 
 
-def evaluate_glob_item(spec: dict, root: Path, today: dt.date) -> dict:
+def evaluate_glob_item(spec: dict, root: Path, today: dt.date,
+                       run_history: dict | None = None, now_utc: dt.datetime | None = None) -> dict:
     last_date = _latest_glob_date(root, spec["glob"])
     if last_date is None:
         return {**_base_result(spec), "status": "NEVER_PRODUCED", "last_date": None, "detail": f"no match ever for {spec['glob']}"}
-    return _classify(spec, root, today, last_date, declared_gap=None, parsed=None)
+    return _classify(spec, root, today, last_date, declared_gap=None, parsed=None,
+                     run_history=run_history, now_utc=now_utc)
 
 
 def _base_result(spec: dict) -> dict:
@@ -540,6 +836,8 @@ def _classify(
     last_date: dt.date,
     declared_gap: int | None,
     parsed: dict | None = None,
+    run_history: dict | None = None,
+    now_utc: dt.datetime | None = None,
 ) -> dict:
     """Two-axis classification.
 
@@ -551,7 +849,43 @@ def _classify(
     hand-supplied watchlist.
     """
     result = _classify_schedule(spec, root, today, last_date, declared_gap)
-    return _apply_source_axis(spec, root, today, last_date, declared_gap, parsed, result)
+    result = _apply_source_axis(spec, root, today, last_date, declared_gap, parsed, result)
+    # The source axis is the only one allowed to DOWNGRADE (a gap the source
+    # itself accounts for). The run and classification axes may only escalate,
+    # so an output-staleness alarm can never be talked out of by run metadata.
+    result = _apply_escalating_axis(result, evaluate_classification(spec, parsed))
+    result = _apply_escalating_axis(
+        result,
+        evaluate_run_conclusions(
+            spec,
+            run_history,
+            now_utc if now_utc is not None else dt.datetime.now(tz=dt.timezone.utc),
+            # A producer with no schedule has no expected day, so "no terminal
+            # run today" is not a finding for it -- its silence is already the
+            # NO_SCHEDULE axis's job.
+            spec["calendar"]["type"] != "NO_SCHEDULE"
+            and is_expected_production_day(spec["calendar"], today, root),
+        ),
+    )
+    return result
+
+
+def _apply_escalating_axis(result: dict, facts: dict) -> dict:
+    """Merge an axis's facts, replacing ``status`` only if strictly louder."""
+    candidate = facts.pop("candidate_status", None)
+    detail = facts.pop("candidate_detail", None)
+    result.update(facts)
+    if candidate is None:
+        return result
+    current_severity = STATUS_SEVERITY.get(result["status"], 99)
+    if STATUS_SEVERITY.get(candidate, 99) < current_severity:
+        result["status"] = candidate
+        result["detail"] = detail
+    else:
+        # Kept visible even when it does not become the headline status, so a
+        # louder finding never hides a second, independent one.
+        result.setdefault("also_detected", []).append({"status": candidate, "detail": detail})
+    return result
 
 
 def _classify_schedule(spec: dict, root: Path, today: dt.date, last_date: dt.date, declared_gap: int | None) -> dict:
@@ -726,6 +1060,7 @@ def default_watchlist() -> list[dict]:
             "calendar": US_MON_SAT_KST,
             "allowed_missed_cycles": 1,
             "workflow": ".github/workflows/free-market-data.yml (cron 35 21 * * 0-5 UTC)",
+            "workflow_file": "free-market-data.yml",
             # Alpaca's own answer to "what is your newest daily bar": the
             # latest opened_at among the daily bars the provider returned.
             # It lives inside this same artifact, so while the workflow is
@@ -748,6 +1083,7 @@ def default_watchlist() -> list[dict]:
             "default_max_gap_days": 7,
             "calendar": KR_TRADING_DAY,
             "workflow": ".github/workflows/rotation-confirmation.yml (workflow_run <- korea-leadership-live-proof.yml)",
+            "workflow_file": "rotation-confirmation.yml",
             # The packet names its own input: observation.sources[].path is
             # data/observations/korea_leadership_context/<date>/packet.json.
             # The newest such committed directory is therefore the newest
@@ -768,6 +1104,7 @@ def default_watchlist() -> list[dict]:
             "default_max_gap_days": 4,
             "calendar": US_MON_SAT_KST,
             "workflow": ".github/workflows/rotation-confirmation.yml (workflow_run <- free-market-data.yml)",
+            "workflow_file": "rotation-confirmation.yml",
             # observation.sources[].path is
             # evidence/free_market_data/derived/<date>/<revision>/manifest.json.
             "source_latest": {
@@ -786,6 +1123,7 @@ def default_watchlist() -> list[dict]:
             "default_max_gap_days": 2,
             "calendar": EVERY_DAY,
             "workflow": ".github/workflows/rotation-confirmation.yml (workflow_run <- crypto-breadth-capture.yml)",
+            "workflow_file": "rotation-confirmation.yml",
             # observation.sources[].path is
             # data/observations/crypto_leadership/<date>/packet.json.
             "source_latest": {
@@ -803,6 +1141,17 @@ def default_watchlist() -> list[dict]:
             "calendar": KR_TRADING_DAY,
             "allowed_missed_cycles": 1,
             "workflow": ".github/workflows/kr-paper-runtime-daily-publish.yml (cron 40 23 * * 0-4, 45 0 * * 1-5 UTC)",
+            "workflow_file": "kr-paper-runtime-daily-publish.yml",
+            "classification": {
+                "status_field": "decision_status",
+                "available_statuses": ["PAPER_RUNTIME_CLASSIFIED"],
+                # Parked by design, so they never become daily noise: US waits on
+                # US_PAPER_RUNTIME_ADOPTION_IDENTITY / PIT_ACCEPTED / official
+                # session calendar binding, CRYPTO on provisional forward
+                # acceptance. Both are reported as EXPECTED_UNAVAILABLE.
+                "expected_unavailable_statuses": ["BLOCKED"],
+                "failure_markers": ["_FAILED", "REDERIVATION_FAILED"],
+            },
             # Structural blind spot, stated rather than papered over. The KRX
             # pykrx source is referenced by digest only (source_sha256 /
             # source_manifest_sha256); no manifest carrying "the newest
@@ -830,6 +1179,17 @@ def default_watchlist() -> list[dict]:
             "calendar": US_MON_SAT_KST,
             "allowed_missed_cycles": 1,
             "workflow": ".github/workflows/us-paper-runtime.yml (cron 55 21 * * 0-5, 40 23 * * 0-5 UTC)",
+            "workflow_file": "us-paper-runtime.yml",
+            "classification": {
+                "status_field": "decision_status",
+                "available_statuses": ["PAPER_RUNTIME_CLASSIFIED"],
+                # Parked by design, so they never become daily noise: US waits on
+                # US_PAPER_RUNTIME_ADOPTION_IDENTITY / PIT_ACCEPTED / official
+                # session calendar binding, CRYPTO on provisional forward
+                # acceptance. Both are reported as EXPECTED_UNAVAILABLE.
+                "expected_unavailable_statuses": ["BLOCKED"],
+                "failure_markers": ["_FAILED", "REDERIVATION_FAILED"],
+            },
             # Its source is free_market_data, which it names in
             # latest_source_diagnostic.source. evaluation_at is a run
             # timestamp, so the comparable date of ours is the free_market_data
@@ -850,6 +1210,17 @@ def default_watchlist() -> list[dict]:
             "calendar": EVERY_DAY,
             "allowed_missed_cycles": 1,
             "workflow": ".github/workflows/crypto-paper-runtime.yml (cron 15 7 * * *, 45 8 * * * UTC)",
+            "workflow_file": "crypto-paper-runtime.yml",
+            "classification": {
+                "status_field": "decision_status",
+                "available_statuses": ["PAPER_RUNTIME_CLASSIFIED"],
+                # Parked by design, so they never become daily noise: US waits on
+                # US_PAPER_RUNTIME_ADOPTION_IDENTITY / PIT_ACCEPTED / official
+                # session calendar binding, CRYPTO on provisional forward
+                # acceptance. Both are reported as EXPECTED_UNAVAILABLE.
+                "expected_unavailable_statuses": ["BLOCKED"],
+                "failure_markers": ["_FAILED", "REDERIVATION_FAILED"],
+            },
             # The venue states its own newest finalized daily candle in the
             # crypto breadth raw capture manifest. current_decision_date is a
             # decision date (deliberately T+1 of the observation), so compare
@@ -874,6 +1245,7 @@ def default_watchlist() -> list[dict]:
             "calendar": EVERY_DAY,
             "allowed_missed_cycles": 1,
             "workflow": "P1-CR-06 Crypto Breadth Daily Capture chain (cron 40 0 * * * UTC)",
+            "workflow_file": "crypto-breadth-capture.yml",
             # Verified linkage, not a guess: sha256 of
             # evidence/crypto/breadth/raw/<D+1>/_manifest.json equals this
             # packet's lineage.manifest_sha256_by_date entry for as_of_date D
@@ -895,6 +1267,7 @@ def default_watchlist() -> list[dict]:
             "calendar": US_TUE_SAT_KST,
             "allowed_missed_cycles": 1,
             "workflow": ".github/workflows/spdr-sector-holdings.yml (cron 0 22 * * 1-5 UTC)",
+            "workflow_file": "spdr-sector-holdings.yml",
             # This artifact is a pointer built from the per-ETF capture files
             # its own capture_ids name, so its input is those dated captures.
             # Same unit on both sides (capture_date_utc), which catches the
@@ -920,6 +1293,7 @@ def default_watchlist() -> list[dict]:
             "calendar": US_MON_SAT_KST,
             "allowed_missed_cycles": 1,
             "workflow": ".github/workflows/fred-dexkous-fx.yml (cron 40 21 * * 0-5 UTC)",
+            "workflow_file": "fred-dexkous-fx.yml",
             # The case that motivated this whole change. The collector's raw
             # captures keep landing daily in a path separate from the
             # observations, and each run's manifest states the span FRED
@@ -944,6 +1318,7 @@ def default_watchlist() -> list[dict]:
             "calendar": NO_SCHEDULE,
             "default_max_gap_days": 10,
             "workflow": ".github/workflows/alpaca-sip-daily-bars.yml (workflow_dispatch only -- no cron)",
+            "workflow_file": "alpaca-sip-daily-bars.yml",
             # Structural blind spot, stated rather than papered over. The
             # capture records the bar window it *requested* (window.start /
             # window.end) and the last bar each symbol came back with
@@ -1002,6 +1377,79 @@ def default_watchlist() -> list[dict]:
                 "field_note": "newest committed data/observations/us_global_universe/<date>/ (the input population.source.path names)",
             },
         },
+        {
+            # Added 2026-09-18 alongside the run-conclusion axis: this is the
+            # producer the skipped-over-failure incident actually happened to
+            # (runs 35295228731/35296380899 failure -> 35296682372/35298736708
+            # skipped), and nothing was watching it.
+            "id": "paper_regime_reference",
+            "label_ko": "PAPER 시장 참고 판정 (US/KR/CRYPTO)",
+            "kind": "FILE",
+            "path": "data/latest_paper_regime_reference.json",
+            "date_fields": ["generated_at"],
+            "calendar": EVERY_DAY,
+            "allowed_missed_cycles": 1,
+            "workflow": ".github/workflows/paper-regime-reference.yml (cron 20,50 1 * * * UTC + workflow_run from 5 upstreams)",
+            "workflow_file": "paper-regime-reference.yml",
+            # Its forced path is only twice a day, so an upstream stall can keep
+            # it silent for ~24h with nothing red anywhere.
+            "terminal_run_window_hours": 24,
+            # Per-market classification: each market is judged on its own
+            # declared status, never on the presence of the pointer.
+            "classification": {
+                "per_market_field": "markets",
+                "market_label_field": "market",
+                "status_field": "classification_status",
+                "available_statuses": ["PAPER_REFERENCE_CLASSIFIED"],
+                "failure_markers": ["_FAILED", "REDERIVATION_FAILED"],
+            },
+            # Structural blind spot: its three declared inputs are
+            # data/latest_*.json pointers, not dated directories, so there is no
+            # dated source-side latest to read. Note the divergence this would
+            # expose -- markets[].as_of_date is US 2026-09-15 / KR 2026-09-10 /
+            # CRYPTO 2026-09-17 in the committed pointer.
+            "source_latest": {
+                "kind": SOURCE_UNAVAILABLE,
+                "field_note": None,
+                "resolve_by": (
+                    "record each input's own as-of date per market in data/latest_paper_regime_reference.json "
+                    "(it already records sources[].path and sha256, but no input date), so a single market "
+                    "falling behind its own source is detectable instead of only the whole-file generated_at"
+                ),
+            },
+        },
+        {
+            # The issue #511 shape. crypto-regime-refresh-watchdog.yml checks
+            # only that this file carries today's 5/5 *current_reference*
+            # pointer, so it reports green while official_decision's own
+            # classification_status is a WAIT_* state and runtime_regime is
+            # UNKNOWN because a required axis is missing. Keyed on the
+            # classification status, never on pointer presence. That other
+            # workflow is deliberately not modified here -- its bytes are
+            # referenced from config/regime_source_owner_registry_v2.json's
+            # markets.CRYPTO.status_owner.workflow_path.
+            "id": "crypto_regime_refresh_status",
+            "label_ko": "크립토 시장판정 갱신 상태 (issue #511)",
+            "kind": "FILE",
+            "path": "data/latest_crypto_regime_refresh_status.json",
+            "date_fields": ["current_reference.as_of_date"],
+            "calendar": EVERY_DAY,
+            "allowed_missed_cycles": 1,
+            "workflow": ".github/workflows/paper-regime-reference.yml (writes this pointer; cron 20,50 1 * * * UTC)",
+            "workflow_file": "paper-regime-reference.yml",
+            "terminal_run_window_hours": 24,
+            "classification": {
+                "status_field": "official_decision.classification_status",
+                "missing_inputs_field": "official_decision.coverage.missing_axes",
+                "available_statuses": ["CLASSIFIED", "OFFICIAL_DECISION_CLASSIFIED"],
+                "failure_markers": ["_FAILED", "REDERIVATION_FAILED"],
+            },
+            "source_latest": {
+                "kind": SOURCE_DATED_PATH,
+                "glob": "data/observations/crypto_recent_reference/*/packet.json",
+                "field_note": "newest committed data/observations/crypto_recent_reference/<date>/ (the CURRENT_REFERENCE input sources[].path names)",
+            },
+        },
     ]
 
 
@@ -1012,7 +1460,8 @@ def default_watchlist() -> list[dict]:
 # Something is actually wrong and someone has to act.
 ALARM_STATUSES = {
     "COLLECTION_BEHIND_SOURCE", "STALE", "NEVER_PRODUCED", "NO_SCHEDULE_STALE",
-    "DATE_FIELD_MISSING",
+    "DATE_FIELD_MISSING", "LATEST_RUN_SKIPPED_OVER_FAILURE",
+    "PRODUCER_SILENT_NO_TERMINAL_RUN", "CLASSIFICATION_UNAVAILABLE",
 }
 # There is a gap and we cannot say whose it is. Not "fine", not "stale".
 UNKNOWN_STATUSES = {"SOURCE_LATEST_UNKNOWN"}
@@ -1023,14 +1472,19 @@ INFORMATIONAL_STATUSES = {"SOURCE_NOT_YET_PUBLISHED"}
 # successful-looking run dropped data.
 STATUS_SEVERITY = {
     "COLLECTION_BEHIND_SOURCE": 0,
-    "NEVER_PRODUCED": 1,
-    "DATE_FIELD_MISSING": 2,
-    "STALE": 3,
-    "NO_SCHEDULE_STALE": 4,
-    "SOURCE_LATEST_UNKNOWN": 5,
-    "SOURCE_NOT_YET_PUBLISHED": 6,
-    "NO_SCHEDULE_FRESH": 7,
-    "FRESH": 8,
+    # A non-red latest run hiding real failures is the next loudest, because
+    # every "is it green?" surface is actively reporting the wrong answer.
+    "LATEST_RUN_SKIPPED_OVER_FAILURE": 1,
+    "CLASSIFICATION_UNAVAILABLE": 2,
+    "PRODUCER_SILENT_NO_TERMINAL_RUN": 3,
+    "NEVER_PRODUCED": 4,
+    "DATE_FIELD_MISSING": 5,
+    "STALE": 6,
+    "NO_SCHEDULE_STALE": 7,
+    "SOURCE_LATEST_UNKNOWN": 8,
+    "SOURCE_NOT_YET_PUBLISHED": 9,
+    "NO_SCHEDULE_FRESH": 10,
+    "FRESH": 11,
 }
 
 # Kept for the old key name; see NON_FRESH_STATUSES usage in stale_items.
@@ -1041,16 +1495,17 @@ def _by_severity(items: list[dict]) -> list[dict]:
     return sorted(items, key=lambda item: (STATUS_SEVERITY.get(item["status"], 99), item["id"]))
 
 
-def build_report(root: Path = ROOT, today: dt.date | None = None, watchlist: list[dict] | None = None) -> dict:
+def build_report(root: Path = ROOT, today: dt.date | None = None, watchlist: list[dict] | None = None,
+                 run_history: dict | None = None, now_utc: dt.datetime | None = None) -> dict:
     if today is None:
         today = dt.datetime.now(tz=KST).date()
     specs = list(watchlist) if watchlist is not None else default_watchlist()
     items = []
     for spec in specs:
         if spec["kind"] == "FILE":
-            items.append(evaluate_file_item(spec, root, today))
+            items.append(evaluate_file_item(spec, root, today, run_history, now_utc))
         elif spec["kind"] == "GLOB":
-            items.append(evaluate_glob_item(spec, root, today))
+            items.append(evaluate_glob_item(spec, root, today, run_history, now_utc))
         else:
             raise FreshnessWatchdogError(f"UNKNOWN_ITEM_KIND:{spec['kind']}")
 
@@ -1071,6 +1526,21 @@ def build_report(root: Path = ROOT, today: dt.date | None = None, watchlist: lis
         if (spec.get("source_latest") or {}).get("kind") == SOURCE_UNAVAILABLE
     ]
 
+    # Producers whose newest run failed outright. Recorded rather than alarmed
+    # (a red badge is already visible), but never left looking like "OK".
+    failing_runs = [
+        {
+            "id": item["id"],
+            "label_ko": item["label_ko"],
+            "latest_run_id": item.get("latest_run_id"),
+            "latest_run_created_at": item.get("latest_run_created_at"),
+            "latest_run_conclusion": item.get("latest_run_conclusion"),
+            "failed_runs_since_last_success": item.get("failed_runs_since_last_success"),
+        }
+        for item in items
+        if item.get("run_status") == "LATEST_RUN_FAILED"
+    ]
+
     return {
         "schema_version": SCHEMA_VERSION,
         "as_of_kst_date": today.isoformat(),
@@ -1081,6 +1551,7 @@ def build_report(root: Path = ROOT, today: dt.date | None = None, watchlist: lis
         "unknown_items": unknown_items,
         "informational_items": informational_items,
         "source_latest_blind_spots": source_latest_blind_spots,
+        "producers_with_failing_runs": failing_runs,
         "all_fresh": not (alarm_items or unknown_items),
         "authority": {
             "read_only_watch": True,
@@ -1118,6 +1589,24 @@ def _render_item(item: dict) -> list[str]:
             f"(우리 최신: {item['our_compared_date']}, 원천 최신: {item['source_latest']}, "
             f"원천 주장 시점: {item['source_claim_date']}). 조치 불필요."
         )
+    elif status == "LATEST_RUN_SKIPPED_OVER_FAILURE":
+        failure = item.get("last_actual_failure", {})
+        line = (
+            f"- [{item['id']}] {item['label_ko']} -- 최신 run 이 skipped 라서 배지·대시보드·포털은 "
+            f"빨강이 아니지만 실제로는 실패 중입니다. 마지막 실제 실패: run {failure.get('id')} "
+            f"{failure.get('created_at')} ({failure.get('conclusion')}). {item['detail']}"
+        )
+    elif status == "PRODUCER_SILENT_NO_TERMINAL_RUN":
+        line = (
+            f"- [{item['id']}] {item['label_ko']} -- 상류 정체로 계속 skip 되어 "
+            f"{item.get('terminal_run_window_hours')}시간 동안 성공도 실패도 기록되지 않았습니다 "
+            f"(어디에도 빨강이 없습니다): {item['detail']}"
+        )
+    elif status == "CLASSIFICATION_UNAVAILABLE":
+        line = (
+            f"- [{item['id']}] {item['label_ko']} -- 포인터는 최신이지만 시장판정 자체가 "
+            f"사용 불가입니다 (포인터 존재가 아니라 분류 상태로 판정): {item['detail']}"
+        )
     elif status == "NO_SCHEDULE_STALE":
         line = (
             f"- [{item['id']}] {item['label_ko']} -- 자동 스케줄이 없는 산출물이 {item['age_days']}일째 갱신되지 않았습니다 "
@@ -1131,6 +1620,14 @@ def _render_item(item: dict) -> list[str]:
     lines = [line]
     if item.get("workflow"):
         lines.append(f"  · producer: {item['workflow']}")
+    # A louder finding must not hide a second, independent one.
+    for extra in item.get("also_detected", []):
+        lines.append(f"  · 추가 감지 [{extra['status']}]: {extra['detail']}")
+    if item.get("run_status") in (RUN_STATUS_HISTORY_UNAVAILABLE, RUN_STATUS_NO_RUNS_RECORDED):
+        lines.append(
+            f"  · run 이력 미확보 ({item['run_status']}) — run 결론 축은 판정하지 않았고, "
+            f"산출물 정체 판정은 그와 무관하게 그대로 유지됩니다."
+        )
     return lines
 
 
@@ -1163,6 +1660,18 @@ def render_issue_body(report: dict) -> str:
             lines.extend(_render_item(item))
         lines.append("")
 
+    failing = report.get("producers_with_failing_runs", [])
+    if failing:
+        lines.append("■ 참고 — 최신 run 이 실패로 끝난 산출물 (배지에 이미 빨강으로 보이므로 경보로 올리지 않음)")
+        for entry in failing:
+            lines.append(
+                f"- [{entry['id']}] {entry['label_ko']} -- 최신 run {entry['latest_run_id']} "
+                f"{entry['latest_run_created_at']} = {entry['latest_run_conclusion']} "
+                f"(마지막 성공 이후 실패 {entry['failed_runs_since_last_success']}건). "
+                f"산출물 정체 여부는 run 결론과 무관하게 별도로 판정됩니다."
+            )
+        lines.append("")
+
     blind_spots = report.get("source_latest_blind_spots", [])
     if blind_spots:
         lines.append("■ 구조적 한계 — 원천 최신일이 아직 커밋되지 않는 산출물")
@@ -1180,10 +1689,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--today", default=None, help="Override the KST decision date (testing/dispatch only).")
     parser.add_argument("--format", choices=["json", "issue"], default="json")
     parser.add_argument("--check", action="store_true", help="Exit 1 if any watched item is non-fresh.")
+    parser.add_argument(
+        "--run-history",
+        default=None,
+        help=(
+            "Path to the run-conclusion sidecar the workflow fetched with `gh api`. This module never "
+            "calls the network itself; without this file the run axis fails closed to "
+            "RUN_HISTORY_UNAVAILABLE and output-staleness alarms are unaffected."
+        ),
+    )
+    parser.add_argument(
+        "--emit-workflow-files",
+        action="store_true",
+        help=(
+            "Print the workflow filenames the watchlist needs run history for, one per line, so the "
+            "workflow's fetch step reads the list from here instead of duplicating it."
+        ),
+    )
     args = parser.parse_args(argv)
 
+    if args.emit_workflow_files:
+        for name in sorted({spec["workflow_file"] for spec in default_watchlist() if spec.get("workflow_file")}):
+            print(name)
+        return 0
+
     today = dt.date.fromisoformat(args.today) if args.today else None
-    report = build_report(today=today)
+    run_history = load_run_history(Path(args.run_history) if args.run_history else None)
+    report = build_report(today=today, run_history=run_history)
 
     if args.format == "issue":
         print(render_issue_body(report))

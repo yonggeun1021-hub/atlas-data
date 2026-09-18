@@ -45,6 +45,11 @@ on:
 
 permissions:
   contents: read
+  # Read-only listing of run conclusions for the watched producers. Needed
+  # because a workflow's *latest* run conclusion can be `skipped` while real
+  # failures sit behind it; see the run-conclusion axis in
+  # watchdog/daily_producer_freshness.py. No write scope is added.
+  actions: read
   issues: write
 
 concurrency:
@@ -64,13 +69,54 @@ jobs:
           python-version: '3.11'
       - name: Offline contract regression (fixtures only, no network, no secrets)
         run: python3 test/test_daily_producer_freshness_watchdog.py
+      # The Python module never calls the network. Run conclusions are fetched
+      # here, read-only, with the token the job already has, and handed to the
+      # module as a file. If this step yields nothing usable the module fails
+      # closed to RUN_HISTORY_UNAVAILABLE -- output-staleness alarms, which come
+      # only from committed evidence, are unaffected either way.
+      - name: Fetch watched producers' run conclusions (read-only)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/producer_runs
+          for wf in $(python3 watchdog/daily_producer_freshness.py --emit-workflow-files); do
+            gh api "repos/${REPO}/actions/workflows/${wf}/runs?per_page=30" \
+              --jq '[.workflow_runs[] | {id, created_at, status, conclusion, event}]' \
+              > "/tmp/producer_runs/${wf}.json" || echo '[]' > "/tmp/producer_runs/${wf}.json"
+          done
+          python3 - <<'PY' > /tmp/producer_run_history.json
+          import datetime, glob, json, os
+          workflows = {}
+          for path in sorted(glob.glob("/tmp/producer_runs/*.json")):
+              name = os.path.basename(path)[: -len(".json")]
+              try:
+                  with open(path, encoding="utf-8") as handle:
+                      loaded = json.load(handle)
+              except (OSError, ValueError):
+                  loaded = []
+              workflows[name] = loaded if isinstance(loaded, list) else []
+          print(json.dumps({
+              "schema_version": "daily_producer_run_history/1",
+              "fetched_at_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "workflows": workflows,
+          }))
+          PY
       - name: Build today's freshness report
         id: report
         env:
           TZ: Asia/Seoul
         run: |
-          python3 watchdog/daily_producer_freshness.py --format json > /tmp/freshness_report.json
-          python3 watchdog/daily_producer_freshness.py --format issue > /tmp/freshness_issue_body.txt
+          history=""
+          if [ -s /tmp/producer_run_history.json ]; then
+            history="--run-history /tmp/producer_run_history.json"
+          fi
+          # shellcheck disable=SC2086
+          python3 watchdog/daily_producer_freshness.py $history --format json > /tmp/freshness_report.json
+          # shellcheck disable=SC2086
+          python3 watchdog/daily_producer_freshness.py $history --format issue > /tmp/freshness_issue_body.txt
           if python3 -c "import json,sys; sys.exit(0 if json.load(open('/tmp/freshness_report.json'))['all_fresh'] else 1)"; then
             echo "all_fresh=true" >> "$GITHUB_OUTPUT"
           else

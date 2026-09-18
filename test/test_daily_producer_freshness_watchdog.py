@@ -11,8 +11,10 @@ behaviours from the build brief:
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -721,12 +723,403 @@ class RealRepoSourceAxisTest(unittest.TestCase):
                 else:
                     self.assertTrue(locator["field_note"].strip())
 
-    def test_real_repo_blind_spots_are_exactly_the_two_documented_ones(self):
+    def test_real_repo_blind_spots_are_exactly_the_documented_ones(self):
         report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
         self.assertEqual(
-            [spot["id"] for spot in report["source_latest_blind_spots"]],
-            ["kr_paper_runtime_decision", "us_sip_daily_liquidity"],
+            sorted(spot["id"] for spot in report["source_latest_blind_spots"]),
+            ["kr_paper_runtime_decision", "paper_regime_reference", "us_sip_daily_liquidity"],
         )
+
+
+def _history(**workflows) -> dict:
+    return {"schema_version": MODULE.RUN_HISTORY_SCHEMA, "fetched_at_utc": "2026-09-18T03:00:00Z",
+            "workflows": {name.replace("__", "-") + ".yml": runs for name, runs in workflows.items()}}
+
+
+def _run(run_id: int, created_at: str, conclusion: str, event: str = "workflow_run") -> dict:
+    return {"id": run_id, "created_at": created_at, "status": "completed",
+            "conclusion": conclusion, "event": event}
+
+
+# The real 2026-09-18 paper-regime-reference.yml sequence, verified against the
+# Actions API. Two failures, then two skips that became the newest terminal
+# state -- so every "latest run conclusion" surface read non-red while the
+# producer was down. The skips came from that workflow's job-level
+# `if: ... || github.event.workflow_run.conclusion == 'success'`: the triggering
+# upstream (P9-06 Upbit Realtime WebSocket Bounded Capture) concluded
+# `cancelled`, so its single `build` job never ran.
+REAL_SKIP_OVER_FAILURE_RUNS = [
+    _run(35298736708, "2026-09-18T02:17:06Z", "skipped"),
+    _run(35296682372, "2026-09-18T01:46:34Z", "skipped"),
+    _run(35296380899, "2026-09-18T01:42:00Z", "failure"),
+    _run(35295228731, "2026-09-18T01:25:06Z", "failure"),
+    _run(35294462144, "2026-09-18T01:13:46Z", "success"),
+]
+# The same workflow's actual recovery run, 02:46Z.
+REAL_RECOVERY_RUN = _run(35300643915, "2026-09-18T02:46:04Z", "success")
+
+
+class RunConclusionAxisTest(unittest.TestCase):
+    """A workflow's latest run conclusion can be `skipped` while real failures
+    sit behind it. Anchored to the real run-id sequence above, not an invented
+    one. Every test here fails against the classifier that had no run axis."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.today = dt.date(2026, 9, 18)
+        self.now = dt.datetime(2026, 9, 18, 3, 0, tzinfo=dt.timezone.utc)
+        self.spec = {
+            "id": "paper_regime_reference_like", "label_ko": "PAPER 시장 참고 판정", "kind": "FILE",
+            "path": "data/latest_ref.json", "date_fields": ["generated_at"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "workflow_file": "paper-regime-reference.yml",
+            "terminal_run_window_hours": 24,
+        }
+        # Output itself is fresh -- the incident is invisible to the age axis.
+        _write_json(self.root / self.spec["path"], {"generated_at": "2026-09-17T23:42:46Z"})
+
+    def _report(self, runs):
+        return MODULE.build_report(
+            root=self.root, today=self.today, watchlist=[self.spec],
+            run_history=_history(paper__regime__reference=runs), now_utc=self.now,
+        )
+
+    def test_latest_skipped_over_failure_is_an_alarm(self):
+        report = self._report(REAL_SKIP_OVER_FAILURE_RUNS)
+        item = report["items"][0]
+
+        # The age axis sees nothing wrong at all.
+        self.assertEqual(item["schedule_status"], "FRESH")
+        self.assertEqual(item["status"], "LATEST_RUN_SKIPPED_OVER_FAILURE")
+        self.assertEqual(item["latest_run_conclusion"], "skipped")
+        self.assertEqual(item["latest_run_id"], 35298736708)
+        self.assertFalse(report["all_fresh"])
+        self.assertIn("paper_regime_reference_like", {i["id"] for i in report["alarm_items"]})
+
+    def test_it_reports_the_last_actual_failure_not_the_skip(self):
+        item = self._report(REAL_SKIP_OVER_FAILURE_RUNS)["items"][0]
+        failure = item["last_actual_failure"]
+        self.assertEqual(failure["id"], 35296380899)
+        self.assertEqual(failure["created_at"], "2026-09-18T01:42:00Z")
+        self.assertEqual(failure["conclusion"], "failure")
+        # Both failures since the last success are counted, and the last
+        # success (01:13:46Z) is named.
+        self.assertEqual(item["last_success_run_id"], 35294462144)
+        self.assertIn("35296380899", item["detail"])
+        # The rendered line leads with the real failure, not the skip id.
+        body = MODULE.render_issue_body(self._report(REAL_SKIP_OVER_FAILURE_RUNS))
+        self.assertIn("35296380899", body)
+        self.assertIn("skipped", body)
+
+    def test_recovery_run_closes_the_finding(self):
+        # The same workflow's real 02:46Z success ends the window.
+        item = self._report([REAL_RECOVERY_RUN] + REAL_SKIP_OVER_FAILURE_RUNS)["items"][0]
+        self.assertEqual(item["run_status"], MODULE.RUN_STATUS_OK)
+        self.assertEqual(item["status"], "FRESH")
+
+    def test_skipped_with_no_failure_behind_it_is_not_this_alarm(self):
+        # A skip over a success is ordinary upstream fan-in noise.
+        runs = [_run(2, "2026-09-18T02:17:06Z", "skipped"), _run(1, "2026-09-18T01:13:46Z", "success")]
+        item = self._report(runs)["items"][0]
+        self.assertNotEqual(item["status"], "LATEST_RUN_SKIPPED_OVER_FAILURE")
+
+    def test_producer_silent_when_only_non_terminal_runs_in_the_window(self):
+        # Nothing but skips/cancels for 24h: never red anywhere, and the forced
+        # cron path is only twice a day, so this can persist.
+        runs = [
+            _run(5, "2026-09-18T02:17:06Z", "skipped"),
+            _run(4, "2026-09-18T01:46:34Z", "skipped"),
+            _run(3, "2026-09-17T20:00:00Z", "skipped"),
+            _run(2, "2026-09-17T10:00:00Z", "skipped"),
+            _run(1, "2026-09-16T01:13:46Z", "success"),  # outside the 24h window
+        ]
+        report = self._report(runs)
+        item = report["items"][0]
+        self.assertEqual(item["status"], "PRODUCER_SILENT_NO_TERMINAL_RUN")
+        self.assertEqual(item["terminal_runs_in_window"], 0)
+        self.assertEqual(item["terminal_run_window_hours"], 24)
+        self.assertFalse(report["all_fresh"])
+        self.assertIn("skipped", item["detail"])
+
+    def test_a_terminal_run_in_the_window_is_not_silent(self):
+        runs = [_run(2, "2026-09-18T02:17:06Z", "skipped"), _run(1, "2026-09-18T01:13:46Z", "success")]
+        item = self._report(runs)["items"][0]
+        self.assertNotEqual(item["status"], "PRODUCER_SILENT_NO_TERMINAL_RUN")
+        self.assertEqual(item["terminal_runs_in_window"], 1)
+
+    def test_silence_is_not_claimed_for_a_producer_with_no_schedule(self):
+        # A dispatch-only producer has no expected day, so "no terminal run
+        # today" is not a finding about it.
+        spec = {
+            "id": "dispatch_only", "label_ko": "수동 실행", "kind": "FILE",
+            "path": "data/latest_dispatch.json", "date_fields": ["generated_at_utc"],
+            "calendar": MODULE.NO_SCHEDULE, "default_max_gap_days": 10,
+            "workflow_file": "alpaca-sip-daily-bars.yml",
+        }
+        _write_json(self.root / spec["path"], {"generated_at_utc": "2026-09-16T00:00:00Z"})
+        report = MODULE.build_report(
+            root=self.root, today=self.today, watchlist=[spec],
+            run_history=_history(alpaca__sip__daily__bars=[_run(1, "2026-09-10T00:00:00Z", "skipped")]),
+            now_utc=self.now,
+        )
+        self.assertNotEqual(report["items"][0]["status"], "PRODUCER_SILENT_NO_TERMINAL_RUN")
+
+    def test_latest_failed_run_is_recorded_but_not_escalated(self):
+        # A plainly failing latest run is already visibly red on every badge, so
+        # it is reported rather than alarmed -- but never labelled OK.
+        runs = [
+            _run(3, "2026-09-17T23:53:08Z", "failure", event="schedule"),
+            _run(2, "2026-09-17T22:10:10Z", "failure", event="workflow_dispatch"),
+            _run(1, "2026-09-17T00:02:47Z", "success", event="schedule"),
+        ]
+        report = self._report(runs)
+        item = report["items"][0]
+        self.assertEqual(item["run_status"], "LATEST_RUN_FAILED")
+        self.assertNotEqual(item["run_status"], MODULE.RUN_STATUS_OK)
+        self.assertEqual(item["failed_runs_since_last_success"], 2)
+        self.assertEqual(item["status"], "FRESH")  # output itself is fresh
+        self.assertEqual(
+            [entry["id"] for entry in report["producers_with_failing_runs"]],
+            ["paper_regime_reference_like"],
+        )
+        self.assertIn("최신 run", MODULE.render_issue_body(report))
+
+    # -- the run axis may only escalate, never explain a stale output away ---
+
+    def test_healthy_runs_cannot_clear_an_output_staleness_alarm(self):
+        # The general principle: a producer whose output is stale alarms even
+        # when no run failed.
+        _write_json(self.root / self.spec["path"], {"generated_at": "2026-09-05T00:00:00Z"})
+        report = self._report([_run(1, "2026-09-18T02:46:04Z", "success")])
+        item = report["items"][0]
+        self.assertEqual(item["run_status"], MODULE.RUN_STATUS_OK)
+        self.assertEqual(item["schedule_status"], "STALE")
+        # No source locator on this synthetic spec, so the schedule verdict
+        # stands untouched -- and healthy run metadata does not soften it.
+        self.assertEqual(item["status"], "STALE")
+        self.assertIn("paper_regime_reference_like", {i["id"] for i in report["alarm_items"]})
+        self.assertFalse(report["all_fresh"])
+
+    def test_missing_run_history_fails_closed_and_does_not_silence_staleness(self):
+        _write_json(self.root / self.spec["path"], {"generated_at": "2026-09-05T00:00:00Z"})
+        report = MODULE.build_report(
+            root=self.root, today=self.today, watchlist=[self.spec],
+            run_history=None, now_utc=self.now,
+        )
+        item = report["items"][0]
+        self.assertEqual(item["run_status"], MODULE.RUN_STATUS_HISTORY_UNAVAILABLE)
+        self.assertFalse(report["all_fresh"])
+        self.assertIn("run 이력 미확보", MODULE.render_issue_body(report))
+
+    def test_run_history_loader_fails_closed_on_bad_input(self):
+        good = self.root / "good.json"
+        _write_json(good, _history(paper__regime__reference=[]))
+        self.assertIsNotNone(MODULE.load_run_history(good))
+        self.assertIsNone(MODULE.load_run_history(None))
+        self.assertIsNone(MODULE.load_run_history(self.root / "absent.json"))
+        wrong_schema = self.root / "wrong.json"
+        _write_json(wrong_schema, {"schema_version": "something_else/9", "workflows": {}})
+        self.assertIsNone(MODULE.load_run_history(wrong_schema))
+        no_workflows = self.root / "noworkflows.json"
+        _write_json(no_workflows, {"schema_version": MODULE.RUN_HISTORY_SCHEMA})
+        self.assertIsNone(MODULE.load_run_history(no_workflows))
+
+    def test_a_second_independent_finding_is_not_hidden_by_a_louder_one(self):
+        # Output behind its source AND the latest run skipped over a failure:
+        # the loud one is the headline, the other stays visible.
+        spec = {**self.spec, "source_latest": {
+            "kind": MODULE.SOURCE_DATED_PATH,
+            "glob": "data/observations/upstream/*/packet.json",
+            "field_note": "newest committed upstream observation directory",
+        }}
+        _write_json(self.root / spec["path"], {"generated_at": "2026-09-11T00:00:00Z"})
+        _write_json(self.root / "data/observations/upstream/2026-09-18/packet.json", {})
+        report = MODULE.build_report(
+            root=self.root, today=self.today, watchlist=[spec],
+            run_history=_history(paper__regime__reference=REAL_SKIP_OVER_FAILURE_RUNS),
+            now_utc=self.now,
+        )
+        item = report["items"][0]
+        self.assertEqual(item["status"], "COLLECTION_BEHIND_SOURCE")
+        self.assertIn(
+            "LATEST_RUN_SKIPPED_OVER_FAILURE",
+            [entry["status"] for entry in item["also_detected"]],
+        )
+        self.assertIn("추가 감지", MODULE.render_issue_body(report))
+
+
+class ClassificationAxisTest(unittest.TestCase):
+    """A pointer being present and dated today does not mean the state the
+    sizing rules depend on is available. Keyed on the producer's own
+    classification status, never on pointer presence (cf. issue #511)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.today = dt.date(2026, 9, 18)
+        self.now = dt.datetime(2026, 9, 18, 3, 0, tzinfo=dt.timezone.utc)
+
+    def _spec(self, **overrides):
+        spec = {
+            "id": "refresh_status_like", "label_ko": "시장판정 갱신 상태", "kind": "FILE",
+            "path": "data/latest_refresh.json", "date_fields": ["current_reference.as_of_date"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "classification": {
+                "status_field": "official_decision.classification_status",
+                "missing_inputs_field": "official_decision.coverage.missing_axes",
+                "available_statuses": ["CLASSIFIED"],
+                "failure_markers": ["_FAILED", "REDERIVATION_FAILED"],
+            },
+        }
+        spec.update(overrides)
+        return spec
+
+    def _report(self, payload, spec=None):
+        spec = spec or self._spec()
+        _write_json(self.root / spec["path"], payload)
+        return MODULE.build_report(root=self.root, today=self.today, watchlist=[spec], now_utc=self.now)
+
+    def test_todays_5_of_5_pointer_does_not_clear_an_unavailable_classification(self):
+        # Exactly the issue #511 shape: the current-reference pointer is today's
+        # and complete, which is all crypto-regime-refresh-watchdog.yml checks,
+        # while the official decision is a WAIT_* state missing a required axis.
+        report = self._report({
+            "current_reference": {"as_of_date": "2026-09-18", "coverage": {"ratio": "5/5", "missing_axes": []}},
+            "official_decision": {
+                "classification_status": "WAIT_MARKET_NORMALIZATION_INPUT",
+                "runtime_regime": "UNKNOWN",
+                "coverage": {"ratio": "4/5", "missing_axes": ["LEADERSHIP"]},
+            },
+        })
+        item = report["items"][0]
+        self.assertEqual(item["schedule_status"], "FRESH")      # pointer is today's
+        self.assertEqual(item["status"], "CLASSIFICATION_UNAVAILABLE")
+        self.assertEqual(item["classification_status"], MODULE.CLASS_STATUS_UNAVAILABLE)
+        self.assertIn("LEADERSHIP", item["detail"])
+        self.assertFalse(report["all_fresh"])
+
+    def test_declared_failure_state_is_an_alarm_even_with_no_missing_inputs(self):
+        report = self._report({
+            "current_reference": {"as_of_date": "2026-09-18"},
+            "official_decision": {
+                "classification_status": "CRYPTO_RISK_REDERIVATION_FAILED",
+                "coverage": {"missing_axes": []},
+            },
+        })
+        self.assertEqual(report["items"][0]["status"], "CLASSIFICATION_UNAVAILABLE")
+
+    def test_available_classification_is_fine(self):
+        report = self._report({
+            "current_reference": {"as_of_date": "2026-09-18"},
+            "official_decision": {"classification_status": "CLASSIFIED", "coverage": {"missing_axes": []}},
+        })
+        self.assertEqual(report["items"][0]["classification_status"], MODULE.CLASS_STATUS_AVAILABLE)
+        self.assertTrue(report["all_fresh"])
+
+    def test_undeclared_status_value_fails_closed_to_an_alarm(self):
+        # A state nobody has declared must surface once, not pass silently.
+        report = self._report({
+            "current_reference": {"as_of_date": "2026-09-18"},
+            "official_decision": {"classification_status": "SOME_BRAND_NEW_STATE", "coverage": {"missing_axes": []}},
+        })
+        self.assertEqual(report["items"][0]["status"], "CLASSIFICATION_UNAVAILABLE")
+        self.assertIn("SOME_BRAND_NEW_STATE", report["items"][0]["detail"])
+
+    def test_designed_pending_state_is_reported_without_alarming(self):
+        # US/CRYPTO paper runtime sit at BLOCKED pending ratification. Alarming
+        # daily on a designed long-running state is what trains a reader to
+        # dismiss the watchdog, so it is parked and reported instead.
+        spec = self._spec(classification={
+            "status_field": "decision_status",
+            "available_statuses": ["PAPER_RUNTIME_CLASSIFIED"],
+            "expected_unavailable_statuses": ["BLOCKED"],
+            "failure_markers": ["_FAILED"],
+        }, date_fields=["evaluation_at"])
+        report = self._report({"evaluation_at": "2026-09-18T01:00:00Z", "decision_status": "BLOCKED"}, spec)
+        item = report["items"][0]
+        self.assertEqual(item["classification_status"], MODULE.CLASS_STATUS_EXPECTED_UNAVAILABLE)
+        self.assertNotEqual(item["status"], "CLASSIFICATION_UNAVAILABLE")
+        self.assertTrue(report["all_fresh"])
+
+    def test_each_market_is_judged_on_its_own_status(self):
+        spec = self._spec(
+            date_fields=["generated_at"],
+            classification={
+                "per_market_field": "markets",
+                "market_label_field": "market",
+                "status_field": "classification_status",
+                "available_statuses": ["PAPER_REFERENCE_CLASSIFIED"],
+                "failure_markers": ["_FAILED"],
+            },
+        )
+        report = self._report({
+            "generated_at": "2026-09-18T01:00:00Z",
+            "markets": [
+                {"market": "US", "classification_status": "PAPER_REFERENCE_CLASSIFIED"},
+                {"market": "KR", "classification_status": "PAPER_REFERENCE_CLASSIFIED"},
+                {"market": "CRYPTO", "classification_status": "WAIT_MARKET_NORMALIZATION_INPUT"},
+            ],
+        }, spec)
+        item = report["items"][0]
+        self.assertEqual(item["status"], "CLASSIFICATION_UNAVAILABLE")
+        # The failing market is named; the healthy ones are not accused.
+        self.assertIn("CRYPTO", item["detail"])
+        self.assertNotIn("US:", item["detail"])
+        self.assertEqual(item["classification_observed"]["US"], "PAPER_REFERENCE_CLASSIFIED")
+
+    def test_absent_status_field_is_an_alarm_not_a_pass(self):
+        report = self._report({
+            "current_reference": {"as_of_date": "2026-09-18"},
+            "official_decision": {"coverage": {"missing_axes": []}},
+        })
+        self.assertEqual(report["items"][0]["status"], "CLASSIFICATION_UNAVAILABLE")
+
+
+class RealRepoRunAndClassificationTest(unittest.TestCase):
+    def test_crypto_refresh_status_classification_is_flagged(self):
+        # Against this repo's own committed pointer: current_reference is a
+        # complete 5/5 reference (all crypto-regime-refresh-watchdog.yml looks
+        # at) while official_decision is WAIT_PIT_LEADERSHIP_HISTORY with
+        # LEADERSHIP missing. Issue #511 has been open on this since 2026-08-31.
+        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
+        item = next(i for i in report["items"] if i["id"] == "crypto_regime_refresh_status")
+        self.assertEqual(item["status"], "CLASSIFICATION_UNAVAILABLE")
+        self.assertEqual(item["classification_status"], MODULE.CLASS_STATUS_UNAVAILABLE)
+        self.assertIn("LEADERSHIP", item["detail"])
+
+    def test_the_two_new_producers_are_watched(self):
+        specs = {spec["id"]: spec for spec in MODULE.default_watchlist()}
+        self.assertIn("paper_regime_reference", specs)
+        self.assertIn("crypto_regime_refresh_status", specs)
+        # Both are produced by the workflow the skip-over-failure incident hit.
+        for producer in ("paper_regime_reference", "crypto_regime_refresh_status"):
+            self.assertEqual(specs[producer]["workflow_file"], "paper-regime-reference.yml")
+
+    def test_paper_runtime_blocked_states_do_not_alarm(self):
+        # Guard against the watchdog going permanently red on designed states.
+        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
+        by_id = {item["id"]: item for item in report["items"]}
+        for producer in ("us_paper_runtime_decision", "crypto_paper_runtime_decision"):
+            with self.subTest(producer=producer):
+                self.assertEqual(
+                    by_id[producer]["classification_status"],
+                    MODULE.CLASS_STATUS_EXPECTED_UNAVAILABLE,
+                )
+                self.assertNotIn(producer, {i["id"] for i in report["alarm_items"]})
+
+    def test_emit_workflow_files_is_single_sourced_from_the_watchlist(self):
+        # The workflow's fetch step reads this list rather than duplicating it.
+        expected = sorted({spec["workflow_file"] for spec in MODULE.default_watchlist()
+                           if spec.get("workflow_file")})
+        self.assertIn("paper-regime-reference.yml", expected)
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            exit_code = MODULE.main(["--emit-workflow-files"])
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured.getvalue().split(), expected)
 
 
 class AuthorityAndSchemaTest(unittest.TestCase):
