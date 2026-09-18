@@ -39,9 +39,19 @@ def window_at_or_before(series: PriceSeries, decision_date: str, n: int) -> list
     #   automatically return [] for the whole pre-2026-08-13 sub-window --
     #   Atlas's own committed evidence trail starts there, so it could not
     #   have detected anything before it (see price_series.py docstring).
-    dates = series.live_trading_dates_at_or_before(decision_date)
-    assert_no_signal_lookahead(decision_date, dates, label=f"{series.subject}_window")
-    return dates[-n:] if len(dates) >= n else dates
+    #
+    # CIO growth-driver fix (2026-09-18): delegates to `PriceSeries`'s own
+    # cache, keyed on exactly (decision_date, n) -- the only two inputs
+    # this function's result depends on beyond the series' own (immutable
+    # once built) content. Same subject/peer, same decision_date, same n
+    # used to redo this whole fetch+validate+slice from scratch on every
+    # call; `relative_strength_reversal` alone calls this once per peer per
+    # (subject, date) pair, which is where almost all of that repetition
+    # came from (see PriceSeries.window_at_or_before_cached's docstring).
+    return series.window_at_or_before_cached(
+        decision_date, n,
+        lambda dd, dates: assert_no_signal_lookahead(dd, dates, label=f"{series.subject}_window"),
+    )
 
 
 def price_confirmation(series: PriceSeries, decision_date: str, source: str, evidence_sha: str,
