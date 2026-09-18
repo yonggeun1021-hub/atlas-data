@@ -41,6 +41,21 @@ def source_observation_ceiling(
     takes their chronological maximum; it never clamps or rewrites a source.
     The decision builder remains responsible for rejecting a caller-supplied
     ``generated_at`` that precedes any of these timestamps.
+
+    A realtime run carries two resolutions: ``run.ended_at`` is the capture end
+    truncated to the whole second, while the inputs it retains (gate status,
+    latest public messages, message-log receipts) keep their microseconds and
+    so routinely land in the remainder of that same second -- ``ended_at``
+    07:15:37Z for a last receipt at 07:15:37.221674Z.  A maximum over the
+    whole-second timestamps alone therefore names a decision instant that
+    precedes committed inputs, which is exactly what the fail-closed
+    ``REALTIME_INPUT_AFTER_DECISION`` guard rejects.  The maximum is finished
+    through the builder's own ``decision_time_not_before_inputs`` -- the step
+    ``populate()`` applies when it stamps a new packet -- which only ever moves
+    the instant later (never earlier, so nothing uncaptured is admitted), by at
+    most one second, and still raises
+    ``REALTIME_INPUT_MORE_THAN_ONE_SECOND_AFTER_DECISION`` beyond that.  Calling
+    it is what keeps this helper from drifting away from the guard again.
     """
     timestamps: list[dt.datetime] = []
 
@@ -72,7 +87,9 @@ def source_observation_ceiling(
 
     if not timestamps:
         raise AssertionError("NO_COMMITTED_CRYPTO_SOURCE_TIMESTAMP")
-    return max(timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return BRIDGE.DECISION.decision_time_not_before_inputs(
+        max(timestamps).strftime("%Y-%m-%dT%H:%M:%SZ"), realtime_entry,
+    )
 
 
 def latest_committed_source_observation_ceiling() -> str:
@@ -141,6 +158,35 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
                 realtime_entry=realtime,
             ),
             "2026-08-30T00:04:00Z",
+        )
+
+    def test_ceiling_covers_sub_second_realtime_inputs_past_the_truncated_run_end(self):
+        # run.ended_at is whole-second; the receipts it retains are not.  The
+        # ceiling must clear the latest input, not merely the truncated end,
+        # or build_snapshot fails closed with REALTIME_INPUT_AFTER_DECISION.
+        realtime = {"record": {"run": {
+            "ended_at": "2026-08-30T00:03:00Z",
+            "status": {"generated_at": "2026-08-30T00:03:00Z"},
+            "message_log": [{"received_at": "2026-08-30T00:03:00.221674Z"}],
+        }}}
+        self.assertEqual(
+            source_observation_ceiling(
+                universe_entry={"packet": {"available_at": "2026-08-30T00:01:00Z"}},
+                market_evidence_entry=None,
+                realtime_entry=realtime,
+            ),
+            "2026-08-30T00:03:01Z",
+        )
+
+    def test_current_committed_ceiling_never_precedes_any_realtime_input(self):
+        realtime = BRIDGE.DECISION.find_latest_realtime_run()
+        latest_input = BRIDGE.DECISION.realtime_inputs_latest_at(realtime["record"])
+        self.assertIsNotNone(latest_input)
+        self.assertGreaterEqual(
+            BRIDGE.DECISION._parse_utc(
+                latest_committed_source_observation_ceiling(), "test.ceiling",
+            ),
+            latest_input,
         )
 
     def test_current_committed_source_ceiling_builds_without_reusing_prior_decision_time(self):
