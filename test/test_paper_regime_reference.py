@@ -18,6 +18,30 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 
+def _tree_with_one_path_missing(source: Path, dest: Path, missing_relative: str) -> None:
+    """Recreate ``source`` under ``dest`` via symlinks, omitting exactly one
+    relative path -- the same "full tree minus one directory" shape a sparse
+    checkout (``actions/checkout`` with ``sparse-checkout`` silently implies
+    ``blob:none``) can produce. Only directories that are ancestors of the
+    omitted path are ever materialized as real directories of symlinks;
+    every sibling is a single symlink to the real repository, so this does
+    not copy this repository's mostly-evidence multi-GB tree.
+    """
+    parts = Path(missing_relative).parts
+
+    def _walk(src: Path, remaining: tuple[str, ...], dst: Path) -> None:
+        dst.mkdir(parents=True, exist_ok=True)
+        for child in sorted(src.iterdir()):
+            if remaining and child.name == remaining[0]:
+                if len(remaining) > 1:
+                    _walk(child, remaining[1:], dst / child.name)
+                # len(remaining) == 1: exactly the path being omitted
+            else:
+                (dst / child.name).symlink_to(child, target_is_directory=child.is_dir())
+
+    _walk(source, parts, dest)
+
+
 POLICY_PATH = ROOT / "config" / "paper_regime_reference_policy_v1.json"
 # The crypto leadership vocabulary the source validator admits
 # (regime/crypto_regime_refresh_status.py, CURRENT_REFERENCE_LEADERSHIP_INVALID).
@@ -540,6 +564,61 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             tampered_message = str(ctx2.exception)
             self.assertIn("REFERENCE_REDERIVATION_MISMATCH", tampered_message)
             self.assertNotIn("REFERENCE_STALE_VS_CURRENT_INPUTS", tampered_message)
+
+    def test_incomplete_checkout_names_the_absent_input_not_staleness(self):
+        # A third way to reach a mismatch, distinct from both cases above: a
+        # completely correct, completely unmoved repository whose checkout is
+        # missing one directory. Proven in isolation elsewhere: a symlink
+        # farm of the full tree omitting exactly
+        # evidence/crypto/btc/raw/<date> reproduces
+        # REFERENCE_REDERIVATION_MISMATCH with nothing else changed --
+        # actions/checkout's sparse-checkout silently implies blob:none, so
+        # this is easy to hit unintentionally. build_crypto degrades to
+        # WAIT_MARKET_NORMALIZATION_INPUT when the raw closure cannot be
+        # read (it does not raise), so `expected` simply has no
+        # crypto_descriptive_normalization_sources key at all -- meaning
+        # every one of the committed packet's declared normalization paths
+        # would otherwise look "moved" against an `expected` that never
+        # declared them, and the stale-input diagnostic above would tell a
+        # reader to dispatch the producer to regenerate a reference that was
+        # never stale. Absence must be caught first and labelled as its own
+        # fact.
+        committed = MODULE.build_reference(ROOT)
+        self.assertEqual(MODULE.validate_reference(committed, ROOT), committed)
+        normalization_sources = committed.get("crypto_descriptive_normalization_sources")
+        if not normalization_sources:
+            self.skipTest(
+                "today's real repository has no Crypto normalization closure "
+                "to omit (CRYPTO is already WAIT_MARKET_NORMALIZATION_INPUT)"
+            )
+        crypto_row = next(row for row in committed["markets"] if row["market"] == "CRYPTO")
+        raw_manifest = f"evidence/crypto/btc/raw/{crypto_row['as_of_date']}/_manifest.json"
+        declared_paths = {row["path"] for row in normalization_sources}
+        self.assertIn(raw_manifest, declared_paths)
+        missing_dir = str(Path(raw_manifest).parent)
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            _tree_with_one_path_missing(ROOT, root, missing_dir)
+            self.assertFalse((root / raw_manifest).exists())
+            # Every other declared input this packet used is still reachable
+            # -- only the one omitted directory is gone.
+            for path in declared_paths | {committed["policy"]["path"]} | {
+                row["path"] for row in committed["sources"]
+            }:
+                if path != raw_manifest:
+                    self.assertTrue((root / path).is_file(), path)
+
+            with self.assertRaises(MODULE.PaperRegimeReferenceError) as ctx:
+                MODULE.validate_reference(committed, root)
+            message = str(ctx.exception)
+            self.assertIn("REFERENCE_DECLARED_INPUT_MISSING", message)
+            # Must read as neither of the other two codes -- an incomplete
+            # checkout is its own fact, not staleness and not a genuine
+            # mismatch.
+            self.assertNotIn("REFERENCE_STALE_VS_CURRENT_INPUTS", message)
+            self.assertNotIn("REFERENCE_REDERIVATION_MISMATCH", message)
+            self.assertIn(raw_manifest, message)
 
     def test_write_is_append_only_and_pointer_is_identical(self):
         with tempfile.TemporaryDirectory() as raw:

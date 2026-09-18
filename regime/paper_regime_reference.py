@@ -930,31 +930,75 @@ def _market_as_of_dates(markets: object) -> dict[str, object]:
     }
 
 
-def _diagnose_rederivation_mismatch(packet: dict, expected: dict) -> None:
-    """Tell a stale committed reference apart from a genuine mismatch.
+def _missing_declared_inputs(packet: dict, root: Path) -> list[str]:
+    """Paths this packet declares it was built from that are absent on disk.
+
+    Distinct from a moved input: a declared path that exists but hashes to
+    something else has changed (``REFERENCE_STALE_VS_CURRENT_INPUTS``); a
+    declared path that is not there *at all* means this checkout of the
+    repository is incomplete, not that any input moved. A sparse or partial
+    checkout (``actions/checkout`` with ``sparse-checkout`` silently implies
+    ``blob:none``) can omit a whole directory -- e.g.
+    ``evidence/crypto/btc/raw/<date>/`` -- that a fully-correct, unmoved
+    committed packet still depends on, with every byte of every input this
+    packet actually used unchanged. Proven in isolation: a full tree passes
+    validation; the same tree with only that one directory removed does not,
+    with no other change.
+    """
+    return sorted(path for path in _binding_hashes(packet) if not (root / path).is_file())
+
+
+def _diagnose_rederivation_mismatch(packet: dict, expected: dict, root: Path) -> None:
+    """Tell a stale committed reference apart from a genuine mismatch, and
+    both apart from an incomplete checkout.
 
     ``expected`` is freshly rebuilt from whatever the repository holds right
     now.  Only reached once ``packet != expected`` is already known.
 
-    When every path this packet declares it was built from (the policy, the
-    three primary market sources, and the Crypto normalization closure) still
-    hashes to exactly the same bytes as ``expected``, the two packets differ
-    for some other reason -- the packet itself, or the code that classifies
-    it, is genuinely inconsistent with its own declared inputs.  That case is
-    unchanged: it still fails ``REFERENCE_REDERIVATION_MISMATCH``.
+    Checked in this order, absence first:
 
-    When one or more of those declared inputs has moved, the packet was not
-    wrong when it was generated and nothing that produced *this* validation
-    call broke anything: the repository's inputs (a KR/US/CRYPTO source file,
-    the policy, or the Crypto raw closure) changed underneath an
-    already-committed packet after the fact -- exactly what happened
-    2026-09-18, when Korean price collection came back from an 8-day outage
-    and a week of backfilled data landed minutes after this packet was
-    written. That is reported as ``REFERENCE_STALE_VS_CURRENT_INPUTS``, naming
-    which input moved, which market's ``as_of_date`` moved with it, and the
-    producer workflow that regenerates the packet -- so a PR author reading
-    this does not go looking for a bug in their own change that is not there.
+    1. A path this packet declares it was built from does not exist on disk
+       at all -- an incomplete checkout, never a staleness fact about the
+       repository's real inputs.  Reported as
+       ``REFERENCE_DECLARED_INPUT_MISSING``, naming the absent path(s).  This
+       must run before the moved-input check below: ``expected`` simply has
+       no ``crypto_descriptive_normalization_sources`` key when the Crypto
+       raw closure cannot be read (``build_crypto`` degrades to
+       ``WAIT_MARKET_NORMALIZATION_INPUT`` rather than raising), so every one
+       of ``packet``'s declared normalization paths would otherwise look
+       "moved" against an ``expected`` that never declared them --
+       confidently telling a reader to dispatch the producer workflow to
+       regenerate a reference that was never stale, which is worse than the
+       undiagnosed code this replaces for exactly the append-only packets
+       this module writes.
+
+    2. Every declared path exists, but one or more hashes differently from
+       what ``expected`` finds there right now.  The repository's inputs (a
+       KR/US/CRYPTO source file, the policy, or the Crypto raw closure)
+       changed underneath an already-committed packet after the fact --
+       exactly what happened 2026-09-18, when Korean price collection came
+       back from an 8-day outage and a week of backfilled data landed
+       minutes after this packet was written.  Reported as
+       ``REFERENCE_STALE_VS_CURRENT_INPUTS``, naming which input moved, which
+       market's ``as_of_date`` moved with it, and the producer workflow that
+       regenerates the packet.
+
+    3. Every declared path exists and hashes identically, yet the packet
+       still differs from a fresh rebuild -- the packet itself, or the code
+       that classifies it, is genuinely inconsistent with its own declared,
+       unmoved inputs.  Unchanged: still fails ``REFERENCE_REDERIVATION_MISMATCH``.
     """
+    missing = _missing_declared_inputs(packet, root)
+    if missing:
+        detail = (
+            "one or more inputs this packet declares it was built from are "
+            "absent from this checkout rather than changed -- likely an "
+            "incomplete (e.g. sparse) checkout, not a stale or mismatched "
+            "reference; absent=[" + ", ".join(missing) + "]; "
+            "re-checkout the full tree first, then re-run validation"
+        )
+        fail("REFERENCE_DECLARED_INPUT_MISSING", detail)
+
     packet_hashes = _binding_hashes(packet)
     expected_hashes = _binding_hashes(expected)
     moved_paths = sorted(
@@ -1005,7 +1049,7 @@ def validate_reference(
         if frozen_packet_authenticated and packet.get("render_version") == CURRENT_RENDER_VERSION:
             _validate_authenticated_frozen_v4(packet, root)
         else:
-            _diagnose_rederivation_mismatch(packet, expected)
+            _diagnose_rederivation_mismatch(packet, expected, root)
             fail("REFERENCE_REDERIVATION_MISMATCH")
     return copy.deepcopy(packet)
 
