@@ -779,6 +779,18 @@ APPROVED_TESTS = [
     #   resume reproduce the same bytes, fresh-process reverify passes.
     #   ⛔ no stage change, no promotion, no threshold, no network, no order.
     "test/test_population_symbol_observation.py",
+    # ★ Daily scheduled run for the two population observations (2026-09-18).
+    #   Both producers had NO .github/workflows trigger at all, so KR sat at
+    #   2026-09-10 and US at 2026-09-11 while the committed universes they
+    #   consume had already published through 2026-09-16. Asserts the schedule
+    #   and its backup slot, that a dispatched run is guard-equivalent to a
+    #   scheduled one (no inputs, no github.event_name branch) so the server
+    #   dispatcher may be registered, and that a repeat run for an
+    #   already-captured date reports verified_existing instead of letting
+    #   persist_packet supersede committed bytes.
+    #   ⛔ observation only; no pass rule (passed_count stays 0), no authority,
+    #      no network, no new collection target or source.
+    "test/test_population_observation_daily_schedule.py",
     # ★ Three-market evaluation-coverage receipt (stacked from PR #680/#682,
     #   unchanged). Exact KR/US source-coverage universes and bounded symbol
     #   reviews are kept separate; the Crypto PAPER funnel contributes only
@@ -2879,6 +2891,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
     "test/test_population_symbol_observation.py": 60.0,
+    "test/test_population_observation_daily_schedule.py": 20.0,
     "test/test_three_market_evaluation_coverage.py": 60.0,
     "test/test_market_candidate_discovery_lookup.py": 120.0,
 }
