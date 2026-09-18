@@ -34,6 +34,18 @@ Usage (see .github/workflows/fred-dexkous-fx.yml):
 Exit code 0: every reported path is staged (or there was nothing to check).
 Exit code 1: at least one reported path is missing from the staged diff --
 the run must be treated as failed.
+
+A second, optional shape (--written-dirs-field) covers a producer whose
+summary reports an owning DIRECTORY plus a wrote-something boolean per unit
+of work, rather than a flat list of exact new file paths -- e.g.
+.github/scripts/population_symbol_observation_daily.py's per-market
+records (`output_dir` + `wrote_anything`), used by
+population-symbol-observation-daily.yml. This does NOT reshape that
+producer's own JSON: its summary is read as-is; only this checker gained a
+second reporting shape it understands, using the fixed filenames the
+persist-packet writer in decision/population_symbol_observation.py is
+already known to write under each output_dir. See that workflow's commit
+step for the exact invocation.
 """
 from __future__ import annotations
 
@@ -61,16 +73,51 @@ def reported_new_paths(summary: dict, fields: list[str]) -> list[str]:
     return paths
 
 
+def reported_dir_paths(
+    summary: dict, field: str, dir_key: str, wrote_key: str, filenames: list[str],
+) -> list[str]:
+    """Derive expected new-file paths from a list of {dir_key: ..., wrote_key:
+    bool} records instead of a flat list of exact paths. Every filename in
+    ``filenames`` is required directly under a record's directory whenever
+    that record's ``wrote_key`` is true; a record missing the directory key,
+    or not a dict, is skipped rather than guessed at."""
+    paths: list[str] = []
+    for record in summary.get(field, []) or []:
+        if not isinstance(record, dict) or not record.get(wrote_key):
+            continue
+        directory = record.get(dir_key)
+        if not directory:
+            continue
+        directory = str(directory).rstrip("/")
+        paths.extend(f"{directory}/{filename}" for filename in filenames)
+    return paths
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("summary_path", type=Path, help="JSON summary printed by the collector.")
     parser.add_argument(
         "--field", dest="fields", action="append", default=None,
         help="Key in the summary JSON holding a list of newly-written paths "
-             "(repeatable). Default: new_observation_paths.",
+             "(repeatable). Default: new_observation_paths, unless "
+             "--written-dirs-field is given instead/in addition.",
+    )
+    parser.add_argument(
+        "--written-dirs-field", default=None,
+        help="Key in the summary JSON holding a list of {dir_key: ..., "
+             "wrote_key: bool} records (see module docstring) -- an "
+             "alternative to --field for a producer that reports an owning "
+             "directory plus a wrote-something flag instead of exact paths.",
+    )
+    parser.add_argument("--dir-key", default="output_dir", help="With --written-dirs-field.")
+    parser.add_argument("--wrote-key", default="wrote_anything", help="With --written-dirs-field.")
+    parser.add_argument(
+        "--expect-file", dest="expect_files", action="append", default=None,
+        help="Filename (repeatable) required directly under each written "
+             "record's directory. With --written-dirs-field.",
     )
     args = parser.parse_args(argv)
-    fields = args.fields or ["new_observation_paths"]
+    fields = args.fields or ([] if args.written_dirs_field else ["new_observation_paths"])
 
     try:
         summary = json.loads(args.summary_path.read_text(encoding="utf-8"))
@@ -79,6 +126,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     reported = reported_new_paths(summary, fields)
+    if args.written_dirs_field:
+        reported += reported_dir_paths(
+            summary, args.written_dirs_field, args.dir_key, args.wrote_key,
+            args.expect_files or ["summary.json"],
+        )
     if not reported:
         return 0
 

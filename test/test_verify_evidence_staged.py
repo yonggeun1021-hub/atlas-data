@@ -122,5 +122,70 @@ class EvidenceLossIsCaught(_TempGitRepoCase):
         self.assertEqual(rc, 0)
 
 
+class DirRecordShapeIsCaught(_TempGitRepoCase):
+    """population-symbol-observation-daily.yml's shape: a list of {output_dir,
+    wrote_anything} records rather than a flat list of exact paths (see
+    module docstring, "A second, optional shape")."""
+
+    def _write_dir_summary(self, observations: list[dict]) -> Path:
+        summary_path = self.repo / "summary.json"
+        summary_path.write_text(json.dumps({"observations": observations}))
+        return summary_path
+
+    def test_written_directory_missing_expected_files_fails(self):
+        summary_path = self._write_dir_summary(
+            [{"market": "KR", "output_dir": "data/observations/korea_population_symbol_observation/2099-01-01",
+              "wrote_anything": True}]
+        )
+        # Neither summary.json nor packet.json.gz was ever created/staged.
+        rc = M.main([
+            str(summary_path), "--written-dirs-field", "observations",
+            "--dir-key", "output_dir", "--wrote-key", "wrote_anything",
+            "--expect-file", "summary.json", "--expect-file", "packet.json.gz",
+        ])
+        self.assertEqual(rc, 1)
+
+    def test_written_directory_with_both_files_staged_passes(self):
+        rel_dir = "data/observations/korea_population_symbol_observation/2099-01-01"
+        full_dir = self.repo / rel_dir
+        full_dir.mkdir(parents=True)
+        (full_dir / "packet.json.gz").write_bytes(b"\x1f\x8b")
+        (full_dir / "summary.json").write_text("{}")
+        _run("git", "add", rel_dir)
+
+        summary_path = self._write_dir_summary(
+            [{"market": "KR", "output_dir": rel_dir, "wrote_anything": True}]
+        )
+        rc = M.main([
+            str(summary_path), "--written-dirs-field", "observations",
+            "--dir-key", "output_dir", "--wrote-key", "wrote_anything",
+            "--expect-file", "summary.json", "--expect-file", "packet.json.gz",
+        ])
+        self.assertEqual(rc, 0)
+
+    def test_verified_existing_record_is_not_checked(self):
+        """A market that skipped a rebuild (verified_existing,
+        wrote_anything=False) reports no new files -- the guard must not
+        demand any, even though its output_dir is committed from a prior
+        day's run."""
+        summary_path = self._write_dir_summary(
+            [{"market": "KR",
+              "output_dir": "data/observations/korea_population_symbol_observation/2099-01-01",
+              "wrote_anything": False}]
+        )
+        rc = M.main([
+            str(summary_path), "--written-dirs-field", "observations",
+            "--expect-file", "summary.json", "--expect-file", "packet.json.gz",
+        ])
+        self.assertEqual(rc, 0)
+
+    def test_blocked_record_with_no_output_dir_is_skipped_not_crashed(self):
+        summary_path = self._write_dir_summary(
+            [{"market": "US", "session_date": None, "outcome": "blocked", "wrote_anything": False}]
+        )
+        rc = M.main([str(summary_path), "--written-dirs-field", "observations"])
+        self.assertEqual(rc, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
