@@ -1356,6 +1356,18 @@ APPROVED_TESTS = [
     # ★ Conditional LIGHTER (same ratification): Kraken official asset page
     #   identity confirmed; eligible_crypto effective 2026-09-16, no backfill.
     "test/test_crypto_breadth_lighter_identity_20260914.py",
+    # ★ 2026-09-18 cutoff-band identity slice (ranks 124..152, 40-rank band
+    #   above the rank-112 eligibility-scan cutoff): BAT/CAKE/CFG/ENS/ETC/GRT/
+    #   MNT/PEAQ/SAND/SHAPE/SHX/SN51/VET eligible_crypto and MOODENG
+    #   unverified_identity, all effective 2026-09-18. Kraken leg re-checked
+    #   from the committed 09-18 Assets/AssetPairs bytes; the source-fact
+    #   receipt (evidence/crypto/identity/...20260918.json) is bound to the
+    #   taxonomy so the two cannot drift. Retained vintages 09-12..09-18 are
+    #   byte-identical with and without the records — this batch buys headroom
+    #   below the cutoff, it does not change any committed result.
+    #   ⛔ thresholds/Top-100/fail-closed unchanged; no live Kraken, no
+    #   date-dependent test; MOODENG records a failure to verify, not a guess.
+    "test/test_crypto_breadth_band_identity_20260918.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
