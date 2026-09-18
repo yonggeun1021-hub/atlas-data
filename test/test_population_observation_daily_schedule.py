@@ -253,6 +253,176 @@ class AlreadyCapturedSkipTest(unittest.TestCase):
         self.assertTrue(MODULE.already_captured(dated))
 
 
+class PersistPacketSupersedeHazardTest(unittest.TestCase):
+    """The supersede hazard itself, pinned -- not merely this caller's avoidance.
+
+    ``persist_packet()`` overwrites an existing packet whenever the incoming
+    ``generation_id`` differs, and the generation hashes rolling inputs (stage
+    history, the bounded review pointer, the KRX watchlist).  For an output
+    directory that is committed evidence, that is an append-only violation
+    waiting for a scheduler to arm it.
+
+    ``.github/scripts/population_symbol_observation_daily.py`` refuses to reach
+    ``build()``/``persist_packet()`` for an already-captured date, so the
+    scheduled path is safe.  But the hazard lives in the shared producer, so
+    every *other* caller inherits it.  These tests pin it two ways:
+
+    1. the behaviour is characterised explicitly, so it cannot change silently;
+    2. the set of production callers is pinned, so a new unguarded caller fails
+       loudly instead of quietly rewriting committed packets.
+
+    If ``persist_packet()`` is later fixed (see the PR body's named follow-up),
+    test 1 will fail -- that is the intended signal.  Update it to assert the
+    refusal; do not delete it.
+    """
+
+    #: Non-test files allowed to reach persist_packet()/build(write=True).
+    #: decision/population_symbol_observation.py defines both; the daily script
+    #: is guarded by its already-captured check.
+    GUARDED_PRODUCTION_CALLERS = {
+        "decision/population_symbol_observation.py",
+        ".github/scripts/population_symbol_observation_daily.py",
+    }
+
+    def test_hazard_is_live_persist_packet_overwrites_a_same_date_packet(self):
+        """Characterise the hazard: same directory, different generation, overwritten.
+
+        Uses a temp directory -- the hazard is demonstrated, never inflicted on
+        committed evidence.
+        """
+        with tempfile.TemporaryDirectory(prefix="pop_obs_hazard_") as tmp:
+            staged = Path(tmp) / "2026-09-11"
+            staged.mkdir(parents=True)
+
+            market = "US"
+            base = CORE.DEFAULT_OUTPUT_ROOTS[market]
+            committed = [d for d in sorted(base.iterdir())
+                         if CORE._packet_target(d) is not None] if base.is_dir() else []
+            if not committed:
+                self.skipTest("no committed packet on disk to characterise the hazard with")
+            packet = CORE.read_packet_file(CORE._packet_target(committed[-1]))
+
+            first = CORE.persist_packet(packet, staged, compress=True)
+            self.assertEqual(first["outcome"], "populated")
+            original_bytes = (staged / "packet.json.gz").read_bytes()
+
+            # Same date, same directory, only the generation differs -- exactly
+            # what a rolling-pointer move produces.
+            mutated = json.loads(json.dumps(packet))
+            mutated["generation_id"] = "1" * 64
+            second = CORE.persist_packet(mutated, staged, compress=True)
+
+            self.assertEqual(
+                second["outcome"], "superseded_generation",
+                "persist_packet() no longer supersedes -- if it now refuses, the hazard is "
+                "fixed: update this test to assert the refusal rather than deleting it")
+            # The overwrite is real, not just a label.
+            self.assertNotEqual((staged / "packet.json.gz").read_bytes(), original_bytes)
+
+    def test_production_callers_of_the_supersede_path_are_pinned(self):
+        """A new unguarded caller of persist_packet()/build() must fail loudly."""
+        callers = set()
+        for path in sorted(ROOT.rglob("*.py")):
+            relative = path.relative_to(ROOT)
+            if relative.parts[0] in {"test", "evidence", "data", ".git", "outputs"}:
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            # Only count real call sites, not prose in docstrings/comments.
+            executable = "\n".join(
+                line for line in text.splitlines() if not line.lstrip().startswith("#"))
+            if "persist_packet(" in executable or "CORE.build(" in executable:
+                callers.add(relative.as_posix())
+        self.assertEqual(
+            callers, self.GUARDED_PRODUCTION_CALLERS,
+            "a production caller of the supersede path changed; every caller writing into a "
+            "committed observation root must first check already_captured()")
+
+    def test_the_daily_script_checks_already_captured_before_building(self):
+        """The guard is ordered: the check precedes the build, in source order."""
+        text = SCRIPT.read_text(encoding="utf-8")
+        body = text.split("def observe(", 1)[1]
+        self.assertLess(body.index("already_captured("), body.index("CORE.build("),
+                        "observe() must test already_captured() before it builds")
+
+
+class WatchdogSpecTruthfulnessTest(unittest.TestCase):
+    """A producer spec must not claim "no trigger exists" once one does.
+
+    ``watchdog/daily_producer_freshness.py`` hardcodes, per producer, a
+    ``workflow`` description and a ``calendar``.  Two of its specs say
+    ``"-- no .github/workflows trigger exists"`` and carry ``NO_SCHEDULE``,
+    which was true when it was written and becomes false the moment this
+    workflow lands.  Nothing else in the repository would catch that, so the
+    watchdog would quietly report a producer as unscheduled while a cron drives
+    it daily.
+
+    The watchdog currently lives on an unmerged branch, so this test skips with
+    a named reason rather than passing vacuously -- whichever change lands
+    second then breaks loudly instead of lying.
+    """
+
+    WATCHDOG = ROOT / "watchdog" / "daily_producer_freshness.py"
+    NO_TRIGGER_CLAIM = "no .github/workflows trigger exists"
+
+    def setUp(self):
+        if not self.WATCHDOG.is_file():
+            self.skipTest(
+                "watchdog/daily_producer_freshness.py is not present on this branch "
+                "(it is unmerged work on claude/daily-producer-watchdog); this check "
+                "activates automatically once that file lands")
+
+    def _specs(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("daily_producer_freshness", self.WATCHDOG)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.default_watchlist()
+
+    @staticmethod
+    def _workflow_bodies():
+        """Executable YAML of every workflow, comments stripped."""
+        bodies = {}
+        for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            text = path.read_text(encoding="utf-8")
+            bodies[path.name] = "\n".join(
+                line for line in text.splitlines() if not line.lstrip().startswith("#"))
+        return bodies
+
+    def test_no_spec_claims_no_trigger_while_a_workflow_drives_it(self):
+        bodies = self._workflow_bodies()
+        for spec in self._specs():
+            claim = str(spec.get("workflow") or "")
+            if self.NO_TRIGGER_CLAIM not in claim:
+                continue
+            # The producer's own committed output root: a workflow that stages
+            # that root is, by construction, running this producer.
+            target = spec.get("glob") or spec.get("path") or ""
+            root_path = str(target).split("/*", 1)[0]
+            self.assertTrue(root_path, f"spec {spec['id']} has no glob/path to check")
+            driving = sorted(name for name, body in bodies.items() if root_path in body)
+            self.assertEqual(
+                driving, [],
+                f"watchdog spec {spec['id']!r} still claims {self.NO_TRIGGER_CLAIM!r}, but "
+                f"{driving} write its output root {root_path!r}. Update that spec's "
+                f"'workflow' and 'calendar' fields to name the real trigger.")
+
+    def test_no_spec_is_marked_no_schedule_while_a_workflow_schedules_it(self):
+        bodies = self._workflow_bodies()
+        for spec in self._specs():
+            calendar = spec.get("calendar") or {}
+            if calendar.get("type") != "NO_SCHEDULE":
+                continue
+            target = spec.get("glob") or spec.get("path") or ""
+            root_path = str(target).split("/*", 1)[0]
+            if not root_path:
+                continue
+            for name, body in bodies.items():
+                if root_path in body and "schedule:" in body:
+                    self.fail(
+                        f"watchdog spec {spec['id']!r} is NO_SCHEDULE but {name} both "
+                        f"schedules and writes {root_path!r}")
+
+
 class NoPassRuleTest(unittest.TestCase):
     """(4) No pass rule introduced; authority stays closed."""
 
