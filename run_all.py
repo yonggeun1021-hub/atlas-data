@@ -3644,12 +3644,28 @@ def main():
                         help="--phase regression only: 0-based shard index "
                              "(0 <= index < --shard-count)")
     args = parser.parse_args()
-    # ★ 어떤 phase 로 가든, 어떤 test 파일보다 먼저 — checkout 자체가 완전한지
-    #   딱 한 번 본다. 이 자리는 shard/phase 분기보다 앞이라 --phase structural/
-    #   regression/fi/all 전부, 그리고 legacy 경로도 예외 없이 지나간다.
-    checkout_abort = verify_checkout_completeness()
-    if checkout_abort is not None:
-        return checkout_abort
+    # ★ test 파일을 실제로 실행하는 phase 로 갈 때만, 그 어떤 test 파일보다 먼저
+    #   checkout 자체가 완전한지 한 번 본다.
+    #   ⛔ `structural` 과 `fi` 는 대상이 아니다 — 위시리스트가 아니라 이 저장소
+    #      자신의 actions-pass.yml 이 이미 그렇게 선언하고 있다:
+    #      "fetch-depth: 0 은 [regression] matrix 에만 준다 — test_replay_
+    #      asset_identity.py 가 실제 git 커밋 히스토리를 직접 읽는다" (해당 워크플로
+    #      주석). `structural` 은 builder 재빌드/byte 비교만 하고 test 파일을 하나도
+    #      실행하지 않으며, `fi` 는 test/test_fault_injection.py 하나만 자식으로
+    #      실행하는데 그 파일은 스스로 만든 `.git` 없는 임시 사본 안에서만 검증한다
+    #      (바깥 checkout 의 역사/evidence 완전성과 무관). 그래서 두 job 모두 CI 에서
+    #      의도적으로 기본 fetch-depth: 1(shallow) 로 checkout 된다 — 이 게이트가 그
+    #      두 곳에서도 unconditionally 발동하면, 올바르게 구성된 checkout 을 스스로
+    #      불완전하다고 오판하게 된다(2026-09-18 밤에 실제로 그랬다: 첫 커밋부터
+    #      `structural`/`fault-injection` 이 이 이유로 즉시 FAIL 했다 — 한국어 배너를
+    #      추가하기 전부터다).
+    #   `regression` 과 legacy `all` 경로는 실제로 APPROVED_TESTS 파일을 실행하므로
+    #   (test_global_asset_master_population_readiness.py, test_paper_regime_
+    #   reference.py 포함) 계속 검사한다.
+    if args.phase in ("all", "regression"):
+        checkout_abort = verify_checkout_completeness()
+        if checkout_abort is not None:
+            return checkout_abort
     if args.log_dir:
         args.log_dir = os.path.realpath(args.log_dir)
         if os.path.commonpath([args.log_dir, os.path.realpath(ROOT)]) == os.path.realpath(ROOT):
