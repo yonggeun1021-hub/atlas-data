@@ -1309,6 +1309,15 @@ APPROVED_TESTS = [
     #   snapshot and binds manifest/policy/taxonomy hashes. It creates no
     #   classification, ratification, investability, Stage, or trading right.
     "test/test_crypto_taxonomy_gap_inventory.py",
+    # ★ P3-04 — preventive classification-margin monitor. Measures the rank
+    #   distance between the production eligibility scan stop and the nearest
+    #   unclassified asset on the *production* ranking, alarms on both the
+    #   level and the per-day shrink rate from committed thresholds, and
+    #   escalates automatically once primary_30d can latch as the official
+    #   LEADERSHIP window (one unknown day then costs 30+5 days instead of
+    #   7+5). ⛔ creates no classification/ratification/investability/Stage/
+    #   threshold/trading right — it reports a queue, it does not decide one.
+    "test/test_crypto_taxonomy_margin_monitor.py",
     # ★ P3-04 — minimal ratified Crypto taxonomy Slice (31 native assets +
     #   EURC exclusion). 실 raw snapshot replay로 coverage 미달 시 계속
     #   blocked임을 재확인하고, 미비준 alias/unresolved ticker는 UNKNOWN을
