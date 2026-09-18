@@ -22,6 +22,9 @@ RECEIPT = (
 )
 LIVE = ROOT / "data/latest_korea_market_signals.json"
 REVIEWED_AT = "2026-09-13T00:00:00Z"
+CALENDAR_PATH = ROOT / MODULE.load_contract()["existing_policy_bindings"][
+    "official_calendar_path"
+]
 
 
 def inputs():
@@ -58,24 +61,108 @@ class KrPaperRuntimeRatificationCandidateTest(unittest.TestCase):
         self.assertEqual(packet["status"], "READY_FOR_CIO_RATIFICATION_RUNTIME_STILL_CLOSED")
         self.assertEqual(packet["live_input"]["observed_session"], "2026-09-11")
 
-    def test_current_main_is_blocked_only_by_not_advanced_live_session_and_ratification(self):
+    def test_current_main_live_pointer_is_reported_in_the_true_direction(self):
+        # ``data/latest_korea_market_signals.json`` is the rolling pointer the
+        # scheduled KR collector rewrites, so its session date must never be
+        # hardcoded here: it moved 2026-09-10 -> 2026-09-17 while the collector
+        # was down and then recovered.  Derive both sides and assert that the
+        # packet describes the real relation between them.
         packet = MODULE.build_candidate(**inputs())
+        observed = packet["live_input"]["observed_session"]
+        expected = packet["live_input"]["expected_latest_completed_session"]
+        self.assertEqual(observed, json.loads(LIVE.read_bytes())["as_of_date"])
+        self.assertEqual(expected, MODULE.latest_completed_session(
+            CALENDAR_PATH.read_bytes(),
+            str(CALENDAR_PATH.relative_to(ROOT)),
+            REVIEWED_AT,
+        ))
+        if observed == expected:
+            self.assertEqual(
+                packet["status"], "READY_FOR_CIO_RATIFICATION_RUNTIME_STILL_CLOSED"
+            )
+            self.assertEqual(
+                packet["live_input"]["freshness_status"],
+                "EXACT_LATEST_COMPLETED_SESSION",
+            )
+            self.assertTrue(packet["checks"]["latest_live_session_exact"])
+        else:
+            behind = observed < expected
+            self.assertEqual(
+                packet["status"],
+                "BLOCKED_LIVE_SESSION_NOT_ADVANCED"
+                if behind
+                else "BLOCKED_LIVE_SESSION_AHEAD_OF_EXPECTED",
+            )
+            self.assertEqual(
+                packet["live_input"]["freshness_status"],
+                "SOURCE_NOT_ADVANCED_EXPECTED_SESSION"
+                if behind
+                else "SOURCE_AHEAD_OF_EXPECTED_SESSION",
+            )
+            self.assertFalse(packet["checks"]["latest_live_session_exact"])
+        self.assertTrue(packet["checks"]["historical_28_of_28_five_axis"])
+        self.assertTrue(packet["checks"]["market_scoped_pit_accepted"])
+        self.assertEqual(packet["regime"], "UNKNOWN")
+        self.assertFalse(packet["runtime_decision_available"])
+        self.assertTrue(all(value is False for value in packet["authority"].values()))
+
+    def test_source_behind_expected_session_is_reported_as_not_advanced(self):
+        with mock.patch.object(
+            MODULE.SOURCE,
+            "validate_packet",
+            return_value={"as_of_date": "2026-09-10"},
+        ):
+            packet = MODULE.build_candidate(**inputs())
         self.assertEqual(packet["status"], "BLOCKED_LIVE_SESSION_NOT_ADVANCED")
-        self.assertEqual(packet["live_input"]["observed_session"], "2026-09-10")
-        self.assertEqual(
-            packet["live_input"]["expected_latest_completed_session"],
-            "2026-09-11",
-        )
         self.assertEqual(
             packet["live_input"]["freshness_status"],
             "SOURCE_NOT_ADVANCED_EXPECTED_SESSION",
         )
-        self.assertTrue(packet["checks"]["historical_28_of_28_five_axis"])
-        self.assertTrue(packet["checks"]["market_scoped_pit_accepted"])
+        self.assertEqual(
+            packet["next_executable_step"],
+            "CAPTURE_AND_RETAIN_EXACT_LATEST_COMPLETED_KRX_SESSION",
+        )
         self.assertFalse(packet["checks"]["latest_live_session_exact"])
         self.assertEqual(packet["regime"], "UNKNOWN")
-        self.assertFalse(packet["runtime_decision_available"])
         self.assertTrue(all(value is False for value in packet["authority"].values()))
+
+    def test_source_ahead_of_expected_session_still_blocks_but_is_not_called_stale(self):
+        # config/regime_semantic_freshness_policy_v1.json scopes
+        # SOURCE_NOT_ADVANCED_EXPECTED_SESSION to "the observed session date is
+        # an earlier session".  A later session is still a block (the exact
+        # match is what a runtime decision rests on) but must not borrow that
+        # ratified reason, or a reader hunts a dead collector that is alive.
+        with mock.patch.object(
+            MODULE.SOURCE,
+            "validate_packet",
+            return_value={"as_of_date": "2026-09-17"},
+        ):
+            packet = MODULE.build_candidate(**inputs())
+        self.assertEqual(packet["status"], "BLOCKED_LIVE_SESSION_AHEAD_OF_EXPECTED")
+        self.assertEqual(
+            packet["live_input"]["freshness_status"],
+            "SOURCE_AHEAD_OF_EXPECTED_SESSION",
+        )
+        self.assertEqual(
+            packet["next_executable_step"],
+            "RE_REVIEW_AT_CURRENT_INSTANT_OR_RECONCILE_SOURCE_SESSION_DATING",
+        )
+        self.assertFalse(packet["checks"]["latest_live_session_exact"])
+        self.assertFalse(packet["runtime_decision_available"])
+        self.assertEqual(packet["regime"], "UNKNOWN")
+        self.assertTrue(all(value is False for value in packet["authority"].values()))
+
+    def test_unparseable_observed_session_fails_closed(self):
+        with mock.patch.object(
+            MODULE.SOURCE,
+            "validate_packet",
+            return_value={"as_of_date": "2026-09"},
+        ):
+            with self.assertRaisesRegex(
+                MODULE.KrPaperRuntimeRatificationCandidateError,
+                "SESSION_DATE_INVALID",
+            ):
+                MODULE.build_candidate(**inputs())
 
     def test_exact_latest_session_advances_only_to_cio_review_not_runtime(self):
         with mock.patch.object(
