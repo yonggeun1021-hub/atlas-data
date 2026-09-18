@@ -49,6 +49,14 @@ EXTRACTOR_SUPPRESSED_TAGS = {
     EXTRACTOR_VERSION_V1: frozenset(),
     EXTRACTOR_VERSION_V2: NON_RENDERED_TEXT_TAGS,
 }
+# Oldest first.  The newest entry is the only extractor new captures may use:
+# a contract naming any earlier one would silently resume sealing text this
+# module already knows is wrong, and per-record re-derivation cannot see that
+# — it only ever checks a record against the extractor the record declares.
+# Bumping is therefore deliberately a two-place edit, module and contract.
+EXTRACTOR_VERSION_LINEAGE = (EXTRACTOR_VERSION_V1, EXTRACTOR_VERSION_V2)
+CURRENT_EXTRACTOR_VERSION = EXTRACTOR_VERSION_LINEAGE[-1]
+SUPERSEDED_EXTRACTOR_VERSIONS = list(EXTRACTOR_VERSION_LINEAGE[:-1])
 ENDPOINT = "https://opendart.fss.or.kr/api/document.xml"
 ALLOWED_HOST = "opendart.fss.or.kr"
 RCEPT_NO_RE = re.compile(r"^\d{14}$")
@@ -115,12 +123,15 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
         raise DartContentError("CONTRACT_SCHEMA_MISMATCH")
     current = contract.get("extractor_version")
     suppressed_tags_for(current)
-    superseded = contract.get("superseded_extractor_versions")
-    if (
-        not isinstance(superseded, list)
-        or current in superseded
-        or set(superseded) | {current} != set(EXTRACTOR_SUPPRESSED_TAGS)
-    ):
+    if current != CURRENT_EXTRACTOR_VERSION:
+        # Being a *known* extractor is not enough: a contract pointing back at a
+        # superseded one passes every other check and quietly re-corrupts new
+        # captures.  Say plainly which side is behind.
+        raise DartContentError(
+            "CONTRACT_EXTRACTOR_BEHIND_MODULE:"
+            f"{current}:{CURRENT_EXTRACTOR_VERSION}"
+        )
+    if contract.get("superseded_extractor_versions") != SUPERSEDED_EXTRACTOR_VERSIONS:
         raise DartContentError("CONTRACT_EXTRACTOR_LINEAGE_MISMATCH")
     if contract.get("authority") != {
         "evidence_only": True,

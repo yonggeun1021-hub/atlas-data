@@ -716,6 +716,68 @@ class DartNonRenderedTextTest(unittest.TestCase):
                 str(caught.exception),
             )
 
+    def test_contract_naming_a_superseded_extractor_as_current_fails_closed(self):
+        # The exact shape a partial revert or an incident-time "restore" edit
+        # reaches: both versions are known and neither is named twice, so every
+        # other lineage check passes while new captures quietly go back to
+        # sealing stylesheet text.  Per-record re-derivation cannot see this —
+        # it only checks a record against the extractor the record declares.
+        self.assertEqual(
+            self.contract["extractor_version"],
+            MODULE.CURRENT_EXTRACTOR_VERSION,
+        )
+        self.assertTrue(MODULE.SUPERSEDED_EXTRACTOR_VERSIONS)
+        for superseded in MODULE.SUPERSEDED_EXTRACTOR_VERSIONS:
+            reverted = copy.deepcopy(self.contract)
+            reverted["extractor_version"] = superseded
+            reverted["superseded_extractor_versions"] = [
+                version
+                for version in MODULE.EXTRACTOR_VERSION_LINEAGE
+                if version != superseded
+            ]
+            # Sanity: the reverted contract is self-consistent and names only
+            # extractors the module knows, so nothing but the newest-version
+            # assertion can reject it.
+            self.assertNotIn(
+                reverted["extractor_version"],
+                reverted["superseded_extractor_versions"],
+            )
+            self.assertEqual(
+                set(reverted["superseded_extractor_versions"])
+                | {reverted["extractor_version"]},
+                set(MODULE.EXTRACTOR_SUPPRESSED_TAGS),
+            )
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "contract.json"
+                path.write_text(
+                    json.dumps(reverted, ensure_ascii=False), encoding="utf-8"
+                )
+                with self.assertRaises(MODULE.DartContentError) as caught:
+                    MODULE.load_contract(path)
+            self.assertIn(
+                "CONTRACT_EXTRACTOR_BEHIND_MODULE", str(caught.exception)
+            )
+            self.assertIn(superseded, str(caught.exception))
+            self.assertIn(
+                MODULE.CURRENT_EXTRACTOR_VERSION, str(caught.exception)
+            )
+
+    def test_contract_lineage_must_match_the_module_exactly(self):
+        for broken in (
+            [],
+            list(MODULE.EXTRACTOR_VERSION_LINEAGE),
+            ["dart_filing_content/99"],
+        ):
+            drifted = copy.deepcopy(self.contract)
+            drifted["superseded_extractor_versions"] = broken
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "contract.json"
+                path.write_text(
+                    json.dumps(drifted, ensure_ascii=False), encoding="utf-8"
+                )
+                with self.assertRaises(MODULE.DartContentError):
+                    MODULE.load_contract(path)
+
     def test_unknown_extractor_version_fails_closed(self):
         raw = self.bodies[0][3]
         with self.assertRaises(MODULE.DartContentError):
