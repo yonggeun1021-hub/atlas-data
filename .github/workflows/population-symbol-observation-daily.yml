@@ -1,0 +1,153 @@
+name: KR/US Population Symbol Observation Daily
+
+# The two population-observation producers
+# (decision/korea_population_symbol_observation.py and
+# decision/us_population_symbol_observation.py) had NO trigger of any kind in
+# .github/workflows -- watchdog/daily_producer_freshness.py recorded exactly
+# that, and the result was visible: the KR observation sat at 2026-09-10 and
+# the US observation at 2026-09-11 while the committed universes they consume
+# had already published 2026-09-14/15/16. This workflow is that missing
+# scheduled run and nothing else.
+#
+# It collects nothing. Every input is already-committed evidence in this
+# repository, so there is no provider call, no secret, and no artifact upload
+# here -- raw KRX/KIS rows can never leave through this path. It introduces no
+# pass rule: the producer keeps passed_count = 0 with
+# NO_RATIFIED_PASS_RULE_ZERO_IS_ABSENCE_OF_RULE and every authority flag false,
+# and .github/scripts/population_symbol_observation_daily.py fails the run if
+# either stops holding.
+on:
+  schedule:
+    # Both slots are chosen from the sources' OBSERVED commit times, so the
+    # market's own source for that day is already on main when we run.
+    #
+    #   us_global_universe/<D>   lands D+1 at 01:29-01:34Z normally,
+    #                            but 06:10Z (09-16) and 06:12Z (09-17).
+    #   krx_global_universe/<D>  lands D+1 at 07:22Z / 10:05Z / 10:31Z, and
+    #                            most recently 14:12Z (09-16) and 14:18Z (09-17).
+    #   latest_korea_market_signals.json  lands ~09:24Z.
+    #
+    # The latest observed source landing across both markets is 14:18Z, so the
+    # primary slot is after that with margin.
+    - cron: "20 15 * * *"  # primary, 00:20 KST next day
+    # Backup: GitHub's scheduler has been delivering up to ~4.5h late since
+    # 2026-09-14, so a primary that slips lands near 19:50Z. This slot is past
+    # that and gives the day a second independent attempt. A backup that runs
+    # after the primary already captured the date is a cheap no-op
+    # (verified_existing), not a rewrite and not a failure.
+    - cron: "20 20 * * *"  # backup, 05:20 KST next day
+  # Deliberately NO inputs. The server-side dispatcher may be registered
+  # against this workflow because a dispatched run cannot differ from a
+  # scheduled one: there is no input to vary, no step is conditioned on
+  # github.event_name, and the session date plus the already-captured guard are
+  # both resolved inside the script from committed evidence. Contrast
+  # stablecoin-capture.yml, which is excluded from server dispatch.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # A late primary and the backup can overlap. Queue rather than cancel: the
+  # second run then simply finds the date already captured.
+  group: atlas-population-symbol-observation-daily
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # A delayed slot (and a dispatch) must judge the append-only guard
+          # against the branch as it is at RUN time, not the stale SHA the
+          # event was created at.
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Offline contract regression for the producer and this schedule
+        run: |
+          python3 test/test_population_symbol_observation.py
+          python3 test/test_population_observation_daily_schedule.py
+
+      # One step, one script, both markets. No `if:` anywhere in this job, so a
+      # workflow_dispatch run executes exactly these guards in exactly this
+      # order. Chunks and the run receipt go to RUNNER_TEMP, never into the
+      # repository, so no intermediate state can be staged for commit.
+      - name: Observe KR and US population (committed evidence only)
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/population_symbol_observation_daily.py \
+            --market KR --market US \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --work-dir "$RUNNER_TEMP/population-observation" \
+            | tee /tmp/population_observation_summary.json
+
+      # Fail closed before staging anything: the only paths this workflow may
+      # ever have touched are the two observation roots. If anything else moved,
+      # refuse rather than commit it.
+      - name: Refuse any change outside the two observation roots
+        run: |
+          set -euo pipefail
+          UNEXPECTED=$(git status --porcelain | \
+            grep -v -E '^\?\? data/observations/(korea|us)_population_symbol_observation/' | \
+            grep -v -E '^ ?M data/observations/(korea|us)_population_symbol_observation/' || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "STOP: unexpected working-tree change:" >&2
+            echo "$UNEXPECTED" >&2
+            exit 1
+          fi
+
+      - name: Commit append-only observation (no-op when already captured, evidence-loss guard, bounded push retry)
+        # 2026-09-15 incident (fred-dexkous-fx.yml / spdr-sector-holdings.yml,
+        # runs 34926979498 / 34926977666): a plain `git push` with no retry
+        # failed outright on a push race with another workflow, even though
+        # the commit itself was fine. This step's push loop mirrors their
+        # exact bounded-3-attempt shape (kept this workflow's own explicit
+        # `origin HEAD:<branch>` refspec form rather than switching to the
+        # bare `git push`/`git pull --rebase` fred/spdr use -- both work here
+        # since actions/checkout's `ref:` sets up branch tracking either way,
+        # but there was no need to change the refspec form just to add the
+        # retry bound).
+        #
+        # 2026-09-17/18 investigation (see fred-dexkous-fx.yml PR #794/#800):
+        # nothing before this would have caught a commit that genuinely
+        # dropped a file the producer reported writing. The step below
+        # (collectors/verify_evidence_staged.py, --written-dirs-field mode)
+        # closes that gap here too: it compares each market's
+        # {output_dir, wrote_anything} record from the Observe step's own
+        # summary against what is actually staged and fails the run if the
+        # expected summary.json/packet.json.gz pair is missing.
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add data/observations/korea_population_symbol_observation \
+                  data/observations/us_population_symbol_observation
+          # Runs before the empty-diff short-circuit below on purpose -- see
+          # fred-dexkous-fx.yml's identical guard for why: if a market
+          # reported wrote_anything=true and `git add` still staged nothing
+          # at all, that is the worst version of this bug.
+          python3 collectors/verify_evidence_staged.py /tmp/population_observation_summary.json \
+            --written-dirs-field observations --dir-key output_dir --wrote-key wrote_anything \
+            --expect-file summary.json --expect-file packet.json.gz
+          if git diff --cached --quiet; then
+            echo "no change (verified_existing) -- nothing to commit"
+            exit 0
+          fi
+          git commit -m "data: KR/US population symbol observation $(date -u +%F)"
+          attempt=1
+          max_attempts=3
+          until git push origin "HEAD:${{ github.event.repository.default_branch }}"; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "push failed after $max_attempts attempts" >&2
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
+            git pull --rebase origin "${{ github.event.repository.default_branch }}"
+          done

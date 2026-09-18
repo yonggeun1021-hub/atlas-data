@@ -779,6 +779,18 @@ APPROVED_TESTS = [
     #   resume reproduce the same bytes, fresh-process reverify passes.
     #   ⛔ no stage change, no promotion, no threshold, no network, no order.
     "test/test_population_symbol_observation.py",
+    # ★ Daily scheduled run for the two population observations (2026-09-18).
+    #   Both producers had NO .github/workflows trigger at all, so KR sat at
+    #   2026-09-10 and US at 2026-09-11 while the committed universes they
+    #   consume had already published through 2026-09-16. Asserts the schedule
+    #   and its backup slot, that a dispatched run is guard-equivalent to a
+    #   scheduled one (no inputs, no github.event_name branch) so the server
+    #   dispatcher may be registered, and that a repeat run for an
+    #   already-captured date reports verified_existing instead of letting
+    #   persist_packet supersede committed bytes.
+    #   ⛔ observation only; no pass rule (passed_count stays 0), no authority,
+    #      no network, no new collection target or source.
+    "test/test_population_observation_daily_schedule.py",
     # ★ Three-market evaluation-coverage receipt (stacked from PR #680/#682,
     #   unchanged). Exact KR/US source-coverage universes and bounded symbol
     #   reviews are kept separate; the Crypto PAPER funnel contributes only
@@ -1211,6 +1223,12 @@ APPROVED_TESTS = [
     # Sun-Fri with --check before commit; authority stays closed.
     "test/test_us_paper_runtime.py",
     "test/test_us_paper_runtime_publication.py",
+    # The producer reads a committed capture, not its own fetch, so it states the
+    # collection coverage of the capture it read and blocks past a bound taken
+    # from the committed decision history.  Coverage is counted in the
+    # collector's cadence dates (cron "35 21 * * 0-5"), never in elapsed
+    # wall-clock days: a Sunday evaluation reading Friday's capture stays green.
+    "test/test_us_paper_runtime_collection_coverage.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
@@ -1291,6 +1309,15 @@ APPROVED_TESTS = [
     #   snapshot and binds manifest/policy/taxonomy hashes. It creates no
     #   classification, ratification, investability, Stage, or trading right.
     "test/test_crypto_taxonomy_gap_inventory.py",
+    # ★ P3-04 — preventive classification-margin monitor. Measures the rank
+    #   distance between the production eligibility scan stop and the nearest
+    #   unclassified asset on the *production* ranking, alarms on both the
+    #   level and the per-day shrink rate from committed thresholds, and
+    #   escalates automatically once primary_30d can latch as the official
+    #   LEADERSHIP window (one unknown day then costs 30+5 days instead of
+    #   7+5). ⛔ creates no classification/ratification/investability/Stage/
+    #   threshold/trading right — it reports a queue, it does not decide one.
+    "test/test_crypto_taxonomy_margin_monitor.py",
     # ★ P3-04 — minimal ratified Crypto taxonomy Slice (31 native assets +
     #   EURC exclusion). 실 raw snapshot replay로 coverage 미달 시 계속
     #   blocked임을 재확인하고, 미비준 alias/unresolved ticker는 UNKNOWN을
@@ -2735,6 +2762,21 @@ APPROVED_TESTS = [
     #      not silently hidden from the test-set comparison.
     "test/test_fred_dexkous_fx.py",
     "test/test_fred_dexkous_fx_workflow.py",
+    # ★ Evidence-loss guard for fred-dexkous-fx.yml's commit step
+    #   (collectors/verify_evidence_staged.py). Added after a 2026-09-17/18
+    #   investigation into an apparent FRED DEXKOUS FX observation gap that
+    #   turned out to be a log-reading false alarm (test/test_fred_dexkous_fx.py's
+    #   own offline end-to-end test prints a summary that looks like a real
+    #   write because it hardcodes the fixture date "2026-09-15", but it
+    #   runs against an isolated tempfile.TemporaryDirectory(), never the
+    #   real checkout). The real gap the investigation surfaced: nothing
+    #   would have caught it if a commit had genuinely dropped a file the
+    #   collector reported writing -- this test proves that shape now goes
+    #   red (exit 1) instead of green.
+    #   ⛔ CI-only git-staging check; runs entirely inside a throwaway local
+    #      `git init` repo it creates itself; no network, no trading/
+    #      allocation authority, never touches the real evidence tree.
+    "test/test_verify_evidence_staged.py",
     # ★ RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 evidence capture
     #   (collectors/spdr_sector_holdings.py) + reader
     #   (universe/us_spdr_sector_mapping.py). Daily holdings for the 11
@@ -2825,6 +2867,93 @@ APPROVED_TESTS = [
     #      단기과열·거래정지는 KIS 종목 마스터 전용으로 남겨 중복 수집하지
     #      않는다. live DART API 호출 없음 — fixture 제목만 오프라인 검증.
     "test/test_dart_adverse_filing_classification.py",
+    # ★ Benchmark ("simply bought and held") NAV series
+    #   (validation/paper_benchmark_nav_series.py +
+    #   config/paper_benchmark_nav_series_policy.json). Unblocks checkpoint B
+    #   (day 30) stop rules 1 (비용 차감 후 그냥 보유보다 낮다) and 5 (하락
+    #   구간에서 그냥 보유보다 더 깎였다), neither of which was computable:
+    #   validation/crypto_paper_counterfactual.py's only counterfactual is
+    #   no_trade_benchmark_pnl = "0", which is not holding. The anchor is the
+    #   product: anchor_utc is derived from the ledger's first FILL_APPLIED
+    #   event (a supplied value is only ever compared), the anchor price must
+    #   already have existed at that instant within the RATIFIED Upbit
+    #   orderbook staleness window, two eligible prices refuse as ambiguous,
+    #   the record must be written within one decision cycle of the fill, and
+    #   the pointer is created with open(..., "x") so a second different
+    #   anchor refuses. Both benchmark variants (EXPOSURE_MATCHED comparable
+    #   with the account's total NAV, ASSET_ONLY the sleeve alone) are emitted
+    #   and NEITHER is a verdict -- which one binds the stop rules is
+    #   RATIFICATION_VARIANT_BINDING. CIO decision 2026-09-18 (option c, card
+    #   CLAUDE_CIO_DECISION_BENCHMARK_NOTIONAL_BASIS_20260918.md): both notional
+    #   bases are emitted from ONE anchor, so four named series --
+    #   {FLAT_BASE_SHARE, MULTIPLIER_MATCHED} x {EXPOSURE_MATCHED, ASSET_ONLY}.
+    #   The mapping (rule 1 -> flat, rule 5 -> multiplier-matched) is
+    #   declared_stop_rule_binding in the policy, RATIFIED 2026-09-18 by the
+    #   user's own record (evidence/authority/
+    #   USER_RATIFICATION_BENCHMARK_NOTIONAL_BASIS_20260918.json, sha256
+    #   ae04aea2...) which load_policy resolves and HASHES rather than trusting
+    #   as a string -- a policy that claims a binding the record does not say is
+    #   refused. It is copied into every anchor and series record, so it cannot
+    #   be chosen at day 30 to suit the result. Ratifying the binding is NOT
+    #   authority to publish a verdict: verdict_authorized stays false, every
+    #   verdict stays NOT_EMITTED_RATIFICATION_REQUIRED, and the two disclosed
+    #   residuals (RATIFICATION_LEDGER_ATTESTATION,
+    #   RATIFICATION_CLOCK_ATTESTATION) stay open -- a policy marking either
+    #   resolved is refused.
+    #   The market state at the anchoring fill enters through exactly ONE named
+    #   function (read_market_state) with a documented contract and NO path of
+    #   this module's own -- the state-multiplier wiring has not settled on an
+    #   artifact yet (RATIFICATION_MARKET_STATE_SOURCE_BINDING). UNKNOWN at the
+    #   anchoring fill refuses outright rather than taking 0.50 from its ratified
+    #   sentence; RISK_OFF/STRESS refuse as states that deny new buys; an absent,
+    #   future or stale state (beyond the ratified crypto observation gap) refuses
+    #   rather than assuming RISK_ON. Fee rate and entry slippage come off the
+    #   account's own first fill (the simulator has no repository default for
+    #   fee); no cost constant is invented here. Fail closed: a missing mark
+    #   at a sample, an off-grid mark, a gap wider than the ratified rotation
+    #   gap, a null NAV. Review 2026-09-18 closed three forgery gaps, each with
+    #   its own regression: the ledger must be recovered from its published
+    #   append-only snapshot store and matched to a genesis pin (a bare
+    #   hash-consistent dict is refused), recorded_at_utc is bounded by an
+    #   independently observed post-fill clock witness instead of being taken on
+    #   trust, and the binding is read back out of append-only bindings markers
+    #   plus the content-addressed records, so deleting the pointer file no
+    #   longer lets a second anchor bind. Fully offline -- ledgers are built by the P10-11
+    #   simulator's own builders, prices are fixtures, no network and no
+    #   evidence directory outside a temporary one. Invoked by no workflow or
+    #   schedule in THIS repo (a test asserts that, and that the CLI is
+    #   dispatch-only). Its one caller is the private crypto PAPER runtime,
+    #   which derives the anchor after its own restart-verified ledger write and
+    #   cannot let a benchmark failure touch the fill; the former
+    #   test_this_module_is_wired_into_no_workflow was replaced by the three
+    #   properties that actually hold (no public caller; no anchor before a
+    #   fill; one binding per account, a second different anchor refuses).
+    #   Every *_authorized field stays False.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_paper_benchmark_nav_series.py",
+    # 일일 산출물 정체 감시(watchdog/daily_producer_freshness.py) — 감시 대상
+    #   11개 산출물에 대해 "우리가 보유한 최신 관측일"과 "원천이 스스로
+    #   제공한다고 밝힌 최신일" 두 값을 각각 기록하고 그 쌍으로 판정한다.
+    #   원천 최신일은 이미 커밋된 증거에서만 읽는다(raw manifest 의
+    #   observation_date_range 끝, venue manifest 의 latest_finalized_day,
+    #   산출물이 스스로 입력으로 지목한 상류 producer 의 최신 날짜 디렉터리).
+    #   네트워크 호출·신규 수집 출처 추가 없음.
+    #   COLLECTION_BEHIND_SOURCE = 원천이 더 최신을 제공하는데 우리가 놓친
+    #   경우로 가장 큰 경보(일정 축이 FRESH 여도 검사한다). 반대로
+    #   SOURCE_NOT_YET_PUBLISHED 는 원천이 아직 발표하지 않은 정상 상태이므로
+    #   경보가 아니다 — 2026-09-11 에서 멈춘 fred_dexkous_fx 를 3일치 환율
+    #   관측 유실로 잘못 보고한 오경보를 이 구분이 철회한다.
+    #   원천 최신일을 확보할 수 없으면 SOURCE_LATEST_UNKNOWN 이라는 독립
+    #   상태로 남긴다 — "정상"으로도 "정체"로도 접어넣지 않고, 값을 임의로
+    #   만들어 채우지도 않는다.
+    #   ⛔ 읽기 전용 관측만 한다 — data/·evidence/ 기록 없음, workflow 는
+    #      dispatch 전용(schedule 트리거 없음)이고 git commit/push 단계도
+    #      없다. authority 는 read_only_watch 를 제외하고 전부 false 이며
+    #      주문·매매·자본 배분 권한은 열리지 않는다. 오프라인 fixture 와 이
+    #      저장소에 이미 커밋된 KRX 공식 휴장 capture 만 사용한다.
+    "test/test_daily_producer_freshness_watchdog.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
@@ -2879,6 +3008,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
     "test/test_population_symbol_observation.py": 60.0,
+    "test/test_population_observation_daily_schedule.py": 20.0,
     "test/test_three_market_evaluation_coverage.py": 60.0,
     "test/test_market_candidate_discovery_lookup.py": 120.0,
 }

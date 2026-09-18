@@ -36,6 +36,30 @@ EVIDENCE_ROOTS = (
     Path("evidence/free_market_data/fred/raw"),
 )
 
+# The collector's own cadence, transcribed from the committed
+# .github/workflows/free-market-data.yml schedule (cron "35 21 * * 0-5", i.e.
+# 21:35Z Sunday through Friday).  Collection lag is counted in cadence dates the
+# collector was scheduled for and did not cover -- never in elapsed wall-clock
+# days.  Saturday is not a cadence date, so a Sunday evaluation reading Friday's
+# capture is zero cadence dates behind even though it is two days behind.
+SOURCE_CADENCE_WORKFLOW = ".github/workflows/free-market-data.yml"
+SOURCE_CADENCE_CRON = "35 21 * * 0-5"
+SOURCE_CADENCE_UTC_HOUR = 21
+SOURCE_CADENCE_UTC_MINUTE = 35
+SOURCE_CADENCE_WEEKDAYS = (6, 0, 1, 2, 3, 4)   # cron day-of-week 0-5 == Sun..Fri, as date.weekday()
+COVERAGE_MEASURE = "UNCOVERED_COLLECTOR_CADENCE_DATES_NOT_ELAPSED_WALL_CLOCK"
+
+# Read off the committed history, not chosen.  Across every decision under
+# evidence/regime/us_paper_runtime committed to date, each packet published while
+# the collector's cadence was actually complete scores exactly 0 uncovered
+# cadence dates -- including 2026-09-12T00:00Z and 2026-09-14T08:13Z, which read
+# a Friday and a Sunday capture across a Saturday.  The only two non-zero scores
+# are the two committed collector failures: 2026-09-15T22:51:56Z (2026-09-14
+# uncovered) and 2026-09-18T01:28:17Z (2026-09-16 uncovered).  The maximum over
+# the healthy population is therefore 0, and test_us_paper_runtime_collection_
+# coverage.py recomputes that scan so the bound cannot drift away from it.
+TOLERATED_UNCOVERED_CADENCE_DATES = 0
+
 
 class UsPaperRuntimePublicationError(ValueError):
     """The display-only decision could not be reproduced or would escalate authority."""
@@ -146,11 +170,86 @@ def select_session_record(root: Path, index: list[dict], session: dict, now: dt.
     return _record(root, latest["path"])
 
 
+def cadence_instant(day: dt.date) -> dt.datetime:
+    """The collector's scheduled instant on ``day`` (whether or not it is a cadence date)."""
+    return dt.datetime(day.year, day.month, day.day, SOURCE_CADENCE_UTC_HOUR,
+                       SOURCE_CADENCE_UTC_MINUTE, tzinfo=dt.timezone.utc)
+
+
+def cadence_date(moment: dt.datetime) -> dt.date | None:
+    """Cadence date of the latest collector cron instant at or before ``moment``.
+
+    A capture is attributed to the slot that asked for it, not to the wall-clock
+    day it landed on, so a scheduled run delayed past midnight UTC still counts
+    for its own cadence date.
+    """
+    day = moment.date()
+    for _ in range(len(SOURCE_CADENCE_WEEKDAYS) + 2):
+        if day.weekday() in SOURCE_CADENCE_WEEKDAYS and cadence_instant(day) <= moment:
+            return day
+        day -= dt.timedelta(days=1)
+    return None
+
+
+def cadence_coverage(index: list[dict], selected: dt.datetime | None, now: dt.datetime) -> dict:
+    """Collector cadence dates between the selected capture and ``now`` that hold no capture.
+
+    Coverage, never elapsed wall-clock.  Saturday is not a cadence date, so a
+    Sunday evaluation reading Friday's capture is two days but zero cadence
+    dates behind.  The evaluation's own cadence date is never counted either:
+    its capture may still be in flight, which is what keeps a normal D+1 run and
+    a late-but-successful collector slot out of the red.
+    """
+    covered = {cadence_date(row["observed_at"]) for row in index if row["observed_at"] is not None}
+    selected_day = None if selected is None else cadence_date(selected)
+    evaluated_day = cadence_date(now)
+    uncovered: list[str] = []
+    if selected_day is not None and evaluated_day is not None:
+        day = selected_day + dt.timedelta(days=1)
+        while day < evaluated_day:
+            if day.weekday() in SOURCE_CADENCE_WEEKDAYS and day not in covered:
+                uncovered.append(day.isoformat())
+            day += dt.timedelta(days=1)
+    current = (selected_day is not None and evaluated_day is not None
+               and len(uncovered) <= TOLERATED_UNCOVERED_CADENCE_DATES)
+    return {
+        "measure": COVERAGE_MEASURE,
+        "cadence_cron": SOURCE_CADENCE_CRON,
+        "cadence_declared_in": SOURCE_CADENCE_WORKFLOW,
+        "selected_capture_cadence_date": None if selected_day is None else selected_day.isoformat(),
+        "evaluated_cadence_date": None if evaluated_day is None else evaluated_day.isoformat(),
+        "uncovered_cadence_dates": uncovered,
+        "uncovered_cadence_date_count": len(uncovered),
+        "tolerated_uncovered_cadence_dates": TOLERATED_UNCOVERED_CADENCE_DATES,
+        "status": RUNTIME.SOURCE_CURRENT if current else RUNTIME.COLLECTION_BEHIND_SOURCE,
+    }
+
+
 def latest_source_record(root: Path, index: list[dict], now: dt.datetime) -> dict:
+    """Newest committed capture at or before ``now``, with its collection coverage.
+
+    Two properties ``select_session_record`` already had and this selector did
+    not.  (1) An unreadable capture committed on or after the newest usable one
+    blocks instead of being silently replaced by that older capture: it may be
+    the newest fetch.  (2) Every record carries ``collection_coverage``, so a
+    producer that reads an older capture states which capture it read and how
+    many of the collector's own cadence dates it is behind.  This selector is
+    the only source path the decision has while no adoption identity binds a
+    session calendar, and the chain's coverage refusal
+    (``SOURCE_NOT_ADVANCED_EXPECTED_SESSION``) is therefore never reached.
+    """
     usable = [row for row in index if row["observed_at"] is not None and row["observed_at"] <= now]
+    coverage = cadence_coverage(index, max((row["observed_at"] for row in usable), default=None), now)
     if not usable:
-        return {"error": "SESSION_SOURCE_MISSING"}
-    return _record(root, max(usable, key=lambda row: (row["observed_at"], row["path"]))["path"])
+        return {"error": "SESSION_SOURCE_MISSING", "collection_coverage": coverage}
+    latest = max(usable, key=lambda row: (row["observed_at"], row["path"]))
+    blocking = sorted(row["path"] for row in index if row["error"] is not None
+                      and latest["observed_at"].date().isoformat() <= _path_day(row)
+                      <= now.date().isoformat())
+    if blocking:
+        return {"error": "SESSION_SOURCE_LATEST_CAPTURE_UNVERIFIABLE", "revision_path": blocking[0],
+                "collection_coverage": coverage}
+    return {**_record(root, latest["path"]), "collection_coverage": coverage}
 
 
 def collect(root: Path, evaluation_at: str, evidence_root: Path | None = None) -> tuple[dict, dict]:

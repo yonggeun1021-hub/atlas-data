@@ -74,9 +74,23 @@ ratified-vs-UNKNOWN-by-construction table. Short version:
                                    BLOCKED/WATCH gate; it only selects
                                    WAIT vs PAPER_BUY_ELIGIBLE once every
                                    other criterion has PASSED.
-  8 PAPER_RISK_BUDGET             mechanical/PAPER-baseline against a
-                                   caller-supplied virtual PAPER account
-                                   snapshot; total exposure uses existing
+  8 PAPER_RISK_BUDGET             mechanical, against a caller-supplied
+                                   virtual PAPER account snapshot. Enforces
+                                   ratified RULE.ALLOCATION.V2 in full: the
+                                   crypto aggregate cap is NAV0 x
+                                   base(CRYPTO) x the crypto market's own
+                                   state multiplier (read point-in-time from
+                                   the CRYPTO_PAPER_RUNTIME_V1 decision the
+                                   promotion packet carries -- never computed
+                                   here, never defaulting to RISK_ON), and
+                                   the per-name cap is the tighter of NAV x
+                                   5% and 1% of the 30-day average finalized
+                                   traded value. STRESS zeroes the cap;
+                                   RISK_OFF/STRESS/UNKNOWN deny new buys; a
+                                   missing, non-current or stale state is
+                                   UNKNOWN (hold cap + hard no-new-buys);
+                                   a market short of the ratified ADV window
+                                   fails closed. Total exposure uses existing
                                    portfolio weights, never planned-loss
                                    fractions; UNKNOWN when no snapshot is
                                    supplied (no NAV is known).
@@ -256,7 +270,7 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
         raise CryptoPaperBuyEligibilityError("POLICY_BASELINE_LABEL_INVALID")
     if value.get("baseline_version") != "v1":
         raise CryptoPaperBuyEligibilityError("POLICY_BASELINE_VERSION_INVALID")
-    if value.get("approval_status") != "PROPOSED_PAPER_BASELINE_UNRATIFIED":
+    if value.get("approval_status") != "PAPER_BASELINE_RATIFIED_MARKET_ALLOCATION_V2":
         raise CryptoPaperBuyEligibilityError("POLICY_APPROVAL_STATUS_INVALID")
     if not isinstance(value.get("effective_date"), str) or not _DATE_RE.fullmatch(value["effective_date"]):
         raise CryptoPaperBuyEligibilityError("POLICY_EFFECTIVE_DATE_INVALID")
@@ -276,20 +290,30 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
         raise CryptoPaperBuyEligibilityError("POLICY_BREAKOUT_LOOKBACK_INVALID")
     _decimal(breakout["volume_ratio_min"], "POLICY_VOLUME_RATIO_INVALID", positive=True)
     risk = value["risk"]
+    # NOTE: "max_concurrent_paper_positions" is deliberately absent. The old
+    # fixed 3-position cap is superseded per ratification (build plan row
+    # C4 / USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json) --
+    # NameRoom (single-asset cap) and the crypto aggregate cap bind instead.
+    # Do not re-add a position-count field without a matching ratification.
+    #
+    # NOTE: "total_crypto_paper_exposure_nav_fraction" is deliberately absent
+    # too. The ratified crypto aggregate cap is NAV0 x base(CRYPTO) x the
+    # crypto market's own state multiplier (build plan row C4: "코인 몫
+    # 15%(×상태 배수) 대신 5% 합계 상한", ratified test target "코인 Cap =
+    # NAV0×0.15×배수, 합계 5% 상한 제거 확인"), so a flat fraction in this file
+    # cannot express it. It is resolved from RULE.ALLOCATION.V2 in the rule
+    # registry by ``_allocation_params()``. A flat aggregate fraction here is
+    # also exactly what let the per-name cap equal the aggregate cap; keeping
+    # the field out makes that coincidence structurally unreachable. Do not
+    # re-add it without a matching ratification.
     required_risk = {
-        "per_trade_planned_loss_nav_fraction", "total_crypto_paper_exposure_nav_fraction",
-        "single_asset_paper_exposure_nav_fraction", "max_concurrent_paper_positions",
+        "per_trade_planned_loss_nav_fraction",
+        "single_asset_paper_exposure_nav_fraction",
     }
     if not isinstance(risk, dict) or set(risk) != required_risk:
         raise CryptoPaperBuyEligibilityError("POLICY_RISK_FIELDS_INVALID")
-    for key in (
-        "per_trade_planned_loss_nav_fraction",
-        "total_crypto_paper_exposure_nav_fraction",
-        "single_asset_paper_exposure_nav_fraction",
-    ):
+    for key in sorted(required_risk):
         _decimal(risk[key], f"POLICY_RISK_VALUE_INVALID:{key}", positive=True, maximum=Decimal("1"))
-    if not isinstance(risk["max_concurrent_paper_positions"], int) or risk["max_concurrent_paper_positions"] < 1:
-        raise CryptoPaperBuyEligibilityError("POLICY_MAX_POSITIONS_INVALID")
     return copy.deepcopy(value)
 
 
@@ -664,9 +688,252 @@ def _entry_and_invalidation(
     }
 
 
+# ---------------------------------------------------------------------------
+# Ratified crypto allocation state and per-name liquidity room (build plan
+# row C4 / RULE.ALLOCATION.V2)
+# ---------------------------------------------------------------------------
+# Two ratified numbers govern a crypto PAPER buy's size:
+#
+#   crypto aggregate cap = NAV0 x base(CRYPTO) x per_market_state_multiplier
+#   per-name cap         = min(NAV x per-name NAV fraction, 1% x ADV30)
+#
+# Neither is restated in this module. Every value is resolved from
+# ``config/rule_registry_v1.json`` (RULE.ALLOCATION.V2), which
+# ``governance/rule_registry.py`` validates against the byte-exact user
+# ratification record
+# ``evidence/authority/paper_market_allocation_v2_user_ratification_20260913.json``
+# (sha256 345801ab...), and cross-checked against contract/3's own already
+# ratified regime gate (``crypto_candidate_promotion.REGIME_GATE_V3``). Any
+# drift between the three raises instead of falling back to a literal.
+#
+# The crypto market state is never computed here, never inferred from price,
+# and never defaults to RISK_ON or to a flat fraction. It is read
+# point-in-time from the CRYPTO_PAPER_RUNTIME_V1 decision packet that the
+# contract/3 promotion packet already carries and already validated
+# (``crypto_candidate_promotion.evaluate_crypto_runtime_regime``, which
+# raises on lookahead and returns UNKNOWN for a non-current decision).
+
+ALLOCATION_V2_RULE_ID = PROMOTION.ALLOCATION_V2_RULE_ID
+ALLOCATION_V2_RATIFICATION_ID = PROMOTION.ALLOCATION_V2_RATIFICATION_ID
+ALLOCATION_V2_RECORD_SHA256 = PROMOTION.ALLOCATION_V2_RECORD_SHA256
+CRYPTO_ALLOCATION_MARKET = "CRYPTO"
+ROTATION_POLICY_PATH = ROOT / "config" / "rotation_confirmation_policy_v1.json"
+CRYPTO_TURNOVER_WINDOW_LABEL = "30_DAYS"
+NEW_BUYS_PERMITTED = ("PERMIT", "PERMIT_SELECTIVE")
+
+_ALLOCATION_PARAMS: dict = {}
+
+
+def _allocation_params() -> dict:
+    """RULE.ALLOCATION.V2 parameters, resolved once from the rule registry.
+
+    Fail-closed in every direction: an unavailable registry, an unavailable
+    parameter, an UNKNOWN multiplier that no longer parses as the ratified
+    hold-cap sentence, or any disagreement with contract/3's regime gate all
+    raise. There is no literal fallback, so a state multiplier can never be
+    silently approximated.
+    """
+    if _ALLOCATION_PARAMS:
+        return _ALLOCATION_PARAMS
+    from portfolio import paper_execution_core as core_module
+    try:
+        core = core_module.load_core()
+    except core_module.PaperExecutionCoreError as exc:
+        raise CryptoPaperBuyEligibilityError(f"ALLOCATION_REGISTRY_UNAVAILABLE:{exc}") from exc
+    try:
+        multipliers = core.param("state_multipliers")
+        new_buys = core.param("new_buys_by_state")
+        base = core.param("base_allocation")
+        market_max = core.param("market_max_allocation")
+        per_name = core.param("per_name_nav_cap")
+        liquidity = core.param("per_name_liquidity_cap")
+        interpretation = core.interpretations["unknown_hold_cap_multiplier"]
+    except (core_module.PaperExecutionCoreError, KeyError, TypeError) as exc:
+        raise CryptoPaperBuyEligibilityError(f"ALLOCATION_PARAMETER_UNAVAILABLE:{exc}") from exc
+    if (
+        not isinstance(interpretation, dict)
+        or interpretation.get("parse_from_registry_parameter") != "state_multipliers"
+        or interpretation.get("state") != "UNKNOWN"
+    ):
+        raise CryptoPaperBuyEligibilityError("ALLOCATION_UNKNOWN_INTERPRETATION_INVALID")
+    unknown_match = re.fullmatch(str(interpretation.get("pattern")), str(multipliers.get("UNKNOWN")))
+    if unknown_match is None:
+        raise CryptoPaperBuyEligibilityError("ALLOCATION_UNKNOWN_MULTIPLIER_UNPARSEABLE")
+    unknown_hold_cap = unknown_match.group("multiplier")
+    gate = PROMOTION.REGIME_GATE_V3
+    if not isinstance(new_buys, dict) or set(gate) != set(multipliers) or set(gate) != set(new_buys):
+        raise CryptoPaperBuyEligibilityError("ALLOCATION_STATE_SET_MISMATCH")
+    for state, (_status, gate_new_buys, gate_multiplier, gate_hold_cap) in gate.items():
+        if new_buys.get(state) != gate_new_buys:
+            raise CryptoPaperBuyEligibilityError(f"ALLOCATION_NEW_BUYS_MISMATCH:{state}")
+        if state == "UNKNOWN":
+            if gate_multiplier is not None or gate_hold_cap != unknown_hold_cap:
+                raise CryptoPaperBuyEligibilityError("ALLOCATION_UNKNOWN_HOLD_CAP_MISMATCH")
+        elif gate_hold_cap is not None or multipliers.get(state) != gate_multiplier:
+            raise CryptoPaperBuyEligibilityError(f"ALLOCATION_MULTIPLIER_MISMATCH:{state}")
+    if (liquidity.get("windows") or {}).get(CRYPTO_ALLOCATION_MARKET) != CRYPTO_TURNOVER_WINDOW_LABEL:
+        raise CryptoPaperBuyEligibilityError("ALLOCATION_LIQUIDITY_WINDOW_MISMATCH")
+    resolved = {
+        "base_crypto_fraction": _decimal(
+            base[CRYPTO_ALLOCATION_MARKET], "ALLOCATION_BASE_INVALID", positive=True, maximum=Decimal("1")
+        ),
+        "market_max_fraction": _decimal(
+            market_max[CRYPTO_ALLOCATION_MARKET], "ALLOCATION_MARKET_MAX_INVALID", positive=True, maximum=Decimal("1")
+        ),
+        "per_name_max_nav": _decimal(
+            per_name["max_nav"], "ALLOCATION_PER_NAME_NAV_INVALID", positive=True, maximum=Decimal("1")
+        ),
+        "liquidity_fraction": _decimal(
+            liquidity["max_fraction"], "ALLOCATION_LIQUIDITY_FRACTION_INVALID", positive=True, maximum=Decimal("1")
+        ),
+        "unknown_hold_cap": unknown_hold_cap,
+        "multipliers": copy.deepcopy(multipliers),
+        "new_buys": copy.deepcopy(new_buys),
+    }
+    _ALLOCATION_PARAMS.update(resolved)
+    return _ALLOCATION_PARAMS
+
+
+def _crypto_maximum_observation_gap_days() -> int:
+    """Ratified maximum crypto observation gap, read from the rotation
+    confirmation policy (USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_
+    20260915) rather than restated here."""
+    policy = _read_json(ROTATION_POLICY_PATH)
+    markets = policy.get("markets") if isinstance(policy, dict) else None
+    market = (markets or {}).get(CRYPTO_ALLOCATION_MARKET)
+    value = market.get("maximum_observation_gap_days") if isinstance(market, dict) else None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise CryptoPaperBuyEligibilityError("CRYPTO_OBSERVATION_GAP_POLICY_INVALID")
+    return value
+
+
+def resolve_crypto_allocation_state(
+    crypto_runtime_decision: dict | None, *, reference_at: str | None,
+) -> dict:
+    """The crypto market state in force at ``reference_at``, mapped to the
+    ratified cap multiplier and new-buy permission.
+
+    Fail-closed by construction. A state that is absent, not supplied, not the
+    current decision, or staler than the ratified crypto observation gap all
+    resolve to UNKNOWN, and UNKNOWN carries BOTH the ratified hold cap
+    (``base x 0.50``) AND a hard ``no_new_buys`` flag -- never merely a smaller
+    cap. STRESS resolves to a zero aggregate cap. Nothing in this function can
+    return RISK_ON, or the old flat fraction, for a missing state.
+    """
+    params = _allocation_params()
+    max_gap_days = _crypto_maximum_observation_gap_days()
+    lineage = {
+        "source_runtime_regime": None, "runtime_decision_id": None,
+        "runtime_decision_date": None, "expected_decision_date": None,
+    }
+    gap_days = None
+    if crypto_runtime_decision is None or reference_at is None:
+        state = "UNKNOWN"
+        reason = "CRYPTO_RUNTIME_DECISION_NOT_SUPPLIED"
+    else:
+        try:
+            gate = PROMOTION.evaluate_crypto_runtime_regime(
+                crypto_runtime_decision, reference_at=reference_at,
+            )
+        except PROMOTION.CryptoCandidatePromotionError as exc:
+            raise CryptoPaperBuyEligibilityError(f"CRYPTO_RUNTIME_DECISION_INVALID:{exc}") from exc
+        state = gate["effective_regime"]
+        reason = gate["reason"]
+        for key in lineage:
+            lineage[key] = gate.get(key)
+        decided = lineage["runtime_decision_date"]
+        expected = lineage["expected_decision_date"]
+        if isinstance(decided, str) and isinstance(expected, str):
+            try:
+                gap_days = (
+                    dt.date.fromisoformat(expected) - dt.date.fromisoformat(decided)
+                ).days
+            except ValueError as exc:
+                raise CryptoPaperBuyEligibilityError("CRYPTO_RUNTIME_DECISION_DATE_INVALID") from exc
+            if gap_days > max_gap_days and state != "UNKNOWN":
+                state = "UNKNOWN"
+                reason = f"CRYPTO_RUNTIME_DECISION_STALE_BEYOND_RATIFIED_GAP:{gap_days}>{max_gap_days}"
+    if state == "UNKNOWN":
+        multiplier = _decimal(
+            params["unknown_hold_cap"], "ALLOCATION_UNKNOWN_HOLD_CAP_INVALID", maximum=Decimal("1"),
+        )
+    else:
+        multiplier = _decimal(
+            params["multipliers"][state], f"ALLOCATION_MULTIPLIER_INVALID:{state}", maximum=Decimal("1"),
+        )
+    new_buys = params["new_buys"][state]
+    aggregate_cap = params["base_crypto_fraction"] * multiplier
+    if aggregate_cap > params["market_max_fraction"]:
+        aggregate_cap = params["market_max_fraction"]
+    return {
+        "state": state,
+        "reason": reason,
+        "new_buys": new_buys,
+        "no_new_buys": new_buys not in NEW_BUYS_PERMITTED,
+        "state_multiplier_of_base": multiplier,
+        "base_crypto_nav_fraction": params["base_crypto_fraction"],
+        "aggregate_cap_nav_fraction": aggregate_cap,
+        "observation_gap_days": gap_days,
+        "maximum_observation_gap_days": max_gap_days,
+        "gate_source_rule_id": ALLOCATION_V2_RULE_ID,
+        "gate_source_ratification_id": ALLOCATION_V2_RATIFICATION_ID,
+        "gate_source_record_sha256": ALLOCATION_V2_RECORD_SHA256,
+        **lineage,
+    }
+
+
+def _per_name_liquidity_room(
+    universe_row: dict | None, universe_policy: dict | None, liquidity_fraction: Decimal,
+) -> dict:
+    """1% of the ratified 30-day average finalized KRW traded value (ADV30).
+
+    Derived point-in-time from the already-validated P3-12 universe row --
+    no new collection source, no new capture. ``trailing_30d_krw_turnover``
+    is the sum over the finalized window ``candles[1:1 + lookback]`` (index 0,
+    today, excluded) exactly as ``upbit_tradeable_universe.load_snapshot_core``
+    builds it, so the finalized day count is
+    ``min(observed_daily_candle_count - 1, lookback)`` and
+    ``ADV30 = turnover / finalized_days``.
+
+    A market with fewer than the full ratified window of committed finalized
+    days FAILS CLOSED (no buy eligibility). A shorter window is never
+    substituted, and the shortfall is named in the record.
+    """
+    unavailable = {
+        "status": "UNAVAILABLE", "adv30_krw": None, "cap_krw": None,
+        "finalized_day_count": None, "required_finalized_day_count": None,
+    }
+    if universe_row is None or universe_policy is None:
+        return {**unavailable, "reason": "ADV30_UNIVERSE_ROW_NOT_SUPPLIED"}
+    lookback = universe_policy.get("turnover_lookback_finalized_days")
+    if not isinstance(lookback, int) or isinstance(lookback, bool) or lookback < 1:
+        raise CryptoPaperBuyEligibilityError("UNIVERSE_POLICY_TURNOVER_LOOKBACK_INVALID")
+    unavailable["required_finalized_day_count"] = lookback
+    observed = universe_row.get("observed_daily_candle_count")
+    turnover = universe_row.get("trailing_30d_krw_turnover")
+    if not isinstance(observed, int) or isinstance(observed, bool) or observed < 1:
+        return {**unavailable, "reason": "ADV30_OBSERVED_DAILY_CANDLE_COUNT_MISSING"}
+    if turnover is None:
+        return {**unavailable, "reason": "ADV30_TRAILING_TURNOVER_MISSING"}
+    finalized_days = min(observed - 1, lookback)
+    if finalized_days < lookback:
+        return {
+            **unavailable, "finalized_day_count": finalized_days,
+            "reason": f"ADV30_FINALIZED_HISTORY_INCOMPLETE:{finalized_days}/{lookback}",
+        }
+    total = _decimal(turnover, "ADV30_TRAILING_TURNOVER_INVALID")
+    adv30 = total / Decimal(finalized_days)
+    return {
+        "status": "OBSERVED", "reason": None,
+        "adv30_krw": adv30, "cap_krw": liquidity_fraction * adv30,
+        "finalized_day_count": finalized_days, "required_finalized_day_count": lookback,
+    }
+
+
 def _paper_risk(
     entry_price: Decimal, stop_price: Decimal, policy: dict, paper_account_state: dict | None,
-    decimal_scale: int,
+    decimal_scale: int, *, crypto_state: dict | None = None,
+    universe_row: dict | None = None, universe_policy: dict | None = None,
 ):
     if paper_account_state is None:
         return None
@@ -685,13 +952,22 @@ def _paper_risk(
     per_trade_fraction = _decimal(
         policy["risk"]["per_trade_planned_loss_nav_fraction"], "POLICY_PER_TRADE_LOSS_INVALID", positive=True
     )
-    total_cap = _decimal(
-        policy["risk"]["total_crypto_paper_exposure_nav_fraction"], "POLICY_TOTAL_CAP_INVALID", positive=True
+    params = _allocation_params()
+    # RATIFIED aggregate cap (build plan row C4 / RULE.ALLOCATION.V2):
+    # NAV0 x base(CRYPTO) x the crypto market's own state multiplier. Resolved
+    # from the state in force, never from a flat fraction in this file. An
+    # absent state resolves to UNKNOWN (hold cap + no new buys), never RISK_ON.
+    state = crypto_state if crypto_state is not None else resolve_crypto_allocation_state(
+        None, reference_at=None,
     )
+    total_cap = state["aggregate_cap_nav_fraction"]
+    # RATIFIED per-name cap (build plan row C4): the TIGHTER of NAV x 5% and
+    # 1% of the 30-day average finalized traded value. Both terms are recorded
+    # below with which one bound, so a later reader can see why a name was
+    # capped. A market without the full ratified ADV window fails closed.
     single_cap = _decimal(
         policy["risk"]["single_asset_paper_exposure_nav_fraction"], "POLICY_SINGLE_CAP_INVALID", positive=True
     )
-    max_positions = policy["risk"]["max_concurrent_paper_positions"]
 
     planned_loss_krw = total_nav * per_trade_fraction
     stop_distance = entry_price - stop_price
@@ -699,29 +975,105 @@ def _paper_risk(
     position_notional = quantity * entry_price
     position_weight = position_notional / total_nav
 
+    nav_term_krw = total_nav * single_cap
+    liquidity = _per_name_liquidity_room(universe_row, universe_policy, params["liquidity_fraction"])
+    liquidity_term_krw = liquidity["cap_krw"]
+    if liquidity["status"] != "OBSERVED":
+        per_name_cap_krw = None
+        bound_by = "FAIL_CLOSED_LIQUIDITY_ADV30_UNAVAILABLE"
+    elif liquidity_term_krw < nav_term_krw:
+        per_name_cap_krw = liquidity_term_krw
+        bound_by = "LIQUIDITY_ADV30_FRACTION"
+    else:
+        per_name_cap_krw = nav_term_krw
+        bound_by = "NAV_FRACTION"
+
     projected_total_loss = existing_total_loss + per_trade_fraction
     projected_total_exposure = existing_total_exposure + position_weight
+    # Position count is retained for observability only. The old fixed
+    # max_concurrent_paper_positions=3 cap is superseded per ratification
+    # (build plan row C4: "옛 코인 3종목 한도 대체") and is not enforced.
     projected_position_count = len(open_positions) + 1
     breaches = []
-    if projected_total_exposure > total_cap:
+    if state["no_new_buys"]:
+        breaches.append(f"CRYPTO_STATE_NO_NEW_BUYS:{state['state']}:{state['new_buys']}")
+    if total_cap <= 0:
+        breaches.append(f"CRYPTO_STATE_AGGREGATE_CAP_ZERO:{state['state']}")
+    elif projected_total_exposure > total_cap:
         breaches.append("TOTAL_CRYPTO_PAPER_EXPOSURE_CAP")
-    if position_weight > single_cap:
-        breaches.append("SINGLE_ASSET_PAPER_EXPOSURE_CAP")
-    if projected_position_count > max_positions:
-        breaches.append("MAX_CONCURRENT_PAPER_POSITIONS")
+    if per_name_cap_krw is None:
+        breaches.append(f"PER_NAME_LIQUIDITY_ADV30_UNAVAILABLE:{liquidity['reason']}")
+    elif position_notional > per_name_cap_krw:
+        breaches.append(f"SINGLE_ASSET_PAPER_EXPOSURE_CAP:{bound_by}")
     return {
         "quantity": quantity,
         "planned_loss_krw": planned_loss_krw,
         "position_weight_nav_fraction": position_weight,
+        "position_notional_krw": position_notional,
         "projected_total_planned_loss_nav_fraction": projected_total_loss,
         "projected_total_crypto_exposure_nav_fraction": projected_total_exposure,
         "projected_open_position_count": projected_position_count,
+        "crypto_state": state,
+        "aggregate_cap_nav_fraction": total_cap,
+        "per_name_cap_nav_fraction_term_krw": nav_term_krw,
+        "per_name_cap_liquidity_term_krw": liquidity_term_krw,
+        "per_name_effective_cap_krw": per_name_cap_krw,
+        "per_name_cap_bound_by": bound_by,
+        "liquidity": liquidity,
         "breaches": breaches,
+    }
+
+
+def _paper_risk_evidence(risk: dict) -> dict:
+    """Both per-name cap terms, which one bound, and the ratified state that
+    set the aggregate cap -- recorded on PASS and on FAIL alike, so a later
+    reader can always see why a name was capped."""
+    state = risk["crypto_state"]
+    liquidity = risk["liquidity"]
+    return {
+        "projected_total_planned_loss_nav_fraction": _format_decimal(
+            risk["projected_total_planned_loss_nav_fraction"]
+        ),
+        "projected_total_crypto_exposure_nav_fraction": _format_decimal(
+            risk["projected_total_crypto_exposure_nav_fraction"]
+        ),
+        "projected_open_position_count": risk["projected_open_position_count"],
+        "crypto_market_state": state["state"],
+        "crypto_market_state_reason": state["reason"],
+        "crypto_new_buys": state["new_buys"],
+        "crypto_state_multiplier_of_base": _format_decimal(state["state_multiplier_of_base"]),
+        "crypto_base_nav_fraction": _format_decimal(state["base_crypto_nav_fraction"]),
+        "crypto_aggregate_cap_nav_fraction": _format_decimal(risk["aggregate_cap_nav_fraction"]),
+        "crypto_runtime_decision_id": state["runtime_decision_id"],
+        "crypto_runtime_decision_date": state["runtime_decision_date"],
+        "crypto_expected_decision_date": state["expected_decision_date"],
+        "crypto_observation_gap_days": state["observation_gap_days"],
+        "crypto_maximum_observation_gap_days": state["maximum_observation_gap_days"],
+        "gate_source_ratification_id": state["gate_source_ratification_id"],
+        "gate_source_record_sha256": state["gate_source_record_sha256"],
+        "position_notional_krw": _format_decimal(risk["position_notional_krw"]),
+        "per_name_cap_nav_fraction_term_krw": _format_decimal(risk["per_name_cap_nav_fraction_term_krw"]),
+        "per_name_cap_liquidity_term_krw": (
+            None if risk["per_name_cap_liquidity_term_krw"] is None
+            else _format_decimal(risk["per_name_cap_liquidity_term_krw"])
+        ),
+        "per_name_effective_cap_krw": (
+            None if risk["per_name_effective_cap_krw"] is None
+            else _format_decimal(risk["per_name_effective_cap_krw"])
+        ),
+        "per_name_cap_bound_by": risk["per_name_cap_bound_by"],
+        "adv30_status": liquidity["status"],
+        "adv30_reason": liquidity["reason"],
+        "adv30_krw": None if liquidity["adv30_krw"] is None else _format_decimal(liquidity["adv30_krw"]),
+        "adv30_finalized_day_count": liquidity["finalized_day_count"],
+        "adv30_required_finalized_day_count": liquidity["required_finalized_day_count"],
     }
 
 
 def evaluate_paper_risk_budget(
     entry_invalidation: dict | None, policy: dict, paper_account_state: dict | None, decimal_scale: int,
+    *, crypto_state: dict | None = None, universe_row: dict | None = None,
+    universe_policy: dict | None = None,
 ) -> dict:
     if paper_account_state is None:
         return _criterion("UNKNOWN", "PAPER_ACCOUNT_STATE_NOT_SUPPLIED")
@@ -730,20 +1082,20 @@ def evaluate_paper_risk_budget(
     risk = _paper_risk(
         entry_invalidation["entry_price"], entry_invalidation["planned_stop_price"],
         policy, paper_account_state, decimal_scale,
+        crypto_state=crypto_state, universe_row=universe_row, universe_policy=universe_policy,
     )
+    evidence = _paper_risk_evidence(risk)
     if risk["breaches"]:
-        return _criterion("FAIL", "PAPER_RISK_BUDGET_BREACH:" + ",".join(risk["breaches"]))
-    return _criterion(
-        "PASS", "PAPER_RISK_BUDGET_WITHIN_PROPOSED_PAPER_BASELINE",
-        projected_total_planned_loss_nav_fraction=_format_decimal(risk["projected_total_planned_loss_nav_fraction"]),
-        projected_total_crypto_exposure_nav_fraction=_format_decimal(risk["projected_total_crypto_exposure_nav_fraction"]),
-        projected_open_position_count=risk["projected_open_position_count"],
-    )
+        return _criterion(
+            "FAIL", "PAPER_RISK_BUDGET_BREACH:" + ",".join(risk["breaches"]), **evidence,
+        )
+    return _criterion("PASS", "PAPER_RISK_BUDGET_WITHIN_RATIFIED_MARKET_ALLOCATION_V2", **evidence)
 
 
 def build_order_draft(
     market: str, market_evidence_packet: dict | None, policy: dict, universe_policy: dict,
     *, evaluation_as_of: str, paper_account_state: dict | None, fee_rate: str | None,
+    crypto_state: dict | None = None, universe_row: dict | None = None,
 ) -> dict:
     """Every field non-null iff a genuine PAPER_BUY_ELIGIBLE row is
     reachable. Any missing input collapses individual fields to ``None``
@@ -769,6 +1121,7 @@ def build_order_draft(
     risk = _paper_risk(
         entry_invalidation["entry_price"], entry_invalidation["planned_stop_price"],
         policy, paper_account_state, decimal_scale,
+        crypto_state=crypto_state, universe_row=universe_row, universe_policy=universe_policy,
     ) if paper_account_state is not None else None
     quantity = risk["quantity"] if risk is not None else None
     planned_loss_krw = risk["planned_loss_krw"] if risk is not None else None
@@ -857,14 +1210,23 @@ def evaluate_candidate(
     paper_account_state: dict | None = None,
     fee_rate: str | None = None,
     known_idempotency_keys=None,
+    crypto_runtime_decision: dict | None = None,
+    regime_reference_at: str | None = None,
 ) -> dict:
     market = candidate_row["market"]
     if universe_row["market"] != market:
         raise CryptoPaperBuyEligibilityError(f"UNIVERSE_ROW_MARKET_MISMATCH:{market}")
 
+    # Resolved once per candidate: the ratified crypto state that sets the
+    # aggregate cap. Absent inputs resolve to UNKNOWN (hold cap + no new
+    # buys), never to RISK_ON and never to a flat fraction.
+    crypto_state = resolve_crypto_allocation_state(
+        crypto_runtime_decision, reference_at=regime_reference_at,
+    )
     order_draft = build_order_draft(
         market, market_evidence_packet, policy, universe_policy,
         evaluation_as_of=evaluation_as_of, paper_account_state=paper_account_state, fee_rate=fee_rate,
+        crypto_state=crypto_state, universe_row=universe_row,
     )
     duplicate_guard_key = order_draft["duplicate_guard_key"] or compute_duplicate_guard_key(
         market, evaluation_as_of, "NOT_COMPUTABLE", "NOT_COMPUTABLE", "NOT_COMPUTABLE",
@@ -882,6 +1244,7 @@ def evaluate_candidate(
         "ORDER_DRAFT_COMPLETE": evaluate_order_draft_complete(order_draft),
         "PAPER_RISK_BUDGET": evaluate_paper_risk_budget(
             order_draft["entry_invalidation"], policy, paper_account_state, policy["decimal_scale"],
+            crypto_state=crypto_state, universe_row=universe_row, universe_policy=universe_policy,
         ),
         "ZERO_ORDER_ENDPOINT_CALLS": evaluate_zero_order_endpoint_calls(),
     }
@@ -936,6 +1299,16 @@ def build_eligibility_packet(
     universe_by_market = {row["market"]: row for row in universe_packet["markets"]}
     market_evidence_by_market = sources["market_evidence_by_market"]
     regime_payload = sources["regime"]
+    # The crypto market state that sets the ratified aggregate cap comes from
+    # the CRYPTO_PAPER_RUNTIME_V1 decision the promotion packet already
+    # carries and already validated (contract/3). Point-in-time is inherited,
+    # not re-derived: the reference instant is the same validated P1-CR-08
+    # envelope instant the promotion packet itself used, so this module cannot
+    # read a state that postdates the evidence it is judging. A contract/2
+    # promotion packet carries no such decision -- that resolves to UNKNOWN
+    # (hold cap + no new buys), never to RISK_ON.
+    crypto_runtime_decision = sources.get("crypto_runtime_decision")
+    regime_reference_at = regime_payload["generated_at"]
 
     rows = []
     for candidate in validated_promotion["candidates"]:
@@ -954,6 +1327,8 @@ def build_eligibility_packet(
                 paper_account_state=paper_account_state,
                 fee_rate=fee_rate,
                 known_idempotency_keys=known_idempotency_keys,
+                crypto_runtime_decision=crypto_runtime_decision,
+                regime_reference_at=regime_reference_at,
             )
         )
 
