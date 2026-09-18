@@ -4,6 +4,7 @@
 import copy
 import gzip
 import hashlib
+from html.parser import HTMLParser
 import importlib.util
 import json
 from pathlib import Path
@@ -516,6 +517,69 @@ class SecFilingContentTest(unittest.TestCase):
         self.assertIn("SEC_USER_AGENT", block)
         commit = workflow.split("- name: Commit data", 1)[1]
         self.assertIn("git add data/", commit)
+
+
+class _NonRenderedText(HTMLParser):
+    """Collect only the character data a filing puts inside style/script."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self._depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() in MODULE.NON_RENDERED_TEXT_TAGS:
+            self._depth += 1
+
+    def handle_endtag(self, tag):
+        if tag.lower() in MODULE.NON_RENDERED_TEXT_TAGS and self._depth:
+            self._depth -= 1
+
+    def handle_data(self, data):
+        if self._depth:
+            self.parts.append(data)
+
+
+def non_rendered_fragments(raw):
+    parser = _NonRenderedText()
+    parser.feed(raw.decode("utf-8", errors="replace"))
+    parser.close()
+    return [
+        " ".join(fragment.split())
+        for fragment in parser.parts
+        if len(fragment.strip()) >= 12
+    ]
+
+
+class SecNonRenderedTextTest(unittest.TestCase):
+    """A filing's stylesheet must never be quotable as filing evidence."""
+
+    def test_style_and_script_text_never_reaches_normalized_text(self):
+        # Every SEC body committed so far styles through inline style=
+        # attributes, so no committed char_offset moves.  The input below is a
+        # real regulator-served document that does ship a <style> element — the
+        # committed OpenDART filing body — used here only as a body that
+        # exercises the element form EDGAR inline-XBRL filers also emit.
+        source = sorted(
+            (ROOT / "data" / "dart_content").rglob("member-*.gz")
+        )
+        self.assertTrue(source)
+        raw = gzip.decompress(source[0].read_bytes())
+        fragments = non_rendered_fragments(raw)
+        self.assertTrue(fragments)
+        text = MODULE.normalized_visible_text(raw)
+        for fragment in fragments:
+            self.assertNotIn(fragment, text)
+
+    def test_committed_bodies_carry_no_non_rendered_text_in_their_offsets(self):
+        bodies = sorted((ROOT / "data" / "sec_content").rglob("*.htm.gz"))
+        self.assertTrue(bodies)
+        for path in bodies:
+            raw = gzip.decompress(path.read_bytes())
+            text = MODULE.normalized_visible_text(raw)
+            with self.subTest(path=path):
+                for fragment in non_rendered_fragments(raw):
+                    self.assertNotIn(fragment, text)
 
 
 if __name__ == "__main__":

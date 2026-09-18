@@ -232,12 +232,31 @@ def validate_primary_document(
     return primary
 
 
+# Character data inside these elements is stylesheet or program source, never
+# rendered filing text.  Every SEC body committed under this collector styles
+# through inline style= attributes, so suppressing them moves no committed
+# char_offset/match_offset; the guard is against inline-XBRL filers that do ship
+# <style> blocks, whose stylesheet would otherwise be quoted as filing evidence.
+NON_RENDERED_TEXT_TAGS = frozenset({"style", "script"})
+
+
 class _VisibleText(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
+        self._suppressed_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag.lower() in NON_RENDERED_TEXT_TAGS:
+            self._suppressed_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in NON_RENDERED_TEXT_TAGS and self._suppressed_depth:
+            self._suppressed_depth -= 1
 
     def handle_data(self, data: str) -> None:
+        if self._suppressed_depth:
+            return
         self.parts.append(data)
 
 

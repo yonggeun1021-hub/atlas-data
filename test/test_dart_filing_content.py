@@ -4,10 +4,12 @@
 import copy
 import gzip
 import hashlib
+from html.parser import HTMLParser
 import importlib.util
 import io
 import json
 from pathlib import Path
+import shutil
 import stat
 import tempfile
 import unittest
@@ -19,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "collectors" / "dart_filing_content.py"
 CONTRACT_PATH = ROOT / "config" / "dart_filing_content_contract.json"
 WORKFLOW = ROOT / ".github" / "workflows" / "collect.yml"
+COMMITTED_CONTENT_ROOT = ROOT / "data" / "dart_content"
 
 SPEC = importlib.util.spec_from_file_location("dart_filing_content", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -531,6 +534,258 @@ class DartFilingContentTest(unittest.TestCase):
         self.assertIn("--expected-kst-date", block)
         commit = workflow.split("- name: Commit data", 1)[1]
         self.assertIn("git add data/", commit)
+
+
+class _NonRenderedText(HTMLParser):
+    """Collect only the character data OpenDART puts inside style/script."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self._depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() in MODULE.NON_RENDERED_TEXT_TAGS:
+            self._depth += 1
+
+    def handle_endtag(self, tag):
+        if tag.lower() in MODULE.NON_RENDERED_TEXT_TAGS and self._depth:
+            self._depth -= 1
+
+    def handle_data(self, data):
+        if self._depth:
+            self.parts.append(data)
+
+
+def committed_text_documents():
+    """Yield every committed DART filing body that carries a text index."""
+    for manifest_path in sorted(COMMITTED_CONTENT_ROOT.rglob("_manifest.json")):
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for document in manifest["documents"]:
+            if document.get("text_status") != "OK":
+                continue
+            raw = gzip.decompress(
+                (manifest_path.parent / document["cache_name"]).read_bytes()
+            )
+            yield manifest_path, manifest, document, raw
+
+
+class DartNonRenderedTextTest(unittest.TestCase):
+    """The normalized text of a real DART filing must not contain its stylesheet."""
+
+    def setUp(self):
+        self.contract = MODULE.load_contract(CONTRACT_PATH)
+        self.bodies = list(committed_text_documents())
+        if not self.bodies:
+            self.skipTest("no committed DART filing bodies to measure")
+
+    def test_committed_bodies_never_leak_style_or_script_into_v2_text(self):
+        # The expectation is derived from each body as DART actually served it:
+        # whatever that body puts inside style/script is exactly what must not
+        # appear in the normalized text.  No hand-written fixture, no frozen
+        # character count.
+        bodies_with_non_rendered_text = 0
+        for manifest_path, _manifest, _document, raw in self.bodies:
+            parser = _NonRenderedText()
+            parser.feed(MODULE.decode_document(raw))
+            parser.close()
+            fragments = [
+                fragment.strip()
+                for fragment in parser.parts
+                if len(fragment.strip()) >= 12
+            ]
+            v1 = MODULE.normalized_visible_text(
+                raw, MODULE.EXTRACTOR_VERSION_V1
+            )
+            v2 = MODULE.normalized_visible_text(
+                raw, MODULE.EXTRACTOR_VERSION_V2
+            )
+            # Suppression only removes; it never rewrites surviving text.
+            self.assertTrue(v1.endswith(v2), manifest_path)
+            if not fragments:
+                continue
+            bodies_with_non_rendered_text += 1
+            for fragment in fragments:
+                normalized = " ".join(fragment.split())
+                self.assertIn(normalized, v1, manifest_path)
+                self.assertNotIn(normalized, v2, manifest_path)
+        # Guard against the assertion passing because nothing was measured.
+        self.assertGreater(bodies_with_non_rendered_text, 0)
+
+    def test_committed_v1_records_keep_their_own_extractor_and_still_verify(self):
+        checked = 0
+        for manifest_path, manifest, document, raw in self.bodies:
+            self.assertEqual(
+                manifest["extractor_version"], MODULE.EXTRACTOR_VERSION_V1
+            )
+            # A v1 seal is only true of the v1 extractor; it must keep verifying
+            # under the extractor the record itself declares.
+            text = MODULE.normalized_visible_text(
+                raw, manifest["extractor_version"]
+            )
+            self.assertEqual(
+                hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                document["normalized_text_sha256"],
+                manifest_path,
+            )
+            self.assertEqual(len(text), document["normalized_text_chars"])
+            self.assertEqual(document["offset_basis"], "normalized_visible_text")
+            checked += 1
+        self.assertGreater(checked, 0)
+
+    def test_committed_records_revalidate_while_new_captures_use_v2(self):
+        seen = set()
+        for manifest_path, manifest, _document, _raw in self.bodies:
+            identity = manifest["filing_identity"]
+            key = (identity["stock_code"], identity["rcept_no"])
+            if key in seen:
+                continue
+            seen.add(key)
+            loaded = MODULE.load_existing_manifest(
+                ROOT / "data", identity["stock_code"], identity["rcept_no"]
+            )
+            self.assertEqual(
+                loaded["extractor_version"], MODULE.EXTRACTOR_VERSION_V1
+            )
+        self.assertEqual(
+            self.contract["extractor_version"], MODULE.EXTRACTOR_VERSION_V2
+        )
+        self.assertNotIn(
+            MODULE.EXTRACTOR_VERSION_V2,
+            self.contract["superseded_extractor_versions"],
+        )
+
+    def test_v2_capture_never_refetches_or_relabels_a_committed_v1_record(self):
+        manifest_path, manifest, _document, _raw = self.bodies[0]
+        identity = manifest["filing_identity"]
+        with tempfile.TemporaryDirectory() as temporary:
+            data_root = Path(temporary) / "data"
+            target = MODULE.manifest_dir(
+                data_root, identity["stock_code"], identity["rcept_no"]
+            )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(manifest_path.parent, target)
+            existing = MODULE.load_existing_manifest(
+                data_root, identity["stock_code"], identity["rcept_no"]
+            )
+            fetcher = Fetcher(RuntimeError("PROVIDER_MUST_NOT_BE_CALLED"))
+            record, raw_zip, members = MODULE.capture_filing(
+                ticker=identity["stock_code"],
+                stage=manifest["atlas_stage"],
+                filing={
+                    "date": manifest["filing_date"],
+                    "title": manifest["title"],
+                    "corp_name": manifest["name"],
+                    "rcept_no": identity["rcept_no"],
+                    "url": (
+                        "https://dart.fss.or.kr/dsaf001/main.do?rcpNo="
+                        + identity["rcept_no"]
+                    ),
+                },
+                fetcher=fetcher,
+                retrieved_at_utc="2026-09-18T00:00:00Z",
+                contract=self.contract,
+                existing_manifest=existing,
+            )
+            self.assertEqual(fetcher.calls, [])
+            self.assertEqual(record["operation"], "skipped")
+            self.assertEqual(
+                record["extractor_version"], MODULE.EXTRACTOR_VERSION_V1
+            )
+            before = (target / "_manifest.json").read_bytes()
+            MODULE.persist_success(
+                data_root, record, raw_zip, members, self.contract
+            )
+            after = json.loads((target / "_manifest.json").read_text("utf-8"))
+            self.assertEqual(
+                after["extractor_version"], MODULE.EXTRACTOR_VERSION_V1
+            )
+            self.assertEqual(
+                json.loads(before.decode("utf-8"))["documents"],
+                after["documents"],
+            )
+
+            relabelled = copy.deepcopy(record)
+            relabelled["extractor_version"] = MODULE.EXTRACTOR_VERSION_V2
+            with self.assertRaises(MODULE.DartContentError) as caught:
+                MODULE.persist_success(
+                    data_root, relabelled, None, {}, self.contract
+                )
+            self.assertIn(
+                "EXTRACTOR_VERSION_CHANGED_FAIL_CLOSED_NO_OVERWRITE",
+                str(caught.exception),
+            )
+
+    def test_contract_naming_a_superseded_extractor_as_current_fails_closed(self):
+        # The exact shape a partial revert or an incident-time "restore" edit
+        # reaches: both versions are known and neither is named twice, so every
+        # other lineage check passes while new captures quietly go back to
+        # sealing stylesheet text.  Per-record re-derivation cannot see this —
+        # it only checks a record against the extractor the record declares.
+        self.assertEqual(
+            self.contract["extractor_version"],
+            MODULE.CURRENT_EXTRACTOR_VERSION,
+        )
+        self.assertTrue(MODULE.SUPERSEDED_EXTRACTOR_VERSIONS)
+        for superseded in MODULE.SUPERSEDED_EXTRACTOR_VERSIONS:
+            reverted = copy.deepcopy(self.contract)
+            reverted["extractor_version"] = superseded
+            reverted["superseded_extractor_versions"] = [
+                version
+                for version in MODULE.EXTRACTOR_VERSION_LINEAGE
+                if version != superseded
+            ]
+            # Sanity: the reverted contract is self-consistent and names only
+            # extractors the module knows, so nothing but the newest-version
+            # assertion can reject it.
+            self.assertNotIn(
+                reverted["extractor_version"],
+                reverted["superseded_extractor_versions"],
+            )
+            self.assertEqual(
+                set(reverted["superseded_extractor_versions"])
+                | {reverted["extractor_version"]},
+                set(MODULE.EXTRACTOR_SUPPRESSED_TAGS),
+            )
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "contract.json"
+                path.write_text(
+                    json.dumps(reverted, ensure_ascii=False), encoding="utf-8"
+                )
+                with self.assertRaises(MODULE.DartContentError) as caught:
+                    MODULE.load_contract(path)
+            self.assertIn(
+                "CONTRACT_EXTRACTOR_BEHIND_MODULE", str(caught.exception)
+            )
+            self.assertIn(superseded, str(caught.exception))
+            self.assertIn(
+                MODULE.CURRENT_EXTRACTOR_VERSION, str(caught.exception)
+            )
+
+    def test_contract_lineage_must_match_the_module_exactly(self):
+        for broken in (
+            [],
+            list(MODULE.EXTRACTOR_VERSION_LINEAGE),
+            ["dart_filing_content/99"],
+        ):
+            drifted = copy.deepcopy(self.contract)
+            drifted["superseded_extractor_versions"] = broken
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "contract.json"
+                path.write_text(
+                    json.dumps(drifted, ensure_ascii=False), encoding="utf-8"
+                )
+                with self.assertRaises(MODULE.DartContentError):
+                    MODULE.load_contract(path)
+
+    def test_unknown_extractor_version_fails_closed(self):
+        raw = self.bodies[0][3]
+        with self.assertRaises(MODULE.DartContentError):
+            MODULE.normalized_visible_text(raw, "dart_filing_content/99")
+        tampered = copy.deepcopy(self.bodies[0][1])
+        tampered["extractor_version"] = "dart_filing_content/99"
+        with self.assertRaises(MODULE.DartContentError):
+            MODULE.validate_manifest(tampered, contract=self.contract)
 
 
 if __name__ == "__main__":
