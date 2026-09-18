@@ -3300,11 +3300,19 @@ def verify_checkout_completeness():
     print("or files this suite reads. Do not file this as a broken-main")
     print("incident before fixing the checkout:")
     print()
+    print("⛔ 사본이 불완전합니다 — 저장소 결함이 아닙니다.")
+    print()
+    print("main은 멀쩡하고, 문제는 당신이 받아온 사본입니다. 이 사본에는 검사가")
+    print("읽어야 할 이력이나 파일이 빠져 있습니다. 사본을 고치기 전에")
+    print('"main이 깨졌다"고 올리지 마십시오.')
+    print()
     for p in problems:
         print("  •", p)
     print()
     print("Fix: git fetch --unshallow, or re-clone with full history and")
     print("no sparse-checkout, then re-run.")
+    print("고치는 법: git fetch --unshallow, 또는 전체 이력으로 sparse-checkout 없이")
+    print("다시 복제한 뒤 재실행하십시오.")
     return 1
 
 
