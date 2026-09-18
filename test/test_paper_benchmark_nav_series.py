@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import datetime as dt
 from decimal import Decimal
 import io
 import importlib.util
@@ -34,6 +35,9 @@ NAV0 = "200000000"
 FILL_AT = "2026-10-08T07:05:00Z"
 ANCHOR_PRICE = "160000000"
 FEE_RATE = "0.0005"
+# A process clock far past every fixture timestamp, so the wall-clock ceiling
+# is exercised deliberately rather than depending on when the suite is run.
+FAR_FUTURE = dt.datetime(2027, 1, 1, tzinfo=dt.timezone.utc)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -116,6 +120,33 @@ def resign(ledger):
     return SIM._ledger_packet(ledger["ledger_id"], events, SIM.load_contract())
 
 
+def publish(ledger, store):
+    """Publish the ledger into its own append-only snapshot store."""
+    store = Path(store)
+    store.mkdir(parents=True, exist_ok=True)
+    SIM.publish_ledger_snapshot(store, ledger)
+    return store
+
+
+def genesis_pin(ledger):
+    """The pin recorded once when the account was opened, before any fill."""
+    genesis = ledger["events"][0]
+    return {
+        "ledger_id": ledger["ledger_id"],
+        "genesis_event_sha256": genesis["event_sha256"],
+        "genesis_event_at": genesis["event_at"],
+        "initial_cash": genesis["payload"]["initial_cash"],
+    }
+
+
+def authenticated(ledger, store, *, pin=None):
+    publish(ledger, store)
+    return MODULE.authenticate_ledger(
+        Path(store), ledger["ledger_id"],
+        genesis_pin=genesis_pin(ledger) if pin is None else pin,
+    )
+
+
 def price_observation(*, market="KRW-BTC", price=ANCHOR_PRICE,
                       observed_at="2026-10-08T07:04:00Z",
                       available_at="2026-10-08T07:04:10Z",
@@ -130,17 +161,45 @@ def price_observation(*, market="KRW-BTC", price=ANCHOR_PRICE,
     }
 
 
-def anchor(*, recorded_at_utc="2026-10-08T07:10:00Z", observations=None,
-           ledger=None):
-    return MODULE.derive_anchor(
-        market="CRYPTO",
-        ledger=ledger if ledger is not None else filled_ledger(),
-        price_observations=observations if observations is not None
-        else [price_observation()],
-        recorded_at_utc=recorded_at_utc,
-        policy=POLICY,
-        params=PARAMS,
+def witness(*, observed_at=None, available_at=None, market="KRW-BTC",
+            price="160500000", recorded_at="2026-10-08T07:10:00Z"):
+    """A post-fill observation that bounds the claimed record time."""
+    return price_observation(
+        market=market,
+        price=price,
+        observed_at=observed_at or FILL_AT,
+        available_at=available_at or recorded_at,
+        source_ref="test://upbit/realtime/witness",
     )
+
+
+def anchor(*, recorded_at_utc="2026-10-08T07:10:00Z", observations=None,
+           ledger=None, clock_witness=None, pin=None, store=None, now=None):
+    """Derive an anchor over an authenticated ledger. Uses its own temp store
+    unless one is supplied, so each call is independent."""
+    value = filled_ledger() if ledger is None else ledger
+    if store is None:
+        holder = tempfile.TemporaryDirectory()
+        store = Path(holder.name)
+    else:
+        holder = None
+    try:
+        verified = authenticated(value, store, pin=pin)
+        return MODULE.derive_anchor(
+            market="CRYPTO",
+            verified_ledger=verified,
+            price_observations=observations if observations is not None
+            else [price_observation()],
+            recorded_at_utc=recorded_at_utc,
+            clock_witness=clock_witness if clock_witness is not None
+            else witness(recorded_at=recorded_at_utc),
+            policy=POLICY,
+            params=PARAMS,
+            now=now if now is not None else FAR_FUTURE,
+        )
+    finally:
+        if holder is not None:
+            holder.cleanup()
 
 
 def nav_rows(values, *, start_day=8, hour="07:05:00"):
@@ -298,19 +357,23 @@ class AnchorDerivationTest(unittest.TestCase):
 
     def test_a_supplied_anchor_time_is_only_ever_checked_never_used(self):
         self.assertEqual(anchor()["anchor_utc"], FILL_AT)
-        with self.assertRaisesRegex(
-            MODULE.PaperBenchmarkNavSeriesError,
-            "ANCHOR_UTC_NOT_DERIVED_FROM_FIRST_FILL",
-        ):
-            MODULE.derive_anchor(
-                market="CRYPTO",
-                ledger=filled_ledger(),
-                price_observations=[price_observation()],
-                recorded_at_utc="2026-10-08T07:10:00Z",
-                anchor_utc="2026-10-01T07:05:00Z",
-                policy=POLICY,
-                params=PARAMS,
-            )
+        with tempfile.TemporaryDirectory() as tmp:
+            verified = authenticated(filled_ledger(), Path(tmp))
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError,
+                "ANCHOR_UTC_NOT_DERIVED_FROM_FIRST_FILL",
+            ):
+                MODULE.derive_anchor(
+                    market="CRYPTO",
+                    verified_ledger=verified,
+                    price_observations=[price_observation()],
+                    recorded_at_utc="2026-10-08T07:10:00Z",
+                    clock_witness=witness(),
+                    anchor_utc="2026-10-01T07:05:00Z",
+                    policy=POLICY,
+                    params=PARAMS,
+                    now=FAR_FUTURE,
+                )
 
     def test_no_fill_yet_refuses_rather_than_anchoring_on_the_order(self):
         base = SIM.create_ledger(
@@ -447,7 +510,7 @@ class AnchorImmutabilityTest(unittest.TestCase):
             MODULE.record_anchor(Path(tmp), first)
             with self.assertRaisesRegex(
                 MODULE.PaperBenchmarkNavSeriesError,
-                "ANCHOR_ALREADY_RECORDED_IMMUTABLE",
+                "ANCHOR_ALREADY_BOUND_IMMUTABLE",
             ):
                 MODULE.record_anchor(Path(tmp), later)
 
@@ -461,7 +524,7 @@ class AnchorImmutabilityTest(unittest.TestCase):
             )
             self.assertEqual(loaded.sha256, value["packet_sha256"])
             with self.assertRaisesRegex(
-                MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_POINTER_SHA_MISMATCH"
+                MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_BINDING_SHA_MISMATCH"
             ):
                 MODULE.load_anchor(
                     Path(tmp), "CRYPTO", value["ledger_id"],
@@ -760,17 +823,22 @@ class CliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             request = root / "anchor_request.json"
+            ledger = filled_ledger()
+            store = publish(ledger, root / "ledger_snapshots")
             request.write_text(json.dumps({
                 "market": "CRYPTO",
-                "ledger": filled_ledger(),
+                "ledger_snapshot_root": str(store),
+                "ledger_id": ledger["ledger_id"],
+                "ledger_genesis_pin": genesis_pin(ledger),
                 "price_observations": [price_observation()],
+                "clock_witness": witness(),
                 "recorded_at_utc": "2026-10-08T07:10:00Z",
             }, ensure_ascii=False))
-            store = root / "store"
+            anchor_store = root / "store"
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(
                     MODULE.main([
-                        "anchor", "--request", str(request), "--root", str(store),
+                        "anchor", "--request", str(request), "--root", str(anchor_store),
                     ]),
                     0,
                 )
@@ -792,7 +860,7 @@ class CliTest(unittest.TestCase):
                 self.assertEqual(
                     MODULE.main([
                         "series", "--request", str(series_request),
-                        "--root", str(store), "--out", str(out),
+                        "--root", str(anchor_store), "--out", str(out),
                     ]),
                     0,
                 )
@@ -804,6 +872,232 @@ class CliTest(unittest.TestCase):
         workflows = ROOT / ".github" / "workflows"
         for path in sorted(workflows.glob("*.yml")):
             self.assertNotIn("paper_benchmark_nav_series", path.read_text(), str(path))
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Forgery gaps closed after independent review of PR #790. Each of these three
+# fails against the pre-review code.
+# ─────────────────────────────────────────────────────────────────────────
+
+class LedgerProvenanceTest(unittest.TestCase):
+    """Gap 1 -- an internally hash-consistent ledger dict is not provenance."""
+
+    def test_a_bare_ledger_dict_is_refused_however_consistent_it_is(self):
+        forged = filled_ledger()
+        SIM.validate_ledger(forged)  # perfectly self-consistent
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "LEDGER_NOT_AUTHENTICATED"
+        ):
+            MODULE.derive_anchor(
+                market="CRYPTO", verified_ledger=forged,
+                price_observations=[price_observation()],
+                recorded_at_utc="2026-10-08T07:10:00Z",
+                clock_witness=witness(), policy=POLICY, params=PARAMS,
+                now=FAR_FUTURE,
+            )
+
+    def test_an_unpublished_ledger_cannot_be_authenticated(self):
+        ledger = filled_ledger()
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError, "LEDGER_SNAPSHOT_STORE_MISSING"
+            ):
+                MODULE.authenticate_ledger(
+                    Path(tmp), ledger["ledger_id"], genesis_pin=genesis_pin(ledger)
+                )
+
+    def test_a_ledger_that_does_not_match_the_genesis_pin_is_refused(self):
+        real = filled_ledger()
+        # Same shape, different account open time -> a different genesis hash.
+        other = SIM.create_ledger(
+            ledger_id=real["ledger_id"], initial_cash=NAV0,
+            opened_at="2026-09-19T07:00:00Z", idempotency_key="PAPER.ACCOUNT.OPEN",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            publish(real, Path(tmp))
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError, "LEDGER_PIN_GENESIS_SHA_MISMATCH"
+            ):
+                MODULE.authenticate_ledger(
+                    Path(tmp), real["ledger_id"], genesis_pin=genesis_pin(other)
+                )
+        with tempfile.TemporaryDirectory() as tmp:
+            publish(real, Path(tmp))
+            pin = genesis_pin(real)
+            pin["initial_cash"] = "10000000"
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError, "LEDGER_PIN_INITIAL_CASH_MISMATCH"
+            ):
+                MODULE.authenticate_ledger(
+                    Path(tmp), real["ledger_id"], genesis_pin=pin
+                )
+
+    def test_a_divergent_published_history_is_refused_by_recovery(self):
+        submitted = SIM.submit_order(
+            SIM.create_ledger(
+                ledger_id="PAPER.UPBIT.KRW.ATLAS_SERVER.20260918", initial_cash=NAV0,
+                opened_at="2026-09-18T07:00:00Z", idempotency_key="PAPER.ACCOUNT.OPEN",
+            ),
+            _intent(),
+        )
+        real = SIM.match_order(
+            submitted, order_id="PAPER.ORDER.1", snapshot=_snapshot(),
+            event_at=FILL_AT, idempotency_key="PAPER.MATCH.1",
+        )
+        rival = SIM.cancel_order(
+            submitted, order_id="PAPER.ORDER.1", event_at=FILL_AT,
+            idempotency_key="PAPER.CANCEL.ALT", reason="ALTERNATIVE_HISTORY",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            publish(real, Path(tmp))
+            publish(rival, Path(tmp))
+            with self.assertRaises(SIM.CryptoPaperSimulatorError):
+                MODULE.authenticate_ledger(
+                    Path(tmp), real["ledger_id"], genesis_pin=genesis_pin(real)
+                )
+
+    def test_the_anchor_records_what_it_authenticated_against(self):
+        value = anchor()
+        provenance = value["ledger_provenance"]
+        self.assertEqual(
+            provenance["authentication"],
+            "PUBLISHED_APPEND_ONLY_SNAPSHOT_STORE_PLUS_GENESIS_PIN",
+        )
+        self.assertEqual(provenance["genesis_initial_cash"], NAV0)
+        self.assertEqual(provenance["residual"], "RATIFICATION_LEDGER_ATTESTATION")
+        self.assertIn("RATIFICATION_LEDGER_ATTESTATION", value["ratification_required"])
+
+
+class RecordTimeWitnessTest(unittest.TestCase):
+    """Gap 2 -- the anti-hindsight deadline must not trust the caller's clock."""
+
+    def test_a_record_time_earlier_than_evidence_in_hand_is_refused(self):
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_RECORDED_AT_BEFORE_EVIDENCE"
+        ):
+            anchor(
+                recorded_at_utc="2026-10-08T07:10:00Z",
+                clock_witness=witness(available_at="2026-10-08T07:20:00Z"),
+            )
+
+    def test_a_record_time_far_from_the_newest_observation_is_refused(self):
+        # Claiming 07:10 while the newest evidence in hand is 20 minutes old is
+        # the shape of a hindsight write; the bound is the ratified staleness
+        # window (max_orderbook_staleness_seconds).
+        self.assertEqual(PARAMS["anchor_clock_witness_max_skew_seconds"], 300)
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_CLOCK_WITNESS_SKEW_EXCEEDED"
+        ):
+            anchor(
+                recorded_at_utc="2026-10-08T07:30:00Z",
+                clock_witness=witness(available_at="2026-10-08T07:10:00Z"),
+            )
+        # Inside the window it is accepted, and the skew is recorded.
+        value = anchor(
+            recorded_at_utc="2026-10-08T07:14:00Z",
+            clock_witness=witness(available_at="2026-10-08T07:10:00Z"),
+        )
+        self.assertEqual(value["clock_witness_skew_seconds"], 240)
+        self.assertEqual(value["clock_basis"], "WITNESS_BOUNDED_NOT_PROVEN")
+
+    def test_a_pre_fill_witness_proves_nothing_and_is_refused(self):
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_CLOCK_WITNESS_NOT_AFTER_FILL"
+        ):
+            anchor(clock_witness=witness(
+                observed_at="2026-10-08T07:00:00Z", available_at="2026-10-08T07:10:00Z",
+            ))
+
+    def test_a_record_time_in_the_future_is_refused_once_the_fill_is_past(self):
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_RECORDED_AT_IN_FUTURE"
+        ):
+            anchor(now=dt.datetime(2026, 10, 8, 7, 6, tzinfo=dt.timezone.utc))
+
+    def test_a_witness_for_another_market_is_refused(self):
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError,
+            "ANCHOR_CLOCK_WITNESS_MARKET_MISMATCH",
+        ):
+            anchor(clock_witness=witness(market="KRW-ETH"))
+
+
+class PointerDeletionTest(unittest.TestCase):
+    """Gap 3 -- the pointer file is not the binding."""
+
+    def test_deleting_the_pointer_does_not_allow_a_second_anchor_to_bind(self):
+        first = anchor()
+        later = anchor(observations=[price_observation(
+            price="170000000", observed_at="2026-10-08T07:04:20Z",
+            available_at="2026-10-08T07:04:25Z",
+        )])
+        self.assertNotEqual(first["packet_sha256"], later["packet_sha256"])
+        with tempfile.TemporaryDirectory() as tmp:
+            MODULE.record_anchor(Path(tmp), first)
+            base = Path(tmp) / "CRYPTO" / first["ledger_id"] / "anchor"
+            (base / MODULE.POINTER_FILENAME).unlink()
+            self.assertFalse((base / MODULE.POINTER_FILENAME).exists())
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_ALREADY_BOUND_IMMUTABLE"
+            ):
+                MODULE.record_anchor(Path(tmp), later)
+
+    def test_deleting_the_pointer_and_the_bindings_still_leaves_the_record(self):
+        first = anchor()
+        later = anchor(observations=[price_observation(
+            price="170000000", observed_at="2026-10-08T07:04:20Z",
+            available_at="2026-10-08T07:04:25Z",
+        )])
+        with tempfile.TemporaryDirectory() as tmp:
+            MODULE.record_anchor(Path(tmp), first)
+            base = Path(tmp) / "CRYPTO" / first["ledger_id"] / "anchor"
+            (base / MODULE.POINTER_FILENAME).unlink()
+            for path in (base / MODULE.BINDINGS_DIRNAME).glob("*.json"):
+                path.unlink()
+            # The content-addressed record is the second, independent witness.
+            self.assertEqual(
+                MODULE.bound_digests(Path(tmp), "CRYPTO", first["ledger_id"]),
+                {first["packet_sha256"]},
+            )
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_ALREADY_BOUND_IMMUTABLE"
+            ):
+                MODULE.record_anchor(Path(tmp), later)
+
+    def test_a_missing_pointer_is_recoverable_rather_than_fatal(self):
+        value = anchor()
+        with tempfile.TemporaryDirectory() as tmp:
+            MODULE.record_anchor(Path(tmp), value)
+            base = Path(tmp) / "CRYPTO" / value["ledger_id"] / "anchor"
+            (base / MODULE.POINTER_FILENAME).unlink()
+            loaded = MODULE.load_anchor(
+                Path(tmp), "CRYPTO", value["ledger_id"],
+                trusted_anchor_sha256=value["packet_sha256"],
+            )
+            self.assertEqual(loaded.sha256, value["packet_sha256"])
+
+    def test_two_bindings_present_refuse_to_load_rather_than_pick_one(self):
+        first = anchor()
+        later = anchor(observations=[price_observation(
+            price="170000000", observed_at="2026-10-08T07:04:20Z",
+            available_at="2026-10-08T07:04:25Z",
+        )])
+        with tempfile.TemporaryDirectory() as tmp:
+            MODULE.record_anchor(Path(tmp), first)
+            # Simulate a store that somehow already carries two records.
+            base = Path(tmp) / "CRYPTO" / first["ledger_id"] / "anchor"
+            rogue = base / later["packet_sha256"]
+            rogue.mkdir()
+            (rogue / MODULE.ANCHOR_FILENAME).write_text(
+                MODULE.canonical_json(later) + "\n"
+            )
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_MULTIPLE_BINDINGS"
+            ):
+                MODULE.load_anchor(
+                    Path(tmp), "CRYPTO", first["ledger_id"],
+                    trusted_anchor_sha256=first["packet_sha256"],
+                )
 
 
 if __name__ == "__main__":

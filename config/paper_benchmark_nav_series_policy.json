@@ -161,7 +161,10 @@
     "more than one anchor-eligible price observation refuses as an ambiguous anchor; the latest one is not picked",
     "an anchor recorded later than one decision cycle after the first fill refuses",
     "a second, different anchor for the same (market, ledger) refuses; an identical one is an idempotent no-op",
-    "a NAV or mark value of null is never valued as zero"
+    "a NAV or mark value of null is never valued as zero",
+    "a ledger supplied as a bare dict refuses; it must be recovered from its own published append-only snapshot store and matched to the genesis pin recorded when the account was opened",
+    "a recorded_at_utc earlier than evidence already in hand, or further from the newest post-fill observation than the ratified staleness window, refuses -- the anti-hindsight deadline never rests on the caller's clock claim alone",
+    "a second, different anchor refuses even if the pointer file was deleted: the binding is recoverable from the append-only bindings markers and the content-addressed records themselves"
   ],
   "ratification_required": [
     {
@@ -203,6 +206,14 @@
     {
       "id": "RATIFICATION_ACTIVATION",
       "question": "When and where the anchor recorder runs. It is dispatch-only in this PR and is wired into no schedule; the anchor must be written at the first fill, which happens inside the private crypto runtime."
+    },
+    {
+      "id": "RATIFICATION_LEDGER_ATTESTATION",
+      "question": "An offline reader can prove the ledger is an append-only, non-divergent extension of a pinned genesis, but not that a fill is genuine. Should the runtime sign each published snapshot (or its head) so the anchor can bind to an attestation the reader cannot mint?"
+    },
+    {
+      "id": "RATIFICATION_CLOCK_ATTESTATION",
+      "question": "recorded_at_utc is bounded by an independently observed post-fill price observation (clock_basis = WITNESS_BOUNDED_NOT_PROVEN), not proven. Should the runtime supply an attested write time, e.g. the decision cycle's own recorded instant or the evidence commit time?"
     }
   ],
   "authority": {

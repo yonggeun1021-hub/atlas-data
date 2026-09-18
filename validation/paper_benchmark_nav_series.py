@@ -59,6 +59,16 @@ emits no stop-rule verdict.
 
 The anchor cannot be chosen later
 ---------------------------------
+0. The **ledger must be authenticated, not merely hash-consistent.** Anyone can
+   build a self-consistent ledger dict, so ``derive_anchor`` refuses one:
+   :func:`authenticate_ledger` recovers the ledger from its own published,
+   content-addressed, append-only snapshot store (which refuses two histories
+   of the same length, and any history that is not a prefix-extension of every
+   shorter one) and binds it to a genesis pin — ledger_id, the ACCOUNT_OPENED
+   event's own hash, its ``event_at`` and the initial cash — established once
+   when the account was opened, before any fill existed, and supplied
+   separately. What that still does not prove is that a fill is genuine:
+   ``RATIFICATION_LEDGER_ATTESTATION``.
 1. ``anchor_utc`` is *derived* from the first ``FILL_APPLIED`` event of the
    validated ledger. A caller-supplied value is only ever compared, never
    used; a mismatch refuses. There is no parameter that moves it.
@@ -73,13 +83,25 @@ The anchor cannot be chosen later
    (``recorded_at_utc - anchor_utc``). This is the anti-hindsight teeth: a
    month later, when it is known how the asset moved, the anchor simply
    cannot be created any more. Re-anchoring then needs a separate user
-   decision, not a retry.
-5. ``record_anchor`` is write-once: the pointer file is created with
-   ``open(..., "x")``. Re-recording byte-identical bytes is an idempotent
-   no-op; anything else raises ``ANCHOR_ALREADY_RECORDED_IMMUTABLE``. The
-   record is additionally content-addressed by its own payload sha256, and
-   ``load_anchor`` will only return it against a separately supplied trusted
-   sha256 — a hash rewritten inside the file is not a trust anchor.
+   decision, not a retry. Because that deadline must not rest on the caller's
+   own claim about the time, ``recorded_at_utc`` is checked against evidence
+   the caller did not author: a **clock witness**, a post-fill observation of
+   the benchmark market carrying its own source sha256. The record time may
+   not precede the witness's ``available_at``, may not sit further from it
+   than the ratified staleness window, and (when the fill is already in the
+   past by the process clock) may not be in the future. This bounds the claim;
+   it does not prove it — ``clock_basis`` says so, and
+   ``RATIFICATION_CLOCK_ATTESTATION`` asks for a runtime-attested write time.
+5. ``record_anchor`` is write-once, and **the pointer file is not the
+   binding.** Deleting the pointer and rerunning inside the lag window used to
+   let a new digest bind; now :func:`bound_digests` reads the binding back out
+   of two places that are never rewritten — the append-only
+   ``bindings/<digest>.json`` markers and the content-addressed
+   ``<digest>/anchor.json`` records — and any differing prior digest raises
+   ``ANCHOR_ALREADY_BOUND_IMMUTABLE``. Re-recording byte-identical bytes stays
+   an idempotent no-op, a missing pointer is recoverable rather than fatal, and
+   ``load_anchor`` returns the record only against a separately supplied
+   trusted sha256 — a hash rewritten inside the file is not a trust anchor.
 
 Fail closed
 -----------
@@ -133,6 +155,7 @@ DEFINITION_ID = "SINGLE_ASSET_BUY_AND_HOLD_AT_FIRST_FILL.V1"
 
 POINTER_FILENAME = "ANCHOR_RECORDED.json"
 ANCHOR_FILENAME = "anchor.json"
+BINDINGS_DIRNAME = "bindings"
 
 VARIANT_EXPOSURE_MATCHED = "EXPOSURE_MATCHED"
 VARIANT_ASSET_ONLY = "ASSET_ONLY"
@@ -146,6 +169,7 @@ SECONDS_PER_DAY = 86400
 DAILY_DECISION_CYCLE_SECONDS = SECONDS_PER_DAY
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+DIGEST_DIR_RE = re.compile(r"^[0-9a-f]{64}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
 
@@ -471,6 +495,7 @@ def resolve_market_parameters(
         "max_sample_gap_seconds": gap_days[market] * SECONDS_PER_DAY,
         "anchor_price_max_staleness_seconds": staleness,
         "anchor_record_max_lag_seconds": DAILY_DECISION_CYCLE_SECONDS,
+        "anchor_clock_witness_max_skew_seconds": staleness,
         "expected_ledger_genesis": genesis_krw,
         "decimal_scale": scale,
         "simulator_contract": contract,
@@ -486,6 +511,130 @@ def resolve_market_parameters(
 PRICE_OBSERVATION_FIELDS = (
     "market", "price", "observed_at", "available_at", "source_ref", "source_sha256",
 )
+
+LEDGER_GENESIS_PIN_FIELDS = (
+    "ledger_id", "genesis_event_sha256", "genesis_event_at", "initial_cash",
+)
+
+
+class VerifiedLedger:
+    """A ledger recovered from its own published append-only snapshot store and
+    bound to the genesis pin recorded when the account was opened.
+
+    An internally hash-consistent dict proves only that somebody computed the
+    hashes correctly -- anyone can build one. This wrapper is the only way a
+    ledger reaches :func:`derive_anchor`, and it can only be produced by
+    :func:`authenticate_ledger`.
+    """
+
+    __slots__ = ("_ledger", "_ledger_id", "_genesis_event_sha256",
+                 "_snapshot_root", "_snapshot_names")
+
+    def __init__(self, ledger, ledger_id, genesis_event_sha256, snapshot_root,
+                 snapshot_names):
+        self._ledger = copy.deepcopy(ledger)
+        self._ledger_id = ledger_id
+        self._genesis_event_sha256 = genesis_event_sha256
+        self._snapshot_root = Path(snapshot_root)
+        self._snapshot_names = tuple(snapshot_names)
+
+    @property
+    def ledger(self) -> dict:
+        return copy.deepcopy(self._ledger)
+
+    @property
+    def ledger_id(self) -> str:
+        return self._ledger_id
+
+    @property
+    def genesis_event_sha256(self) -> str:
+        return self._genesis_event_sha256
+
+    @property
+    def snapshot_names(self) -> tuple:
+        return self._snapshot_names
+
+
+def _validate_genesis_pin(value) -> dict:
+    if not isinstance(value, dict) or set(value) != set(LEDGER_GENESIS_PIN_FIELDS):
+        fail("LEDGER_GENESIS_PIN_FIELDS_MISMATCH")
+    _text(value.get("ledger_id"), "LEDGER_GENESIS_PIN_LEDGER_ID_INVALID")
+    _sha(value.get("genesis_event_sha256"), "LEDGER_GENESIS_PIN_SHA_INVALID")
+    _utc(value.get("genesis_event_at"), "LEDGER_GENESIS_PIN_EVENT_AT_INVALID")
+    if not isinstance(value.get("initial_cash"), str) or not value["initial_cash"]:
+        fail("LEDGER_GENESIS_PIN_INITIAL_CASH_INVALID")
+    return copy.deepcopy(value)
+
+
+def authenticate_ledger(
+    snapshot_root: Path, ledger_id: str, *, genesis_pin: dict,
+    contract: dict | None = None,
+) -> VerifiedLedger:
+    """Recover the ledger from its published snapshots and bind it to its genesis.
+
+    Three things a caller cannot fabricate on its own are required to line up:
+
+    1. The ledger must exist as **published, content-addressed, append-only
+       snapshots**. ``SIMULATOR.recover_ledger`` validates every snapshot in the
+       store, requires each snapshot's filename to match its own length and
+       packet hash, refuses two different histories of the same length
+       (``LEDGER_HISTORY_DIVERGED_AT_LENGTH``) and refuses any history that is
+       not a strict prefix-extension of every shorter one
+       (``LEDGER_HISTORY_DIVERGED``). So a fabricated fill cannot replace or
+       contradict what the runtime already published -- it can only ever be an
+       extension of the real prefix.
+    2. The genesis pin is established **once, when the account is opened, before
+       any fill exists**, and is supplied separately from the ledger (the same
+       posture as ``trusted_anchor_sha256``). It fixes the ledger_id, the
+       ACCOUNT_OPENED event's own hash, its ``event_at`` and the initial cash.
+       Because every later event is chained to that event's hash, a fabricated
+       history has to reproduce the genesis event byte-for-byte: it cannot
+       change the account identity, the open time or NAV0.
+    3. The head we actually read has to be one of the files in that store, by
+       name, so the anchor's lineage names a snapshot that can be re-read.
+
+    What this does NOT prove: that the *fill itself* is genuine. A party who can
+    already write into the runtime's snapshot store and mint a genesis pin can
+    still publish a fabricated extension. That residual is a runtime-side
+    signing/attestation question, recorded as
+    ``RATIFICATION_LEDGER_ATTESTATION`` in the policy -- not something an
+    offline reader can close.
+    """
+    contract = SIMULATOR.load_contract() if contract is None else contract
+    pin = _validate_genesis_pin(genesis_pin)
+    _text(ledger_id, "LEDGER_ID_INVALID")
+    if pin["ledger_id"] != ledger_id:
+        fail("LEDGER_PIN_LEDGER_ID_MISMATCH")
+
+    root = Path(snapshot_root)
+    ledger_dir = root / ledger_id
+    if not ledger_dir.is_dir():
+        fail("LEDGER_SNAPSHOT_STORE_MISSING")
+    names = tuple(sorted(path.name for path in ledger_dir.glob("*.json")))
+    if not names:
+        fail("LEDGER_SNAPSHOT_STORE_EMPTY")
+
+    checked = SIMULATOR.recover_ledger(root, ledger_id, contract)
+    if checked["ledger_id"] != ledger_id:
+        fail("LEDGER_ID_MISMATCH")
+    head_name = f"{len(checked['events']):08d}-{checked['packet_sha256']}.json"
+    if head_name not in names:
+        fail("LEDGER_HEAD_SNAPSHOT_NOT_IN_STORE")
+
+    genesis = checked["events"][0]
+    if (
+        genesis.get("event_type") != "ACCOUNT_OPENED"
+        or genesis.get("previous_event_sha256") is not None
+        or genesis.get("sequence") != 1
+    ):
+        fail("LEDGER_GENESIS_EVENT_INVALID")
+    if genesis["event_sha256"] != pin["genesis_event_sha256"]:
+        fail("LEDGER_PIN_GENESIS_SHA_MISMATCH")
+    if genesis["event_at"] != pin["genesis_event_at"]:
+        fail("LEDGER_PIN_GENESIS_EVENT_AT_MISMATCH")
+    if genesis["payload"].get("initial_cash") != pin["initial_cash"]:
+        fail("LEDGER_PIN_INITIAL_CASH_MISMATCH")
+    return VerifiedLedger(checked, ledger_id, genesis["event_sha256"], root, names)
 
 
 def _validate_price_observation(row, index: int, scale: int) -> dict:
@@ -520,17 +669,25 @@ def _first_fill(ledger: dict) -> tuple[dict, dict]:
 
 
 def derive_anchor(
-    *, market: str, ledger: dict, price_observations: list, recorded_at_utc: str,
-    anchor_utc: str | None = None, policy: dict | None = None,
-    params: dict | None = None,
+    *, market: str, verified_ledger: VerifiedLedger, price_observations: list,
+    recorded_at_utc: str, clock_witness: dict, anchor_utc: str | None = None,
+    policy: dict | None = None, params: dict | None = None, now=None,
 ) -> dict:
     """Derive the one immutable anchor for (market, ledger) from real data."""
     policy = load_policy() if policy is None else policy
     params = resolve_market_parameters(market, policy=policy) if params is None else params
     scale = params["decimal_scale"]
 
-    checked = SIMULATOR.validate_ledger(ledger, params["simulator_contract"])
+    if not isinstance(verified_ledger, VerifiedLedger):
+        # An internally hash-consistent dict is not provenance: anyone can
+        # build one. Only authenticate_ledger() can mint this wrapper.
+        fail("LEDGER_NOT_AUTHENTICATED")
+    checked = SIMULATOR.validate_ledger(
+        verified_ledger.ledger, params["simulator_contract"]
+    )
     ledger_id = _text(checked.get("ledger_id"), "LEDGER_ID_INVALID")
+    if ledger_id != verified_ledger.ledger_id:
+        fail("LEDGER_IDENTITY_DRIFTED_FROM_AUTHENTICATION")
     if checked.get("currency") != params["currency"]:
         fail("LEDGER_CURRENCY_MISMATCH")
 
@@ -576,6 +733,39 @@ def derive_anchor(
     lag = int((recorded_at - derived_anchor_utc).total_seconds())
     if lag > params["anchor_record_max_lag_seconds"]:
         fail("ANCHOR_RECORD_LAG_EXCEEDED")
+
+    # ── the record-lag deadline above is the anti-hindsight guard, so it must
+    # not rest on the caller's own claim about what time it is. recorded_at_utc
+    # is checked against evidence the caller did not author: a post-fill
+    # observation of the benchmark market, carrying its own source sha256 into
+    # the append-only capture tree.
+    witness = _validate_price_observation(clock_witness, "clock_witness", scale)
+    if witness["market"] != params["benchmark_asset"]:
+        fail("ANCHOR_CLOCK_WITNESS_MARKET_MISMATCH")
+    witness_observed = _utc(
+        witness["observed_at"], "ANCHOR_CLOCK_WITNESS_OBSERVED_AT_INVALID"
+    )
+    witness_available = _utc(
+        witness["available_at"], "ANCHOR_CLOCK_WITNESS_AVAILABLE_AT_INVALID"
+    )
+    if witness_observed < derived_anchor_utc:
+        # A pre-fill observation proves nothing about being alive at record
+        # time -- it could have been held for a month.
+        fail("ANCHOR_CLOCK_WITNESS_NOT_AFTER_FILL")
+    if witness_available > recorded_at:
+        fail("ANCHOR_RECORDED_AT_BEFORE_EVIDENCE")
+    witness_skew = int((recorded_at - witness_available).total_seconds())
+    if witness_skew > params["anchor_clock_witness_max_skew_seconds"]:
+        # Claiming a record time long after the newest evidence in hand is the
+        # shape of a hindsight write.
+        fail("ANCHOR_CLOCK_WITNESS_SKEW_EXCEEDED")
+
+    wall_now = dt.datetime.now(tz=dt.timezone.utc) if now is None else now
+    if derived_anchor_utc <= wall_now and recorded_at > wall_now:
+        # In production the fill is always already in the past, so a record
+        # time in the future is a clock claim, not an observation. (For a
+        # fixture anchored in the future this ceiling is inert by construction.)
+        fail("ANCHOR_RECORDED_AT_IN_FUTURE")
 
     if not isinstance(price_observations, list) or not price_observations:
         fail("ANCHOR_PRICE_OBSERVATIONS_EMPTY")
@@ -633,6 +823,17 @@ def derive_anchor(
         "currency": params["currency"],
         "ledger_id": ledger_id,
         "ledger_packet_sha256": checked["packet_sha256"],
+        "ledger_provenance": {
+            "authentication": "PUBLISHED_APPEND_ONLY_SNAPSHOT_STORE_PLUS_GENESIS_PIN",
+            "genesis_event_sha256": verified_ledger.genesis_event_sha256,
+            "genesis_event_at": checked["events"][0]["event_at"],
+            "genesis_initial_cash": checked["events"][0]["payload"]["initial_cash"],
+            "snapshot_count": len(verified_ledger.snapshot_names),
+            "head_snapshot_name": (
+                f"{len(checked['events']):08d}-{checked['packet_sha256']}.json"
+            ),
+            "residual": "RATIFICATION_LEDGER_ATTESTATION",
+        },
         "anchor_utc": anchor_utc_text,
         "anchor_basis": "FIRST_FILL_APPLIED_EVENT_AT_DERIVED_NOT_SUPPLIED",
         "first_fill": {
@@ -676,6 +877,12 @@ def derive_anchor(
         "anchor_record_max_lag_seconds": params["anchor_record_max_lag_seconds"],
         "recorded_at_utc": recorded_at_utc,
         "record_lag_seconds": lag,
+        "clock_witness": witness,
+        "clock_witness_skew_seconds": witness_skew,
+        "clock_basis": "WITNESS_BOUNDED_NOT_PROVEN",
+        "anchor_clock_witness_max_skew_seconds": params[
+            "anchor_clock_witness_max_skew_seconds"
+        ],
         "ratification_required": [
             row["id"] for row in policy["ratification_required"]
         ],
@@ -700,6 +907,18 @@ def validate_anchor(value: dict, *, policy: dict | None = None) -> dict:
     _sha(value.get("ledger_packet_sha256"), "ANCHOR_LEDGER_SHA_INVALID")
     _utc(value.get("anchor_utc"), "ANCHOR_UTC_INVALID")
     _utc(value.get("recorded_at_utc"), "ANCHOR_RECORDED_AT_INVALID")
+    if value.get("clock_basis") != "WITNESS_BOUNDED_NOT_PROVEN":
+        fail("ANCHOR_CLOCK_BASIS_INVALID")
+    provenance = value.get("ledger_provenance")
+    if not isinstance(provenance, dict) or provenance.get("authentication") != (
+        "PUBLISHED_APPEND_ONLY_SNAPSHOT_STORE_PLUS_GENESIS_PIN"
+    ):
+        fail("ANCHOR_LEDGER_PROVENANCE_INVALID")
+    _sha(provenance.get("genesis_event_sha256"), "ANCHOR_GENESIS_EVENT_SHA_INVALID")
+    _validate_price_observation(
+        value.get("clock_witness"), "recorded_clock_witness",
+        int(SIMULATOR.load_contract()["decimal_scale"]),
+    )
     scale = int(SIMULATOR.load_contract()["decimal_scale"])
     for key in ("nav0_krw", "notional_krw", "units", "anchor_price",
                 "effective_entry_price", "anchor_cash_spent_krw"):
@@ -719,12 +938,51 @@ def _anchor_dir(root: Path, market: str, ledger_id: str) -> Path:
     return Path(root) / market / ledger_id / "anchor"
 
 
+def bound_digests(root: Path, market: str, ledger_id: str) -> set:
+    """Every anchor digest this account is already bound to, from the evidence
+    tree itself rather than from the pointer file.
+
+    The pointer is a convenience, not the binding. Deleting it and rerunning
+    inside the lag window must not let a second, different anchor bind, so the
+    binding is recoverable from two independent places that are never rewritten:
+    the append-only ``bindings/<digest>.json`` markers, and the
+    content-addressed ``<digest>/anchor.json`` records themselves.
+    """
+    base = _anchor_dir(root, market, ledger_id)
+    digests = set()
+    if not base.is_dir():
+        return digests
+    bindings = base / BINDINGS_DIRNAME
+    if bindings.is_dir():
+        for path in sorted(bindings.glob("*.json")):
+            name = path.name[: -len(".json")]
+            if DIGEST_DIR_RE.fullmatch(name) is None:
+                fail(f"ANCHOR_BINDING_NAME_INVALID:{path.name}")
+            marker = _read_json(path)
+            if not isinstance(marker, dict) or marker.get("anchor_sha256") != name:
+                fail(f"ANCHOR_BINDING_CONTENT_INVALID:{path.name}")
+            digests.add(name)
+    for child in sorted(base.iterdir()):
+        if not child.is_dir() or DIGEST_DIR_RE.fullmatch(child.name) is None:
+            continue
+        if (child / ANCHOR_FILENAME).is_file():
+            digests.add(child.name)
+    return digests
+
+
 def record_anchor(root: Path, anchor: dict) -> Path:
     """Write the anchor once. Identical bytes are a no-op; anything else refuses."""
     checked = validate_anchor(anchor)
     digest = checked["packet_sha256"]
     base = _anchor_dir(root, checked["market"], checked["ledger_id"])
     base.mkdir(parents=True, exist_ok=True)
+    already = bound_digests(root, checked["market"], checked["ledger_id"])
+    if already - {digest}:
+        # Reached whether or not the pointer file still exists.
+        fail(
+            "ANCHOR_ALREADY_BOUND_IMMUTABLE:"
+            + ",".join(sorted(already - {digest}))
+        )
     content_dir = base / digest
     content_dir.mkdir(parents=True, exist_ok=True)
     content_path = content_dir / ANCHOR_FILENAME
@@ -735,6 +993,25 @@ def record_anchor(root: Path, anchor: dict) -> Path:
     else:
         with open(content_path, "xb") as handle:
             handle.write(payload)
+
+    bindings_dir = base / BINDINGS_DIRNAME
+    bindings_dir.mkdir(parents=True, exist_ok=True)
+    marker_path = bindings_dir / f"{digest}.json"
+    marker_bytes = (canonical_json({
+        "schema_version": "paper_benchmark_anchor_binding/1",
+        "market": checked["market"],
+        "ledger_id": checked["ledger_id"],
+        "anchor_sha256": digest,
+        "anchor_utc": checked["anchor_utc"],
+        "recorded_at_utc": checked["recorded_at_utc"],
+        "immutability": "APPEND_ONLY_ONE_BINDING_PER_ACCOUNT",
+    }) + "\n").encode("utf-8")
+    if marker_path.exists():
+        if marker_path.read_bytes() != marker_bytes:
+            fail("ANCHOR_BINDING_BYTES_DIVERGED")
+    else:
+        with open(marker_path, "xb") as handle:
+            handle.write(marker_bytes)
 
     pointer = {
         "schema_version": "paper_benchmark_anchor_pointer/1",
@@ -792,12 +1069,18 @@ def load_anchor(
     """Reload the recorded anchor against a separately trusted sha256."""
     expected = _sha(trusted_anchor_sha256, "TRUSTED_ANCHOR_SHA_INVALID")
     base = _anchor_dir(root, market, ledger_id)
-    pointer_path = base / POINTER_FILENAME
-    if not pointer_path.is_file():
+    digests = bound_digests(root, market, ledger_id)
+    if not digests:
         fail("ANCHOR_NOT_RECORDED")
-    pointer = _read_json(pointer_path)
-    if not isinstance(pointer, dict) or pointer.get("anchor_sha256") != expected:
-        fail("ANCHOR_POINTER_SHA_MISMATCH")
+    if len(digests) > 1:
+        fail("ANCHOR_MULTIPLE_BINDINGS:" + ",".join(sorted(digests)))
+    if digests != {expected}:
+        fail("ANCHOR_BINDING_SHA_MISMATCH")
+    pointer_path = base / POINTER_FILENAME
+    if pointer_path.is_file():
+        pointer = _read_json(pointer_path)
+        if not isinstance(pointer, dict) or pointer.get("anchor_sha256") != expected:
+            fail("ANCHOR_POINTER_SHA_MISMATCH")
     content_path = base / expected / ANCHOR_FILENAME
     if not content_path.is_file():
         fail("ANCHOR_CONTENT_MISSING")
@@ -1081,7 +1364,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    anchor_cmd = sub.add_parser("anchor", help="derive and record the one anchor")
+    anchor_cmd = sub.add_parser(
+        "anchor",
+        help=(
+            "derive and record the one anchor (request carries "
+            "ledger_snapshot_root, ledger_id, ledger_genesis_pin, "
+            "price_observations, clock_witness, recorded_at_utc)"
+        ),
+    )
     anchor_cmd.add_argument("--request", required=True)
     anchor_cmd.add_argument("--root", required=True)
 
@@ -1096,11 +1386,17 @@ def main(argv: list[str] | None = None) -> int:
         fail("REQUEST_NOT_OBJECT")
 
     if args.command == "anchor":
+        verified_ledger = authenticate_ledger(
+            Path(request["ledger_snapshot_root"]),
+            request["ledger_id"],
+            genesis_pin=request["ledger_genesis_pin"],
+        )
         anchor = derive_anchor(
             market=request["market"],
-            ledger=request["ledger"],
+            verified_ledger=verified_ledger,
             price_observations=request["price_observations"],
             recorded_at_utc=request["recorded_at_utc"],
+            clock_witness=request["clock_witness"],
             anchor_utc=request.get("anchor_utc"),
         )
         path = record_anchor(Path(args.root), anchor)

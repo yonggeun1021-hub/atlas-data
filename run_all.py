@@ -2845,7 +2845,14 @@ APPROVED_TESTS = [
     #   account's own first fill (the simulator has no repository default for
     #   fee); no cost constant is invented here. Fail closed: a missing mark
     #   at a sample, an off-grid mark, a gap wider than the ratified rotation
-    #   gap, a null NAV. Fully offline -- ledgers are built by the P10-11
+    #   gap, a null NAV. Review 2026-09-18 closed three forgery gaps, each with
+    #   its own regression: the ledger must be recovered from its published
+    #   append-only snapshot store and matched to a genesis pin (a bare
+    #   hash-consistent dict is refused), recorded_at_utc is bounded by an
+    #   independently observed post-fill clock witness instead of being taken on
+    #   trust, and the binding is read back out of append-only bindings markers
+    #   plus the content-addressed records, so deleting the pointer file no
+    #   longer lets a second anchor bind. Fully offline -- ledgers are built by the P10-11
     #   simulator's own builders, prices are fixtures, no network and no
     #   evidence directory outside a temporary one. Wired into no workflow or
     #   schedule (a test asserts that); every *_authorized field stays False.
