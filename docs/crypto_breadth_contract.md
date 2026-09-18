@@ -557,3 +557,62 @@ committed result. `target_asset_count=100`,
 `minimum_observation_coverage_bps=9000`, the 30-day turnover ranking rule,
 every existing exclusion and all classification/threshold/Regime/Production/
 trading authority flags are unchanged. This is breadth source coverage only.
+
+### 2026-09-18 headroom slice (second batch, eleven assets)
+
+The cutoff-band batch above classified a list read off one day's snapshot.
+Turnover ranks drift, so a fixed list develops holes: an asset sitting at
+rank 180 on the day the list was written can be at rank 163 a day later,
+and a hole inside the block is exactly the `TAXONOMY_COVERAGE_UNKNOWN`
+day the exercise exists to prevent. This slice therefore re-derives the
+block instead of copying it. Each candidate is ranked in all seven
+committed vintages 2026-09-12…2026-09-18, classified at the effective
+date so the cutoff-band records are already in force, and selected by its
+**minimum** rank across those vintages.
+
+Measured that way the earlier 35-asset target list was both too wide and
+incomplete: reaching rank 170 needs only 16 assets, while the list itself
+omitted five assets that have been seen inside its own span — `DOS`
+(seen at 163), `ROBO` (172), `AVNT` (178), `MOVR` (182) and `XMN` (191).
+`DOS` sits below 170 and is carried here.
+
+Eleven assets are recorded effective 2026-09-18: `AR`, `CRO`, `DOS`,
+`FHE`, `GHST`, `IDOS`, `KSM`, `TRAC`, `TRUST` and `ZIG` as
+`eligible_crypto`, and `AUSD` as `stablecoin` — Agora publishes it as a
+fully reserved stablecoin, so it lands in the already-ratified exclusion
+category rather than as a new kind of record.
+
+Two assets were captured through a rendered page rather than a raw HTTP
+body, and this is disclosed per asset in the receipt: `zigchain.com` and
+`docs.zigchain.com` return HTTP 403 to a plain client, and `dappos.com`
+serves a client-rendered shell containing no token text. For those the
+retained content hash is over the retained rendered text, not over the
+raw response bytes.
+
+Assets whose identity could not be confirmed by two independent official
+sources within this batch were left **unrecorded** rather than written
+either way. `STORJ` (min rank 159), `MET` (161), `RIVER` (166), `DENT`
+(167) and `GALA` (168) are all in the block by rank, but a speculative
+`eligible_crypto` would fabricate an identity and a speculative
+`unverified_identity` would fabricate an exclusion that removes a likely
+eligible asset from the source-coverage universe. Neither is the fail-
+closed branch; leaving the asset unclassified is, because an unclassified
+asset that reaches the scanned range fails the scan closed. The
+`unverified_identity` category stays reserved for the `PLAY` / `RE` /
+`MOODENG` case — a genuine, evidenced identity failure — and a partial
+finding is recorded for `DENT`, whose Kraken-published domain
+`dentwireless.com` now redirects to an unrelated eSIM business (`tunz.io`)
+publishing no token identity.
+
+The block is consequently contiguous through rank **158**: no asset has
+ever been seen unclassified at or below that rank in any retained
+vintage. Against the rank-112 cutoff that is a 49-rank margin at the
+2026-09-18 vintage, up from 41 after the cutoff-band batch.
+
+Every record is effective 2026-09-18 and every retained vintage evaluates
+at `as_of = vintage - 1 day`, so the latest retained as_of (2026-09-17) is
+strictly before the effective date and no committed result moves.
+`target_asset_count=100`, `minimum_observation_coverage_bps=9000`, the
+30-day turnover ranking rule, every existing exclusion and all
+classification/threshold/Regime/Production/trading authority flags are
+unchanged. This is breadth source coverage only.

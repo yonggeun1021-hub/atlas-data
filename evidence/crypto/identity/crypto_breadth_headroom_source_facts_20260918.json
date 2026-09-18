@@ -1,0 +1,450 @@
+{
+  "assets": [
+    {
+      "canonical_asset_id": "AR",
+      "identity_finding": "Kraken publishes the asset as Arweave on the Arweave network (native, not a token over a separate chain). Independently, the Arweave lightpaper served from arweave.org states that a block contains \"transfers of its currency AR\" and that the storage endowment contribution is \"denominated in AR\", binding the exact ticker AR to the Arweave protocol as its native currency.",
+      "independent_source_organisations": [
+        "kraken",
+        "arweave"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "Arweave",
+        "kraken_published_network": "Arweave",
+        "usd_pair_id": "AR/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5357337,
+          "retained_content_sha256": "aed4069eddfe8e2a9188bdbcd96281fe22bac902fdbd3e763a6ef85e6c44dbb3",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/arweave"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 24840,
+          "retained_content_sha256": "c4c52d2071f79a105ccdd837b7d1007510565069ab77b75f3a5f642ab96e7672",
+          "role": "project_documentation",
+          "url": "https://arweave.org/"
+        },
+        {
+          "retained_bytes": 616713,
+          "retained_content_sha256": "9c3e54b66a2525d9e957b3213c8c4147355b655bc252f4c53badf479af9481ef",
+          "role": "project_protocol_paper",
+          "url": "https://www.arweave.org/files/arweave-lightpaper.pdf"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "AUSD",
+      "identity_finding": "Kraken publishes the asset as AUSD on Ethereum (ERC-20). Independently, Agora (agora.finance) states \"Agora issues AUSD, a fully reserved\" stablecoin and presents AUSD as stablecoin infrastructure. AUSD is therefore recorded in the already-ratified stablecoin exclusion category, not as eligible_crypto. This is a source-coverage exclusion and not an investability judgement.",
+      "independent_source_organisations": [
+        "kraken",
+        "agora"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "AUSD",
+        "kraken_published_network": "Ethereum (ERC-20)",
+        "usd_pair_id": "AUSD/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5209593,
+          "retained_content_sha256": "df9dba4fdfa2fd178fe1ffa0d4af06e75cd7d7817565c7d781643cedef0eefb3",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/ausd"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 90526,
+          "retained_content_sha256": "c2eb615c2b5358c555b91c0395b66fd14bbb0603c5da1f905e7a85464cc086ca",
+          "role": "issuer_documentation",
+          "url": "https://www.agora.finance/"
+        }
+      ],
+      "verdict": "stablecoin"
+    },
+    {
+      "canonical_asset_id": "CRO",
+      "identity_finding": "Kraken publishes the asset as Cronos on Ethereum (ERC-20). Independently, the Cronos technical documentation states \"Transaction fees are paid in Cronos ($CRO)\" for Cronos EVM and Cronos POS. Disclosed: the Cronos documentation describes CRO in its role as the Cronos network fee token while Kraken lists the Ethereum ERC-20 representation; the record binds the identity Kraken names and makes no claim that the two representations are interchangeable for settlement.",
+      "independent_source_organisations": [
+        "kraken",
+        "cronos"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "Cronos",
+        "kraken_published_network": "Ethereum (ERC-20)",
+        "usd_pair_id": "CRO/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5311355,
+          "retained_content_sha256": "23fe429f2ebc2dd6a740b3e32f6fe7171dbee43cccab9098dfe07fbf7a9d292c",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/cronos"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 78733,
+          "retained_content_sha256": "8ce8ecc619b0bb720173dde70a4eb4f399b8f899ca83cada8600b10af08ef526",
+          "role": "project_documentation",
+          "url": "https://cronos.org/"
+        },
+        {
+          "retained_bytes": 549429,
+          "retained_content_sha256": "aaf8efd4591d018ad4d4e2aeb042106a7eb33359c5871ed2afaeb7adb6291301",
+          "role": "project_technical_documentation",
+          "url": "https://docs.cronos.org/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "DOS",
+      "identity_finding": "Kraken publishes the asset as DAPPOS on Ethereum (ERC-20). Independently, dappos.com (DAPPOS technology) publishes \"The Official $DOS Staking Portal\" under its Protocol section alongside its whitepaper and audits, binding the exact ticker DOS to DAPPOS. Disclosed: dappos.com serves a client-rendered shell to a plain client (1876 bytes with no token text) and docs.dappos.com does not resolve; the retained capture is the rendered page text and its sha256 is over that retained text.",
+      "independent_source_organisations": [
+        "kraken",
+        "dappos"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "DAPPOS",
+        "kraken_published_network": "Ethereum (ERC-20)",
+        "usd_pair_id": "DOS/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5224210,
+          "retained_content_sha256": "33b00ba115d2bbb26c859601297a39da8b11a2787a4299b890c2939d4598cf44",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/dappos"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 610,
+          "retained_content_sha256": "cd9968b87e3f042fd9fd79dcae78f4666f08accd1826125904b243f8cca63253",
+          "role": "project_site_rendered_capture",
+          "url": "https://dappos.com/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "FHE",
+      "identity_finding": "Kraken publishes the asset as Mind Network on Ethereum (ERC-20). Independently, the Mind Network documentation carries \"$FHE Tokenomics\" and \"Get $FHE\" sections, and mindnetwork.xyz reports \"Over 39M $FHE Staked\". The ticker is disambiguated deliberately: FHE is also the generic acronym for Fully Homomorphic Encryption, so this record rests on the $FHE token references published by Mind Network itself, not on the acronym appearing in technical prose.",
+      "independent_source_organisations": [
+        "kraken",
+        "mind_network"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "Mind Network",
+        "kraken_published_network": "Ethereum (ERC-20)",
+        "usd_pair_id": "FHE/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5322144,
+          "retained_content_sha256": "6f585c1af18866397fc8212504786eca4d635c3eb3315bde3b18179215fa9649",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/mind-network"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 94466,
+          "retained_content_sha256": "5714dbd952d7f1b8a6eed12a0a1551d405dfc530da6243923f4b2f240637e2d7",
+          "role": "project_documentation",
+          "url": "https://www.mindnetwork.xyz/"
+        },
+        {
+          "retained_bytes": 509354,
+          "retained_content_sha256": "7b4b07e27605dc476e76198db0ae05a454e9a751aea4ec8201369a832d1a48f9",
+          "role": "project_technical_documentation",
+          "url": "https://docs.mindnetwork.xyz/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "GHST",
+      "identity_finding": "Kraken publishes the asset as Aavegotchi on Ethereum (ERC-20). Independently, the Aavegotchi Wiki contract-address reference publishes \"GHST Token: 0x3F382DbD960E3a9bbCeaE22651E88158d2791550\" under Contract Addresses on Ethereum, which matches the chain Kraken reports. The same page publishes separate Base and Polygon (deprecated) GHST addresses; this record is bound to the Ethereum contract Kraken names.",
+      "independent_source_organisations": [
+        "kraken",
+        "aavegotchi"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "Aavegotchi",
+        "kraken_published_network": "Ethereum (ERC-20)",
+        "usd_pair_id": "GHST/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5439458,
+          "retained_content_sha256": "8808b56f29b75f753e61164a38e6ced10328fa0c411c93072377146c4896208e",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/aavegotchi"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 58288,
+          "retained_content_sha256": "26c10ff9c6793d3f3d8d03e2d3deeb0651cdc41f5bdabed410f0a7de3908bfe9",
+          "role": "project_contract_publication",
+          "url": "https://wiki.aavegotchi.com/en/contracts"
+        },
+        {
+          "retained_bytes": 498190,
+          "retained_content_sha256": "002352d7ec375edf244220aff0ffc0c954c732162efc6a1517a4f8431812ba6d",
+          "role": "project_documentation",
+          "url": "https://aavegotchi.com/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "IDOS",
+      "identity_finding": "Kraken publishes the asset as idOS on Arbitrum One. Independently, idos.network publishes an \"IDOS Token Legal White Paper\" and an \"IDOS Token Legal White Paper (Public sale)\" with public-sale results, and the idOS technical documentation carries a dedicated \"IDOS Token\" section, binding the exact ticker IDOS to the idOS identity-operating-system network.",
+      "independent_source_organisations": [
+        "kraken",
+        "idos"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "idOS",
+        "kraken_published_network": "Arbitrum One",
+        "usd_pair_id": "IDOS/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5228307,
+          "retained_content_sha256": "e196f388d3cb858e5ce2a3bb5bdb9d848d597d108f902a749e9534c5fedf570c",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/idos"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 97184,
+          "retained_content_sha256": "5e92a883f26978a6724b7787baae29fdba1d50e75e1a425a154c985b2bef7679",
+          "role": "project_documentation",
+          "url": "https://idos.network/"
+        },
+        {
+          "retained_bytes": 21228,
+          "retained_content_sha256": "3f664a1c40da35eb496f4e2f5dc5dfc3ebc988d666233ac6189b57e22416bec5",
+          "role": "project_technical_documentation",
+          "url": "https://docs.idos.network/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "KSM",
+      "identity_finding": "Kraken publishes the asset as Kusama on Kusama Asset Hub. Independently, the official Kusama guide describes Kusama as Polkadot's canary network and carries a \"What can I do with my KSM?\" section together with Kusama Inflation and DOT-KSM Bridge material, binding the exact ticker KSM to the Kusama network as its native token.",
+      "independent_source_organisations": [
+        "kraken",
+        "kusama"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "Kusama",
+        "kraken_published_network": "Kusama Asset Hub",
+        "usd_pair_id": "KSM/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5373809,
+          "retained_content_sha256": "7a9fe45708dd58d6b57c331131ee11c414812643b435fb0e015f7f04e14a953c",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/kusama"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 153376,
+          "retained_content_sha256": "ccd440ff685d5a9627e9c2c767bc86d6d8f0ed9fb39d8d55fd00df41783d8d71",
+          "role": "project_documentation",
+          "url": "https://guide.kusama.network/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "TRAC",
+      "identity_finding": "Kraken publishes the asset as OriginTrail on Ethereum (ERC-20). Independently, origintrail.io states \"TRAC is the utility token of the OriginTrail network\", and the OriginTrail technical documentation carries a Contract addresses reference and TRAC gas/fee semantics for the V10 Decentralized Knowledge Graph. Ticker text alone was not accepted: the project's own site binds the exact ticker TRAC to the OriginTrail network.",
+      "independent_source_organisations": [
+        "kraken",
+        "origintrail"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "OriginTrail",
+        "kraken_published_network": "Ethereum (ERC-20)",
+        "usd_pair_id": "TRAC/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5371204,
+          "retained_content_sha256": "255faf3e564c820aca2116c40d927a39c76371bb29758b9a7ec8fa6abcd557e1",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/origintrail"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 152617,
+          "retained_content_sha256": "0537b665c453edd8723f60dffc4ebfd5f0a5ab7ba380ca83fccf13da2c2d9f5a",
+          "role": "project_documentation",
+          "url": "https://origintrail.io/"
+        },
+        {
+          "retained_bytes": 1129017,
+          "retained_content_sha256": "4cf9417686a13d4c24dc143ac59b83dc5caea8b1ceb6b9048aa670fc627fb22a",
+          "role": "project_technical_documentation",
+          "url": "https://docs.origintrail.io/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "TRUST",
+      "identity_finding": "Kraken publishes the asset as Intuition on Base. Independently, intuition.systems publishes a \"$TRUST Whitepaper\" describing \"the $TRUST token and its role in Intuition\", a MiCAR White Paper, and Stake $TRUST material, binding the exact ticker TRUST to the Intuition network.",
+      "independent_source_organisations": [
+        "kraken",
+        "intuition"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "Intuition",
+        "kraken_published_network": "Base",
+        "usd_pair_id": "TRUST/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5235596,
+          "retained_content_sha256": "1a78aced1b119504382e49ddb1525275eb2bd5c891a07991c86146a7f212e093",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/intuition"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 200599,
+          "retained_content_sha256": "4f3dc42b60e6bc5e59c6259c5110021fe41eaa11de6cd32645a7102255ad0f63",
+          "role": "project_documentation",
+          "url": "https://www.intuition.systems/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "ZIG",
+      "identity_finding": "Kraken publishes the asset as ZigChain. ZIGCHAIN FOUNDATION (Cayman registration #420931) publishes zigchain.com, which names \"$ZIG ecosystem\", \"ZIG Tokenomics 2.0\", a MiCAR White Paper and the stZIG staking derivative, binding the exact ticker ZIG to the ZIGChain network and its named legal issuer. Disclosed: zigchain.com and docs.zigchain.com both return HTTP 403 to a plain client; the retained capture is the rendered page text, not the raw HTTP body, and its sha256 is over that retained text. Kraken reports the Ethereum (ERC-20) representation while ZIGChain is itself an L1 \u2014 this record makes no native-gas-coin claim.",
+      "independent_source_organisations": [
+        "kraken",
+        "zigchain_foundation"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "kraken_published_name": "ZigChain",
+        "kraken_published_network": "Ethereum (ERC-20)",
+        "usd_pair_id": "ZIG/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5311753,
+          "retained_content_sha256": "c99160cdfc70002c7db4406f506bf210af2a17a645ae804ee48a498e19eb03b8",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/zigchain"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "c950b01347a39d92fd70b12e038426e3aa4dcf937766d9822dcf5324b8ce20b1",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 850,
+          "retained_content_sha256": "7f7d8bcbbb2ce45b831ff614333727444da3c6a660cda2edd4dc8512f77cec41",
+          "role": "project_site_rendered_capture",
+          "url": "https://zigchain.com/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    }
+  ],
+  "kraken_catalog_evidence": {
+    "asset_pairs_gz_sha256": "1ddc8c4dae4a43049297b6af0337622d189bb1c959f80e364bb79983aa97a478",
+    "assets_gz_sha256": "ddbd9d0b1874d5991906812543c01ab87db86009d1032ad5621ff186a00b1c81",
+    "snapshot_dir": "evidence/crypto/breadth/raw/2026-09-18"
+  },
+  "official_source_capture_window_utc": "2026-09-18T11:04:24Z",
+  "produced_at_utc": "2026-09-18T11:04:24Z",
+  "produced_by": "Atlas CIO crypto taxonomy headroom batch (second batch, follows PR #809 pilot)",
+  "receipt_id": "CRYPTO-BREADTH-HEADROOM-SOURCE-FACTS-20260918",
+  "retained_source_body_disclosure": "The sha256 and byte count of every source below are over response bodies retained only in the session scratchpad (152 MB for this batch). If a source page changes, these hashes can no longer be re-derived from the live web. This is the same disclosed weakness as the RAY/DRV and PR #809 precedents; permanent retention is undecided.",
+  "schema_version": "crypto_breadth_source_facts/1",
+  "scope": "Source-coverage universe identity only: not investability, not capacity, not venue selection, not candidate promotion, not Regime activation, not Production wiring, not trading authority.",
+  "taxonomy_hash_before": "ff677d500abfba2e093497de361ac0848b317a725145bb0970fdde8760f099fe",
+  "verification_bar": "Two independent official sources per asset: the retained Kraken catalog (enabled asset with exactly one online <ASSET>/USD pair) plus Kraken's published asset name and network, matched independently against a project/foundation protocol document, token contract publication, migration notice or exact-contract asset report. Ticker text alone was not accepted. Where two independent official sources could not be obtained, no record was written at all rather than a stretched classification."
+}
