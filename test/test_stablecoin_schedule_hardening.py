@@ -223,7 +223,7 @@ class StablecoinScheduleHardeningTest(unittest.TestCase):
         )
 
     def test_commit_keeps_failed_partial_capture_out_of_staging(self):
-        commit = self.require_step("Commit (shared push retry)")
+        commit = self.require_step("Commit")
         command = commit.get("run", "")
 
         self.assertEqual(commit.get("if"), "always()")
@@ -231,13 +231,8 @@ class StablecoinScheduleHardeningTest(unittest.TestCase):
         self.assertIn('if [ "$CAPTURE_RESULT" = "captured" ]', command)
         self.assertIn('evidence/stablecoin/raw/$SNAPSHOT_DATE', command)
         self.assertNotIn("git add evidence/stablecoin/raw\n", command)
-        # 2026-09-18 consolidation: this step's own single unbounded
-        # `pull --rebase && push` (kept in git history, no retry) is now
-        # .github/scripts/push_to_default_branch.sh -- see
-        # test/test_push_retry_consolidation.py for its own bounded/
-        # fail-closed proof.
-        self.assertIn("set -euo pipefail", command)
-        self.assertIn('bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"', command)
+        self.assertIn('git pull --rebase origin "$DEFAULT_BRANCH"', command)
+        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH"', command)
 
     def test_recorder_measures_all_slots_and_run_url(self):
         cases = (

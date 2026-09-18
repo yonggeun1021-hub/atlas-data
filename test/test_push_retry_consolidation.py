@@ -12,16 +12,18 @@ Two halves:
 2. A consolidation guard: every workflow step that commits and pushes must call
    that one script. Divergent copies are how population-symbol-observation-daily
    .yml went daily on 2026-09-18 with no retry at all while fred-dexkous-fx.yml
-   and spdr-sector-holdings.yml had carried one since 2026-09-15. Two explicit
-   exception tables below are the only permitted non-shared pushes, and both are
-   self-invalidating: REGISTRY_PINNED entries are checked against the live pin,
-   so unpinning a workflow turns its exception into a failure telling you to
-   convert it.
+   and spdr-sector-holdings.yml had carried one since 2026-09-15. Three explicit
+   exception tables below are the only permitted non-shared pushes, and all
+   three are self-invalidating: REGISTRY_PINNED entries are checked against the
+   live pin (unpinning a workflow turns its exception into a failure telling
+   you to convert it), and FROZEN_UNTIL entries carry an expiry date that fails
+   the moment it passes.
 
 No workflow is ever dispatched from these tests.
 """
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
@@ -82,6 +84,27 @@ NO_REBASE_BY_DESIGN: dict[tuple[str, str], tuple[int, str]] = {
            "this consolidation: the rebuild is a single attempt with no bound, so a second race in the "
            "same run still fails the step outright rather than retrying; giving it a bounded retry needs "
            "a rebuild loop, not the shared replay script, and is tracked as separate follow-up work.",
+    ),
+}
+
+# Exception table 3: workflows whose bytes are frozen on the operational server
+# side, independent of anything in this repo's own config/ or evidence chain.
+# Key = workflow file, value = (number of raw `git push` sites, expiry date as
+# an ISO date string, why). test_frozen_exceptions_have_not_expired fails once
+# `expires` has passed, so an entry cannot be silently forgotten past its date.
+FROZEN_UNTIL: dict[str, tuple[int, str, str]] = {
+    "stablecoin-capture.yml": (
+        1, "2026-09-24",
+        "the Ubuntu schedule dispatcher (/opt/atlas-schedule-dispatcher) fetches this "
+        "workflow's live bytes from the GitHub contents API at ref: main and compares "
+        "them to a blob_sha/event_ref_fingerprint pin in "
+        "/etc/atlas-schedule-dispatcher/config.json; on mismatch it returns "
+        "drift_blocked and permanently resolves that day's slot with no dispatch, no "
+        "retry, and no alarm. The crypto PAPER runtime's 5-consecutive-day clock "
+        "(day 1 secured 2026-09-18) depends on that dispatcher firing through "
+        "2026-09-23, so this file must not change before the dispatcher is re-pinned "
+        "on 2026-09-24 (see PR #815 review comment). Converting it is a one-line "
+        "follow-up once the freeze lifts.",
     ),
 }
 
@@ -294,6 +317,8 @@ class PushRetryConsolidationTest(unittest.TestCase):
                 continue
             if workflow in REGISTRY_PINNED:
                 continue
+            if workflow in FROZEN_UNTIL:
+                continue
             if (workflow, step) in NO_REBASE_BY_DESIGN:
                 continue
             offenders.append(f"{workflow} :: {step}")
@@ -309,7 +334,7 @@ class PushRetryConsolidationTest(unittest.TestCase):
         """A second retry implementation is the thing being eliminated."""
         offenders = []
         for workflow, step, body in self.steps:
-            if workflow in REGISTRY_PINNED or (workflow, step) in NO_REBASE_BY_DESIGN:
+            if workflow in REGISTRY_PINNED or workflow in FROZEN_UNTIL or (workflow, step) in NO_REBASE_BY_DESIGN:
                 continue
             if re.search(r"max_attempts|until git push|pull --rebase", body):
                 offenders.append(f"{workflow} :: {step}")
@@ -358,6 +383,8 @@ class PushRetryConsolidationTest(unittest.TestCase):
         seen_files = {w for w, _, _ in self.steps}
         for workflow in REGISTRY_PINNED:
             self.assertIn(workflow, seen_files, f"stale REGISTRY_PINNED entry: {workflow}")
+        for workflow in FROZEN_UNTIL:
+            self.assertIn(workflow, seen_files, f"stale FROZEN_UNTIL entry: {workflow}")
         keys = {(w, s) for w, s, _ in self.steps}
         for key in NO_REBASE_BY_DESIGN:
             self.assertIn(key, keys, f"stale NO_REBASE_BY_DESIGN entry: {key}")
@@ -373,6 +400,9 @@ class PushRetryConsolidationTest(unittest.TestCase):
         for workflow, expected in REGISTRY_PINNED.items():
             with self.subTest(workflow=workflow):
                 self.assertEqual(by_file.get(workflow), expected)
+        for workflow, (expected, _expires, _why) in FROZEN_UNTIL.items():
+            with self.subTest(workflow=workflow):
+                self.assertEqual(by_file.get(workflow), expected)
         for (workflow, step), (expected, _why) in NO_REBASE_BY_DESIGN.items():
             with self.subTest(workflow=workflow, step=step):
                 bodies = [b for w, s, b in self.steps if (w, s) == (workflow, step)]
@@ -382,6 +412,22 @@ class PushRetryConsolidationTest(unittest.TestCase):
         for key, (_count, why) in NO_REBASE_BY_DESIGN.items():
             with self.subTest(key=key):
                 self.assertGreater(len(why), 30, f"{key} needs a real reason")
+
+    def test_frozen_exceptions_have_not_expired(self):
+        """A frozen file that is still frozen past its own expiry date is a
+        gap, not a feature -- either the freeze was lifted and this table
+        entry is stale, or nobody circled back and the file is still frozen
+        with no one tracking it. Either way the fix is to look at it, not to
+        push the date."""
+        today = dt.date.today()
+        for workflow, (_count, expires, why) in FROZEN_UNTIL.items():
+            with self.subTest(workflow=workflow):
+                self.assertGreater(len(why), 30, f"{workflow} needs a real reason")
+                expiry = dt.date.fromisoformat(expires)
+                self.assertLessEqual(
+                    today, expiry,
+                    f"{workflow}'s freeze expired on {expires} -- convert it to the shared "
+                    "script now, or confirm the freeze with whoever owns it and move the date")
 
 
 if __name__ == "__main__":

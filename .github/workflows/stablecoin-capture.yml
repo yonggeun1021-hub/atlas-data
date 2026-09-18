@@ -277,19 +277,14 @@ jobs:
           python3 .github/scripts/stablecoin_supply_demand_population.py \
             --snapshot-dir "evidence/stablecoin/raw/$SNAPSHOT_DATE"
 
-      - name: Commit (shared push retry)
+      - name: Commit
         if: always()
-        # 2026-09-18 consolidation: this step's single unbounded
-        # `pull --rebase && push` (kept in git history, no retry) is now
-        # .github/scripts/push_to_default_branch.sh -- see
-        # test/test_push_retry_consolidation.py.
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
           TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/operations/stablecoin_capture_runs || true
@@ -303,5 +298,6 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "stablecoin capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            git push origin "HEAD:$DEFAULT_BRANCH"
           fi
