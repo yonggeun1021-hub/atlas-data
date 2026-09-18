@@ -717,6 +717,77 @@ class FiveSignalWriterOverlayTest(unittest.TestCase):
         self.assertEqual(writer["per_symbol_persistence"], 0)
         self.assertFalse(writer["public_artifact_upload"])
 
+    def test_user_approval_record_is_resolved_and_rehashed(self):
+        # A status nobody can re-derive is just a string: resolve the record
+        # by its recorded path and re-hash it, the same way
+        # regime/crypto_paper_runtime.py::load_policy binds its own
+        # evidence/authority ratification record.
+        approval = self.overlay["user_approval"]
+        path = ROOT / approval["path"]
+        self.assertTrue(path.is_file(), approval["path"])
+        self.assertTrue(approval["path"].startswith("evidence/authority/"))
+        self.assertEqual(
+            hashlib.sha256(path.read_bytes()).hexdigest(), approval["sha256"]
+        )
+        self.assertEqual(approval["binding_mode"], "PATH_AND_SHA256_VERIFIED")
+        record = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(record["record_type"], approval["record_type"])
+        self.assertEqual(record["approved_at_utc"], approval["approved_at_utc"])
+        self.assertFalse(record["authority"]["action_authorized"])
+        self.assertFalse(record["authority"]["real_capital_authorized"])
+
+    def test_the_approved_items_are_the_items_this_pr_implements(self):
+        # The binding is load-bearing, not decorative: what the user approved
+        # and what the writer job actually does must agree, field by field.
+        approval = self.overlay["user_approval"]
+        record = json.loads((ROOT / approval["path"]).read_text(encoding="utf-8"))
+        item = record["items"]["kr_signals_writer_relocation"]
+        self.assertEqual(item["status"], "APPROVED")
+        writer = self.overlay["writer"]
+        self.assertEqual(item["host_workflow"], writer["workflow_path"])
+        self.assertEqual(item["host_workflow"], approval["bound_items"]["host_workflow"])
+        self.assertIn(Path(writer["producer_path"]).name, item["producer"])
+        self.assertEqual(item["output"], POINTER_PATH)
+        self.assertEqual(
+            item["additional_provider_call_approved"], writer["additional_provider_calls"]
+        )
+        self.assertEqual(
+            approval["bound_items"]["additional_provider_call_approved"],
+            writer["additional_provider_calls"],
+        )
+        self.assertTrue(item["registry_accuracy_fix_approved"])
+        # The alternative the user explicitly rejected is the one this change
+        # does not take: no KR coupling is relaxed, and pin K2 is not broken.
+        rejected = item["explicitly_rejected_alternatives"]
+        self.assertIn("option_1_restore_writer_on_pinned_workflow", rejected)
+        self.assertIn("option_3_relax_kr_coupling", rejected)
+        self.assertEqual(
+            hashlib.sha256((ROOT / self.owner["workflow_path"]).read_bytes()).hexdigest(),
+            self.owner["workflow_sha256"],
+        )
+
+    def test_overlay_states_where_the_approvals_premise_narrowed(self):
+        # The approval expected the registry's workflow_path to be corrected.
+        # Measurement showed that field never asserted production. Recording
+        # that openly is the point of this overlay; silently satisfying a
+        # different claim than the one approved is not.
+        approval = self.overlay["user_approval"]
+        premise = approval["premise_refined_after_measurement"]
+        self.assertIn("never asserted production", premise)
+        self.assertIn("byte-freeze anchor", premise)
+        obligations = approval["obligations_recorded_in_the_approval"]
+        self.assertTrue(obligations["cascade_scale_reported_before_acting"])
+        self.assertTrue(obligations["collection_targets_and_sources_unchanged"])
+        self.assertTrue(obligations["korea_market_signals_yml_not_dispatched"])
+        record = json.loads((ROOT / approval["path"]).read_text(encoding="utf-8"))
+        self.assertEqual(len(record["cio_obligations"]), 5)
+        # run_all registration obligation: no new test file was introduced.
+        self.assertIn("NONE_ADDED", obligations["new_test_files_registered_in_run_all"])
+        registered = (ROOT / "run_all.py").read_text(encoding="utf-8")
+        self.assertIn(
+            '"test/test_korea_leadership_live_proof_workflow.py"', registered
+        )
+
     def test_overlay_runtime_reader_claim_is_true(self):
         # The overlay states that the registry's runtime readers do read
         # markets (load_signed_axis_policy does) but never source_owner.
@@ -764,6 +835,8 @@ class FiveSignalWriterOverlayTest(unittest.TestCase):
             self.owner["workflow_sha256"],
             self.owner["producer_sha256"],
             self.owner["contract_sha256"],
+            # This overlay's own approval record, introduced by this change.
+            self.overlay["user_approval"]["sha256"],
         }
         found = set(re.findall(r"\b[0-9a-f]{64}\b", WRITER_OVERLAY.read_text(encoding="utf-8")))
         self.assertTrue(found)
