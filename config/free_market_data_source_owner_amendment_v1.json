@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "contract_version": "free_market_data_source_owner_amendment/1",
+  "market": "US",
+  "owner_id": "US_PAPER_PROXY_SOURCE_OWNER",
+  "amendment_kind": "PUBLICATION_RETRY_ONLY_FINGERPRINT_SUPERSESSION",
+  "note": "An additive overlay that carries the ratified new fingerprint of .github/workflows/free-market-data.yml so the registry's own bytes never move. config/regime_source_owner_registry_v2.json is NOT edited: its exact bytes are hash-bound by config/crypto_paper_runtime_v1.json and config/kr_paper_runtime_ratification_candidate_v1.json (POLICY_BINDING_DRIFT at regime/crypto_paper_runtime.py and regime/kr_paper_runtime_ratification_candidate.py), and those are in turn bound by committed append-only evidence. Same separate-additional-record pattern as config/paper_runtime_normalization_v1.json, config/regime_semantic_freshness_policy_v1.json, config/us_session_calendar_source_v1.json and config/korea_five_signal_pointer_writer_v1.json. Unlike those, this overlay supersedes a pinned sha256 value, which is why it required its own user ratification.",
+  "ratifications": {
+    "workflow_change": {
+      "record_type": "USER_RATIFICATION",
+      "ratification_id": "USER-RATIFICATION-FREE-MARKET-DATA-PUSH-RETRY-20260918",
+      "path": "evidence/authority/free_market_data_push_retry_user_ratification_20260918.json",
+      "sha256": "f8979abf48cdb61e8f8faf10e7d24f47d273d8d8124e5610cf0a7c001d826d70",
+      "ratified_at_kst": "2026-09-18T10:15:00+09:00",
+      "binding_mode": "PATH_AND_SHA256_VERIFIED",
+      "verbatim": "미국 자료 수집 워크플로(free-market-data.yml)에 저장소 반영 재시도를 추가하고, 그에 따른 지문 기록 갱신을 승인한다. 수집 대상과 출처는 변경하지 않는다.",
+      "authorizes": "The workflow byte change itself, and the consequent fingerprint record update."
+    },
+    "verification_mechanism": {
+      "record_type": "USER_RATIFICATION",
+      "ratification_id": "USER-RATIFICATION-REGISTRY-OVERLAY-PIN-VERIFICATION-20260918",
+      "path": "evidence/authority/registry_overlay_pin_verification_user_ratification_20260918.json",
+      "sha256": "51cfaf860896e81b118a0f030f64ce92710a4487b7eeb392024c2f9b467e3589",
+      "ratified_at_utc": "2026-09-18T09:05:00Z",
+      "binding_mode": "PATH_AND_SHA256_VERIFIED",
+      "verbatim": "출처 등록부의 지문 검사가 확정된 덧붙임 설정을 인정하도록 바꾸는 것을 확정한다. 등록부 바이트는 그대로 두고, 대체된 값은 기록에 남기며, 커밋된 증거는 다시 쓰지 않는다.",
+      "authorizes": "That the registry's pin verification honours this overlay instead of requiring the registry's own bytes to move. The check is re-pointed, never removed or loosened."
+    },
+    "record_origin": "Both records were authored outside this repository at /Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/ (CIO records, untracked) and committed here byte-identical so each is checkable from inside the repository. A RATIFIED status nothing can re-derive is just a string, so both are resolved by path and re-hashed where this overlay is loaded.",
+    "verified_by": "test/test_regime_decision_authority.py RegimeSourceOwnerRegistryV2Test (the pin verification itself, which refuses the overlay unless both records resolve and re-hash) and test/test_free_market_data_push_retry.py."
+  },
+  "registry_binding": {
+    "path": "config/regime_source_owner_registry_v2.json",
+    "sha256": "8dd2ad50f66e144aaca78ffc6a82615d814dee2b8f23f736cdbc85a56dba68bb",
+    "field": "markets.US.source_owner.workflow_sha256",
+    "mode": "ADDITIVE_OVERLAY_REGISTRY_BYTES_UNCHANGED",
+    "registry_decision_unamended": "CIO-GATE2-3MARKET-REGIME-SOURCE-FIRST-B-2026-09-01",
+    "reason": "Measured, not assumed. Editing the registry's workflow_sha256 in place was applied end to end on a throwaway branch: nine files can absorb it (the registry, config/crypto_paper_runtime_v1.json, config/kr_paper_runtime_ratification_candidate_v1.json, config/us_session_calendar_source_v1.json, test/test_us_official_session_calendar.py, regime/crypto_paper_runtime.py POLICY_SHA256, config/crypto_candidate_promotion_contract_v3.json, universe/crypto_candidate_promotion.py CONTRACT_V3_SHA256). After all nine, the superseded policy sha256 still lives in seven retained append-only packets under evidence/regime/crypto_paper_runtime/2026-09-14..2026-09-17 and in data/latest_crypto_paper_runtime_decision.json, and the suites fail exactly there: CRYPTO_RUNTIME_DECISION_IDENTITY_MISMATCH at universe/crypto_candidate_promotion.py, and sixteen failures in test/test_crypto_paper_wiring_v2.py collapsing to PROMOTION_PACKET_UNAVAILABLE. Only rewriting policy_sha256 inside committed evidence clears them, which is forbidden. Hence this overlay."
+  },
+  "supersedes": {
+    "field": "markets.US.source_owner.workflow_sha256",
+    "path": ".github/workflows/free-market-data.yml",
+    "superseded_sha256": "39f8ca4e7822a35d6899d06de4218e0a2db0464078a89acc9f5c5c151b216c8f",
+    "sha256": "c11a2c83f2a0899a58bc3e5f7a518ef9fbda0eea10ffa2f388e1dc243eb0634b",
+    "scope": "EXACTLY_ONE_REGISTRY_PIN",
+    "superseded_value_retained_in_registry": true,
+    "superseded_value_retention_note": "The registry still records 39f8ca4e… verbatim and is not edited, so what replaced what stays traceable from the registry alone plus this overlay."
+  },
+  "does_not_supersede": [
+    "markets.US.source_owner.producer_path / producer_sha256 (collectors/free_market_data.py) -- unchanged and still enforced against the registry's own value",
+    "markets.US.source_owner.contract_path / contract_sha256 (config/free_market_data_contract.json) -- unchanged and still enforced against the registry's own value",
+    "markets.US.source_owner.source_scope ALPACA_IEX_DAILY_BARS_PARTIAL_EXCHANGE_REFERENCE, price_basis and universe_kind -- unchanged; no new provider, endpoint or symbol",
+    "markets.US.source_owner.owner_status BOUND_EXISTING_REFERENCE_ONLY -- unchanged",
+    "markets.US.acceptance_status BLOCKED_FINISHED_SESSION_TTL_PIT_REPLAY -- unchanged",
+    "markets.US.official_calendar and its sources -- unchanged; config/us_session_calendar_source_v1.json remains the overlay of record for that field",
+    "markets.US.paper_proxy exact_15_etfs / breadth_14_etfs / leadership_12_group_proxies -- unchanged",
+    "every other pin in the registry -- the other 25 (path, sha256) pairs assert_pins covers stay bound to the registry's own bytes",
+    "the registry's forbidden_promotions list -- unchanged and still in force",
+    "the registry's decision CIO-GATE2-3MARKET-REGIME-SOURCE-FIRST-B-2026-09-01 -- unamended"
+  ],
+  "change": {
+    "step_name": "Commit immutable evidence and latest pointer",
+    "before": "git push",
+    "after": "bash .github/scripts/push_to_default_branch.sh \"$DEFAULT_BRANCH\"",
+    "shared_script_path": ".github/scripts/push_to_default_branch.sh",
+    "max_attempts": 5,
+    "binding_mode": "STRUCTURAL_NOT_BYTE_PINNED",
+    "binding_reason": "No sha256 is recorded for the shared helper on purpose. Pinning its bytes here would give this overlay a fingerprint cascade of its own over a file the registry does not record, and would freeze a helper three other workflows are meant to converge on. The binding is structural instead and re-checked by test/test_free_market_data_push_retry.py: the commit step must invoke that script with the default branch, must not inline a retry loop, and the script itself must be bounded and fail-closed.",
+    "fail_closed": "A rebase conflict aborts the rebase and returns non-zero; exhausting the attempts returns non-zero. A dropped commit is never reported as success."
+  },
+  "cause": {
+    "defect": "PUSH_RACE_AT_PUBLICATION_STEP_ONLY",
+    "not_a_credential_or_source_defect": true,
+    "failed_runs": [
+      {"run_id": 34911129881, "failed_at_utc": "2026-09-14T23:57:00Z"},
+      {"run_id": 35163739007, "failed_at_utc": "2026-09-16T23:46:00Z"},
+      {"run_id": 35287712594, "failed_at_utc": "2026-09-17T23:38:00Z"}
+    ],
+    "capture_result_in_those_runs": "alpaca_status=READY status=PASS; evidence files were written and then lost with the rejected push",
+    "preliminary_step_lines_are_not_the_cause": "ALPACA_CAPTURE_FAILED:HTTP_ERROR:401 and BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL (both status PARTIAL) in the same run logs come from preliminary credential-less steps, not from the dedicated market-data capture.",
+    "downstream_symptom": "regime/us_paper_runtime_publication.py read a 2026-09-15 packet on 2026-09-18 because no newer capture was ever committed."
+  },
+  "corrected_citation": {
+    "claim_in_the_workflow_ratification_record": "The record's why_user_ratification_was_required field states the pin is 'asserted live by test_rule_registry_and_lineage.py:851'.",
+    "measured": "That line asserts the pin for .github/workflows/paper-regime-reference.yml (markets.CRYPTO.status_owner), not for this workflow.",
+    "actual_enforcement_of_this_pin": [
+      "test/test_regime_decision_authority.py RegimeSourceOwnerRegistryV2Test.assert_pins -- generic: for every *_sha256 key it derives the sibling *_path and re-hashes that file, so markets.US.source_owner.workflow_path IS machine-read. This is the only live assertion of this particular pin.",
+      "test/test_kr_paper_runtime_adoption_v1.py test_korea_market_signals_workflow_pin_k2_unchanged -- the same shape, but KRX-specific; it does not cover this workflow."
+    ],
+    "note": "The record's premise was misattributed; its conclusion -- that moving a ratified binding is outside CIO discretion -- was correct. The correct citation is recorded here rather than carried forward wrong."
+  },
+  "explicitly_unchanged": [
+    "COLLECTION_TARGETS",
+    "DATA_SOURCES",
+    "COMMITTED_PATHS",
+    "SCHEDULE_CRON",
+    "NETWORK_CALLS",
+    "REGISTRY_FILE_BYTES",
+    "COMMITTED_APPEND_ONLY_EVIDENCE"
+  ],
+  "authority": {
+    "publication_reliability_only": true,
+    "registry_amendment_authorized": false,
+    "policy_value_changed": false,
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "order_authorized": false,
+    "trading_authorized": false,
+    "capital_authorized": false,
+    "real_capital_authorized": false
+  }
+}
