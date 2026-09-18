@@ -1395,6 +1395,7 @@ APPROVED_TESTS = [
     #   ⛔ thresholds/Top-100/fail-closed unchanged; no live Kraken, no
     #   date-dependent test; MOODENG records a failure to verify, not a guess.
     "test/test_crypto_breadth_band_identity_20260918.py",
+    "test/test_crypto_breadth_headroom_identity_20260918.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
