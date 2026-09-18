@@ -28,6 +28,39 @@ SCHEDULE_SLOTS = {
     "20 8 * * *": ("final_1720_kst", 8, 20),
 }
 
+# The schedule-only 08:20Z slot is the one ratified exemption from the
+# pending_current_observation guard.  A dispatched run never gets it.
+FINAL_SLOT_CRON = "20 8 * * *"
+
+# Refusals the capture step raises *before* it can publish anything.  They are
+# recorded verbatim so a dispatched run that the guard turned away is legible in
+# the telemetry rather than collapsing into a generic step failure.
+# value = (result, reason, provider_call_skipped)
+TRIGGER_REFUSALS = {
+    "dispatch_guard_mode_invalid": (
+        "refused_before_capture",
+        "dispatch_guard_mode_not_schedule_equivalent",
+        True,
+    ),
+    "trigger_input_conflict": (
+        "refused_before_capture",
+        "dispatch_input_present_on_schedule_event",
+        True,
+    ),
+    "trigger_not_authorized": (
+        "refused_before_capture",
+        "trigger_not_authorized",
+        True,
+    ),
+    # This one fires after the fetch: the guard could not be decided, so the
+    # snapshot is discarded instead of published.
+    "dispatch_guard_undetermined": (
+        "refused_before_capture",
+        "current_utc_observation_row_undetermined",
+        False,
+    ),
+}
+
 
 class TelemetryError(RuntimeError):
     """Stablecoin operations telemetry contract violation."""
@@ -106,9 +139,45 @@ def slot_observation(
     }
 
 
+def trigger_observation(
+    event_name: str,
+    event_schedule: str,
+    guard_mode: str,
+) -> dict:
+    """Record which trigger ran and whether the guard applied to it.
+
+    ``available_at`` is never part of this: it stays the provider fetch time in
+    the snapshot's own ``_downloaded_at.txt``, and no trigger can supply it.
+    """
+    exempt = event_name == "schedule" and event_schedule == FINAL_SLOT_CRON
+    # Only a dispatch has a guard mode.  A default that leaks onto another
+    # trigger is not a dispatch instruction and is not recorded as one.
+    declared = guard_mode.strip() if isinstance(guard_mode, str) else ""
+    return {
+        "kind": event_name,
+        "dispatch_guard_mode": (
+            declared or None if event_name == "workflow_dispatch" else None
+        ),
+        "pending_current_observation_guard": (
+            "EXEMPT_SCHEDULE_FINAL_SLOT_20_8" if exempt else "ENFORCED"
+        ),
+        "final_slot_exemption_applied": exempt,
+        "available_at_supplied_by_trigger": False,
+    }
+
+
 def capture_observation(step_outcome: str, result: str) -> dict:
     outcome = step_outcome.strip().lower() if isinstance(step_outcome, str) else ""
     declared = result.strip().lower() if isinstance(result, str) else ""
+
+    if declared in TRIGGER_REFUSALS:
+        normalized, reason, provider_skipped = TRIGGER_REFUSALS[declared]
+        return {
+            "step_outcome": outcome or "unknown",
+            "result": normalized,
+            "reason": reason,
+            "provider_call_skipped": provider_skipped,
+        }
 
     if outcome == "failure" and declared == "incomplete_existing":
         normalized = "failed"
@@ -183,6 +252,11 @@ def build_record(environ: dict[str, str]) -> dict:
             "observed_started_at_kst": observed_kst.isoformat(timespec="seconds"),
         },
         "slot": slot,
+        "trigger": trigger_observation(
+            event_name,
+            event_schedule,
+            environ.get("ATLAS_DISPATCH_GUARD_MODE", ""),
+        ),
         "capture": capture_observation(
             environ.get("ATLAS_CAPTURE_STEP_OUTCOME", ""),
             environ.get("ATLAS_CAPTURE_RESULT", ""),
@@ -223,6 +297,8 @@ def run(argv=None, environ=None) -> int:
     target = write_record(record, args.out_root)
     print(
         "Stablecoin scheduler telemetry"
+        f" trigger={record['trigger']['kind']}"
+        f" guard={record['trigger']['pending_current_observation_guard']}"
         f" slot={record['slot']['id']}"
         f" delay_seconds={record['slot']['delay_seconds']}"
         f" capture={record['capture']['result']}"
