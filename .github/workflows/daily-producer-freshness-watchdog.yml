@@ -1,0 +1,95 @@
+name: Daily Producer Freshness Watchdog
+
+# Read-only, evidence-only. Watches for the failure mode nothing else in
+# this repo watches for: "a daily producer stopped producing," silently.
+# See watchdog/daily_producer_freshness.py's module docstring for the
+# three 2026-09-18 incidents that motivated this (free-market-data.yml's
+# 09-16/09-17 push-race failures, the KIS master capture running outside
+# its binding window for days, and KR/US population symbol observations
+# not produced since 2026-09-10/09-11 -- a week, unnoticed, because they
+# have never had a .github/workflows trigger at all).
+#
+# Same shape as .github/workflows/crypto-regime-refresh-watchdog.yml:
+# verify today's freshness, open or update exactly one issue, close it on
+# recovery. Never more than one open issue at a time.
+#
+# DISPATCH-ONLY. The proposed activation cron is commented out below and
+# needs a separate user approval before it runs unattended -- see the PR
+# body. workflow_dispatch always works so this can be run by hand today.
+
+on:
+  workflow_dispatch:
+  # Proposed activation (NOT enabled by this PR -- needs user approval):
+  #   schedule:
+  #     - cron: "0 13 * * *"  # 22:00 KST -- after every watched producer's
+  #                           # primary and retry slots for the day
+  #                           # (latest is spdr-sector-holdings.yml's
+  #                           # 07:00 KST capture; this leaves ~15h margin).
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: atlas-daily-producer-freshness-watchdog
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Offline contract regression (fixtures only, no network, no secrets)
+        run: python3 test/test_daily_producer_freshness_watchdog.py
+      - name: Build today's freshness report
+        id: report
+        env:
+          TZ: Asia/Seoul
+        run: |
+          python3 watchdog/daily_producer_freshness.py --format json > /tmp/freshness_report.json
+          python3 watchdog/daily_producer_freshness.py --format issue > /tmp/freshness_issue_body.txt
+          if python3 -c "import json,sys; sys.exit(0 if json.load(open('/tmp/freshness_report.json'))['all_fresh'] else 1)"; then
+            echo "all_fresh=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "all_fresh=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open or update one staleness issue
+        if: steps.report.outputs.all_fresh == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title='[자동감시] 일일 산출물 정체 감지'
+          body="$(cat /tmp/freshness_issue_body.txt)
+
+          점검 실행: ${RUN_URL}"
+          number="$(gh issue list --repo "$REPO" --state open --search "${title} in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body "$body"
+          fi
+      - name: Close staleness issue after recovery
+        if: steps.report.outputs.all_fresh == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          title='[자동감시] 일일 산출물 정체 감지'
+          gh issue list --repo "$REPO" --state open --search "${title} in:title" --json number --jq '.[].number' |
+          while read -r number; do
+            [ -z "$number" ] || gh issue close "$number" --repo "$REPO" --comment '모든 감시 대상이 최신으로 회복되어 자동 종료합니다.'
+          done
+      - name: Keep the delay as an explicit safe WAIT
+        if: steps.report.outputs.all_fresh == 'false'
+        run: |
+          echo "::warning::하나 이상의 일일 산출물이 정체되어 있습니다. 감시 이슈에 기록했으며 주문·매매·자본 배분 권한은 열리지 않았습니다."
