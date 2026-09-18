@@ -469,3 +469,91 @@ content SHA256 values are:
 The Kraken blog listing URL returned 404 and is not used. The effective date is
 not backdated. Thresholds, fail-closed behavior and authority flags are
 unchanged. This is source coverage only.
+
+
+### Cutoff-band identity slice (2026-09-18)
+
+The 2026-09-18 eligibility scan stopped at rank 112 — 100 eligible members,
+12 excluded rows, zero unknowns — while the nearest unclassified asset sat at
+rank 124. That 12-rank margin is the whole protection against a
+`TAXONOMY_COVERAGE_UNKNOWN` day, and every historical gap so far
+(2026-08-28..09-07: BTR, HNT+SKR, SN8, CHIP+QUID, NPC, DRV+RAY) was an
+existing asset climbing in turnover rather than a new listing. This slice
+classifies the fourteen assets in the 40-rank band above the cutoff (ranks
+124 through 152), effective 2026-09-18.
+
+Each exact Kraken identity was confirmed against the retained, enabled Assets
+catalog and the online USD pair catalog in
+`evidence/crypto/breadth/raw/2026-09-18` (`kraken_assets.json.gz` SHA-256
+`ddbd9d0b1874d5991906812543c01ab87db86009d1032ad5621ff186a00b1c81`,
+`kraken_asset_pairs.json.gz` SHA-256
+`1ddc8c4dae4a43049297b6af0337622d189bb1c959f80e364bb79983aa97a478`), then
+independently matched to a project/foundation protocol document, token
+contract, migration notice or exact-contract asset report. Ticker text alone
+was not accepted. Thirteen cleared that bar:
+
+```text
+BAT CAKE CFG ENS ETC GRT MNT PEAQ SAND SHAPE SHX SN51 VET
+```
+
+The disambiguating identity for each collision-sensitive case is recorded in
+the taxonomy's own `reason` field and, at source-URL and content-hash
+granularity, in
+`evidence/crypto/identity/crypto_breadth_band_source_facts_20260918.json`.
+The cases that needed disambiguation rather than confirmation were:
+
+- **CFG** — Kraken reports CFG on Ethereum (ERC-20), and Centrifuge's own
+  CP149 migration notice gives the new Ethereum contract
+  `0xcccccccccc33d538dbc2ee4feab0a7a1ff4e8a94`, a 1:1 conversion of legacy
+  Centrifuge Chain CFG and wCFG, with the window closed 2025-12-03. That
+  resolves the legacy-CFG / wCFG / V3-CFG ambiguity to the post-migration
+  token.
+- **SHX** — Stronghold's published `stellar.toml` declares asset code `SHX`
+  with issuer `GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH`,
+  while Kraken reports SHX on Ethereum (ERC-20). Stronghold's own SHx Bridge
+  notice states the bridge maintains "a 1:1 total supply across both chains",
+  so the Ethereum form is the same SHx asset in a second representation, not a
+  token representing a separate underlying crypto asset. The existing
+  `wrapped` records (TBTC/WBTC) are the latter; this disclosure creates no
+  general wrapped-asset exemption.
+- **SHAPE** — Kraken's 2026-03-19 listing notice and Shape's own token page
+  use the same self-description ("the network for onchain objects"), and the
+  project page publishes contract
+  `0x360aAC543A23dbcefA8049d4C4d8B18dA1CCa360`. SHAPE is the Structura DUNA
+  governance token; the Shape L2 (chain ID 360) uses ETH for gas, so this
+  record makes no native-gas-coin claim.
+- **SN51** — Kraken's listing notice states "Lium operates as subnet 51
+  (SN51) within the Bittensor ecosystem"; Lium's own repository under the
+  Datura-ai organisation independently describes lium.io as "powered by
+  Bittensor Subnet 51". Same source shape as the ratified SN8 record, and
+  distinct from Bittensor TAO and other `SN<n>` subnet tokens.
+- **MNT** — the post-migration Mantle token (BIT converted 1:1 under
+  BIP-21/MIP-22), Ethereum L1 contract
+  `0x3c3a81e81dc49A522A592e7622A7E711c06bf354`.
+- **ETC**, **VET** — native-coin claims taken from the projects' own
+  documentation, and in VET's case explicitly distinguished from the VTHO gas
+  token of the same network.
+
+**MOODENG is classified `unverified_identity`, effective 2026-09-18.** This is
+the fail-closed branch working, not a failure of the batch. Kraken publishes
+no contract, mint or genesis identity for it — the asset page describes only a
+memecoin named after a pygmy hippopotamus, with no stated utility, and no
+Kraken listing notice or support article for MOODENG exists. No project or
+foundation protocol document, token contract publication or migration notice
+exists to match independently: the asset has no official issuer, and
+unrelated tokens have traded as MOODENG across chains. As with the existing
+`PLAY` and `RE` records, this is a real, ratified exclusion — the ranking loop
+skips it and keeps going, it never makes a whole result `UNKNOWN` — and it is
+not an investability claim.
+
+All fourteen records are effective 2026-09-18. Every retained vintage
+evaluates at `as_of = vintage - 1 day`, so the latest committed snapshot
+(2026-09-18, `as_of` 2026-09-17) is strictly before the effective date:
+snapshots 2026-09-12..2026-09-18 return byte-identical members, excluded rows
+and unknown rows with and without these records. None of the fourteen appears
+in the scanned range of any retained vintage. This batch buys headroom below
+the cutoff; it does not change, and must not be read as changing, any
+committed result. `target_asset_count=100`,
+`minimum_observation_coverage_bps=9000`, the 30-day turnover ranking rule,
+every existing exclusion and all classification/threshold/Regime/Production/
+trading authority flags are unchanged. This is breadth source coverage only.
