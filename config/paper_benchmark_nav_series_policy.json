@@ -45,6 +45,12 @@
       "file_sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56",
       "used_for": "ledger genesis 200,000,000 KRW and the 150bp order-slippage bound"
     },
+    "benchmark_notional_basis_ratification": {
+      "repo_path": "evidence/authority/USER_RATIFICATION_BENCHMARK_NOTIONAL_BASIS_20260918.json",
+      "file_sha256": "ae04aea2cbb6f7a7379564e340d5f4e3775fc1c926a913a287212416f854bb63",
+      "read_key": "items",
+      "used_for": "the ratified stop-rule binding in declared_stop_rule_binding (rule 1 on FLAT_BASE_SHARE__EXPOSURE_MATCHED, rule 5 on MULTIPLIER_MATCHED__EXPOSURE_MATCHED) and the ratified refusal to anchor on an UNKNOWN market state. Verified by sha256 at load time, so the binding is checkable offline rather than merely asserted."
+    },
     "upbit_market_evidence_policy_ratified": {
       "repo_path": "config/upbit_market_evidence_policy_ratified.json",
       "file_sha256": "4904e4212451f625e06693774ef1fb8b33fae1d9f30fb124606717c9755fc0d3",
@@ -121,7 +127,7 @@
       "MULTIPLIER_MATCHED__EXPOSURE_MATCHED": "notional = NAV0 x base share x the per-market state multiplier that applied at the anchoring fill; total_nav marked as EXPOSURE_MATCHED. Like-for-like exposure with the account.",
       "MULTIPLIER_MATCHED__ASSET_ONLY": "same notional; sleeve-only marking."
     },
-    "variant_binding": "DECLARED_UNRATIFIED -- see declared_stop_rule_binding. Both notional bases and both markings are emitted from ONE anchor; no verdict is computed off the mapping until the user ratifies it.",
+    "variant_binding": "RATIFIED 2026-09-18 (EXPOSURE_MATCHED for both bound rules) -- see declared_stop_rule_binding. Both notional bases and both markings are still emitted from ONE anchor; the ASSET_ONLY pair binds nothing, and no verdict is computed off the mapping until verdict_authorized_blocked_on is empty.",
     "notional_bases": {
       "FLAT_BASE_SHARE": "NAV0 x base_allocation_all_markets_risk_on[market], multiplier fixed at 1.00. A yardstick that owes nothing to the system's own regime call.",
       "MULTIPLIER_MATCHED": "NAV0 x base_allocation_all_markets_risk_on[market] x per_market_state_multiplier_of_base[state_at_anchor]. Like-for-like exposure, but the benchmark then inherits the system's own state call."
@@ -273,10 +279,39 @@
     "real_capital_authorized": false
   },
   "declared_stop_rule_binding": {
-    "status": "DECLARED_UNRATIFIED",
+    "status": "RATIFIED",
     "ratification_id": "RATIFICATION_NOTIONAL_STATE_MULTIPLIER",
+    "ratification_record": {
+      "record_type": "USER_RATIFICATION",
+      "item": "benchmark_dual_notional_basis",
+      "source_document": "benchmark_notional_basis_ratification",
+      "repo_path": "evidence/authority/USER_RATIFICATION_BENCHMARK_NOTIONAL_BASIS_20260918.json",
+      "sha256": "ae04aea2cbb6f7a7379564e340d5f4e3775fc1c926a913a287212416f854bb63",
+      "ratified_at_utc": "2026-09-18T03:33:26Z",
+      "ratified_at_kst": "2026-09-18T12:33:26+09:00",
+      "verbatim_ko": "비교 기준 곡선을 두 가지로 만든다. 중단 기준 1번은 코인 몫 15% 고정 곡선으로 판정하고, 5번은 실제 시장상태 배수를 맞춘 곡선으로 판정한다. 첫 체결 시점 시장상태가 UNKNOWN이면 기준점을 박지 않고 거부한다.",
+      "also_ratified": "anchor_refused_on_unknown_state -- ANCHOR_MARKET_STATE_UNKNOWN_REFUSED, and the 0.50 hold multiplier is explicitly NOT taken instead"
+    },
     "decision_card": "outputs/CLAUDE_CIO_DECISION_BENCHMARK_NOTIONAL_BASIS_20260918.md",
+    "decision_card_sha256": "e4b9d730ae8681fb81f3a882b7bc0001e874f8a55beb80d17653ff70811bcf15",
     "verdict_authorized": false,
+    "verdict_authorized_note": "The BINDING is ratified; emitting a stop-rule VERDICT is not. Which curve judges which rule can no longer be chosen at day 30, but the module still emits NOT_EMITTED_RATIFICATION_REQUIRED for every verdict until every id below is closed.",
+    "verdict_authorized_blocked_on": [
+      "RATIFICATION_ACTIVATION",
+      "RATIFICATION_BENCHMARK_DEFINITION",
+      "RATIFICATION_EXIT_COST_TREATMENT",
+      "RATIFICATION_SAMPLE_GAP_REUSE",
+      "RATIFICATION_ANCHOR_WRITE_DEADLINE",
+      "RATIFICATION_STOP_RULE_REGISTRY_ROWS",
+      "RATIFICATION_MARKET_STATE_SOURCE_BINDING",
+      "RATIFICATION_LEDGER_ATTESTATION",
+      "RATIFICATION_CLOCK_ATTESTATION"
+    ],
+    "residual_weaknesses_still_open": {
+      "RATIFICATION_LEDGER_ATTESTATION": "DISCLOSED_NOT_RESOLVED -- ledger authenticity rests on the append-only snapshot store plus the account-open genesis pin. A party holding both can still forge. Left as its own ratification item by the 2026-09-18 record.",
+      "RATIFICATION_CLOCK_ATTESTATION": "DISCLOSED_NOT_RESOLVED -- recorded_at_utc is bounded by a post-fill market observation inside a 300s window, which is a range limit and not a proof. clock_basis stays WITNESS_BOUNDED_NOT_PROVEN."
+    },
+    "ratified_variant_marking": "EXPOSURE_MATCHED for both bound rules; the ASSET_ONLY pair is still emitted from the same anchor but binds nothing.",
     "recorded_from_anchor_onward": "the mapping is copied into every anchor and every series record, so which curve judges which stop rule cannot be chosen at day 30 to suit the result",
     "CHECKPOINT_B_STOP_RULE_1": {
       "ko": "비용 차감 후 그냥 보유보다 낮다",

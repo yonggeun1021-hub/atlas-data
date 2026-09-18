@@ -2845,10 +2845,19 @@ APPROVED_TESTS = [
     #   CLAUDE_CIO_DECISION_BENCHMARK_NOTIONAL_BASIS_20260918.md): both notional
     #   bases are emitted from ONE anchor, so four named series --
     #   {FLAT_BASE_SHARE, MULTIPLIER_MATCHED} x {EXPOSURE_MATCHED, ASSET_ONLY}.
-    #   The intended mapping (rule 1 -> flat, rule 5 -> multiplier-matched) is
-    #   recorded as declared_stop_rule_binding = DECLARED_UNRATIFIED in the
-    #   policy and copied into every anchor and series record, so it cannot be
-    #   chosen at day 30 to suit the result, and no verdict is computed off it.
+    #   The mapping (rule 1 -> flat, rule 5 -> multiplier-matched) is
+    #   declared_stop_rule_binding in the policy, RATIFIED 2026-09-18 by the
+    #   user's own record (evidence/authority/
+    #   USER_RATIFICATION_BENCHMARK_NOTIONAL_BASIS_20260918.json, sha256
+    #   ae04aea2...) which load_policy resolves and HASHES rather than trusting
+    #   as a string -- a policy that claims a binding the record does not say is
+    #   refused. It is copied into every anchor and series record, so it cannot
+    #   be chosen at day 30 to suit the result. Ratifying the binding is NOT
+    #   authority to publish a verdict: verdict_authorized stays false, every
+    #   verdict stays NOT_EMITTED_RATIFICATION_REQUIRED, and the two disclosed
+    #   residuals (RATIFICATION_LEDGER_ATTESTATION,
+    #   RATIFICATION_CLOCK_ATTESTATION) stay open -- a policy marking either
+    #   resolved is refused.
     #   The market state at the anchoring fill enters through exactly ONE named
     #   function (read_market_state) with a documented contract and NO path of
     #   this module's own -- the state-multiplier wiring has not settled on an
@@ -2869,8 +2878,15 @@ APPROVED_TESTS = [
     #   plus the content-addressed records, so deleting the pointer file no
     #   longer lets a second anchor bind. Fully offline -- ledgers are built by the P10-11
     #   simulator's own builders, prices are fixtures, no network and no
-    #   evidence directory outside a temporary one. Wired into no workflow or
-    #   schedule (a test asserts that); every *_authorized field stays False.
+    #   evidence directory outside a temporary one. Invoked by no workflow or
+    #   schedule in THIS repo (a test asserts that, and that the CLI is
+    #   dispatch-only). Its one caller is the private crypto PAPER runtime,
+    #   which derives the anchor after its own restart-verified ledger write and
+    #   cannot let a benchmark failure touch the fill; the former
+    #   test_this_module_is_wired_into_no_workflow was replaced by the three
+    #   properties that actually hold (no public caller; no anchor before a
+    #   fill; one binding per account, a second different anchor refuses).
+    #   Every *_authorized field stays False.
     #   ⛔ CIO has not approved this file itself yet -- registered per the
     #      same convention as test_capture_azure_fixture.py above so it is
     #      not silently hidden from the test-set comparison.

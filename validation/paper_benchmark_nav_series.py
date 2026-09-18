@@ -60,9 +60,17 @@ the flat share is a yardstick that owes nothing to our own regime call, which is
 what makes stop rule 1 honest; the multiplier-matched one compares drawdowns at
 equal exposure, which is what makes stop rule 5 honest (on the flat share alone,
 rule 5 is nearly unfailable whenever the account entered below multiplier 1.00).
-The intended mapping lives in the policy's ``declared_stop_rule_binding`` as
-DECLARED_UNRATIFIED and is copied into every anchor and series record, so it is
-fixed before the first fill rather than chosen at day 30. A first fill can only
+The mapping lives in the policy's ``declared_stop_rule_binding``. As of
+2026-09-18 it is RATIFIED by the user's own record
+(``evidence/authority/USER_RATIFICATION_BENCHMARK_NOTIONAL_BASIS_20260918.json``,
+sha256 ``ae04aea2…``, verified by hash in :func:`load_policy` rather than
+trusted as a string) and is copied into every anchor and series record, so it is
+fixed before the first fill rather than chosen at day 30. Ratifying the binding
+is *not* authority to publish a verdict off it: ``verdict_authorized`` stays
+false and every verdict stays ``NOT_EMITTED_RATIFICATION_REQUIRED`` until
+``verdict_authorized_blocked_on`` is empty. In particular
+``RATIFICATION_LEDGER_ATTESTATION`` and ``RATIFICATION_CLOCK_ATTESTATION`` were
+disclosed and deliberately left open by that record. A first fill can only
 happen in RISK_ON or NEUTRAL, so an UNKNOWN (or RISK_OFF / STRESS) state at the
 anchoring fill refuses outright -- UNKNOWN's ratified multiplier is a sentence,
 not a number, and taking 0.50 from it would be inventing a size. The rejected alternative — equal-weighting the same candidates the
@@ -134,9 +142,20 @@ policy but ``NOT_DEFINED`` pending the instrument question (an index level is
 not something a person could have bought). Every authority field is False.
 This module is evidence only: it opens no network, credential, order,
 allocation, exit or trading path, is imported by no briefing, decision or
-execution path, and is wired into **no** schedule or workflow — activation
-(the anchor has to be written at the first fill, which happens inside the
-private crypto runtime) is a separate user decision.
+execution path, and is invoked by **no** schedule or workflow in this repo.
+
+Its one caller is the private crypto PAPER runtime, which derives the anchor
+immediately after its own restart-verified ledger write
+(``private_evidence/crypto_paper_benchmark_anchor.py``, called from
+``crypto_paper_natural_runtime.execute_observation``). That caller is
+structurally unable to let this module affect a fill or a ledger write: it runs
+after both are durable, it is wrapped so that no failure here can propagate, and
+its only side effect is appending evidence. When an anchor cannot be derived the
+fill still stands and the reason is written to an append-only
+``crypto_paper_benchmark_anchor_attempts`` record plus a journal line, so a lost
+anchor is never silent. Turning that wiring on in production still needs the
+public runtime pin bumped to a commit containing this file
+(``RATIFICATION_ACTIVATION``).
 """
 from __future__ import annotations
 
@@ -193,7 +212,24 @@ DECLARED_BINDING_SERIES = {
     STOP_RULE_1: f"{NOTIONAL_BASIS_FLAT}__{MARKING_EXPOSURE_MATCHED}",
     STOP_RULE_5: f"{NOTIONAL_BASIS_MULTIPLIER}__{MARKING_EXPOSURE_MATCHED}",
 }
-DECLARED_BINDING_STATUS = "DECLARED_UNRATIFIED"
+# Ratified by the user 2026-09-18 (record
+# evidence/authority/USER_RATIFICATION_BENCHMARK_NOTIONAL_BASIS_20260918.json,
+# sha256 ae04aea2...). The *binding* is now fixed; emitting a stop-rule
+# *verdict* is a separate authority that is still withheld, which is why
+# ``verdict_authorized`` must still be false and every verdict is still
+# VERDICT_NOT_EMITTED.
+DECLARED_BINDING_STATUS = "RATIFIED"
+DECLARED_BINDING_RATIFICATION_SOURCE = "benchmark_notional_basis_ratification"
+DECLARED_BINDING_RATIFICATION_FIELDS = (
+    "record_type", "item", "source_document", "repo_path", "sha256",
+    "ratified_at_utc", "ratified_at_kst", "verbatim_ko", "also_ratified",
+)
+# Disclosed and deliberately NOT closed by the 2026-09-18 record. These stay in
+# ratification_required and keep verdict_authorized gated.
+DECLARED_BINDING_OPEN_RESIDUALS = (
+    "RATIFICATION_LEDGER_ATTESTATION",
+    "RATIFICATION_CLOCK_ATTESTATION",
+)
 
 MARKET_STATE_OBSERVATION_FIELDS = (
     "state", "multiplier", "observed_at", "available_at",
@@ -252,9 +288,11 @@ DEFINITIONS = {
     "declared_stop_rule_binding": (
         "which series is intended to judge which stop rule -- rule 1 on "
         "FLAT_BASE_SHARE__EXPOSURE_MATCHED, rule 5 on "
-        "MULTIPLIER_MATCHED__EXPOSURE_MATCHED. DECLARED_UNRATIFIED: recorded from "
-        "the anchor onward so it cannot be chosen at day 30 to suit the result, "
-        "and no verdict is computed off it until the user ratifies it."
+        "MULTIPLIER_MATCHED__EXPOSURE_MATCHED. RATIFIED 2026-09-18 by the user's "
+        "own record (verified by sha256 at policy load): recorded from the anchor "
+        "onward so it cannot be chosen at day 30 to suit the result. Ratifying "
+        "the binding is not authority to publish a verdict off it -- verdicts "
+        "stay NOT_EMITTED_RATIFICATION_REQUIRED while verdict_authorized is false."
     ),
     "EXPOSURE_MATCHED_total_nav": (
         "nav0_krw - anchor_cash_spent_krw + units x mark price. Comparable one-for-one "
@@ -481,11 +519,63 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
     if binding.get("status") != DECLARED_BINDING_STATUS:
         fail("POLICY_DECLARED_BINDING_STATUS_INVALID")
     if binding.get("verdict_authorized") is not False:
+        # Ratifying WHICH curve judges WHICH rule is not authority to publish a
+        # verdict off it. That stays withheld until every id in
+        # verdict_authorized_blocked_on is closed.
         fail("POLICY_DECLARED_BINDING_VERDICT_AUTHORIZED")
     for rule_id, series_name in DECLARED_BINDING_SERIES.items():
         row = binding.get(rule_id)
         if not isinstance(row, dict) or row.get("series") != series_name:
             fail(f"POLICY_DECLARED_BINDING_SERIES_MISMATCH:{rule_id}")
+    # A RATIFIED status is only as good as the record behind it, so the record
+    # is resolved and hashed here rather than trusted as a string. An asserted
+    # ratification with no verifiable record is refused outright.
+    record = binding.get("ratification_record")
+    if not isinstance(record, dict) or set(record) != set(
+        DECLARED_BINDING_RATIFICATION_FIELDS
+    ):
+        fail("POLICY_DECLARED_BINDING_RATIFICATION_RECORD_FIELDS_MISMATCH")
+    if record.get("record_type") != "USER_RATIFICATION":
+        fail("POLICY_DECLARED_BINDING_RATIFICATION_RECORD_TYPE_INVALID")
+    if record.get("source_document") != DECLARED_BINDING_RATIFICATION_SOURCE:
+        fail("POLICY_DECLARED_BINDING_RATIFICATION_SOURCE_INVALID")
+    source = (value.get("source_documents") or {}).get(
+        DECLARED_BINDING_RATIFICATION_SOURCE
+    )
+    if not isinstance(source, dict):
+        fail("POLICY_DECLARED_BINDING_RATIFICATION_SOURCE_MISSING")
+    if source.get("repo_path") != record.get("repo_path"):
+        fail("POLICY_DECLARED_BINDING_RATIFICATION_PATH_MISMATCH")
+    if source.get("file_sha256") != record.get("sha256"):
+        fail("POLICY_DECLARED_BINDING_RATIFICATION_SHA_MISMATCH")
+    ratified = _pinned_source_value(value, DECLARED_BINDING_RATIFICATION_SOURCE)
+    item = (ratified or {}).get(record.get("item")) if isinstance(ratified, dict) else None
+    if not isinstance(item, dict) or item.get("status") != "RATIFIED":
+        fail("POLICY_DECLARED_BINDING_RATIFICATION_ITEM_NOT_RATIFIED")
+    bound = item.get("stop_rule_binding")
+    if not isinstance(bound, dict):
+        fail("POLICY_DECLARED_BINDING_RATIFICATION_ITEM_INVALID")
+    for rule_id, series_name in DECLARED_BINDING_SERIES.items():
+        row = bound.get(rule_id)
+        if not isinstance(row, dict) or row.get("series") != series_name:
+            # The policy may not claim a binding the user's own record does not
+            # say. This is what makes the mapping unforgeable after the fact.
+            fail(f"POLICY_DECLARED_BINDING_RATIFICATION_SERIES_MISMATCH:{rule_id}")
+    # The two disclosed residuals are NOT closed by that record; a policy that
+    # quietly marks them resolved is refused.
+    residuals = binding.get("residual_weaknesses_still_open")
+    if not isinstance(residuals, dict) or set(residuals) != set(
+        DECLARED_BINDING_OPEN_RESIDUALS
+    ):
+        fail("POLICY_DECLARED_BINDING_RESIDUALS_MISMATCH")
+    blocked = binding.get("verdict_authorized_blocked_on")
+    if not isinstance(blocked, list) or not blocked:
+        fail("POLICY_DECLARED_BINDING_BLOCKED_ON_EMPTY")
+    for residual in DECLARED_BINDING_OPEN_RESIDUALS:
+        if str(residuals.get(residual, "")).split()[0:1] != ["DISCLOSED_NOT_RESOLVED"]:
+            fail(f"POLICY_DECLARED_BINDING_RESIDUAL_CLOSED:{residual}")
+        if residual not in blocked:
+            fail(f"POLICY_DECLARED_BINDING_RESIDUAL_NOT_BLOCKING:{residual}")
     if not isinstance(value.get("ratification_required"), list) or not value["ratification_required"]:
         fail("POLICY_RATIFICATION_LIST_EMPTY")
     return value

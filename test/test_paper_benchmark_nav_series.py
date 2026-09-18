@@ -300,9 +300,7 @@ class PolicyTest(unittest.TestCase):
         definition = POLICY["benchmark_definition"]
         self.assertIn("EQUAL_WEIGHT_SAME_CANDIDATES",
                       definition["rejected_alternative"]["alternative"])
-        self.assertEqual(
-            definition["variant_binding"].split()[0], "DECLARED_UNRATIFIED"
-        )
+        self.assertEqual(definition["variant_binding"].split()[0], "RATIFIED")
         ids = {row["id"] for row in POLICY["ratification_required"]}
         self.assertIn("RATIFICATION_BENCHMARK_DEFINITION", ids)
         self.assertIn("RATIFICATION_VARIANT_BINDING", ids)
@@ -900,10 +898,85 @@ class CliTest(unittest.TestCase):
             self.assertEqual(written["schema_version"], "paper_benchmark_nav_series/1")
             self.assertEqual(written["series_id"], "BENCHMARK.CRYPTO.CLI")
 
-    def test_this_module_is_wired_into_no_workflow(self):
+    # ─────────────────────────────────────────────────────────────────────
+    # Replaces the former test_this_module_is_wired_into_no_workflow.
+    #
+    # That guard asserted the module had no caller at all, which stopped being
+    # true once the private crypto PAPER runtime began deriving the anchor at
+    # its first fill (private_evidence/crypto_paper_benchmark_anchor.py). It is
+    # replaced rather than deleted, by the three properties that actually have
+    # to hold about the intended wiring:
+    #
+    #   1. no *public* workflow or schedule invokes this module -- the only
+    #      caller is the private runtime, which is not in this repo;
+    #   2. it cannot run before a fill exists; and
+    #   3. it binds once per account and a second, different anchor refuses.
+    #
+    # Property "called exactly once, at the first fill" has a caller-side half
+    # that cannot be tested from this repo. That half is asserted in the
+    # private repo by test/test_crypto_paper_benchmark_anchor.py.
+    # ─────────────────────────────────────────────────────────────────────
+
+    def test_no_public_workflow_or_schedule_invokes_this_module(self):
+        """The only intended caller is the private runtime at the first fill."""
         workflows = ROOT / ".github" / "workflows"
         for path in sorted(workflows.glob("*.yml")):
             self.assertNotIn("paper_benchmark_nav_series", path.read_text(), str(path))
+        # And it never runs on its own: the CLI is dispatch-only, so an
+        # accidental bare invocation records nothing.
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                MODULE.main([])
+
+    def test_the_anchor_cannot_be_derived_before_a_fill_exists(self):
+        """Property 2: no fill, no anchor -- there is nothing to anchor to."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            unfilled = SIM.create_ledger(
+                ledger_id="PAPER.UPBIT.KRW.NOFILL",
+                initial_cash=NAV0,
+                opened_at="2026-10-01T00:00:00Z",
+                idempotency_key="PAPER.ACCOUNT.OPEN.NOFILL",
+            )
+            unfilled = SIM.submit_order(unfilled, _intent())
+            verified = authenticated(unfilled, root / "snapshots")
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_NO_FILL_YET"
+            ):
+                MODULE.derive_anchor(
+                    market="CRYPTO", verified_ledger=verified,
+                    price_observations=[price_observation()],
+                    recorded_at_utc="2026-10-08T07:10:00Z",
+                    clock_witness=witness(),
+                    market_state_observation=market_state(),
+                    policy=POLICY, params=PARAMS, now=FAR_FUTURE,
+                )
+
+    def test_the_anchor_binds_once_and_a_second_different_anchor_refuses(self):
+        """Property 3: a later fill can never move or add an anchor."""
+        first = anchor()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            MODULE.record_anchor(root, first)
+            # Re-recording the identical anchor is a no-op, so a crash between
+            # the ledger write and the anchor write is safe to retry.
+            MODULE.record_anchor(root, first)
+            self.assertEqual(
+                MODULE.bound_digests(root, "CRYPTO", first["ledger_id"]),
+                {first["packet_sha256"]},
+            )
+            # A different anchor for the same account -- e.g. derived off a
+            # later fill -- refuses instead of binding a second time.
+            second = anchor(observations=[price_observation(price="170000000")])
+            self.assertNotEqual(second["packet_sha256"], first["packet_sha256"])
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_ALREADY_BOUND_IMMUTABLE"
+            ):
+                MODULE.record_anchor(root, second)
+            self.assertEqual(
+                MODULE.bound_digests(root, "CRYPTO", first["ledger_id"]),
+                {first["packet_sha256"]},
+            )
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -1254,9 +1327,11 @@ class MarketStateAtAnchorTest(unittest.TestCase):
 
 
 class DeclaredBindingTest(unittest.TestCase):
-    def test_the_policy_declares_the_binding_without_authorizing_a_verdict(self):
+    def test_the_policy_binds_the_rules_without_authorizing_a_verdict(self):
         binding = POLICY["declared_stop_rule_binding"]
-        self.assertEqual(binding["status"], "DECLARED_UNRATIFIED")
+        self.assertEqual(binding["status"], "RATIFIED")
+        # Ratifying WHICH curve judges WHICH rule is not authority to publish a
+        # verdict off it. That distinction is the whole point of this test.
         self.assertIs(binding["verdict_authorized"], False)
         self.assertEqual(
             binding["CHECKPOINT_B_STOP_RULE_1"]["series"],
@@ -1268,6 +1343,78 @@ class DeclaredBindingTest(unittest.TestCase):
         )
         ids = {row["id"] for row in POLICY["ratification_required"]}
         self.assertIn("RATIFICATION_NOTIONAL_STATE_MULTIPLIER", ids)
+
+    def test_the_ratified_status_is_backed_by_a_hash_verified_user_record(self):
+        """A RATIFIED status that nothing can check is just a string."""
+        binding = POLICY["declared_stop_rule_binding"]
+        record = binding["ratification_record"]
+        path = ROOT / record["repo_path"]
+        self.assertTrue(path.is_file(), str(path))
+        self.assertEqual(MODULE.file_sha256(path), record["sha256"])
+        # The policy may not claim a binding the user's own record does not say.
+        ratified = json.loads(path.read_text(encoding="utf-8"))
+        bound = ratified["items"][record["item"]]["stop_rule_binding"]
+        self.assertEqual(
+            bound["CHECKPOINT_B_STOP_RULE_1"]["series"],
+            "FLAT_BASE_SHARE__EXPOSURE_MATCHED",
+        )
+        self.assertEqual(
+            bound["CHECKPOINT_B_STOP_RULE_5"]["series"],
+            "MULTIPLIER_MATCHED__EXPOSURE_MATCHED",
+        )
+        self.assertEqual(
+            ratified["items"]["anchor_refused_on_unknown_state"]["failure_code"],
+            "ANCHOR_MARKET_STATE_UNKNOWN_REFUSED",
+        )
+
+    def test_a_ratified_status_with_a_tampered_record_hash_is_refused(self):
+        broken = copy.deepcopy(POLICY)
+        broken["source_documents"]["benchmark_notional_basis_ratification"][
+            "file_sha256"
+        ] = "0" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "policy.json"
+            path.write_text(json.dumps(broken), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError,
+                "POLICY_DECLARED_BINDING_RATIFICATION_SHA_MISMATCH",
+            ):
+                MODULE.load_policy(path)
+
+    def test_the_two_disclosed_residuals_may_not_be_marked_resolved(self):
+        binding = POLICY["declared_stop_rule_binding"]
+        residuals = binding["residual_weaknesses_still_open"]
+        for name in (
+            "RATIFICATION_LEDGER_ATTESTATION", "RATIFICATION_CLOCK_ATTESTATION",
+        ):
+            self.assertTrue(
+                residuals[name].startswith("DISCLOSED_NOT_RESOLVED"), name
+            )
+            self.assertIn(name, binding["verdict_authorized_blocked_on"])
+            self.assertIn(
+                name, {row["id"] for row in POLICY["ratification_required"]}
+            )
+        broken = copy.deepcopy(POLICY)
+        broken["declared_stop_rule_binding"]["residual_weaknesses_still_open"][
+            "RATIFICATION_LEDGER_ATTESTATION"
+        ] = "RESOLVED by the 2026-09-18 record"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "policy.json"
+            path.write_text(json.dumps(broken), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError,
+                "POLICY_DECLARED_BINDING_RESIDUAL_CLOSED:"
+                "RATIFICATION_LEDGER_ATTESTATION",
+            ):
+                MODULE.load_policy(path)
+
+    def test_no_verdict_is_emitted_even_though_the_binding_is_ratified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = series(tmp)
+        for name in MODULE.SERIES_NAMES:
+            self.assertEqual(
+                record["comparison"][name]["verdict"], MODULE.VERDICT_NOT_EMITTED,
+            )
 
     def test_the_binding_is_recorded_from_the_anchor_onward(self):
         value = anchor()
