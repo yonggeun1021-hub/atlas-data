@@ -717,6 +717,32 @@ class FiveSignalWriterOverlayTest(unittest.TestCase):
         self.assertEqual(writer["per_symbol_persistence"], 0)
         self.assertFalse(writer["public_artifact_upload"])
 
+    def test_overlay_runtime_reader_claim_is_true(self):
+        # The overlay states that the registry's runtime readers do read
+        # markets (load_signed_axis_policy does) but never source_owner.
+        # That distinction is the whole basis for recording the writer
+        # outside the registry, so it is checked, not asserted in prose.
+        claim = self.overlay["registry_workflow_path_semantics"][
+            "runtime_readers_of_this_registry"
+        ]
+        self.assertFalse(claim["source_owner_read_by_runtime"])
+        self.assertFalse(claim["workflow_path_read_by_runtime"])
+        authority = (ROOT / "regime" / "decision_authority.py").read_text(encoding="utf-8")
+        self.assertIn("REGISTRY_PATH", authority)
+        # Match field *access*, not the substring: "source_owner" also occurs
+        # inside the registry's own filename in this module's docstring, and
+        # a naive substring check would read that as a consumer.
+        for field in ("source_owner", "workflow_path", "producer_path"):
+            for access in (f'["{field}"]', f'.get("{field}"', f"['{field}']", f".get('{field}'"):
+                self.assertNotIn(access, authority, f"{field} via {access}")
+        # The two readers really do reach only the fields the overlay lists.
+        self.assertIn('registry.get("markets")', authority)
+        self.assertIn('entry.get("acceptance_status")', authority)
+        self.assertIn('entry.get("pit_replay_acceptance")', authority)
+        for name in ("load_common_v1_policy", "load_signed_axis_policy"):
+            self.assertIn(f"def {name}(", authority)
+            self.assertIn(f"regime/decision_authority.py::{name}", claim)
+
     def test_overlay_does_not_byte_freeze_the_new_writer(self):
         # Recording a workflow_sha256 for the writer would recreate the very
         # condition that left this pointer without one: a workflow frozen by

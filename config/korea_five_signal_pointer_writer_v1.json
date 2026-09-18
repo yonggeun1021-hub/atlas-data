@@ -19,7 +19,13 @@
       "test/test_regime_decision_authority.py RegimeSourceOwnerRegistryV2Test.assert_pins -- generic: for every *_sha256 key it derives the sibling *_path and re-hashes that file, so workflow_path IS machine-read",
       "test/test_kr_paper_runtime_adoption_v1.py test_korea_market_signals_workflow_pin_k2_unchanged -- the same self-referential check, KRX-specific"
     ],
-    "not_enforced": "NOTHING_IN_THIS_REPOSITORY_ASSERTS_THAT_THE_NAMED_WORKFLOW_PRODUCES_COMMITS_OR_SOLELY_WRITES_ANY_OUTPUT. Both checks above hash whatever file workflow_path names; neither reads the workflow's triggers, permissions or steps. regime/decision_authority.py::load_common_v1_policy is the only runtime reader of this registry and it consumes registry_version, decision, common_v1_alignment and legacy_runtime_contract only -- it never reads markets at all.",
+    "not_enforced": "NOTHING_IN_THIS_REPOSITORY_ASSERTS_THAT_THE_NAMED_WORKFLOW_PRODUCES_COMMITS_OR_SOLELY_WRITES_ANY_OUTPUT. Both checks above hash whatever file workflow_path names; neither reads the workflow's triggers, permissions or steps.",
+    "runtime_readers_of_this_registry": {
+      "regime/decision_authority.py::load_common_v1_policy": "registry_version, decision, common_v1_alignment, legacy_runtime_contract",
+      "regime/decision_authority.py::load_signed_axis_policy": "forbidden_promotions and, per market, signed_normalization_policy / pit_replay_acceptance / acceptance_status -- it does read markets, but not source_owner",
+      "source_owner_read_by_runtime": false,
+      "workflow_path_read_by_runtime": false
+    },
     "how_the_repository_already_uses_it": [
       ".github/workflows/kr-paper-runtime-daily-publish.yml -- 'that workflow's sha256 is pinned by config/regime_source_owner_registry_v2.json'",
       ".github/workflows/rule-lineage-paper-reference.yml -- pinned by the registry, 'so it is not edited'",
