@@ -256,6 +256,479 @@ class FreshStaleFixtureTest(unittest.TestCase):
         self.assertIn("테스트-라벨", body)
 
 
+class SourceSideAxisTest(unittest.TestCase):
+    """The distinction age alone cannot make: "the upstream source published
+    nothing newer" (nothing is wrong) vs "our run looked fine but dropped what
+    the source did publish" (a real incident). Every test here fails against
+    the schedule-only classifier that preceded it."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.today = dt.date(2026, 9, 18)  # a Friday
+
+    # -- the exact FX case that produced the false incident report -----------
+
+    def _fx_like_spec(self):
+        """A shape-for-shape copy of the real fred_dexkous_fx entry: dated
+        append-only observations, plus raw captures in a separate path whose
+        manifest declares the span the API actually served."""
+        return {
+            "id": "fx_like", "label_ko": "환율 관측", "kind": "GLOB",
+            "glob": "evidence/fx/observations/*/*.captured.json",
+            "calendar": MODULE.US_MON_SAT_KST,
+            "allowed_missed_cycles": 1,
+            "source_latest": {
+                "kind": MODULE.SOURCE_DATED_PATH_FIELD,
+                "glob": "evidence/fx/raw/*/*/manifest.json",
+                "field": "observation_date_range.1",
+                "field_note": "observation_date_range end in the newest raw manifest",
+            },
+        }
+
+    def _write_fx(self, our_latest: dt.date, capture_day: dt.date, source_latest: dt.date):
+        _write_json(self.root / "evidence/fx/observations" / our_latest.isoformat() / "abc123.captured.json", {})
+        _write_json(
+            self.root / "evidence/fx/raw" / capture_day.isoformat() / "revision0" / "manifest.json",
+            {"observation_date_range": ["2026-08-18", source_latest.isoformat()], "series_id": "DEXKOUS"},
+        )
+
+    def test_fx_our_latest_equals_source_latest_is_not_an_alarm(self):
+        # The real 2026-09-18 case: our newest observation is 2026-09-11 and the
+        # collector's own 2026-09-17 raw capture says FRED served nothing after
+        # 2026-09-11. Six expected production days have passed, so the age-only
+        # classifier called this STALE and a three-day FX observation loss was
+        # reported that had never happened.
+        self._write_fx(
+            our_latest=dt.date(2026, 9, 11),
+            capture_day=dt.date(2026, 9, 17),
+            source_latest=dt.date(2026, 9, 11),
+        )
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[self._fx_like_spec()])
+        item = report["items"][0]
+
+        self.assertEqual(item["status"], "SOURCE_NOT_YET_PUBLISHED")
+        # The schedule axis still honestly reports the age gap underneath.
+        self.assertEqual(item["schedule_status"], "STALE")
+        # Both dates are recorded and shown, as required.
+        self.assertEqual(item["last_date"], "2026-09-11")
+        self.assertEqual(item["source_latest"], "2026-09-11")
+        self.assertEqual(item["source_claim_date"], "2026-09-17")
+        # Informational, not an alarm: no issue would be opened for this.
+        self.assertEqual([i["id"] for i in report["informational_items"]], ["fx_like"])
+        self.assertEqual(report["alarm_items"], [])
+        self.assertTrue(report["all_fresh"])
+        body = MODULE.render_issue_body(report)
+        self.assertIn("2026-09-11", body)
+        self.assertIn("경보 대상 없음", body)
+
+    def test_fx_source_ahead_of_us_is_the_loudest_alarm(self):
+        # The inverse of the same case: FRED has served through 2026-09-17 but
+        # our newest observation is still 2026-09-11. Identical age to the test
+        # above -- only the source-side fact differs -- and this one IS an
+        # incident, because a run that looked successful dropped data.
+        self._write_fx(
+            our_latest=dt.date(2026, 9, 11),
+            capture_day=dt.date(2026, 9, 17),
+            source_latest=dt.date(2026, 9, 17),
+        )
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[self._fx_like_spec()])
+        item = report["items"][0]
+
+        self.assertEqual(item["status"], "COLLECTION_BEHIND_SOURCE")
+        self.assertEqual(item["last_date"], "2026-09-11")
+        self.assertEqual(item["source_latest"], "2026-09-17")
+        self.assertGreater(item["source_lag_cycles"], item["source_lag_allowance"])
+        self.assertEqual([i["id"] for i in report["alarm_items"]], ["fx_like"])
+        self.assertFalse(report["all_fresh"])
+        body = MODULE.render_issue_body(report)
+        self.assertIn("경보", body)
+        self.assertIn("2026-09-17", body)
+
+    def test_two_identical_ages_split_on_the_source_fact_alone(self):
+        # Same producer shape, same last_date, same today -- the only
+        # difference is what the source says. The whole point of the change.
+        quiet_root = self.root / "quiet"
+        behind_root = self.root / "behind"
+        for target, source_latest in ((quiet_root, dt.date(2026, 9, 11)), (behind_root, dt.date(2026, 9, 17))):
+            _write_json(target / "evidence/fx/observations/2026-09-11/abc.captured.json", {})
+            _write_json(
+                target / "evidence/fx/raw/2026-09-17/revision0/manifest.json",
+                {"observation_date_range": ["2026-08-18", source_latest.isoformat()]},
+            )
+        spec = self._fx_like_spec()
+        quiet = MODULE.build_report(root=quiet_root, today=self.today, watchlist=[spec])["items"][0]
+        behind = MODULE.build_report(root=behind_root, today=self.today, watchlist=[spec])["items"][0]
+
+        self.assertEqual(quiet["last_date"], behind["last_date"])
+        self.assertEqual(quiet["schedule_status"], behind["schedule_status"])
+        self.assertNotEqual(quiet["status"], behind["status"])
+        self.assertEqual(quiet["status"], "SOURCE_NOT_YET_PUBLISHED")
+        self.assertEqual(behind["status"], "COLLECTION_BEHIND_SOURCE")
+
+    # -- COLLECTION_BEHIND_SOURCE must fire even when the calendar says FRESH -
+
+    def test_collection_behind_source_fires_even_when_schedule_is_fresh(self):
+        # A producer that ran today (so no age gap at all) but committed a much
+        # older observation than the upstream it reads. This is the failure the
+        # age axis structurally cannot see.
+        spec = {
+            "id": "downstream", "label_ko": "하류 산출물", "kind": "FILE",
+            "path": "data/latest_downstream.json", "date_fields": ["as_of_date"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "source_latest": {
+                "kind": MODULE.SOURCE_DATED_PATH,
+                "glob": "data/observations/upstream/*/packet.json",
+                "field_note": "newest committed upstream observation directory",
+            },
+        }
+        _write_json(self.root / spec["path"], {"as_of_date": self.today.isoformat()})
+        for day in ("2026-09-16", "2026-09-17", "2026-09-18"):
+            _write_json(self.root / "data/observations/upstream" / day / "packet.json", {})
+        # Our artifact's own date is today, so the schedule axis is FRESH...
+        fresh = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])["items"][0]
+        self.assertEqual(fresh["schedule_status"], "FRESH")
+        self.assertEqual(fresh["status"], "FRESH")
+
+        # ...but if what we actually hold lags the upstream, it is an alarm.
+        spec = {**spec, "source_compare_fields": ["consumed_observation_date"]}
+        _write_json(
+            self.root / spec["path"],
+            {"as_of_date": self.today.isoformat(), "consumed_observation_date": "2026-09-11"},
+        )
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])
+        item = report["items"][0]
+        self.assertEqual(item["schedule_status"], "FRESH")
+        self.assertEqual(item["status"], "COLLECTION_BEHIND_SOURCE")
+        self.assertEqual(item["our_compared_date"], "2026-09-11")
+        self.assertEqual(item["source_latest"], "2026-09-18")
+        self.assertFalse(report["all_fresh"])
+
+    def test_source_one_cycle_ahead_is_normal_pipelining_not_an_alarm(self):
+        # Upstream routinely lands before the producer that reads it within the
+        # same cycle; that must not alarm, or the loud state becomes noise.
+        spec = {
+            "id": "downstream", "label_ko": "하류 산출물", "kind": "FILE",
+            "path": "data/latest_downstream.json", "date_fields": ["as_of_date"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "source_latest": {
+                "kind": MODULE.SOURCE_DATED_PATH,
+                "glob": "data/observations/upstream/*/packet.json",
+                "field_note": "newest committed upstream observation directory",
+            },
+        }
+        _write_json(self.root / spec["path"], {"as_of_date": "2026-09-17"})
+        _write_json(self.root / "data/observations/upstream/2026-09-18/packet.json", {})
+        item = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])["items"][0]
+        self.assertEqual(item["source_lag_cycles"], 1)
+        self.assertEqual(item["status"], "FRESH")
+
+    # -- SOURCE_LATEST_UNKNOWN: its own state, neither "fine" nor "stale" ----
+
+    def test_no_committed_source_latest_is_its_own_explicit_state(self):
+        spec = {
+            "id": "blind", "label_ko": "원천 미확보 산출물", "kind": "FILE",
+            "path": "data/latest_blind.json", "date_fields": ["evaluation_at"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "source_latest": {
+                "kind": MODULE.SOURCE_UNAVAILABLE,
+                "field_note": None,
+                "resolve_by": "commit the source manifest's newest served session",
+            },
+        }
+        _write_json(self.root / spec["path"], {"evaluation_at": "2026-09-13T00:00:00Z"})
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])
+        item = report["items"][0]
+
+        self.assertEqual(item["status"], "SOURCE_LATEST_UNKNOWN")
+        self.assertEqual(item["source_latest_status"], "UNAVAILABLE")
+        self.assertIsNone(item["source_latest"])
+        # Not folded into "fine"...
+        self.assertNotEqual(item["status"], "FRESH")
+        self.assertFalse(report["all_fresh"])
+        # ...and not folded into "stale" either.
+        self.assertNotEqual(item["status"], "STALE")
+        self.assertEqual(report["alarm_items"], [])
+        self.assertEqual([i["id"] for i in report["unknown_items"]], ["blind"])
+        # No value is invented to fill the gap; what would resolve it is stated.
+        self.assertEqual(
+            [spot["id"] for spot in report["source_latest_blind_spots"]], ["blind"]
+        )
+        self.assertIn("commit the source manifest", MODULE.render_issue_body(report))
+
+    def test_blind_spot_is_listed_even_while_the_producer_is_fresh(self):
+        # The structural inability to tell "quiet" from "broken" is a standing
+        # property of the producer, so it is reported whether or not today
+        # happens to be fine -- never silently absorbed into "all fresh".
+        spec = {
+            "id": "blind_but_fresh", "label_ko": "원천 미확보 산출물", "kind": "FILE",
+            "path": "data/latest_blind.json", "date_fields": ["evaluation_at"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "source_latest": {
+                "kind": MODULE.SOURCE_UNAVAILABLE, "field_note": None,
+                "resolve_by": "record the provider's newest available session",
+            },
+        }
+        _write_json(self.root / spec["path"], {"evaluation_at": self.today.isoformat() + "T00:00:00Z"})
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])
+        self.assertEqual(report["items"][0]["status"], "FRESH")
+        self.assertTrue(report["all_fresh"])
+        self.assertEqual(
+            [spot["id"] for spot in report["source_latest_blind_spots"]], ["blind_but_fresh"]
+        )
+        self.assertIn("record the provider's newest available session", MODULE.render_issue_body(report))
+
+    def test_co_frozen_source_claim_cannot_self_certify_as_quiet(self):
+        # The free_market_data trap. Its source-side date (the newest daily bar
+        # the provider returned) lives inside the very artifact that stopped
+        # updating, so "our latest == source latest" is true by construction for
+        # exactly as long as the producer stays broken. A claim whose own
+        # evidence is stalled must never clear the alarm.
+        spec = {
+            "id": "self_claim", "label_ko": "자체 주장 산출물", "kind": "FILE",
+            "path": "data/latest_self.json",
+            "date_fields": ["observed_at_utc"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "source_latest": {
+                "kind": MODULE.SOURCE_SELF_FIELD,
+                "field": "provider.bars[].session_date",
+                "claim_date_field": "observed_at_utc",
+                "field_note": "max provider.bars[].session_date inside the artifact itself",
+            },
+        }
+        _write_json(
+            self.root / spec["path"],
+            {
+                "observed_at_utc": "2026-09-15T23:39:00Z",
+                "provider": {"bars": [{"session_date": "2026-09-14"}, {"session_date": "2026-09-15"}]},
+            },
+        )
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])
+        item = report["items"][0]
+
+        self.assertEqual(item["source_latest"], "2026-09-15")  # equal to ours...
+        self.assertEqual(item["last_date"], "2026-09-15")
+        # ...but NOT reported as "source is quiet", because the claim is stale.
+        self.assertEqual(item["source_latest_status"], "CLAIM_NOT_CURRENT")
+        self.assertEqual(item["status"], "SOURCE_LATEST_UNKNOWN")
+        self.assertNotEqual(item["status"], "SOURCE_NOT_YET_PUBLISHED")
+        self.assertFalse(report["all_fresh"])
+
+    def test_self_claim_clears_the_gap_once_the_producer_runs_again(self):
+        # Same locator, same "our latest == source latest", but the artifact was
+        # written today -- so the claim genuinely speaks for now and the quiet
+        # source is correctly reported as informational rather than unknown.
+        spec = {
+            "id": "self_claim", "label_ko": "자체 주장 산출물", "kind": "FILE",
+            "path": "data/latest_self.json",
+            "date_fields": ["source_session_date"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "source_latest": {
+                "kind": MODULE.SOURCE_SELF_FIELD,
+                "field": "provider.bars[].session_date",
+                "claim_date_field": "observed_at_utc",
+                "field_note": "max provider.bars[].session_date inside the artifact itself",
+            },
+        }
+        _write_json(
+            self.root / spec["path"],
+            {
+                "source_session_date": "2026-09-11",
+                "observed_at_utc": self.today.isoformat() + "T23:39:00Z",
+                "provider": {"bars": [{"session_date": "2026-09-11"}]},
+            },
+        )
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])
+        item = report["items"][0]
+        self.assertEqual(item["source_latest_status"], "RESOLVED")
+        self.assertEqual(item["schedule_status"], "STALE")
+        self.assertEqual(item["status"], "SOURCE_NOT_YET_PUBLISHED")
+        self.assertTrue(report["all_fresh"])
+
+    def test_stalled_claim_can_still_raise_but_never_clear(self):
+        # Asymmetry check: a stalled claim is still proof the source once
+        # offered that date, so it may RAISE the loud alarm even though it is
+        # not allowed to clear one.
+        spec = {
+            "id": "self_claim", "label_ko": "자체 주장 산출물", "kind": "FILE",
+            "path": "data/latest_self.json", "date_fields": ["observed_at_utc"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "source_latest": {
+                "kind": MODULE.SOURCE_SELF_FIELD,
+                "field": "provider.bars[].session_date",
+                "claim_date_field": "observed_at_utc",
+                "field_note": "max provider.bars[].session_date inside the artifact itself",
+            },
+        }
+        _write_json(
+            self.root / spec["path"],
+            {
+                "observed_at_utc": "2026-09-11T23:39:00Z",
+                "provider": {"bars": [{"session_date": "2026-09-16"}]},
+            },
+        )
+        item = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])["items"][0]
+        self.assertEqual(item["source_latest_status"], "CLAIM_NOT_CURRENT")
+        self.assertEqual(item["status"], "COLLECTION_BEHIND_SOURCE")
+
+    def test_declared_source_evidence_that_never_existed_is_unknown_not_fine(self):
+        spec = {
+            "id": "missing_source", "label_ko": "원천 증거 없음", "kind": "FILE",
+            "path": "data/latest_widget.json", "date_fields": ["as_of_date"],
+            "calendar": MODULE.EVERY_DAY, "allowed_missed_cycles": 1,
+            "source_latest": {
+                "kind": MODULE.SOURCE_DATED_PATH,
+                "glob": "data/observations/upstream_never_ran/*/packet.json",
+                "field_note": "newest committed upstream observation directory",
+            },
+        }
+        _write_json(self.root / spec["path"], {"as_of_date": "2026-09-08"})
+        item = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])["items"][0]
+        self.assertEqual(item["source_latest_status"], "NO_SOURCE_EVIDENCE")
+        self.assertEqual(item["status"], "SOURCE_LATEST_UNKNOWN")
+
+    # -- the kept states are still reachable and still distinct -------------
+
+    def test_never_produced_survives_the_source_axis(self):
+        spec = {
+            "id": "never", "label_ko": "미생성", "kind": "GLOB",
+            "glob": "data/observations/never/*/summary.json",
+            "calendar": MODULE.NO_SCHEDULE, "default_max_gap_days": 4,
+            "source_latest": {
+                "kind": MODULE.SOURCE_DATED_PATH,
+                "glob": "data/observations/upstream/*/packet.json",
+                "field_note": "newest committed upstream observation directory",
+            },
+        }
+        _write_json(self.root / "data/observations/upstream/2026-09-18/packet.json", {})
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])
+        self.assertEqual(report["items"][0]["status"], "NEVER_PRODUCED")
+        self.assertIn("never", {item["id"] for item in report["alarm_items"]})
+
+    def test_no_schedule_stale_survives_when_the_source_is_also_behind(self):
+        # A dispatch-only producer whose upstream has not advanced either: the
+        # gap is real and unexplained, so NO_SCHEDULE_STALE remains visible on
+        # the schedule axis rather than being overwritten and lost.
+        spec = {
+            "id": "dispatch_only", "label_ko": "수동 실행 산출물", "kind": "GLOB",
+            "glob": "data/observations/dispatch/*/summary.json",
+            "calendar": MODULE.NO_SCHEDULE, "default_max_gap_days": 4,
+            "source_latest": {
+                "kind": MODULE.SOURCE_DATED_PATH,
+                "glob": "data/observations/upstream/*/packet.json",
+                "field_note": "newest committed upstream observation directory",
+            },
+        }
+        _write_json(self.root / "data/observations/dispatch/2026-09-08/summary.json", {})
+        _write_json(self.root / "data/observations/upstream/2026-09-08/packet.json", {})
+        item = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])["items"][0]
+        self.assertEqual(item["schedule_status"], "NO_SCHEDULE_STALE")
+        # The upstream claim is itself 10 days stale, so it cannot clear this.
+        self.assertEqual(item["source_latest_status"], "CLAIM_NOT_CURRENT")
+        self.assertEqual(item["status"], "SOURCE_LATEST_UNKNOWN")
+
+
+class SourceLatestFieldResolutionTest(unittest.TestCase):
+    """The path/field readers, isolated -- these are what bind each producer to
+    a real committed field rather than to a guessed one."""
+
+    def test_date_is_read_from_whichever_path_depth_carries_it(self):
+        # data/observations/<producer>/<date>/packet.json and the
+        # content-addressed evidence/<producer>/raw/<date>/<sha>/manifest.json
+        # layouts must both resolve to the same date.
+        self.assertEqual(
+            MODULE._path_date(("data", "observations", "x", "2026-09-16", "packet.json")),
+            dt.date(2026, 9, 16),
+        )
+        self.assertEqual(
+            MODULE._path_date(("evidence", "x", "raw", "2026-09-17", "deadbeef", "manifest.json")),
+            dt.date(2026, 9, 17),
+        )
+        self.assertIsNone(MODULE._path_date(("evidence", "x", "raw", "manifest.json")))
+
+    def test_list_index_and_list_fan_out_paths(self):
+        payload = {
+            "observation_date_range": ["2026-08-18", "2026-09-11"],
+            "raw": {"ohlc": [
+                {"latest_finalized_day": "2026-09-16"},
+                {"latest_finalized_day": "2026-09-17"},
+                {"other": 1},
+            ]},
+        }
+        self.assertEqual(MODULE._max_date_at(payload, "observation_date_range.1"), dt.date(2026, 9, 11))
+        # Fan-out takes the max across every element, not just the first.
+        self.assertEqual(MODULE._max_date_at(payload, "raw.ohlc[].latest_finalized_day"), dt.date(2026, 9, 17))
+        self.assertIsNone(MODULE._max_date_at(payload, "raw.ohlc[].absent_field"))
+        self.assertIsNone(MODULE._max_date_at(payload, "nope.at.all"))
+
+
+class RealRepoSourceAxisTest(unittest.TestCase):
+    """The change's whole reason to exist, checked against this repo's own
+    already-committed evidence at a fixed KST date."""
+
+    def test_fx_false_incident_is_no_longer_an_alarm(self):
+        # evidence/fred_dexkous_fx ends at 2026-09-11 and the collector's own
+        # 2026-09-17 raw manifest says FRED served nothing newer. Age-only, this
+        # was reported as a three-day FX observation loss. It must now be
+        # informational, and must NOT open an issue on its own.
+        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
+        item = next(i for i in report["items"] if i["id"] == "fred_dexkous_fx")
+        self.assertEqual(item["status"], "SOURCE_NOT_YET_PUBLISHED")
+        self.assertEqual(item["last_date"], "2026-09-11")
+        self.assertEqual(item["source_latest"], "2026-09-11")
+        self.assertNotIn("fred_dexkous_fx", {i["id"] for i in report["alarm_items"]})
+        self.assertIn("fred_dexkous_fx", {i["id"] for i in report["informational_items"]})
+
+    def test_population_observations_are_flagged_as_behind_their_source(self):
+        # Both population observations declare their input in
+        # population.source.path; those upstream universes have reached
+        # 2026-09-16 while the observations hold 2026-09-10 / 2026-09-11. That
+        # is committed data the source already offered and we never took.
+        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
+        by_id = {item["id"]: item for item in report["items"]}
+        for producer in ("korea_population_symbol_observation", "us_population_symbol_observation"):
+            with self.subTest(producer=producer):
+                item = by_id[producer]
+                self.assertEqual(item["status"], "COLLECTION_BEHIND_SOURCE")
+                self.assertEqual(item["source_latest"], "2026-09-16")
+                self.assertGreater(item["source_latest"], item["last_date"])
+        # The loudest state sorts first in the issue body.
+        self.assertEqual(report["alarm_items"][0]["status"], "COLLECTION_BEHIND_SOURCE")
+
+    def test_free_market_data_outage_is_not_silenced_by_its_own_claim(self):
+        # free-market-data.yml failed 2026-09-16/09-17, so the provider-reported
+        # newest bar inside data/latest_free_market_data.json is frozen at
+        # 2026-09-15 alongside our own date. Equal dates must NOT be read as
+        # "the source is quiet" here.
+        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
+        item = next(i for i in report["items"] if i["id"] == "free_market_data")
+        self.assertEqual(item["source_latest_status"], "CLAIM_NOT_CURRENT")
+        self.assertEqual(item["status"], "SOURCE_LATEST_UNKNOWN")
+        self.assertNotEqual(item["status"], "SOURCE_NOT_YET_PUBLISHED")
+        self.assertIn("free_market_data", {i["id"] for i in report["stale_items"]})
+
+    def test_every_watched_producer_declares_its_source_latest_position(self):
+        # No producer may quietly have no opinion: each entry either names the
+        # committed field its source-side latest comes from, or declares the
+        # blind spot explicitly with what would resolve it.
+        for spec in MODULE.default_watchlist():
+            with self.subTest(producer=spec["id"]):
+                locator = spec.get("source_latest")
+                self.assertIsNotNone(locator, f"{spec['id']} declares no source_latest")
+                if locator["kind"] == MODULE.SOURCE_UNAVAILABLE:
+                    self.assertTrue(locator["resolve_by"].strip())
+                else:
+                    self.assertTrue(locator["field_note"].strip())
+
+    def test_real_repo_blind_spots_are_exactly_the_two_documented_ones(self):
+        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
+        self.assertEqual(
+            [spot["id"] for spot in report["source_latest_blind_spots"]],
+            ["kr_paper_runtime_decision", "us_sip_daily_liquidity"],
+        )
+
+
 class AuthorityAndSchemaTest(unittest.TestCase):
     def test_authority_block_is_all_false_except_read_only(self):
         report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18), watchlist=[])

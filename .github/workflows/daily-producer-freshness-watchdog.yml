@@ -9,6 +9,23 @@ name: Daily Producer Freshness Watchdog
 # not produced since 2026-09-10/09-11 -- a week, unnoticed, because they
 # have never had a .github/workflows trigger at all).
 #
+# Each watched producer is judged on TWO committed facts, never on age
+# alone: our newest observation date, and the newest date the source itself
+# claims to offer (read from evidence already in this repo -- a raw
+# manifest's observation_date_range end, a venue manifest's
+# latest_finalized_day, the newest dated directory of the upstream producer
+# the artifact names as its input). No network call is added.
+#   COLLECTION_BEHIND_SOURCE  -> the loudest alarm: a run that looked
+#                                successful left data behind.
+#   SOURCE_NOT_YET_PUBLISHED  -> informational only, opens no issue.
+#   SOURCE_LATEST_UNKNOWN     -> a gap we cannot attribute; neither "fine"
+#                                nor "stale", and reported as its own state.
+# Related but NOT duplicated here: collectors/verify_evidence_staged.py
+# (PR #794) fails a collection run at the time the staged evidence does not
+# match what was fetched. This workflow is the after-the-fact audit that the
+# gate was actually reached -- it also sees what that check cannot (a job
+# that never ran, was never scheduled, or whose push was lost).
+#
 # Same shape as .github/workflows/crypto-regime-refresh-watchdog.yml:
 # verify today's freshness, open or update exactly one issue, close it on
 # recovery. Never more than one open issue at a time.
