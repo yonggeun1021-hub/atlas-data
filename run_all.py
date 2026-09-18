@@ -2994,6 +2994,20 @@ APPROVED_TESTS = [
     #      주문·매매·자본 배분 권한은 열리지 않는다. 오프라인 fixture 와 이
     #      저장소에 이미 커밋된 KRX 공식 휴장 capture 만 사용한다.
     "test/test_daily_producer_freshness_watchdog.py",
+    # ★ Class-wide guard: every workflow checkout that feeds a real
+    #   git-history-walking consumer (first-seen/tamper verdicts via
+    #   `git log`/`git show`/`git merge-base`) must use `fetch-depth: 0`.
+    #   Closes the btc-price-capture.yml gap (2026-09-18 review of PR
+    #   #817's docs/do_not_touch_and_why.md): that workflow already had the
+    #   correct fetch-depth: 0, but no test asserted it, unlike
+    #   actions-pass.yml's regression job. Discovery of "which jobs" is
+    #   automatic (walks every workflow's run: text); the registry of
+    #   "which scripts actually walk history" is a hand-verified allowlist
+    #   that fails closed if a new git-history consumer anywhere in the
+    #   repository is not registered in it.
+    #   ⛔ Read-only: parses workflow YAML and greps repository .py files;
+    #      no network, no git history mutation, no authority.
+    "test/test_workflow_history_checkout_depth.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
