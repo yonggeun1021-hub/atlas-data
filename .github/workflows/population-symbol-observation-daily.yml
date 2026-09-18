@@ -84,7 +84,8 @@ jobs:
           python3 .github/scripts/population_symbol_observation_daily.py \
             --market KR --market US \
             --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --work-dir "$RUNNER_TEMP/population-observation"
+            --work-dir "$RUNNER_TEMP/population-observation" \
+            | tee /tmp/population_observation_summary.json
 
       # Fail closed before staging anything: the only paths this workflow may
       # ever have touched are the two observation roots. If anything else moved,
@@ -101,17 +102,52 @@ jobs:
             exit 1
           fi
 
-      - name: Commit append-only observation (no-op when already captured)
+      - name: Commit append-only observation (no-op when already captured, evidence-loss guard, bounded push retry)
+        # 2026-09-15 incident (fred-dexkous-fx.yml / spdr-sector-holdings.yml,
+        # runs 34926979498 / 34926977666): a plain `git push` with no retry
+        # failed outright on a push race with another workflow, even though
+        # the commit itself was fine. This step's push loop mirrors their
+        # exact bounded-3-attempt shape (kept this workflow's own explicit
+        # `origin HEAD:<branch>` refspec form rather than switching to the
+        # bare `git push`/`git pull --rebase` fred/spdr use -- both work here
+        # since actions/checkout's `ref:` sets up branch tracking either way,
+        # but there was no need to change the refspec form just to add the
+        # retry bound).
+        #
+        # 2026-09-17/18 investigation (see fred-dexkous-fx.yml PR #794/#800):
+        # nothing before this would have caught a commit that genuinely
+        # dropped a file the producer reported writing. The step below
+        # (collectors/verify_evidence_staged.py, --written-dirs-field mode)
+        # closes that gap here too: it compares each market's
+        # {output_dir, wrote_anything} record from the Observe step's own
+        # summary against what is actually staged and fails the run if the
+        # expected summary.json/packet.json.gz pair is missing.
         run: |
           set -euo pipefail
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
           git add data/observations/korea_population_symbol_observation \
                   data/observations/us_population_symbol_observation
+          # Runs before the empty-diff short-circuit below on purpose -- see
+          # fred-dexkous-fx.yml's identical guard for why: if a market
+          # reported wrote_anything=true and `git add` still staged nothing
+          # at all, that is the worst version of this bug.
+          python3 collectors/verify_evidence_staged.py /tmp/population_observation_summary.json \
+            --written-dirs-field observations --dir-key output_dir --wrote-key wrote_anything \
+            --expect-file summary.json --expect-file packet.json.gz
           if git diff --cached --quiet; then
             echo "no change (verified_existing) -- nothing to commit"
             exit 0
           fi
           git commit -m "data: KR/US population symbol observation $(date -u +%F)"
-          git pull --rebase origin "${{ github.event.repository.default_branch }}"
-          git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          attempt=1
+          max_attempts=3
+          until git push origin "HEAD:${{ github.event.repository.default_branch }}"; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "push failed after $max_attempts attempts" >&2
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
+            git pull --rebase origin "${{ github.event.repository.default_branch }}"
+          done

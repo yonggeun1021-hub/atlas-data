@@ -70,6 +70,10 @@ PER_MARKET_SCHEMA_VERSIONS = (
 # confirmation into P5-08 contract/3 and P5-09 contract/3: their per-candidate
 # ``rule_refs`` become lineage events and the "not wired" gaps no longer apply.
 V4_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/4"
+# universe/crypto_candidate_promotion.py::STATE_BLOCKED -- the one contract/3
+# promotion state whose rule_refs carry a BLOCKED_BY role.  Reused verbatim,
+# not reinvented; this module reads the packet and never re-derives the state.
+PROMOTION_STATE_BLOCKED = "BLOCKED"
 CRYPTO_CANDIDATE_UNAPPLIED_V4 = (
     {"rule_id": "RULE.ROTATION.CRYPTO.V1", "reason_code": "ROTATION_BUCKET_STATE_PRODUCED_BY_CONFIRMATION_PACKET"},
 )
@@ -198,8 +202,23 @@ def build_crypto_decision_sidecar(packet: dict, context: REFS.RegistryContext) -
         v4 = schema == V4_SCHEMA_VERSION
         if v4:
             p5_08 = row["p5_08"]
+            # A BLOCK must name the rule that blocked (rule_refs.py
+            # BLOCK_EVENT_WITHOUT_BLOCKING_RULE), so this event type has to
+            # agree with what the packet itself recorded.  contract/3
+            # ``aggregate_t2_state`` (universe/crypto_candidate_promotion.py)
+            # has three outcomes: a FAILED required condition gives BLOCKED and
+            # the packet carries the T2 rule as BLOCKED_BY; an UNKNOWN one gives
+            # WATCH with every ref APPLIED -- no rule blocked the promotion, the
+            # inputs needed to decide it were simply not available; all-passed
+            # gives FOCUSED_REVIEW.  Treating "anything but FOCUSED_REVIEW" as a
+            # BLOCK therefore claimed a blocking rule the packet never named and
+            # failed closed on the first natural /4 packet (2026-09-18T07:15:38Z,
+            # every market WATCH on T2_REQUIRED_UNKNOWN).  BLOCK is emitted for
+            # exactly the state whose refs carry BLOCKED_BY; WATCH stays a
+            # DECISION that records the undetermined gate in its outcome.
             events.append(event(
-                market, "promotion_t2_required", "BLOCK" if p5_08["promotion_state"] != "FOCUSED_REVIEW" else "DECISION",
+                market, "promotion_t2_required",
+                "BLOCK" if p5_08["promotion_state"] == PROMOTION_STATE_BLOCKED else "DECISION",
                 {"promotion_state": p5_08["promotion_state"], "promotion_reason": p5_08["promotion_reason"]},
                 [(ref["rule_id"], ref["role"]) for ref in p5_08["rule_refs"]],
                 p5_08["unapplied_rules"], p5_08["t2_required_conditions"],

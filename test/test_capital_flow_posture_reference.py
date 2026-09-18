@@ -1615,13 +1615,53 @@ class FlowFrozenReplayGitProvenanceTests(unittest.TestCase):
             self.replay(self.capture(root), root)
 
     def test_semantic_violation_never_becomes_a_normal_empty_state(self):
+        """"Absent" and "present but unreadable" must stay different facts.
+
+        The condition under test is semantic, not textual.  Asserting that one
+        error code appears in the message would pass for any future message
+        that happens to contain it, and would report an unrelated earlier
+        defect as this ledger property failing -- which is exactly how the
+        assertion stopped distinguishing the case it was written to protect.
+
+        So all three outcomes of the same producer are pinned, on trees that
+        differ only in the pointer input:
+
+        1. intact  -> replays, and the recorded chain really is consumed;
+        2. absent  -> replays, and the honest empty record is the result;
+        3. present but unparsable -> no packet at all, after provenance held.
+
+        (1) is the anti-masking guard: if anything unrelated breaks the replay,
+        it fails there and says so instead of being read as (3) succeeding.
+        """
+        intact_root, _head = self.make_repo()
+        intact = self.replay(self.capture(intact_root), intact_root)
+        consumed = intact["sources"][2]["chain_status"]
+        self.assertNotEqual(consumed, MODULE.NO_PRIOR_HISTORY)
+
+        # A genuinely absent chain is the one and only way to reach the empty
+        # record, and it is reached by returning a packet -- never by failing.
+        absent_root, _head = self.make_repo(
+            omit=(self.CONTRACT, self.PREDECESSOR, self.POINTER)
+        )
+        absent = self.replay(self.capture(absent_root), absent_root)
+        self.assertEqual(absent["sources"][2]["chain_status"], MODULE.NO_PRIOR_HISTORY)
+        self.assertIsNone(absent["sources"][2]["contract_sha256"])
+
         def truncate(root: Path) -> None:
             (root / self.POINTER).write_text("{ not json", encoding="utf-8")
 
         root, _head = self.make_repo(mutate=truncate)
+        envelope = self.capture(root)
+        # Provenance is not the failing stage: the unparsable bytes are the
+        # committed bytes, so the envelope proves out against real Git objects.
+        self.assertEqual(envelope["files"][self.POINTER]["state"], "PRESENT")
+        MODULE.verify_flow_replay_inputs(envelope, trusted_repository_root=root)
+
         with self.assertRaises(MODULE.CapitalFlowPostureReferenceError) as caught:
-            self.replay(self.capture(root), root)
-        self.assertIn("TRANSITION_LEDGER", str(caught.exception))
+            self.replay(envelope, root)
+        # Whatever the code says, it must not be a provenance verdict: the
+        # closure was proven and then refused on its own content.
+        self.assertNotIsInstance(caught.exception, MODULE.FlowReplayProvenanceError)
 
     # -- isolation -----------------------------------------------------------
 
