@@ -16,6 +16,7 @@ reading in place must still hash to the recorded values.
 """
 from __future__ import annotations
 
+import ast
 import contextlib
 import gzip
 import hashlib
@@ -60,6 +61,25 @@ def verify_in_place_inputs() -> None:
         path = ROOT / entry["repo_path"]
         if hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
             raise SnapshotIntegrityError(f"DATED_INPUT_REWRITTEN:{entry['repo_path']}")
+
+
+def valid_stages() -> tuple[str, ...]:
+    """The Notion stage vocabulary, read from its single source of truth.
+
+    A test that asserts a live pipeline stage must not restate the
+    enumeration: ``collectors/common.py`` owns it.  That module imports
+    ``requests`` at the top level, which the offline regression shards do
+    not install, so the literal is read with ``ast`` instead of importing
+    it.  A rename or a new stage therefore reaches the assertion, while a
+    watchlist stage change does not.
+    """
+    source = (ROOT / "collectors" / "common.py").read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "VALID_STAGES" for target in node.targets
+        ):
+            return tuple(ast.literal_eval(node.value))
+    raise SnapshotIntegrityError("VALID_STAGES_NOT_FOUND:collectors/common.py")
 
 
 def materialize(dest: Path) -> Path:
