@@ -1396,6 +1396,17 @@ APPROVED_TESTS = [
     #   date-dependent test; MOODENG records a failure to verify, not a guess.
     "test/test_crypto_breadth_band_identity_20260918.py",
     "test/test_crypto_breadth_headroom_identity_20260918.py",
+    # ★ 2026-09-18 deferred-five batch — the headroom slice left STORJ(159),
+    #   MET(161), RIVER(166), DENT(167), GALA(168) unclassified because two
+    #   independent official sources were not obtained inside that batch.
+    #   All five are now resolved on evidence and the block runs contiguous
+    #   through rank 171 (was 158), measured from minimum rank across the
+    #   seven committed vintages rather than from one day's snapshot.
+    #   ⛔ DENT is a chain-level identity only — no contract address is
+    #   published on any live official page — and the test pins that
+    #   disclosure so it cannot be silently upgraded to an exact-contract
+    #   claim.
+    "test/test_crypto_breadth_deferred_five_identity_20260918.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.

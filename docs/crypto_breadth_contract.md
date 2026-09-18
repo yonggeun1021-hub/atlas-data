@@ -616,3 +616,81 @@ strictly before the effective date and no committed result moves.
 30-day turnover ranking rule, every existing exclusion and all
 classification/threshold/Regime/Production/trading authority flags are
 unchanged. This is breadth source coverage only.
+
+### 2026-09-18 deferred five (third batch)
+
+The headroom slice above stopped at rank 158 and said exactly why: five
+assets sat inside its own block — `STORJ` (min rank 159), `MET` (161),
+`RIVER` (166), `DENT` (167) and `GALA` (168) — but two independent
+official sources were not obtained for them inside that batch, so no
+record was written either way. That refusal was correct. This batch
+resolves all five on evidence rather than by assumption, and the
+`unverified_identity` category is not used: every one of the five clears
+the bar, so none of them is an exclusion.
+
+All five are recorded `eligible_crypto`, effective 2026-09-18. Four are
+bound to an exact on-chain identifier the project publishes itself:
+
+- **STORJ** — Kraken publishes Storj on Ethereum (ERC-20) and describes
+  payment in "the Ethereum-based ERC20 STORJ token"; Storj's own node
+  documentation on `storj.dev` publishes the contract
+  `0xB64ef51C888972c908CFacf59B47C1AfBC0Ab8aC` and a second official FAQ
+  titled "ERC20-compatible wallet address for STORJ tokens".
+- **MET** — Kraken publishes Meteora on Solana; Meteora's own
+  documentation publishes "MET SPL Address:
+  METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL", a 23 October 2025 TGE and
+  a fixed 1,000,000,000 supply, and its MET FAQ states the chain is
+  Solana on the SPL standard.
+- **RIVER** — Kraken publishes River on BNB Chain and describes the
+  chain-abstraction stablecoin system, satUSD, PrimeVault and SmartVault;
+  River's own documentation publishes the RIVER token address
+  `0xdA7AD9dea9397cffdDAE2F8a052B82f1484252B3` on BNB Chain (also
+  Ethereum and Base) alongside the same product set. satUSD is a separate
+  asset and no native-gas-coin claim is made.
+- **GALA** — the strongest case in the batch: Kraken's own migration
+  notice and Gala's own Help Center publish the *identical* Ethereum
+  contract `0xd1d2Eb1B1e90B638588728b4130137D262C87cae` for GALA v2.
+  GALA v1 is deprecated and no GalaChain native-coin claim is made.
+
+**DENT is a chain-level identity only, and the record says so.** Kraken
+publishes Dent on Ethereum (ERC-20) and describes a mobile operator and
+data exchange whose DENT token "powers the platform". Independently, the
+project's own DENTNet documentation publishes the DENT token as "the core
+of the mobile data ecosystem" with a total supply of "100B" that "will
+not change", deposited into DENTNet "from ERC20 wallets" and, in the
+bridge guide, "from the Ethereum network". Two independent organisations
+therefore agree on ticker, chain and platform. What no live official page
+publishes any more is a contract address: `dentwireless.com` and
+`dent-app.com` now redirect to the successor brand Tunz (`tunz.io`, part
+of DT One), whose October 2025 notice states "Dent is now Tunz" and that
+"the DENT Token will continue to serve as a payment option within the
+app", the app site still links `www.dentnet.io` as the project's
+blockchain, and the bridge UI at `main.dentnet.io` returns 404. The
+record and the receipt both disclose this, and the test pins the
+disclosure so the record cannot later be read as an exact-contract claim.
+This is the reverse of the `PLAY` / `RE` / `MOODENG` case: there the
+identity could not be established at all, here it is established at the
+chain level and the missing detail is named.
+
+Measured the same drift-robust way as the previous slice — minimum rank
+across the seven committed vintages 2026-09-12…2026-09-18, classified at
+the effective date — the block is now contiguous through rank **171**,
+up from 158. The next unclassified asset is `ROBO` at min rank 172.
+Against the rank-112 cutoff that is a 59-rank margin at the 2026-09-18
+vintage.
+
+The retained source bodies for this batch are held **outside any session
+scratchpad**. On 2026-09-18 a disk sweep deleted the 149 MB of bodies
+behind the two earlier batches' receipts, so those hashes can no longer
+be re-derived locally; that weakness is unchanged for those receipts and
+is not claimed to be fixed. This batch's bodies (34 MB) survive such a
+sweep, they are still not committed to this repository, and permanent
+published retention remains undecided.
+
+Every record is effective 2026-09-18 and every retained vintage evaluates
+at `as_of = vintage - 1 day`, so the latest retained as_of (2026-09-17) is
+strictly before the effective date and no committed result moves.
+`target_asset_count=100`, `minimum_observation_coverage_bps=9000`, the
+30-day turnover ranking rule, every existing exclusion and all
+classification/threshold/Regime/Production/trading authority flags are
+unchanged. This is breadth source coverage only.
