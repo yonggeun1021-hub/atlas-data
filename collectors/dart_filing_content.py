@@ -36,6 +36,27 @@ DEFAULT_DATA_ROOT = ROOT / "data"
 
 SCHEMA_VERSION = "dart_filing_content/1"
 RUN_SCHEMA_VERSION = "dart_filing_content_run/1"
+# Character data inside these elements is stylesheet or program source, never
+# rendered filing text.  The v1 extractor collected it, so every v1 record's
+# normalized text carries OpenDART's .xforms stylesheet as a prefix.  v1 records
+# are sealed append-only evidence and keep their v1 text exactly as captured;
+# only new captures use the corrected v2 extractor.  A record is read under the
+# extractor it declares, never under whichever extractor is current.
+NON_RENDERED_TEXT_TAGS = frozenset({"style", "script"})
+EXTRACTOR_VERSION_V1 = "dart_filing_content/1-no-items-ratified"
+EXTRACTOR_VERSION_V2 = "dart_filing_content/2-non-rendered-text-excluded"
+EXTRACTOR_SUPPRESSED_TAGS = {
+    EXTRACTOR_VERSION_V1: frozenset(),
+    EXTRACTOR_VERSION_V2: NON_RENDERED_TEXT_TAGS,
+}
+# Oldest first.  The newest entry is the only extractor new captures may use:
+# a contract naming any earlier one would silently resume sealing text this
+# module already knows is wrong, and per-record re-derivation cannot see that
+# — it only ever checks a record against the extractor the record declares.
+# Bumping is therefore deliberately a two-place edit, module and contract.
+EXTRACTOR_VERSION_LINEAGE = (EXTRACTOR_VERSION_V1, EXTRACTOR_VERSION_V2)
+CURRENT_EXTRACTOR_VERSION = EXTRACTOR_VERSION_LINEAGE[-1]
+SUPERSEDED_EXTRACTOR_VERSIONS = list(EXTRACTOR_VERSION_LINEAGE[:-1])
 ENDPOINT = "https://opendart.fss.or.kr/api/document.xml"
 ALLOWED_HOST = "opendart.fss.or.kr"
 RCEPT_NO_RE = re.compile(r"^\d{14}$")
@@ -54,11 +75,23 @@ class DartContentError(ValueError):
 
 
 class _VisibleText(HTMLParser):
-    def __init__(self) -> None:
+    def __init__(self, suppressed_tags=frozenset()) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
+        self._suppressed_tags = suppressed_tags
+        self._suppressed_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag.lower() in self._suppressed_tags:
+            self._suppressed_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in self._suppressed_tags and self._suppressed_depth:
+            self._suppressed_depth -= 1
 
     def handle_data(self, data: str) -> None:
+        if self._suppressed_depth:
+            return
         self.parts.append(data)
 
 
@@ -88,6 +121,18 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     contract = _read_json(path)
     if contract.get("schema_version") != 1:
         raise DartContentError("CONTRACT_SCHEMA_MISMATCH")
+    current = contract.get("extractor_version")
+    suppressed_tags_for(current)
+    if current != CURRENT_EXTRACTOR_VERSION:
+        # Being a *known* extractor is not enough: a contract pointing back at a
+        # superseded one passes every other check and quietly re-corrupts new
+        # captures.  Say plainly which side is behind.
+        raise DartContentError(
+            "CONTRACT_EXTRACTOR_BEHIND_MODULE:"
+            f"{current}:{CURRENT_EXTRACTOR_VERSION}"
+        )
+    if contract.get("superseded_extractor_versions") != SUPERSEDED_EXTRACTOR_VERSIONS:
+        raise DartContentError("CONTRACT_EXTRACTOR_LINEAGE_MISMATCH")
     if contract.get("authority") != {
         "evidence_only": True,
         "item_extraction_authorized": False,
@@ -228,8 +273,20 @@ def decode_document(raw: bytes) -> str:
     raise DartContentError("DOCUMENT_ENCODING_UNSUPPORTED")
 
 
-def normalized_visible_text(raw: bytes) -> str:
-    parser = _VisibleText()
+def suppressed_tags_for(extractor_version: str) -> frozenset:
+    """Return the tag set one named extractor drops, or fail closed."""
+    try:
+        return EXTRACTOR_SUPPRESSED_TAGS[extractor_version]
+    except (KeyError, TypeError):
+        raise DartContentError(
+            f"EXTRACTOR_VERSION_UNSUPPORTED:{extractor_version!r}"
+        ) from None
+
+
+def normalized_visible_text(
+    raw: bytes, extractor_version: str = EXTRACTOR_VERSION_V2
+) -> str:
+    parser = _VisibleText(suppressed_tags_for(extractor_version))
     try:
         parser.feed(decode_document(raw))
     except Exception as exc:
@@ -261,7 +318,12 @@ def _validate_member_name(name: str, max_chars: int) -> None:
         raise DartContentError(f"ARCHIVE_MEMBER_PATH_INVALID:{name!r}")
 
 
-def parse_archive(raw_zip: bytes, contract: dict) -> tuple[list[dict], dict[str, bytes]]:
+def parse_archive(
+    raw_zip: bytes, contract: dict, extractor_version: str | None = None
+) -> tuple[list[dict], dict[str, bytes]]:
+    if extractor_version is None:
+        extractor_version = contract["extractor_version"]
+    suppressed_tags_for(extractor_version)
     policy = contract["archive_policy"]
     if len(raw_zip) > policy["max_zip_bytes"]:
         raise DartContentError("ARCHIVE_RESPONSE_OVERSIZE")
@@ -326,7 +388,7 @@ def parse_archive(raw_zip: bytes, contract: dict) -> tuple[list[dict], dict[str,
             }
             extension = PurePosixPath(info.filename).suffix.lower()
             if extension in policy["text_member_extensions"]:
-                text = normalized_visible_text(member)
+                text = normalized_visible_text(member, extractor_version)
                 document.update(
                     text_status="OK",
                     normalized_text_sha256=hashlib.sha256(
@@ -397,7 +459,7 @@ def capture_filing(
             if (
                 existing_manifest.get("filing_identity") == identity
                 and existing_manifest.get("extractor_version")
-                == contract["extractor_version"]
+                in EXTRACTOR_SUPPRESSED_TAGS
                 and existing_manifest.get("content_status") == "OK"
             ):
                 skipped = copy.deepcopy(existing_manifest)
@@ -551,7 +613,7 @@ def validate_manifest(
     expected_cache_policy = _raw_cache_policy(plan, stage, contract)
     if (
         manifest.get("schema_version") != SCHEMA_VERSION
-        or manifest.get("extractor_version") != contract["extractor_version"]
+        or manifest.get("extractor_version") not in EXTRACTOR_SUPPRESSED_TAGS
         or plan["filing_classification"] != "MATERIAL_RELEVANT_TITLE"
         or manifest.get("filing_classification") != plan["filing_classification"]
         or manifest.get("capture_policy") != plan["capture_policy"]
@@ -670,7 +732,9 @@ def validate_manifest(
             raise DartContentError("RAW_CACHE_INPUT_INCOMPLETE")
         if len(raw_zip) != size or hashlib.sha256(raw_zip).hexdigest() != digest:
             raise DartContentError("RAW_ARCHIVE_MUTATION")
-        expected_documents, expected_members = parse_archive(raw_zip, contract)
+        expected_documents, expected_members = parse_archive(
+            raw_zip, contract, manifest["extractor_version"]
+        )
         if documents != expected_documents or raw_members != expected_members:
             raise DartContentError("MANIFEST_ARCHIVE_DERIVATION_MISMATCH")
     return copy.deepcopy(manifest)
@@ -781,6 +845,10 @@ def persist_success(
         if old_sha != new_sha:
             raise DartContentError(
                 "SOURCE_MUTATED_FAIL_CLOSED_NO_OVERWRITE"
+            )
+        if existing.get("extractor_version") != manifest.get("extractor_version"):
+            raise DartContentError(
+                "EXTRACTOR_VERSION_CHANGED_FAIL_CLOSED_NO_OVERWRITE"
             )
         existing = validate_manifest(existing, contract=contract)
         cached_zip, cached_members = _validate_existing_cache(directory, existing)

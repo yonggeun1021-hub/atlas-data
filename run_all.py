@@ -392,6 +392,22 @@ APPROVED_TESTS = [
     #   ⛔ live network/tracked taxonomy/master mutation 없음 — temp output only.
     "test/test_theme_taxonomy.py",
     "test/test_theme_taxonomy_authority.py",
+    # ★ Closes a verification gap found 2026-09-18: the only check on
+    #   config/theme_taxonomy_source_fact_registry.json's pinned
+    #   first_seen_commit values anywhere in the repo was a format check
+    #   (^[0-9a-f]{40}$) -- nothing confirmed the pinned commit actually
+    #   exists and is reachable from HEAD. PR #809 squash-merged that same
+    #   day and orphaned 7ef75f76453f2bbb90ecbb79247dc13a2e475aa6 (pinned
+    #   for CRYPTO.KRAKEN.IDENTITY_EXCLUSION) for several hours; it was
+    #   repaired only incidentally because PR #816 happened to land as a
+    #   merge commit. This test discovers every first_seen_commit pin by
+    #   walking the parsed registry (not a hardcoded list) and fails
+    #   closed, naming the offending source_id/path/commit, if any pin is
+    #   missing or not an ancestor of HEAD.
+    #   ⛔ read-only: reads the committed registry and runs read-only git
+    #      queries (rev-parse/merge-base) against this checkout's own
+    #      history; no network, no mutation, no authority.
+    "test/test_theme_taxonomy_source_fact_registry_provenance.py",
     # ★ P2-01 — cross-market Value-Chain EDGE authority layer (CIO 2026-09-04
     #   architecture decision). Korea/US/Crypto market-native classification
     #   families are NOT unified; this only validates a separate evidence-bound
@@ -1396,6 +1412,17 @@ APPROVED_TESTS = [
     #   date-dependent test; MOODENG records a failure to verify, not a guess.
     "test/test_crypto_breadth_band_identity_20260918.py",
     "test/test_crypto_breadth_headroom_identity_20260918.py",
+    # ★ 2026-09-18 deferred-five batch — the headroom slice left STORJ(159),
+    #   MET(161), RIVER(166), DENT(167), GALA(168) unclassified because two
+    #   independent official sources were not obtained inside that batch.
+    #   All five are now resolved on evidence and the block runs contiguous
+    #   through rank 171 (was 158), measured from minimum rank across the
+    #   seven committed vintages rather than from one day's snapshot.
+    #   ⛔ DENT is a chain-level identity only — no contract address is
+    #   published on any live official page — and the test pins that
+    #   disclosure so it cannot be silently upgraded to an exact-contract
+    #   claim.
+    "test/test_crypto_breadth_deferred_five_identity_20260918.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
