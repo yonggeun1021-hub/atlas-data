@@ -58,6 +58,86 @@ class DataCoverageMatrixTest(unittest.TestCase):
             rules_path=rules_path,
         )
 
+    def assert_counts_agree_with_entries(self, matrix):
+        """Every published tally must be recomputable from the entries it sums.
+
+        The inventory is governance-paced: a new consumer, or a gap closed by
+        recording a source, moves several of these numbers at once.  Freezing
+        today's totals here would turn each of those into a mandatory test
+        edit, and the edit is where the invariant gets lost.  So assert the
+        invariant instead of the snapshot — a miscount, a duplicate, an orphan
+        tally, or a status outside the declared vocabulary still fails, while a
+        legitimately grown or closed inventory passes.
+        """
+        contract = MODULE.load_contract()
+        entries = matrix["entries"]
+        counts = matrix["consumer_counts"]
+        layers = tuple(contract["expected_consumer_counts"])
+
+        # The declared inventory lives in the contract, not in this test.
+        self.assertEqual(counts, contract["expected_consumer_counts"])
+        self.assertEqual(set(layers), set(counts))
+        self.assertEqual(
+            counts["TOTAL"],
+            sum(counts[layer] for layer in layers if layer != "TOTAL"),
+        )
+        self.assertEqual(len(entries), counts["TOTAL"])
+        for layer in layers:
+            if layer == "TOTAL":
+                continue
+            self.assertEqual(
+                counts[layer],
+                sum(entry["layer"] == layer for entry in entries),
+                layer,
+            )
+
+        consumer_ids = [entry["consumer_id"] for entry in entries]
+        self.assertEqual(len(set(consumer_ids)), len(consumer_ids))
+        self.assertEqual(consumer_ids, sorted(consumer_ids))
+
+        # gap_count stands for "entries not operationally complete on every
+        # required dimension" — recomputed here rather than trusted.
+        complete = contract["operationally_complete_statuses"]
+        recomputed = [
+            {
+                "consumer_id": entry["consumer_id"],
+                "gap_dimensions": dimensions,
+            }
+            for entry, dimensions in (
+                (
+                    entry,
+                    [
+                        dimension
+                        for dimension in contract["required_dimensions"]
+                        if entry[dimension]["status"] not in complete[dimension]
+                    ],
+                )
+                for entry in entries
+            )
+            if dimensions
+        ]
+        self.assertEqual(matrix["gaps"], recomputed)
+        self.assertEqual(matrix["gap_count"], len(recomputed))
+        self.assertEqual(matrix["operationally_complete"], not recomputed)
+
+        # Every status comes from the declared enumeration, and each per-status
+        # tally accounts for every entry exactly once.
+        for dimension in contract["required_dimensions"]:
+            allowed = contract[f"{dimension}_statuses"]
+            tallies = matrix["dimension_status_counts"][dimension]
+            self.assertEqual(sorted(tallies), sorted(allowed), dimension)
+            for entry in entries:
+                self.assertIn(
+                    entry[dimension]["status"], allowed, entry["consumer_id"]
+                )
+            for status in allowed:
+                self.assertEqual(
+                    tallies[status],
+                    sum(entry[dimension]["status"] == status for entry in entries),
+                    f"{dimension}:{status}",
+                )
+            self.assertEqual(sum(tallies.values()), len(entries), dimension)
+
     def test_complete_inventory_preserves_operational_gaps(self):
         matrix = MODULE.build_matrix()
 
@@ -73,18 +153,7 @@ class DataCoverageMatrixTest(unittest.TestCase):
             matrix["runtime_evidence_eligibility"],
             "NOT_AUTHORIZED_BY_THIS_AUDIT",
         )
-        self.assertEqual(
-            matrix["consumer_counts"],
-            {"REGIME": 15, "DISCOVERY": 11, "RULE": 25, "TOTAL": 51},
-        )
-        self.assertEqual(len(matrix["entries"]), 51)
-        self.assertEqual(matrix["gap_count"], 45)
-        self.assertEqual(
-            matrix["dimension_status_counts"]["source"]["UNRECORDED"], 9
-        )
-        self.assertEqual(
-            matrix["dimension_status_counts"]["cost"]["UNRESOLVED"], 22
-        )
+        self.assert_counts_agree_with_entries(matrix)
         self.assertEqual(matrix["paid_source_reapproval_required_for"], [])
         self.assertFalse(matrix["source_selection_authorized"])
         self.assertFalse(matrix["source_qualification_authorized"])
@@ -238,6 +307,9 @@ class DataCoverageMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             matrix = self.build_with(tmp, registry=paid)
 
+        # Same consistency property on a *different* inventory shape: the
+        # tallies move, and the invariant has to hold anyway.
+        self.assert_counts_agree_with_entries(matrix)
         self.assertIn(
             "REGIME:US:TREND", matrix["paid_source_reapproval_required_for"]
         )
