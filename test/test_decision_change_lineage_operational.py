@@ -325,18 +325,49 @@ class OperationalDecisionLineageTests(unittest.TestCase):
         )
 
     def test_shared_checkout_scope_removes_worktree_on_mid_pass_failure(self):
-        """A failure partway through `load_history()`'s pass must still
-        remove the shared worktree (try/finally), and must leave no
-        active shared-scope state behind for an unrelated later call to
-        mistakenly reuse or mistake for repository state."""
-        class _Boom(Exception):
-            pass
+        """`git worktree add` runs as the FIRST command inside
+        `_materialize_exact_commit`; a LATER step in that same call
+        (`sparse-checkout set`, here forced to fail) can still raise. That
+        is exactly the window the MEDIUM finding identified: gating
+        cleanup on a `created` flag set only AFTER
+        `_materialize_exact_commit` returns misses it, because the
+        worktree -- and its registration under this repository's real
+        `.git/worktrees/` -- already exists by then. This must be
+        deregistered for real (checked via `git worktree list` on the
+        real repository, not just this module's own bookkeeping), and the
+        shared-scope state must still be cleared for a later, unrelated
+        call."""
+        real_run = MODULE.subprocess.run
 
-        with self.assertRaises(_Boom):
-            with MODULE._shared_exact_checkout_scope():
-                with MODULE._exact_commit_checkout(SOURCE_COMMIT, ()) as checkout:
-                    self.assertTrue(Path(checkout).exists())
-                    raise _Boom()
+        def fail_after_worktree_add(args, *a, **kw):
+            if isinstance(args, (list, tuple)) and "sparse-checkout" in args:
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="forced failure for this test"
+                )
+            return real_run(args, *a, **kw)
+
+        before = subprocess.check_output(
+            ["git", "worktree", "list"], cwd=ROOT, text=True
+        )
+        with mock.patch.object(MODULE.subprocess, "run", side_effect=fail_after_worktree_add):
+            with self.assertRaisesRegex(
+                MODULE.OperationalDecisionLineageError, "SOURCE_COMMIT_CHECKOUT_FAILED"
+            ):
+                with MODULE._shared_exact_checkout_scope():
+                    with MODULE._exact_commit_checkout(SOURCE_COMMIT, ()):
+                        self.fail(
+                            "must not reach the checkout body: "
+                            "sparse-checkout was forced to fail first"
+                        )
+        after = subprocess.check_output(
+            ["git", "worktree", "list"], cwd=ROOT, text=True
+        )
+        self.assertEqual(
+            before, after,
+            "the worktree registered by the forced-failing checkout must be "
+            "deregistered (git worktree remove/prune), not left stale in "
+            "`git worktree list`",
+        )
         self.assertIsNone(MODULE._SHARED_EXACT_CHECKOUT["path"])
         self.assertFalse(MODULE._SHARED_EXACT_CHECKOUT["created"])
 

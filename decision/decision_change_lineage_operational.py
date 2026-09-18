@@ -496,6 +496,26 @@ def _remove_exact_commit(checkout: Path) -> None:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_CHECKOUT_CLEANUP_FAILED")
 
 
+def _remove_exact_commit_preserving_original(checkout: Path) -> None:
+    """Best-effort cleanup for a path that is already unwinding a real
+    exception. `finally: _remove_exact_commit(checkout)` looks safe but is
+    not: if cleanup itself raises while an exception is already
+    propagating, Python replaces the original exception with cleanup's,
+    silently hiding the actual failure from every caller. This swallows
+    (after printing, so it is never silent) a cleanup failure that occurs
+    ONLY on that path -- it never runs, and never suppresses anything, on
+    the ordinary success path, where `_remove_exact_commit`'s own
+    exception is exactly what should surface."""
+    try:
+        _remove_exact_commit(checkout)
+    except Exception as exc:  # noqa: BLE001
+        print(
+            "::warning::exact-source-commit worktree cleanup failed while "
+            f"an earlier error was already propagating: {exc}",
+            file=sys.stderr,
+        )
+
+
 # CIO 2026-09-18/19: `load_history()` re-validates the ENTIRE committed
 # record chain on every publish, and each historical record's
 # `_validate_daily_at_commit` call materialized its OWN one-shot
@@ -544,7 +564,11 @@ def _exact_commit_checkout(commit: str, payload_patterns: tuple[str, ...]):
         try:
             _materialize_exact_commit(commit, checkout, payload_patterns)
             yield checkout
-        finally:
+        except BaseException:
+            if checkout.exists():
+                _remove_exact_commit_preserving_original(checkout)
+            raise
+        else:
             if checkout.exists():
                 _remove_exact_commit(checkout)
 
@@ -557,10 +581,14 @@ def _shared_exact_checkout_scope():
 
     Exception-safe: whether the loop inside completes, raises partway
     through, or never requests a single checkout, the worktree this scope
-    created (if any) is always removed on the way out (`finally`), and the
-    scope's shared-state flag is always cleared so a later, unrelated call
-    to `_exact_commit_checkout` cannot mistake a torn-down scope for an
-    active one. The worktree itself lives under a fresh
+    created (if any -- checked by `checkout.exists()`, since `git worktree
+    add` can succeed before a later step in the same call raises) is
+    always removed on the way out, and the scope's shared-state flag is
+    always cleared so a later, unrelated call to `_exact_commit_checkout`
+    cannot mistake a torn-down scope for an active one. On the exception
+    path, cleanup failures are swallowed (after printing) rather than
+    raised, so they can never replace the real error that is already
+    propagating. The worktree itself lives under a fresh
     `tempfile.TemporaryDirectory`, well outside this repository's own
     working tree, so a failure here can never leave a detached checkout
     that a later step could mistake for repository state.
@@ -573,11 +601,33 @@ def _shared_exact_checkout_scope():
         _SHARED_EXACT_CHECKOUT["created"] = False
         try:
             yield
-        finally:
-            created = bool(_SHARED_EXACT_CHECKOUT["created"])
+        except BaseException:
             _SHARED_EXACT_CHECKOUT["path"] = None
             _SHARED_EXACT_CHECKOUT["created"] = False
-            if created and checkout.exists():
+            # Gate on `checkout.exists()`, NOT on the `created` flag: `git
+            # worktree add` runs as the FIRST command inside
+            # `_materialize_exact_commit`, so if it succeeds but a LATER
+            # step in that same call (`sparse-checkout set`, `checkout
+            # --detach`, or the HEAD/clean assertion) then raises, the
+            # worktree directory -- and its registration under this
+            # repository's `.git/worktrees/` -- already exists, even
+            # though `created` was never set to True (that happens only
+            # after `_materialize_exact_commit` returns). Gating on the
+            # flag there would skip cleanup and leave that registration
+            # stale forever (the TemporaryDirectory cleanup below only
+            # erases the files, not the `.git/worktrees/` entry `git
+            # worktree remove`/`prune` deregisters). Matches the
+            # non-shared branch of `_exact_commit_checkout` above, which
+            # has always gated the same way. Uses the masking-safe
+            # cleanup helper because an exception is already propagating
+            # here -- a cleanup failure must not replace it.
+            if checkout.exists():
+                _remove_exact_commit_preserving_original(checkout)
+            raise
+        else:
+            _SHARED_EXACT_CHECKOUT["path"] = None
+            _SHARED_EXACT_CHECKOUT["created"] = False
+            if checkout.exists():
                 _remove_exact_commit(checkout)
 
 
