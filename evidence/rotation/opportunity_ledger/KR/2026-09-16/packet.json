@@ -1,5 +1,5 @@
 {
-  "as_of_date": "2026-09-17",
+  "as_of_date": "2026-09-16",
   "authority": {
     "allocation_change_authorized": false,
     "entry_edge_claimed": false,
@@ -8,13 +8,13 @@
   },
   "confirmation": {
     "observation_status": "OBSERVED",
-    "path": "evidence/rotation/confirmation/KR/2026-09-17/packet.json",
-    "payload_sha256": "7cab21a5a1774dc19c177f554919dbac0118a1e258364b9fe34cb488b70c4ba4",
+    "path": "evidence/rotation/confirmation/KR/2026-09-16/packet.json",
+    "payload_sha256": "61f647837665f07b6778ca708aad45d39003b8872eb8579cbf69cb82af763079",
     "unknown_reason": null
   },
   "counts": {
-    "blocked_by_market_state": 0,
-    "eligible_pending_t2": 1,
+    "blocked_by_market_state": 1,
+    "eligible_pending_t2": 0,
     "opportunities": 1
   },
   "entry_rule": {
@@ -28,18 +28,13 @@
   "evidence_phase": "DECISION_EFFECTIVE",
   "market": "KR",
   "market_state": {
-    "candidate_regime": "NEUTRAL",
-    "classification_status": "PAPER_REFERENCE_CLASSIFIED",
-    "new_buy_verdict": "PERMIT_SELECTIVE",
-    "reason": null,
-    "runtime_regime": "UNKNOWN",
-    "source": {
-      "generated_at": "2026-09-18T13:46:23Z",
-      "generation_id": "7b853b1526ae7bd6e4ca3dd382365b79710f2fd913bb30883685f48a9c9ecea0",
-      "path": "evidence/regime/paper_reference/2026-09-18/7b853b1526ae7bd6e4ca3dd382365b79710f2fd913bb30883685f48a9c9ecea0/packet.json",
-      "payload_sha256": "c8f034ea0f43b03a8fdb22c27e80d8370f0a7c3ec30ea7953e6966bbb6fa863e"
-    },
-    "status": "OBSERVED"
+    "candidate_regime": "UNKNOWN",
+    "classification_status": null,
+    "new_buy_verdict": "DENY",
+    "reason": "NO_PAPER_REFERENCE_FOR_AS_OF",
+    "runtime_regime": null,
+    "source": null,
+    "status": "UNKNOWN"
   },
   "market_state_pending_definitions": [
     "REGIME_CONFIRMATION_SESSIONS_NOT_APPLIED_RAW_CANDIDATE_REGIME_RECORDED",
@@ -47,8 +42,8 @@
   ],
   "opportunities": [
     {
-      "calendar_days_in_state": 2,
-      "eligibility": "ELIGIBLE_PENDING_T2",
+      "calendar_days_in_state": 1,
+      "eligibility": "BLOCKED_BY_MARKET_STATE",
       "entity_id": "KOSPI.SECTOR.15",
       "forward_tracking": {
         "bought": null,
@@ -71,9 +66,9 @@
       "instrument_candidates_status": "PENDING_INSTRUMENT_LEVEL_T1_T2_OUTPUT",
       "label": "KOSPI::의료·정밀기기",
       "market": "KR",
-      "market_state_new_buy": "PERMIT_SELECTIVE",
-      "observations_in_state": 2,
-      "opportunity_id": "e4a345cf6b14d628820944eac84932f6c1c1aaba16bd1111c275055f6a37b0ce",
+      "market_state_new_buy": "DENY",
+      "observations_in_state": 1,
+      "opportunity_id": "128406b6d6a2af1b2d965b05393c0133b3b040ac8887aa9e67d3d10464e7fd7e",
       "record_only_features": {
         "reason": "SECTOR_INDEX_CLOSES_NOT_RETAINED_IN_PUBLIC_EVIDENCE",
         "status": "UNKNOWN"
@@ -81,7 +76,7 @@
       "rule_refs": [
         {
           "registry_sha256": null,
-          "role": "APPLIED",
+          "role": "BLOCKED_BY",
           "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
           "source_record_sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
           "version": 1
@@ -102,8 +97,8 @@
         }
       ],
       "scope_id": "KOSPI::코스피",
-      "sector_state": "STRONG_HELD",
-      "signal_as_of_date": "2026-09-17",
+      "sector_state": "STRONG_CONFIRMED",
+      "signal_as_of_date": "2026-09-16",
       "state_since_date": "2026-09-16",
       "t2": {
         "reason": "T2_CANDIDATE_OUTPUT_NOT_IN_REPOSITORY",
@@ -111,6 +106,6 @@
       }
     }
   ],
-  "payload_sha256": "10d2e3a40eb255ee86dd023002696ee3fbc4176b4173313a482278e0f81e2224",
+  "payload_sha256": "04cbf2f301b8c862c3026f88c9e101405a6fad86b029ae9801b15ad1009d0304",
   "schema_version": "paper_entry_opportunity_ledger_day/1"
 }
