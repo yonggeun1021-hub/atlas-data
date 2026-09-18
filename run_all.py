@@ -3171,6 +3171,143 @@ def disposable_checkout_proof():
     return problems
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ★ checkout 완전성 게이트 — 회귀 2026-09-18: shallow clone 과 sparse checkout
+#   이 둘 다 "저장소가 깨졌다"처럼 읽히는 실패를 냈다 (KNOWLEDGE_PROVENANCE_
+#   SHALLOW_HISTORY 는 traceback 150줄 뒤에야 나오는 provenance guard, sparse
+#   는 REFERENCE_REDERIVATION_MISMATCH). 둘 다 실제로는 checkout 문제였다.
+#   이 게이트는 그 두 guard 를 대체하거나 약화하지 않는다 — 어떤 test 파일보다
+#   먼저, 더 이르고 더 명확하게 "checkout 이 문제다" 라고 말하는 신호를 하나
+#   추가할 뿐이다. 기존 guard 는 그대로 남는다 (이 게이트가 못 잡는 경우를
+#   위한 것이다).
+#
+#   판정 순서는 항상 absence 먼저다: 커밋이 없다 -> 트리가 잘렸다 -> 파일이
+#   없다. "있는데 내용이 다르다" 는 이 게이트의 영역이 아니다 — 그건 real
+#   finding 이고 기존 guard(KNOWLEDGE_PROVENANCE_SHALLOW_HISTORY,
+#   REFERENCE_REDERIVATION_MISMATCH 등)가 계속 담당한다.
+#
+#   ⛔ git 이 아예 없거나 ROOT 가 git 저장소가 아니면 이 게이트는 아무 것도
+#      판정하지 않는다 (조용히 통과) — test/test_fault_injection.py 의 FI
+#      clone() 이 정확히 이 모양이다: rules/test/config 만 사본으로 뜬 임시
+#      디렉터리이고 `.git`이 없다. 그건 "불완전한 checkout" 이 아니라 FI
+#      suite 가 의도적으로 만든 격리된 사본이다 — 이 게이트의 대상이 아니다.
+REQUIRED_EVIDENCE_ROOTS = [
+    # ★ 코드로 추적된 것 — 위시리스트가 아니다.
+    #   test/test_paper_regime_reference.py (APPROVED_TESTS 소속) 는
+    #   regime/paper_regime_reference.build_reference() 를 root 인자 없이
+    #   호출한다. 그 함수의 root 기본값은 이 checkout 자신이다 (tmp 사본이
+    #   아니다). build_reference() -> build_crypto() 는
+    #   evidence/crypto/btc/raw/<as_of_date>/_manifest.json 을 읽어
+    #   crypto_descriptive_normalization_sources 를 만들고,
+    #   validate_reference() 가 그 결과를 committed packet 과 재파생
+    #   비교한다. 이 디렉터리가 sparse 로 잘려 나가면 건드린 파일이 하나도
+    #   없어도 그 비교가 REFERENCE_REDERIVATION_MISMATCH 로 깨진다
+    #   (2026-09-18 증명, symlink farm 로 evidence/crypto/btc/raw 하나만
+    #   제외해 재현).
+    #   ⛔ 날짜 하위 디렉터리(예: .../2026-09-18)는 매일 롤오버되므로 여기
+    #      넣지 않는다 — 부모 디렉터리 자체의 존재/비어있지-않음만 본다.
+    #      그래서 이 목록은 스스로 시한폭탄이 되지 않는다.
+    "evidence/crypto/btc/raw",
+]
+
+
+def checkout_completeness_problems():
+    """이 checkout 이 회귀 스위트가 요구하는 완전한 트리인지 — 실제 git 저장소일
+    때만 판정한다. 문제가 있으면 human-readable 문장 리스트를 돌려준다."""
+    try:
+        shallow_probe = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=ROOT, capture_output=True, text=True)
+    except FileNotFoundError:
+        return []     # git 이 없다 — 이 게이트는 판정하지 않는다
+    if shallow_probe.returncode != 0:
+        # ROOT 가 git 저장소가 아니다 (예: FI suite 의 격리된 사본). 이 게이트는
+        # 실제 checkout 을 위한 것이지, git 이 아닌 사본을 판정하지 않는다.
+        return []
+
+    problems = []
+
+    # 1) shallow history — commit 이 없다.
+    if shallow_probe.stdout.strip() == "true":
+        problems.append(
+            "shallow clone 이다 (git rev-parse --is-shallow-repository == true). "
+            "고치는 법: git fetch --unshallow (또는 전체 히스토리로 다시 clone).")
+
+    # 2) sparse / partial checkout — 트리가 잘렸다. 어떻게 만들어졌든 잡는다:
+    #    actions/checkout 의 sparse-checkout 옵션은 조용히 partial clone
+    #    (blob:none) 을 같이 걸기 때문에, 평범해 보이는 checkout 이 실제로는
+    #    부분본일 수 있다.
+    signals = []
+    try:
+        sparse_cfg = subprocess.run(
+            ["git", "config", "--bool", "core.sparseCheckout"],
+            cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        sparse_cfg = ""
+    if sparse_cfg == "true":
+        signals.append("core.sparseCheckout=true")
+    try:
+        sparse_list = subprocess.run(
+            ["git", "sparse-checkout", "list"],
+            cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        sparse_list = ""
+    if sparse_list:
+        signals.append("git sparse-checkout list 가 비어 있지 않다")
+    try:
+        partial_filter = subprocess.run(
+            ["git", "config", "remote.origin.partialclonefilter"],
+            cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        partial_filter = ""
+    if partial_filter:
+        signals.append(f"remote.origin.partialclonefilter={partial_filter}")
+    if signals:
+        problems.append(
+            "sparse/partial checkout 이다 (" + ", ".join(signals) + "). "
+            "고치는 법: git sparse-checkout disable 로 전체 트리를 복원하거나, "
+            "sparse-checkout/partial-clone 옵션 없이 다시 clone.")
+
+    # 3) 승인 회귀가 이 checkout 의 실제 ROOT 에서 읽는 evidence 루트가 실제로
+    #    있고 비어 있지 않은가 — sparse 신호가 (2) 로 안 잡히는 경우까지
+    #    대비한 방어선이다(예: git 메타데이터를 안 건드리고 디렉터리만 지운
+    #    사본). 날짜 하위 디렉터리는 절대 요구하지 않는다.
+    for rel in REQUIRED_EVIDENCE_ROOTS:
+        path = os.path.join(ROOT, rel)
+        if not os.path.isdir(path):
+            problems.append(
+                f"필요한 evidence 디렉터리가 checkout 에 없다: {rel}. "
+                "고치는 법: sparse-checkout 없이 다시 clone하거나 "
+                "git sparse-checkout disable 로 전체 트리를 복원.")
+        elif not os.listdir(path):
+            problems.append(
+                f"필요한 evidence 디렉터리가 비어 있다: {rel}. "
+                "고치는 법: sparse-checkout 없이 다시 clone하거나 "
+                "git sparse-checkout disable 로 전체 트리를 복원.")
+    return problems
+
+
+def verify_checkout_completeness():
+    """어떤 test 파일보다 먼저, 딱 한 번 실행한다. 불완전한 checkout 을 저장소
+    결함처럼 보이는 실패로 마스커레이드하게 두지 않고, 여기서 먼저 명확하게
+    말한다. 문제가 없으면 아무 것도 출력하지 않고 조용히 돌아간다."""
+    problems = checkout_completeness_problems()
+    if not problems:
+        return None
+    print("⛔ CHECKOUT INCOMPLETE — this is not a repository defect.")
+    print()
+    print("main is fine. Your checkout of it is not — it is missing history")
+    print("or files this suite reads. Do not file this as a broken-main")
+    print("incident before fixing the checkout:")
+    print()
+    for p in problems:
+        print("  •", p)
+    print()
+    print("Fix: git fetch --unshallow, or re-clone with full history and")
+    print("no sparse-checkout, then re-run.")
+    return 1
+
+
 SNAPSHOT_DIR = "_committed_snapshot"
 
 
@@ -3499,6 +3636,12 @@ def main():
                         help="--phase regression only: 0-based shard index "
                              "(0 <= index < --shard-count)")
     args = parser.parse_args()
+    # ★ 어떤 phase 로 가든, 어떤 test 파일보다 먼저 — checkout 자체가 완전한지
+    #   딱 한 번 본다. 이 자리는 shard/phase 분기보다 앞이라 --phase structural/
+    #   regression/fi/all 전부, 그리고 legacy 경로도 예외 없이 지나간다.
+    checkout_abort = verify_checkout_completeness()
+    if checkout_abort is not None:
+        return checkout_abort
     if args.log_dir:
         args.log_dir = os.path.realpath(args.log_dir)
         if os.path.commonpath([args.log_dir, os.path.realpath(ROOT)]) == os.path.realpath(ROOT):
