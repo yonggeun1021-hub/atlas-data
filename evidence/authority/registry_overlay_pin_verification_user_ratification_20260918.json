@@ -1,0 +1,43 @@
+{
+  "record_type": "USER_RATIFICATION",
+  "ratified_at_kst": "2026-09-18T18:05:00+09:00",
+  "ratified_at_utc": "2026-09-18T09:05:00Z",
+  "verbatim": "출처 등록부의 지문 검사가 확정된 덧붙임 설정을 인정하도록 바꾸는 것을 확정한다. 등록부 바이트는 그대로 두고, 대체된 값은 기록에 남기며, 커밋된 증거는 다시 쓰지 않는다.",
+  "why_needed": {
+    "blocked_work": "PR #805 — free-market-data.yml 저장소 반영 재시도 추가 (USER_RATIFICATION_FREE_MARKET_DATA_PUSH_RETRY_20260918.json 로 2026-09-18 10:15 KST 확정됨)",
+    "measured_cost_of_the_direct_route": "워크플로 바이트 변경 → config/regime_source_owner_registry_v2.json 의 workflow_sha256 → 총 23개 파일. 그중 9개는 수정 가능하나, 나머지에서 벽에 부딪힘: evidence/regime/crypto_paper_runtime/2026-09-14..17 의 append-only 기록 7개 + data/latest_crypto_paper_runtime_decision.json. 대행 작업이 추정이 아니라 실제로 9개를 전부 고쳐 돌려 확인함 — CRYPTO_RUNTIME_DECISION_IDENTITY_MISMATCH 및 PROMOTION_PACKET_UNAVAILABLE 로 실패하며, 커밋된 증거 안의 policy_sha256 을 다시 써야만 해소됨.",
+    "why_not_taken": "커밋된 증거를 다시 쓰는 것은 append-only 원칙 위반. 하지 않는다.",
+    "loss_while_blocked": "2026-09-14 / 09-16 / 09-17 미국 자료 수집이 밀어넣기 충돌(push race)로 실패. 수집 자체는 성공했으나 저장이 거부됨. 그 결과 미국 판정기가 2026-09-15 자료를 읽음."
+  },
+  "items": {
+    "registry_overlay_recognized_by_pin_verification": {
+      "status": "RATIFIED",
+      "decision": "출처 등록부의 지문 검사가, 확정된 덧붙임 설정(additive overlay)에 기록된 값을 인정하도록 한다.",
+      "constraints": [
+        "config/regime_source_owner_registry_v2.json 의 바이트는 변경하지 않는다.",
+        "대체된(superseded) 값은 기록에 남긴다 — 무엇이 무엇을 대체했는지 추적 가능해야 한다.",
+        "커밋된 append-only 증거는 어떤 경우에도 다시 쓰지 않는다.",
+        "지문 검사 자체는 유지된다. 덧붙임을 상대로 검사할 뿐, 검사를 없애거나 느슨하게 하지 않는다."
+      ],
+      "precedent_in_repo": [
+        "config/paper_runtime_normalization_v1.json",
+        "config/regime_semantic_freshness_policy_v1.json",
+        "config/us_session_calendar_source_v1.json (mode: ADDITIVE_OVERLAY_REGISTRY_BYTES_UNCHANGED)",
+        "config/korea_five_signal_pointer_writer_v1.json (2026-09-18, PR #801)"
+      ],
+      "scope_note": "이 확정은 검증 방식의 변경이며, 앞으로의 모든 등록부 관련 수정에 적용된다. 지문 갱신 1회와는 성격이 다르므로 CIO 단독으로 하지 않고 사용자 확정을 받았다."
+    }
+  },
+  "cio_obligations": [
+    "assert_pins (test/test_regime_decision_authority.py) 가 *_path/*_sha256 쌍을 일반 규칙으로 검사한다. 특정 키를 grep 하지 말고 그 일반 검사기를 읽고 무엇을 덮는지 확인한 뒤 구현한다 — 한 대행 작업이 grep 으로 '기계 검사 없음'이라 보고했다가 CI 에 반증당했다.",
+    "덧붙임이 자체적으로 새 지문 연쇄를 만들지 않는지 확인한다. 덧붙임 안의 모든 64자리 해시가 이미 등록부가 기록한 값인지 검사하는 시험을 둔다 (PR #801 선례).",
+    "대체 범위를 최소로 한정한다. 무엇을 대체하지 않는지도 명시한다.",
+    "구현 후 지문 검사가 여전히 실패할 수 있음을 증명한다 — 진짜 어긋남에 대해 실패하지 않으면 검사가 아니라 장식이다.",
+    "수집 대상과 출처는 변경하지 않는다."
+  ],
+  "authority": {
+    "action_authorized": false,
+    "real_capital_authorized": false,
+    "scope": "verification mechanism only; no policy value changed"
+  }
+}

@@ -286,23 +286,19 @@ class RatifiedFingerprintTests(unittest.TestCase):
         self.amendment = json.loads(AMENDMENT.read_text(encoding="utf-8"))
 
     def test_fingerprint_matches_the_new_workflow_bytes(self):
-        self.assertEqual(
-            self.amendment["workflow_sha256"],
-            sha256(WORKFLOW.read_bytes()),
-        )
-        self.assertEqual(
-            self.amendment["workflow_path"],
-            ".github/workflows/free-market-data.yml",
-        )
+        supersedes = self.amendment["supersedes"]
+        self.assertEqual(supersedes["sha256"], sha256(WORKFLOW.read_bytes()))
+        self.assertEqual(supersedes["path"], ".github/workflows/free-market-data.yml")
+        self.assertEqual(supersedes["field"], "markets.US.source_owner.workflow_sha256")
 
     def test_superseded_fingerprint_is_the_value_the_registry_still_pins(self):
         registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
         owner = registry["markets"]["US"]["source_owner"]
-        self.assertEqual(owner["workflow_path"], self.amendment["workflow_path"])
-        self.assertEqual(owner["workflow_sha256"],
-                         self.amendment["superseded_workflow_sha256"])
-        self.assertNotEqual(self.amendment["workflow_sha256"],
-                            self.amendment["superseded_workflow_sha256"])
+        supersedes = self.amendment["supersedes"]
+        self.assertEqual(owner["workflow_path"], supersedes["path"])
+        self.assertEqual(owner["workflow_sha256"], supersedes["superseded_sha256"])
+        self.assertNotEqual(supersedes["sha256"], supersedes["superseded_sha256"])
+        self.assertTrue(supersedes["superseded_value_retained_in_registry"])
 
     def test_the_sha_pinned_registry_file_was_not_edited(self):
         """The whole reason this is an overlay: the registry's bytes are pinned
@@ -316,26 +312,61 @@ class RatifiedFingerprintTests(unittest.TestCase):
                           (ROOT / pinner).read_text(encoding="utf-8"),
                           f"{pinner} no longer pins the registry bytes we recorded")
 
-    def test_ratification_record_is_bound_by_hash(self):
-        rat = self.amendment["ratification"]
-        record_path = ROOT / rat["path"]
-        self.assertTrue(record_path.is_file())
-        self.assertEqual(rat["sha256"], sha256(record_path.read_bytes()))
-        record = json.loads(record_path.read_text(encoding="utf-8"))
-        self.assertEqual(record["record_type"], "USER_RATIFICATION")
-        self.assertEqual(record["verbatim"], rat["verbatim"])
-        # Nothing here grants any trading authority.
-        for flag, value in record["authority"].items():
-            self.assertFalse(value, flag)
+    def test_both_ratification_records_are_bound_by_hash(self):
+        """A RATIFIED status nothing can re-derive is just a string."""
+        for name in ("workflow_change", "verification_mechanism"):
+            with self.subTest(name=name):
+                rat = self.amendment["ratifications"][name]
+                record_path = ROOT / rat["path"]
+                self.assertTrue(record_path.is_file(), rat["path"])
+                self.assertEqual(rat["sha256"], sha256(record_path.read_bytes()))
+                self.assertEqual(rat["binding_mode"], "PATH_AND_SHA256_VERIFIED")
+                record = json.loads(record_path.read_text(encoding="utf-8"))
+                self.assertEqual(record["record_type"], "USER_RATIFICATION")
+                self.assertEqual(record["verbatim"], rat["verbatim"])
+                # Nothing here grants any trading authority.
+                for flag, value in record["authority"].items():
+                    if isinstance(value, bool):
+                        self.assertFalse(value, flag)
         for flag, value in self.amendment["authority"].items():
             if flag != "publication_reliability_only":
                 self.assertFalse(value, flag)
 
-    def test_helper_bytes_are_pinned_by_the_amendment(self):
-        self.assertEqual(
-            self.amendment["change"]["shared_script_sha256"],
-            sha256(SCRIPT.read_bytes()),
-        )
+    def test_the_helper_is_bound_structurally_not_by_bytes(self):
+        """Byte-pinning the shared helper here would give this overlay a
+        fingerprint cascade of its own over a file the registry does not
+        record -- the exact failure the overlay exists to avoid."""
+        change = self.amendment["change"]
+        self.assertNotIn("shared_script_sha256", change)
+        self.assertEqual(change["binding_mode"], "STRUCTURAL_NOT_BYTE_PINNED")
+        self.assertEqual(change["shared_script_path"],
+                         ".github/scripts/push_to_default_branch.sh")
+        self.assertTrue(SCRIPT.is_file())
+
+    def test_the_misattributed_citation_is_corrected_not_carried_forward(self):
+        """The push-retry record cites test_rule_registry_and_lineage.py:851 as
+        the live assertion of this pin. That line pins paper-regime-reference
+        .yml instead; the real one is assert_pins."""
+        correction = self.amendment["corrected_citation"]
+        self.assertIn("paper-regime-reference.yml", correction["measured"])
+        self.assertIn("assert_pins", " ".join(correction["actual_enforcement_of_this_pin"]))
+        # The claim being corrected really is in the committed record.
+        record = json.loads(
+            (ROOT / self.amendment["ratifications"]["workflow_change"]["path"])
+            .read_text(encoding="utf-8"))
+        self.assertIn("test_rule_registry_and_lineage.py:851",
+                      record["why_user_ratification_was_required"])
+        # And that assertion really is about the other workflow. Located by
+        # content rather than line number, which is what made the original
+        # citation rot in the first place.
+        lineage = (ROOT / "test/test_rule_registry_and_lineage.py").read_text(
+            encoding="utf-8").splitlines()
+        hits = [i for i, line in enumerate(lineage)
+                if 'workflow_sha256' in line and 'pinned' in line]
+        self.assertEqual(len(hits), 1, "expected exactly one workflow_sha256 pin assertion")
+        window = "\n".join(lineage[max(0, hits[0] - 6):hits[0] + 3])
+        self.assertIn("paper-regime-reference.yml", window)
+        self.assertNotIn("free-market-data.yml", window)
 
 
 if __name__ == "__main__":
