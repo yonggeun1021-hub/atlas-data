@@ -7,10 +7,23 @@ weekday schedule that reuses korea-market-signals.yml's established evening
 cadence, resolves trading dates without inventing a calendar, synchronously
 calls the existing dependency-ordered pair workflow, validates the final
 artifact before dedupe, and preserves standalone manual Leadership behavior.
+
+Also covers the Korea five-signal pointer producer this workflow hosts:
+data/latest_korea_market_signals.json had no automated writer, so the KR
+population observation's session-date source froze at 2026-09-10. The
+structural checks below prove the pointer is produced and committed here,
+that a partial fetch commits nothing, and that a repeat run for an already
+committed session does not rewrite it. The one end-to-end check reads
+already-committed repository data and writes only to a temporary directory
+-- still no KRX call and no tracked-file mutation.
 """
 from __future__ import annotations
 
+import importlib.util
+import json
 from pathlib import Path
+import sys
+import tempfile
 import unittest
 
 import yaml
@@ -18,6 +31,20 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "korea-leadership-live-proof.yml"
+POINTER_JOB = "publish-scheduled-five-signal-pointer"
+RATIFIED_PRODUCER = ".github/scripts/korea_market_signals.py"
+POINTER_PATH = "data/latest_korea_market_signals.json"
+REVIEW_PATH = "data/latest_korea_symbol_market_review.json"
+KR_OBSERVATION = ROOT / "decision" / "korea_population_symbol_observation.py"
+
+
+def _load_producer():
+    spec = importlib.util.spec_from_file_location(
+        "korea_market_signals_for_pointer_regression", ROOT / RATIFIED_PRODUCER
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class LeadershipLiveProofWorkflowTest(unittest.TestCase):
@@ -319,6 +346,265 @@ class LeadershipLiveProofWorkflowTest(unittest.TestCase):
         self.assertNotIn("korea_capital_rotation.py", step_run_text)
         self.assertNotIn(".github/scripts/korea_leadership.py", step_run_text)
         self.assertIn("korea_leadership_live_fetch.py", step_run_text)
+
+
+class FiveSignalPointerProducerTest(unittest.TestCase):
+    """The host workflow is the five-signal pointer's automated writer."""
+
+    def setUp(self):
+        with WORKFLOW.open(encoding="utf-8") as stream:
+            self.workflow = yaml.safe_load(stream)
+        self.job = self.workflow["jobs"][POINTER_JOB]
+        self.names = [step["name"] for step in self.job["steps"] if "name" in step]
+        self.steps = {step["name"]: step for step in self.job["steps"] if "name" in step}
+        self.reuse = self.steps[
+            "Reuse an exact committed five-signal observation instead of re-fetching the same session"
+        ]
+        self.fetch = self.steps["Korea five-signal real KRX session-pair fetch attempt"]
+        self.verify = self.steps[
+            "Verify the produced pointer, its session couplings, and its closed authority boundary"
+        ]
+        self.commit = self.steps["Commit the five-signal pointer and its bounded review"]
+
+    def test_pointer_is_produced_and_committed_by_this_workflow(self):
+        # Writer, not artifact packager: the job needs contents: write and
+        # commits the tracked pointer plus its append-only dated packet.
+        self.assertEqual(self.job["permissions"], {"contents": "write"})
+        self.assertIn(RATIFIED_PRODUCER, self.fetch["run"])
+        run = self.commit["run"]
+        self.assertIn(f"git add {POINTER_PATH}", run)
+        self.assertIn("data/observations/korea_market_signals", run)
+        self.assertIn(REVIEW_PATH, run)
+        self.assertIn("evidence/korea_symbol_market_review", run)
+        self.assertIn("git push origin", run)
+        # No upload-artifact anywhere in this job: the pointer is committed,
+        # and KRX-derived material is never published as a public artifact.
+        self.assertFalse(
+            [step for step in self.job["steps"] if "upload-artifact" in step.get("uses", "")]
+        )
+
+    def test_pointer_session_is_the_resolved_pair_never_an_invented_date(self):
+        self.assertEqual(
+            set(self.job["needs"]),
+            {"prepare-scheduled-observation-pair", "scheduled-observation-pair"},
+        )
+        self.assertEqual(
+            self.job["if"],
+            "needs.prepare-scheduled-observation-pair.outputs.should_call == 'true'",
+        )
+        self.assertEqual(
+            self.job["env"]["PRIOR_DATE"],
+            "${{ needs.prepare-scheduled-observation-pair.outputs.prior_date }}",
+        )
+        self.assertEqual(
+            self.job["env"]["CURRENT_DATE"],
+            "${{ needs.prepare-scheduled-observation-pair.outputs.current_date }}",
+        )
+        self.assertIn('--previous-date "$PRIOR_DATE"', self.fetch["run"])
+        self.assertIn('--current-date "$CURRENT_DATE"', self.fetch["run"])
+
+    def test_exactly_one_additional_provider_call_and_the_ratified_producer(self):
+        # Only one step in this job may hold a secret, and it is the single
+        # collection call. The pykrx candidate script is never invoked.
+        secret_steps = [
+            name for name, step in self.steps.items()
+            if "secrets." in json.dumps(step.get("env", {}))
+        ]
+        self.assertEqual(secret_steps, ["Korea five-signal real KRX session-pair fetch attempt"])
+        self.assertEqual(self.fetch["env"]["KRX_API_KEY"], "${{ secrets.KRX_API_KEY }}")
+        body = "\n".join(step.get("run", "") for step in self.job["steps"])
+        self.assertNotIn("korea_market_signals_pykrx_candidate.py", body)
+        self.assertEqual(body.count("--previous-date"), 2)  # reuse path + the one call
+        # The reuse path cannot reach the provider: it carries no secret.
+        self.assertNotIn("env", self.reuse)
+
+    def test_partial_fetch_commits_nothing(self):
+        # A failed or partial KRX fetch must fail the job before commit.
+        self.assertNotIn("continue-on-error", self.fetch)
+        self.assertNotIn("continue-on-error", self.verify)
+        self.assertNotIn("continue-on-error", self.commit)
+        for step in self.job["steps"]:
+            self.assertNotIn("always()", str(step.get("if", "")))
+        self.assertNotIn("always()", str(self.job["if"]))
+        # Verification strictly precedes the commit, and is never skipped.
+        self.assertNotIn("if", self.verify)
+        self.assertLess(
+            self.names.index(self.verify["name"]), self.names.index(self.commit["name"])
+        )
+        self.assertLess(
+            self.names.index(self.fetch["name"]), self.names.index(self.verify["name"])
+        )
+        self.assertIn("--verify " + POINTER_PATH, self.verify["run"])
+
+    def test_repeat_run_for_a_committed_session_does_not_rewrite(self):
+        reuse = self.reuse["run"]
+        self.assertEqual(self.reuse["id"], "existing_signals")
+        self.assertIn("data/observations/korea_market_signals/$ISO_DATE/packet.json", reuse)
+        self.assertIn("exists=true", reuse)
+        self.assertEqual(self.fetch["if"], "steps.existing_signals.outputs.exists != 'true'")
+        # Nothing is committed when the produced bytes are unchanged.
+        self.assertIn("git diff --cached --quiet", self.commit["run"])
+        self.assertIn("no change (reused) -- nothing to commit", self.commit["run"])
+
+    def test_producer_reuse_is_append_only_not_a_rewrite(self):
+        # The repository's token here is the producer's own reused=True /
+        # PASS_KOREA_MARKET_SIGNALS_REUSED, not the "verified_existing"
+        # string other populators return -- confirmed against the script.
+        producer = _load_producer()
+        source = (ROOT / RATIFIED_PRODUCER).read_text(encoding="utf-8")
+        self.assertIn('"reused": True', source)
+        self.assertIn("PASS_KOREA_MARKET_SIGNALS_{mode}", source)
+        self.assertNotIn("verified_existing", source)
+        self.assertIn("APPEND_ONLY_CONFLICT", source)
+        session = "2026-09-10"
+        committed = json.loads(
+            (ROOT / "data/observations/korea_market_signals" / session / "packet.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            # Republishing the exact committed packet is a no-op rewrite.
+            producer.publish(dict(committed), root=root)
+            first = (root / "data/observations/korea_market_signals" / session / "packet.json").read_bytes()
+            producer.publish(dict(committed), root=root)
+            self.assertEqual(
+                (root / "data/observations/korea_market_signals" / session / "packet.json").read_bytes(),
+                first,
+            )
+            # Tampered bytes never even reach the append-only comparison.
+            with self.assertRaises(producer.KoreaMarketSignalsError) as caught:
+                producer.publish(dict(committed, available_at="2099-01-01T00:00:00Z"), root=root)
+            self.assertIn("PACKET_HASH_INVALID", str(caught.exception))
+        with tempfile.TemporaryDirectory() as raw:
+            # A different, individually valid packet already committed for
+            # this session is refused rather than rewritten.
+            root = Path(raw)
+            other = json.loads(
+                (ROOT / "data/observations/korea_market_signals/2026-09-09/packet.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            target = root / "data/observations/korea_market_signals" / session / "packet.json"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(other, ensure_ascii=False), encoding="utf-8")
+            with self.assertRaises(producer.KoreaMarketSignalsError) as caught:
+                producer.publish(dict(committed), root=root)
+            self.assertIn("APPEND_ONLY_CONFLICT", str(caught.exception))
+
+    def test_registry_krx_source_owner_names_the_producer_this_job_invokes(self):
+        # The registry's byte-frozen KRX source_owner already records the
+        # ratified producer; this job must invoke that exact script and no
+        # substitute. (The registry's workflow_path record is a separate,
+        # byte-pinned question -- see the PR body.)
+        registry = json.loads(
+            (ROOT / "config/regime_source_owner_registry_v2.json").read_text(encoding="utf-8")
+        )
+        owner = registry["markets"]["KRX"]["source_owner"]
+        self.assertEqual(owner["producer_path"], RATIFIED_PRODUCER)
+        self.assertIn(owner["producer_path"], self.fetch["run"])
+        self.assertIn(owner["producer_path"], self.reuse["run"])
+
+    def test_no_kr_session_coupling_is_relaxed(self):
+        source = KR_OBSERVATION.read_text(encoding="utf-8")
+        self.assertIn('_fail("KR_UNIVERSE_SESSION_MISMATCH"', source)
+        self.assertIn('_fail("KR_BOUNDED_REVIEW_SESSION_MISMATCH"', source)
+        self.assertIn('_fail("KR_BOUNDED_REVIEW_NOT_REPRODUCIBLE")', source)
+        self.assertIn('_fail("KR_UNIVERSE_FOR_SESSION_MISSING", session_date)', source)
+        # This job never edits the consumer that enforces them.
+        body = "\n".join(step.get("run", "") for step in self.job["steps"])
+        self.assertNotIn("korea_population_symbol_observation", body)
+        # Instead it satisfies them: the pointer's session must have a real
+        # universe packet and its own review rebuild before the commit.
+        self.assertIn("KRX_GLOBAL_UNIVERSE_FOR_SESSION_MISSING", self.verify["run"])
+        self.assertIn('review["operational_date_kst"] == expected', self.verify["run"])
+        self.assertIn(
+            "Rebuild the bounded Korea symbol review from the produced pointer", self.names
+        )
+        self.assertLess(
+            self.names.index("Rebuild the bounded Korea symbol review from the produced pointer"),
+            self.names.index(self.verify["name"]),
+        )
+
+    def test_pointer_carries_no_raw_krx_rows(self):
+        packet = json.loads((ROOT / POINTER_PATH).read_text(encoding="utf-8"))
+        self.assertEqual(packet["source"]["raw_persistence"], 0)
+        self.assertEqual(packet["source"]["per_symbol_persistence"], 0)
+        self.assertIn("raw_persistence", self.verify["run"])
+        self.assertIn("per_symbol_persistence", self.verify["run"])
+
+
+class FiveSignalPointerAdvancesKrPopulationTest(unittest.TestCase):
+    """End-to-end on already-committed data: a newer pointer plus its own
+    review rebuild is what lets load_context() resolve a later session.
+    Nothing tracked is written; only a temporary directory."""
+
+    SESSION = "2026-08-28"
+
+    def setUp(self):
+        self.pointer = (
+            ROOT / "data/observations/korea_market_signals" / self.SESSION / "packet.json"
+        )
+        self.universe = (
+            ROOT / "data/observations/krx_global_universe" / self.SESSION / "packet.json"
+        )
+        if not (self.pointer.is_file() and self.universe.is_file()):
+            self.skipTest(f"committed {self.SESSION} pointer/universe not in this checkout")
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from decision import korea_population_symbol_observation as KR
+        from decision import korea_symbol_market_review as REVIEW
+        from decision import population_symbol_observation as CORE
+        self.KR, self.REVIEW, self.CORE = KR, REVIEW, CORE
+
+    def _inputs(self, review_path):
+        return {
+            "session_date": self.SESSION,
+            "universe_path": self.universe,
+            "market_signals_path": self.pointer,
+            "stage_history_path": ROOT / "data" / "stage_history.json",
+            "bounded_review_path": review_path,
+            "watchlist_root": ROOT / "data" / "briefing" / "krx",
+            "capture_dir": None,
+            "price_history_root": self.KR.price_history_root(),
+        }
+
+    def test_rebuilt_review_lets_the_lookup_reach_the_pointers_session(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            review_path = work / "review.json"
+            outcome = self.REVIEW.populate(
+                market_path=self.pointer,
+                stage_path=ROOT / "data" / "stage_history.json",
+                briefing_root=ROOT / "data" / "briefing" / "krx",
+                output_root=work / "observations",
+                latest_path=review_path,
+            )
+            self.assertIn(outcome["outcome"], {"populated", "verified_existing"})
+            rebuilt = json.loads(review_path.read_text(encoding="utf-8"))
+            self.assertEqual(rebuilt["operational_date_kst"], self.SESSION)
+            context = self.KR.load_context(
+                self._inputs(review_path),
+                generated_at="2026-09-18T09:30:00Z",
+                contract=self.CORE.load_contract(),
+            )
+            self.assertEqual(context["session_date"], self.SESSION)
+            self.assertTrue(context["population_records"])
+
+    def test_a_stale_committed_review_blocks_the_advance(self):
+        # Proof that rebuilding the review is required, not cosmetic: with
+        # the live committed review left alone, the same newer pointer is
+        # refused -- the coupling is intact.
+        committed = json.loads((ROOT / REVIEW_PATH).read_text(encoding="utf-8"))
+        if committed["operational_date_kst"] == self.SESSION:
+            self.skipTest("committed review already describes this session")
+        with self.assertRaises(self.KR.PopulationSymbolObservationError) as caught:
+            self.KR.load_context(
+                self._inputs(ROOT / REVIEW_PATH),
+                generated_at="2026-09-18T09:30:00Z",
+                contract=self.CORE.load_contract(),
+            )
+        self.assertIn("KR_BOUNDED_REVIEW_NOT_REPRODUCIBLE", str(caught.exception))
 
 
 if __name__ == "__main__":
