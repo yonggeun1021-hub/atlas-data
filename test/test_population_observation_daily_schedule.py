@@ -20,6 +20,7 @@ What is actually being protected:
 """
 from __future__ import annotations
 
+import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -271,9 +272,13 @@ class PersistPacketSupersedeHazardTest(unittest.TestCase):
     2. the set of production callers is pinned, so a new unguarded caller fails
        loudly instead of quietly rewriting committed packets.
 
-    If ``persist_packet()`` is later fixed (see the PR body's named follow-up),
-    test 1 will fail -- that is the intended signal.  Update it to assert the
-    refusal; do not delete it.
+    ``persist_packet()`` has since been fixed for the case that matters: a
+    supersede inside this repository is refused
+    (``COMMITTED_PACKET_SUPERSEDE_REFUSED``, see
+    ``CommittedPacketSupersedeRefusedTest``).  What remains characterised here is
+    the behaviour that is still *correct* -- supersede in scratch space, where an
+    output directory is a rebuild target and not evidence -- plus the caller
+    pinning, which is what stops the hole being reopened from a new call site.
     """
 
     #: Non-test files allowed to reach persist_packet()/build(write=True).
@@ -284,11 +289,12 @@ class PersistPacketSupersedeHazardTest(unittest.TestCase):
         ".github/scripts/population_symbol_observation_daily.py",
     }
 
-    def test_hazard_is_live_persist_packet_overwrites_a_same_date_packet(self):
-        """Characterise the hazard: same directory, different generation, overwritten.
+    def test_supersede_remains_legal_in_scratch_space(self):
+        """Same directory, different generation, overwritten -- outside the repo.
 
-        Uses a temp directory -- the hazard is demonstrated, never inflicted on
-        committed evidence.
+        This is the behaviour the fix deliberately preserves. If it starts
+        refusing, the in-repo guard has been over-applied to rebuild targets:
+        widen the guard's scope check, do not delete this test.
         """
         with tempfile.TemporaryDirectory(prefix="pop_obs_hazard_") as tmp:
             staged = Path(tmp) / "2026-09-11"
@@ -314,8 +320,8 @@ class PersistPacketSupersedeHazardTest(unittest.TestCase):
 
             self.assertEqual(
                 second["outcome"], "superseded_generation",
-                "persist_packet() no longer supersedes -- if it now refuses, the hazard is "
-                "fixed: update this test to assert the refusal rather than deleting it")
+                "supersede was refused in a scratch directory -- the in-repo guard has been "
+                "over-applied to rebuild targets; fix its scope check, do not delete this test")
             # The overwrite is real, not just a label.
             self.assertNotEqual((staged / "packet.json.gz").read_bytes(), original_bytes)
 
@@ -343,6 +349,261 @@ class PersistPacketSupersedeHazardTest(unittest.TestCase):
         body = text.split("def observe(", 1)[1]
         self.assertLess(body.index("already_captured("), body.index("CORE.build("),
                         "observe() must test already_captured() before it builds")
+
+
+class UsSessionMarketDataCouplingTest(unittest.TestCase):
+    """The US session must be the one its market data actually describes.
+
+    KR already enforced this (``KR_BOUNDED_REVIEW_SESSION_MISMATCH``); US only
+    *recorded* ``operational_date_kst`` and never asserted it, so a dated
+    universe was paired with the rolling market-data pointer unchecked.
+
+    The two markets cannot use the same test. ``korea_symbol_market_review``
+    sets ``operational_date_kst`` from ``market["as_of_date"]`` -- it *is* the
+    session -- whereas ``us_symbol_market_review`` derives it from the
+    observation instant in Asia/Seoul, which for a healthy US run is the session
+    PLUS ONE (close 20:00/21:00Z, capture 21:35Z, Seoul is +9). Exact equality
+    would refuse every normal US run, so the coupling asserted is a bound on
+    the UTC lag, and these tests cover both directions of it.
+    """
+
+    ADAPTER = None
+    SNAPSHOT_FIXTURE = ROOT / "test" / "fixtures" / "rolling_pointer_snapshot_20260913"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ADAPTER = CORE._adapter("US")
+
+    @staticmethod
+    def _bar_days(market: dict) -> list:
+        return sorted({
+            bar["opened_at"][:10]
+            for bar in (market.get("alpaca") or {}).get("daily_bars") or []
+            if isinstance(bar, dict) and isinstance(bar.get("opened_at"), str)
+        })
+
+    def _inputs_with_bars_truncated_to(self, tmp: Path, newest_session: str | None):
+        """Real inputs, with daily bars cut so the newest session is as given.
+
+        ``None`` drops every bar.  The capture is re-signed and the bounded review
+        rebuilt from it, so reproducibility still holds and the only thing under
+        test is the session/coverage coupling.
+        """
+        inputs = dict(self.ADAPTER.default_inputs(ROOT))
+        market = json.loads(Path(inputs["market_data_path"]).read_text(encoding="utf-8"))
+        alpaca = market.get("alpaca") or {}
+        if newest_session is None:
+            alpaca["daily_bars"] = []
+        else:
+            alpaca["daily_bars"] = [
+                bar for bar in alpaca.get("daily_bars") or []
+                if isinstance(bar, dict) and str(bar.get("opened_at", ""))[:10] <= newest_session
+            ]
+        market["alpaca"] = alpaca
+        market.pop("packet_sha256", None)
+        market["packet_sha256"] = CORE.payload_sha256(market)
+
+        market_path = tmp / "latest_free_market_data.json"
+        market_path.write_text(json.dumps(market, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        review = self.ADAPTER.US_REVIEW.build_review(
+            market, json.loads(Path(inputs["stage_history_path"]).read_text(encoding="utf-8")),
+            contract=self.ADAPTER.US_REVIEW.load_contract())
+        review_path = tmp / "latest_us_symbol_market_review.json"
+        review_path.write_text(json.dumps(review, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+
+        inputs["market_data_path"] = market_path
+        inputs["bounded_review_path"] = review_path
+        return inputs, market
+
+    def _load(self, inputs):
+        # Lookup time far enough ahead that SOURCE_NEWER_THAN_LOOKUP_TIME, a
+        # different guard, cannot be what fires.
+        return self.ADAPTER.load_context(
+            inputs, generated_at="2026-12-31T23:59:00Z", contract=CORE.load_contract())
+
+    def test_a_capture_whose_newest_session_is_the_session_is_accepted(self):
+        """The coherent case, however many calendar days old the capture is."""
+        with tempfile.TemporaryDirectory(prefix="us_cover_ok_") as tmp:
+            session = self.ADAPTER.default_inputs(ROOT)["session_date"]
+            inputs, market = self._inputs_with_bars_truncated_to(Path(tmp), session)
+            self.assertEqual(self._bar_days(market)[-1], session)
+            ctx = self._load(inputs)
+            self.assertEqual(ctx["session_date"], session)
+
+    def test_the_weekend_lagged_snapshot_shape_is_accepted(self):
+        """A Sunday capture of a Friday session is correct and must not be refused.
+
+        ``test/fixtures/rolling_pointer_snapshot_20260913`` is exactly that: a
+        2026-09-13 (Sunday) capture whose session is 2026-09-11 (Friday). Its
+        wall-clock lag is 2 days, but its newest bar IS the session, so the
+        pairing is coherent. A day-count bound would have failed this; coverage
+        passes it. This is why the guard is shaped the way it is.
+        """
+        manifest = json.loads((self.SNAPSHOT_FIXTURE / "manifest.json").read_text(encoding="utf-8"))
+        session = manifest["session_dates"]["US"]
+        raw = gzip.decompress((self.SNAPSHOT_FIXTURE / "data" / "latest_free_market_data.json.gz").read_bytes())
+        market = json.loads(raw.decode("utf-8"))
+        self.assertEqual(session, "2026-09-11")
+        self.assertEqual(market["observed_at_utc"][:10], "2026-09-13")
+        # 2 calendar days apart, yet the newest session in the capture is the session.
+        self.assertEqual(self._bar_days(market)[-1], session)
+
+    def test_a_capture_holding_a_later_session_is_refused(self):
+        """The real skew: session 2026-09-16 with a capture whose newest bar is 09-17."""
+        inputs = self.ADAPTER.default_inputs(ROOT)
+        session = inputs["session_date"]
+        live = json.loads(Path(inputs["market_data_path"]).read_text(encoding="utf-8"))
+        newest = self._bar_days(live)[-1]
+        if newest <= session:
+            self.skipTest(f"live capture no longer holds a later session (newest={newest}, session={session})")
+        with self.assertRaises(CORE.PopulationSymbolObservationError) as caught:
+            self._load(dict(inputs))
+        self.assertIn("US_BOUNDED_REVIEW_SESSION_MISMATCH", str(caught.exception))
+        self.assertIn(f"newest_daily_bar={newest}", str(caught.exception))
+
+    def test_a_capture_missing_the_session_is_refused(self):
+        """A capture that stops before the session does not cover it."""
+        session = self.ADAPTER.default_inputs(ROOT)["session_date"]
+        with tempfile.TemporaryDirectory(prefix="us_cover_old_") as tmp:
+            earlier = [d for d in self._bar_days(json.loads(
+                Path(self.ADAPTER.default_inputs(ROOT)["market_data_path"]).read_text(encoding="utf-8")))
+                if d < session]
+            self.assertTrue(earlier)
+            inputs, market = self._inputs_with_bars_truncated_to(Path(tmp), earlier[-1])
+            self.assertLess(self._bar_days(market)[-1], session)
+            with self.assertRaises(CORE.PopulationSymbolObservationError) as caught:
+                self._load(inputs)
+            self.assertIn("US_BOUNDED_REVIEW_SESSION_MISMATCH", str(caught.exception))
+
+    def test_a_capture_with_no_bars_at_all_is_refused(self):
+        with tempfile.TemporaryDirectory(prefix="us_cover_none_") as tmp:
+            inputs, market = self._inputs_with_bars_truncated_to(Path(tmp), None)
+            self.assertEqual(self._bar_days(market), [])
+            with self.assertRaises(CORE.PopulationSymbolObservationError) as caught:
+                self._load(inputs)
+            self.assertIn("US_MARKET_DATA_NO_SESSION_BARS", str(caught.exception))
+
+    def test_the_guard_asserts_coverage_not_elapsed_days(self):
+        """No calendar-distance constant may creep back in."""
+        source = (ROOT / "decision" / "us_population_symbol_observation.py").read_text(encoding="utf-8")
+        self.assertIn("newest_daily_bar=", source)
+        self.assertNotIn("MAX_MARKET_DATA_SESSION_LAG_DAYS", source)
+
+    def test_kr_keeps_its_own_exact_equality_coupling(self):
+        """KR's operational_date_kst IS the session, so KR stays exact."""
+        source = (ROOT / "decision" / "korea_population_symbol_observation.py").read_text(encoding="utf-8")
+        self.assertIn('_fail("KR_BOUNDED_REVIEW_SESSION_MISMATCH"', source)
+        self.assertIn('bounded["operational_date_kst"] != session', source)
+
+
+class NotProducibleIsBlockedNotRedTest(unittest.TestCase):
+    """A session that cannot be produced honestly is a skip, not a failure.
+
+    The coupling guard is fail-closed in the producer, which is right. But a
+    scheduled job that goes red every day for a condition no retry can fix
+    teaches its readers to ignore it, so the daily script records those specific
+    refusals as ``blocked`` (the repository's existing token for "could not
+    produce, not an error"), commits nothing, and exits 0. The gap stays visible
+    via stderr and the freshness watchdog.
+    """
+
+    def test_only_data_conditions_are_treated_as_blocked(self):
+        # Every code in the set is a statement about the evidence, never about
+        # the producer being broken.
+        self.assertEqual(MODULE.NOT_PRODUCIBLE_CODES, frozenset({
+            "US_BOUNDED_REVIEW_NOT_REPRODUCIBLE",
+            "KR_BOUNDED_REVIEW_NOT_REPRODUCIBLE",
+            "US_BOUNDED_REVIEW_SESSION_MISMATCH",
+            "KR_BOUNDED_REVIEW_SESSION_MISMATCH",
+            "KR_UNIVERSE_FOR_SESSION_MISSING",
+            "US_UNIVERSE_FOR_SESSION_MISSING",
+            "US_MARKET_DATA_NO_SESSION_BARS",
+        }))
+
+    def test_a_real_bug_is_not_swallowed(self):
+        for code in ("EXISTING_PACKET_DRIFT_OR_TAMPER", "COMMITTED_PACKET_SUPERSEDE_REFUSED",
+                     "MARKET_INVALID", "CONTRACT_READ_FAILED", "SOURCE_NEWER_THAN_LOOKUP_TIME"):
+            self.assertNotIn(code, MODULE.NOT_PRODUCIBLE_CODES, code)
+
+    def test_refusal_code_is_parsed_from_a_coded_detail(self):
+        error = CORE.PopulationSymbolObservationError("US_BOUNDED_REVIEW_SESSION_MISMATCH:lag=2d")
+        self.assertEqual(MODULE._refusal_code(error), "US_BOUNDED_REVIEW_SESSION_MISMATCH")
+        self.assertIn(MODULE._refusal_code(error), MODULE.NOT_PRODUCIBLE_CODES)
+
+    def test_blocked_market_records_a_reason_and_writes_nothing(self):
+        original = MODULE.resolve_session_date
+        self.addCleanup(setattr, MODULE, "resolve_session_date", original)
+
+        def refusing(market, root=None):
+            raise CORE.PopulationSymbolObservationError(
+                "US_BOUNDED_REVIEW_SESSION_MISMATCH:observed_at_utc=2026-09-18T01:41:42Z session=2026-09-16 lag=2d")
+
+        MODULE.resolve_session_date = refusing
+        record = MODULE.observe("US", generated_at="2026-09-18T15:20:00Z")
+        self.assertEqual(record["outcome"], "blocked")
+        self.assertFalse(record["wrote_anything"])
+        self.assertIn("lag=2d", record["blocked_reason"])
+
+    def test_an_unexpected_refusal_still_raises(self):
+        original = MODULE.resolve_session_date
+        self.addCleanup(setattr, MODULE, "resolve_session_date", original)
+
+        def broken(market, root=None):
+            raise CORE.PopulationSymbolObservationError("CONTRACT_READ_FAILED:/nope")
+
+        MODULE.resolve_session_date = broken
+        with self.assertRaises(CORE.PopulationSymbolObservationError):
+            MODULE.observe("US", generated_at="2026-09-18T15:20:00Z")
+
+
+class CommittedPacketSupersedeRefusedTest(unittest.TestCase):
+    """persist_packet() may not supersede a packet inside this repository.
+
+    Committed evidence is append-only; scratch space is not. The fix is scoped
+    by ``inside_public_repository()`` so a rebuild into a temp directory keeps
+    working -- which is what makes it safe to apply, and what these two tests
+    hold in place together so the rule cannot later be over-applied.
+    """
+
+    def test_supersede_inside_the_repository_is_refused(self):
+        market = "US"
+        base = CORE.DEFAULT_OUTPUT_ROOTS[market]
+        committed = [d for d in sorted(base.iterdir())
+                     if CORE._packet_target(d) is not None] if base.is_dir() else []
+        if not committed:
+            self.skipTest("no committed packet on disk")
+        dated = committed[-1]
+        target = CORE._packet_target(dated)
+        before = target.read_bytes()
+
+        packet = CORE.read_packet_file(target)
+        mutated = json.loads(json.dumps(packet))
+        mutated["generation_id"] = "2" * 64
+        with self.assertRaises(CORE.PopulationSymbolObservationError) as caught:
+            CORE.persist_packet(mutated, dated, compress=True)
+        self.assertIn("COMMITTED_PACKET_SUPERSEDE_REFUSED", str(caught.exception))
+        # The committed bytes survived the attempt.
+        self.assertEqual(target.read_bytes(), before)
+
+    def test_supersede_in_a_scratch_directory_still_works(self):
+        """The fix must not be over-applied: a rebuild dir is not evidence."""
+        market = "US"
+        base = CORE.DEFAULT_OUTPUT_ROOTS[market]
+        committed = [d for d in sorted(base.iterdir())
+                     if CORE._packet_target(d) is not None] if base.is_dir() else []
+        if not committed:
+            self.skipTest("no committed packet on disk")
+        packet = CORE.read_packet_file(CORE._packet_target(committed[-1]))
+
+        with tempfile.TemporaryDirectory(prefix="pop_obs_scratch_") as tmp:
+            staged = Path(tmp) / committed[-1].name
+            staged.mkdir(parents=True)
+            self.assertFalse(CORE.inside_public_repository(staged))
+            self.assertEqual(CORE.persist_packet(packet, staged, compress=True)["outcome"], "populated")
+            mutated = json.loads(json.dumps(packet))
+            mutated["generation_id"] = "3" * 64
+            self.assertEqual(
+                CORE.persist_packet(mutated, staged, compress=True)["outcome"], "superseded_generation")
 
 
 class WatchdogSpecTruthfulnessTest(unittest.TestCase):

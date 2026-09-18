@@ -61,6 +61,32 @@ MARKETS = ("KR", "US")
 REQUIRED_PASSED_COUNT = 0
 REQUIRED_PASSED_SEMANTICS = "NO_RATIFIED_PASS_RULE_ZERO_IS_ABSENCE_OF_RULE"
 
+#: Producer refusals that mean "this session cannot be produced honestly from
+#: the evidence committed right now" -- a data condition, not a broken
+#: producer.  They are recorded as ``blocked`` and the run stays green, because
+#: a scheduled job that goes red every day for a condition nobody can fix by
+#: retrying teaches its readers to ignore it.  The gap stays visible: nothing is
+#: committed, the reason is printed, and the freshness watchdog still reports
+#: the producer as behind its source.
+#:
+#: Everything NOT in this set is a real failure and is allowed to fail the run.
+NOT_PRODUCIBLE_CODES = frozenset({
+    # The committed bounded review cannot be rebuilt from the committed market
+    # data pointer -- the two disagree, so no honest packet exists for it.
+    "US_BOUNDED_REVIEW_NOT_REPRODUCIBLE",
+    "KR_BOUNDED_REVIEW_NOT_REPRODUCIBLE",
+    # The market data on hand describes a different session than the newest
+    # committed universe claims -- the capture already holds a later session,
+    # or does not reach this one.
+    "US_BOUNDED_REVIEW_SESSION_MISMATCH",
+    "KR_BOUNDED_REVIEW_SESSION_MISMATCH",
+    # The session's own universe / capture is not committed yet.
+    "KR_UNIVERSE_FOR_SESSION_MISSING",
+    "US_UNIVERSE_FOR_SESSION_MISSING",
+    # A capture with no daily bars cannot cover any session.
+    "US_MARKET_DATA_NO_SESSION_BARS",
+})
+
 
 def _adapter(market: str):
     """The market adapter, via the core loader (single implementation)."""
@@ -104,9 +130,21 @@ def _assert_observation_only(summary: dict, authority: dict, where: str) -> None
         raise SystemExit(f"STOP: {where}: authority granted: {granted}")
 
 
+def _refusal_code(exc: Exception) -> str:
+    """The bare code from a producer refusal (``CODE`` or ``CODE:detail``)."""
+    return str(exc).split(":", 1)[0]
+
+
 def observe(market: str, *, generated_at: str, root: Path = ROOT, work_dir: Path | None = None) -> dict:
     """One market's daily step: skip an already-captured date, else build it."""
-    session_date = resolve_session_date(market, root)
+    try:
+        session_date = resolve_session_date(market, root)
+    except CORE.PopulationSymbolObservationError as exc:
+        if _refusal_code(exc) in NOT_PRODUCIBLE_CODES:
+            return {"market": market, "session_date": None, "lookup_at": generated_at,
+                    "outcome": "blocked", "already_captured": False,
+                    "blocked_reason": str(exc), "wrote_anything": False}
+        raise
     output_dir = output_dir_for(market, session_date, root)
     record = {"market": market, "session_date": session_date,
               "output_dir": output_dir.relative_to(root).as_posix(), "lookup_at": generated_at}
@@ -123,8 +161,15 @@ def observe(market: str, *, generated_at: str, root: Path = ROOT, work_dir: Path
 
     # Not captured yet -- build it.  Chunks/receipt go to a scratch work dir so
     # no intermediate state is ever staged for commit.
-    built = CORE.build(market, generated_at=generated_at, work_dir=work_dir,
-                       output_dir=output_dir, compress=True)
+    try:
+        built = CORE.build(market, generated_at=generated_at, work_dir=work_dir,
+                           output_dir=output_dir, compress=True)
+    except CORE.PopulationSymbolObservationError as exc:
+        if _refusal_code(exc) in NOT_PRODUCIBLE_CODES:
+            record.update(outcome="blocked", already_captured=False,
+                          blocked_reason=str(exc), wrote_anything=False)
+            return record
+        raise
     packet = built["packet"]
     if packet is None:
         raise SystemExit(f"STOP: {market} {session_date}: build did not complete ({built['resume']})")
@@ -172,6 +217,12 @@ def main(argv=None) -> int:
     print(json.dumps({"lookup_at": args.generated_at, "markets": list(markets),
                       "wrote_anything": any(r["wrote_anything"] for r in records),
                       "observations": records}, ensure_ascii=False, indent=2, sort_keys=True))
+    # A blocked market is not an error, but it must not be quiet either -- say so
+    # on stderr so it is visible in the job log without failing the run.
+    for record in records:
+        if record["outcome"] == "blocked":
+            print(f"BLOCKED {record['market']}: not producible from committed evidence "
+                  f"right now -- {record['blocked_reason']}", file=sys.stderr)
     return 0
 
 
