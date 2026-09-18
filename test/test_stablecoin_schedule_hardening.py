@@ -545,6 +545,33 @@ class StablecoinDispatchGuardParityTest(unittest.TestCase):
             self.assertEqual(outputs.get("result"), "pending_current_observation")
             self.assertFalse(snapshot.exists())
 
+    def test_every_dispatch_refusal_leaves_the_repository_tree_untouched(self):
+        """(c) A refused dispatch must not be able to make the day worse: no
+        directory claimed, no partial bytes, nothing under evidence/ at all."""
+        cases = (
+            # guard_mode, day, broken_check, expected result
+            ("refuse", "2026-09-13", False, "dispatch_guard_mode_invalid"),
+            ("", "2026-09-13", False, "dispatch_guard_mode_invalid"),
+            ("schedule_equivalent", "2026-09-14", False, "pending_current_observation"),
+            ("schedule_equivalent", "2026-09-13", True, "dispatch_guard_undetermined"),
+        )
+        for guard_mode, day, broken, expected in cases:
+            with tempfile.TemporaryDirectory() as tmp, self.subTest(expected=expected):
+                completed, outputs, snapshot = run_capture_step(
+                    tmp, day=day, event_name="workflow_dispatch", schedule="",
+                    guard_mode=guard_mode, broken_check=broken)
+                self.assertEqual(outputs.get("result"), expected, completed.stderr[-2000:])
+                self.assertFalse(snapshot.exists())
+                # The whole evidence/ subtree is absent, not merely the date dir,
+                # so no later in-window run is blocked by a partial path.
+                repo_root = snapshot.parents[3]
+                self.assertFalse((repo_root / "evidence").exists())
+                leftovers = [
+                    path for path in repo_root.rglob("*")
+                    if path.is_file() and ".github" not in path.parts
+                ]
+                self.assertEqual(leftovers, [])
+
     def test_dispatch_gets_no_final_slot_exemption(self):
         """08:20Z is a schedule-only exemption; a dispatch cannot borrow it."""
         with tempfile.TemporaryDirectory() as tmp:
