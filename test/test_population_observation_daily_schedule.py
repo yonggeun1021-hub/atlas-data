@@ -142,7 +142,8 @@ class DispatchGuardEquivalenceTest(unittest.TestCase):
             "Offline contract regression for the producer and this schedule",
             "Observe KR and US population (committed evidence only)",
             "Refuse any change outside the two observation roots",
-            "Commit append-only observation (no-op when already captured)",
+            "Commit append-only observation (no-op when already captured, "
+            "evidence-loss guard, bounded push retry)",
         ])
 
     def test_checkout_uses_the_run_time_branch_not_the_stale_event_sha(self):
@@ -170,6 +171,77 @@ class NoCollectionAddedTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             MODULE.main(["--generated-at", "2026-09-18T15:20:00Z",
                          "--work-dir", str(ROOT / "data" / "nope")])
+
+
+class CommitStepScopeAndPushRetryTest(unittest.TestCase):
+    """2026-09-18: fred-dexkous-fx.yml and spdr-sector-holdings.yml both got a
+    bounded push retry and a `git add` scope test after the 2026-09-15 push-race
+    incident (run 34926979498). This workflow shipped later, on 2026-09-18's
+    approval, without either -- the same incident, the same fix, one daily
+    producer late. Mirrors those two workflows' existing tests
+    (test_fred_dexkous_fx_workflow.py's
+    test_commit_step_touches_only_the_dexkous_evidence_tree and
+    test_commit_step_has_bounded_push_retry_with_pull_rebase;
+    test_spdr_sector_holdings_workflow.py's
+    test_commit_step_never_touches_a_raw_workbook_path)."""
+
+    def setUp(self):
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.commit_step = next(
+            step for step in self.workflow["jobs"]["observe"]["steps"]
+            if "git add" in step.get("run", "")
+        )
+        self.run = self.commit_step["run"]
+
+    def test_git_add_targets_exactly_the_two_declared_output_roots(self):
+        # Derived from the producer's own DEFAULT_OUTPUT_ROOTS, not
+        # hardcoded here twice -- if the code and the workflow ever
+        # disagree about where output lives, this fails instead of quietly
+        # under- or over-staging.
+        add_line = next(
+            line.strip() for line in self.run.splitlines() if line.strip().startswith("git add ")
+        )
+        # `git add a \` / `        b` spans two physical lines in the YAML;
+        # rejoin any trailing backslash continuation before splitting.
+        joined = add_line
+        while joined.endswith("\\"):
+            idx = self.run.index(add_line)
+            rest = self.run[idx + len(add_line):]
+            continuation = next(line.strip() for line in rest.splitlines() if line.strip())
+            joined = joined[:-1].strip() + " " + continuation
+            add_line = continuation
+        staged_targets = set(joined.split()[2:])
+        expected = {
+            root.relative_to(CORE.ROOT).as_posix() for root in CORE.DEFAULT_OUTPUT_ROOTS.values()
+        }
+        self.assertEqual(staged_targets, expected)
+
+    def test_commit_step_has_bounded_push_retry_with_pull_rebase(self):
+        self.assertIn("git pull --rebase", self.run)
+        self.assertIn("max_attempts=3", self.run)
+        self.assertIn("until git push", self.run)
+        self.assertIn("exit 1", self.run)
+
+    def test_evidence_loss_guard_runs_before_the_empty_diff_short_circuit(self):
+        add_at = self.run.index("git add ")
+        guard_at = self.run.index("verify_evidence_staged.py")
+        empty_diff_at = self.run.index("git diff --cached --quiet")
+        commit_at = self.run.index("git commit -m")
+        self.assertLess(add_at, guard_at)
+        self.assertLess(guard_at, empty_diff_at)
+        self.assertLess(empty_diff_at, commit_at)
+
+    def test_evidence_loss_guard_uses_the_producer_own_dir_and_wrote_keys(self):
+        # Not a flat new_observation_paths list (see
+        # collectors/verify_evidence_staged.py's module docstring, "A second,
+        # optional shape") -- this producer's summary reports {output_dir,
+        # wrote_anything} per market, not exact file paths, and the guard was
+        # extended to understand that shape rather than the other way round.
+        self.assertIn("--written-dirs-field observations", self.run)
+        self.assertIn("--dir-key output_dir", self.run)
+        self.assertIn("--wrote-key wrote_anything", self.run)
+        self.assertIn("--expect-file summary.json", self.run)
+        self.assertIn("--expect-file packet.json.gz", self.run)
 
 
 class AlreadyCapturedSkipTest(unittest.TestCase):
