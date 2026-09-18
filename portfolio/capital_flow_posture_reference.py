@@ -727,6 +727,217 @@ def _total_exposure(markets: list[dict]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------
+# The PAPER reference shape that withholds the Crypto normalization.
+#
+# ``regime/paper_regime_reference.py`` omits
+# ``crypto_descriptive_normalization_sources`` and renders the Crypto row as
+# normalization-pending on any day whose raw Crypto closure for the current
+# as-of date is not retained yet: that closure lands from a separate capture
+# (``evidence/crypto/btc/raw/<as-of-date>/_manifest.json``), so a refresh
+# status that has already advanced to today legitimately has no raw bytes to
+# bind.  Such a packet is a normal producer output -- that module's own
+# ``--write`` / ``--verify`` accept it, and it carries no Crypto regime -- but
+# its Git-authenticated frozen validator only models the fully normalized v4
+# shape and rejects the pending one outright.  A frozen replay of such a day
+# then fails on a repository fact rather than on a defect.
+#
+# The branch is completed here, at the only caller that asks for frozen
+# authentication, because that producer's source bytes are hash-pinned by the
+# KR PAPER runtime adoption record whose requalification rule fails closed on
+# any change to a pinned implementation byte
+# (``evidence/authority/kr_paper_runtime_adoption_v1.json``).
+#
+# Nothing is relaxed.  The pending shape is accepted only after the two
+# policies, the three primary sources, the generation binding, all three
+# market rows and the packet status have been rederived from the materialized
+# closure, and only while the Crypto row carries no regime, no score, no
+# confidence and no axes.
+# --------------------------------------------------------------------------
+PAPER_NORMALIZATION_BINDING_KEY = "crypto_descriptive_normalization_sources"
+PAPER_NORMALIZATION_PENDING_STATUS = "WAIT_MARKET_NORMALIZATION_INPUT"
+PAPER_NORMALIZATION_ERROR_KEY = "normalization_error"
+# The codes ``build_crypto`` can record when the raw Crypto closure cannot be
+# rederived.  Which one is reached depends on which byte is missing first, and
+# an isolated replay root legitimately reaches a different one than production
+# did, so the recorded code is required to be one of these rather than to match.
+PAPER_NORMALIZATION_PENDING_CODES = (
+    "CRYPTO_COMPONENT_ROWS_INVALID",
+    "CRYPTO_CURRENT_SOURCE_INVALID",
+    "CRYPTO_DESCRIPTIVE_NORMALIZATION_FAILED",
+    "CRYPTO_DESCRIPTIVE_SOURCE_BINDING_MISSING",
+    "CRYPTO_LIQUIDITY_COMPONENT_INVALID",
+    "CRYPTO_OFFICIAL_SOURCE_INVALID",
+    "CRYPTO_RISK_REDERIVATION_FAILED",
+)
+# Market order is the producer's own ``sources`` order and is preserved.
+PAPER_PRIMARY_SOURCE_RELS = (
+    ("US", FREE_MARKET_DATA_REL),
+    ("KR", KOREA_MARKET_SIGNALS_REL),
+    ("CRYPTO", CRYPTO_REFRESH_STATUS_REL),
+)
+PAPER_PARTIAL_STATUS = "PARTIAL_REFERENCE_AVAILABLE"
+PAPER_DISPLAY_AUTHORIZED_KEYS = frozenset(
+    {"paper_reference_display_authorized", "paper_symbol_context_authorized"}
+)
+
+
+def _paper_reference_normalization_pending(packet: object) -> bool:
+    """True when the PAPER reference itself withheld the Crypto normalization.
+
+    Decided from the packet's own shape -- the binding key is absent and the
+    Crypto row says why -- never from an error message, so a future unrelated
+    validation failure cannot route into the pending branch.
+    """
+    if not isinstance(packet, dict) or PAPER_NORMALIZATION_BINDING_KEY in packet:
+        return False
+    rows = packet.get("markets")
+    if not isinstance(rows, list):
+        return False
+    crypto = [
+        row for row in rows if isinstance(row, dict) and row.get("market") == "CRYPTO"
+    ]
+    return (
+        len(crypto) == 1
+        and crypto[0].get("classification_status")
+        == PAPER_NORMALIZATION_PENDING_STATUS
+    )
+
+
+def _validate_frozen_normalization_pending_paper_reference(
+    packet: dict, root: Path
+) -> None:
+    """Rederive a normalization-pending PAPER reference from a frozen closure.
+
+    Same contract as that producer's ``_validate_authenticated_frozen_v4`` for
+    the one shape it does not cover.  The caller has already authenticated
+    these packet bytes to a trusted Git commit; both policies and all three
+    primary inputs remain materialized and are checked byte-for-byte, and the
+    raw Crypto closure stays outside the closure by design -- which is exactly
+    why the row under validation carries no Crypto number to accept.
+    """
+    policy_path = root / PAPER_REGIME_POLICY_REL
+    policy = PAPER_REGIME.read_json(policy_path, "PAPER_POLICY_INVALID")
+    authority = policy.get("authority")
+    if not isinstance(authority, dict):
+        fail("PAPER_POLICY_AUTHORITY_INVALID")
+    if authority.get("paper_reference_display_authorized") is not True:
+        fail("PAPER_POLICY_AUTHORITY_INVALID", "paper_reference_display_authorized")
+    for key, value in authority.items():
+        if (
+            key.endswith("_authorized")
+            and key not in PAPER_DISPLAY_AUTHORIZED_KEYS
+            and value is not False
+        ):
+            fail("PAPER_POLICY_AUTHORITY_INVALID", key)
+
+    if packet.get("schema_version") != PAPER_REGIME.SCHEMA_VERSION:
+        fail("PAPER_FROZEN_SCHEMA_INVALID")
+    if packet.get("render_version") != PAPER_REGIME.CURRENT_RENDER_VERSION:
+        fail("PAPER_FROZEN_RENDER_VERSION_INVALID")
+    unsigned = copy.deepcopy(packet)
+    claimed = unsigned.pop("payload_sha256", None)
+    if (
+        not isinstance(claimed, str)
+        or SHA256.fullmatch(claimed) is None
+        or PAPER_REGIME.payload_sha256(unsigned) != claimed
+    ):
+        fail("PAPER_FROZEN_SHA_INVALID")
+    if packet.get("contract_version") != policy.get("contract_version") or packet.get(
+        "mode"
+    ) != policy.get("mode"):
+        fail("PAPER_FROZEN_CONTRACT_MISMATCH")
+
+    policy_sha256 = PAPER_REGIME.file_sha256(policy_path)
+    if packet.get("policy") != {
+        "path": PAPER_REGIME_POLICY_REL,
+        "sha256": policy_sha256,
+        "status": policy.get("status"),
+    }:
+        fail("PAPER_FROZEN_POLICY_BINDING_MISMATCH")
+    expected_sources = [
+        {
+            "market": market,
+            "path": relative,
+            "sha256": PAPER_REGIME.file_sha256(root / relative),
+        }
+        for market, relative in PAPER_PRIMARY_SOURCE_RELS
+    ]
+    if packet.get("sources") != expected_sources:
+        fail("PAPER_FROZEN_PRIMARY_SOURCE_MISMATCH")
+    # The generation id is the binding the producer actually hashed: no
+    # normalization key, because there was no normalization to bind.
+    if packet.get("generation_id") != PAPER_REGIME.payload_sha256(
+        {
+            "policy_sha256": policy_sha256,
+            "sources": expected_sources,
+            "render_version": PAPER_REGIME.CURRENT_RENDER_VERSION,
+        }
+    ):
+        fail("PAPER_FROZEN_GENERATION_MISMATCH")
+
+    us_source = PAPER_REGIME.read_json(root / FREE_MARKET_DATA_REL, "US_SOURCE_INVALID")
+    kr_source = PAPER_REGIME.read_json(
+        root / KOREA_MARKET_SIGNALS_REL, "KR_SOURCE_INVALID"
+    )
+    crypto_source = PAPER_REGIME.read_json(
+        root / CRYPTO_REFRESH_STATUS_REL, "CRYPTO_SOURCE_INVALID"
+    )
+    by_market = {
+        row.get("market"): row
+        for row in packet.get("markets", [])
+        if isinstance(row, dict)
+    }
+    if set(by_market) != {"US", "KR", "CRYPTO"}:
+        fail("PAPER_FROZEN_MARKETS_INVALID")
+    if by_market["US"] != PAPER_REGIME.build_us(us_source, policy) or by_market[
+        "KR"
+    ] != PAPER_REGIME.build_kr(
+        kr_source, policy, render_version=PAPER_REGIME.CURRENT_RENDER_VERSION
+    ):
+        fail("PAPER_FROZEN_MARKET_REDERIVATION_MISMATCH")
+
+    crypto = copy.deepcopy(by_market["CRYPTO"])
+    rebuilt = PAPER_REGIME.build_crypto(
+        crypto_source,
+        render_version=PAPER_REGIME.CURRENT_RENDER_VERSION,
+        root=root,
+        policy=policy,
+    )
+    # The row must be pending in both.  Only the recorded code is exempt from
+    # the byte-for-byte comparison: which missing raw byte was hit first is not
+    # rederivable from a closure that deliberately excludes those bytes.
+    recorded = crypto.pop(PAPER_NORMALIZATION_ERROR_KEY, None)
+    rebuilt.pop(PAPER_NORMALIZATION_ERROR_KEY, None)
+    if recorded not in PAPER_NORMALIZATION_PENDING_CODES:
+        fail("PAPER_FROZEN_NORMALIZATION_PENDING_CODE_INVALID", str(recorded))
+    if crypto != rebuilt:
+        fail("PAPER_FROZEN_CRYPTO_REDERIVATION_MISMATCH")
+    # No number may ride in on a pending row.
+    reference = crypto.get("paper_reference")
+    if (
+        crypto.get("classification_status") != PAPER_NORMALIZATION_PENDING_STATUS
+        or crypto.get("axes") != []
+        or crypto.get("runtime_regime") != "UNKNOWN"
+        or not isinstance(reference, dict)
+        or reference.get("candidate_regime") != "UNKNOWN"
+        or reference.get("score") is not None
+        or reference.get("confidence") is not None
+    ):
+        fail("PAPER_FROZEN_CRYPTO_PENDING_ROW_INVALID")
+    # Crypto carries no regime, so the packet cannot claim a complete set.
+    if packet.get("status") != PAPER_PARTIAL_STATUS:
+        fail("PAPER_FROZEN_STATUS_INVALID")
+    if packet.get("generated_at") != max(
+        us_source["observed_at_utc"],
+        kr_source["generated_at"],
+        crypto_source["generated_at"],
+    ):
+        fail("PAPER_FROZEN_GENERATED_AT_MISMATCH")
+    if packet.get("authority") != authority:
+        fail("PAPER_FROZEN_AUTHORITY_MISMATCH")
+
+
 def build_reference(
     root: Path = ROOT, *, frozen_paper_reference_authenticated: bool = False
 ) -> dict:
@@ -735,12 +946,19 @@ def build_reference(
     policy = validate_policy(read_json(policy_path, "POLICY_INVALID"))
     flow_contract_identity = _cross_asset_flow_contract_identity(policy, root)
     source = read_json(source_path, "SOURCE_INVALID")
+    normalization_pending = (
+        frozen_paper_reference_authenticated
+        and _paper_reference_normalization_pending(source)
+    )
     try:
-        PAPER_REGIME.validate_reference(
-            source,
-            root,
-            frozen_packet_authenticated=frozen_paper_reference_authenticated,
-        )
+        if normalization_pending:
+            _validate_frozen_normalization_pending_paper_reference(source, root)
+        else:
+            PAPER_REGIME.validate_reference(
+                source,
+                root,
+                frozen_packet_authenticated=frozen_paper_reference_authenticated,
+            )
     except Exception as exc:
         raise CapitalFlowPostureReferenceError(f"SOURCE_REVALIDATION_FAILED:{exc}") from exc
     if source.get("contract_version") != policy["source_contract_version"]:
