@@ -76,6 +76,16 @@ def parse_time(value: str) -> dt.datetime:
     return parsed
 
 
+def session_date(value: str) -> dt.date:
+    """Parse an exact YYYY-MM-DD session date, fail-closed on anything else."""
+    try:
+        return dt.date.fromisoformat(value)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise KrPaperRuntimeRatificationCandidateError(
+            "SESSION_DATE_INVALID"
+        ) from exc
+
+
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
     contract = parse_json(path.read_bytes(), "CONTRACT_JSON_INVALID")
     if (
@@ -204,6 +214,9 @@ def build_candidate(
     )
     observed_session = live["as_of_date"]
     live_ready = observed_session == expected_session
+    observed_ahead = (not live_ready) and session_date(
+        observed_session
+    ) > session_date(expected_session)
 
     checks = {
         "historical_28_of_28_five_axis": True,
@@ -214,11 +227,24 @@ def build_candidate(
         "cio_runtime_binding_ratified": False,
         "cio_regime_result_ratified": False,
     }
-    status = (
-        "READY_FOR_CIO_RATIFICATION_RUNTIME_STILL_CLOSED"
-        if live_ready
-        else "BLOCKED_LIVE_SESSION_NOT_ADVANCED"
-    )
+    if live_ready:
+        status = "READY_FOR_CIO_RATIFICATION_RUNTIME_STILL_CLOSED"
+        freshness_status = "EXACT_LATEST_COMPLETED_SESSION"
+        next_step = "CIO_REVIEW_EXACT_EVIDENCE_AND_RUNTIME_BINDING"
+    elif observed_ahead:
+        # The source is not behind: it reports a session later than the last
+        # officially completed one at this review instant.  Reporting that as
+        # SOURCE_NOT_ADVANCED_EXPECTED_SESSION would misuse a ratified token —
+        # config/regime_semantic_freshness_policy_v1.json scopes that reason to
+        # "the observed session date is an earlier session".  The exact-match
+        # requirement still blocks, only the reason differs.
+        status = "BLOCKED_LIVE_SESSION_AHEAD_OF_EXPECTED"
+        freshness_status = "SOURCE_AHEAD_OF_EXPECTED_SESSION"
+        next_step = "RE_REVIEW_AT_CURRENT_INSTANT_OR_RECONCILE_SOURCE_SESSION_DATING"
+    else:
+        status = "BLOCKED_LIVE_SESSION_NOT_ADVANCED"
+        freshness_status = "SOURCE_NOT_ADVANCED_EXPECTED_SESSION"
+        next_step = "CAPTURE_AND_RETAIN_EXACT_LATEST_COMPLETED_KRX_SESSION"
     packet = {
         "schema_version": 1,
         "candidate_version": CONTRACT_VERSION,
@@ -237,18 +263,10 @@ def build_candidate(
         "live_input": {
             "observed_session": observed_session,
             "expected_latest_completed_session": expected_session,
-            "freshness_status": (
-                "EXACT_LATEST_COMPLETED_SESSION"
-                if live_ready
-                else "SOURCE_NOT_ADVANCED_EXPECTED_SESSION"
-            ),
+            "freshness_status": freshness_status,
         },
         "checks": checks,
-        "next_executable_step": (
-            "CIO_REVIEW_EXACT_EVIDENCE_AND_RUNTIME_BINDING"
-            if live_ready
-            else "CAPTURE_AND_RETAIN_EXACT_LATEST_COMPLETED_KRX_SESSION"
-        ),
+        "next_executable_step": next_step,
         "runtime_decision_available": False,
         "regime": "UNKNOWN",
         "authority": authority_boundary(),
