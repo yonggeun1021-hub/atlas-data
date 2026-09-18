@@ -1223,6 +1223,12 @@ APPROVED_TESTS = [
     # Sun-Fri with --check before commit; authority stays closed.
     "test/test_us_paper_runtime.py",
     "test/test_us_paper_runtime_publication.py",
+    # The producer reads a committed capture, not its own fetch, so it states the
+    # collection coverage of the capture it read and blocks past a bound taken
+    # from the committed decision history.  Coverage is counted in the
+    # collector's cadence dates (cron "35 21 * * 0-5"), never in elapsed
+    # wall-clock days: a Sunday evaluation reading Friday's capture stays green.
+    "test/test_us_paper_runtime_collection_coverage.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
