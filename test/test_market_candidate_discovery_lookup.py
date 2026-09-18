@@ -216,19 +216,30 @@ class CurrentInputsTests(unittest.TestCase):
         self.assertEqual(roles["three_market_coverage"]["payload_sha256"], receipt.get("payload_sha256"))
         self.assertEqual(roles["kr_symbol_review"]["contract"], "korea_symbol_market_review/1")
         self.assertEqual(roles["us_symbol_review"]["contract"], "us_symbol_market_review/1")
-        # The latest committed Crypto decision may be the pre-ratification /1
-        # packet or a per-market /3 packet (user ratification
-        # CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914); the portal block
-        # must reuse exactly the contract of the decision it links.
+        # The portal block must reuse exactly the contract of the decision it
+        # links, and which contract that is follows from the linked packet's own
+        # generation instant: /1 before the per-market ratification (user
+        # ratification CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914), /3
+        # after it, /4 from the wiring-v2 cutover T_cut configured in
+        # config/crypto_paper_wiring_v2.json.  Derived from the packet's date via
+        # schema_version_for(), never enumerated: an allowlist of version strings
+        # goes stale the moment a configured cutover instant passes -- a calendar
+        # event, not a code change -- which is exactly how the former
+        # ("/1","/2","/3") list broke at 2026-09-18T07:00:00Z.  This form also
+        # asserts more than the list did: not merely that the contract is *a*
+        # known version, but that it is *the* version that applies to this
+        # packet's own date.
         crypto_decision_contract = roles["crypto_decision"]["contract"]
-        self.assertIn(crypto_decision_contract, (
-            "crypto_paper_decision_snapshot_packet/1",
-            "crypto_paper_decision_snapshot_packet/2",
-            "crypto_paper_decision_snapshot_packet/3",
-        ))
         decision_path = MODULE.ROOT / roles["crypto_decision"]["source"]["path"]
+        decision_packet = json.loads(decision_path.read_text(encoding="utf-8"))
+        self.assertEqual(decision_packet["schema_version"], crypto_decision_contract)
         self.assertEqual(
-            json.loads(decision_path.read_text(encoding="utf-8"))["schema_version"], crypto_decision_contract,
+            crypto_decision_contract,
+            MODULE.CRYPTO_DECISION.schema_version_for(
+                MODULE.CRYPTO_DECISION._parse_utc(
+                    decision_packet["generated_at"], "crypto_decision.generated_at",
+                ),
+            ),
         )
         for ref in portal["reused_contracts"]:
             if "source" in ref:
