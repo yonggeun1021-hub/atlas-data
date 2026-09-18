@@ -2825,6 +2825,34 @@ APPROVED_TESTS = [
     #      단기과열·거래정지는 KIS 종목 마스터 전용으로 남겨 중복 수집하지
     #      않는다. live DART API 호출 없음 — fixture 제목만 오프라인 검증.
     "test/test_dart_adverse_filing_classification.py",
+    # ★ Benchmark ("simply bought and held") NAV series
+    #   (validation/paper_benchmark_nav_series.py +
+    #   config/paper_benchmark_nav_series_policy.json). Unblocks checkpoint B
+    #   (day 30) stop rules 1 (비용 차감 후 그냥 보유보다 낮다) and 5 (하락
+    #   구간에서 그냥 보유보다 더 깎였다), neither of which was computable:
+    #   validation/crypto_paper_counterfactual.py's only counterfactual is
+    #   no_trade_benchmark_pnl = "0", which is not holding. The anchor is the
+    #   product: anchor_utc is derived from the ledger's first FILL_APPLIED
+    #   event (a supplied value is only ever compared), the anchor price must
+    #   already have existed at that instant within the RATIFIED Upbit
+    #   orderbook staleness window, two eligible prices refuse as ambiguous,
+    #   the record must be written within one decision cycle of the fill, and
+    #   the pointer is created with open(..., "x") so a second different
+    #   anchor refuses. Both benchmark variants (EXPOSURE_MATCHED comparable
+    #   with the account's total NAV, ASSET_ONLY the sleeve alone) are emitted
+    #   and NEITHER is a verdict -- which one binds the stop rules is
+    #   RATIFICATION_VARIANT_BINDING. Fee rate and entry slippage come off the
+    #   account's own first fill (the simulator has no repository default for
+    #   fee); no cost constant is invented here. Fail closed: a missing mark
+    #   at a sample, an off-grid mark, a gap wider than the ratified rotation
+    #   gap, a null NAV. Fully offline -- ledgers are built by the P10-11
+    #   simulator's own builders, prices are fixtures, no network and no
+    #   evidence directory outside a temporary one. Wired into no workflow or
+    #   schedule (a test asserts that); every *_authorized field stays False.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_paper_benchmark_nav_series.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

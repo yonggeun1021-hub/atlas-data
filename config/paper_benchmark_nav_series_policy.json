@@ -1,0 +1,225 @@
+{
+  "schema_version": "paper_benchmark_nav_series_policy/1",
+  "policy_id": "PAPER_BENCHMARK_NAV_SERIES.V1",
+  "status": "CIO_DESIGN_RATIFICATION_REQUIRED",
+  "description": "Parallel 'what if we had simply bought and held' NAV series for a PAPER account, so that checkpoint B (day 30) stop rules 1 and 5 can be computed. Evidence only: this policy grants no allocation, order, exit, trading or REAL authority, and it is not wired into any schedule.",
+  "why_this_exists": "The day-30 checkpoint asks '그냥 들고 있는 것보다 나은가'. Stop rule 1 (below buy-and-hold net of costs) and stop rule 5 (worse drawdown than holding) both need a benchmark NAV series anchored at the PAPER account's own first fill. That series cannot be reconstructed after the fact from an anchor chosen later, so the anchor must be written once, from real data, at the time the first fill happens.",
+  "stop_rules_unblocked": [
+    {
+      "id": "CHECKPOINT_B_STOP_RULE_1",
+      "ko": "비용 차감 후 그냥 보유보다 낮다",
+      "needs": "benchmark NAV series net of the same fee/slippage the PAPER engine charged, plus the PAPER account's own NAV series"
+    },
+    {
+      "id": "CHECKPOINT_B_STOP_RULE_5",
+      "ko": "하락 구간에서 그냥 보유보다 더 깎였다",
+      "needs": "max drawdown of the PAPER NAV series and of the benchmark NAV series over the same observed samples"
+    }
+  ],
+  "stop_rules_not_in_scope": {
+    "CHECKPOINT_B_STOP_RULE_2": "수익의 절반 이상이 한 번의 거래에서 나왔다 — retroactively computable from the hash-chained ledger fills",
+    "CHECKPOINT_B_STOP_RULE_3": "수익의 절반 이상이 한 주 이내 기간에 몰려 있다 — retroactively computable from the ledger fills",
+    "CHECKPOINT_B_STOP_RULE_4": "수수료를 2배로 계산하면 수익이 사라진다 — retroactively computable from the ledger fills; this module deliberately does not emit a doubled-cost benchmark, because no record defines one"
+  },
+  "source_documents": {
+    "checkpoint_schedule_card": {
+      "document": "CLAUDE_CIO_CHECKPOINT_SCHEDULE_CARD_20260917.md",
+      "location": "NOT_IN_THIS_REPO",
+      "sha256": "50e422bac2a6718950512e840393d233b1fd22a8a9657be0ac5f09a511a7e7e9",
+      "quoted_ko": [
+        "같은 기간 비트코인 보유 대비 수익률",
+        "같은 기간 코스피·S&P500 보유 대비 (해당 시장 가동 시)",
+        "수수료·슬리피지를 뺀 뒤 남는가",
+        "최대 낙폭이 그냥 보유보다 작은가"
+      ],
+      "registry_row": "NONE — the card's five stop rules have no config/rule_registry_v1.json row yet; registering them is a separate governance step listed in ratification_required"
+    },
+    "build_plan": {
+      "document": "CLAUDE_CIO_PAPER_EXECUTION_V1_BUILD_PLAN_20260915.md",
+      "location": "NOT_IN_THIS_REPO",
+      "sha256": "11f3d3422378cc152ae2af555cfb62926e3fe6779f2de0125c1bd811ebf6412a",
+      "used_for": "NAV0 식 (§2-3 원칙 4: 코인 NAV0 = 2억 원 + 코인 손익 while KR/US hold nothing) and the statement that the crypto PAPER fee lives in the user-ratified runtime config packet, not in this repo"
+    },
+    "crypto_paper_v2_ratification": {
+      "repo_path": "evidence/authority/USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+      "file_sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56",
+      "used_for": "ledger genesis 200,000,000 KRW and the 150bp order-slippage bound"
+    },
+    "upbit_market_evidence_policy_ratified": {
+      "repo_path": "config/upbit_market_evidence_policy_ratified.json",
+      "file_sha256": "4904e4212451f625e06693774ef1fb8b33fae1d9f30fb124606717c9755fc0d3",
+      "read_key": "max_orderbook_staleness_seconds",
+      "used_for": "how stale an anchor price observation may be relative to the anchor instant"
+    },
+    "crypto_paper_simulator_contract": {
+      "repo_path": "config/crypto_paper_simulator_contract.json",
+      "used_for": "ledger validation, decimal_scale, and the fact that the simulator has no repository default for fee (cost_model = CALLER_SUPPLIED_FEE_RATE_AND_QUEUE_FRACTION_NO_DEFAULTS)"
+    }
+  },
+  "registry": {
+    "path": "config/rule_registry_v1.json",
+    "note": "values are read from the registry at load time by rule_id + key_parameter, never copied as literals into this file (same convention as config/paper_execution_core_v1.json)"
+  },
+  "registry_parameters": {
+    "base_allocation": {
+      "rule_id": "RULE.ALLOCATION.V2",
+      "key_parameter": "base_allocation_all_markets_risk_on",
+      "used_for": "the benchmark notional: NAV0 x the market's ratified base share"
+    },
+    "max_observation_gap_days": {
+      "rule_id": "RULE.ROTATION.MAX_OBSERVATION_GAP.V1",
+      "key_parameter": "max_gap_days",
+      "used_for": "the largest gap tolerated between two consecutive NAV samples before the series refuses",
+      "interpretation_note": "CIO_INTERPRETATION — the ratified number is the rotation confirmation gap, not a NAV sampling gap. Reused so no new number is invented; listed in ratification_required."
+    },
+    "crypto_decision_cycle": {
+      "rule_id": "RULE.EXEC.TIME_CONTRACT.V1",
+      "key_parameter": "crypto_decision_cycle",
+      "used_for": "how long after the first fill an anchor may still be recorded (one decision cycle)",
+      "interpretation_note": "CIO_INTERPRETATION — the record states a 07:00Z daily crypto decision cycle; using one cycle as the anchor write deadline is an interpretation."
+    },
+    "ledger_genesis_crypto": {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_LEDGER_GENESIS.V1",
+      "key_parameter": "initial_cash_krw",
+      "used_for": "cross-check only — NAV0 is read from the ledger's own ACCOUNT_OPENED event, and must equal this ratified number for CRYPTO"
+    },
+    "order_slippage_bound": {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_ORDER_TYPE.V1",
+      "key_parameter": "decision",
+      "used_for": "recorded as the rejected alternative entry-slippage assumption (the 150bp order bound), never applied"
+    }
+  },
+  "benchmark_definition": {
+    "definition_id": "SINGLE_ASSET_BUY_AND_HOLD_AT_FIRST_FILL.V1",
+    "chosen": "At the PAPER account's first fill instant, buy the market's single benchmark asset with the market's whole ratified base allocation of NAV0, charge the same per-leg fee rate and the same realized entry slippage the PAPER engine charged on that very fill, then hold the resulting quantity unchanged for the whole comparison window. Nothing is ever rebalanced, added, sold or reinvested.",
+    "chosen_because": [
+      "the ratified checkpoint card names the asset itself — '같은 기간 비트코인 보유 대비 수익률' for crypto, '코스피·S&P500 보유' for KR/US — so the asset is not a CIO choice",
+      "a single asset bought once needs exactly one price at exactly one instant, which is the only thing that can be anchored immutably at the moment of the first fill",
+      "'simply holding' has to be something a person could actually have done instead, with no knowledge of what the system later selected"
+    ],
+    "rejected_alternative": {
+      "alternative": "EQUAL_WEIGHT_SAME_CANDIDATES — equal-weight the same names the system actually bought, at the same anchor, and hold them",
+      "rejected_because": [
+        "it embeds the system's own selection into the benchmark, so it measures only entry/exit timing rather than the strategy as a whole — the day-30 question is whether the whole thing beat simply holding",
+        "the candidate set is not known at the anchor instant for the whole window (later sessions add names), so there is no single immutable anchor — the benchmark would keep being re-chosen, which is exactly the failure mode the anchor exists to prevent",
+        "no ratified record names it; the card names the asset"
+      ]
+    },
+    "variants_emitted": {
+      "EXPOSURE_MATCHED": "total_nav = NAV0 - cash actually spent at the anchor + quantity x mark price. Directly comparable, one-for-one, with the PAPER account's total_nav, because both start at NAV0 and both leave the undeployed remainder in cash.",
+      "ASSET_ONLY": "total_nav = quantity x mark price. The benchmark asset sleeve on its own — the literal reading of '비트코인 보유 대비 수익률'."
+    },
+    "variant_binding": "NOT_DEFINED — which variant binds stop rules 1 and 5 needs the user's sentence. Both are emitted, neither is marked as the verdict."
+  },
+  "cost_model": {
+    "fee_rate_source": "ANCHOR_FILL_ORDER_INTENT — the fee_rate on the crypto_paper_order_intent/1 that produced the first fill, cross-checked against fee_amount / gross_value on the fill itself. The simulator contract has no repository default for fee, and the operational value lives in the user-ratified server runtime config packet, so it is read from the account's own first fill rather than written here.",
+    "entry_slippage_source": "ANCHOR_FILL_REALIZED_SLIPPAGE_BPS — the realized VWAP-versus-best slippage the PAPER engine actually recorded on that first fill.",
+    "entry_slippage_alternative_rejected": "the ratified 150bp order-sizing bound (RULE.CRYPTO.PAPER_V2_ORDER_TYPE.V1). It is a cap on order construction, not a measurement of execution, so charging the benchmark the cap would invent a cost the account never paid.",
+    "exit_cost_treatment": "NOT_CHARGED — an open PAPER position is marked at the mark price with no hypothetical exit cost deducted, so the benchmark's held quantity is marked the same way. Charging the benchmark a round-trip exit while the PAPER account is marked one-way would bias the comparison toward the system.",
+    "exit_cost_alternative": "charge both sides a hypothetical liquidation cost at every sample. Needs a ratified exit-slippage assumption and the same treatment on the PAPER side; listed in ratification_required.",
+    "no_invented_constants": true
+  },
+  "markets": {
+    "CRYPTO": {
+      "status": "READY",
+      "currency": "KRW",
+      "benchmark_asset": "KRW-BTC",
+      "benchmark_asset_basis": "RATIFIED_CARD_TEXT:같은 기간 비트코인 보유 대비 수익률",
+      "instrument_note": "KRW-BTC is the Upbit market the PAPER simulator itself trades, so the benchmark is priced on exactly the same venue and currency as the account.",
+      "anchor_price_staleness_source": {
+        "repo_path": "config/upbit_market_evidence_policy_ratified.json",
+        "key": "max_orderbook_staleness_seconds"
+      },
+      "max_sample_gap_source": {
+        "registry_parameter": "max_observation_gap_days",
+        "market_key": "CRYPTO"
+      },
+      "anchor_record_lag_source": {
+        "registry_parameter": "crypto_decision_cycle",
+        "interpretation": "ONE_DECISION_CYCLE_SECONDS"
+      }
+    },
+    "KR": {
+      "status": "NOT_DEFINED",
+      "currency": "KRW",
+      "benchmark_asset": null,
+      "benchmark_asset_basis": "RATIFIED_CARD_TEXT names 코스피, but an index level is not something a person could buy, and a tradable proxy (index ETF) has its own fee, tracking error and distribution treatment. The instrument, and whether the benchmark is the index level or a proxy, needs the user's sentence.",
+      "blocked_on": "RATIFICATION_KR_BENCHMARK_INSTRUMENT"
+    },
+    "US": {
+      "status": "NOT_DEFINED",
+      "currency": "USD",
+      "benchmark_asset": null,
+      "benchmark_asset_basis": "RATIFIED_CARD_TEXT names S&P500, with the same index-versus-proxy problem as KR, plus KRW conversion for the combined NAV (RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1).",
+      "blocked_on": "RATIFICATION_US_BENCHMARK_INSTRUMENT"
+    }
+  },
+  "fail_closed": [
+    "a NAV sample with no benchmark mark at exactly the same observed_at refuses; nothing is interpolated, resampled or carried forward",
+    "a benchmark mark that is not on the PAPER NAV sampling grid refuses, so the grid cannot be swapped for a more favourable one",
+    "a gap between consecutive samples larger than the market's tolerated gap refuses",
+    "more than one anchor-eligible price observation refuses as an ambiguous anchor; the latest one is not picked",
+    "an anchor recorded later than one decision cycle after the first fill refuses",
+    "a second, different anchor for the same (market, ledger) refuses; an identical one is an idempotent no-op",
+    "a NAV or mark value of null is never valued as zero"
+  ],
+  "ratification_required": [
+    {
+      "id": "RATIFICATION_BENCHMARK_DEFINITION",
+      "question": "Confirm '그냥 보유' for crypto = buy KRW-BTC with the whole ratified crypto base allocation of NAV0 at the first fill instant and hold, rather than equal-weighting the same candidates."
+    },
+    {
+      "id": "RATIFICATION_VARIANT_BINDING",
+      "question": "Which variant binds stop rules 1 and 5 — EXPOSURE_MATCHED (comparable with the account's total NAV) or ASSET_ONLY (the BTC sleeve alone)?"
+    },
+    {
+      "id": "RATIFICATION_NOTIONAL_STATE_MULTIPLIER",
+      "question": "The benchmark notional uses the ratified base share with multiplier 1.00. Should it instead track the per-market state multiplier that applied at the anchor?"
+    },
+    {
+      "id": "RATIFICATION_EXIT_COST_TREATMENT",
+      "question": "Should both sides be charged a hypothetical liquidation cost at every sample, and if so with what exit-slippage assumption?"
+    },
+    {
+      "id": "RATIFICATION_SAMPLE_GAP_REUSE",
+      "question": "Reusing the rotation max-observation-gap number as the NAV sampling gap limit is a CIO interpretation. Confirm it, or state a NAV sampling gap."
+    },
+    {
+      "id": "RATIFICATION_ANCHOR_WRITE_DEADLINE",
+      "question": "Confirm that an anchor not recorded within one decision cycle of the first fill is a refusal that needs a separate ratification to re-anchor, rather than something the system may retry later."
+    },
+    {
+      "id": "RATIFICATION_STOP_RULE_REGISTRY_ROWS",
+      "question": "Register the checkpoint card's five stop rules in config/rule_registry_v1.json, with the card copied into evidence/authority/ as the source record."
+    },
+    {
+      "id": "RATIFICATION_KR_BENCHMARK_INSTRUMENT",
+      "question": "For KR, is the benchmark the KOSPI index level or a named tradable proxy, and with what costs?"
+    },
+    {
+      "id": "RATIFICATION_US_BENCHMARK_INSTRUMENT",
+      "question": "For US, is the benchmark the S&P500 index level or a named tradable proxy, and with what costs and FX treatment?"
+    },
+    {
+      "id": "RATIFICATION_ACTIVATION",
+      "question": "When and where the anchor recorder runs. It is dispatch-only in this PR and is wired into no schedule; the anchor must be written at the first fill, which happens inside the private crypto runtime."
+    }
+  ],
+  "authority": {
+    "evidence_only": true,
+    "benchmark_record_only": true,
+    "allocation_authorized": false,
+    "order_authorized": false,
+    "paper_order_authorized": false,
+    "paper_exit_authorized": false,
+    "exchange_order_authorized": false,
+    "stop_rule_verdict_authorized": false,
+    "strategy_change_authorized": false,
+    "risk_threshold_change_authorized": false,
+    "network_access_authorized": false,
+    "credential_access_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}
