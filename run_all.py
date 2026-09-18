@@ -779,6 +779,17 @@ APPROVED_TESTS = [
     #   resume reproduce the same bytes, fresh-process reverify passes.
     #   ⛔ no stage change, no promotion, no threshold, no network, no order.
     "test/test_population_symbol_observation.py",
+    # ★ Ratified population-level policy (2026-09-16 user ratification):
+    #   INVESTABLE_UNIVERSE / LIQUIDITY / LISTING_DELISTING / TAXONOMY /
+    #   TRADABILITY (KR + US) and US-only SOURCE_HIERARCHY. Each rule
+    #   filters what it should; a symbol missing a required input (KIS
+    #   master, 46-industry table, listing date, <20-session window)
+    #   resolves UNKNOWN, never a silent pass or exclusion; the two
+    #   population-level zero-states ("no rule exists" vs "the wired rules
+    #   did not pass every symbol") stay distinguishable; ratification
+    #   evidence is byte-checked, not merely referenced.
+    #   ⛔ CANDIDATE_PASS_RULE / STAGE_TRANSITION_RULE untouched, 미정.
+    "test/test_population_ratified_policy.py",
     # ★ Three-market evaluation-coverage receipt (stacked from PR #680/#682,
     #   unchanged). Exact KR/US source-coverage universes and bounded symbol
     #   reviews are kept separate; the Crypto PAPER funnel contributes only
@@ -2879,6 +2890,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
     "test/test_population_symbol_observation.py": 60.0,
+    "test/test_population_ratified_policy.py": 1.0,
     "test/test_three_market_evaluation_coverage.py": 60.0,
     "test/test_market_candidate_discovery_lookup.py": 120.0,
 }

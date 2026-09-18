@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "contract_version": "population_ratified_policy/1",
+  "ratified_at_kst": "2026-09-16T23:20:00+09:00",
+  "ratification_evidence": [
+    {
+      "path": "evidence/authority/population_policy_6_rules_user_ratification_20260916.json",
+      "sha256": "3edcc73c1fef320019f26bd9d07703b30ae9dea120bf89c2d9213423c63ae911"
+    },
+    {
+      "path": "evidence/authority/population_policy_6_rules_ratification_card_20260916.md",
+      "sha256": "f0adb62db7d821d29ad10f3d854ca5d21d6eaa6d43220e0b1412cf1e23a75847"
+    }
+  ],
+  "includes": [
+    "INVESTABLE_UNIVERSE",
+    "LIQUIDITY",
+    "LISTING_DELISTING",
+    "TAXONOMY",
+    "TRADABILITY",
+    "SOURCE_HIERARCHY"
+  ],
+  "excludes": ["CANDIDATE_PASS_RULE", "STAGE_TRANSITION_RULE"],
+  "rule_statuses": ["MET", "UNMET", "UNKNOWN"],
+  "overall_statuses": [
+    "RATIFIED_POPULATION_PASS",
+    "RATIFIED_POPULATION_EXCLUDED",
+    "RATIFIED_POPULATION_UNKNOWN"
+  ],
+  "rules": {
+    "INVESTABLE_UNIVERSE": {
+      "KR": "코스피/코스닥 보통주만; 우선주/스팩/리츠/ETF/ETN/신주인수권 제외",
+      "US": "NYSE/NASDAQ/AMEX 보통주만; 우선주/워런트/유닛/ADR/ETF/OTC 제외"
+    },
+    "LIQUIDITY": {
+      "KR": {
+        "window_sessions": 20,
+        "min_avg_trading_value": 1000000000,
+        "min_avg_trading_value_currency": "KRW",
+        "min_close": 1000,
+        "min_close_currency": "KRW"
+      },
+      "US": {
+        "window_sessions": 20,
+        "min_avg_dollar_volume": 10000000,
+        "min_avg_dollar_volume_currency": "USD",
+        "min_close": 5,
+        "min_close_currency": "USD"
+      }
+    },
+    "LISTING_DELISTING": {
+      "both": "신규 상장은 상장 후 20거래일 경과부터 후보; 폐지/정리매매 지정 즉시 후보 제외, 보유분은 다음 허용 체결 시각에 전량 매도; 이력은 종목 코드 기준 연결",
+      "new_listing_grace_sessions": 20
+    },
+    "TAXONOMY": {
+      "KR": "KRX 공식 업종 분류 46개",
+      "US": "SPDR 섹터 ETF 11개 보유 명단 소속, 비중 최대 ETF 하나에만 귀속"
+    },
+    "TRADABILITY": {
+      "KR": "거래정지/관리종목 제외(기존 확정 유지) + 투자경고/투자위험 제외 + 단기과열 해제 후 5거래일 미경과 제외",
+      "US": "거래정지(halt) 중 제외 + 상장폐지 통보(deficiency) 제외"
+    },
+    "SOURCE_HIERARCHY": {
+      "US": "SIP 1순위, IEX 2순위; IEX만 있을 때는 'IEX 기준(부분 거래량)'을 기록에 표시하고 유동성 기준 통과 시에만 후보 인정",
+      "KR": "해당 없음(KRX 단일 거래소)"
+    }
+  },
+  "authority": {
+    "candidate_creation_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "entry_eligibility_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}

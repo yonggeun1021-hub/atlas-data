@@ -169,6 +169,7 @@ def symbol_row(
     formal: dict,
     facts: dict,
     evidence_refs: list,
+    population_policy: dict,
 ) -> dict:
     if evaluation["status"] == "EVALUATED_BOUNDED":
         status = "EVALUATED_BOUNDED"
@@ -189,6 +190,12 @@ def symbol_row(
         "formal_candidate": formal,
         "facts": facts,
         "evidence_refs": evidence_refs,
+        # Ratified population-level policy (2026-09-16 user ratification;
+        # see universe/population_ratified_policy.py). Separate from, and
+        # never a substitute for, the still-미정 CANDIDATE_PASS_RULE /
+        # STAGE_TRANSITION_RULE -- this block grants no candidate, ranking,
+        # or stage-promotion authority.
+        "population_policy": population_policy,
     }
 
 
@@ -367,6 +374,13 @@ def assemble_packet(
         1 for row in rows
         if row["evaluation"]["status"] != "NOT_EVALUATED" and row["evaluability"]["status"] != "EVALUABLE"
     )
+    population_policy_counts = Counter(row["population_policy"]["status"] for row in rows)
+    population_policy_rule_counts: dict = {}
+    for row in rows:
+        for rule, verdict in row["population_policy"]["rules"].items():
+            bucket = population_policy_rule_counts.setdefault(rule, Counter())
+            bucket[verdict["status"]] += 1
+    passed_count = population_policy_counts["RATIFIED_POPULATION_PASS"]
     packet = {
         "schema_version": contract["output_schema_version"],
         "contract_version": contract["contract_version"],
@@ -389,8 +403,28 @@ def assemble_packet(
             "not_evaluable_count": evaluability_counts["NOT_EVALUABLE"],
             "not_evaluable_reason_counts": dict(sorted(not_evaluable_reasons.items())),
             "entry_state_counts": {str(k): v for k, v in sorted(entry_states.items(), key=lambda i: str(i[0]))},
-            "passed_count": 0,
-            "passed_semantics": "NO_RATIFIED_PASS_RULE_ZERO_IS_ABSENCE_OF_RULE",
+            "passed_count": passed_count,
+            # 2026-09-16 user ratification wired six population-level rules
+            # (INVESTABLE_UNIVERSE, LIQUIDITY, LISTING_DELISTING, TAXONOMY,
+            # TRADABILITY, and US SOURCE_HIERARCHY -- see
+            # universe/population_ratified_policy.py). This is deliberately
+            # NOT the same fact as the still-미정 CANDIDATE_PASS_RULE: this
+            # count is symbols meeting every wired ratified population
+            # filter, never a candidate-ranking or entry-eligibility verdict.
+            # A symbol whose ratified rule lacks a wired required input
+            # (e.g. no KIS master, no 46-industry table, no listing-date
+            # source) is RATIFIED_POPULATION_UNKNOWN for that rule, not a
+            # silent pass or exclusion -- see population_policy_counts and
+            # population_policy_rule_counts below for the breakdown that
+            # keeps "0 because no rule exists" (the old
+            # NO_RATIFIED_PASS_RULE_ZERO_IS_ABSENCE_OF_RULE semantics, no
+            # longer applicable here) distinguishable from "0 because the
+            # wired rules did not pass every symbol".
+            "passed_semantics": "RATIFIED_POPULATION_POLICY_PASS_COUNT_SIX_RULES_20260916_NOT_CANDIDATE_PASS_RULE",
+            "population_policy_counts": dict(sorted(population_policy_counts.items())),
+            "population_policy_rule_counts": {
+                rule: dict(sorted(counts.items())) for rule, counts in sorted(population_policy_rule_counts.items())
+            },
         },
         "status_counts": {
             "observation_status": dict(sorted(observation_counts.items())),
@@ -398,6 +432,7 @@ def assemble_packet(
             "evaluability": dict(sorted(evaluability_counts.items())),
             "evaluation": dict(sorted(evaluation_counts.items())),
             "formal_candidate": dict(sorted(formal_counts.items())),
+            "population_policy": dict(sorted(population_policy_counts.items())),
         },
         "symbols": rows,
         "policy_undefined": policy_undefined,
@@ -442,7 +477,21 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         "evaluation": set(contract["evaluation_statuses"]),
         "formal_candidate": set(contract["formal_candidate_statuses"]),
     }
+    population_policy_overall_allowed = set(contract["population_policy_overall_statuses"])
+    population_policy_rule_allowed = set(contract["population_policy_rule_statuses"])
+    # Backward compatibility: a packet persisted before the 2026-09-16
+    # ratified population-policy wiring carries no ``population_policy`` key
+    # on any row at all -- that pre-existing, immutable evidence stays valid
+    # under its own (older) contract semantics rather than failing closed on
+    # a field that did not exist yet. A packet with the key on SOME but not
+    # ALL rows is genuinely inconsistent (a homogeneous build always adds it
+    # to every row) and still fails closed.
+    has_population_policy = any("population_policy" in row for row in rows)
+    passed_count = 0
     for row in rows:
+        if not has_population_policy:
+            if "population_policy" in row:
+                _fail("PACKET_POPULATION_POLICY_PARTIALLY_PRESENT", str(row.get("symbol")))
         if row.get("observation_status") not in allowed["observation_status"]:
             _fail("PACKET_OBSERVATION_STATUS_INVALID", str(row.get("symbol")))
         for key in ("data_observation", "evaluability", "evaluation", "formal_candidate"):
@@ -454,8 +503,29 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
             _fail("PACKET_NOT_EVALUATED_ENTRY_STATE_INVALID", str(row.get("symbol")))
         if row["evaluability"]["status"] == "NOT_EVALUABLE" and not row["evaluability"].get("reasons"):
             _fail("PACKET_NOT_EVALUABLE_WITHOUT_REASON", str(row.get("symbol")))
+        if has_population_policy:
+            policy = row.get("population_policy")
+            if not isinstance(policy, dict) or policy.get("status") not in population_policy_overall_allowed:
+                _fail("PACKET_POPULATION_POLICY_STATUS_INVALID", str(row.get("symbol")))
+            rule_verdicts = policy.get("rules")
+            if not isinstance(rule_verdicts, dict) or not rule_verdicts:
+                _fail("PACKET_POPULATION_POLICY_RULES_MISSING", str(row.get("symbol")))
+            for rule, verdict in rule_verdicts.items():
+                if not isinstance(verdict, dict) or verdict.get("status") not in population_policy_rule_allowed:
+                    _fail("PACKET_POPULATION_POLICY_RULE_STATUS_INVALID", f"{row.get('symbol')}:{rule}")
+            statuses = {v["status"] for v in rule_verdicts.values()}
+            expected_overall = (
+                "RATIFIED_POPULATION_EXCLUDED" if "UNMET" in statuses
+                else "RATIFIED_POPULATION_PASS" if statuses == {"MET"}
+                else "RATIFIED_POPULATION_UNKNOWN"
+            )
+            if policy["status"] != expected_overall:
+                _fail("PACKET_POPULATION_POLICY_OVERALL_INCONSISTENT", str(row.get("symbol")))
+            if policy["status"] == "RATIFIED_POPULATION_PASS":
+                passed_count += 1
     summary = packet.get("summary") or {}
-    if summary.get("passed_count") != 0 or summary.get("population_count") != population.get("count"):
+    expected_passed_count = passed_count if has_population_policy else 0
+    if summary.get("passed_count") != expected_passed_count or summary.get("population_count") != population.get("count"):
         _fail("PACKET_SUMMARY_INVALID")
     return packet
 

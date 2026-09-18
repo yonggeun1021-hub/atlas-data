@@ -28,9 +28,40 @@ price only), `NOT_EVALUABLE`.
 `evaluated_count` (+ `evaluated_bounded_count`,
 `evaluated_without_full_inputs_count` for a bounded subject whose price was
 unavailable), `formal_candidate_count`, `not_evaluable_reason_counts`,
-`entry_state_counts`, and `passed_count = 0` with
-`NO_RATIFIED_PASS_RULE_ZERO_IS_ABSENCE_OF_RULE`. `policy_undefined` lists the
-unratified rules verbatim (`미정`).
+`entry_state_counts`, and `passed_count`. `policy_undefined` lists the still-
+`미정` conditions verbatim: it is unchanged by the population-policy wiring
+below, because it derives from `krx_global_universe.py` /
+`us_global_universe.py`'s own `policy_status` (their own authority: source
+coverage only, pinned contracts this repo does not amend) plus the two
+population-level conditions that stay deliberately unratified,
+`CANDIDATE_PASS_RULE` and `STAGE_TRANSITION_RULE`.
+
+### Ratified population policy (2026-09-16 user ratification, separate layer)
+
+Every row also carries `population_policy` (`universe/population_ratified_policy.py`,
+`config/population_ratified_policy_contract.json`): a per-rule verdict for
+the six ratified population-level rules --
+`INVESTABLE_UNIVERSE`, `LIQUIDITY`, `LISTING_DELISTING`, `TAXONOMY`,
+`TRADABILITY` (KR + US) and US-only `SOURCE_HIERARCHY` -- each `MET` /
+`UNMET` / `UNKNOWN`, plus an overall `RATIFIED_POPULATION_PASS` /
+`RATIFIED_POPULATION_EXCLUDED` / `RATIFIED_POPULATION_UNKNOWN`. `UNKNOWN`
+means a rule's required input is not wired into this pipeline (no 20-session
+price window, no KRX 46-industry table, no KIS master, no listing-date
+source, no US halt/deficiency feed) -- never a silent pass or exclusion.
+`summary.passed_count` is the number of symbols `RATIFIED_POPULATION_PASS`
+(`passed_semantics = RATIFIED_POPULATION_POLICY_PASS_COUNT_SIX_RULES_20260916_NOT_CANDIDATE_PASS_RULE`);
+`summary.population_policy_counts` / `population_policy_rule_counts` give the
+full breakdown. This is deliberately **not** the same fact as the still-미정
+`CANDIDATE_PASS_RULE`: it grants no candidate, ranking, or stage-promotion
+authority (`config/population_ratified_policy_contract.json.authority` is
+all-`false`), and it never substitutes for it.
+
+A packet persisted before this wiring existed carries no `population_policy`
+key at all; `validate_packet`/`reverify` still accept it under its own older
+semantics (`passed_count = 0`,
+`NO_RATIFIED_PASS_RULE_ZERO_IS_ABSENCE_OF_RULE`) rather than failing closed on
+a field that did not exist yet -- the two zero-states are the same *number*
+but never the same *string*.
 
 ## Inputs (all re-verified by their own hash / validator)
 
