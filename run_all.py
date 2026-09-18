@@ -392,6 +392,22 @@ APPROVED_TESTS = [
     #   ⛔ live network/tracked taxonomy/master mutation 없음 — temp output only.
     "test/test_theme_taxonomy.py",
     "test/test_theme_taxonomy_authority.py",
+    # ★ Closes a verification gap found 2026-09-18: the only check on
+    #   config/theme_taxonomy_source_fact_registry.json's pinned
+    #   first_seen_commit values anywhere in the repo was a format check
+    #   (^[0-9a-f]{40}$) -- nothing confirmed the pinned commit actually
+    #   exists and is reachable from HEAD. PR #809 squash-merged that same
+    #   day and orphaned 7ef75f76453f2bbb90ecbb79247dc13a2e475aa6 (pinned
+    #   for CRYPTO.KRAKEN.IDENTITY_EXCLUSION) for several hours; it was
+    #   repaired only incidentally because PR #816 happened to land as a
+    #   merge commit. This test discovers every first_seen_commit pin by
+    #   walking the parsed registry (not a hardcoded list) and fails
+    #   closed, naming the offending source_id/path/commit, if any pin is
+    #   missing or not an ancestor of HEAD.
+    #   ⛔ read-only: reads the committed registry and runs read-only git
+    #      queries (rev-parse/merge-base) against this checkout's own
+    #      history; no network, no mutation, no authority.
+    "test/test_theme_taxonomy_source_fact_registry_provenance.py",
     # ★ P2-01 — cross-market Value-Chain EDGE authority layer (CIO 2026-09-04
     #   architecture decision). Korea/US/Crypto market-native classification
     #   families are NOT unified; this only validates a separate evidence-bound
