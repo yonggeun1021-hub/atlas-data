@@ -23,6 +23,13 @@ jobs:
         id: runner_start
         run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # Kept at fetch-depth: 0 (not shallow): the P3-10 step below runs
+      # p3_10_crypto_risk_population.py -> identity/canonical_identity.py,
+      # whose resolve_instrument_identity() calls _git_history_commits()
+      # (`git log --follow`) and verify_document_matches_source()
+      # (`git show <commit>:<path>`) to derive real first-seen/tamper
+      # verdicts. A shallow clone would silently fail those checks closed
+      # (NOT_COMPUTABLE) instead of erroring, so full history stays required.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
