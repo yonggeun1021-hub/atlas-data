@@ -26,6 +26,16 @@ MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
+# The set of contracts the Crypto decision producer can legitimately emit is
+# derived from the producer itself, never restated here: it grows at each
+# ratified cutover (t_cut_utc), so a literal list silently turns red the moment
+# one passes. /4 became correct at 2026-09-18T07:00:00Z.
+DECISION_SOURCE = ROOT / "decision" / "crypto_paper_decision_snapshot.py"
+DECISION_SPEC = importlib.util.spec_from_file_location("crypto_paper_decision_snapshot", DECISION_SOURCE)
+DECISION = importlib.util.module_from_spec(DECISION_SPEC)
+assert DECISION_SPEC.loader is not None
+DECISION_SPEC.loader.exec_module(DECISION)
+
 # Immutable, already-committed Crypto generation (same one the coverage
 # receipt's own regression pins), so the Crypto assertions are exact.
 PINNED_CRYPTO = {
@@ -217,15 +227,13 @@ class CurrentInputsTests(unittest.TestCase):
         self.assertEqual(roles["kr_symbol_review"]["contract"], "korea_symbol_market_review/1")
         self.assertEqual(roles["us_symbol_review"]["contract"], "us_symbol_market_review/1")
         # The latest committed Crypto decision may be the pre-ratification /1
-        # packet or a per-market /3 packet (user ratification
-        # CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914); the portal block
-        # must reuse exactly the contract of the decision it links.
+        # packet, a per-market /3 packet (user ratification
+        # CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914), or a /4 packet
+        # from the ratified t_cut_utc cutover; the portal block must reuse
+        # exactly the contract of the decision it links.  The accepted set is
+        # read from the producer so a future cutover cannot make this stale.
         crypto_decision_contract = roles["crypto_decision"]["contract"]
-        self.assertIn(crypto_decision_contract, (
-            "crypto_paper_decision_snapshot_packet/1",
-            "crypto_paper_decision_snapshot_packet/2",
-            "crypto_paper_decision_snapshot_packet/3",
-        ))
+        self.assertIn(crypto_decision_contract, DECISION.ALL_OUTPUT_SCHEMA_VERSIONS)
         decision_path = MODULE.ROOT / roles["crypto_decision"]["source"]["path"]
         self.assertEqual(
             json.loads(decision_path.read_text(encoding="utf-8"))["schema_version"], crypto_decision_contract,
