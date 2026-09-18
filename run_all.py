@@ -1046,6 +1046,22 @@ APPROVED_TESTS = [
     #   Probe + full replay workflows: workflow_dispatch only, least privilege,
     #   secrets only in step env, artifacts under RUNNER_TEMP, nothing committed.
     "test/test_us_regime_replay_workflows.py",
+    #   US-DATA-1 U3 producers for the two artifacts a later U5 adoption must
+    #   bind. The session-calendar producer adds no calendar logic: every date is
+    #   classified by market_data/us_official_session_calendar.py under the same
+    #   ratification, only the OFFICIAL_NYSE_CAPTURE basis is admitted (Nasdaq
+    #   cross-check required to attest), and one UNKNOWN date refuses the whole
+    #   file — no weekday inference, no per-date skip. The committed bytes are
+    #   proven stable across re-runs over an unchanged page, so the sha256 U5
+    #   pins cannot silently move. Both tests prove their artifact against
+    #   regime/us_paper_runtime.py's OWN exact-match loaders rather than a
+    #   restatement of them, and neither creates or activates
+    #   config/us_paper_runtime_adoption_v1.json — U5 is a user ratification.
+    "test/test_us_official_session_calendar_producer.py",
+    #   The US PIT acceptance record generator, plus the standing proof that US
+    #   acceptance is still unreachable: the 5-axis replay identity is inactive
+    #   and no population bundle is committed.
+    "test/test_us_pit_acceptance_record.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay
     #   population/report (SHADOW backfill only, never NATURAL). Joins the KR
     #   5-axis and US free-axis replay populations over ONE caller-supplied set

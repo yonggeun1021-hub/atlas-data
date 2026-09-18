@@ -1,0 +1,121 @@
+name: US Official Session Calendar
+
+# US-DATA-1 U3. Captures the two official US exchange publications and commits
+# the derived us_official_session_calendar/1 file that
+# regime/us_paper_runtime.py's adoption identity binds by sha256.
+#
+# Sources, and why they are authoritative:
+#   PRIMARY     NYSE "Holidays & Trading Hours" (https://www.nyse.com/trade/hours-calendars)
+#               -- the operator of the exchange publishing its own closures and
+#               1:00 p.m. early closes for the years it lists. It is the venue's
+#               own statement of when it is open, not a third party's model of it.
+#   CROSS-CHECK Nasdaq stock market holiday schedule
+#               (https://www.nasdaq.com/market-activity/stock-market-holiday-schedule)
+#               -- the other primary US listing venue, which observes the same
+#               holiday set. Any disagreement on a shared date is
+#               US_FINISHED_SESSION_UNKNOWN and refuses the whole file.
+# Both are the source ids config/regime_source_owner_registry_v2.json already
+# names for markets.US official_calendar, under user ratification
+# US-SESSION-CALENDAR-SOURCE-V1-20260914. Weekday inference is prohibited by
+# that registry and by config/us_session_calendar_source_v1.json; the producer
+# re-binds both by hash on every run and classifies only dates inside a year the
+# official page publishes.
+#
+# DISPATCH ONLY. A schedule is deliberately not enabled: the NYSE page changes
+# roughly once a year, and the producer rewrites the committed file only when the
+# derived payload (coverage window, published years, session rows, raw page
+# hashes) actually changed, so an unchanged page is a no-op. If a schedule is
+# ever wanted, the reviewed cadence is:
+#   '20 8 * * 1'   # ~17:20 KST Monday, weekly, well clear of every daily
+#                  # capture window; the publication cadence is annual, so
+#                  # weekly is already an order of magnitude faster than the
+#                  # source changes.
+#
+# Committing is the point of this workflow -- the runtime can only bind committed
+# bytes -- so unlike the replay workflows there is no tracked-output prohibition.
+# Nothing here opens any strategy, order, capital, trading or REAL authority, and
+# the calendar alone does not unblock the runtime: config/us_paper_runtime_adoption_v1.json
+# (U5, a user ratification) must bind this file's sha256 AND a US PIT_ACCEPTED
+# acceptance record before any decision stops being UNKNOWN.
+
+on:
+  workflow_dispatch:
+    inputs:
+      coverage_start:
+        description: "Optional ISO coverage start (default: Jan 1 of the earliest year the official page publishes)"
+        required: false
+        default: ""
+      coverage_end:
+        description: "Optional ISO coverage end (default: Dec 31 of the latest year the official page publishes)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-us-official-session-calendar
+  cancel-in-progress: false
+
+env:
+  CALENDAR: data/us_official_session_calendar_v1.json
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline regression (synthetic page fixtures, no network, no secrets)
+        run: |
+          python3 test/test_us_official_session_calendar.py
+          python3 test/test_us_official_session_calendar_producer.py
+          python3 test/test_us_pit_acceptance_record.py
+      - name: Capture the official pages and derive the session calendar
+        run: |
+          args=""
+          if [ -n "${{ inputs.coverage_start }}" ]; then
+            args="$args --coverage-start ${{ inputs.coverage_start }}"
+          fi
+          if [ -n "${{ inputs.coverage_end }}" ]; then
+            args="$args --coverage-end ${{ inputs.coverage_end }}"
+          fi
+          python3 market_data/us_official_session_calendar_producer.py produce --out "$CALENDAR" $args
+      - name: Re-check the committed calendar against the runtime's own rules
+        run: |
+          python3 market_data/us_official_session_calendar_producer.py verify \
+            --calendar "$CALENDAR" \
+            --as-of "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Print the U5 adoption values this calendar settles
+        run: |
+          python3 regime/us_pit_acceptance_record.py u5-values --calendar "$CALENDAR" >> "$GITHUB_STEP_SUMMARY"
+      - name: Commit the derived calendar evidence (bounded push retry)
+        # Mirrors the retry fred-dexkous-fx.yml added after the 2026-09-15 push
+        # race: a plain push loses to whichever capture workflow committed first,
+        # so this replays the one commit on top of main and retries, bounded at 3
+        # attempts so a real auth/network failure still fails the job.
+        run: |
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add "$CALENDAR" evidence/market_calendar/us_official_session_calendar
+          if git diff --staged --quiet; then
+            echo "official session calendar unchanged -- nothing to commit"
+            exit 0
+          fi
+          git commit -m "data: US official session calendar $(date -u +%Y-%m-%d)"
+          attempt=1
+          max_attempts=3
+          until git push; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "push failed after $max_attempts attempts" >&2
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
+            git pull --rebase
+          done
+      - name: Verify no other tracked file moved
+        run: git diff --exit-code && test -z "$(git status --porcelain)"
