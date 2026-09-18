@@ -136,6 +136,7 @@ import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 from zoneinfo import ZoneInfo
 
@@ -1045,7 +1046,111 @@ US_MON_SAT_KST = _weekday_set("MON", "TUE", "WED", "THU", "FRI", "SAT")
 US_TUE_SAT_KST = _weekday_set("TUE", "WED", "THU", "FRI", "SAT")
 
 
-def default_watchlist() -> list[dict]:
+# ---------------------------------------------------------------------------
+# Derived schedule claims ("does a committed workflow actually drive this?")
+# ---------------------------------------------------------------------------
+#
+# A per-producer ``workflow`` description and ``calendar`` that are hardcoded
+# go stale the moment somebody adds a trigger, and the watchdog then reports a
+# cron-driven producer as unscheduled -- a quiet lie of exactly the kind this
+# module exists to catch, told by the module itself. So the two population
+# observation specs derive their claim from what is committed: a workflow that
+# stages a producer's own output root is, by construction, running it.
+#
+# This is the same coupling PR #799 added a test for, and deriving it means the
+# claim is correct whichever of the two changes lands first -- nothing to update
+# by hand on either ordering.
+
+
+def _workflow_bodies(root: Path) -> dict[str, str]:
+    """Executable YAML of every committed workflow, comments stripped.
+
+    Comments are dropped so a *proposed* trigger written as a comment (this
+    watchdog's own dispatch-only header does exactly that) is never mistaken
+    for a live one.
+    """
+    bodies: dict[str, str] = {}
+    directory = root / ".github" / "workflows"
+    if not directory.is_dir():
+        return bodies
+    for path in sorted(directory.glob("*.yml")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        bodies[path.name] = "\n".join(
+            line for line in text.splitlines() if not line.lstrip().startswith("#")
+        )
+    return bodies
+
+
+def committed_driver(root: Path, output_root: str) -> dict | None:
+    """The committed workflow that stages ``output_root``, with its real cron.
+
+    Returns None when nothing stages it -- the only case in which a spec may
+    claim that no trigger exists.
+    """
+    for name, body in _workflow_bodies(root).items():
+        if output_root not in body:
+            continue
+        crons = re.findall(r'cron:\s*["\']([^"\']+)["\']', body)
+        return {"name": name, "scheduled": "schedule:" in body, "crons": crons}
+    return None
+
+
+def _population_observation_spec(
+    root: Path, spec_id: str, label_ko: str, glob: str, script: str, source_glob: str, source_note: str
+) -> dict:
+    output_root = glob.split("/*", 1)[0]
+    driver = committed_driver(root, output_root)
+    spec: dict = {
+        "id": spec_id,
+        "label_ko": label_ko,
+        "kind": "GLOB",
+        # persist_packet() writes packet.json.gz (compressed) plus an
+        # always-uncompressed summary.json sidecar -- glob the sidecar so this
+        # never needs to gzip-decode.
+        "glob": glob,
+        "source_latest": {
+            "kind": SOURCE_DATED_PATH,
+            "glob": source_glob,
+            "field_note": source_note,
+        },
+    }
+    if driver is None:
+        spec["calendar"] = NO_SCHEDULE
+        spec["default_max_gap_days"] = 4
+        spec["workflow"] = f"{script} -- no .github/workflows trigger exists"
+        spec["schedule_derivation"] = "NO_COMMITTED_WORKFLOW"
+        return spec
+
+    spec["workflow_file"] = driver["name"]
+    if not driver["scheduled"]:
+        spec["calendar"] = NO_SCHEDULE
+        spec["default_max_gap_days"] = 4
+        spec["workflow"] = f".github/workflows/{driver['name']} (workflow_dispatch only -- no cron)"
+        spec["schedule_derivation"] = "COMMITTED_WORKFLOW_DISPATCH_ONLY"
+        return spec
+
+    # Scheduled. Only a cron whose day-of-week field is unrestricted can be
+    # read as "every day" without converting a UTC day-set into KST, which this
+    # module will not guess -- a restricted set keeps EVERY_DAY but with a
+    # week of grace, so it can never false-alarm on a day it cannot place.
+    day_fields = {parts[4] for parts in (c.split() for c in driver["crons"]) if len(parts) >= 5}
+    every_day = bool(day_fields) and day_fields == {"*"}
+    spec["calendar"] = EVERY_DAY
+    spec["allowed_missed_cycles"] = 1 if every_day else 7
+    spec["workflow"] = (
+        f".github/workflows/{driver['name']} (cron {', '.join(driver['crons'])})"
+        if driver["crons"] else f".github/workflows/{driver['name']} (schedule)"
+    )
+    spec["schedule_derivation"] = (
+        "COMMITTED_WORKFLOW_CRON" if every_day else "COMMITTED_WORKFLOW_CRON_DAY_SET_NOT_CONVERTED"
+    )
+    return spec
+
+
+def default_watchlist(root: Path = ROOT) -> list[dict]:
     """The watched daily producers, derived from what is actually committed
     (``data/latest_*.json`` pointers and dated observation directories),
     not a hand-typed guess. See module docstring for the calendar policy.
@@ -1336,47 +1441,30 @@ def default_watchlist() -> list[dict]:
                 ),
             },
         },
-        {
-            "id": "korea_population_symbol_observation",
-            "label_ko": "KR 전체-모집단 심볼 관측",
-            "kind": "GLOB",
-            # persist_packet() writes packet.json.gz (compressed) plus an
-            # always-uncompressed summary.json sidecar (_summary_sidecar) --
-            # glob on the sidecar so this never needs to gzip-decode.
-            "glob": "data/observations/korea_population_symbol_observation/*/summary.json",
-            "calendar": NO_SCHEDULE,
-            "default_max_gap_days": 4,
-            "workflow": "decision/korea_population_symbol_observation.py -- no .github/workflows trigger exists",
-            # The summary names its own input in population.source.path
-            # (data/observations/krx_global_universe/<date>/packet.json), and
-            # both sides are exact-trading-date population dates, so the
-            # comparison is same-unit. On 2026-09-18 the upstream universe has
-            # advanced to 2026-09-16 while this observation still holds
-            # 2026-09-10 -- committed data the source already offers that we
-            # never took: COLLECTION_BEHIND_SOURCE, not "source is quiet".
-            "source_latest": {
-                "kind": SOURCE_DATED_PATH,
-                "glob": "data/observations/krx_global_universe/*/packet.json",
-                "field_note": "newest committed data/observations/krx_global_universe/<date>/ (the input population.source.path names)",
-            },
-        },
-        {
-            "id": "us_population_symbol_observation",
-            "label_ko": "US 전체-모집단 심볼 관측",
-            "kind": "GLOB",
-            "glob": "data/observations/us_population_symbol_observation/*/summary.json",
-            "calendar": NO_SCHEDULE,
-            "default_max_gap_days": 4,
-            "workflow": "decision/us_population_symbol_observation.py -- no .github/workflows trigger exists",
-            # Same shape as the KR entry: population.source.path names
-            # data/observations/us_global_universe/<date>/packet.json, which
-            # has reached 2026-09-16 while this observation holds 2026-09-11.
-            "source_latest": {
-                "kind": SOURCE_DATED_PATH,
-                "glob": "data/observations/us_global_universe/*/packet.json",
-                "field_note": "newest committed data/observations/us_global_universe/<date>/ (the input population.source.path names)",
-            },
-        },
+        # Both population observation specs derive their schedule claim from
+        # what is committed rather than hardcoding it -- see
+        # _population_observation_spec. Today no workflow stages their output
+        # roots, so they resolve to NO_SCHEDULE and honestly say no trigger
+        # exists; the moment one does (PR #799), the same code names that
+        # workflow and its cron instead, with nothing to edit by hand.
+        _population_observation_spec(
+            root,
+            "korea_population_symbol_observation",
+            "KR 전체-모집단 심볼 관측",
+            "data/observations/korea_population_symbol_observation/*/summary.json",
+            "decision/korea_population_symbol_observation.py",
+            "data/observations/krx_global_universe/*/packet.json",
+            "newest committed data/observations/krx_global_universe/<date>/ (the input population.source.path names)",
+        ),
+        _population_observation_spec(
+            root,
+            "us_population_symbol_observation",
+            "US 전체-모집단 심볼 관측",
+            "data/observations/us_population_symbol_observation/*/summary.json",
+            "decision/us_population_symbol_observation.py",
+            "data/observations/us_global_universe/*/packet.json",
+            "newest committed data/observations/us_global_universe/<date>/ (the input population.source.path names)",
+        ),
         {
             # Added 2026-09-18 alongside the run-conclusion axis: this is the
             # producer the skipped-over-failure incident actually happened to
@@ -1454,6 +1542,65 @@ def default_watchlist() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Declared non-coverage ("what this watchdog cannot see, said out loud")
+# ---------------------------------------------------------------------------
+#
+# This module can only observe what is committed to a repository. A producer
+# that runs outside both repositories and writes nothing into either is
+# invisible to it, and the honest response is to say so in a place that cannot
+# be mistaken for coverage -- not to add a watchlist spec that would either sit
+# permanently at NEVER_PRODUCED or silently watch a path nobody writes.
+#
+# Each entry names the producer, the incident that proved the gap, why this
+# module cannot see it, and what would actually catch it. An entry graduates
+# into default_watchlist() the moment it starts committing a receipt.
+
+DECLARED_NON_COVERAGE = [
+    {
+        "id": "atlas_kis_market_poll",
+        "label_ko": "KIS KRX 호가/분봉 수집 (Ubuntu atlas-kis-market-poll.service)",
+        "incident": (
+            "2026-09-10 09:00 KST through 2026-09-18 every run failed -- 84 runs a day for 7 "
+            "trading days -- with no alarm anywhere. The systemd timer fired normally the whole "
+            "time; only the service died (first a container wrapper stopped supplying "
+            "ATLAS_CANDLE_REQUESTS_URL, then fetchQuote() required an output.stck_bsop_date field "
+            "that the KIS inquire-price response does not contain). KRX 1-minute bars for 6 "
+            "trading days are permanently unrecoverable."
+        ),
+        "why_not_observable": (
+            "Nothing this service writes reaches either repository, so there is no committed "
+            "artifact whose staleness could be measured. Verified against both: the string "
+            "'market poll' appears nowhere in atlas-data or atlas-private-evidence (no unit file, "
+            "config, or evidence root); there is no KR minute/intraday evidence root in either "
+            "repo (atlas-private-evidence has us_minute_evidence/ but no KR equivalent); and the "
+            "one KR price path that IS committed, atlas-private-evidence price_history/KR/, is "
+            "KRX *daily* data from the public data-dbg.krx.co.kr bydd_trd endpoints "
+            "(schema price_history_session/1, keyed by bas_dd) which kept capturing normally "
+            "throughout the outage -- which is precisely why nothing went red."
+        ),
+        "would_be_caught_by": [
+            "Making it observable at all (then this module covers it): have the service, or a thin "
+            "wrapper, commit a per-run receipt in the shape this repo already uses for out-of-band "
+            "captures -- data/operations/<producer>_runs/<date>/run-<id>-attempt-<n>.json with "
+            "authority 'operations_telemetry_only' -- carrying the session date covered and the "
+            "rows written. Staleness of that receipt against the KRX trading calendar is then a "
+            "first-class spec here, and the 'schedule looks healthy while the work never happens' "
+            "shape is exactly what the existing axes already detect.",
+            "Server-side, and needed regardless: the timer was healthy while the unit failed, so "
+            "watching the timer proves nothing. systemd's own OnFailure= handler on "
+            "atlas-kis-market-poll.service (or WatchdogSec= with sd_notify) is the mechanism that "
+            "fires on the unit's Result=, and it is outside both repositories and outside this "
+            "module.",
+            "The specific bug class: fetchQuote() requiring a response field that never exists is a "
+            "contract failure, catchable before deploy by a committed sample of the KIS "
+            "inquire-price response plus a test asserting every field the code requires is present "
+            "in it.",
+        ],
+    },
+]
+
+
+# ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
 
@@ -1499,7 +1646,7 @@ def build_report(root: Path = ROOT, today: dt.date | None = None, watchlist: lis
                  run_history: dict | None = None, now_utc: dt.datetime | None = None) -> dict:
     if today is None:
         today = dt.datetime.now(tz=KST).date()
-    specs = list(watchlist) if watchlist is not None else default_watchlist()
+    specs = list(watchlist) if watchlist is not None else default_watchlist(root)
     items = []
     for spec in specs:
         if spec["kind"] == "FILE":
@@ -1552,6 +1699,9 @@ def build_report(root: Path = ROOT, today: dt.date | None = None, watchlist: lis
         "informational_items": informational_items,
         "source_latest_blind_spots": source_latest_blind_spots,
         "producers_with_failing_runs": failing_runs,
+        # Stated so the absence of an alarm for these is never read as
+        # coverage. See DECLARED_NON_COVERAGE.
+        "declared_non_coverage": DECLARED_NON_COVERAGE,
         "all_fresh": not (alarm_items or unknown_items),
         "authority": {
             "read_only_watch": True,
@@ -1670,6 +1820,16 @@ def render_issue_body(report: dict) -> str:
                 f"(마지막 성공 이후 실패 {entry['failed_runs_since_last_success']}건). "
                 f"산출물 정체 여부는 run 결론과 무관하게 별도로 판정됩니다."
             )
+        lines.append("")
+
+    non_coverage = report.get("declared_non_coverage", [])
+    if non_coverage:
+        lines.append("■ 이 감시가 볼 수 없는 산출물 — 경보가 없다는 것이 정상이라는 뜻은 아닙니다")
+        for entry in non_coverage:
+            lines.append(f"- [{entry['id']}] {entry['label_ko']}")
+            lines.append(f"  · 감시 불가 이유: {entry['why_not_observable']}")
+            for remedy in entry["would_be_caught_by"]:
+                lines.append(f"  · 무엇이 잡아낼 수 있는가: {remedy}")
         lines.append("")
 
     blind_spots = report.get("source_latest_blind_spots", [])

@@ -669,46 +669,89 @@ class RealRepoSourceAxisTest(unittest.TestCase):
     """The change's whole reason to exist, checked against this repo's own
     already-committed evidence at a fixed KST date."""
 
-    def test_fx_false_incident_is_no_longer_an_alarm(self):
-        # evidence/fred_dexkous_fx ends at 2026-09-11 and the collector's own
-        # 2026-09-17 raw manifest says FRED served nothing newer. Age-only, this
-        # was reported as a three-day FX observation loss. It must now be
-        # informational, and must NOT open an issue on its own.
-        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
-        item = next(i for i in report["items"] if i["id"] == "fred_dexkous_fx")
+    # NOTE on why these are fixtures and not live reads. These four incidents
+    # were originally asserted against whatever data/ and evidence/ happened to
+    # hold, with only the *decision date* pinned. That is not deterministic:
+    # the moment main advanced (free-market-data.yml recovered, the crypto
+    # classification moved on) the assertions flipped, even though the
+    # classifier was unchanged. A regression test whose premise the repo can
+    # retire is a test that will be deleted rather than believed. So each
+    # incident is now frozen as a fixture reproducing the exact committed
+    # shape and dates it had on 2026-09-18 -- the field names and values are
+    # the real ones, and they stay true forever. Date-independent properties
+    # (spec declarations, real-repo smoke) are still checked live, below.
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.today = dt.date(2026, 9, 18)
+
+    def test_fx_false_incident_frozen_is_not_an_alarm(self):
+        # evidence/fred_dexkous_fx ended at 2026-09-11 while the collector's
+        # 2026-09-17 raw manifest declared observation_date_range ending
+        # 2026-09-11 -- FRED's H.10 series had published nothing newer. Age
+        # alone called this STALE and a three-day FX observation loss was
+        # reported that had never happened.
+        _write_json(self.root / "evidence/fred_dexkous_fx/observations/2026-09-11/dd79e0c3f725a336.captured.json", {})
+        _write_json(
+            self.root / "evidence/fred_dexkous_fx/raw/2026-09-17/37995b4354ff8796/manifest.json",
+            {"series_id": "DEXKOUS", "source_kind": "FRED_API", "observation_count": 18,
+             "observation_date_range": ["2026-08-18", "2026-09-11"]},
+        )
+        spec = next(s for s in MODULE.default_watchlist() if s["id"] == "fred_dexkous_fx")
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])
+        item = report["items"][0]
+        self.assertEqual(item["schedule_status"], "STALE")
         self.assertEqual(item["status"], "SOURCE_NOT_YET_PUBLISHED")
         self.assertEqual(item["last_date"], "2026-09-11")
         self.assertEqual(item["source_latest"], "2026-09-11")
-        self.assertNotIn("fred_dexkous_fx", {i["id"] for i in report["alarm_items"]})
+        self.assertEqual(report["alarm_items"], [])
         self.assertIn("fred_dexkous_fx", {i["id"] for i in report["informational_items"]})
 
-    def test_population_observations_are_flagged_as_behind_their_source(self):
-        # Both population observations declare their input in
-        # population.source.path; those upstream universes have reached
-        # 2026-09-16 while the observations hold 2026-09-10 / 2026-09-11. That
-        # is committed data the source already offered and we never took.
-        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
-        by_id = {item["id"]: item for item in report["items"]}
-        for producer in ("korea_population_symbol_observation", "us_population_symbol_observation"):
+    def test_population_observations_frozen_are_behind_their_source(self):
+        # Both summaries name their input in population.source.path; those
+        # upstream universes had reached 2026-09-16 while the observations held
+        # 2026-09-10 / 2026-09-11 -- data the source already offered that we
+        # never took.
+        for producer, ours, universe in (
+            ("korea_population_symbol_observation", "2026-09-10", "krx_global_universe"),
+            ("us_population_symbol_observation", "2026-09-11", "us_global_universe"),
+        ):
             with self.subTest(producer=producer):
-                item = by_id[producer]
+                root = self.root / producer
+                _write_json(root / f"data/observations/{producer}/{ours}/summary.json", {})
+                for day in ("2026-09-10", "2026-09-15", "2026-09-16"):
+                    _write_json(root / f"data/observations/{universe}/{day}/packet.json", {})
+                spec = next(s for s in MODULE.default_watchlist() if s["id"] == producer)
+                report = MODULE.build_report(root=root, today=self.today, watchlist=[spec])
+                item = report["items"][0]
                 self.assertEqual(item["status"], "COLLECTION_BEHIND_SOURCE")
+                self.assertEqual(item["last_date"], ours)
                 self.assertEqual(item["source_latest"], "2026-09-16")
-                self.assertGreater(item["source_latest"], item["last_date"])
-        # The loudest state sorts first in the issue body.
-        self.assertEqual(report["alarm_items"][0]["status"], "COLLECTION_BEHIND_SOURCE")
+                self.assertEqual([i["id"] for i in report["alarm_items"]], [producer])
 
-    def test_free_market_data_outage_is_not_silenced_by_its_own_claim(self):
+    def test_free_market_data_outage_frozen_is_not_silenced_by_its_own_claim(self):
         # free-market-data.yml failed 2026-09-16/09-17, so the provider-reported
-        # newest bar inside data/latest_free_market_data.json is frozen at
-        # 2026-09-15 alongside our own date. Equal dates must NOT be read as
-        # "the source is quiet" here.
-        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
-        item = next(i for i in report["items"] if i["id"] == "free_market_data")
+        # newest bar inside the artifact was frozen at 2026-09-15 alongside our
+        # own date. Equal dates must NOT read as "the source is quiet" here.
+        _write_json(
+            self.root / "data/latest_free_market_data.json",
+            {"observed_at_utc": "2026-09-15T23:39:00Z",
+             "us_market_reference": {"as_of_session_date": "2026-09-15"},
+             "alpaca": {"daily_bars": [
+                 {"symbol": "SPY", "opened_at": "2026-09-14T04:00:00Z"},
+                 {"symbol": "SPY", "opened_at": "2026-09-15T04:00:00Z"}]}},
+        )
+        spec = next(s for s in MODULE.default_watchlist() if s["id"] == "free_market_data")
+        report = MODULE.build_report(root=self.root, today=self.today, watchlist=[spec])
+        item = report["items"][0]
+        self.assertEqual(item["source_latest"], "2026-09-15")
+        self.assertEqual(item["last_date"], "2026-09-15")
         self.assertEqual(item["source_latest_status"], "CLAIM_NOT_CURRENT")
         self.assertEqual(item["status"], "SOURCE_LATEST_UNKNOWN")
         self.assertNotEqual(item["status"], "SOURCE_NOT_YET_PUBLISHED")
-        self.assertIn("free_market_data", {i["id"] for i in report["stale_items"]})
+        self.assertFalse(report["all_fresh"])
 
     def test_every_watched_producer_declares_its_source_latest_position(self):
         # No producer may quietly have no opinion: each entry either names the
@@ -1079,16 +1122,29 @@ class ClassificationAxisTest(unittest.TestCase):
 
 
 class RealRepoRunAndClassificationTest(unittest.TestCase):
-    def test_crypto_refresh_status_classification_is_flagged(self):
-        # Against this repo's own committed pointer: current_reference is a
-        # complete 5/5 reference (all crypto-regime-refresh-watchdog.yml looks
-        # at) while official_decision is WAIT_PIT_LEADERSHIP_HISTORY with
-        # LEADERSHIP missing. Issue #511 has been open on this since 2026-08-31.
-        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
-        item = next(i for i in report["items"] if i["id"] == "crypto_regime_refresh_status")
-        self.assertEqual(item["status"], "CLASSIFICATION_UNAVAILABLE")
-        self.assertEqual(item["classification_status"], MODULE.CLASS_STATUS_UNAVAILABLE)
-        self.assertIn("LEADERSHIP", item["detail"])
+    def test_crypto_refresh_status_classification_frozen_is_flagged(self):
+        # The issue #511 shape as committed on 2026-09-18: current_reference is a
+        # complete 5/5 reference -- all crypto-regime-refresh-watchdog.yml looks
+        # at -- while official_decision is WAIT_PIT_LEADERSHIP_HISTORY with
+        # LEADERSHIP missing. Frozen, because the live values move.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_json(root / "data/latest_crypto_regime_refresh_status.json", {
+                "current_reference": {"as_of_date": "2026-09-18",
+                                      "coverage": {"ratio": "5/5", "missing_axes": []}},
+                "official_decision": {"classification_status": "WAIT_PIT_LEADERSHIP_HISTORY",
+                                      "runtime_regime": "UNKNOWN",
+                                      "coverage": {"ratio": "4/5", "missing_axes": ["LEADERSHIP"]}},
+            })
+            _write_json(root / "data/observations/crypto_recent_reference/2026-09-18/packet.json", {})
+            spec = next(s for s in MODULE.default_watchlist()
+                        if s["id"] == "crypto_regime_refresh_status")
+            report = MODULE.build_report(root=root, today=dt.date(2026, 9, 18), watchlist=[spec])
+            item = report["items"][0]
+            self.assertEqual(item["schedule_status"], "FRESH")
+            self.assertEqual(item["status"], "CLASSIFICATION_UNAVAILABLE")
+            self.assertEqual(item["classification_status"], MODULE.CLASS_STATUS_UNAVAILABLE)
+            self.assertIn("LEADERSHIP", item["detail"])
 
     def test_the_two_new_producers_are_watched(self):
         specs = {spec["id"]: spec for spec in MODULE.default_watchlist()}
@@ -1098,17 +1154,19 @@ class RealRepoRunAndClassificationTest(unittest.TestCase):
         for producer in ("paper_regime_reference", "crypto_regime_refresh_status"):
             self.assertEqual(specs[producer]["workflow_file"], "paper-regime-reference.yml")
 
-    def test_paper_runtime_blocked_states_do_not_alarm(self):
+    def test_paper_runtime_blocked_states_are_parked_not_alarmed(self):
         # Guard against the watchdog going permanently red on designed states.
+        # Asserted on the classification axis only: whether these producers are
+        # in alarm_items for some *other* reason (a stale input, say) is a
+        # different question and must stay answerable.
         report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
         by_id = {item["id"]: item for item in report["items"]}
         for producer in ("us_paper_runtime_decision", "crypto_paper_runtime_decision"):
             with self.subTest(producer=producer):
-                self.assertEqual(
-                    by_id[producer]["classification_status"],
-                    MODULE.CLASS_STATUS_EXPECTED_UNAVAILABLE,
-                )
-                self.assertNotIn(producer, {i["id"] for i in report["alarm_items"]})
+                item = by_id[producer]
+                self.assertEqual(item["classification_status"],
+                                 MODULE.CLASS_STATUS_EXPECTED_UNAVAILABLE)
+                self.assertNotEqual(item["status"], "CLASSIFICATION_UNAVAILABLE")
 
     def test_emit_workflow_files_is_single_sourced_from_the_watchlist(self):
         # The workflow's fetch step reads this list rather than duplicating it.
@@ -1120,6 +1178,153 @@ class RealRepoRunAndClassificationTest(unittest.TestCase):
             exit_code = MODULE.main(["--emit-workflow-files"])
         self.assertEqual(exit_code, 0)
         self.assertEqual(captured.getvalue().split(), expected)
+
+
+class ScheduleClaimIsDerivedTest(unittest.TestCase):
+    """No spec may claim "no trigger exists" -- or sit at NO_SCHEDULE -- while a
+    committed workflow actually drives that producer's output root.
+
+    This is the coupling PR #799 added a test for on its own branch. Guarding it
+    here too means the claim is correct whichever of the two lands first: the
+    population specs derive their schedule from what is committed, so neither
+    ordering needs a hand edit. Held for EVERY spec, not just those two.
+    """
+
+    NO_TRIGGER_CLAIM = "no .github/workflows trigger exists"
+
+    @staticmethod
+    def _bodies(root: Path) -> dict:
+        """Executable YAML per workflow, comments stripped (same rule #799 uses,
+        so a commented-out proposal is never read as a live trigger)."""
+        directory = root / ".github" / "workflows"
+        return {
+            path.name: "\n".join(
+                line for line in path.read_text(encoding="utf-8").splitlines()
+                if not line.lstrip().startswith("#"))
+            for path in sorted(directory.glob("*.yml"))
+        } if directory.is_dir() else {}
+
+    def _assert_claims_hold(self, root: Path):
+        bodies = self._bodies(root)
+        for spec in MODULE.default_watchlist(root):
+            root_path = str(spec.get("glob") or spec.get("path") or "").split("/*", 1)[0]
+            self.assertTrue(root_path, f"spec {spec['id']} has no glob/path")
+            writers = sorted(name for name, body in bodies.items() if root_path in body)
+            with self.subTest(spec=spec["id"]):
+                if self.NO_TRIGGER_CLAIM in str(spec.get("workflow") or ""):
+                    self.assertEqual(
+                        writers, [],
+                        f"{spec['id']} claims no trigger exists but {writers} write {root_path}")
+                if (spec.get("calendar") or {}).get("type") == "NO_SCHEDULE":
+                    for name in writers:
+                        self.assertNotIn(
+                            "schedule:", bodies[name],
+                            f"{spec['id']} is NO_SCHEDULE but {name} both schedules and writes {root_path}")
+
+    def test_claims_hold_against_this_repo_as_committed(self):
+        self._assert_claims_hold(ROOT)
+
+    def test_claims_hold_once_a_daily_schedule_for_the_population_lands(self):
+        # Simulates PR #799 landing: its real workflow, verbatim in shape --
+        # daily cron plus the git add of both population output roots.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/population-symbol-observation-daily.yml").write_text(
+                "name: Population Symbol Observation Daily\n"
+                "on:\n"
+                "  schedule:\n"
+                '    - cron: "20 15 * * *"\n'
+                '    - cron: "20 20 * * *"\n'
+                "  workflow_dispatch:\n"
+                "jobs:\n"
+                "  observe:\n"
+                "    steps:\n"
+                "      - run: |\n"
+                "          git add data/observations/korea_population_symbol_observation \\\n"
+                "                  data/observations/us_population_symbol_observation\n",
+                encoding="utf-8")
+            self._assert_claims_hold(root)
+
+            specs = {s["id"]: s for s in MODULE.default_watchlist(root)}
+            for producer in ("korea_population_symbol_observation", "us_population_symbol_observation"):
+                spec = specs[producer]
+                # Flipped automatically: real trigger named, real cron quoted.
+                self.assertEqual(spec["calendar"]["type"], "EVERY_DAY")
+                self.assertEqual(spec["schedule_derivation"], "COMMITTED_WORKFLOW_CRON")
+                self.assertEqual(spec["workflow_file"], "population-symbol-observation-daily.yml")
+                self.assertIn("20 15 * * *", spec["workflow"])
+                self.assertNotIn(self.NO_TRIGGER_CLAIM, spec["workflow"])
+
+    def test_a_dispatch_only_writer_does_not_become_a_schedule_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/population-dispatch.yml").write_text(
+                "on:\n  workflow_dispatch:\n"
+                "jobs:\n  o:\n    steps:\n"
+                "      - run: git add data/observations/korea_population_symbol_observation\n",
+                encoding="utf-8")
+            spec = next(s for s in MODULE.default_watchlist(root)
+                        if s["id"] == "korea_population_symbol_observation")
+            self.assertEqual(spec["calendar"]["type"], "NO_SCHEDULE")
+            self.assertEqual(spec["schedule_derivation"], "COMMITTED_WORKFLOW_DISPATCH_ONLY")
+            # It is driven by something, so the "no trigger" claim is dropped...
+            self.assertNotIn(self.NO_TRIGGER_CLAIM, spec["workflow"])
+            # ...and the dispatch-only reality is stated instead.
+            self.assertIn("workflow_dispatch only", spec["workflow"])
+            self._assert_claims_hold(root)
+
+    def test_a_commented_out_cron_is_not_read_as_a_live_trigger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/proposal.yml").write_text(
+                "on:\n  workflow_dispatch:\n"
+                "#  schedule:\n"
+                '#    - cron: "0 13 * * *"\n'
+                "jobs:\n  o:\n    steps:\n"
+                "      - run: git add data/observations/us_population_symbol_observation\n",
+                encoding="utf-8")
+            spec = next(s for s in MODULE.default_watchlist(root)
+                        if s["id"] == "us_population_symbol_observation")
+            self.assertEqual(spec["schedule_derivation"], "COMMITTED_WORKFLOW_DISPATCH_ONLY")
+            self.assertEqual(spec["calendar"]["type"], "NO_SCHEDULE")
+
+
+class DeclaredNonCoverageTest(unittest.TestCase):
+    """The watchdog must state what it cannot see. A spec that claimed coverage
+    it cannot deliver would be worse than an admitted gap."""
+
+    def test_kis_market_poll_is_declared_not_silently_missing(self):
+        entry = next(e for e in MODULE.DECLARED_NON_COVERAGE if e["id"] == "atlas_kis_market_poll")
+        # The incident, the reason, and the remedies are all stated.
+        self.assertIn("2026-09-10", entry["incident"])
+        self.assertIn("timer fired normally", entry["incident"])
+        self.assertTrue(entry["why_not_observable"].strip())
+        self.assertGreaterEqual(len(entry["would_be_caught_by"]), 2)
+
+    def test_it_is_not_smuggled_into_the_watchlist_as_a_fake_spec(self):
+        # Adding a spec for a path nobody writes would sit permanently at
+        # NEVER_PRODUCED -- standing red noise that trains dismissal, and a
+        # claim of coverage that does not exist.
+        declared = {e["id"] for e in MODULE.DECLARED_NON_COVERAGE}
+        watched = {spec["id"] for spec in MODULE.default_watchlist()}
+        self.assertEqual(declared & watched, set())
+        for spec in MODULE.default_watchlist():
+            target = str(spec.get("glob") or spec.get("path") or "")
+            self.assertNotIn("kis_market_poll", target)
+
+    def test_non_coverage_is_carried_into_the_report_and_rendered(self):
+        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18), watchlist=[])
+        self.assertEqual(
+            [e["id"] for e in report["declared_non_coverage"]],
+            [e["id"] for e in MODULE.DECLARED_NON_COVERAGE])
+        body = MODULE.render_issue_body(report)
+        # Rendered even on an all-clear report, so silence is never read as coverage.
+        self.assertTrue(report["all_fresh"])
+        self.assertIn("atlas_kis_market_poll", body)
+        self.assertIn("볼 수 없는", body)
 
 
 class AuthorityAndSchemaTest(unittest.TestCase):
@@ -1162,14 +1367,60 @@ class RealRepoRegressionTest(unittest.TestCase):
     caught. Fixed date keeps this deterministic forever (no real network,
     no clock dependency)."""
 
-    def test_known_2026_09_18_incidents_are_flagged(self):
-        report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
-        stale_ids = {item["id"] for item in report["stale_items"]}
-        self.assertIn("free_market_data", stale_ids)
-        self.assertIn("kr_paper_runtime_decision", stale_ids)
-        self.assertIn("korea_population_symbol_observation", stale_ids)
-        self.assertIn("us_population_symbol_observation", stale_ids)
-        self.assertFalse(report["all_fresh"])
+    def test_frozen_2026_09_18_incident_set_is_flagged(self):
+        # The four incidents as they stood on 2026-09-18, frozen together so the
+        # whole report -- not just one item -- is exercised. Deterministic: no
+        # live data/ or evidence/ read, so main advancing cannot retire it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_json(root / "data/latest_free_market_data.json", {
+                "observed_at_utc": "2026-09-15T23:39:00Z",
+                "alpaca": {"daily_bars": [{"opened_at": "2026-09-15T04:00:00Z"}]}})
+            _write_json(root / "data/latest_kr_paper_runtime_decision.json", {
+                "evaluation_at": "2026-09-13T00:58:44Z", "decision_status": "PAPER_RUNTIME_CLASSIFIED",
+                "current_observation": {"as_of_date": "2026-09-11"}})
+            # The KR calendar replays the officially captured KRX holiday list,
+            # so the fixture needs it too. It is content-pinned by sha256 inside
+            # the module, so copying it keeps this deterministic.
+            capture = Path(MODULE.KR_CALENDAR_PACKETS.CAPTURE_REF)
+            (root / capture.parent).mkdir(parents=True, exist_ok=True)
+            (root / capture).write_bytes((ROOT / capture).read_bytes())
+            _write_json(root / "data/observations/korea_population_symbol_observation/2026-09-10/summary.json", {})
+            _write_json(root / "data/observations/us_population_symbol_observation/2026-09-11/summary.json", {})
+            for universe in ("krx_global_universe", "us_global_universe"):
+                _write_json(root / f"data/observations/{universe}/2026-09-16/packet.json", {})
+            wanted = {"free_market_data", "kr_paper_runtime_decision",
+                      "korea_population_symbol_observation", "us_population_symbol_observation"}
+            watchlist = [s for s in MODULE.default_watchlist() if s["id"] in wanted]
+            self.assertEqual(len(watchlist), len(wanted))
+            report = MODULE.build_report(root=root, today=dt.date(2026, 9, 18), watchlist=watchlist)
+            by_id = {item["id"]: item for item in report["items"]}
+
+            # Both population observations: the source offered newer than we held.
+            for producer in ("korea_population_symbol_observation", "us_population_symbol_observation"):
+                self.assertEqual(by_id[producer]["status"], "COLLECTION_BEHIND_SOURCE")
+            # free_market_data: co-frozen claim, so honestly "cannot tell".
+            self.assertEqual(by_id["free_market_data"]["status"], "SOURCE_LATEST_UNKNOWN")
+            # KR paper runtime: no source-side latest is committed at all.
+            self.assertEqual(by_id["kr_paper_runtime_decision"]["status"], "SOURCE_LATEST_UNKNOWN")
+            self.assertEqual(by_id["kr_paper_runtime_decision"]["source_latest_status"], "UNAVAILABLE")
+            # Every one of them needs attention, and the loudest sorts first.
+            self.assertEqual(wanted, {item["id"] for item in report["stale_items"]})
+            self.assertEqual(report["alarm_items"][0]["status"], "COLLECTION_BEHIND_SOURCE")
+            self.assertFalse(report["all_fresh"])
+
+    def test_real_repo_report_builds_and_renders_for_any_date(self):
+        # Date-independent real-repo check: whatever the committed evidence has
+        # become, the watchdog must classify every producer without raising and
+        # render a body. This is what the live read is actually good for.
+        for today in (dt.date(2026, 9, 18), dt.date(2026, 10, 5), dt.date(2027, 1, 4)):
+            with self.subTest(today=today):
+                report = MODULE.build_report(root=ROOT, today=today)
+                self.assertEqual(len(report["items"]), len(MODULE.default_watchlist(ROOT)))
+                for item in report["items"]:
+                    self.assertIn(item["status"], MODULE.STATUS_SEVERITY)
+                json.dumps(report)
+                self.assertTrue(MODULE.render_issue_body(report).strip())
 
     def test_report_is_json_serializable(self):
         report = MODULE.build_report(root=ROOT, today=dt.date(2026, 9, 18))
