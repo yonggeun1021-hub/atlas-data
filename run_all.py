@@ -2825,6 +2825,27 @@ APPROVED_TESTS = [
     #      단기과열·거래정지는 KIS 종목 마스터 전용으로 남겨 중복 수집하지
     #      않는다. live DART API 호출 없음 — fixture 제목만 오프라인 검증.
     "test/test_dart_adverse_filing_classification.py",
+    # 일일 산출물 정체 감시(watchdog/daily_producer_freshness.py) — 감시 대상
+    #   11개 산출물에 대해 "우리가 보유한 최신 관측일"과 "원천이 스스로
+    #   제공한다고 밝힌 최신일" 두 값을 각각 기록하고 그 쌍으로 판정한다.
+    #   원천 최신일은 이미 커밋된 증거에서만 읽는다(raw manifest 의
+    #   observation_date_range 끝, venue manifest 의 latest_finalized_day,
+    #   산출물이 스스로 입력으로 지목한 상류 producer 의 최신 날짜 디렉터리).
+    #   네트워크 호출·신규 수집 출처 추가 없음.
+    #   COLLECTION_BEHIND_SOURCE = 원천이 더 최신을 제공하는데 우리가 놓친
+    #   경우로 가장 큰 경보(일정 축이 FRESH 여도 검사한다). 반대로
+    #   SOURCE_NOT_YET_PUBLISHED 는 원천이 아직 발표하지 않은 정상 상태이므로
+    #   경보가 아니다 — 2026-09-11 에서 멈춘 fred_dexkous_fx 를 3일치 환율
+    #   관측 유실로 잘못 보고한 오경보를 이 구분이 철회한다.
+    #   원천 최신일을 확보할 수 없으면 SOURCE_LATEST_UNKNOWN 이라는 독립
+    #   상태로 남긴다 — "정상"으로도 "정체"로도 접어넣지 않고, 값을 임의로
+    #   만들어 채우지도 않는다.
+    #   ⛔ 읽기 전용 관측만 한다 — data/·evidence/ 기록 없음, workflow 는
+    #      dispatch 전용(schedule 트리거 없음)이고 git commit/push 단계도
+    #      없다. authority 는 read_only_watch 를 제외하고 전부 false 이며
+    #      주문·매매·자본 배분 권한은 열리지 않는다. 오프라인 fixture 와 이
+    #      저장소에 이미 커밋된 KRX 공식 휴장 capture 만 사용한다.
+    "test/test_daily_producer_freshness_watchdog.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
