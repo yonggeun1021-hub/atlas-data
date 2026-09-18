@@ -71,9 +71,14 @@ def commit_step() -> dict:
     raise AssertionError(f"{COMMIT_STEP!r} step is gone")
 
 
-def git(*args, cwd, check=True, env=None):
-    full_env = dict(os.environ)
-    full_env.update({
+# The runner has no global git identity and we deliberately ignore whatever
+# the developer's machine has, so every git invocation -- including the rebase
+# the helper runs internally -- must carry an identity in the environment.
+# Without this the helper's rebase dies with "empty ident name" on CI and the
+# conflict branch is taken for the wrong reason.
+def git_env(extra=None) -> dict:
+    env = dict(os.environ)
+    env.update({
         "GIT_AUTHOR_NAME": "atlas-test",
         "GIT_AUTHOR_EMAIL": "atlas-test@example.invalid",
         "GIT_COMMITTER_NAME": "atlas-test",
@@ -81,11 +86,22 @@ def git(*args, cwd, check=True, env=None):
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_CONFIG_SYSTEM": os.devnull,
     })
-    if env:
-        full_env.update(env)
+    if extra:
+        env.update(extra)
+    return env
+
+
+def git(*args, cwd, check=True, env=None):
     return subprocess.run(
-        ("git",) + args, cwd=str(cwd), env=full_env,
+        ("git",) + args, cwd=str(cwd), env=git_env(env),
         capture_output=True, text=True, check=check,
+    )
+
+
+def run_helper(cwd, branch="main", attempts="5"):
+    return subprocess.run(
+        ["bash", str(SCRIPT), branch, attempts],
+        cwd=str(cwd), env=git_env(), capture_output=True, text=True,
     )
 
 
@@ -184,12 +200,7 @@ class HelperBehaviourTests(unittest.TestCase):
             self.assertIn("rejected", bare.stderr)
 
             # The helper recovers it.
-            done = subprocess.run(
-                ["bash", str(SCRIPT), "main", "5"],
-                cwd=str(collector), capture_output=True, text=True,
-                env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
-                     "GIT_CONFIG_SYSTEM": os.devnull},
-            )
+            done = run_helper(collector, attempts="5")
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertIn("rebasing", done.stderr)
 
@@ -216,12 +227,7 @@ class HelperBehaviourTests(unittest.TestCase):
             git("add", "latest_free_market_data.json", cwd=collector)
             git("commit", "-m", "data: free market evidence", cwd=collector)
 
-            done = subprocess.run(
-                ["bash", str(SCRIPT), "main", "2"],
-                cwd=str(collector), capture_output=True, text=True,
-                env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
-                     "GIT_CONFIG_SYSTEM": os.devnull},
-            )
+            done = run_helper(collector, attempts="2")
             self.assertNotEqual(done.returncode, 0,
                                 "a dropped commit was reported as success")
             self.assertIn("STOP", done.stderr)
@@ -241,12 +247,7 @@ class HelperBehaviourTests(unittest.TestCase):
             git("add", "x.txt", cwd=collector)
             git("commit", "-m", "bounded", cwd=collector)
 
-            done = subprocess.run(
-                ["bash", str(SCRIPT), "main", "3"],
-                cwd=str(collector), capture_output=True, text=True,
-                env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
-                     "GIT_CONFIG_SYSTEM": os.devnull},
-            )
+            done = run_helper(collector, attempts="3")
             self.assertNotEqual(done.returncode, 0)
             self.assertIn("after 3 attempts", done.stderr)
 
@@ -266,12 +267,7 @@ class HelperBehaviourTests(unittest.TestCase):
             git("add", "shared.txt", cwd=collector)
             git("commit", "-m", "ours", cwd=collector)
 
-            done = subprocess.run(
-                ["bash", str(SCRIPT), "main", "5"],
-                cwd=str(collector), capture_output=True, text=True,
-                env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
-                     "GIT_CONFIG_SYSTEM": os.devnull},
-            )
+            done = run_helper(collector, attempts="5")
             self.assertNotEqual(done.returncode, 0)
             self.assertIn("nothing was published", done.stderr)
             # The rebase was aborted, not left half-applied.
