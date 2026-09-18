@@ -252,32 +252,86 @@ class CryptoLeadershipRowWiringTest(unittest.TestCase):
         ):
             self.assertFalse(packet[key])
 
-    def test_dual_window_natural_history_status_matches_real_committed_archive(self):
-        """Documents precisely why today's real evidence is insufficient,
-        so a reviewer does not have to re-derive it by hand: the primary_30d
-        window needs 30 contiguous real evidence/crypto/breadth/raw days on
-        or after config/crypto_leadership_policy.json's effective_from
-        (2026-08-19); as of this PR only a partial run exists."""
+    def test_dual_window_status_matches_real_committed_archive(self):
+        """Non-expiring replacement for a retired day-count assertion.
+
+        The original version of this test asserted
+        ``len(real_days_since_effective) < 30`` -- i.e. it hard-coded the
+        *temporary* fact that, as of 2026-08-29, fewer than 30 real
+        evidence/crypto/breadth/raw days existed since config/
+        crypto_leadership_policy.json's effective_from (2026-08-19). That
+        was never an invariant of the system; it was a snapshot of how much
+        real history had accumulated on the day the PR was written. Real
+        scheduled captures commit one more day every day, so the count only
+        ever grows, and on 2026-09-18 it reached exactly 30 -- the premise
+        the old assertion encoded is simply over, on schedule, with no code
+        change involved.
+
+        The invariant actually worth protecting is not "fewer than N days
+        have passed" but "the status/reason CRYPTO_LEADERSHIP reports is
+        always a faithful, honest reflection of what the real committed
+        archive contains" -- i.e. daily_orchestrator.build_crypto_leadership()
+        must never diverge from independently re-deriving the same window
+        directly from crypto_leadership.py's own build_transform() over the
+        same real archive. That comparison is self-checking: it is
+        recomputed fresh from whatever the archive currently holds, so it
+        cannot go stale as more real days commit, and it will keep telling
+        the truth whether the real reason is still natural-history
+        incompleteness, an unresolved source point (as it is today -- see
+        below), or eventually a genuine DEFINED resolution.
+        """
         policy = CRYPTO_LEADERSHIP.load_leadership_policy()
         self.assertEqual(policy["approval_status"], "RATIFIED")
-        effective_from = dt.date.fromisoformat(policy["effective_from"])
         committed_days = sorted(
             p.name for p in RAW_ROOT.iterdir() if p.is_dir()
         )
-        as_of_days = {
-            dt.date.fromisoformat(name) - dt.timedelta(days=1)
-            for name in committed_days
+        latest_capture = committed_days[-1]
+        row = MODULE.build_crypto_leadership(latest_capture)
+        vintage = dt.date.fromisoformat(latest_capture)
+        end_date = (vintage - dt.timedelta(days=1)).isoformat()
+        direct = CRYPTO_LEADERSHIP.build_transform(RAW_ROOT, end_date=end_date)
+
+        if direct["status"] == "OBSERVED_UNCLASSIFIED":
+            self.assertEqual(row["status"], "READY")
+            self.assertIsNone(row["reason"])
+            return
+
+        # Not yet DEFINED -- the row must stay honestly POLICY_BLOCKED, and
+        # for the same real reason build_transform() itself reports, not a
+        # reason that has been overtaken by events (e.g. natural-history
+        # incompleteness after 30 real days now exist).
+        self.assertEqual(row["status"], "POLICY_BLOCKED")
+        window_reasons = {
+            window.get("unknown_reason")
+            for window in direct.get("windows", [])
+            if window.get("status") != "OBSERVED_UNCLASSIFIED"
         }
-        real_days_since_effective = {
-            day for day in as_of_days if day >= effective_from
-        }
-        self.assertLess(
-            len(real_days_since_effective),
-            30,
-            "This test's own premise (natural history genuinely incomplete) "
-            "no longer holds -- re-check whether CRYPTO/LEADERSHIP can now "
-            "resolve DEFINED with real evidence before assuming it cannot.",
+        if "INSUFFICIENT_CONTIGUOUS_HISTORY" in window_reasons:
+            expected_reason = "DUAL_WINDOW_NATURAL_HISTORY_INCOMPLETE"
+        elif "SOURCE_POINT_UNKNOWN" in window_reasons:
+            expected_reason = "DUAL_WINDOW_SOURCE_POINT_UNKNOWN"
+        else:
+            expected_reason = "DUAL_WINDOW_NOT_OBSERVED"
+        self.assertEqual(row["reason"], expected_reason)
+
+        # Document the real, current blocker for a reviewer -- without
+        # hard-coding which days or how many: as of 2026-09-18, the real
+        # primary_30d window is blocked by unresolved TAXONOMY_COVERAGE_
+        # UNKNOWN source points (crypto_breadth.py's qualified_members()
+        # gate), not by insufficient natural history. That is a *different*,
+        # genuine blocker from the one this test used to document, and it
+        # is asserted here structurally (real, cited blockers exist) rather
+        # than by re-encoding today's specific dates or day-count as a new
+        # expiring premise.
+        primary = next(
+            (w for w in direct.get("windows", []) if w.get("window_id") == "primary_30d"),
+            None,
         )
+        if primary is not None and primary.get("status") != "OBSERVED_UNCLASSIFIED":
+            self.assertTrue(
+                primary.get("blockers") or primary.get("source_unknown_points"),
+                "a POLICY_BLOCKED primary_30d window must always cite a real blocker",
+            )
 
 
 if __name__ == "__main__":
