@@ -761,6 +761,17 @@ APPROVED_TESTS = [
     #   breadth/entry/action/order authority.
     #   ⛔ regression uses injected bytes only; no live key/network access.
     "test/test_free_market_data.py",
+    # ★ US capture publication reliability (ratified 2026-09-18). The commit
+    #   step must publish through the shared bounded push-retry helper, never a
+    #   bare `git push` -- runs 34911129881/35163739007/35287712594 captured US
+    #   evidence and then lost it to "! [rejected] main -> main (fetch first)".
+    #   The retry is exercised against real local clones racing on one bare
+    #   origin: a rejected push is replayed, and a persistent failure or a
+    #   rebase conflict still fails and publishes nothing. Also pins the
+    #   ratified fingerprint record to the workflow's real bytes and asserts
+    #   the sha256-pinned source-owner registry file was NOT edited.
+    #   ⛔ offline only — temp git repos, no network, no key, no cron change.
+    "test/test_free_market_data_push_retry.py",
     # ★ P1-US current evidence → pipeline-symbol review bridge. Committed
     #   SPY/QQQ/IWM, VIX, liquidity and per-symbol daily bars are connected
     #   to TSM/SNDK entry/holding/exit review contexts. Missing Breadth,
