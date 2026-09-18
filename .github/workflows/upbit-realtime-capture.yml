@@ -305,7 +305,7 @@ jobs:
         env:
           DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
         run: python3 governance/rule_lineage_producers.py crypto-decision --packet "$DECISION_PATH"
-      - name: Commit append-only realtime evidence and run telemetry
+      - name: Commit append-only realtime evidence and run telemetry (shared push retry)
         if: always()
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
@@ -346,6 +346,5 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "upbit realtime bounded capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi

@@ -115,7 +115,7 @@ jobs:
           done
           echo "any_alert=$ANY_ALERT" >> "$GITHUB_OUTPUT"
 
-      - name: Commit append-only watchdog status if changed
+      - name: Commit append-only watchdog status if changed (shared push retry)
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -128,7 +128,7 @@ jobs:
             exit 0
           fi
           git commit -m "briefing handoff watchdog ${{ steps.resolve.outputs.decision_date }}"
-          git push origin "HEAD:$DEFAULT_BRANCH"
+          bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
 
       - name: Fail loud on an unresolved handoff
         # Scheduled events have no `inputs` context.  Treat them as fail-loud

@@ -490,8 +490,13 @@ class WorkflowTransactionTests(unittest.TestCase):
         self.assertIn("data/operations/upbit_universe_capture_runs", derived_block)
         self.assertIn("data/observations/upbit_tradeable_universe", derived_block)
         self.assertIn("data/observations/upbit_identity_review", derived_block)
-        self.assertIn('git pull --rebase origin "$DEFAULT_BRANCH"', derived_block)
-        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH"', derived_block)
+        # 2026-09-18 consolidation: both commit steps' own single unbounded
+        # `pull --rebase && push` (kept in git history, no retry) are now
+        # .github/scripts/push_to_default_branch.sh -- see
+        # test/test_push_retry_consolidation.py for its own bounded/
+        # fail-closed proof.
+        self.assertIn('bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"', derived_block)
+        self.assertIn('bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"', raw_block)
 
     def test_p4_and_p9_select_through_pinned_transition_consumer(self):
         for workflow in (P4_WORKFLOW, P9_WORKFLOW):

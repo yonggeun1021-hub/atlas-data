@@ -66,7 +66,7 @@ jobs:
       # auth_required/order_or_withdrawal_endpoints_called invariants
       # (enforced fail-closed by upbit_market_capture.py::load_contract)
       # and test_upbit_market_capture.py's endpoint-path assertions.
-      - name: Commit immutable raw snapshot before P3 classification
+      - name: Commit immutable raw snapshot before P3 classification (shared push retry)
         if: always()
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
@@ -84,8 +84,7 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "upbit universe raw capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi
       - name: P3-12 classification (reads raw snapshot only, never re-fetches)
         id: p3_12
@@ -131,7 +130,7 @@ jobs:
       # OBSERVATION_POOL is an expected, deterministic outcome for unmapped,
       # excluded, incomplete, or threshold-failing markets and is never
       # treated as a workflow failure.
-      - name: Commit P3-12 tradeable-universe classification
+      - name: Commit P3-12 tradeable-universe classification (shared push retry)
         if: always()
         env:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
@@ -152,6 +151,5 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "upbit tradeable universe classification ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi

@@ -143,7 +143,7 @@ class DispatchGuardEquivalenceTest(unittest.TestCase):
             "Observe KR and US population (committed evidence only)",
             "Refuse any change outside the two observation roots",
             "Commit append-only observation (no-op when already captured, "
-            "evidence-loss guard, bounded push retry)",
+            "evidence-loss guard, shared push retry)",
         ])
 
     def test_checkout_uses_the_run_time_branch_not_the_stale_event_sha(self):
@@ -216,11 +216,15 @@ class CommitStepScopeAndPushRetryTest(unittest.TestCase):
         }
         self.assertEqual(staged_targets, expected)
 
-    def test_commit_step_has_bounded_push_retry_with_pull_rebase(self):
-        self.assertIn("git pull --rebase", self.run)
-        self.assertIn("max_attempts=3", self.run)
-        self.assertIn("until git push", self.run)
-        self.assertIn("exit 1", self.run)
+    def test_commit_step_has_bounded_push_retry_via_shared_script(self):
+        # 2026-09-18 consolidation: this step's own inline retry loop (a
+        # fourth divergent copy, found alongside fred/spdr's near-identical
+        # copies and a shared 5-attempt script only daily-briefing.yml used)
+        # is now .github/scripts/push_to_default_branch.sh -- see
+        # test/test_push_retry_consolidation.py for its own bounded/
+        # fail-closed proof.
+        self.assertIn("push_to_default_branch.sh", self.run)
+        self.assertRegex(self.run, r'push_to_default_branch\.sh\s+"\$DEFAULT_BRANCH"\s+3\b')
 
     def test_evidence_loss_guard_runs_before_the_empty_diff_short_circuit(self):
         add_at = self.run.index("git add ")
