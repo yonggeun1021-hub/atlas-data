@@ -26,35 +26,6 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORD_ROOT = ROOT / "evidence" / "operational" / "decision_change_lineage" / "records"
-# CIO 2026-09-18: durable, content-addressed memo of the exact-source-commit
-# worktree checkout+validator pass performed by `_validate_daily_at_commit`
-# below.  `load_history()` re-validates the ENTIRE committed record chain on
-# every publish, and that chain grows by roughly two records per day, so the
-# unmemoized cost was O(records-ever-published) *and unbounded* -- 42 records
-# already cost ~85s locally, with each `git worktree add`/checkout/validator
-# subprocess pass around 0.5-1s locally (much more on the loaded self-hosted
-# runner), so this dominated the observed multi-minute-per-day growth in the
-# "Publish provider-free daily briefing packet" step.
-# This is a pure-function memoization, not a weakened check: every call still
-# freshly re-fetches the blob via `_git_blob` (which itself re-verifies the
-# commit is an immutable, current-HEAD-ancestor object) and re-runs every
-# cheap self-consistency check in `_validate_daily_at_commit` on every call,
-# every time. Only the expensive step -- materializing an isolated worktree
-# at `commit` and re-running that commit's OWN `unified_decision_contract.py`
-# validator inside it -- is skipped, and only once a hit is confirmed to
-# match the exact (commit, relative, blob_sha256) triple this function
-# already treats as its complete, sufficient input (its own in-memory
-# `functools.lru_cache` below uses the identical key). Since a commit's
-# content is immutable by construction, re-running that already-proven-pure
-# step for the same key can only ever reproduce the same result -- this can
-# never turn a would-be failure into a pass, only skip redundant confirmation
-# of an already-established one. Committed by the workflow next to the
-# lineage record it was produced for, so it survives the runner's clean
-# checkout between runs (a local, uncommitted cache would not).
-VALIDATED_DAILY_CHECKOUT_CACHE_ROOT = (
-    ROOT / "evidence" / "operational" / "decision_change_lineage"
-    / "validated_daily_checkout_cache"
-)
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -221,6 +192,17 @@ def _git_blob(commit: str, relative: str) -> bytes:
     strong as a fresh call would be. Exceptions are not cached (Python's
     lru_cache never caches a raise), so a fail-closed rejection is never
     memoized into a false pass.
+
+    Two assumptions this relies on, spelled out: (1) `maxsize=None` means
+    this dict grows by one entry per distinct (commit, relative) pair seen
+    in the process's lifetime -- unbounded in principle, but bounded in
+    practice by the record chain's size at the time of one `run()`
+    invocation (a few dozen today, growing by ~2/day) and discarded the
+    moment the process exits; it is never written to disk and never
+    accumulates across runs. (2) it is safe ONLY because this module never
+    commits or otherwise moves HEAD mid-process -- if that ever changed,
+    a call made after such a move could hit a value computed against a
+    now-stale HEAD.
     """
     if not isinstance(commit, str) or FULL_SHA_RE.fullmatch(commit) is None:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_MUST_BE_FULL_SHA")
@@ -404,9 +386,19 @@ def _exact_validator_payload_patterns(unified: dict) -> tuple[str, ...]:
 
 
 def _materialize_exact_commit(
-    commit: str, checkout: Path, payload_patterns: tuple[str, ...] = ()
+    commit: str, checkout: Path, payload_patterns: tuple[str, ...] = (),
+    *, worktree_exists: bool = False,
 ) -> None:
-    """Create a lightweight exact-code checkout with local Git provenance.
+    """Create a lightweight exact-code checkout with local Git provenance,
+    or -- when `worktree_exists` is True -- repoint an ALREADY-CREATED
+    worktree at `checkout` to a different `commit`/`payload_patterns`
+    without a new `git worktree add`.
+
+    Repointing does exactly the same `sparse-checkout set` +
+    `checkout --detach` + HEAD/clean verification a fresh worktree does; it
+    only skips the (comparatively expensive, and here redundant) worktree
+    creation itself. Every other check in this function runs unconditionally
+    on every call, whether or not the worktree already existed.
 
     The prior implementation fetched and checked out every ``data/`` and
     ``evidence/`` blob for every historical record.  A linked worktree keeps
@@ -432,11 +424,13 @@ def _materialize_exact_commit(
         *EXACT_VALIDATOR_SPARSE_PATTERNS,
         *(_literal_sparse_pattern(path) for path in payload_patterns),
     )
+    worktree_add_command = [
+        "git", "worktree", "add", "--quiet", "--detach", "--no-checkout",
+        str(checkout), commit,
+    ]
     commands = (
-        [
-            "git", "worktree", "add", "--quiet", "--detach", "--no-checkout",
-            str(checkout), commit,
-        ],
+        (worktree_add_command,) if not worktree_exists else ()
+    ) + (
         [
             "git", "-C", str(checkout), "sparse-checkout", "set", "--no-cone",
             *sparse_patterns,
@@ -502,8 +496,49 @@ def _remove_exact_commit(checkout: Path) -> None:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_CHECKOUT_CLEANUP_FAILED")
 
 
+# CIO 2026-09-18/19: `load_history()` re-validates the ENTIRE committed
+# record chain on every publish, and each historical record's
+# `_validate_daily_at_commit` call materialized its OWN one-shot
+# `git worktree add` ... `git worktree remove` pair -- 63 of them for one
+# `load_history()` pass over today's 42 records, unbounded as the chain
+# grows by roughly two records a day.
+#
+# An earlier version of this fix cached the *verdict* ("this
+# (commit, relative, blob_sha256) already passed") in a committed,
+# content-addressed file. Independent review correctly rejected that: the
+# cache file authenticated only itself (no MAC, no producing-run id, no
+# reference to what validator ran), so anything able to write that
+# directory -- including, demonstrably, an existing unit test that never
+# patched the cache root -- could mint a fabricated "passed" verdict and
+# have every future publish trust it without ever re-deriving anything. A
+# verdict cache cannot be made safe without re-deriving on every hit
+# exactly what a miss derives, at which point it saves nothing.
+#
+# This module therefore caches no verdict. Instead, `load_history()` opens
+# ONE shared worktree (`_shared_exact_checkout_scope` below) for its entire
+# pass over the record chain; `_exact_commit_checkout` reuses it across
+# every record instead of creating and destroying a new one each time. The
+# same worktree is simply repointed at each record's own commit via
+# `sparse-checkout set` + `checkout --detach`. Every check this module
+# performs -- blob fetch/ancestry, packet self-consistency, and the
+# historical commit's own `unified_decision_contract.py` validator run --
+# still executes in full, for every record, on every run. Nothing is
+# skipped and nothing is trusted from a prior process; only the repeated
+# `git worktree add`/`remove` lifecycle overhead is removed.
+_SHARED_EXACT_CHECKOUT: dict[str, object] = {"path": None, "created": False}
+
+
 @contextlib.contextmanager
 def _exact_commit_checkout(commit: str, payload_patterns: tuple[str, ...]):
+    shared_path = _SHARED_EXACT_CHECKOUT["path"]
+    if shared_path is not None:
+        _materialize_exact_commit(
+            commit, shared_path, payload_patterns,
+            worktree_exists=bool(_SHARED_EXACT_CHECKOUT["created"]),
+        )
+        _SHARED_EXACT_CHECKOUT["created"] = True
+        yield shared_path
+        return
     with tempfile.TemporaryDirectory(prefix="atlas-exact-source-") as temporary:
         checkout = Path(temporary) / "repo"
         try:
@@ -514,89 +549,36 @@ def _exact_commit_checkout(commit: str, payload_patterns: tuple[str, ...]):
                 _remove_exact_commit(checkout)
 
 
-def _daily_checkout_cache_key(commit: str, relative: str, blob_sha256: str) -> str:
-    """Same (commit, relative, blob_sha256) identity as the in-memory
-    ``functools.lru_cache`` on `_validate_daily_at_commit` -- the exact and
-    complete input that function's expensive worktree-checkout step depends
-    on. Hashed only to obtain a safe, fixed-length filename component."""
-    return hashlib.sha256(
-        canonical_json([commit, relative, blob_sha256]).encode("utf-8")
-    ).hexdigest()
+@contextlib.contextmanager
+def _shared_exact_checkout_scope():
+    """Open ONE shared worktree for every `_exact_commit_checkout` call
+    made anywhere in this process for the duration of this `with` block
+    (used by `load_history()` to cover its whole record-chain pass).
 
-
-def _daily_checkout_already_validated(
-    commit: str, relative: str, blob_sha256: str,
-    *, cache_root: Path | None = None,
-) -> bool:
-    """True only if this exact (commit, relative, blob_sha256) triple's
-    exact-source-commit worktree checkout and validator run were already
-    durably recorded as having passed. A missing, unreadable, or
-    content-mismatched cache entry is always a miss -- this can only ever
-    cause extra (harmless) work, never a false pass.
-
-    `cache_root` defaults dynamically (looked up at call time, not baked in
-    as a bound default) so a test can patch the module-level
-    `VALIDATED_DAILY_CHECKOUT_CACHE_ROOT` and have every caller -- including
-    ones like `_validate_daily_at_commit` that never pass this parameter --
-    observe the patched location."""
-    if cache_root is None:
-        cache_root = VALIDATED_DAILY_CHECKOUT_CACHE_ROOT
-    path = cache_root / f"{_daily_checkout_cache_key(commit, relative, blob_sha256)}.json"
-    try:
-        entry = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    return (
-        isinstance(entry, dict)
-        and entry.get("schema_version") == "decision_change_lineage_daily_checkout_cache/1"
-        and entry.get("commit") == commit
-        and entry.get("relative") == relative
-        and entry.get("blob_sha256") == blob_sha256
-    )
-
-
-def _record_daily_checkout_validated(
-    commit: str, relative: str, blob_sha256: str,
-    *, cache_root: Path | None = None,
-) -> None:
-    """Durably record that (commit, relative, blob_sha256) already passed
-    the expensive exact-source-commit checkout+validator step, so a later
-    process (a later day's publish) can skip redoing it. Written the same
-    atomic-replace way as `write_record` uses for lineage records.
-
-    See `_daily_checkout_already_validated` for why `cache_root` resolves
-    dynamically instead of as a bound default."""
-    if cache_root is None:
-        cache_root = VALIDATED_DAILY_CHECKOUT_CACHE_ROOT
-    cache_root.mkdir(parents=True, exist_ok=True)
-    key = _daily_checkout_cache_key(commit, relative, blob_sha256)
-    path = cache_root / f"{key}.json"
-    entry = {
-        "schema_version": "decision_change_lineage_daily_checkout_cache/1",
-        "commit": commit,
-        "relative": relative,
-        "blob_sha256": blob_sha256,
-    }
-    encoded = (json.dumps(entry, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    if path.exists():
-        if path.read_bytes() != encoded:
-            raise OperationalDecisionLineageError(
-                "DAILY_CHECKOUT_CACHE_COLLISION"
-            )
-        return
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(cache_root))
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(encoded)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    except Exception:
+    Exception-safe: whether the loop inside completes, raises partway
+    through, or never requests a single checkout, the worktree this scope
+    created (if any) is always removed on the way out (`finally`), and the
+    scope's shared-state flag is always cleared so a later, unrelated call
+    to `_exact_commit_checkout` cannot mistake a torn-down scope for an
+    active one. The worktree itself lives under a fresh
+    `tempfile.TemporaryDirectory`, well outside this repository's own
+    working tree, so a failure here can never leave a detached checkout
+    that a later step could mistake for repository state.
+    """
+    if _SHARED_EXACT_CHECKOUT["path"] is not None:
+        raise OperationalDecisionLineageError("SHARED_EXACT_CHECKOUT_ALREADY_ACTIVE")
+    with tempfile.TemporaryDirectory(prefix="atlas-exact-source-shared-") as temporary:
+        checkout = Path(temporary) / "repo"
+        _SHARED_EXACT_CHECKOUT["path"] = checkout
+        _SHARED_EXACT_CHECKOUT["created"] = False
         try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
-        raise
+            yield
+        finally:
+            created = bool(_SHARED_EXACT_CHECKOUT["created"])
+            _SHARED_EXACT_CHECKOUT["path"] = None
+            _SHARED_EXACT_CHECKOUT["created"] = False
+            if created and checkout.exists():
+                _remove_exact_commit(checkout)
 
 
 @functools.lru_cache(maxsize=16)
@@ -646,16 +628,6 @@ def _validate_daily_at_commit(commit: str, relative: str, blob_sha256: str) -> d
         raise OperationalDecisionLineageError(
             "DAILY_COMPONENT_NOT_VALIDATED:UNIFIED_DECISION"
         )
-    if _daily_checkout_already_validated(commit, relative, blob_sha256):
-        # This exact (commit, relative, blob_sha256) triple already passed
-        # the block below in a prior process (a prior day's publish, or the
-        # backfill that accompanied this cache). Every check above this
-        # point -- blob fetch/ancestry via `_git_blob`, the packet's own
-        # hash self-consistency, and its structural shape -- still ran fresh
-        # just now; only the worktree checkout + that historical commit's
-        # own validator subprocess, whose result cannot differ for the same
-        # input, is skipped.
-        return value
     with _exact_commit_checkout(
         commit, _exact_validator_payload_patterns(unified)
     ) as checkout:
@@ -686,7 +658,6 @@ module.validate_packet(json.load(sys.stdin))
             raise OperationalDecisionLineageError(
                 f"UNIFIED_DECISION_INVALID_AT_SOURCE_COMMIT:{completed.stdout.strip()}"
             )
-    _record_daily_checkout_validated(commit, relative, blob_sha256)
     return value
 
 
@@ -850,7 +821,12 @@ def load_history(root: Path = RECORD_ROOT) -> list[dict]:
     root = Path(root)
     if not root.exists():
         return []
-    rows = [validate_record(_read_json(path)) for path in sorted(root.glob("record-*.json"))]
+    # One shared worktree for this entire pass instead of one per record
+    # (see the comment above `_exact_commit_checkout`) -- every check below
+    # still runs, in full, for every record; only the repeated
+    # `git worktree add`/`remove` lifecycle is amortized across the pass.
+    with _shared_exact_checkout_scope():
+        rows = [validate_record(_read_json(path)) for path in sorted(root.glob("record-*.json"))]
     rows.sort(key=lambda row: row["recorded_at"])
     previous_sha = None
     for index, row in enumerate(rows):
@@ -993,17 +969,6 @@ def run(briefing_path: Path, source_commit: str, recorded_at: str, root: Path = 
         print(f"record_created={'true' if created else 'false'}")
         print(f"record_sha256={record['record_sha256']}")
         print(f"change_type={record['lineage_packet']['entries'][0]['change_type']}")
-        # The exact-source-commit checkout cache is a plain directory (not a
-        # single content-addressed file the caller already knows), and only
-        # this run knows whether it just grew a new entry -- surface its
-        # path so the workflow can commit alongside the record. Printed even
-        # when nothing changed under it (a stable path is always safe to
-        # `git add`; `git commit` is a no-op if nothing is actually new).
-        if VALIDATED_DAILY_CHECKOUT_CACHE_ROOT.is_relative_to(ROOT):
-            print(
-                "daily_checkout_cache_path="
-                f"{VALIDATED_DAILY_CHECKOUT_CACHE_ROOT.relative_to(ROOT)}"
-            )
         return 0
     except (OperationalDecisionLineageError, OSError, TypeError, ValueError) as exc:
         print(f"Operational Decision lineage failed: {exc}")

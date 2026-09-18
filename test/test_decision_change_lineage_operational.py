@@ -77,6 +77,28 @@ HISTORICAL_RECORDS = sorted(
 )
 
 
+def adjacent_real_record_pair():
+    """Two REAL, already-committed records, genuinely adjacent in the
+    forward-only hash chain (the second's `previous_record_sha256` names
+    the first), with two DIFFERENT real `source_commit` values -- so a
+    test using them cannot pass merely because
+    `_validate_daily_at_commit`'s own in-memory `functools.lru_cache`
+    collapsed two calls for the SAME key into one. `HISTORICAL_RECORDS` is
+    filename (content-hash) order, not chain order, so this walks actual
+    `previous_record_sha256` links rather than trusting list position."""
+    by_sha = {
+        row["record_sha256"]: row
+        for row in (
+            json.loads(path.read_text(encoding="utf-8")) for path in HISTORICAL_RECORDS
+        )
+    }
+    genesis = next(row for row in by_sha.values() if row["previous_record_sha256"] is None)
+    successor = next(
+        row for row in by_sha.values() if row["previous_record_sha256"] == genesis["record_sha256"]
+    )
+    return genesis, successor
+
+
 def commit_for(path: Path) -> str:
     relative = path.relative_to(ROOT).as_posix()
     return subprocess.check_output(
@@ -251,56 +273,72 @@ class OperationalDecisionLineageTests(unittest.TestCase):
             validated = MODULE.validate_record(record)
         self.assertEqual(validated["record_sha256"], record["record_sha256"])
 
-    def test_daily_checkout_cache_avoids_repeat_worktree_materialization(self):
+    def test_load_history_reuses_one_worktree_across_all_records(self):
         """Pins the fix for `load_history()`'s O(records-ever-published)
-        growth: on every publish, it fully re-validates EVERY already-
-        published historical record, and the expensive step in that
-        validation is `_validate_daily_at_commit`'s exact-source-commit
-        worktree checkout (`_materialize_exact_commit`) -- previously redone,
-        unmemoized, for every historical record on every single run, growing
+        `git worktree add`/`remove` cost: it fully re-validates EVERY
+        already-published historical record on every single publish (by
+        design -- nothing is skipped or cached, see
+        `_shared_exact_checkout_scope`), but previously did that by
+        creating and destroying a brand-new worktree per record, growing
         without bound as the record chain grows by roughly two records a
         day. A wall-clock assertion here could pass by luck on a fast,
         otherwise-idle disk and silently regress on a slower or busier one;
-        counting calls to the actual worktree-materializing function cannot.
+        counting real `git worktree add` invocations cannot.
 
-        The durable, content-addressed checkout cache is the only thing
-        that can make a *second, independent process* (simulated below by
-        clearing the in-memory `functools.lru_cache` on
-        `_validate_daily_at_commit`, which cannot itself survive a real
-        process boundary) skip that call for a record it already fully
-        verified once."""
-        record = json.loads(HISTORICAL_RECORDS[-1].read_text(encoding="utf-8"))
+        Uses two REAL, genuinely different commits (not the same key
+        twice) so this cannot pass merely because
+        `_validate_daily_at_commit`'s own in-memory `functools.lru_cache`
+        already collapsed repeat calls for an identical key -- it must be
+        the shared-worktree reuse doing the work."""
+        genesis, successor = adjacent_real_record_pair()
+        self.assertNotEqual(genesis["source_commit"], successor["source_commit"])
         with tempfile.TemporaryDirectory() as temporary:
-            cache_root = Path(temporary) / "daily_checkout_cache"
-            with mock.patch.object(
-                MODULE, "VALIDATED_DAILY_CHECKOUT_CACHE_ROOT", cache_root
-            ), mock.patch.object(
-                MODULE, "_validate_daily_at_commit", side_effect=REAL_VALIDATE_DAILY_AT_COMMIT,
-            ), mock.patch.object(
-                MODULE, "_materialize_exact_commit",
-                side_effect=MODULE._materialize_exact_commit,
-            ) as materialize_spy:
-                REAL_VALIDATE_DAILY_AT_COMMIT.cache_clear()
-                MODULE.validate_record(record)
-                self.assertEqual(
-                    materialize_spy.call_count, 1,
-                    "first-ever validation of this record must still do the "
-                    "real exact-source-commit checkout",
-                )
+            root = Path(temporary)
+            (root / f"record-{genesis['record_sha256']}.json").write_text(
+                json.dumps(genesis, sort_keys=True), encoding="utf-8"
+            )
+            (root / f"record-{successor['record_sha256']}.json").write_text(
+                json.dumps(successor, sort_keys=True), encoding="utf-8"
+            )
 
-                # Simulate the SAME record being revalidated by a brand-new
-                # OS process on a later day: the in-memory lru_cache cannot
-                # have survived that process boundary, so drop it, but the
-                # durable cache directory (committed to git alongside the
-                # record) does.
+            real_run = MODULE.subprocess.run
+            worktree_add_calls = []
+
+            def spy(args, *a, **kw):
+                if isinstance(args, (list, tuple)) and list(args[:3]) == [
+                    "git", "worktree", "add",
+                ]:
+                    worktree_add_calls.append(list(args))
+                return real_run(args, *a, **kw)
+
+            with mock.patch.object(
+                MODULE, "_validate_daily_at_commit", side_effect=REAL_VALIDATE_DAILY_AT_COMMIT,
+            ), mock.patch.object(MODULE.subprocess, "run", side_effect=spy):
                 REAL_VALIDATE_DAILY_AT_COMMIT.cache_clear()
-                materialize_spy.reset_mock()
-                MODULE.validate_record(record)
-                self.assertEqual(
-                    materialize_spy.call_count, 0,
-                    "a record already fully verified in a prior process must "
-                    "not repeat the exact-source-commit worktree checkout",
-                )
+                history = MODULE.load_history(root)
+
+        self.assertEqual(len(history), 2)
+        self.assertEqual(
+            len(worktree_add_calls), 1,
+            "load_history() must materialize exactly one shared worktree for "
+            "its entire pass over the record chain, not one per record",
+        )
+
+    def test_shared_checkout_scope_removes_worktree_on_mid_pass_failure(self):
+        """A failure partway through `load_history()`'s pass must still
+        remove the shared worktree (try/finally), and must leave no
+        active shared-scope state behind for an unrelated later call to
+        mistakenly reuse or mistake for repository state."""
+        class _Boom(Exception):
+            pass
+
+        with self.assertRaises(_Boom):
+            with MODULE._shared_exact_checkout_scope():
+                with MODULE._exact_commit_checkout(SOURCE_COMMIT, ()) as checkout:
+                    self.assertTrue(Path(checkout).exists())
+                    raise _Boom()
+        self.assertIsNone(MODULE._SHARED_EXACT_CHECKOUT["path"])
+        self.assertFalse(MODULE._SHARED_EXACT_CHECKOUT["created"])
 
     def test_snapshot_source_ref_is_exact_repo_commit_path_only(self):
         with self.assertRaisesRegex(
