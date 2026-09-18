@@ -2841,7 +2841,22 @@ APPROVED_TESTS = [
     #   anchor refuses. Both benchmark variants (EXPOSURE_MATCHED comparable
     #   with the account's total NAV, ASSET_ONLY the sleeve alone) are emitted
     #   and NEITHER is a verdict -- which one binds the stop rules is
-    #   RATIFICATION_VARIANT_BINDING. Fee rate and entry slippage come off the
+    #   RATIFICATION_VARIANT_BINDING. CIO decision 2026-09-18 (option c, card
+    #   CLAUDE_CIO_DECISION_BENCHMARK_NOTIONAL_BASIS_20260918.md): both notional
+    #   bases are emitted from ONE anchor, so four named series --
+    #   {FLAT_BASE_SHARE, MULTIPLIER_MATCHED} x {EXPOSURE_MATCHED, ASSET_ONLY}.
+    #   The intended mapping (rule 1 -> flat, rule 5 -> multiplier-matched) is
+    #   recorded as declared_stop_rule_binding = DECLARED_UNRATIFIED in the
+    #   policy and copied into every anchor and series record, so it cannot be
+    #   chosen at day 30 to suit the result, and no verdict is computed off it.
+    #   The market state at the anchoring fill enters through exactly ONE named
+    #   function (read_market_state) with a documented contract and NO path of
+    #   this module's own -- the state-multiplier wiring has not settled on an
+    #   artifact yet (RATIFICATION_MARKET_STATE_SOURCE_BINDING). UNKNOWN at the
+    #   anchoring fill refuses outright rather than taking 0.50 from its ratified
+    #   sentence; RISK_OFF/STRESS refuse as states that deny new buys; an absent,
+    #   future or stale state (beyond the ratified crypto observation gap) refuses
+    #   rather than assuming RISK_ON. Fee rate and entry slippage come off the
     #   account's own first fill (the simulator has no repository default for
     #   fee); no cost constant is invented here. Fail closed: a missing mark
     #   at a sample, an off-grid mark, a gap wider than the ratified rotation

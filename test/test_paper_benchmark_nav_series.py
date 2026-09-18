@@ -173,8 +173,31 @@ def witness(*, observed_at=None, available_at=None, market="KRW-BTC",
     )
 
 
+def market_state(*, state="RISK_ON", multiplier=None, observed_at=None,
+                 available_at=None):
+    """A market-state observation in read_market_state's documented contract.
+
+    No path is bound in the module (RATIFICATION_MARKET_STATE_SOURCE_BINDING),
+    so the fixture supplies the shape the real wiring will have to hand over.
+    """
+    table = PARAMS["state_multipliers"]
+    return {
+        "state": state,
+        "multiplier": table.get(state, "1.00") if multiplier is None else multiplier,
+        "observed_at": observed_at or "2026-10-08T07:00:00Z",
+        "available_at": available_at or "2026-10-08T07:02:00Z",
+        "source_ref": "test://market-state/crypto",
+        "source_sha256": "e" * 64,
+        "source_schema_version": "test_market_state/1",
+    }
+
+
+_DEFAULT = object()
+
+
 def anchor(*, recorded_at_utc="2026-10-08T07:10:00Z", observations=None,
-           ledger=None, clock_witness=None, pin=None, store=None, now=None):
+           ledger=None, clock_witness=None, pin=None, store=None, now=None,
+           state=_DEFAULT):
     """Derive an anchor over an authenticated ledger. Uses its own temp store
     unless one is supplied, so each call is independent."""
     value = filled_ledger() if ledger is None else ledger
@@ -193,6 +216,9 @@ def anchor(*, recorded_at_utc="2026-10-08T07:10:00Z", observations=None,
             recorded_at_utc=recorded_at_utc,
             clock_witness=clock_witness if clock_witness is not None
             else witness(recorded_at=recorded_at_utc),
+            market_state_observation=(
+                market_state() if state is _DEFAULT else state
+            ),
             policy=POLICY,
             params=PARAMS,
             now=now if now is not None else FAR_FUTURE,
@@ -274,7 +300,9 @@ class PolicyTest(unittest.TestCase):
         definition = POLICY["benchmark_definition"]
         self.assertIn("EQUAL_WEIGHT_SAME_CANDIDATES",
                       definition["rejected_alternative"]["alternative"])
-        self.assertEqual(definition["variant_binding"].split()[0], "NOT_DEFINED")
+        self.assertEqual(
+            definition["variant_binding"].split()[0], "DECLARED_UNRATIFIED"
+        )
         ids = {row["id"] for row in POLICY["ratification_required"]}
         self.assertIn("RATIFICATION_BENCHMARK_DEFINITION", ids)
         self.assertIn("RATIFICATION_VARIANT_BINDING", ids)
@@ -333,22 +361,23 @@ class AnchorDerivationTest(unittest.TestCase):
         self.assertEqual(value["benchmark_asset"], "KRW-BTC")
         self.assertEqual(value["nav0_krw"], NAV0)
         # 200,000,000 x the ratified crypto base share 0.15
-        self.assertEqual(value["notional_krw"], "30000000")
+        flat = value["notionals"]["FLAT_BASE_SHARE"]
+        self.assertEqual(flat["notional_krw"], "30000000")
         self.assertEqual(value["cost_model"]["fee_rate"], FEE_RATE)
         # The fill consumed one ask level at 300000 versus a best price of
         # 300000, so realized slippage is exactly 0 and the effective entry
         # price is the anchor price itself.
         self.assertEqual(value["cost_model"]["entry_slippage_bps"], "0")
         self.assertEqual(value["effective_entry_price"], ANCHOR_PRICE)
-        units = Decimal(value["units"])
+        units = Decimal(flat["units"])
         expected_units = (
             Decimal("30000000") / (Decimal(ANCHOR_PRICE) * (Decimal(1) + Decimal(FEE_RATE)))
         )
         self.assertLessEqual(units, expected_units)
-        self.assertLessEqual(Decimal(value["anchor_cash_spent_krw"]), Decimal("30000000"))
+        self.assertLessEqual(Decimal(flat["anchor_cash_spent_krw"]), Decimal("30000000"))
         self.assertEqual(
-            Decimal(value["anchor_cash_spent_krw"])
-            + Decimal(value["anchor_residual_cash_krw"]),
+            Decimal(flat["anchor_cash_spent_krw"])
+            + Decimal(flat["anchor_residual_cash_krw"]),
             Decimal("30000000"),
         )
         self.assertEqual(value["packet_sha256"], MODULE.payload_sha256(
@@ -369,6 +398,7 @@ class AnchorDerivationTest(unittest.TestCase):
                     price_observations=[price_observation()],
                     recorded_at_utc="2026-10-08T07:10:00Z",
                     clock_witness=witness(),
+                    market_state_observation=market_state(),
                     anchor_utc="2026-10-01T07:05:00Z",
                     policy=POLICY,
                     params=PARAMS,
@@ -568,8 +598,8 @@ class SeriesTest(unittest.TestCase):
     def test_both_variants_are_emitted_and_neither_is_a_verdict(self):
         with tempfile.TemporaryDirectory() as tmp:
             record = series(tmp)
-        self.assertEqual(set(record["variants"]), set(MODULE.VARIANTS))
-        for name in MODULE.VARIANTS:
+        self.assertEqual(set(record["variants"]), set(MODULE.SERIES_NAMES))
+        for name in MODULE.SERIES_NAMES:
             self.assertEqual(
                 record["comparison"][name]["verdict"],
                 "NOT_EMITTED_RATIFICATION_REQUIRED",
@@ -581,8 +611,8 @@ class SeriesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             record = series(tmp, navs=("200000000", "200000000"),
                             prices=(ANCHOR_PRICE, "176000000"))
-        asset = record["variants"]["ASSET_ONLY"]
-        exposure = record["variants"]["EXPOSURE_MATCHED"]
+        asset = record["variants"]["FLAT_BASE_SHARE__ASSET_ONLY"]
+        exposure = record["variants"]["FLAT_BASE_SHARE__EXPOSURE_MATCHED"]
         # BTC +10%: the sleeve is up ~10% less the entry cost drag.
         self.assertLess(Decimal(asset["final_return_fraction"]), Decimal("0.1"))
         self.assertGreater(Decimal(asset["final_return_fraction"]), Decimal("0.099"))
@@ -590,7 +620,7 @@ class SeriesTest(unittest.TestCase):
         self.assertLess(Decimal(exposure["final_return_fraction"]), Decimal("0.015"))
         self.assertGreater(Decimal(exposure["final_return_fraction"]), Decimal("0.0149"))
         # The account did nothing, so rule 1's input is negative on both.
-        for name in MODULE.VARIANTS:
+        for name in MODULE.SERIES_NAMES:
             rule1 = record["comparison"][name]["stop_rule_1_inputs"]
             self.assertEqual(rule1["paper_final_return_fraction"], "0")
             self.assertLess(
@@ -605,14 +635,14 @@ class SeriesTest(unittest.TestCase):
                 prices=(ANCHOR_PRICE, "128000000", "144000000"),
                 generated_at="2026-10-11T08:00:00Z",
             )
-        asset = record["variants"]["ASSET_ONLY"]
+        asset = record["variants"]["FLAT_BASE_SHARE__ASSET_ONLY"]
         # BTC -20% then back to -10%: trough at sample 2, peak at sample 1.
         self.assertEqual(asset["max_drawdown_peak_at"], "2026-10-08T07:05:00Z")
         self.assertEqual(asset["max_drawdown_trough_at"], "2026-10-09T07:05:00Z")
         self.assertLess(Decimal(asset["max_drawdown_fraction"]), Decimal("-0.19"))
         paper = record["paper_account"]
         self.assertEqual(paper["max_drawdown_fraction"], "-0.05")
-        rule5 = record["comparison"]["ASSET_ONLY"]["stop_rule_5_inputs"]
+        rule5 = record["comparison"]["FLAT_BASE_SHARE__ASSET_ONLY"]["stop_rule_5_inputs"]
         self.assertEqual(rule5["paper_max_drawdown_fraction"], "-0.05")
         # The account fell less than holding, so the difference is positive.
         self.assertGreater(
@@ -641,7 +671,7 @@ class SeriesTest(unittest.TestCase):
         )
         reused = counterfactual._drawdown_metrics(rows)
         expected = Decimal(
-            record["variants"]["EXPOSURE_MATCHED"]["max_drawdown_fraction"]
+            record["variants"]["FLAT_BASE_SHARE__EXPOSURE_MATCHED"]["max_drawdown_fraction"]
         ) * Decimal("100")
         self.assertEqual(
             Decimal(reused["max_drawdown_pct"]).quantize(Decimal("0.0001")),
@@ -810,7 +840,8 @@ class SeriesTest(unittest.TestCase):
         ))
         self.assertEqual(first["authority"], MODULE.AUTHORITY)
         self.assertEqual(
-            first["nav_series_for_counterfactual_variant"], "EXPOSURE_MATCHED"
+            first["nav_series_for_counterfactual_variant"],
+            "FLAT_BASE_SHARE__EXPOSURE_MATCHED"
         )
 
 
@@ -832,6 +863,7 @@ class CliTest(unittest.TestCase):
                 "ledger_genesis_pin": genesis_pin(ledger),
                 "price_observations": [price_observation()],
                 "clock_witness": witness(),
+                "market_state_observation": market_state(),
                 "recorded_at_utc": "2026-10-08T07:10:00Z",
             }, ensure_ascii=False))
             anchor_store = root / "store"
@@ -892,8 +924,8 @@ class LedgerProvenanceTest(unittest.TestCase):
                 market="CRYPTO", verified_ledger=forged,
                 price_observations=[price_observation()],
                 recorded_at_utc="2026-10-08T07:10:00Z",
-                clock_witness=witness(), policy=POLICY, params=PARAMS,
-                now=FAR_FUTURE,
+                clock_witness=witness(), market_state_observation=market_state(),
+                policy=POLICY, params=PARAMS, now=FAR_FUTURE,
             )
 
     def test_an_unpublished_ledger_cannot_be_authenticated(self):
@@ -1098,6 +1130,265 @@ class PointerDeletionTest(unittest.TestCase):
                     Path(tmp), "CRYPTO", first["ledger_id"],
                     trusted_anchor_sha256=first["packet_sha256"],
                 )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Option (c): both notional bases from one anchor, the declared-but-unratified
+# binding, and the market-state gates. Each of these fails before the change.
+# ─────────────────────────────────────────────────────────────────────────
+
+class MarketStateAtAnchorTest(unittest.TestCase):
+    def test_unknown_state_refuses_to_anchor_and_never_takes_0_50(self):
+        # The ratified UNKNOWN multiplier is a sentence, not a number.
+        self.assertEqual(
+            PARAMS["state_multipliers"]["UNKNOWN"],
+            "hold_current_up_to_0.50_no_new_buys",
+        )
+        self.assertEqual(PARAMS["new_buys_by_state"]["UNKNOWN"], "DENY")
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError,
+            "ANCHOR_MARKET_STATE_UNKNOWN_REFUSED",
+        ):
+            anchor(state=market_state(state="UNKNOWN", multiplier="0.50"))
+
+    def test_states_that_deny_new_buys_cannot_be_the_state_of_a_first_fill(self):
+        for state in ("RISK_OFF", "STRESS"):
+            self.assertEqual(PARAMS["new_buys_by_state"][state], "DENY")
+            with self.assertRaisesRegex(
+                MODULE.PaperBenchmarkNavSeriesError,
+                f"ANCHOR_MARKET_STATE_FORBIDS_NEW_BUYS:{state}",
+            ):
+                anchor(state=market_state(state=state))
+
+    def test_neutral_anchors_and_is_sized_at_the_ratified_multiplier(self):
+        value = anchor(state=market_state(state="NEUTRAL"))
+        self.assertEqual(value["market_state"]["state"], "NEUTRAL")
+        self.assertEqual(value["market_state"]["multiplier"], "0.7")
+        self.assertEqual(
+            value["notionals"]["FLAT_BASE_SHARE"]["notional_krw"], "30000000"
+        )
+        # 0.15 x 0.70 = 0.105 of NAV0
+        self.assertEqual(
+            value["notionals"]["MULTIPLIER_MATCHED"]["notional_krw"], "21000000"
+        )
+        self.assertFalse(value["notional_bases_identical"])
+
+    def test_risk_on_makes_the_two_bases_identical_and_says_so(self):
+        value = anchor(state=market_state(state="RISK_ON"))
+        self.assertEqual(
+            value["notionals"]["FLAT_BASE_SHARE"]["units"],
+            value["notionals"]["MULTIPLIER_MATCHED"]["units"],
+        )
+        self.assertTrue(value["notional_bases_identical"])
+
+    def test_an_absent_market_state_refuses_rather_than_assuming_risk_on(self):
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_MARKET_STATE_UNAVAILABLE"
+        ):
+            anchor(state=None)
+        # Explicitly: passing None does not fall back to RISK_ON.
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_MARKET_STATE_FIELDS_MISMATCH"
+        ):
+            partial = market_state()
+            partial.pop("source_sha256")
+            anchor(state=partial)
+
+    def test_a_state_staler_than_the_ratified_crypto_gap_refuses(self):
+        # The bound is the ratified rotation observation gap: crypto 2 days.
+        self.assertEqual(PARAMS["market_state_max_staleness_seconds"], 2 * 86400)
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_MARKET_STATE_STALE"
+        ):
+            anchor(state=market_state(
+                observed_at="2026-10-05T07:00:00Z",
+                available_at="2026-10-05T07:02:00Z",
+            ))
+
+    def test_a_state_readable_only_after_the_record_time_refuses(self):
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_MARKET_STATE_FROM_FUTURE"
+        ):
+            anchor(state=market_state(
+                observed_at="2026-10-08T07:06:00Z",
+                available_at="2026-10-08T07:40:00Z",
+            ))
+
+    def test_a_multiplier_that_is_not_the_ratified_one_refuses(self):
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError,
+            "ANCHOR_MARKET_STATE_MULTIPLIER_NOT_RATIFIED:NEUTRAL",
+        ):
+            anchor(state=market_state(state="NEUTRAL", multiplier="1.00"))
+
+    def test_an_unratified_state_name_refuses(self):
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_MARKET_STATE_NOT_RATIFIED"
+        ):
+            anchor(state=market_state(state="BULLISH", multiplier="1.00"))
+
+    def test_the_anchor_records_the_state_source_as_unbound(self):
+        value = anchor()
+        self.assertEqual(
+            value["market_state"]["source_binding"],
+            "NOT_BOUND_RATIFICATION_MARKET_STATE_SOURCE_BINDING",
+        )
+        self.assertEqual(
+            value["market_state"]["observation"]["source_schema_version"],
+            "test_market_state/1",
+        )
+        self.assertIn(
+            "RATIFICATION_MARKET_STATE_SOURCE_BINDING", value["ratification_required"]
+        )
+
+    def test_the_state_source_is_read_through_exactly_one_function(self):
+        # No path of this module's own: the only way state enters is the
+        # documented contract of read_market_state.
+        source = SOURCE.read_text()
+        self.assertEqual(source.count("def read_market_state("), 1)
+        # The candidate artifact is named once, in that function's documented
+        # contract, and nowhere else -- and the module builds no data path.
+        self.assertEqual(source.count("latest_paper_regime_reference"), 1)
+        for forbidden in ('ROOT / "data"', "Path(\"data", "read_text()"):
+            self.assertNotIn(forbidden, source, forbidden)
+
+
+class DeclaredBindingTest(unittest.TestCase):
+    def test_the_policy_declares_the_binding_without_authorizing_a_verdict(self):
+        binding = POLICY["declared_stop_rule_binding"]
+        self.assertEqual(binding["status"], "DECLARED_UNRATIFIED")
+        self.assertIs(binding["verdict_authorized"], False)
+        self.assertEqual(
+            binding["CHECKPOINT_B_STOP_RULE_1"]["series"],
+            "FLAT_BASE_SHARE__EXPOSURE_MATCHED",
+        )
+        self.assertEqual(
+            binding["CHECKPOINT_B_STOP_RULE_5"]["series"],
+            "MULTIPLIER_MATCHED__EXPOSURE_MATCHED",
+        )
+        ids = {row["id"] for row in POLICY["ratification_required"]}
+        self.assertIn("RATIFICATION_NOTIONAL_STATE_MULTIPLIER", ids)
+
+    def test_the_binding_is_recorded_from_the_anchor_onward(self):
+        value = anchor()
+        self.assertEqual(
+            value["declared_stop_rule_binding"], POLICY["declared_stop_rule_binding"]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            record = series(tmp, value=value)
+        self.assertEqual(
+            record["declared_stop_rule_binding"], POLICY["declared_stop_rule_binding"]
+        )
+        self.assertEqual(
+            record["comparison"]["FLAT_BASE_SHARE__EXPOSURE_MATCHED"][
+                "declared_binding_for"
+            ],
+            ["CHECKPOINT_B_STOP_RULE_1"],
+        )
+        self.assertEqual(
+            record["comparison"]["MULTIPLIER_MATCHED__EXPOSURE_MATCHED"][
+                "declared_binding_for"
+            ],
+            ["CHECKPOINT_B_STOP_RULE_5"],
+        )
+        self.assertEqual(
+            record["comparison"]["FLAT_BASE_SHARE__ASSET_ONLY"][
+                "declared_binding_for"
+            ],
+            [],
+        )
+
+    def test_an_anchor_missing_the_binding_fails_validation(self):
+        broken = copy.deepcopy(anchor())
+        broken.pop("declared_stop_rule_binding")
+        broken = MODULE._with_packet_sha(broken)
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError, "ANCHOR_DECLARED_BINDING_INVALID"
+        ):
+            MODULE.validate_anchor(broken)
+
+    def test_a_rewritten_binding_fails_validation(self):
+        broken = copy.deepcopy(anchor())
+        broken["declared_stop_rule_binding"]["CHECKPOINT_B_STOP_RULE_5"]["series"] = (
+            "FLAT_BASE_SHARE__EXPOSURE_MATCHED"
+        )
+        broken = MODULE._with_packet_sha(broken)
+        with self.assertRaisesRegex(
+            MODULE.PaperBenchmarkNavSeriesError,
+            "ANCHOR_DECLARED_BINDING_SERIES_MISMATCH:CHECKPOINT_B_STOP_RULE_5",
+        ):
+            MODULE.validate_anchor(broken)
+
+
+class OneAnchorTwoBasesTest(unittest.TestCase):
+    def test_all_four_series_come_from_one_anchor_and_one_genesis_pin(self):
+        value = anchor(state=market_state(state="NEUTRAL"))
+        with tempfile.TemporaryDirectory() as tmp:
+            record = series(tmp, value=value)
+        self.assertEqual(set(record["variants"]), set(MODULE.SERIES_NAMES))
+        # One anchor digest, one anchor instant, one cost model for all four.
+        self.assertEqual(record["anchor_sha256"], value["packet_sha256"])
+        self.assertEqual(record["anchor_utc"], value["anchor_utc"])
+        for name, row in record["variants"].items():
+            self.assertEqual(
+                row["notional_basis_detail"],
+                value["notionals"][row["notional_basis"]],
+            )
+            self.assertEqual(name, f"{row['notional_basis']}__{row['marking']}")
+        self.assertEqual(
+            record["market_state_at_anchor"]["state"], "NEUTRAL"
+        )
+
+    def test_the_two_bases_differ_in_exposure_but_agree_on_the_sleeve(self):
+        value = anchor(state=market_state(state="NEUTRAL"))
+        with tempfile.TemporaryDirectory() as tmp:
+            record = series(
+                tmp, value=value, navs=("200000000", "200000000"),
+                prices=(ANCHOR_PRICE, "176000000"),
+            )
+        flat = record["variants"]["FLAT_BASE_SHARE__EXPOSURE_MATCHED"]
+        matched = record["variants"]["MULTIPLIER_MATCHED__EXPOSURE_MATCHED"]
+        # BTC +10%: 15% of NAV0 gains ~1.5%, 10.5% of NAV0 gains ~1.05%.
+        self.assertGreater(
+            Decimal(flat["final_return_fraction"]),
+            Decimal(matched["final_return_fraction"]),
+        )
+        # The sleeve return is the same asset either way, so the two ASSET_ONLY
+        # curves agree to within floor rounding.
+        a = Decimal(record["variants"]["FLAT_BASE_SHARE__ASSET_ONLY"][
+            "final_return_fraction"])
+        b = Decimal(record["variants"]["MULTIPLIER_MATCHED__ASSET_ONLY"][
+            "final_return_fraction"])
+        self.assertLess(abs(a - b), Decimal("0.000001"))
+
+    def test_rule_five_is_read_off_the_matched_curve_and_differs_from_flat(self):
+        value = anchor(state=market_state(state="NEUTRAL"))
+        with tempfile.TemporaryDirectory() as tmp:
+            record = series(
+                tmp, value=value,
+                navs=("200000000", "190000000", "195000000"),
+                prices=(ANCHOR_PRICE, "128000000", "144000000"),
+                generated_at="2026-10-11T08:00:00Z",
+            )
+        flat = record["comparison"]["FLAT_BASE_SHARE__EXPOSURE_MATCHED"][
+            "stop_rule_5_inputs"]
+        matched = record["comparison"]["MULTIPLIER_MATCHED__EXPOSURE_MATCHED"][
+            "stop_rule_5_inputs"]
+        # BTC -20%: the flat benchmark loses 3% of NAV, the matched one 2.1%.
+        # Reading rule 5 off the flat curve flatters the account by 0.9 points,
+        # which is exactly why the binding matters.
+        self.assertLess(
+            Decimal(flat["benchmark_max_drawdown_fraction"]),
+            Decimal(matched["benchmark_max_drawdown_fraction"]),
+        )
+        self.assertNotEqual(
+            flat["paper_minus_benchmark_max_drawdown_fraction"],
+            matched["paper_minus_benchmark_max_drawdown_fraction"],
+        )
+        self.assertEqual(
+            record["comparison"]["MULTIPLIER_MATCHED__EXPOSURE_MATCHED"]["verdict"],
+            "NOT_EMITTED_RATIFICATION_REQUIRED",
+        )
 
 
 if __name__ == "__main__":

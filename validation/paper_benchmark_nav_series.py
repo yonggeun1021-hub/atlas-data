@@ -46,10 +46,26 @@ The definition of "simply holding"
 ``config/paper_benchmark_nav_series_policy.json`` holds it, with its sources
 and the alternative that was rejected. In one line: at the account's first
 fill instant, buy the market's single benchmark asset (crypto: ``KRW-BTC``,
-because the card says 비트코인 보유) with the market's whole ratified base
-allocation of NAV0, pay the same fee rate and the same realized entry
-slippage the PAPER engine itself charged on that fill, and then never touch
-it again. The rejected alternative — equal-weighting the same candidates the
+because the card says 비트코인 보유) with the market's ratified base allocation
+of NAV0, pay the same fee rate and the same realized entry slippage the PAPER
+engine itself charged on that fill, and then never touch it again.
+
+Two notional bases, four series, one anchor
+-------------------------------------------
+The account's own crypto sleeve is ``NAV0 x 0.15 x state_multiplier``, so a flat
+base-share benchmark and an exposure-matched one answer different questions.
+Both are therefore emitted from the same anchor (``FLAT_BASE_SHARE`` and
+``MULTIPLIER_MATCHED``, each marked ``EXPOSURE_MATCHED`` and ``ASSET_ONLY``):
+the flat share is a yardstick that owes nothing to our own regime call, which is
+what makes stop rule 1 honest; the multiplier-matched one compares drawdowns at
+equal exposure, which is what makes stop rule 5 honest (on the flat share alone,
+rule 5 is nearly unfailable whenever the account entered below multiplier 1.00).
+The intended mapping lives in the policy's ``declared_stop_rule_binding`` as
+DECLARED_UNRATIFIED and is copied into every anchor and series record, so it is
+fixed before the first fill rather than chosen at day 30. A first fill can only
+happen in RISK_ON or NEUTRAL, so an UNKNOWN (or RISK_OFF / STRESS) state at the
+anchoring fill refuses outright -- UNKNOWN's ratified multiplier is a sentence,
+not a number, and taking 0.50 from it would be inventing a size. The rejected alternative — equal-weighting the same candidates the
 system bought — is not "simply holding": it borrows the system's own
 selection, and its candidate set is not even known at the anchor instant, so
 it could not be anchored once. **Both the definition and which of the two
@@ -157,9 +173,34 @@ POINTER_FILENAME = "ANCHOR_RECORDED.json"
 ANCHOR_FILENAME = "anchor.json"
 BINDINGS_DIRNAME = "bindings"
 
-VARIANT_EXPOSURE_MATCHED = "EXPOSURE_MATCHED"
-VARIANT_ASSET_ONLY = "ASSET_ONLY"
-VARIANTS = (VARIANT_EXPOSURE_MATCHED, VARIANT_ASSET_ONLY)
+MARKING_EXPOSURE_MATCHED = "EXPOSURE_MATCHED"
+MARKING_ASSET_ONLY = "ASSET_ONLY"
+MARKINGS = (MARKING_EXPOSURE_MATCHED, MARKING_ASSET_ONLY)
+
+NOTIONAL_BASIS_FLAT = "FLAT_BASE_SHARE"
+NOTIONAL_BASIS_MULTIPLIER = "MULTIPLIER_MATCHED"
+NOTIONAL_BASES = (NOTIONAL_BASIS_FLAT, NOTIONAL_BASIS_MULTIPLIER)
+
+# Four named series from ONE anchor: {notional basis} x {marking}. Emitting both
+# bases forecloses nothing and removes the only reason to re-anchor later.
+SERIES_NAMES = tuple(
+    f"{basis}__{marking}" for basis in NOTIONAL_BASES for marking in MARKINGS
+)
+
+STOP_RULE_1 = "CHECKPOINT_B_STOP_RULE_1"
+STOP_RULE_5 = "CHECKPOINT_B_STOP_RULE_5"
+DECLARED_BINDING_SERIES = {
+    STOP_RULE_1: f"{NOTIONAL_BASIS_FLAT}__{MARKING_EXPOSURE_MATCHED}",
+    STOP_RULE_5: f"{NOTIONAL_BASIS_MULTIPLIER}__{MARKING_EXPOSURE_MATCHED}",
+}
+DECLARED_BINDING_STATUS = "DECLARED_UNRATIFIED"
+
+MARKET_STATE_OBSERVATION_FIELDS = (
+    "state", "multiplier", "observed_at", "available_at",
+    "source_ref", "source_sha256", "source_schema_version",
+)
+MARKET_STATE_UNKNOWN = "UNKNOWN"
+NEW_BUYS_PERMITTED = ("PERMIT", "PERMIT_SELECTIVE")
 
 SECONDS_PER_DAY = 86400
 # One crypto decision cycle. RULE.EXEC.TIME_CONTRACT.V1 ratifies a 07:00Z
@@ -199,6 +240,21 @@ DEFINITIONS = {
         "quantity of the benchmark asset bought once at the anchor and never changed; "
         "every *_krw / price / nav field is canonical decimal text, every *_fraction "
         'field is exact decimal text ("-0.05" = -5%)'
+    ),
+    "series_names": (
+        "{notional basis}__{marking}, four series from ONE anchor. Notional bases: "
+        "FLAT_BASE_SHARE = NAV0 x the ratified base share at multiplier 1.00; "
+        "MULTIPLIER_MATCHED = that share x the per-market state multiplier that "
+        "applied at the anchoring fill. Both are sized off the same effective "
+        "entry price, fee rate and instant, so the pair cannot be cherry-picked "
+        "from two anchors."
+    ),
+    "declared_stop_rule_binding": (
+        "which series is intended to judge which stop rule -- rule 1 on "
+        "FLAT_BASE_SHARE__EXPOSURE_MATCHED, rule 5 on "
+        "MULTIPLIER_MATCHED__EXPOSURE_MATCHED. DECLARED_UNRATIFIED: recorded from "
+        "the anchor onward so it cannot be chosen at day 30 to suit the result, "
+        "and no verdict is computed off it until the user ratifies it."
     ),
     "EXPOSURE_MATCHED_total_nav": (
         "nav0_krw - anchor_cash_spent_krw + units x mark price. Comparable one-for-one "
@@ -325,6 +381,26 @@ def _decimal(value, code: str, *, scale: int, positive: bool = False,
     return parsed
 
 
+def _decimal_value(value, code: str, *, positive: bool = False) -> Decimal:
+    """Parse decimal text by VALUE, without demanding canonical form.
+
+    The ratified multiplier table writes "1.00" / "0.70", and a market-state
+    observation is lifted verbatim from an artifact whose formatting this module
+    does not control. Comparing those by value rather than by spelling is the
+    point; everything this module itself emits still goes through
+    ``_format_decimal``.
+    """
+    if not isinstance(value, str) or not value.strip():
+        fail(code)
+    try:
+        parsed = Decimal(value)
+    except (InvalidOperation, ValueError):
+        fail(code)
+    if not parsed.is_finite() or parsed < 0 or (positive and parsed <= 0):
+        fail(code)
+    return parsed
+
+
 def _utc(value, code: str) -> dt.datetime:
     if not isinstance(value, str) or UTC_RE.fullmatch(value) is None:
         fail(code)
@@ -378,8 +454,9 @@ def _verify_packet_sha(value: dict, code: str) -> dict:
 POLICY_TOP_FIELDS = (
     "schema_version", "policy_id", "status", "description", "why_this_exists",
     "stop_rules_unblocked", "stop_rules_not_in_scope", "source_documents",
-    "registry", "registry_parameters", "benchmark_definition", "cost_model",
-    "markets", "fail_closed", "ratification_required", "authority",
+    "registry", "registry_parameters", "benchmark_definition",
+    "declared_stop_rule_binding", "cost_model", "markets", "fail_closed",
+    "ratification_required", "authority",
 )
 
 
@@ -394,8 +471,21 @@ def load_policy(path: Path = POLICY_PATH) -> dict:
     definition = value.get("benchmark_definition")
     if not isinstance(definition, dict) or definition.get("definition_id") != DEFINITION_ID:
         fail("POLICY_DEFINITION_ID_MISMATCH")
-    if set(definition.get("variants_emitted") or {}) != set(VARIANTS):
-        fail("POLICY_VARIANTS_MISMATCH")
+    if set(definition.get("variants_emitted") or {}) != set(SERIES_NAMES):
+        fail("POLICY_SERIES_NAMES_MISMATCH")
+    if set(definition.get("notional_bases") or {}) != set(NOTIONAL_BASES):
+        fail("POLICY_NOTIONAL_BASES_MISMATCH")
+    binding = value.get("declared_stop_rule_binding")
+    if not isinstance(binding, dict):
+        fail("POLICY_DECLARED_BINDING_MISSING")
+    if binding.get("status") != DECLARED_BINDING_STATUS:
+        fail("POLICY_DECLARED_BINDING_STATUS_INVALID")
+    if binding.get("verdict_authorized") is not False:
+        fail("POLICY_DECLARED_BINDING_VERDICT_AUTHORIZED")
+    for rule_id, series_name in DECLARED_BINDING_SERIES.items():
+        row = binding.get(rule_id)
+        if not isinstance(row, dict) or row.get("series") != series_name:
+            fail(f"POLICY_DECLARED_BINDING_SERIES_MISMATCH:{rule_id}")
     if not isinstance(value.get("ratification_required"), list) or not value["ratification_required"]:
         fail("POLICY_RATIFICATION_LIST_EMPTY")
     return value
@@ -455,9 +545,8 @@ def resolve_market_parameters(
     )
     if not isinstance(base_allocation, dict) or market not in base_allocation:
         fail(f"BASE_ALLOCATION_MISSING:{market}")
-    base_share = _decimal(
-        base_allocation[market], f"BASE_ALLOCATION_INVALID:{market}",
-        scale=scale, positive=True,
+    base_share = _decimal_value(
+        base_allocation[market], f"BASE_ALLOCATION_INVALID:{market}", positive=True,
     )
 
     gap_days = _registry_parameter(
@@ -478,6 +567,17 @@ def resolve_market_parameters(
     if not isinstance(staleness, int) or staleness <= 0:
         fail("ANCHOR_PRICE_STALENESS_INVALID")
 
+    multipliers = _registry_parameter(
+        registry, "RULE.ALLOCATION.V2", "per_market_state_multiplier_of_base"
+    )
+    if not isinstance(multipliers, dict) or MARKET_STATE_UNKNOWN not in multipliers:
+        fail("STATE_MULTIPLIER_TABLE_INVALID")
+    new_buys = _registry_parameter(
+        registry, "RULE.ALLOCATION.V2", "new_buys_by_market_state"
+    )
+    if not isinstance(new_buys, dict) or set(new_buys) != set(multipliers):
+        fail("NEW_BUYS_TABLE_INVALID")
+
     genesis_krw = _registry_parameter(
         registry, "RULE.CRYPTO.PAPER_V2_LEDGER_GENESIS.V1", "initial_cash_krw"
     )
@@ -496,6 +596,9 @@ def resolve_market_parameters(
         "anchor_price_max_staleness_seconds": staleness,
         "anchor_record_max_lag_seconds": DAILY_DECISION_CYCLE_SECONDS,
         "anchor_clock_witness_max_skew_seconds": staleness,
+        "state_multipliers": multipliers,
+        "new_buys_by_state": new_buys,
+        "market_state_max_staleness_seconds": gap_days[market] * SECONDS_PER_DAY,
         "expected_ledger_genesis": genesis_krw,
         "decimal_scale": scale,
         "simulator_contract": contract,
@@ -668,10 +771,148 @@ def _first_fill(ledger: dict) -> tuple[dict, dict]:
     fail("ANCHOR_NO_FILL_YET")
 
 
+def read_market_state(
+    observation, *, params: dict, anchor_utc: dt.datetime, recorded_at: dt.datetime,
+) -> dict:
+    """The **single** point at which the market state enters this module.
+
+    This module deliberately opens **no path of its own**. The caller supplies a
+    ``market_state_observation`` lifted verbatim from whatever artifact the
+    crypto state-multiplier wiring reads, so that there is one state source in
+    the system rather than two that can disagree.
+
+    Contract (fields, all required, all validated here):
+      ``state``                  one of the five ratified states
+      ``multiplier``             must EQUAL the ratified multiplier for that state
+      ``observed_at``            when the state was observed (<= anchor instant
+                                 is not required; a state confirmed shortly after
+                                 the fill is still the state that sized it, but it
+                                 may never be later than the record time)
+      ``available_at``           when it became readable (<= recorded_at)
+      ``source_ref`` / ``source_sha256`` / ``source_schema_version``
+                                 the artifact it came from, recorded into the
+                                 anchor so the source is auditable even though
+                                 this module does not choose it
+
+    Verified 2026-09-18 (why no path is bound here):
+      * ``universe/crypto_paper_buy_eligibility.py`` contains no market-state or
+        state-multiplier reference at all, so the wiring being built has not yet
+        settled on an artifact this module could match.
+      * ``portfolio/paper_allocation_envelope.effective_market_state`` — the
+        canonical consumer of the ratified multiplier table — also takes
+        ``confirmed_state`` as a caller-supplied string and opens no path.
+      * ``regime/paper_regime_reference.py`` →
+        ``data/latest_paper_regime_reference.json`` does emit exactly the five
+        ratified states and is already the Stage-1 rotation input, so it is the
+        likely candidate — but its own header says it cannot authorize a capital
+        action, and it is the producer that began failing 2026-09-18 with
+        ``REFERENCE_FROZEN_NORMALIZATION_BINDING_MISSING``
+        (``regime/paper_regime_reference.py:849``). Binding it is a governance
+        decision: ``RATIFICATION_MARKET_STATE_SOURCE_BINDING``.
+    """
+    if observation is None:
+        fail("ANCHOR_MARKET_STATE_UNAVAILABLE")
+    if not isinstance(observation, dict) or set(observation) != set(
+        MARKET_STATE_OBSERVATION_FIELDS
+    ):
+        fail("ANCHOR_MARKET_STATE_FIELDS_MISMATCH")
+    state = observation.get("state")
+    if not isinstance(state, str) or state not in params["state_multipliers"]:
+        fail("ANCHOR_MARKET_STATE_NOT_RATIFIED")
+    _text(observation.get("source_ref"), "ANCHOR_MARKET_STATE_SOURCE_REF_INVALID")
+    _sha(observation.get("source_sha256"), "ANCHOR_MARKET_STATE_SOURCE_SHA_INVALID")
+    _text(
+        observation.get("source_schema_version"),
+        "ANCHOR_MARKET_STATE_SOURCE_SCHEMA_INVALID",
+    )
+    observed = _utc(
+        observation.get("observed_at"), "ANCHOR_MARKET_STATE_OBSERVED_AT_INVALID"
+    )
+    available = _utc(
+        observation.get("available_at"), "ANCHOR_MARKET_STATE_AVAILABLE_AT_INVALID"
+    )
+    if observed > available:
+        fail("ANCHOR_MARKET_STATE_AVAILABLE_BEFORE_OBSERVED")
+    if available > recorded_at:
+        fail("ANCHOR_MARKET_STATE_FROM_FUTURE")
+
+    permission = params["new_buys_by_state"][state]
+    if state == MARKET_STATE_UNKNOWN:
+        # UNKNOWN holds current exposure and permits no new buys, so it can
+        # never be the state of a FIRST fill. Its ratified multiplier is not
+        # even a number ("hold_current_up_to_0.50_no_new_buys"), and taking
+        # 0.50 from that sentence would be inventing a size.
+        fail("ANCHOR_MARKET_STATE_UNKNOWN_REFUSED")
+    if permission not in NEW_BUYS_PERMITTED:
+        fail(f"ANCHOR_MARKET_STATE_FORBIDS_NEW_BUYS:{state}")
+
+    # Staleness is measured from the anchoring fill, not from "now": the
+    # question is whether the state that sized this fill was fresh.
+    age = int(abs((anchor_utc - observed).total_seconds()))
+    if age > params["market_state_max_staleness_seconds"]:
+        fail("ANCHOR_MARKET_STATE_STALE")
+
+    expected_text = params["state_multipliers"][state]
+    if not isinstance(expected_text, str):
+        fail(f"ANCHOR_MARKET_STATE_MULTIPLIER_NOT_NUMERIC:{state}")
+    try:
+        expected = Decimal(expected_text)
+    except (InvalidOperation, ValueError):
+        # A state whose ratified multiplier is a sentence rather than a number
+        # can never size anything here.
+        fail(f"ANCHOR_MARKET_STATE_MULTIPLIER_NOT_NUMERIC:{state}")
+    multiplier = _decimal_value(
+        observation.get("multiplier"), "ANCHOR_MARKET_STATE_MULTIPLIER_INVALID",
+        positive=True,
+    )
+    if multiplier != expected:
+        fail(f"ANCHOR_MARKET_STATE_MULTIPLIER_NOT_RATIFIED:{state}")
+    return {
+        "observation": copy.deepcopy(observation),
+        "state": state,
+        "multiplier": multiplier,
+        "new_buys": permission,
+        "age_seconds_from_fill": age,
+        "source_binding": "NOT_BOUND_RATIFICATION_MARKET_STATE_SOURCE_BINDING",
+    }
+
+
+def _size_at_anchor(
+    *, basis: str, nav0: Decimal, share: Decimal, effective_price: Decimal,
+    fee_rate: Decimal, scale: int,
+) -> dict:
+    """One (notional, units, cash) triple. Both bases share one effective price,
+    one fee rate and one anchor instant -- only the share differs."""
+    notional = _floor(nav0 * share, scale)
+    if notional <= 0:
+        fail(f"ANCHOR_NOTIONAL_NOT_POSITIVE:{basis}")
+    units = _floor(
+        _divide(notional, effective_price * (Decimal(1) + fee_rate), scale + 10), scale
+    )
+    if units <= 0:
+        fail(f"ANCHOR_UNITS_NOT_POSITIVE:{basis}")
+    gross = _floor(units * effective_price, scale)
+    fee = _floor(gross * fee_rate, scale)
+    cash_spent = gross + fee
+    if cash_spent > notional:
+        fail(f"ANCHOR_CASH_SPENT_EXCEEDS_NOTIONAL:{basis}")
+    return {
+        "notional_basis": basis,
+        "share_of_nav0": _format_decimal(share),
+        "notional_krw": _format_decimal(notional),
+        "units": _format_decimal(units),
+        "anchor_gross_krw": _format_decimal(gross),
+        "anchor_fee_krw": _format_decimal(fee),
+        "anchor_cash_spent_krw": _format_decimal(cash_spent),
+        "anchor_residual_cash_krw": _format_decimal(notional - cash_spent),
+    }
+
+
 def derive_anchor(
     *, market: str, verified_ledger: VerifiedLedger, price_observations: list,
-    recorded_at_utc: str, clock_witness: dict, anchor_utc: str | None = None,
-    policy: dict | None = None, params: dict | None = None, now=None,
+    recorded_at_utc: str, clock_witness: dict, market_state_observation,
+    anchor_utc: str | None = None, policy: dict | None = None,
+    params: dict | None = None, now=None,
 ) -> dict:
     """Derive the one immutable anchor for (market, ledger) from real data."""
     policy = load_policy() if policy is None else policy
@@ -796,24 +1037,30 @@ def derive_anchor(
     observation = eligible[0]
     anchor_price = Decimal(observation["price"])
 
-    notional = _floor(nav0 * params["base_allocation_fraction"], scale)
-    if notional <= 0:
-        fail("ANCHOR_NOTIONAL_NOT_POSITIVE")
+    market_state = read_market_state(
+        market_state_observation, params=params,
+        anchor_utc=derived_anchor_utc, recorded_at=recorded_at,
+    )
+
     effective_price = _floor(
         anchor_price * (Decimal(1) + entry_slippage_bps / Decimal(10000)), scale
     )
     if effective_price <= 0:
         fail("ANCHOR_EFFECTIVE_PRICE_NOT_POSITIVE")
-    units = _floor(
-        _divide(notional, effective_price * (Decimal(1) + fee_rate), scale + 10), scale
-    )
-    if units <= 0:
-        fail("ANCHOR_UNITS_NOT_POSITIVE")
-    anchor_gross = _floor(units * effective_price, scale)
-    anchor_fee = _floor(anchor_gross * fee_rate, scale)
-    cash_spent = anchor_gross + anchor_fee
-    if cash_spent > notional:
-        fail("ANCHOR_CASH_SPENT_EXCEEDS_NOTIONAL")
+    base_share = params["base_allocation_fraction"]
+    shares = {
+        NOTIONAL_BASIS_FLAT: base_share,
+        NOTIONAL_BASIS_MULTIPLIER: _floor(
+            base_share * market_state["multiplier"], scale
+        ),
+    }
+    notionals = {
+        basis: _size_at_anchor(
+            basis=basis, nav0=nav0, share=shares[basis],
+            effective_price=effective_price, fee_rate=fee_rate, scale=scale,
+        )
+        for basis in NOTIONAL_BASES
+    }
 
     record = {
         "schema_version": ANCHOR_SCHEMA_VERSION,
@@ -856,9 +1103,24 @@ def derive_anchor(
         ).total_seconds()),
         "nav0_krw": _format_decimal(nav0),
         "nav0_basis": "LEDGER_ACCOUNT_OPENED_INITIAL_CASH",
-        "base_allocation_fraction": _format_decimal(params["base_allocation_fraction"]),
-        "notional_krw": _format_decimal(notional),
-        "notional_basis": "NAV0_TIMES_RULE_ALLOCATION_V2_BASE_SHARE_MULTIPLIER_ONE",
+        "base_allocation_fraction": _format_decimal(base_share),
+        "market_state": {
+            "state": market_state["state"],
+            "multiplier": _format_decimal(market_state["multiplier"]),
+            "new_buys": market_state["new_buys"],
+            "age_seconds_from_fill": market_state["age_seconds_from_fill"],
+            "max_staleness_seconds": params["market_state_max_staleness_seconds"],
+            "source_binding": market_state["source_binding"],
+            "observation": market_state["observation"],
+        },
+        "notionals": notionals,
+        "notional_bases_identical": (
+            notionals[NOTIONAL_BASIS_FLAT]["units"]
+            == notionals[NOTIONAL_BASIS_MULTIPLIER]["units"]
+        ),
+        "declared_stop_rule_binding": copy.deepcopy(
+            policy["declared_stop_rule_binding"]
+        ),
         "cost_model": {
             "fee_rate": _format_decimal(fee_rate),
             "fee_rate_source": "ANCHOR_FILL_ORDER_INTENT_RECONCILED_AGAINST_FILL",
@@ -867,11 +1129,6 @@ def derive_anchor(
             "exit_cost_treatment": "NOT_CHARGED_MIRRORS_PAPER_NAV_OPEN_POSITION_MARKING",
         },
         "effective_entry_price": _format_decimal(effective_price),
-        "units": _format_decimal(units),
-        "anchor_gross_krw": _format_decimal(anchor_gross),
-        "anchor_fee_krw": _format_decimal(anchor_fee),
-        "anchor_cash_spent_krw": _format_decimal(cash_spent),
-        "anchor_residual_cash_krw": _format_decimal(notional - cash_spent),
         "max_sample_gap_seconds": params["max_sample_gap_seconds"],
         "anchor_price_max_staleness_seconds": params["anchor_price_max_staleness_seconds"],
         "anchor_record_max_lag_seconds": params["anchor_record_max_lag_seconds"],
@@ -920,12 +1177,37 @@ def validate_anchor(value: dict, *, policy: dict | None = None) -> dict:
         int(SIMULATOR.load_contract()["decimal_scale"]),
     )
     scale = int(SIMULATOR.load_contract()["decimal_scale"])
-    for key in ("nav0_krw", "notional_krw", "units", "anchor_price",
-                "effective_entry_price", "anchor_cash_spent_krw"):
+    for key in ("nav0_krw", "anchor_price", "effective_entry_price"):
         _decimal(value.get(key), f"ANCHOR_{key.upper()}_INVALID", scale=scale, positive=True)
-    _decimal(
-        value.get("anchor_residual_cash_krw"), "ANCHOR_RESIDUAL_CASH_INVALID", scale=scale,
-    )
+    notionals = value.get("notionals")
+    if not isinstance(notionals, dict) or set(notionals) != set(NOTIONAL_BASES):
+        fail("ANCHOR_NOTIONAL_BASES_MISSING")
+    for basis, row in notionals.items():
+        if not isinstance(row, dict) or row.get("notional_basis") != basis:
+            fail(f"ANCHOR_NOTIONAL_BASIS_MISLABELLED:{basis}")
+        for key in ("notional_krw", "units", "anchor_cash_spent_krw"):
+            _decimal(
+                row.get(key), f"ANCHOR_{basis}_{key.upper()}_INVALID",
+                scale=scale, positive=True,
+            )
+        _decimal(
+            row.get("anchor_residual_cash_krw"),
+            f"ANCHOR_{basis}_RESIDUAL_CASH_INVALID", scale=scale,
+        )
+    state = value.get("market_state")
+    if not isinstance(state, dict) or state.get("state") not in (
+        "RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS", MARKET_STATE_UNKNOWN
+    ):
+        fail("ANCHOR_MARKET_STATE_RECORD_INVALID")
+    if state.get("new_buys") not in NEW_BUYS_PERMITTED:
+        fail("ANCHOR_MARKET_STATE_RECORD_FORBIDS_NEW_BUYS")
+    binding = value.get("declared_stop_rule_binding")
+    if not isinstance(binding, dict) or binding.get("status") != DECLARED_BINDING_STATUS:
+        fail("ANCHOR_DECLARED_BINDING_INVALID")
+    for rule_id, series_name in DECLARED_BINDING_SERIES.items():
+        row = binding.get(rule_id)
+        if not isinstance(row, dict) or row.get("series") != series_name:
+            fail(f"ANCHOR_DECLARED_BINDING_SERIES_MISMATCH:{rule_id}")
     return copy.deepcopy(value)
 
 
@@ -1234,45 +1516,61 @@ def build_series(
             # An off-grid mark would let a different, more favourable grid in.
             fail(f"BENCHMARK_MARK_OFF_GRID:{observed_at}")
 
-    units = Decimal(anchor["units"])
     nav0 = Decimal(anchor["nav0_krw"])
-    notional = Decimal(anchor["notional_krw"])
-    cash_spent = Decimal(anchor["anchor_cash_spent_krw"])
-
-    exposure_navs = []
-    asset_navs = []
     priced_rows = []
     for row in nav_rows:
         mark = marks_by_time[row["observed_at"]]
-        asset_value = _floor(units * Decimal(mark["price"]), scale)
-        exposure_navs.append(nav0 - cash_spent + asset_value)
-        asset_navs.append(asset_value)
         priced_rows.append({
             "observed_at": row["observed_at"],
             "available_at": mark["available_at"],
             "mark_price": mark["price"],
         })
 
-    exposure_points, exposure_summary = _series_metrics(
-        exposure_navs, nav0, priced_rows, scale
-    )
-    asset_points, asset_summary = _series_metrics(
-        asset_navs, notional, priced_rows, scale
-    )
-    for point, priced in zip(exposure_points, priced_rows):
-        point["mark_price"] = priced["mark_price"]
-    for point, priced in zip(asset_points, priced_rows):
-        point["mark_price"] = priced["mark_price"]
+    # Four series, one anchor. Both notional bases are sized off the SAME
+    # effective entry price, fee rate and anchor instant -- only the share of
+    # NAV0 differs -- so the pair can never be cherry-picked from two anchors.
+    series_out = {}
+    for basis in NOTIONAL_BASES:
+        sizing = anchor["notionals"][basis]
+        units = Decimal(sizing["units"])
+        notional = Decimal(sizing["notional_krw"])
+        cash_spent = Decimal(sizing["anchor_cash_spent_krw"])
+        asset_navs = [
+            _floor(units * Decimal(priced["mark_price"]), scale)
+            for priced in priced_rows
+        ]
+        exposure_navs = [nav0 - cash_spent + value for value in asset_navs]
+        for marking, navs, basis_krw in (
+            (MARKING_EXPOSURE_MATCHED, exposure_navs, nav0),
+            (MARKING_ASSET_ONLY, asset_navs, notional),
+        ):
+            points, summary = _series_metrics(navs, basis_krw, priced_rows, scale)
+            for point, priced in zip(points, priced_rows):
+                point["mark_price"] = priced["mark_price"]
+            series_out[f"{basis}__{marking}"] = {
+                **summary,
+                "notional_basis": basis,
+                "notional_basis_detail": sizing,
+                "marking": marking,
+                "series": points,
+            }
+    if set(series_out) != set(SERIES_NAMES):
+        fail("SERIES_NAMES_INCOMPLETE")
 
     paper_navs = [Decimal(row["total_nav"]) for row in nav_rows]
     paper_points, paper_summary = _series_metrics(paper_navs, nav0, nav_rows, scale)
 
+    declared = copy.deepcopy(anchor["declared_stop_rule_binding"])
     comparison = {}
-    for name, summary in (
-        (VARIANT_EXPOSURE_MATCHED, exposure_summary),
-        (VARIANT_ASSET_ONLY, asset_summary),
-    ):
+    for name, summary in series_out.items():
+        declared_for = sorted(
+            rule_id for rule_id, series_name in DECLARED_BINDING_SERIES.items()
+            if series_name == name
+        )
         comparison[name] = {
+            "notional_basis": summary["notional_basis"],
+            "marking": summary["marking"],
+            "declared_binding_for": declared_for,
             "stop_rule_1_inputs": {
                 "ko": "비용 차감 후 그냥 보유보다 낮다",
                 "paper_final_return_fraction": paper_summary["final_return_fraction"],
@@ -1306,8 +1604,10 @@ def build_series(
         "benchmark_asset": anchor["benchmark_asset"],
         "anchor_sha256": verified_anchor.sha256,
         "anchor_utc": anchor["anchor_utc"],
-        "anchor_units": anchor["units"],
-        "anchor_cash_spent_krw": anchor["anchor_cash_spent_krw"],
+        "anchor_notionals": copy.deepcopy(anchor["notionals"]),
+        "notional_bases_identical": anchor["notional_bases_identical"],
+        "market_state_at_anchor": copy.deepcopy(anchor["market_state"]),
+        "declared_stop_rule_binding": declared,
         "cost_model": copy.deepcopy(anchor["cost_model"]),
         "paper_nav_series_sha256": expected_nav_sha,
         "sample_count": len(nav_rows),
@@ -1323,19 +1623,16 @@ def build_series(
             "max_drawdown_trough_at": paper_summary["max_drawdown_trough_at"],
             "series": paper_points,
         },
-        "variants": {
-            VARIANT_EXPOSURE_MATCHED: {**exposure_summary, "series": exposure_points},
-            VARIANT_ASSET_ONLY: {**asset_summary, "series": asset_points},
-        },
+        "variants": series_out,
         "nav_series_for_counterfactual": [
             {
                 "observed_at": point["observed_at"],
                 "available_at": point["available_at"],
                 "total_nav": point["total_nav"],
             }
-            for point in exposure_points
+            for point in series_out[DECLARED_BINDING_SERIES[STOP_RULE_1]]["series"]
         ],
-        "nav_series_for_counterfactual_variant": VARIANT_EXPOSURE_MATCHED,
+        "nav_series_for_counterfactual_variant": DECLARED_BINDING_SERIES[STOP_RULE_1],
         "comparison": comparison,
         "definitions": copy.deepcopy(DEFINITIONS),
         "lineage": {
@@ -1369,7 +1666,8 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "derive and record the one anchor (request carries "
             "ledger_snapshot_root, ledger_id, ledger_genesis_pin, "
-            "price_observations, clock_witness, recorded_at_utc)"
+            "price_observations, clock_witness, market_state_observation, "
+            "recorded_at_utc)"
         ),
     )
     anchor_cmd.add_argument("--request", required=True)
@@ -1397,6 +1695,7 @@ def main(argv: list[str] | None = None) -> int:
             price_observations=request["price_observations"],
             recorded_at_utc=request["recorded_at_utc"],
             clock_witness=request["clock_witness"],
+            market_state_observation=request["market_state_observation"],
             anchor_utc=request.get("anchor_utc"),
         )
         path = record_anchor(Path(args.root), anchor)

@@ -87,6 +87,16 @@
       "rule_id": "RULE.CRYPTO.PAPER_V2_ORDER_TYPE.V1",
       "key_parameter": "decision",
       "used_for": "recorded as the rejected alternative entry-slippage assumption (the 150bp order bound), never applied"
+    },
+    "state_multipliers": {
+      "rule_id": "RULE.ALLOCATION.V2",
+      "key_parameter": "per_market_state_multiplier_of_base",
+      "used_for": "the MULTIPLIER_MATCHED notional; the supplied observation's multiplier must equal this table's entry for its state"
+    },
+    "new_buys_by_state": {
+      "rule_id": "RULE.ALLOCATION.V2",
+      "key_parameter": "new_buys_by_market_state",
+      "used_for": "refusing to anchor in a state that denies new buys -- UNKNOWN never takes 0.50 here"
     }
   },
   "benchmark_definition": {
@@ -106,10 +116,16 @@
       ]
     },
     "variants_emitted": {
-      "EXPOSURE_MATCHED": "total_nav = NAV0 - cash actually spent at the anchor + quantity x mark price. Directly comparable, one-for-one, with the PAPER account's total_nav, because both start at NAV0 and both leave the undeployed remainder in cash.",
-      "ASSET_ONLY": "total_nav = quantity x mark price. The benchmark asset sleeve on its own — the literal reading of '비트코인 보유 대비 수익률'."
+      "FLAT_BASE_SHARE__EXPOSURE_MATCHED": "notional = NAV0 x the market's ratified base share (multiplier 1.00); total_nav = NAV0 - anchor_cash_spent + units x mark. Comparable one-for-one with the account's own total_nav.",
+      "FLAT_BASE_SHARE__ASSET_ONLY": "same notional; total_nav = units x mark, the benchmark sleeve alone, return basis = the notional committed.",
+      "MULTIPLIER_MATCHED__EXPOSURE_MATCHED": "notional = NAV0 x base share x the per-market state multiplier that applied at the anchoring fill; total_nav marked as EXPOSURE_MATCHED. Like-for-like exposure with the account.",
+      "MULTIPLIER_MATCHED__ASSET_ONLY": "same notional; sleeve-only marking."
     },
-    "variant_binding": "NOT_DEFINED — which variant binds stop rules 1 and 5 needs the user's sentence. Both are emitted, neither is marked as the verdict."
+    "variant_binding": "DECLARED_UNRATIFIED -- see declared_stop_rule_binding. Both notional bases and both markings are emitted from ONE anchor; no verdict is computed off the mapping until the user ratifies it.",
+    "notional_bases": {
+      "FLAT_BASE_SHARE": "NAV0 x base_allocation_all_markets_risk_on[market], multiplier fixed at 1.00. A yardstick that owes nothing to the system's own regime call.",
+      "MULTIPLIER_MATCHED": "NAV0 x base_allocation_all_markets_risk_on[market] x per_market_state_multiplier_of_base[state_at_anchor]. Like-for-like exposure, but the benchmark then inherits the system's own state call."
+    }
   },
   "cost_model": {
     "fee_rate_source": "ANCHOR_FILL_ORDER_INTENT — the fee_rate on the crypto_paper_order_intent/1 that produced the first fill, cross-checked against fee_amount / gross_value on the fill itself. The simulator contract has no repository default for fee, and the operational value lives in the user-ratified server runtime config packet, so it is read from the account's own first fill rather than written here.",
@@ -137,6 +153,21 @@
       "anchor_record_lag_source": {
         "registry_parameter": "crypto_decision_cycle",
         "interpretation": "ONE_DECISION_CYCLE_SECONDS"
+      },
+      "market_state_source": {
+        "status": "NOT_BOUND",
+        "read_through": "validation/paper_benchmark_nav_series.py::read_market_state -- the single named entry point; this module opens no path of its own",
+        "verified_2026_09_18": [
+          "universe/crypto_paper_buy_eligibility.py contains no market-state or state-multiplier reference at all today, so there is no artifact the state-multiplier wiring already reads that this module could match",
+          "portfolio/paper_allocation_envelope.py::effective_market_state takes confirmed_state as a caller-supplied string and opens no path either, so the repo has no bound market-state artifact yet",
+          "regime/paper_regime_reference.py -> data/latest_paper_regime_reference.json does emit exactly the five ratified states (RISK_ON/NEUTRAL/RISK_OFF/STRESS/UNKNOWN) and is already the Stage-1 rotation input, so it is the LIKELY candidate -- but its own header says it cannot authorize a capital action, and it is the producer that started failing 2026-09-18 with REFERENCE_FROZEN_NORMALIZATION_BINDING_MISSING (regime/paper_regime_reference.py:849). Binding it is a governance decision, not a code decision"
+        ],
+        "blocked_on": "RATIFICATION_MARKET_STATE_SOURCE_BINDING",
+        "contract": "the caller supplies a market_state_observation lifted VERBATIM from whatever artifact the state-multiplier wiring reads: state, multiplier, observed_at, available_at, source_ref, source_sha256, source_schema_version. The multiplier must equal the ratified multiplier for that state; the observation may not be newer than the record time nor older than the ratified crypto observation gap; a state that denies new buys cannot be the state of an anchoring fill"
+      },
+      "market_state_staleness_source": {
+        "registry_parameter": "max_observation_gap_days",
+        "market_key": "CRYPTO"
       }
     },
     "KR": {
@@ -164,7 +195,11 @@
     "a NAV or mark value of null is never valued as zero",
     "a ledger supplied as a bare dict refuses; it must be recovered from its own published append-only snapshot store and matched to the genesis pin recorded when the account was opened",
     "a recorded_at_utc earlier than evidence already in hand, or further from the newest post-fill observation than the ratified staleness window, refuses -- the anti-hindsight deadline never rests on the caller's clock claim alone",
-    "a second, different anchor refuses even if the pointer file was deleted: the binding is recoverable from the append-only bindings markers and the content-addressed records themselves"
+    "a second, different anchor refuses even if the pointer file was deleted: the binding is recoverable from the append-only bindings markers and the content-addressed records themselves",
+    "an anchoring fill whose market state is UNKNOWN refuses (ANCHOR_MARKET_STATE_UNKNOWN_REFUSED) -- UNKNOWN holds current exposure and permits no new buys, so it cannot be the state of a first fill, and its ratified multiplier is not even a number",
+    "an anchoring fill in any other state that denies new buys (RISK_OFF, STRESS) refuses",
+    "a market state that is absent, or older than the ratified crypto observation gap, or observed after the record time, refuses -- RISK_ON is never assumed",
+    "a supplied multiplier that does not equal the ratified multiplier for its own state refuses"
   ],
   "ratification_required": [
     {
@@ -177,7 +212,7 @@
     },
     {
       "id": "RATIFICATION_NOTIONAL_STATE_MULTIPLIER",
-      "question": "The benchmark notional uses the ratified base share with multiplier 1.00. Should it instead track the per-market state multiplier that applied at the anchor?"
+      "question": "Both notional bases are now emitted from one anchor, so nothing is foreclosed. What needs the user's sentence is the BINDING in declared_stop_rule_binding: stop rule 1 judged on FLAT_BASE_SHARE__EXPOSURE_MATCHED and stop rule 5 on MULTIPLIER_MATCHED__EXPOSURE_MATCHED."
     },
     {
       "id": "RATIFICATION_EXIT_COST_TREATMENT",
@@ -214,6 +249,10 @@
     {
       "id": "RATIFICATION_CLOCK_ATTESTATION",
       "question": "recorded_at_utc is bounded by an independently observed post-fill price observation (clock_basis = WITNESS_BOUNDED_NOT_PROVEN), not proven. Should the runtime supply an attested write time, e.g. the decision cycle's own recorded instant or the evidence commit time?"
+    },
+    {
+      "id": "RATIFICATION_MARKET_STATE_SOURCE_BINDING",
+      "question": "Which artifact is the single market-state source for the allocation multiplier? This module reads it through one named function and binds no path; see markets.CRYPTO.market_state_source.verified_2026_09_18 for what was checked."
     }
   ],
   "authority": {
@@ -232,5 +271,22 @@
     "production_authorized": false,
     "trading_authorized": false,
     "real_capital_authorized": false
+  },
+  "declared_stop_rule_binding": {
+    "status": "DECLARED_UNRATIFIED",
+    "ratification_id": "RATIFICATION_NOTIONAL_STATE_MULTIPLIER",
+    "decision_card": "outputs/CLAUDE_CIO_DECISION_BENCHMARK_NOTIONAL_BASIS_20260918.md",
+    "verdict_authorized": false,
+    "recorded_from_anchor_onward": "the mapping is copied into every anchor and every series record, so which curve judges which stop rule cannot be chosen at day 30 to suit the result",
+    "CHECKPOINT_B_STOP_RULE_1": {
+      "ko": "비용 차감 후 그냥 보유보다 낮다",
+      "series": "FLAT_BASE_SHARE__EXPOSURE_MATCHED",
+      "because": "그냥 보유 must be something a person could have done without knowing our regime call. A benchmark scaled by our own state multiplier is a yardstick we moved, so the comparison would stop being about holding."
+    },
+    "CHECKPOINT_B_STOP_RULE_5": {
+      "ko": "하락 구간에서 그냥 보유보다 더 깎였다",
+      "series": "MULTIPLIER_MATCHED__EXPOSURE_MATCHED",
+      "because": "comparing drawdowns at unequal exposure measures position size, not defence. At matched exposure a smaller drawdown really is defence working, which is what checkpoint C's 방어가 작동 needs; on the flat base share alone rule 5 is nearly unfailable whenever the account entered below multiplier 1.00."
+    }
   }
 }
