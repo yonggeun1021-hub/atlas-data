@@ -50,6 +50,12 @@ CODE = "3" * 40
 # The incident, by its committed bytes.
 INCIDENT_EVALUATION_AT = "2026-09-18T01:28:17Z"
 INCIDENT_SELECTED_OBSERVED_AT = "2026-09-15T23:39:00Z"
+# The earlier committed collector failure, and the capture that closed the
+# 2026-09-18 incident window by landing just after the evaluation instant.
+# Anchors for membership assertions -- never the whole expected population,
+# which grows every time the collector runs or a decision is published.
+INCIDENT_PRIOR_EVALUATION_AT = "2026-09-15T22:51:56Z"
+INCIDENT_NEXT_OBSERVED_AT = "2026-09-18T01:41:42Z"
 INCIDENT_SELECTED_PATH = ("evidence/free_market_data/derived/2026-09-15/"
                           "2ea258a1ceda03df2c6f112c6fb0da34218779691d48316ce2c132a2919a67e0/manifest.json")
 INCIDENT_EVIDENCE = (DECISION_EVIDENCE / "calendar-unknown-2026-09-18"
@@ -178,7 +184,20 @@ class CommittedHistoryBoundTest(unittest.TestCase):
             result = PUBLICATION.cadence_coverage(self.index, instant(observed_at), instant(evaluation_at))
             scores[evaluation_at] = result["uncovered_cadence_date_count"]
         behind = {key: value for key, value in scores.items() if value}
-        self.assertEqual(behind, {"2026-09-15T22:51:56Z": 1, "2026-09-18T01:28:17Z": 1})
+        # The two committed collector failures this module documents each score
+        # exactly one uncovered cadence date.  Asserted by membership, not as the
+        # whole dict: evidence/regime/us_paper_runtime gains a packet per
+        # decision, so an exact-dict compare would have to be hand-edited the
+        # next time the collector fails -- the very event this test exists to
+        # make visible, turned into a test edit instead of a signal.  The
+        # "only non-zero" half of the property is carried without a snapshot by
+        # max(healthy) below and by
+        # test_both_non_zero_scores_name_a_cadence_date_with_no_committed_capture,
+        # which holds *every* non-zero score to a genuinely uncovered cadence
+        # date -- so a spurious non-zero score still fails, it just fails there.
+        for evaluation_at in (INCIDENT_PRIOR_EVALUATION_AT, INCIDENT_EVALUATION_AT):
+            with self.subTest(evaluation_at=evaluation_at):
+                self.assertEqual(behind.get(evaluation_at), 1)
         healthy = [value for key, value in scores.items() if key not in behind]
         self.assertGreaterEqual(len(healthy), 5, "non-degenerate healthy population")
         self.assertEqual(max(healthy), PUBLICATION.TOLERATED_UNCOVERED_CADENCE_DATES)
@@ -208,9 +227,51 @@ class IncidentTest(unittest.TestCase):
         record = PUBLICATION.latest_source_record(ROOT, self.index, instant(INCIDENT_EVALUATION_AT))
         self.assertEqual(record["revision_path"], INCIDENT_SELECTED_PATH)
         self.assertEqual(record["observed_at_utc"], INCIDENT_SELECTED_OBSERVED_AT)
-        newer = [row["observed_at"].isoformat() for row in self.index
+        # Why the selection was correct, stated as a property of the capture
+        # index rather than as a snapshot of it: the selected capture was the
+        # newest one in the repository at the evaluation instant, so *every*
+        # capture newer than it must postdate the evaluation.  That stays true
+        # however many captures the collector commits later.  Pinning the list
+        # to its one-element value would instead have gone stale on the
+        # collector's next healthy run (cron "35 21 * * 0-5", Sun..Fri) -- a
+        # staleness bomb inside the module that exists to make staleness visible.
+        newer = [row["observed_at"] for row in self.index
                  if row["observed_at"] is not None and row["observed_at"] > instant(INCIDENT_SELECTED_OBSERVED_AT)]
-        self.assertEqual(newer, ["2026-09-18T01:41:42+00:00"], "the next capture landed after evaluation_at")
+        self.assertTrue(newer, "the next capture landed after evaluation_at")
+        for observed_at in newer:
+            with self.subTest(observed_at=observed_at.isoformat()):
+                self.assertGreater(observed_at, instant(INCIDENT_EVALUATION_AT))
+        # The capture that closed the incident window is still one of them.
+        self.assertIn(instant(INCIDENT_NEXT_OBSERVED_AT), newer)
+
+    def test_the_next_healthy_collector_run_does_not_change_these_conclusions(self):
+        """Guard the guard: a later capture must not turn the incident tests red.
+
+        The collector commits a new capture on every healthy ``35 21 * * 0-5``
+        run.  Simulated in memory only -- nothing is written or committed -- so
+        the assertions above are checked against a repository state that has not
+        happened yet instead of only against today's.
+        """
+        template = max((row for row in self.index if row["observed_at"] is not None),
+                       key=lambda row: row["observed_at"])
+        future_at = instant("2026-09-18T21:35:00Z")
+        index = self.index + [dict(template, path="evidence/free_market_data/derived/"
+                                                  "2026-09-18/simulated/manifest.json",
+                                   observed_at=future_at)]
+        # The incident's selection is unchanged: the new capture postdates it.
+        record = PUBLICATION.latest_source_record(ROOT, index, instant(INCIDENT_EVALUATION_AT))
+        self.assertEqual(record["observed_at_utc"], INCIDENT_SELECTED_OBSERVED_AT)
+        newer = [row["observed_at"] for row in index
+                 if row["observed_at"] is not None and row["observed_at"] > instant(INCIDENT_SELECTED_OBSERVED_AT)]
+        self.assertIn(future_at, newer)
+        for observed_at in newer:
+            with self.subTest(observed_at=observed_at.isoformat()):
+                self.assertGreater(observed_at, instant(INCIDENT_EVALUATION_AT))
+        # And the incident still scores exactly one uncovered cadence date:
+        # 2026-09-16 holds no capture whatever lands on 2026-09-18.
+        coverage = PUBLICATION.cadence_coverage(
+            index, instant(INCIDENT_SELECTED_OBSERVED_AT), instant(INCIDENT_EVALUATION_AT))
+        self.assertEqual(coverage["uncovered_cadence_dates"], ["2026-09-16"])
 
     def test_the_committed_packet_recorded_the_input_but_not_the_skew(self):
         packet = json.loads(INCIDENT_EVIDENCE.read_bytes())
