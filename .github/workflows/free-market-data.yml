@@ -50,11 +50,31 @@ jobs:
         run: python3 collectors/free_market_data.py
       - name: Connect current market facts to pipeline-symbol review
         run: python3 decision/us_symbol_market_review.py
+      # ★ 2026-09-18 ratified fix (USER_RATIFICATION_FREE_MARKET_DATA_PUSH_
+      #   RETRY_20260918). A bare `git push` here lost the race against the
+      #   other collectors committing to the default branch: runs
+      #   34911129881 (2026-09-14T23:57Z), 35163739007 (2026-09-16T23:46Z)
+      #   and 35287712594 (2026-09-17T23:38Z) all died at THIS step with
+      #   "! [rejected] main -> main (fetch first)" *after* the capture had
+      #   already succeeded (alpaca_status READY, status PASS) and written
+      #   its evidence. Three US sessions were captured and then dropped,
+      #   which is why regime/us_paper_runtime_publication.py was still
+      #   reading a 2026-09-15 packet on 2026-09-18.
+      #
+      #   The shared .github/scripts/push_to_default_branch.sh (already used
+      #   by daily-briefing.yml) replays this run's commit on top of whatever
+      #   landed meanwhile, bounded at 5 attempts. It is fail-closed: a
+      #   rebase conflict aborts the rebase and returns non-zero, and so does
+      #   exhausting the attempts, so a dropped commit can never be reported
+      #   as success. Collection targets, sources, the committed paths and
+      #   the schedule are all unchanged.
       - name: Commit immutable evidence and latest pointer
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           git config user.name "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
           git add evidence/free_market_data/derived evidence/free_market_data/raw evidence/free_market_data/fred/raw data/latest_free_market_data.json evidence/us_symbol_market_review data/latest_us_symbol_market_review.json
           if git diff --staged --quiet; then exit 0; fi
           git commit -m "data: free market evidence $(date -u +%Y-%m-%d)"
-          git push
+          bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
