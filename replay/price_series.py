@@ -58,11 +58,48 @@ class PriceSeries:
         # Recorded here rather than silently resolved or allowed to crash
         # the whole replay -- see `integrity_conflicts`.
         self.integrity_conflicts: list[dict] = []
+        # CIO growth-driver fix (2026-09-18): `dates()` and
+        # `live_trading_dates_at_or_before(decision_date)` used to re-sort
+        # and re-filter the WHOLE series on every call. `window_at_or_before`
+        # (replay/trigger_engine.py) calls the latter once per subject AND
+        # once per peer, per trigger type, per replayed date -- for a scan
+        # walking every date since REPO_HISTORY_STARTS_AT over a peer
+        # universe of size P, that is O(dates × P) redundant recomputations
+        # of the IDENTICAL (series, decision_date) answer, each itself
+        # O(series length) -- and series length also grows one row per day.
+        # That compounding is what turned a stable per-candidate cost into a
+        # step that grows ~2 minutes/day (measured via cProfile: 31.8M calls
+        # into `lookahead_gate._as_date` from this exact call chain).
+        #
+        # Both caches below are keyed on nothing but the inputs the answer
+        # actually depends on (`self._by_date` content, and additionally
+        # `decision_date` for the second one) and are invalidated by
+        # `_merge_row` -- the ONLY method that ever mutates `_by_date` (see
+        # its callers: `build_krx_series`/`build_btc_series`/
+        # `crypto_breadth_series` fully build a series before anyone queries
+        # it; no caller in this repo interleaves a merge after a query). A
+        # key can therefore never observe a `_by_date` state other than the
+        # one it was computed from.
+        self._dates_cache: list[str] | None = None
+        self._live_dates_cache: dict[str, list[str]] = {}
+        # `window_at_or_before` (replay/trigger_engine.py) is the actual
+        # call site every detector uses, and it does two things per call
+        # beyond fetching the (now-cached) dates list above: re-validate the
+        # whole list with `assert_no_signal_lookahead` and slice the last
+        # `n`. Both are exactly as cacheable as the dates list itself for a
+        # fixed (decision_date, n) -- see `window_at_or_before_cached`.
+        self._window_cache: dict[tuple[str, int], list[str]] = {}
+
+    def _invalidate_caches(self) -> None:
+        self._dates_cache = None
+        self._live_dates_cache.clear()
+        self._window_cache.clear()
 
     def _merge_row(self, trading_date: str, row: dict, capture_date: str):
         existing = self._by_date.get(trading_date)
         if existing is None:
             self._by_date[trading_date] = {**row, "first_capture_date": capture_date}
+            self._invalidate_caches()
             return
         # ★ Integrity check, not a silent overwrite: if two independently
         #   committed snapshots disagree on a historical close, that is
@@ -83,12 +120,21 @@ class PriceSeries:
                 # "what Atlas would have known live" -- swap to it, but
                 # keep the conflict recorded either way.
                 self._by_date[trading_date] = {**row, "first_capture_date": capture_date}
+                self._invalidate_caches()
             return
         if capture_date < existing["first_capture_date"]:
             existing["first_capture_date"] = capture_date
+            # first_capture_date moved earlier -- live_known_asof(...) can
+            # now return True for decision_dates it previously returned
+            # False for, so the per-decision_date caches must drop (the
+            # date SET is unchanged, so `_dates_cache` itself stays valid).
+            self._live_dates_cache.clear()
+            self._window_cache.clear()
 
     def dates(self) -> list[str]:
-        return sorted(self._by_date)
+        if self._dates_cache is None:
+            self._dates_cache = sorted(self._by_date)
+        return self._dates_cache
 
     def close_on(self, trading_date: str) -> float | None:
         row = self._by_date.get(trading_date)
@@ -124,11 +170,50 @@ class PriceSeries:
         system could plausibly have known about at decision_date. This is
         the correct window for SIGNAL-side detection (trigger_engine.py);
         `trading_dates_at_or_before` alone is only safe for OUTCOME-side
-        grading (forward_metrics.py's entry price)."""
-        return sorted(
+        grading (forward_metrics.py's entry price).
+
+        Memoized per decision_date (see `__init__`/`_merge_row`): every
+        caller in this repo passes a `series` that is already fully built,
+        so the same (self._by_date, decision_date) pair always yields the
+        same answer -- and `_merge_row` clears this cache on the one path
+        that could change `self._by_date` after the fact."""
+        cached = self._live_dates_cache.get(decision_date)
+        if cached is not None:
+            return cached
+        result = sorted(
             d for d in self.dates()
             if d <= decision_date and self.live_known_asof(d, decision_date)
         )
+        self._live_dates_cache[decision_date] = result
+        return result
+
+    def window_at_or_before_cached(self, decision_date: str, n: int, validate) -> list[str]:
+        """Cached form of `replay/trigger_engine.py`'s `window_at_or_before`:
+        fetch `live_trading_dates_at_or_before(decision_date)` (already
+        memoized above), run the caller-supplied `validate(decision_date,
+        dates)` lookahead check, and slice the trailing `n`. Keyed by
+        (decision_date, n) and invalidated exactly where the caches above
+        are (see `_merge_row`/`_invalidate_caches`).
+
+        This exists because `window_at_or_before` is the ACTUAL hot call
+        site: `relative_strength_reversal` calls it once for its own
+        subject and once per peer, and it is invoked once per (subject,
+        trading date) pair -- so for a peer universe of size P walked over
+        D replayed dates, the same (peer, date, lookback) triple is
+        recomputed up to P times. `validate` is a pure function of
+        (decision_date, dates) with no side effect besides raising on a
+        real violation, so calling it once per distinct key instead of once
+        per caller is behaviorally identical -- a violation that would have
+        fired still fires, on the first call that reaches it."""
+        key = (decision_date, n)
+        cached = self._window_cache.get(key)
+        if cached is not None:
+            return cached
+        dates = self.live_trading_dates_at_or_before(decision_date)
+        validate(decision_date, dates)
+        result = dates[-n:] if len(dates) >= n else dates
+        self._window_cache[key] = result
+        return result
 
 
 def build_krx_series(code: str, snapshots: list[ei.KrxSnapshot]) -> PriceSeries:
