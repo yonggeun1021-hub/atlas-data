@@ -548,8 +548,11 @@ class SessionBudgetTests(unittest.TestCase):
         denied = self.build(candidates=[cand("KRW-A")], env=envelope(self.core, {"US": "RISK_ON", "KR": "RISK_ON", "CRYPTO": "RISK_OFF"}))
         self.assertEqual(denied["market_room"]["budget_krw"], "0")
         self.assertIn(("RULE.ALLOCATION.V2", "BLOCKED_BY"), {(r["rule_id"], r["role"]) for r in denied["rule_refs"]})
+        # Was MARKET_HOLDING_VALUATION_UNVERIFIED (this market's own holding only);
+        # the user ratified the all-markets reading on 2026-09-18, so the reason now
+        # names every unverified market (see the dedicated test below).
         unverified = self.build(candidates=[cand("KRW-A")], snap=snapshot(holdings=[holding("CRYPTO", "KRW-X", None, last="1000")]))
-        self.assertIn("MARKET_HOLDING_VALUATION_UNVERIFIED", unverified["reasons"])
+        self.assertIn("NEW_BUYS_BLOCKED_HOLDING_VALUATION_UNVERIFIED_IN_CRYPTO", unverified["reasons"])
         qty = self.build(candidates=[cand("KRW-BTC", price="150000000", step="0.0001", fee="0.0005"),
                                      cand("KRW-Z", price="999999999999", step="1", fee="0")])
         lines = {l["instrument"]: l for l in qty["allocation"]}
@@ -564,6 +567,30 @@ class SessionBudgetTests(unittest.TestCase):
             BUD.validate_session_budget_record(tampered)
         with self.assertRaisesRegex(CORE.PaperExecutionCoreError, "NOT_REDERIVABLE"):
             BUD.validate_session_budget_record(CORE.sign(tampered, "record_sha256"))
+
+    def test_unverified_holding_in_another_market_denies_new_buys_everywhere(self):
+        # User ratification 2026-09-18 23:10 KST: "보유분 평가가 확인되지 않으면 해당 시장뿐
+        # 아니라 모든 시장의 신규 매수를 금지한다."  New buys only: NAV, exits and
+        # releases are unchanged.
+        verified = [holding("CRYPTO", "KRW-A", "1000"), holding("KR", "005930", "1000")]
+        permitted = self.build(candidates=[cand("KRW-A")], snap=snapshot(holdings=verified))
+        self.assertEqual(permitted["reasons"], [])
+        self.assertEqual(permitted["status"], "ALLOCATED")
+        # CRYPTO's own holding is verified; KR's is not, and CRYPTO is denied all the same.
+        cross = [holding("CRYPTO", "KRW-A", "1000"), holding("KR", "005930", None, last="1000")]
+        denied = self.build(candidates=[cand("KRW-A")], snap=snapshot(holdings=cross))
+        self.assertIn("NEW_BUYS_BLOCKED_HOLDING_VALUATION_UNVERIFIED_IN_KR", denied["reasons"])
+        self.assertEqual(denied["market_room"]["budget_krw"], "0")
+        self.assertEqual(denied["status"], "NO_ALLOCATION")
+        self.assertEqual(denied["nav0"]["unverified_markets"], ["KR"])
+        # NAV0 itself is untouched: the last verified value still counts, flagged.
+        self.assertEqual(denied["nav0"]["nav0_krw"], permitted["nav0"]["nav0_krw"])
+        self.assertEqual(denied["nav0"]["status"], "KNOWN")
+        self.assertEqual(denied["nav0"]["nav_verification"], "UNVERIFIED")
+        self.assertEqual(BUD.validate_session_budget_record(denied), denied)
+        both = self.build(candidates=[cand("KRW-A")], snap=snapshot(
+            holdings=[holding("CRYPTO", "KRW-A", None, last="1000"), holding("KR", "005930", None, last="1000")]))
+        self.assertIn("NEW_BUYS_BLOCKED_HOLDING_VALUATION_UNVERIFIED_IN_CRYPTO_KR", both["reasons"])
 
     def test_ledger_one_allocation_restart_reuse_and_consumption(self):
         ledger = BUD.SessionBudgetLedger(self.core)
