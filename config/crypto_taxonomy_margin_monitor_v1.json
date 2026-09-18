@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "policy_version": "crypto_taxonomy_margin_monitor/v1",
+  "approval_status": "UNRATIFIED",
+  "source_name": "kraken_spot_market_data",
+  "purpose": "Preventive margin monitor: report the rank distance between the production eligibility scan stop and the nearest unclassified asset, before a TAXONOMY_COVERAGE_UNKNOWN day exists. Detect-and-report only.",
+  "lookahead_band_ranks": 40,
+  "margin_thresholds": {
+    "warning_at_or_below": 25,
+    "critical_at_or_below": 12
+  },
+  "rate_thresholds": {
+    "lookback_days": 7,
+    "minimum_observations": 2,
+    "warning_shrink_ranks_per_day_at_or_above": "2",
+    "critical_shrink_ranks_per_day_at_or_above": "5"
+  },
+  "severity_ladder": [
+    "NONE",
+    "WARNING",
+    "CRITICAL",
+    "CRITICAL_ARMED",
+    "GAP_OPEN"
+  ],
+  "post_arming_escalation": {
+    "NONE": "NONE",
+    "WARNING": "CRITICAL",
+    "CRITICAL": "CRITICAL_ARMED",
+    "CRITICAL_ARMED": "CRITICAL_ARMED",
+    "GAP_OPEN": "GAP_OPEN"
+  },
+  "cost_model": {
+    "pilot_window_id": "pilot_7d",
+    "primary_window_id": "primary_30d",
+    "gap_cost_days_pre_arming": 12,
+    "gap_cost_days_post_arming": 35,
+    "derivation": "gap_cost_days = <official window lookback_calendar_days from config/crypto_leadership_policy.json> + regime.crypto_paper_runtime.MINIMUM_CONSECUTIVE_COMPLETE_DAYS. Pre-arming the official LEADERSHIP axis is pilot_7d: 7 + 5 = 12. Post-arming it is permanently primary_30d with no fallback to pilot: 30 + 5 = 35. Both values are recomputed at runtime from those two sources and the monitor fails closed if they disagree with the numbers recorded here."
+  },
+  "reasoning": {
+    "measured_basis": "2026-09-18 Kraken snapshot (as_of 2026-09-17): the production eligibility scan stops at rank 112 (100 eligible_crypto + 12 explicitly excluded, zero unknown) and the nearest unclassified asset is rank 124 (SN51). Measured margin = 12 ranks. Every taxonomy gap between 2026-08-28 and 2026-09-07 (BTR; HNT+SKR; SN8; CHIP+QUID; NPC; DRV+RAY) was caused by an already-listed asset climbing in trailing-30d USD turnover, not by a new listing, and the observed single-day climbs that produced them were in the 12-25 rank range.",
+    "margin_warning_at_or_below": "25 = the top of the measured single-day climb range. At or below 25 ranks of headroom, one realistic single-day turnover climb can put an unclassified asset inside the scan. This is the level at which classification work must already be queued, not started.",
+    "margin_critical_at_or_below": "12 = the bottom of the measured single-day climb range, and the margin actually measured on 2026-09-18. At or below 12 ranks even the smallest historically observed single-day climb closes the gap, so the next snapshot can already be a TAXONOMY_COVERAGE_UNKNOWN day. Seeding CRITICAL at exactly today's margin is deliberate: today's headroom is already inside the one-day-move band and the monitor must say so on its first run rather than look healthy.",
+    "rate_warning_shrink_ranks_per_day_at_or_above": "2 ranks/day consumes the whole 25-rank warning band in 13 days, which is shorter than the demonstrated classify-and-ratify turnaround, so a sustained 2/day shrink is already a scheduling problem even while the level still looks safe.",
+    "rate_critical_shrink_ranks_per_day_at_or_above": "5 ranks/day consumes the 12-rank critical band in under 3 days. A margin shrinking at this rate matters more than a static margin of 12, so the rate alone raises CRITICAL independently of the level.",
+    "rate_lookback_days": "7 days keeps the rate responsive to the current turnover regime rather than averaging across a month, and matches the pilot window length already in the ratified leadership policy.",
+    "rate_minimum_observations": "2 committed margin observations (today plus one prior day) are the minimum from which a per-day rate can be derived at all. Below that the monitor reports INSUFFICIENT_HISTORY and the rate contributes no severity, instead of inventing a slope.",
+    "lookahead_band_ranks": "40 ranks past the scan stop covers the full cluster of nearest unclassified assets measured on 2026-09-18 (ranks 124-152) with room for the band to stay populated as the scan stop moves. Configurable because the taxonomy is essentially empty below about rank 113, so a wider band would mostly restate that.",
+    "post_arming_escalation": "The cost of one TAXONOMY_COVERAGE_UNKNOWN day changes from 12 days to 35 days the moment primary_30d latches as the official LEADERSHIP window, because the unknown day then sits in a 30-day window for 30 successive as_of dates before the 5-day re-acceptance run can start, and there is no fallback to pilot_7d. The same margin therefore cannot carry the same severity on both sides of that date, so the escalation is applied mechanically from this table rather than left as a note for a reader."
+  },
+  "authority": {
+    "taxonomy_authorized": false,
+    "classification_authorized": false,
+    "investability_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "threshold_authorized": false
+  }
+}

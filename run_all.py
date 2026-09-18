@@ -779,6 +779,18 @@ APPROVED_TESTS = [
     #   resume reproduce the same bytes, fresh-process reverify passes.
     #   ⛔ no stage change, no promotion, no threshold, no network, no order.
     "test/test_population_symbol_observation.py",
+    # ★ Daily scheduled run for the two population observations (2026-09-18).
+    #   Both producers had NO .github/workflows trigger at all, so KR sat at
+    #   2026-09-10 and US at 2026-09-11 while the committed universes they
+    #   consume had already published through 2026-09-16. Asserts the schedule
+    #   and its backup slot, that a dispatched run is guard-equivalent to a
+    #   scheduled one (no inputs, no github.event_name branch) so the server
+    #   dispatcher may be registered, and that a repeat run for an
+    #   already-captured date reports verified_existing instead of letting
+    #   persist_packet supersede committed bytes.
+    #   ⛔ observation only; no pass rule (passed_count stays 0), no authority,
+    #      no network, no new collection target or source.
+    "test/test_population_observation_daily_schedule.py",
     # ★ Three-market evaluation-coverage receipt (stacked from PR #680/#682,
     #   unchanged). Exact KR/US source-coverage universes and bounded symbol
     #   reviews are kept separate; the Crypto PAPER funnel contributes only
@@ -1227,6 +1239,12 @@ APPROVED_TESTS = [
     # Sun-Fri with --check before commit; authority stays closed.
     "test/test_us_paper_runtime.py",
     "test/test_us_paper_runtime_publication.py",
+    # The producer reads a committed capture, not its own fetch, so it states the
+    # collection coverage of the capture it read and blocks past a bound taken
+    # from the committed decision history.  Coverage is counted in the
+    # collector's cadence dates (cron "35 21 * * 0-5"), never in elapsed
+    # wall-clock days: a Sunday evaluation reading Friday's capture stays green.
+    "test/test_us_paper_runtime_collection_coverage.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
@@ -1307,6 +1325,15 @@ APPROVED_TESTS = [
     #   snapshot and binds manifest/policy/taxonomy hashes. It creates no
     #   classification, ratification, investability, Stage, or trading right.
     "test/test_crypto_taxonomy_gap_inventory.py",
+    # ★ P3-04 — preventive classification-margin monitor. Measures the rank
+    #   distance between the production eligibility scan stop and the nearest
+    #   unclassified asset on the *production* ranking, alarms on both the
+    #   level and the per-day shrink rate from committed thresholds, and
+    #   escalates automatically once primary_30d can latch as the official
+    #   LEADERSHIP window (one unknown day then costs 30+5 days instead of
+    #   7+5). ⛔ creates no classification/ratification/investability/Stage/
+    #   threshold/trading right — it reports a queue, it does not decide one.
+    "test/test_crypto_taxonomy_margin_monitor.py",
     # ★ P3-04 — minimal ratified Crypto taxonomy Slice (31 native assets +
     #   EURC exclusion). 실 raw snapshot replay로 coverage 미달 시 계속
     #   blocked임을 재확인하고, 미비준 alias/unresolved ticker는 UNKNOWN을
@@ -2751,6 +2778,21 @@ APPROVED_TESTS = [
     #      not silently hidden from the test-set comparison.
     "test/test_fred_dexkous_fx.py",
     "test/test_fred_dexkous_fx_workflow.py",
+    # ★ Evidence-loss guard for fred-dexkous-fx.yml's commit step
+    #   (collectors/verify_evidence_staged.py). Added after a 2026-09-17/18
+    #   investigation into an apparent FRED DEXKOUS FX observation gap that
+    #   turned out to be a log-reading false alarm (test/test_fred_dexkous_fx.py's
+    #   own offline end-to-end test prints a summary that looks like a real
+    #   write because it hardcodes the fixture date "2026-09-15", but it
+    #   runs against an isolated tempfile.TemporaryDirectory(), never the
+    #   real checkout). The real gap the investigation surfaced: nothing
+    #   would have caught it if a commit had genuinely dropped a file the
+    #   collector reported writing -- this test proves that shape now goes
+    #   red (exit 1) instead of green.
+    #   ⛔ CI-only git-staging check; runs entirely inside a throwaway local
+    #      `git init` repo it creates itself; no network, no trading/
+    #      allocation authority, never touches the real evidence tree.
+    "test/test_verify_evidence_staged.py",
     # ★ RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 evidence capture
     #   (collectors/spdr_sector_holdings.py) + reader
     #   (universe/us_spdr_sector_mapping.py). Daily holdings for the 11
@@ -2907,6 +2949,27 @@ APPROVED_TESTS = [
     #      same convention as test_capture_azure_fixture.py above so it is
     #      not silently hidden from the test-set comparison.
     "test/test_paper_benchmark_nav_series.py",
+    # 일일 산출물 정체 감시(watchdog/daily_producer_freshness.py) — 감시 대상
+    #   11개 산출물에 대해 "우리가 보유한 최신 관측일"과 "원천이 스스로
+    #   제공한다고 밝힌 최신일" 두 값을 각각 기록하고 그 쌍으로 판정한다.
+    #   원천 최신일은 이미 커밋된 증거에서만 읽는다(raw manifest 의
+    #   observation_date_range 끝, venue manifest 의 latest_finalized_day,
+    #   산출물이 스스로 입력으로 지목한 상류 producer 의 최신 날짜 디렉터리).
+    #   네트워크 호출·신규 수집 출처 추가 없음.
+    #   COLLECTION_BEHIND_SOURCE = 원천이 더 최신을 제공하는데 우리가 놓친
+    #   경우로 가장 큰 경보(일정 축이 FRESH 여도 검사한다). 반대로
+    #   SOURCE_NOT_YET_PUBLISHED 는 원천이 아직 발표하지 않은 정상 상태이므로
+    #   경보가 아니다 — 2026-09-11 에서 멈춘 fred_dexkous_fx 를 3일치 환율
+    #   관측 유실로 잘못 보고한 오경보를 이 구분이 철회한다.
+    #   원천 최신일을 확보할 수 없으면 SOURCE_LATEST_UNKNOWN 이라는 독립
+    #   상태로 남긴다 — "정상"으로도 "정체"로도 접어넣지 않고, 값을 임의로
+    #   만들어 채우지도 않는다.
+    #   ⛔ 읽기 전용 관측만 한다 — data/·evidence/ 기록 없음, workflow 는
+    #      dispatch 전용(schedule 트리거 없음)이고 git commit/push 단계도
+    #      없다. authority 는 read_only_watch 를 제외하고 전부 false 이며
+    #      주문·매매·자본 배분 권한은 열리지 않는다. 오프라인 fixture 와 이
+    #      저장소에 이미 커밋된 KRX 공식 휴장 capture 만 사용한다.
+    "test/test_daily_producer_freshness_watchdog.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
@@ -2961,6 +3024,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
     "test/test_population_symbol_observation.py": 60.0,
+    "test/test_population_observation_daily_schedule.py": 20.0,
     "test/test_three_market_evaluation_coverage.py": 60.0,
     "test/test_market_candidate_discovery_lookup.py": 120.0,
 }

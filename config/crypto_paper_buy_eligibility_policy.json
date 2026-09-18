@@ -3,10 +3,10 @@
   "policy_version": "crypto_paper_buy_eligibility_policy/1",
   "baseline_label": "PROPOSED_PAPER_BASELINE",
   "baseline_version": "v1",
-  "approval_status": "PROPOSED_PAPER_BASELINE_UNRATIFIED",
+  "approval_status": "PAPER_BASELINE_RATIFIED_MARKET_ALLOCATION_V2",
   "effective_date": "2026-08-29",
   "not_a_live_capital_limit": true,
-  "source_reference": "Canonical Crypto policy Notion doc, section 'PAPER 전용 초기 비교 기준 (PROPOSED_PAPER_BASELINE, v1)' -- PAPER-only comparison baseline, explicitly not a live-capital trading limit ('이 숫자들은 PAPER 비교용이지 실거래 한도가 아니다').",
+  "source_reference": "Canonical Crypto policy Notion doc, section 'PAPER 전용 초기 비교 기준 (PROPOSED_PAPER_BASELINE, v1)' -- PAPER-only comparison baseline, explicitly not a live-capital trading limit ('이 숫자들은 PAPER 비교용이지 실거래 한도가 아니다'). RATIFIED overrides applied 2026-09-18 per CLAUDE_CIO_PAPER_EXECUTION_V1_BUILD_PLAN_20260915.md row C4 (sha256 11f3d3422378cc152ae2af555cfb62926e3fe6779f2de0125c1bd811ebf6412a) and USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json (in-repo copy evidence/authority/paper_market_allocation_v2_user_ratification_20260913.json, sha256 345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8, registered as RULE.ALLOCATION.V2 in config/rule_registry_v1.json). All four ratified numbers of row C4 are now enforced together: (1) single_asset_paper_exposure_nav_fraction raised 0.02->0.05 ('종목 누적 <= NAV 5%...BTC/ETH도 5%'); (2) the old fixed max_concurrent_paper_positions=3 cap is superseded ('옛 코인 3종목 한도 대체') and removed; (3) the crypto aggregate cap is NAV0 x base(CRYPTO) x the crypto market's own state multiplier (RISK_ON 1.00/NEUTRAL 0.70/RISK_OFF 0.25/STRESS 0.00/UNKNOWN hold-up-to-0.50-no-new-buys) -- a flat total_crypto_paper_exposure_nav_fraction cannot express that, so the field is REMOVED and the cap is resolved from RULE.ALLOCATION.V2 in the rule registry by universe/crypto_paper_buy_eligibility.py::_allocation_params(); (4) the per-name cap is min(NAV x single_asset_paper_exposure_nav_fraction, 1% of the ratified 30-day average finalized KRW traded value), the ADV term derived point-in-time from the already-validated P3-12 universe row (trailing_30d_krw_turnover / trailing finalized day count, window from config/upbit_tradeable_universe_policy.json#turnover_lookback_finalized_days); a market without the full ratified window of committed finalized days fails closed rather than using a shorter window. The crypto market state is never computed here and never defaults to RISK_ON: it is read point-in-time from the CRYPTO_PAPER_RUNTIME_V1 decision carried by the contract/3 promotion packet. A missing, non-current or stale state resolves to UNKNOWN, which carries both the ratified hold cap and a hard no-new-buys flag.",
   "decimal_scale": 18,
   "trend": {
     "ema_period": 20
@@ -17,8 +17,6 @@
   },
   "risk": {
     "per_trade_planned_loss_nav_fraction": "0.0025",
-    "total_crypto_paper_exposure_nav_fraction": "0.05",
-    "single_asset_paper_exposure_nav_fraction": "0.02",
-    "max_concurrent_paper_positions": 3
+    "single_asset_paper_exposure_nav_fraction": "0.05"
   }
 }
