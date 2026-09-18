@@ -34,13 +34,35 @@ def source_observation_ceiling(
     *, universe_entry: dict | None, market_evidence_entry: dict | None,
     realtime_entry: dict | None,
 ) -> str:
-    """Return the newest timestamp the decision builder actually gates on.
+    """Return the newest instant the decision builder actually gates on.
 
     This is an offline-regression as-of, not a replacement for the scheduler's
     wall clock.  It deliberately preserves each committed source timestamp and
     takes their chronological maximum; it never clamps or rewrites a source.
     The decision builder remains responsible for rejecting a caller-supplied
     ``generated_at`` that precedes any of these timestamps.
+
+    A realtime run contributes every instant it carries -- run end, gate
+    status and the retained/logged public-message receipts -- via the
+    decision module's own ``realtime_inputs_latest_at``, not ``ended_at``
+    alone.  ``ended_at`` is sampled at whole-second resolution while message
+    receipts keep microseconds, so a run routinely retains a message received
+    inside the same second as its end (07:15:37.221674 for a run ended
+    07:15:37).  Taking ``ended_at`` as the ceiling therefore derived a
+    decision instant that its own committed inputs postdate, and
+    ``build_snapshot`` fail-closed on ``REALTIME_INPUT_AFTER_DECISION``.
+    Because ``upbit-realtime-capture.yml`` commits a new bounded capture every
+    30 minutes, whether the newest committed run had such a message decided
+    whether this file passed -- the live capture stream could overtake the
+    derived instant between one run of the suite and the next.
+
+    The maximum is then rounded *up* to the whole second the packet schema
+    stores, mirroring what ``populate()`` stamps new packets with via
+    ``decision_time_not_before_inputs``: the first whole second that no
+    committed input postdates.  Truncating instead would reintroduce the same
+    sub-second gap.  Rounding up admits nothing that was not already
+    captured; it only judges freshness at a marginally later instant, which
+    can only age evidence.
     """
     timestamps: list[dt.datetime] = []
 
@@ -68,11 +90,17 @@ def source_observation_ceiling(
         run = record.get("run") if isinstance(record, dict) else None
         if not isinstance(run, dict):
             raise AssertionError("REALTIME_RUN_INVALID")
-        add(run.get("ended_at"), "realtime.ended_at")
+        latest_input = BRIDGE.DECISION.realtime_inputs_latest_at(record)
+        if latest_input is None:
+            raise AssertionError("REALTIME_RUN_INSTANT_MISSING")
+        timestamps.append(latest_input)
 
     if not timestamps:
         raise AssertionError("NO_COMMITTED_CRYPTO_SOURCE_TIMESTAMP")
-    return max(timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ceiling = max(timestamps)
+    if ceiling.microsecond:
+        ceiling = ceiling.replace(microsecond=0) + dt.timedelta(seconds=1)
+    return ceiling.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def latest_committed_source_observation_ceiling() -> str:
@@ -142,6 +170,92 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
             ),
             "2026-08-30T00:04:00Z",
         )
+
+    def test_ceiling_covers_every_realtime_input_not_only_run_end(self):
+        """The derived instant must not be overtakeable by the capture stream.
+
+        ``upbit-realtime-capture.yml`` commits a bounded run every 30 minutes
+        and a run routinely retains a message received after its whole-second
+        ``ended_at``.  The ceiling is a property of whatever run is newest, so
+        assert the property rather than a snapshot of today's capture.
+        """
+        realtime = BRIDGE.DECISION.find_latest_realtime_run()
+        latest_input = BRIDGE.DECISION.realtime_inputs_latest_at(realtime["record"])
+        self.assertIsNotNone(latest_input)
+        ceiling = BRIDGE.DECISION._parse_utc(
+            source_observation_ceiling(
+                universe_entry=None, market_evidence_entry=None, realtime_entry=realtime,
+            ),
+            "test.ceiling",
+        )
+        self.assertGreaterEqual(ceiling, latest_input)
+        self.assertLess(ceiling - latest_input, dt.timedelta(seconds=1))
+
+    def test_ceiling_absorbs_a_capture_landing_after_run_end(self):
+        """Simulate the event that used to break this file: a retained public
+        message whose receipt postdates the run's whole-second ``ended_at``."""
+        realtime = copy.deepcopy(BRIDGE.DECISION.find_latest_realtime_run())
+        run = realtime["record"]["run"]
+        ended_at = BRIDGE.DECISION._parse_utc(run["ended_at"], "realtime.ended_at")
+        overtaking = (ended_at + dt.timedelta(microseconds=880000)).strftime(
+            "%Y-%m-%dT%H:%M:%S.%fZ"
+        )
+        self.assertTrue(run["latest_public_messages"], "NO_RETAINED_PUBLIC_MESSAGE")
+        market, row = next(iter(run["latest_public_messages"].items()))
+        row["received_at"] = overtaking
+        # Simulated in memory only: re-stamp the run digest the record
+        # carries so the simulation exercises the timing invariant rather
+        # than tripping the tamper gate ahead of it.  Never written to disk.
+        realtime["record"]["source_sha256"] = BRIDGE.DECISION.payload_sha256(run)
+        self.assertEqual(
+            BRIDGE.DECISION.realtime_inputs_latest_at(realtime["record"]),
+            BRIDGE.DECISION._parse_utc(run["ended_at"], "realtime.ended_at")
+            + dt.timedelta(microseconds=880000),
+            f"simulated overtaking receipt not picked up for {market}",
+        )
+        universe = BRIDGE.DECISION.find_latest_universe_packet()
+        generated_at = source_observation_ceiling(
+            universe_entry=universe, market_evidence_entry=None, realtime_entry=realtime,
+        )
+        self.assertEqual(
+            generated_at,
+            (ended_at + dt.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        packet = BRIDGE.DECISION.build_snapshot(
+            generated_at=generated_at,
+            source_commit=self.SOURCE_COMMIT,
+            universe_entry=universe,
+            market_evidence_entry=None,
+            realtime_entry=realtime,
+        )
+        self.assertEqual(packet["generated_at"], generated_at)
+
+    def test_realtime_input_after_decision_still_fails_closed(self):
+        """The ceiling must satisfy the invariant, never defuse it.  A decision
+        instant that a retained receipt genuinely postdates -- while the run's
+        own ``ended_at`` does not, so the coarser future-dated gate stays
+        silent -- must still fail closed."""
+        realtime = copy.deepcopy(BRIDGE.DECISION.find_latest_realtime_run())
+        run = realtime["record"]["run"]
+        ended_at = BRIDGE.DECISION._parse_utc(run["ended_at"], "realtime.ended_at")
+        generated_at = ended_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.assertTrue(run["latest_public_messages"], "NO_RETAINED_PUBLIC_MESSAGE")
+        row = next(iter(run["latest_public_messages"].values()))
+        row["received_at"] = (ended_at + dt.timedelta(microseconds=880000)).strftime(
+            "%Y-%m-%dT%H:%M:%S.%fZ"
+        )
+        realtime["record"]["source_sha256"] = BRIDGE.DECISION.payload_sha256(run)
+        with self.assertRaisesRegex(
+            BRIDGE.DECISION.CryptoPaperDecisionSnapshotError,
+            "REALTIME_INPUT_AFTER_DECISION",
+        ):
+            BRIDGE.DECISION.build_snapshot(
+                generated_at=generated_at,
+                source_commit=self.SOURCE_COMMIT,
+                universe_entry=BRIDGE.DECISION.find_latest_universe_packet(),
+                market_evidence_entry=None,
+                realtime_entry=realtime,
+            )
 
     def test_current_committed_source_ceiling_builds_without_reusing_prior_decision_time(self):
         universe = BRIDGE.DECISION.find_latest_universe_packet()
