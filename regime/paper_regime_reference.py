@@ -895,6 +895,97 @@ def _validate_authenticated_frozen_v4(packet: dict, root: Path) -> None:
         fail("REFERENCE_FROZEN_AUTHORITY_MISMATCH")
 
 
+STALE_PRODUCER_WORKFLOW = ".github/workflows/paper-regime-reference.yml"
+
+
+def _binding_hashes(packet: dict) -> dict[str, str]:
+    """``path -> sha256`` for every input this packet declares it was built from.
+
+    Covers the policy binding, the three primary market sources, and (when
+    present) the Crypto descriptive-normalization closure -- every path this
+    module itself hashes into a packet. Used only to tell two different
+    reasons a packet can fail to re-derive apart from each other; it does not
+    change what is accepted.
+    """
+    hashes: dict[str, str] = {}
+    policy = packet.get("policy")
+    if isinstance(policy, dict) and isinstance(policy.get("path"), str) and isinstance(policy.get("sha256"), str):
+        hashes[policy["path"]] = policy["sha256"]
+    for row in packet.get("sources") or []:
+        if isinstance(row, dict) and isinstance(row.get("path"), str) and isinstance(row.get("sha256"), str):
+            hashes[row["path"]] = row["sha256"]
+    for row in packet.get("crypto_descriptive_normalization_sources") or []:
+        if isinstance(row, dict) and isinstance(row.get("path"), str) and isinstance(row.get("sha256"), str):
+            hashes[row["path"]] = row["sha256"]
+    return hashes
+
+
+def _market_as_of_dates(markets: object) -> dict[str, object]:
+    if not isinstance(markets, list):
+        return {}
+    return {
+        row["market"]: row.get("as_of_date")
+        for row in markets
+        if isinstance(row, dict) and isinstance(row.get("market"), str)
+    }
+
+
+def _diagnose_rederivation_mismatch(packet: dict, expected: dict) -> None:
+    """Tell a stale committed reference apart from a genuine mismatch.
+
+    ``expected`` is freshly rebuilt from whatever the repository holds right
+    now.  Only reached once ``packet != expected`` is already known.
+
+    When every path this packet declares it was built from (the policy, the
+    three primary market sources, and the Crypto normalization closure) still
+    hashes to exactly the same bytes as ``expected``, the two packets differ
+    for some other reason -- the packet itself, or the code that classifies
+    it, is genuinely inconsistent with its own declared inputs.  That case is
+    unchanged: it still fails ``REFERENCE_REDERIVATION_MISMATCH``.
+
+    When one or more of those declared inputs has moved, the packet was not
+    wrong when it was generated and nothing that produced *this* validation
+    call broke anything: the repository's inputs (a KR/US/CRYPTO source file,
+    the policy, or the Crypto raw closure) changed underneath an
+    already-committed packet after the fact -- exactly what happened
+    2026-09-18, when Korean price collection came back from an 8-day outage
+    and a week of backfilled data landed minutes after this packet was
+    written. That is reported as ``REFERENCE_STALE_VS_CURRENT_INPUTS``, naming
+    which input moved, which market's ``as_of_date`` moved with it, and the
+    producer workflow that regenerates the packet -- so a PR author reading
+    this does not go looking for a bug in their own change that is not there.
+    """
+    packet_hashes = _binding_hashes(packet)
+    expected_hashes = _binding_hashes(expected)
+    moved_paths = sorted(
+        path
+        for path in set(packet_hashes) | set(expected_hashes)
+        if packet_hashes.get(path) != expected_hashes.get(path)
+    )
+    if not moved_paths:
+        return
+
+    packet_dates = _market_as_of_dates(packet.get("markets"))
+    expected_dates = _market_as_of_dates(expected.get("markets"))
+    moved_dates = [
+        f"{market} as_of_date {packet_dates.get(market)!r}->{expected_dates.get(market)!r}"
+        for market in sorted(set(packet_dates) | set(expected_dates))
+        if packet_dates.get(market) != expected_dates.get(market)
+    ]
+
+    detail = (
+        "committed reference was not wrong when generated, it is now behind "
+        "current repository inputs; "
+        "changed inputs=[" + ", ".join(moved_paths) + "]"
+        + (("; moved=[" + ", ".join(moved_dates) + "]") if moved_dates else "")
+        + f"; generated_at committed={packet.get('generated_at')!r} "
+        f"current_repository_state={expected.get('generated_at')!r}"
+        f"; regenerate by dispatching {STALE_PRODUCER_WORKFLOW} "
+        "(or run: python3 regime/paper_regime_reference.py --write)"
+    )
+    fail("REFERENCE_STALE_VS_CURRENT_INPUTS", detail)
+
+
 def validate_reference(
     packet: dict,
     root: Path = ROOT,
@@ -914,6 +1005,7 @@ def validate_reference(
         if frozen_packet_authenticated and packet.get("render_version") == CURRENT_RENDER_VERSION:
             _validate_authenticated_frozen_v4(packet, root)
         else:
+            _diagnose_rederivation_mismatch(packet, expected)
             fail("REFERENCE_REDERIVATION_MISMATCH")
     return copy.deepcopy(packet)
 

@@ -487,6 +487,60 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.PaperRegimeReferenceError, "US_VIX_INVALID"):
                 MODULE.build_reference(root)
 
+    def test_stale_reference_names_the_moved_input_and_producer_workflow(self):
+        # Reproduces the 2026-09-18 shape: a committed packet was correct when
+        # written, then Korean price collection recovered from an 8-day outage
+        # and a backfilled session landed in the repository minutes later.
+        # REFERENCE_REDERIVATION_MISMATCH alone does not say that -- a reader
+        # reasonably concludes their own change broke something. The
+        # diagnostic must say the input moved, which one, and how to fix it.
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            shutil.copytree(ROOT / "config", root / "config")
+            (root / "data").mkdir()
+            shutil.copy2(ROOT / "data/latest_free_market_data.json", root / "data/latest_free_market_data.json")
+            shutil.copy2(ROOT / "data/latest_korea_market_signals.json", root / "data/latest_korea_market_signals.json")
+            shutil.copy2(ROOT / "data/latest_crypto_regime_refresh_status.json", root / "data/latest_crypto_regime_refresh_status.json")
+            committed = MODULE.build_reference(root)
+            self.assertEqual(MODULE.validate_reference(committed, root), committed)
+
+            kr_path = root / "data/latest_korea_market_signals.json"
+            kr_source = json.loads(kr_path.read_text(encoding="utf-8"))
+            committed_kr_as_of = kr_source["as_of_date"]
+            backfilled_kr_as_of = "2099-01-02" if committed_kr_as_of != "2099-01-02" else "2099-01-03"
+            kr_source["as_of_date"] = backfilled_kr_as_of
+            kr_path.write_text(json.dumps(kr_source), encoding="utf-8")
+
+            with self.assertRaises(MODULE.PaperRegimeReferenceError) as ctx:
+                MODULE.validate_reference(committed, root)
+            message = str(ctx.exception)
+            self.assertIn("REFERENCE_STALE_VS_CURRENT_INPUTS", message)
+            # Must not also read as the generic, undiagnosed code -- the whole
+            # point is a reader can tell the two apart at a glance.
+            self.assertNotIn("REFERENCE_REDERIVATION_MISMATCH", message)
+            self.assertIn("data/latest_korea_market_signals.json", message)
+            self.assertIn(MODULE.STALE_PRODUCER_WORKFLOW, message)
+            self.assertIn(
+                f"KR as_of_date {committed_kr_as_of!r}->{backfilled_kr_as_of!r}", message
+            )
+
+            # A genuine mismatch -- same declared inputs, tampered output --
+            # must still read as the unqualified code and never as stale.
+            # Restore the KR input first so this half tests inputs-unchanged.
+            shutil.copy2(ROOT / "data/latest_korea_market_signals.json", kr_path)
+            tampered = copy.deepcopy(committed)
+            tampered["markets"][0]["paper_reference"]["candidate_regime"] = (
+                "RISK_OFF" if tampered["markets"][0]["paper_reference"]["candidate_regime"] != "RISK_OFF" else "NEUTRAL"
+            )
+            unsigned = copy.deepcopy(tampered)
+            unsigned.pop("payload_sha256")
+            tampered["payload_sha256"] = MODULE.payload_sha256(unsigned)
+            with self.assertRaises(MODULE.PaperRegimeReferenceError) as ctx2:
+                MODULE.validate_reference(tampered, root)
+            tampered_message = str(ctx2.exception)
+            self.assertIn("REFERENCE_REDERIVATION_MISMATCH", tampered_message)
+            self.assertNotIn("REFERENCE_STALE_VS_CURRENT_INPUTS", tampered_message)
+
     def test_write_is_append_only_and_pointer_is_identical(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
