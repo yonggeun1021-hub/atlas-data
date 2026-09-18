@@ -802,6 +802,23 @@ class PolicyAndWiringTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, text)
 
+    def test_workflow_actions_use_the_contract_immutable_pins(self):
+        contract = json.loads(
+            (ROOT / "config" / "github_actions_runtime_contract.json").read_text(
+                encoding="utf-8"
+            )
+        )["actions"]
+        uses = [
+            line.split("uses:", 1)[1].split("#", 1)[0].strip()
+            for line in WORKFLOW.read_text(encoding="utf-8").splitlines()
+            if "uses:" in line and not line.lstrip().startswith("#")
+        ]
+        self.assertTrue(uses)
+        for ref in uses:
+            action = ref.split("@", 1)[0]
+            self.assertIn(action, contract, ref)
+            self.assertEqual(ref, f"{action}@{contract[action]['commit_sha']}")
+
     def test_this_regression_is_registered_in_run_all(self):
         self.assertIn(
             '"test/test_crypto_taxonomy_margin_monitor.py"',
