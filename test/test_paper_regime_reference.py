@@ -313,7 +313,19 @@ class PaperRegimeReferenceTest(unittest.TestCase):
                 expected_status,
             )
         self.assertEqual(packet["schema_version"], "paper_regime_reference/v2")
-        self.assertTrue(all(row["runtime_regime"] == "UNKNOWN" for row in markets.values()))
+        # runtime_regime used to be a hardcoded literal, so "always UNKNOWN" was
+        # a tautology.  It is now derived per market from the ratified
+        # market-state source binding, so the assertion is the derivation: a
+        # market the binding does not open carries UNKNOWN whatever it
+        # classified, and a market it opens carries exactly its own reference
+        # judgement, never another market's.
+        adopted, _ = MODULE.state_source_binding(ROOT)
+        for market, row in sorted(markets.items()):
+            candidate = row["paper_reference"]["candidate_regime"]
+            expected = candidate if market in adopted else "UNKNOWN"
+            self.assertEqual(row["runtime_regime"], expected, market)
+        for market in sorted(set(markets) - set(adopted)):
+            self.assertEqual(markets[market]["runtime_regime"], "UNKNOWN", market)
 
     def test_current_crypto_leadership_code_follows_the_source_for_every_allowed_code(self):
         """The rendered leadership code is the source's, whichever allowed code it is.

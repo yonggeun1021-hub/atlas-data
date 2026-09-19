@@ -1,0 +1,120 @@
+{
+  "allowed_states": [
+    "RISK_ON",
+    "NEUTRAL",
+    "RISK_OFF",
+    "STRESS",
+    "UNKNOWN"
+  ],
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "cross_market_date_coercion_authorized": false,
+    "exchange_order_authorized": false,
+    "order_authorized": false,
+    "paper_market_state_sizing_input_authorized": true,
+    "position_size_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "real_trading": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "target_weight_authorized": false,
+    "trading_authorized": false
+  },
+  "authority_record": {
+    "governance_decision_name": "RATIFICATION_MARKET_STATE_SOURCE_BINDING",
+    "path": "evidence/authority/USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919.json",
+    "record_id": "USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919",
+    "sha256": "98fce306ea3cfc93646b37a829f854d56dd508e572c2591de9736dc80ce6ead0"
+  },
+  "closed_state": "UNKNOWN",
+  "consumer": {
+    "blocking_point": "portfolio/paper_session_budget.py session_budget() new_buys gate",
+    "envelope": "portfolio/paper_allocation_envelope.allocation_envelope",
+    "new_buys_table": "config/rule_registry_v1.json RULE.ALLOCATION.V2 new_buys_by_market_state",
+    "state_multiplier_table": "config/rule_registry_v1.json RULE.ALLOCATION.V2 per_market_state_multiplier_of_base",
+    "wiring": "regime/paper_market_state_binding.py"
+  },
+  "contract_version": "paper_market_state_source_binding/v1",
+  "markets": {
+    "CRYPTO": {
+      "adopted": false,
+      "adopted_at_utc": null,
+      "blocked_reason": "ACCEPTANCE_CONDITION_FAILED:2_MINIMUM_CONSECUTIVE_COMPLETE_DAYS",
+      "evidence": {
+        "decision": {
+          "acceptance_status": "NOT_ACCEPTED",
+          "accepted_run": {
+            "complete_day_count": 1,
+            "first_decision_date": "2026-09-18",
+            "last_decision_date": "2026-09-18",
+            "required_consecutive_complete_days": 5
+          },
+          "conditions_failing": [
+            "2_REQUIRED_5_OF_5_AXES"
+          ],
+          "decision_status": "BLOCKED",
+          "path": "data/latest_crypto_paper_runtime_decision.json",
+          "sha256": "f9b85ca69a668f5f891446c4f50df8c8067d2a1896f19a5cb9122149f394247b"
+        }
+      },
+      "must_not_be_forced": true,
+      "unblocks_when": "five consecutive complete UTC days of 5/5 crypto axes accumulate from the 2026-09-18 chain start; the earliest possible first verdict is 2026-09-23. No code change can advance it -- the missing input is elapsed days of committed evidence."
+    },
+    "KR": {
+      "adopted": true,
+      "adopted_at_utc": "2026-09-19T00:00:00Z",
+      "disclosed_weaknesses": [
+        "KR_CANDIDATE_STILL_DRAFT: config/kr_paper_runtime_ratification_candidate_v1.json status stays DRAFT_NOT_RATIFIED. Two of its four remaining preconditions are satisfiable by CIO ratification, one (SOURCE_AWARE_RUNTIME_BRIDGE_INDEPENDENT_REVIEW) needs a reviewer other than the implementer, and one (EXACT_HEAD_CI_AND_POST_MERGE_MAIN_REVALIDATION) is by construction only observable after this change merges. Promoting that document is therefore NOT part of this change.",
+        "KR_RUNTIME_DECISION_UNCHANGED: the candidate document's own proposed_effect_after_separate_ratification keeps buy/capital/order/production/trading at UNCHANGED_FALSE; this binding keeps them false too."
+      ],
+      "evidence": {
+        "axis_arithmetic": "regime.paper_regime_reference.build_kr (unmodified)",
+        "ratification_candidate": {
+          "path": "config/kr_paper_runtime_ratification_candidate_v1.json",
+          "remaining_preconditions": [
+            "SOURCE_AWARE_RUNTIME_BRIDGE_INDEPENDENT_REVIEW",
+            "CIO_RATIFICATION_OF_KR_RUNTIME_BINDING",
+            "CIO_RATIFICATION_OF_KR_REGIME_RESULT_AUTHORITY",
+            "EXACT_HEAD_CI_AND_POST_MERGE_MAIN_REVALIDATION"
+          ],
+          "satisfied_preconditions": 9,
+          "sha256": "b169be8554c766250393f3619eadfcda895801b9a6186d7b0e4d6ac6094f8285"
+        }
+      }
+    },
+    "US": {
+      "adopted": true,
+      "adopted_at_utc": "2026-09-19T00:00:00Z",
+      "disclosed_weaknesses": [
+        "US_PIT_ACCEPTANCE_NOT_ACCEPTED: data/latest_market_scoped_pit_acceptance.json reports US status NOT_ACCEPTED, evaluated_date_count 0, missing_regimes [RISK_ON, NEUTRAL, RISK_OFF, STRESS], reason NO_EVIDENCE_BUNDLE_SUPPLIED.",
+        "US_U5_ADOPTION_ABSENT: config/us_paper_runtime_adoption_v1.json does not exist, so regime/us_paper_runtime.py keeps returning UNKNOWN. This binding does NOT substitute for that adoption and grants none of its authority.",
+        "GATE_ITSELF_UNVERIFIED: PREREGISTRATION_REGIME_GATE_VALUE_V1.md verdict NOT_COMPUTABLE (PASS 0 / FAIL 0 / NOT_COMPUTABLE 4 / NOT_TESTABLE 1)."
+      ],
+      "evidence": {
+        "axis_arithmetic": "regime.paper_regime_reference.build_us (unmodified)",
+        "producer_contract": {
+          "path": "config/us_paper_runtime_contract_v1.json",
+          "sha256": "bad715c8a960b6aa7a5618b22e5ccefc580f38599e2c3f532f7e182c700812d3"
+        }
+      }
+    }
+  },
+  "mode": "PAPER_SIZING_INPUT_ONLY",
+  "note": "The single source of the PAPER market state. Before this file existed, regime/paper_regime_reference.py emitted the string \"UNKNOWN\" as a hardcoded literal for every market and no production code called portfolio/paper_allocation_envelope.allocation_envelope(market_states=...) at all. This file names the source, gates it per market, and fails closed: a market that is absent from markets below, or whose adopted flag is not exactly true, is read as UNKNOWN. It authorizes a sizing INPUT and nothing else -- no buy, no order, no capital, no position size, no target weight, no real trading.",
+  "schema_version": 1,
+  "source": {
+    "artifact": "data/latest_paper_regime_reference.json",
+    "field": "markets[].paper_reference.candidate_regime",
+    "policy": {
+      "note": "Thresholds, axis definitions and symbol lists are NOT part of this binding and are unchanged. The policy's own authority block still carries runtime_regime_authorized: false, which is what regime/paper_regime_reference.py's policy validator enforces; that flag governs whether the REFERENCE POLICY grants runtime authority. The per-market grant in this file is the separate, user-ratified source binding, and it is the only thing that opens a market.",
+      "path": "config/paper_regime_reference_policy_v1.json",
+      "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350"
+    },
+    "producer": "regime/paper_regime_reference.py",
+    "schema_version": "paper_regime_reference/v2"
+  },
+  "status": "USER_RATIFIED"
+}

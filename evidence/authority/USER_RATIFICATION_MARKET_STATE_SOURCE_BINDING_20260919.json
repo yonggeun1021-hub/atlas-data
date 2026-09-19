@@ -1,0 +1,169 @@
+{
+  "authority": {
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "exchange_order_authorized": false,
+    "order_authorized": false,
+    "position_size_authorized": false,
+    "real_capital_authorized": false,
+    "real_trading": false,
+    "scope": "PAPER market-state sizing input only",
+    "target_weight_authorized": false,
+    "trading_authorized": false
+  },
+  "card": {
+    "note": "gpt/ is not tracked in this repository; the ratification bytes are reproduced verbatim under source_record below and the sha256 is of the untracked original.",
+    "path": "gpt/outputs/USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919.json",
+    "sha256": "b048e2d6b078f697202a209ad6c4055a90171fe90945ad5cb1674b54c7d3bceb"
+  },
+  "cio_rationale": "검증하려면 거래 이력이 필요하고, 거래하려면 게이트가 켜져야 하고, 게이트를 켜려면 검증이 필요한 순환이 성립해 있었다. 모의매매가 이 순환을 깨기 위해 존재한다. 2026-09-19 병합된 AGENTS.md North Star 조항: 투자 조각 하나가 정직한 모의매매 증거를 낼 수 있게 되는 즉시 병행 측정을 시작한다.",
+  "explicitly_not_authorized_stays_false": [
+    "real_trading",
+    "capital_authorized",
+    "order_authorized",
+    "buy_authorized",
+    "trading_authorized",
+    "position_size_authorized",
+    "target_weight_authorized",
+    "exchange_order_authorized",
+    "real_capital_authorized"
+  ],
+  "governance_decision_name": "RATIFICATION_MARKET_STATE_SOURCE_BINDING",
+  "items": {
+    "fail_closed_assertion_redesigned": {
+      "decision": "regime/paper_regime_runtime_adoption.py 의 runtime_production_regime_authorized 전면 false 단정을, 시장별 fail-closed 지도(map)로 재설계한다. 기본값은 닫힘이고, 지도에 없는 시장은 닫힌 것으로 읽는다.",
+      "status": "RATIFIED",
+      "unchanged": "나머지 10개 권한 플래그는 여전히 is False 만 허용한다."
+    },
+    "hardcoded_runtime_regime_literal_removed": {
+      "decision": "regime/paper_regime_reference.py 의 하드코딩 \"runtime_regime\": \"UNKNOWN\" 리터럴을 제거하고, 시장별 채택 기록에서 파생시킨다.",
+      "sites_before": [
+        "regime/paper_regime_reference.py:450",
+        "regime/paper_regime_reference.py:665"
+      ],
+      "status": "RATIFIED",
+      "validator_redesigned": "regime/paper_regime_reference.py:892 (was: crypto runtime_regime must be the literal UNKNOWN; now: every market's runtime_regime must equal the per-market derivation from the ratified binding)"
+    },
+    "market_state_source_binding": {
+      "binding_contract": "config/paper_market_state_source_binding_v1.json",
+      "consumer": "portfolio/paper_allocation_envelope.allocation_envelope(market_states=...)",
+      "decision": "PAPER 시장상태의 단일 원천을 regime/paper_regime_reference.py 의 paper_reference.candidate_regime 으로 확정한다. 시장별로 독립이며, 채택 기록이 확정된 시장만 열리고 기록이 없거나 초안이면 UNKNOWN 으로 닫힌다.",
+      "fail_closed_default": "UNKNOWN",
+      "source_of_truth": {
+        "artifact": "data/latest_paper_regime_reference.json",
+        "field": "markets[].paper_reference.candidate_regime",
+        "producer": "regime/paper_regime_reference.py",
+        "schema_version": "paper_regime_reference/v2"
+      },
+      "status": "RATIFIED"
+    },
+    "production_wiring_created": {
+      "decision": "market_states 를 채워 엔벌로프를 부르는 프로덕션 배선을 신설한다 (신설 전 프로덕션 호출자 0건).",
+      "module": "regime/paper_market_state_binding.py",
+      "repository_pointers_that_asked_for_it": [
+        "validation/paper_benchmark_nav_series.py::read_market_state docstring (names RATIFICATION_MARKET_STATE_SOURCE_BINDING)",
+        "config/rule_registry_v1.json accepted_interpretations: 'consumer wiring is a required follow-up before crypto state affects allocation/hedge/portal'"
+      ],
+      "status": "RATIFIED"
+    }
+  },
+  "known_second_layer_not_closed_by_this_ratification": [
+    "T2_ROTATION_MEMBERSHIP: 844개 커밋 꾸러미 전부에서 PAPER_BUY_ELIGIBLE 0건, FOCUSED_REVIEW 0건 (코인 후보 게이트, 별도 층)",
+    "NAV0_UNKNOWN: 보유 평가 미확인 시 전 시장 신규매수 금지 (2026-09-18 확정, 유지)",
+    "KR 후보 문서 자체 기록: KR 채택을 켜도 buy/capital/order/trading 은 UNCHANGED_FALSE"
+  ],
+  "measurement_source": {
+    "method": "portfolio/paper_allocation_envelope.allocation_envelope() over committed evidence/regime/paper_reference packets, decision_at_utc fixed at 2026-09-19T07:00:00Z",
+    "path": "gpt/outputs/CLAUDE_CIO_REGIME_GATE_DRYRUN_20260919.md",
+    "sha256": "ea10ce048311e22bd5da8f411c819a5c76742b2b4f92cec0b22af4ea0402df0b"
+  },
+  "per_market_effect_at_ratification": {
+    "CRYPTO": "CLOSED — 수락조건 2_MINIMUM_CONSECUTIVE_COMPLETE_DAYS 미충족, 자료 부족. 강제 통과 금지.",
+    "KR": "OPEN — candidate_regime 소비 허용 (PAPER 사이징 한정)",
+    "US": "OPEN — candidate_regime 소비 허용 (PAPER 사이징 한정)"
+  },
+  "ratified_at_kst": "2026-09-19",
+  "ratified_at_utc": "2026-09-19T00:00:00Z",
+  "ratified_by": "user",
+  "record_id": "USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919",
+  "record_type": "USER_RATIFICATION",
+  "source_record": {
+    "authorized": [
+      "regime/paper_regime_reference.py 의 하드코딩된 runtime_regime UNKNOWN 리터럴 제거",
+      "참조 판정(paper_reference.candidate_regime)을 모의매매 런타임 입력으로 연결",
+      "config/us_paper_runtime_adoption_v1.json 신설 (현재 템플릿만 존재)",
+      "KR 채택 기록을 DRAFT_NOT_RATIFIED 에서 확정 상태로 전환 (잔여 4건 해소)",
+      "CRYPTO 채택 기록의 수락조건 3건 해소 (자료 조건이 충족되는 시점까지 차단 유지는 허용)",
+      "paper_regime_runtime_adoption 의 fail-closed 단정(true 를 거부하는 로직) 재설계",
+      "market_states 를 채워 portfolio/paper_allocation_envelope.allocation_envelope() 를 호출하는 프로덕션 배선 신설",
+      "3시장 as_of 날짜 불일치 문제 해소 (날짜 강제 금지 원칙은 유지)",
+      "위 변경으로 깨지는 sha256 핀을 같은 변경 안에서 재계산"
+    ],
+    "cio_rationale": "검증하려면 거래 이력이 필요하고, 거래하려면 게이트가 켜져야 하고, 게이트를 켜려면 검증이 필요한 순환이 성립해 있었다. 모의매매가 이 순환을 깨기 위해 존재한다. 2026-09-19 병합된 AGENTS.md North Star 조항: 투자 조각 하나가 정직한 모의매매 증거를 낼 수 있게 되는 즉시 병행 측정을 시작한다.",
+    "cio_reading_of_scope": "PAPER 층의 국면 게이트 차단을 전부 해제하고, 필요한 개발을 진행한다. 실제 자금 관련 권한은 이 확정에 포함되지 않는다.",
+    "explicitly_not_authorized_stays_false": [
+      "real_trading",
+      "capital_authorized",
+      "order_authorized",
+      "buy_authorized",
+      "trading_authorized",
+      "position_size_authorized",
+      "target_weight_authorized",
+      "exchange_order_authorized",
+      "real_capital_authorized"
+    ],
+    "governance_decision_name": "RATIFICATION_MARKET_STATE_SOURCE_BINDING",
+    "known_second_layer_not_closed_by_this_ratification": [
+      "T2_ROTATION_MEMBERSHIP: 844개 커밋 꾸러미 전부에서 PAPER_BUY_ELIGIBLE 0건, FOCUSED_REVIEW 0건 (코인 후보 게이트, 별도 층)",
+      "NAV0_UNKNOWN: 보유 평가 미확인 시 전 시장 신규매수 금지 (2026-09-18 확정, 유지)",
+      "KR 후보 문서 자체 기록: KR 채택을 켜도 buy/capital/order/trading 은 UNCHANGED_FALSE"
+    ],
+    "measured_effect_at_ratification": {
+      "days_reduced": "3일 (09-01, 09-02, 09-09), 최대 -6.7%",
+      "exposure_after_mean_18_comparable_days": "0.60528",
+      "exposure_before": "0.45000",
+      "exposure_change_pct": "+34.5",
+      "max_single_day_change": "KR RISK_ON 일 (09-07, 09-08): 0.4500 -> 0.8050, +78.9%",
+      "method": "저장소 실제 코드 portfolio/paper_allocation_envelope.allocation_envelope(), 결정시각 2026-09-19T07:00Z 고정",
+      "new_buy_permission_after": "43/60 허용 (PERMIT 2 + PERMIT_SELECTIVE 41)",
+      "new_buy_permission_before": "60/60 DENY (2026-08-28~09-19, 3시장)",
+      "note": "게이트는 위험 축소 장치가 아니라 노출 확대 장치임이 실측으로 확인됨",
+      "source": "gpt/outputs/CLAUDE_CIO_REGIME_GATE_DRYRUN_20260919.md"
+    },
+    "ratified_at_kst": "2026-09-19",
+    "ratified_by": "user",
+    "record_id": "USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919",
+    "unchanged_constraints": [
+      "원시 KRX/KIS 행의 공개 커밋 및 공개 산출물 업로드 금지",
+      "korea-market-signals.yml dispatch 금지",
+      "서버 변경은 별도 승인 문장 필요",
+      "커밋된 증거 삭제는 별도 승인 필요",
+      "config/constitution.json B2~B7 은 이 확정에 포함되지 않음 (숫자 확정 별건)"
+    ],
+    "user_instruction_verbatim_ko": "이제 그런 금지 항목은 다 풀고 개발이 필요하면 진행해 모 언제까지 막아놓을건데",
+    "verification_status_of_the_gate_itself": {
+      "gates": "PASS 0 / FAIL 0 / NOT_COMPUTABLE 4 / NOT_TESTABLE 1",
+      "meaning": "기각이 아니라 미검증. 이 확정은 미검증 신호를 모의매매에 켜는 것임을 명시하고 진행한다.",
+      "preregistration": "PREREGISTRATION_REGIME_GATE_VALUE_V1.md",
+      "preregistration_sha256": "727e7d2082458fb76c98436f573611211ec9c158cab0b885c1e78b572fbebbab",
+      "reason": "비겹침 20세션 창이 3시장 모두 0개. 주 지표는 200세션 필요, 커밋된 점수 이력은 20일.",
+      "verdict": "NOT_COMPUTABLE"
+    }
+  },
+  "unchanged_constraints": [
+    "원시 KRX/KIS 행의 공개 커밋 및 공개 산출물 업로드 금지",
+    "korea-market-signals.yml dispatch 금지",
+    "서버 변경은 별도 승인 문장 필요",
+    "커밋된 증거 삭제는 별도 승인 필요",
+    "config/constitution.json B2~B7 은 이 확정에 포함되지 않음 (숫자 확정 별건)"
+  ],
+  "verbatim": "이제 그런 금지 항목은 다 풀고 개발이 필요하면 진행해 모 언제까지 막아놓을건데",
+  "verification_status_of_the_gate_itself": {
+    "gates": "PASS 0 / FAIL 0 / NOT_COMPUTABLE 4 / NOT_TESTABLE 1",
+    "meaning": "기각이 아니라 미검증. 이 확정은 미검증 신호를 모의매매에 켜는 것임을 명시하고 진행한다.",
+    "preregistration": "PREREGISTRATION_REGIME_GATE_VALUE_V1.md",
+    "preregistration_sha256": "727e7d2082458fb76c98436f573611211ec9c158cab0b885c1e78b572fbebbab",
+    "reason": "비겹침 20세션 창이 3시장 모두 0개. 주 지표는 200세션 필요, 커밋된 점수 이력은 20일.",
+    "verdict": "NOT_COMPUTABLE"
+  }
+}
