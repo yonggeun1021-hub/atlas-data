@@ -2595,6 +2595,7 @@ class UsCommittedHistoryStoreReplayTest(unittest.TestCase):
                 excluded=MODULE.exclusion_basis(self.contract),
                 replayed=MODULE.authorized_axes(self.contract),
                 source_mode=MODULE.SOURCE_MODE_EVIDENCE,
+                units_scale=self.store.units_scale(),
             )
         self.assertEqual(record["status"], MODULE.STATUS_OBSERVED, record.get("failure_reason"))
         self.assertEqual(record["effective_session_date"], first)
@@ -2739,31 +2740,197 @@ class UsCommittedHistoryStoreReplayTest(unittest.TestCase):
         with self.assertRaises(MODULE.ReplayPopulationError):
             MODULE.validate_population(dropped)
 
-    def test_an_evidence_liquidity_row_withholds_the_units_vintage_it_cannot_know(self):
+    def test_an_evidence_liquidity_row_derives_the_units_vintage_it_cannot_read(self):
+        """The factor is the derived one, and cannot be the capture-time one.
+
+        The committed store shows WRESBAL rescaled on 2025-11-13, so a date
+        before that boundary must normalize with 1000 and a date after it with 1,
+        while TOTBKCR -- which the store shows was never rescaled -- normalizes
+        with 1000 throughout. Reading the capture-time metadata instead would
+        give 1 for every WRESBAL date, which is right only after the boundary.
+        """
+        scale = self.store.units_scale()
+        early, late = "2024-06-03", self.store.scoreable_sessions()[-1]
+        population = self._evidence_population([early, late])
+        MODULE.validate_population(population)
+        factors = {}
+        for record in population["records"]:
+            rows = record["five_axis"]["axes"]["LIQUIDITY"]["measurement"]["series"]
+            factors[record["requested_date"]] = {
+                row["series_id"]: row["normalization_factor"] for row in rows
+            }
+            for row in rows:
+                series_scale = scale[row["series_id"]]
+                expected, undone = MODULE._derived_units_scale_at(
+                    series_scale, record["requested_date"], row["series_id"],
+                )
+                self.assertEqual(
+                    row["normalization_factor"], FMD._decimal_text(expected),
+                )
+                self.assertEqual(
+                    row["units_vintage"], MODULE.units_vintage_block(expected, undone),
+                )
+                # The boundary dates stay out of the measurement: one of them is
+                # later than this replayed date, and every date inside a
+                # measurement is bound as a consumed source date.
+                self.assertNotIn("rescale_events", row["units_vintage"])
+                self.assertEqual(
+                    row["normalized_unit"], series_scale["normalized_unit"],
+                )
+                self.assertIsNone(row["source_unit"])
+                self.assertNotIn("metadata_realtime_start", row)
+                self.assertNotIn("metadata_realtime_end", row)
+        self.assertEqual(factors[early]["WRESBAL"], "1000")
+        self.assertEqual(factors[late]["WRESBAL"], "1")
+        self.assertEqual(factors[early]["TOTBKCR"], "1000")
+        self.assertEqual(factors[late]["TOTBKCR"], "1000")
+
+    def test_the_derived_rescale_timeline_is_what_the_committed_store_shows(self):
+        """One WRESBAL rescale, exactly ×1000, and no TOTBKCR rescale at all."""
+        scale = self.store.units_scale()
+        wresbal = scale["WRESBAL"]["rescale_events"]
+        self.assertEqual(len(wresbal), 1, wresbal)
+        self.assertEqual(wresbal[0]["effective_from"], "2025-11-13")
+        self.assertEqual(wresbal[0]["power_of_ten"], 3)
+        self.assertGreater(wresbal[0]["observation_date_count"], 100)
+        self.assertEqual(scale["TOTBKCR"]["rescale_events"], [])
+        # Every derived factor must be one the production unit table contains --
+        # a derived scale outside it could not have come from the live producer.
+        supported = {value[1] for value in FMD.FRED_LIQUIDITY_UNITS.values()}
+        for series_id, series_scale in scale.items():
+            for date in ("2020-10-20", "2025-11-12", "2025-11-13", "2026-09-11"):
+                self.assertIn(
+                    MODULE._derived_units_scale_at(series_scale, date, series_id)[0],
+                    supported, f"{series_id}:{date}",
+                )
+
+    def test_a_liquidity_row_cannot_carry_a_factor_the_timeline_does_not_yield(self):
+        population = self._evidence_population(["2024-06-03"])
+        MODULE.validate_population(population)
+        for mutate in (
+            # the capture-time factor, which is wrong before the rescale
+            lambda row: row.update({"normalization_factor": "1"}),
+            # a metadata vintage window the store does not hold
+            lambda row: row.update({
+                "metadata_realtime_start": "2026-09-18",
+                "metadata_realtime_end": "2026-09-18",
+            }),
+            # a units string it never read
+            lambda row: row.update({"source_unit": "Millions of U.S. Dollars"}),
+            # a disclosure block that no longer says what was derived
+            lambda row: row.update({"units_vintage": None}),
+        ):
+            forged = copy.deepcopy(population)
+            rows = forged["records"][0]["five_axis"]["axes"][
+                "LIQUIDITY"
+            ]["measurement"]["series"]
+            mutate(next(row for row in rows if row["series_id"] == "WRESBAL"))
+            forged.pop("payload_sha256")
+            forged["payload_sha256"] = MODULE.payload_sha256(forged)
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.validate_population(forged)
+
+    # -- the VIX vintage lag, and the asymmetry it is half of ---------------
+
+    def test_the_evidence_vix_is_the_previous_calendar_day_vintage(self):
+        """The rule, asserted as a date relation rather than as a comment.
+
+        ALFRED backdates a VIXCLS row's availability to its observation date, so
+        resolving VIX at the replayed date's own vintage serves a value the live
+        producer had not been published yet. Evidence mode resolves it one
+        calendar day earlier, so no replayed VIX observation may be dated on the
+        replayed date itself.
+        """
+        self.assertEqual(
+            MODULE.fred_vintage_lag_days(MODULE.SOURCE_MODE_EVIDENCE, "RISK_VOL"), 1,
+        )
+        dates = self.store.scoreable_sessions()[-6:]
+        population = self._evidence_population(dates)
+        MODULE.validate_population(population)
+        for record in population["records"]:
+            measurement = record["five_axis"]["axes"]["RISK_VOL"]["measurement"]
+            requested = record["requested_date"]
+            expected_as_of = (
+                dt.date.fromisoformat(requested) - dt.timedelta(days=1)
+            ).isoformat()
+            self.assertEqual(measurement["vintage_lag_days"], 1, requested)
+            self.assertEqual(measurement["vintage_date"], requested)
+            self.assertEqual(measurement["vintage_as_of_date"], expected_as_of)
+            # The load-bearing assertion: never the replayed date's own value.
+            self.assertLess(measurement["observation_date"], requested, requested)
+            self.assertLessEqual(measurement["observation_date"], expected_as_of)
+
+    def test_reverting_the_evidence_vix_to_the_same_day_vintage_fails(self):
+        """The lock. "ALFRED says it was available that day" must not come back.
+
+        Two ways back to the same-day value, both refused: flipping the declared
+        lag to 0, and keeping the declared lag while carrying an observation dated
+        on the replayed date.
+        """
         population = self._evidence_population(self.store.scoreable_sessions()[-1:])
         MODULE.validate_population(population)
-        axes = population["records"][0]["five_axis"]["axes"]
-        self.assertEqual(axes["LIQUIDITY"]["status"], "OBSERVED")
-        for row in axes["LIQUIDITY"]["measurement"]["series"]:
-            self.assertEqual(row["units_vintage"], MODULE.UNITS_VINTAGE_UNAVAILABLE)
-            self.assertIsNone(row["source_unit"])
-            self.assertIsNone(row["normalized_unit"])
-            self.assertEqual(row["normalization_factor"], "1")
-            self.assertNotIn("metadata_realtime_start", row)
-            self.assertNotIn("metadata_realtime_end", row)
+        requested = population["records"][0]["requested_date"]
+        for mutate in (
+            lambda m: m.update({
+                "vintage_lag_days": 0, "vintage_as_of_date": requested,
+            }),
+            lambda m: m.update({"observation_date": requested}),
+            lambda m: m.update({"vintage_as_of_date": requested}),
+        ):
+            forged = copy.deepcopy(population)
+            mutate(forged["records"][0]["five_axis"]["axes"]["RISK_VOL"]["measurement"])
+            forged.pop("payload_sha256")
+            forged["payload_sha256"] = MODULE.payload_sha256(forged)
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.validate_population(forged)
 
-        # A row that claims the capture-time units vintage instead must fail:
-        # that window lies after most replayed dates, and accepting it is
-        # exactly the later-revision substitution this mode refuses.
+    def test_the_liquidity_vintage_stays_same_day_and_the_asymmetry_holds(self):
+        """The other half of the rule: liquidity is not lagged, and cannot be.
+
+        The weekly series carry their release lag inside the row already, so a
+        calendar-day lag here would be a second, invented delay. The asymmetry is
+        the live producer's behaviour, so flattening it in *either* direction is a
+        rule change and fails closed.
+        """
+        self.assertEqual(
+            MODULE.fred_vintage_lag_days(MODULE.SOURCE_MODE_EVIDENCE, "LIQUIDITY"), 0,
+        )
+        self.assertNotEqual(
+            MODULE.fred_vintage_lag_days(MODULE.SOURCE_MODE_EVIDENCE, "RISK_VOL"),
+            MODULE.fred_vintage_lag_days(MODULE.SOURCE_MODE_EVIDENCE, "LIQUIDITY"),
+        )
+        population = self._evidence_population(self.store.scoreable_sessions()[-1:])
+        MODULE.validate_population(population)
+        requested = population["records"][0]["requested_date"]
+        liquidity = population["records"][0]["five_axis"]["axes"][
+            "LIQUIDITY"
+        ]["measurement"]
+        self.assertEqual(liquidity["vintage_lag_days"], 0)
+        self.assertEqual(liquidity["vintage_as_of_date"], requested)
+        self.assertEqual(liquidity["vintage_date"], requested)
+
+        lagged = (dt.date.fromisoformat(requested) - dt.timedelta(days=1)).isoformat()
         forged = copy.deepcopy(population)
-        row = forged["records"][0]["five_axis"]["axes"]["LIQUIDITY"]["measurement"]["series"][0]
-        del row["units_vintage"]
-        row["metadata_realtime_start"] = "2026-09-18"
-        row["metadata_realtime_end"] = "2026-09-18"
+        forged["records"][0]["five_axis"]["axes"]["LIQUIDITY"]["measurement"].update({
+            "vintage_lag_days": 1, "vintage_as_of_date": lagged,
+        })
         forged.pop("payload_sha256")
         forged["payload_sha256"] = MODULE.payload_sha256(forged)
         with self.assertRaises(MODULE.ReplayPopulationError):
             MODULE.validate_population(forged)
+
+        # And the builder refuses to lag it even if the rule table were edited.
+        with mock.patch.dict(
+            MODULE.FRED_VINTAGE_LAG_DAYS[MODULE.SOURCE_MODE_EVIDENCE],
+            {"LIQUIDITY": 1},
+        ):
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.replay_liquidity_source(
+                    "KEY", dt.date.fromisoformat(requested), getter=self._getter(),
+                    contract=self.contract,
+                    source_mode=MODULE.SOURCE_MODE_EVIDENCE,
+                    units_scale=self.store.units_scale(),
+                )
 
     def test_the_liquidity_direction_is_invariant_under_any_positive_units_factor(self):
         """Why the withheld units vintage cannot change an axis, only a magnitude.

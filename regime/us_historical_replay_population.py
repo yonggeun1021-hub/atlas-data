@@ -72,7 +72,10 @@ Where a date's sources come from is a declaration, not an assumption:
   guarantees: the committed store holds one FRED series-metadata capture per
   series rather than one per vintage, so evidence mode withholds the units
   normalization instead of substituting a capture-time units string into an
-  earlier date (see ``UNITS_VINTAGE_UNAVAILABLE``). An evidence-read population
+  earlier date; it derives the units in effect on each date from the store's own
+  re-publication scale instead (see ``UNITS_VINTAGE_DERIVED_STATUS``), and it
+  lags the VIX vintage one calendar day to match what the live producer could
+  actually obtain (see ``FRED_VINTAGE_LAG_DAYS``). An evidence-read population
   re-signed as a live-provider one would be claiming a units-vintage bind it
   never had, so that swap fails closed.
 
@@ -440,8 +443,13 @@ PIT_REPLAY_STATEMENT_EVIDENCE = PIT_REPLAY_STATEMENT + (
     " observations were resolved through observations_available_at, so only rows"
     " already published on the replayed date were visible. The store holds one"
     " FRED series-metadata capture per series rather than one per vintage, so no"
-    " units normalization is applied and each liquidity row carries a"
-    " units_vintage disclosure instead of a metadata vintage window."
+    " units normalization is read from it: each liquidity row's factor is"
+    " derived from the store's own re-publication scale and carries a"
+    " units_vintage disclosure instead of a metadata vintage window. The VIX"
+    " vintage is resolved one calendar day before the replayed date, matching"
+    " what the live producer could actually obtain, because ALFRED backdates a"
+    " VIXCLS row's availability to its observation date while the live"
+    " observations endpoint had not yet published it."
 )
 
 
@@ -482,27 +490,162 @@ RECORD_WARNINGS = [
 # invariant under the missing factor, while the recorded magnitudes are native
 # rather than normalized. ``test_us_historical_replay_population.py`` pins that
 # invariance instead of asserting it here.
-UNITS_VINTAGE_UNAVAILABLE_STATUS = "NOT_CAPTURED_AT_REPLAYED_VINTAGE"
-UNITS_VINTAGE_UNAVAILABLE_STATEMENT = (
-    "The committed evidence history store holds one FRED series-metadata"
-    " capture per series, not one per replayed vintage, so the units string in"
-    " effect on this replayed date is unknown. Using the capture-time units"
-    " would be a later revision leaking backwards, so no normalization is"
-    " applied: values and changes are on the vintage's own native scale and no"
-    " normalized unit is claimed. liquidity_axis_row reads only the sign of"
-    " each change and both sides of that difference share one vintage, so the"
-    " axis direction is unaffected; the magnitudes are not normalized."
-)
-UNITS_VINTAGE_KEYS = ("normalization_factor", "statement", "status")
-UNITS_VINTAGE_UNAVAILABLE = {
-    "status": UNITS_VINTAGE_UNAVAILABLE_STATUS,
-    "normalization_factor": "1",
-    "statement": UNITS_VINTAGE_UNAVAILABLE_STATEMENT,
+# The per-axis FRED vintage lag, and why it is asymmetric.
+#
+# CIO decision 2026-09-20. The operational US producer does not read both FRED
+# axes at the same vintage, and the replay must not either. Two independent
+# reconstructions agree on the asymmetry: the sealed pre-registration executor
+# reverse-engineered the live producer as "VIX at the previous calendar day's
+# vintage, liquidity at the same day's vintage" (matching that asymmetry moved
+# the published-record agreement from 1/13 to 13/13), and this module's own
+# evidence replay independently showed its VIX running exactly one observation
+# step fresher than every published packet.
+#
+# The cause is ALFRED, not the collector: ALFRED backdates a VIXCLS row's
+# ``realtime_start`` to the observation date, while the live FRED observations
+# endpoint had not yet published that day's value when the packet was built. So
+# resolving VIX at the replayed date's own vintage hands the replay a value that
+# could not be obtained at decision time. That is future information -- quiet,
+# but future information -- and it is removed here rather than disclosed.
+#
+# The liquidity series keep the same-day vintage, because that is what the live
+# producer does: WRESBAL and TOTBKCR are weekly and publish with their own
+# release lag already inside the row, so a further calendar-day lag would be a
+# second, invented delay. The asymmetry is the operational behaviour; flattening
+# it in either direction is a change to the rule, and ``validate_population``
+# refuses a record that declares it flat.
+#
+# API mode is untouched: it asks the provider for the replayed date's vintage and
+# the provider answers with whatever it has actually published, which is the
+# live path's own business.
+FRED_VINTAGE_LAG_DAYS = {
+    SOURCE_MODE_API: {"RISK_VOL": 0, "LIQUIDITY": 0},
+    SOURCE_MODE_EVIDENCE: {"RISK_VOL": 1, "LIQUIDITY": 0},
 }
+
+
+def fred_vintage_lag_days(source_mode: str, axis: str) -> int:
+    return FRED_VINTAGE_LAG_DAYS[_check_source_mode(source_mode)][axis]
+
+
+# How the liquidity units vintage is settled when the sources come off disk.
+#
+# A FRED series' units string fixes the normalization factor and is itself
+# vintaged: WRESBAL was rescaled billions -> millions on 2025-11-13. The
+# committed store holds exactly one metadata capture per series, at capture time,
+# so the capture-time units string is *not* the units of an earlier replayed date
+# and applying it anyway would be the later-revision substitution this module
+# exists to prevent.
+#
+# It is not, however, unknowable. A units rescale leaves a signature no ordinary
+# revision does -- ALFRED re-publishes the whole history and every re-published
+# observation moves by the *same exact power of ten* --
+# so ``regime/us_replay_evidence_source.py`` derives the rescale timeline from the
+# committed rows and resolves the factor that was in effect on each replayed
+# date. Only the unit *scale* is recovered that way; no observation value ever
+# crosses a vintage boundary.
+#
+# What lands in a record is therefore a normalized value on the same
+# "Millions of U.S. Dollars" scale the production capture publishes, plus the
+# factor that was applied and where it came from. The rescale boundaries
+# themselves stay out of the record: an ``effective_from`` is later than most
+# replayed dates, and a date inside a measurement is bound as a consumed source
+# date. They live in the population's ``pit_source.store`` instead, and
+# ``validate_population`` re-derives each row's factor from that declared
+# timeline rather than reading the factor the row wrote.
+#
+# The disclosed limitation: a rescale published in the same revision as a data
+# change would not be an exact power of ten and would not be detected. If that
+# ever happened the factor would be the neighbouring vintage's, which
+# ``liquidity_axis_row`` cannot notice -- it reads only the sign of each change,
+# both sides of that difference share one vintage and therefore one scale, and
+# every factor in ``FMD.FRED_LIQUIDITY_UNITS`` is positive, so an axis direction
+# is invariant under any such error while a magnitude is not.
+# ``test_us_historical_replay_population.py`` pins that invariance.
+UNITS_VINTAGE_DERIVED_STATUS = "DERIVED_FROM_THE_COMMITTED_REPUBLICATION_SCALE"
+UNITS_VINTAGE_DERIVED_STATEMENT = (
+    "The committed evidence store holds one FRED series-metadata capture per"
+    " series rather than one per vintage, so the units in effect on this"
+    " replayed date are not read from that capture -- doing so would be a later"
+    " revision leaking backwards. They are derived instead from the store's own"
+    " re-publication scale: a units rescale moves every re-published observation"
+    " by the same exact power of ten, which an ordinary data revision does not,"
+    " so the rescale timeline and the factor in effect on this date follow from"
+    " the committed rows. The rescale boundaries are published in the"
+    " population's pit_source.store and this factor is re-derived from them at"
+    " validation time. Only the unit scale is recovered this way; no observation"
+    " value crosses a vintage boundary."
+)
+UNITS_VINTAGE_DERIVATION = "REPUBLISHED_SAME_OBSERVATION_DIFFERS_BY_AN_EXACT_POWER_OF_TEN"
+UNITS_VINTAGE_KEYS = (
+    "derivation", "normalization_factor", "rescale_events_undone", "statement",
+    "status",
+)
 EVIDENCE_RECORD_WARNINGS = RECORD_WARNINGS + [
     "SOURCES_READ_FROM_COMMITTED_EVIDENCE_STORE_NOT_LIVE_PROVIDER",
-    "FRED_UNITS_VINTAGE_NOT_CAPTURED_LIQUIDITY_VALUES_ARE_NATIVE_SCALE",
+    "FRED_UNITS_VINTAGE_DERIVED_FROM_THE_COMMITTED_REPUBLICATION_SCALE",
+    "RISK_VOL_VINTAGE_LAGGED_ONE_CALENDAR_DAY_TO_MATCH_THE_LIVE_PRODUCER",
 ]
+
+
+def _derived_units_scale_at(
+    series_scale: dict, as_of_date: str, label: str,
+) -> tuple[Decimal, int]:
+    """The normalization factor in effect on ``as_of_date``, from the timeline.
+
+    Undoes every rescale the committed store shows taking effect *after* that
+    date, so the factor is the one the series actually carried then. The one
+    implementation of this arithmetic: ``replay_liquidity_source`` applies it and
+    ``_validate_fred_vintage_binding`` re-derives it from the population's own
+    declared timeline, so a row cannot carry a factor the timeline does not
+    yield.
+
+    Fails closed rather than applying a scale the production normalization could
+    not have produced: the result must be a factor
+    ``FMD.FRED_LIQUIDITY_UNITS`` actually contains.
+    """
+    events = series_scale.get("rescale_events")
+    factor_text = series_scale.get("capture_normalization_factor")
+    if not isinstance(events, list) or not isinstance(factor_text, str):
+        fail("UNITS_SCALE_INVALID", label)
+    try:
+        factor = Decimal(factor_text)
+    except ArithmeticError:
+        fail("UNITS_SCALE_INVALID", f"{label}.capture_normalization_factor")
+    undone = 0
+    for event in events:
+        effective_from = event.get("effective_from") if isinstance(event, dict) else None
+        exponent = event.get("power_of_ten") if isinstance(event, dict) else None
+        if _calendar_date(effective_from) is None or not isinstance(exponent, int):
+            fail("UNITS_SCALE_INVALID", f"{label}.rescale_events")
+        if str(effective_from) > str(as_of_date):
+            factor *= Decimal(10) ** exponent
+            undone += 1
+    if factor not in {value[1] for value in FMD.FRED_LIQUIDITY_UNITS.values()}:
+        fail("UNITS_SCALE_FACTOR_UNSUPPORTED", f"{label}:{factor}")
+    return factor, undone
+
+
+def units_vintage_block(factor: object, rescale_events_undone: int) -> dict:
+    """The units disclosure one evidence-read liquidity row carries.
+
+    Deliberately a factor, a code and a *count* -- never the rescale boundaries
+    themselves. A boundary's ``effective_from`` is later than the dates it
+    applies to, and ``_validate_measurement_source_dates`` binds every date
+    inside a measurement as a consumed source date, so carrying one here would
+    read as a lookahead. The boundaries live in the population's
+    ``pit_source.store`` and the validator re-derives both the factor and this
+    count from them.
+    """
+    return {
+        "status": UNITS_VINTAGE_DERIVED_STATUS,
+        "normalization_factor": str(factor),
+        "derivation": UNITS_VINTAGE_DERIVATION,
+        "rescale_events_undone": int(rescale_events_undone),
+        "statement": UNITS_VINTAGE_DERIVED_STATEMENT,
+    }
+
+
 PIT_SOURCE_STATEMENT = {
     SOURCE_MODE_API: (
         "Every axis observation was rebuilt from live, per-date Alpaca/FRED"
@@ -515,9 +658,11 @@ PIT_SOURCE_STATEMENT = {
         " observations are resolved through"
         " collectors/free_market_data_history.py::observations_available_at, so"
         " only rows already published on the replayed date are visible and a"
-        " later revision cannot leak backwards. The one point-in-time fact the"
-        " store does not hold is the per-vintage FRED units string -- see each"
-        " liquidity row's units_vintage block."
+        " later revision cannot leak backwards. The VIX vintage is lagged one"
+        " calendar day and the liquidity vintage is not, matching the live"
+        " producer; see FRED_VINTAGE_LAG_DAYS. The per-vintage FRED units string"
+        " is not in the store and is derived from its own re-publication scale;"
+        " see each liquidity row's units_vintage block."
     ),
 }
 
@@ -1099,27 +1244,51 @@ def replay_breadth_leadership_source(
 
 def replay_risk_vol_source(
     fred_key: str, anchor: dt.date, *, getter, contract: dict,
+    source_mode: str = SOURCE_MODE_API,
 ) -> dict:
-    """Rebuild the VIXCLS observation known as of ``anchor``."""
+    """Rebuild the VIXCLS observation obtainable as of ``anchor``.
+
+    *Obtainable*, not merely dated at or before it. Under
+    ``SOURCE_MODE_EVIDENCE`` the vintage is resolved at ``anchor`` minus
+    ``FRED_VINTAGE_LAG_DAYS``, one calendar day, because ALFRED backdates a
+    VIXCLS row's availability to its observation date while the live FRED
+    observations endpoint had not yet published that day when the decision was
+    made. Reading the replayed date's own ALFRED vintage therefore hands the
+    replay a value it could not have had -- see ``FRED_VINTAGE_LAG_DAYS`` for the
+    two independent reconstructions of the live producer that agree on this, and
+    for why the liquidity axis deliberately keeps the same-day vintage.
+
+    The lag and the date it resolved to are both recorded, and
+    ``_validate_fred_vintage_binding`` re-requires them: a record whose VIX
+    observation is dated on the replayed date itself fails closed rather than
+    passing as an ordinary backward-looking observation.
+    """
+    source_mode = _check_source_mode(source_mode)
     if not fred_key:
         fail("BLOCKED_BY_FRED_CREDENTIAL")
     series_id = contract["fred"]["risk_series"][0]
+    lag_days = fred_vintage_lag_days(source_mode, "RISK_VOL")
+    vintage_anchor = anchor - dt.timedelta(days=lag_days)
     raw = getter(
         "https://api.stlouisfed.org/fred/series/observations?"
-        + _fred_query(series_id, fred_key, anchor, 60)
+        + _fred_query(series_id, fred_key, vintage_anchor, 60)
     )
     try:
         body = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ReplayPopulationError("US_VIX_JSON_INVALID") from exc
     latest = _valid_observations(body, "US_VIX_OBSERVATIONS_MISSING")[-1]
+    # Bounded by the *lagged* vintage anchor, which is the stricter bound: an
+    # observation later than it could not have been obtained on the replayed
+    # date even though it is dated at or before that date.
     observation_date = _assert_not_after(
-        anchor, latest.get("date"), "US_VIX_OBSERVATION_DATE_INVALID"
+        vintage_anchor, latest.get("date"), "US_VIX_OBSERVATION_DATE_INVALID"
     )
     # Bound, not copied: the observation date alone says nothing about which
-    # vintage of that observation was served.
+    # vintage of that observation was served. Containment is checked against the
+    # vintage this request actually pinned.
     realtime_start, realtime_end = _assert_vintage_covers(
-        anchor.isoformat(), latest, series_id,
+        vintage_anchor.isoformat(), latest, series_id,
     )
     return {
         "series_id": series_id,
@@ -1129,6 +1298,8 @@ def replay_risk_vol_source(
         "realtime_start": realtime_start,
         "realtime_end": realtime_end,
         "vintage_date": anchor.isoformat(),
+        "vintage_as_of_date": vintage_anchor.isoformat(),
+        "vintage_lag_days": lag_days,
         "raw_retention": RAW_RETENTION,
         "response_sha256": FMD.sha256_bytes(raw),
     }
@@ -1136,7 +1307,7 @@ def replay_risk_vol_source(
 
 def replay_liquidity_source(
     fred_key: str, anchor: dt.date, *, getter, contract: dict,
-    source_mode: str = SOURCE_MODE_API,
+    source_mode: str = SOURCE_MODE_API, units_scale: dict | None = None,
 ) -> dict:
     """Rebuild the WRESBAL/TOTBKCR change known as of ``anchor``.
 
@@ -1144,18 +1315,31 @@ def replay_liquidity_source(
     and ``_decimal``/``_decimal_text`` unmodified, so a replayed change is on
     the same normalized scale as the production capture.
 
-    Under ``SOURCE_MODE_EVIDENCE`` that last sentence stops being true and the
-    row says so rather than pretending otherwise. The committed history store
-    holds one metadata capture per series, not one per vintage, so the units in
-    effect on an earlier replayed date are not in the evidence; applying the
-    capture-time factor anyway would be the later-revision leak this module
-    exists to prevent. The observation vintages themselves stay bound exactly as
-    strictly as in API mode -- only the units claim is withheld. See
-    ``UNITS_VINTAGE_UNAVAILABLE`` for the full statement and for why the axis
-    direction is unaffected.
+    Under ``SOURCE_MODE_EVIDENCE`` the normalized scale is the same but the units
+    it rests on are *derived* rather than read: the committed store holds one
+    metadata capture per series, not one per vintage, so the capture-time factor
+    is not this date's factor and applying it would be the later-revision leak
+    this module exists to prevent. ``units_scale`` -- the timeline the population
+    itself declares in ``pit_source.store`` -- resolves the factor that was in
+    effect on this date from the store's own re-publication scale. See
+    ``UNITS_VINTAGE_DERIVED_STATUS``.
+
+    The vintage this axis reads is the replayed date's own, in both modes, and
+    deliberately so: the weekly liquidity series carry their release lag inside
+    the row already, so the one-calendar-day lag ``replay_risk_vol_source``
+    applies would be a second, invented delay here. That asymmetry is the live
+    producer's behaviour -- see ``FRED_VINTAGE_LAG_DAYS`` -- and is recorded
+    rather than left implicit.
     """
     source_mode = _check_source_mode(source_mode)
     units_vintage_available = source_mode != SOURCE_MODE_EVIDENCE
+    lag_days = fred_vintage_lag_days(source_mode, "LIQUIDITY")
+    if lag_days:
+        # Defensive: nothing in the ratified rule lags this axis, and a lag
+        # introduced here would silently move every replayed liquidity change.
+        fail("LIQUIDITY_VINTAGE_MUST_NOT_BE_LAGGED", str(lag_days))
+    if not units_vintage_available and not isinstance(units_scale, dict):
+        fail("UNITS_SCALE_REQUIRED", source_mode)
     if not fred_key:
         fail("BLOCKED_BY_FRED_CREDENTIAL")
     series_rows = []
@@ -1193,17 +1377,22 @@ def replay_liquidity_source(
                 fail("US_LIQUIDITY_UNITS_INVALID", series_id)
             normalized_unit, factor = FMD.FRED_LIQUIDITY_UNITS[unit_base]
         else:
-            # No units claim, no normalization, and no metadata vintage window
-            # copied into the row: the captured window lies after most replayed
-            # dates, so recording it here would either read as a lookahead or
-            # have to be exempted from the backward-looking measurement walk.
-            # The population-level ``pit_source`` block carries the capture
-            # provenance instead.
+            # The metadata vintage window is not copied into the row: the
+            # captured window lies after most replayed dates, so recording it
+            # here would either read as a lookahead or have to be exempted from
+            # the backward-looking measurement walk. The population-level
+            # ``pit_source.store`` block carries the capture provenance and the
+            # derived rescale timeline instead.
             metadata_vintage = None
-            units = None
-            normalized_unit = None
-            factor = Decimal("1")
-            units_block = dict(UNITS_VINTAGE_UNAVAILABLE)
+            series_scale = units_scale.get(series_id)
+            if not isinstance(series_scale, dict):
+                fail("UNITS_SCALE_MISSING_SERIES", series_id)
+            units = series_scale.get("capture_unit")
+            normalized_unit = series_scale.get("normalized_unit")
+            factor, undone = _derived_units_scale_at(
+                series_scale, anchor.isoformat(), series_id,
+            )
+            units_block = units_vintage_block(factor, undone)
         valid = _valid_observations(
             observations_body, f"US_LIQUIDITY_OBSERVATIONS_MISSING:{series_id}"
         )
@@ -1259,12 +1448,19 @@ def replay_liquidity_source(
             row["metadata_realtime_start"] = metadata_vintage[0]
             row["metadata_realtime_end"] = metadata_vintage[1]
         else:
+            # ``source_unit`` would be a claim about the replayed vintage's own
+            # units string, which is what the derivation recovers as a factor
+            # rather than as a string, so the row names the factor and where it
+            # came from instead of a unit it did not read.
+            row["source_unit"] = None
             row["units_vintage"] = units_block
         series_rows.append(row)
     return {
         "source_scope": contract["fred"]["source_scope"],
         "derivation_version": "fred_liquidity_current/v1",
         "vintage_date": anchor.isoformat(),
+        "vintage_as_of_date": anchor.isoformat(),
+        "vintage_lag_days": lag_days,
         "series": series_rows,
         "response_hashes": response_hashes,
         "raw_retention": RAW_RETENTION,
@@ -1693,6 +1889,7 @@ def _unified_trend_breadth_leadership_attempts(
 def replay_one_requested_date(
     credentials: dict, requested_date: str, *, getter, contract: dict, policy: dict,
     excluded: dict, replayed: list[str], source_mode: str = SOURCE_MODE_API,
+    units_scale: dict | None = None,
 ) -> dict:
     """Resolve and replay exactly one caller-supplied historical date.
 
@@ -1729,7 +1926,8 @@ def replay_one_requested_date(
             "TREND": trend_attempt,
             "RISK_VOL": _axis_attempt(
                 lambda: replay_risk_vol_source(
-                    credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+                    credentials.get("fred_key", ""), anchor, getter=getter,
+                    contract=contract, source_mode=source_mode,
                 ),
                 lambda measurement: risk_vol_axis_row(measurement["value"]),
                 secrets,
@@ -1738,6 +1936,7 @@ def replay_one_requested_date(
                 lambda: replay_liquidity_source(
                     credentials.get("fred_key", ""), anchor, getter=getter,
                     contract=contract, source_mode=source_mode,
+                    units_scale=units_scale,
                 ),
                 lambda measurement: liquidity_axis_row(measurement["series"]),
                 secrets,
@@ -1757,7 +1956,8 @@ def replay_one_requested_date(
             ),
             "RISK_VOL": _axis_attempt(
                 lambda: replay_risk_vol_source(
-                    credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+                    credentials.get("fred_key", ""), anchor, getter=getter,
+                    contract=contract, source_mode=source_mode,
                 ),
                 lambda measurement: risk_vol_axis_row(measurement["value"]),
                 secrets,
@@ -1766,6 +1966,7 @@ def replay_one_requested_date(
                 lambda: replay_liquidity_source(
                     credentials.get("fred_key", ""), anchor, getter=getter,
                     contract=contract, source_mode=source_mode,
+                    units_scale=units_scale,
                 ),
                 lambda measurement: liquidity_axis_row(measurement["series"]),
                 secrets,
@@ -1905,6 +2106,20 @@ def replay_one_requested_date(
 # ---------------------------------------------------------------------------
 
 
+def _declared_units_scale(store: object) -> dict:
+    """The derived FRED units timeline the population's own store declares.
+
+    One place both the builder and the validator read it from, so a row's factor
+    and the timeline a reader would check it against can never be two different
+    things.
+    """
+    fred = store.get("fred") if isinstance(store, dict) else None
+    scale = fred.get("units_scale") if isinstance(fred, dict) else None
+    if not isinstance(scale, dict) or not scale:
+        fail("SOURCE_STORE_UNITS_SCALE_MISSING")
+    return scale
+
+
 def _pit_source_block(source_mode: str, store: object) -> dict:
     """Which sources this population was actually rebuilt from.
 
@@ -1955,6 +2170,12 @@ def build_population(
         fail("SOURCE_STORE_REQUIRED", source_mode)
     if source_mode == SOURCE_MODE_API and source_store is not None:
         fail("SOURCE_STORE_FORBIDDEN", source_mode)
+    # Read out of the declared store rather than taken as its own argument, so
+    # the timeline a record's factor was derived from is by construction the
+    # timeline the population publishes and the validator re-derives against.
+    units_scale = None
+    if source_mode == SOURCE_MODE_EVIDENCE:
+        units_scale = _declared_units_scale(source_store)
     getter = FMD._get if getter is None else getter
     contract = FMD.load_contract(FMD.CONTRACT_PATH)
     policy = _load_candidate_policy()
@@ -1975,6 +2196,7 @@ def build_population(
         replay_one_requested_date(
             credentials, date, getter=getter, contract=contract, policy=policy,
             excluded=excluded, replayed=replayed, source_mode=source_mode,
+            units_scale=units_scale,
         )
         for date in unique_dates
     ]
@@ -2115,9 +2337,14 @@ def validate_population(value: dict) -> dict:
     # evidence-read liquidity row is keyed off this declaration, never off what
     # the row itself claims.
     source_mode = _validate_pit_source(value)
+    units_scale = (
+        _declared_units_scale((value.get("pit_source") or {}).get("store"))
+        if source_mode == SOURCE_MODE_EVIDENCE
+        else None
+    )
     _validate_records(
         value, requested, _revalidation_policy(value), excluded, replayed,
-        source_mode,
+        source_mode, units_scale,
     )
     _validate_pit_replay(value, source_mode)
     _validate_authority(value)
@@ -2270,7 +2497,7 @@ def _revalidation_policy(value: dict) -> dict:
 
 def _validate_records(
     value: dict, requested: list[str], policy: dict, excluded: dict, replayed: list[str],
-    source_mode: str = SOURCE_MODE_API,
+    source_mode: str = SOURCE_MODE_API, units_scale: dict | None = None,
 ) -> None:
     """Exactly one record per requested date, in the same order — no omissions.
 
@@ -2292,12 +2519,13 @@ def _validate_records(
     for record, requested_date in zip(records, requested):
         _validate_record(
             record, requested_date, policy, excluded, replayed, source_mode,
+            units_scale,
         )
 
 
 def _validate_record(
     record: dict, requested_date: str, policy: dict, excluded: dict, replayed: list[str],
-    source_mode: str = SOURCE_MODE_API,
+    source_mode: str = SOURCE_MODE_API, units_scale: dict | None = None,
 ) -> None:
     """One record, re-derived from its own axes rather than read as written.
 
@@ -2454,7 +2682,9 @@ def _validate_record(
         record, five_axis, candidate, policy, requested_date, replayed, excluded,
     )
     _validate_source_hash_consistency(record, axes, observed, replayed, requested_date)
-    _validate_fred_vintage_binding(axes, observed, requested_date, source_mode)
+    _validate_fred_vintage_binding(
+        axes, observed, requested_date, source_mode, units_scale,
+    )
     _validate_measurement_source_dates(axes, observed, requested_date)
     _validate_no_lookahead(record, requested_date)
     _validate_attestation_is_derived_from_its_evidence(
@@ -2551,37 +2781,81 @@ def _validate_attestation_is_derived_from_its_evidence(
         fail("RECORD_ATTESTATION_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
 
 
-def _validate_units_vintage_withheld(row: object, label: str) -> None:
-    """An evidence-read liquidity row must withhold the units claim, exactly.
+def _validate_vintage_lag(
+    measurement: dict, axis: str, requested_date: str, source_mode: str,
+) -> str:
+    """The vintage a FRED axis resolved at must be the one the rule allows.
 
-    The weaker guarantee is only honest if it cannot be quietly upgraded into
-    the stronger one, or downgraded into nothing. A row is therefore required to
-    carry the ``units_vintage`` block verbatim, to carry *no* metadata vintage
-    window (which would read as a units vintage the store does not hold), and to
-    claim neither a source unit nor a normalized unit. The applied factor must
-    be exactly ``1``: any other factor is a normalization derived from units
-    this mode does not know.
+    Returns the as-of date every observation in that measurement is bound to.
+
+    This is the lock on the asymmetry in ``FRED_VINTAGE_LAG_DAYS``, and it is a
+    lock in both directions. Under ``SOURCE_MODE_EVIDENCE`` the VIX axis must
+    declare a one-calendar-day lag and resolve to exactly ``requested_date``
+    minus that day, so a record whose VIX observation is dated on the replayed
+    date itself -- which is what reading ALFRED's backdated availability gives,
+    and what the live producer could not obtain -- fails closed instead of
+    passing as an ordinary backward-looking observation. The liquidity axis must
+    declare no lag at all, so the asymmetry cannot be flattened by lagging
+    liquidity either.
+
+    Keyed off the population's declared source mode, never off the number the
+    measurement wrote: a record cannot license its own lag.
+    """
+    expected_lag = fred_vintage_lag_days(source_mode, axis)
+    label = f"{requested_date}:{axis}"
+    if measurement.get("vintage_lag_days") != expected_lag:
+        fail("FRED_VINTAGE_LAG_NOT_THE_DECLARED_RULE", f"{label}:{expected_lag}")
+    anchor = _calendar_date(requested_date)
+    if anchor is None:
+        fail("REQUESTED_DATE_CALENDAR_INVALID", label)
+    expected_as_of = (anchor - dt.timedelta(days=expected_lag)).isoformat()
+    if measurement.get("vintage_as_of_date") != expected_as_of:
+        fail("FRED_VINTAGE_AS_OF_NOT_DERIVED_FROM_THE_REQUESTED_DATE", label)
+    return expected_as_of
+
+
+def _validate_units_vintage_derived(
+    row: object, label: str, units_scale: dict, as_of_date: str,
+) -> None:
+    """An evidence-read liquidity row's units factor must be the derived one.
+
+    The factor is not read, it is rebuilt from the timeline the population itself
+    declares in ``pit_source.store`` -- so a row cannot carry a normalization the
+    committed store does not support, and cannot quietly adopt the capture-time
+    factor for a date the store shows was on a different scale.
+
+    Two shapes are refused outright. A row carrying a metadata vintage window
+    claims a units vintage the store does not hold, which is the substitution
+    this mode exists to avoid. A row carrying a ``source_unit`` claims to have
+    read the replayed vintage's own units string, which the derivation recovers
+    as a factor rather than as a string.
     """
     if not isinstance(row, dict):
         fail("OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT", label)
     if any(key in row for key in FRED_METADATA_VINTAGE_KEYS):
         fail("UNITS_VINTAGE_MUST_NOT_BE_CLAIMED_FROM_THE_EVIDENCE_STORE", label)
+    if row.get("source_unit") is not None:
+        fail("UNITS_VINTAGE_DISCLOSURE_INVALID", f"{label}.source_unit")
+    series_scale = units_scale.get(row.get("series_id"))
+    if not isinstance(series_scale, dict):
+        fail("UNITS_SCALE_MISSING_SERIES", label)
+    expected_factor, undone = _derived_units_scale_at(series_scale, as_of_date, label)
+    if row.get("normalization_factor") != FMD._decimal_text(expected_factor):
+        fail("UNITS_VINTAGE_FACTOR_NOT_DERIVED_FROM_THE_DECLARED_SCALE", label)
+    if row.get("normalized_unit") != series_scale.get("normalized_unit"):
+        fail("UNITS_VINTAGE_DISCLOSURE_INVALID", f"{label}.normalized_unit")
     block = row.get("units_vintage")
     if (
         not isinstance(block, dict)
         or sorted(block) != sorted(UNITS_VINTAGE_KEYS)
-        or block != UNITS_VINTAGE_UNAVAILABLE
+        or block != units_vintage_block(expected_factor, undone)
     ):
         fail("UNITS_VINTAGE_DISCLOSURE_INVALID", label)
-    if row.get("source_unit") is not None or row.get("normalized_unit") is not None:
-        fail("UNITS_VINTAGE_DISCLOSURE_INVALID", f"{label}.unit")
-    if row.get("normalization_factor") != "1":
-        fail("UNITS_VINTAGE_DISCLOSURE_INVALID", f"{label}.normalization_factor")
 
 
 def _validate_fred_vintage_binding(
     axes: dict, observed: list[str], requested_date: str,
-    source_mode: str = SOURCE_MODE_API,
+    source_mode: str = SOURCE_MODE_API, units_scale: dict | None = None,
 ) -> None:
     """Every observed FRED measurement must carry a vintage that covers its date.
 
@@ -2603,6 +2877,13 @@ def _validate_fred_vintage_binding(
     the series metadata (which fixes the units and hence the normalization
     factor). ``vintage_date`` is bound to the requested date separately, because
     it is otherwise a free-standing claim about which vintage was requested.
+
+    Containment alone is not enough for VIX, and that is the point of
+    ``_validate_vintage_lag``. "At or before the replayed date" admits the
+    replayed date itself, which ALFRED's backdated availability offers and the
+    live producer could not obtain. The per-axis lag rule is therefore re-required
+    here and every observation is bound to the lagged as-of rather than to the
+    requested date.
     """
     for name in ("RISK_VOL", "LIQUIDITY"):
         if name not in observed:
@@ -2613,8 +2894,25 @@ def _validate_fred_vintage_binding(
             fail("OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT", f"{requested_date}:{name}")
         if measurement.get("vintage_date") != requested_date:
             fail("FRED_VINTAGE_NOT_BOUND_TO_THE_REQUESTED_DATE", f"{requested_date}:{name}")
+        as_of = _validate_vintage_lag(measurement, name, requested_date, source_mode)
         if name == "RISK_VOL":
-            _assert_vintage_covers(requested_date, measurement, f"{requested_date}:RISK_VOL")
+            _assert_vintage_covers(as_of, measurement, f"{requested_date}:RISK_VOL")
+            # Bound to the lagged as-of, not merely to the requested date: an
+            # observation dated on the replayed date is exactly the value the
+            # live producer did not have. Whether that date is a real calendar
+            # day at all is left to ``_validate_measurement_source_dates``, which
+            # reports it with its own attributable code -- pre-empting that here
+            # would relabel a malformed date as a lag violation.
+            observed_on = _calendar_date(measurement.get("observation_date"))
+            if (
+                as_of != requested_date
+                and observed_on is not None
+                and observed_on.isoformat() > as_of
+            ):
+                fail(
+                    "RISK_VOL_OBSERVATION_LATER_THAN_ITS_LAGGED_VINTAGE",
+                    f"{requested_date}:{as_of}",
+                )
             continue
         series = measurement.get("series")
         if not isinstance(series, list) or not series:
@@ -2622,17 +2920,19 @@ def _validate_fred_vintage_binding(
         for row in series:
             series_id = row.get("series_id") if isinstance(row, dict) else None
             label = f"{requested_date}:LIQUIDITY.{series_id}"
-            _assert_vintage_covers(requested_date, row, label)
+            _assert_vintage_covers(as_of, row, label)
             _assert_vintage_covers(
-                requested_date, row, f"{label}.previous", FRED_PREVIOUS_VINTAGE_KEYS,
+                as_of, row, f"{label}.previous", FRED_PREVIOUS_VINTAGE_KEYS,
             )
             # The observation vintages above are bound identically in both
             # modes. Only the units vintage differs, and which of the two rules
             # applies is keyed off the population's declared source mode rather
             # than off anything the row itself says -- a row cannot escape the
-            # strict bind by declaring its units withheld.
+            # strict bind by declaring its units derived.
             if source_mode == SOURCE_MODE_EVIDENCE:
-                _validate_units_vintage_withheld(row, label)
+                if not isinstance(units_scale, dict):
+                    fail("SOURCE_STORE_UNITS_SCALE_MISSING", label)
+                _validate_units_vintage_derived(row, label, units_scale, as_of)
             else:
                 _assert_vintage_covers(
                     requested_date, row, f"{label}.metadata",

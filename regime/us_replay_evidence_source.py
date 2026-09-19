@@ -36,13 +36,22 @@ Point-in-time integrity of what it answers:
 * **Alpaca** bars are filtered to the requested ``start``/``end`` window and
   truncated to the requested ``limit`` from the end, so a request anchored to a
   replayed date can only see sessions at or before it.
-* The one point-in-time fact the store does **not** hold is the per-vintage FRED
-  *units* string: it holds one series-metadata capture per series, taken at
-  capture time. This module serves exactly those captured bytes -- their sha256
-  is the committed content address -- and the population, in
-  ``SOURCE_MODE_EVIDENCE``, refuses to normalize with them and discloses the
-  gap per row instead of substituting a later revision. See
-  ``us_historical_replay_population.UNITS_VINTAGE_UNAVAILABLE``.
+* The per-vintage FRED *units* string is the one fact the store does not hold
+  directly -- it keeps one series-metadata capture per series, at capture time --
+  so it is **derived** rather than substituted. ``units_rescale_events`` finds the
+  signature a units rescale leaves and an ordinary revision does not: ALFRED
+  re-publishes the whole history and every re-published observation moves by the
+  *same exact power of ten*. The resulting timeline is published in the store
+  descriptor and the factor in effect on a replayed date follows from it. Only the
+  unit scale is recovered this way; no observation value crosses a vintage
+  boundary. Serving the captured metadata bytes unmodified keeps their sha256 the
+  committed content address.
+* The **VIX vintage lag** is the population module's rule, not this module's:
+  ``replay_risk_vol_source`` resolves VIXCLS one calendar day before the replayed
+  date, because ALFRED backdates a row's availability to its observation date
+  while the live FRED observations endpoint had not yet published it. This module
+  simply answers whatever vintage day the request pins, and refuses a request that
+  does not pin exactly one.
 
 The replayable window is derived, never declared here:
 
@@ -68,7 +77,9 @@ The replayable window is derived, never declared here:
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
+from decimal import Decimal
 import gzip
 import hashlib
 import json
@@ -94,6 +105,7 @@ FRED_METADATA_SCHEMA = "fred_series_metadata/1"
 ALPACA_HOST = "data.alpaca.markets"
 FRED_HOST = "api.stlouisfed.org"
 STORE_DESCRIPTOR_SCHEMA = "us_replay_evidence_store/1"
+UNITS_RESCALE_DERIVATION = "REPUBLISHED_SAME_OBSERVATION_DIFFERS_BY_AN_EXACT_POWER_OF_TEN"
 SUMMARY_SCHEMA = "us_replay_evidence_source_summary/1"
 DATE10 = "%Y-%m-%d"
 
@@ -216,6 +228,9 @@ class EvidenceStore:
         self.fred_metadata_raw: dict[str, bytes] = {}
         self._load_alpaca()
         self._load_fred()
+        # Derived once: the timeline is a property of the whole store, and every
+        # replayed date resolves its factor against the same one.
+        self._units_scale = self._derive_units_scale()
 
     # -- load ---------------------------------------------------------------
 
@@ -324,6 +339,104 @@ class EvidenceStore:
         lead = self.lead_sessions_required
         return sessions[lead - 1:]
 
+    # -- derived units scale ------------------------------------------------
+
+    def units_rescale_events(self, series_id: str) -> list[dict]:
+        """When this series' *unit* changed, derived from the committed rows.
+
+        A FRED series' units string is itself vintaged -- WRESBAL was rescaled
+        billions -> millions on 2025-11-13 -- and the store holds only one
+        metadata capture, at capture time. So the units in effect on an earlier
+        replayed date cannot be read off that capture, and using it anyway is
+        the later-revision substitution this whole path exists to prevent.
+
+        They can, however, be *derived*, because a units rescale leaves a
+        signature no ordinary data revision does: ALFRED re-publishes the entire
+        history and every re-published observation differs from its predecessor
+        by the *same exact power of ten*. An ordinary revision changes one
+        observation by an arbitrary amount. So this walks each observation date's
+        consecutive publications, keeps only the pairs whose ratio is an exact
+        power of ten other than one, and requires every such pair to agree on
+        both the boundary and the exponent before it will call it a rescale.
+
+        Fails closed rather than guessing: pairs that disagree on the exponent,
+        or that straddle different boundaries for the same exponent, are a shape
+        this derivation has no rule for and raise instead of being averaged into
+        one event.
+
+        Measured on the committed store: WRESBAL has 418 observation dates each
+        published twice at a ratio of exactly 1000, all splitting on the same
+        2025-11-12 / 2025-11-13 boundary -- one event. TOTBKCR has 5,332
+        consecutive-publication pairs and not one power-of-ten ratio -- no event,
+        so it was billions throughout, which is what its capture says too.
+
+        Only the timeline is published here. Turning it into the factor in
+        effect on a given date is
+        ``regime/us_historical_replay_population.py::_derived_units_factor`` --
+        one implementation, in the module that consumes it and re-derives it at
+        validation time, rather than two that could drift.
+
+        The limitation is stated rather than hidden: a rescale published in the
+        same revision as a data change would not be an exact power of ten and
+        would not be detected here.
+        """
+        groups: dict[str, list[dict]] = {}
+        for row in self.fred_rows[series_id]:
+            groups.setdefault(row["observation_date"], []).append(row)
+        events: dict[tuple[str, str, int], list[str]] = {}
+        for observation_date, rows in groups.items():
+            ordered = sorted(rows, key=lambda row: row["available_from"])
+            for earlier, later in zip(ordered, ordered[1:]):
+                exponent = _power_of_ten(earlier["value"], later["value"])
+                if exponent is None or exponent == 0:
+                    continue
+                key = (earlier["available_to"], later["available_from"], exponent)
+                events.setdefault(key, []).append(observation_date)
+        by_boundary: dict[str, list[tuple]] = {}
+        for (_, effective_from, exponent), dates in events.items():
+            by_boundary.setdefault(effective_from, []).append((exponent, dates))
+        derived = []
+        for effective_from in sorted(by_boundary):
+            exponents = {exponent for exponent, _ in by_boundary[effective_from]}
+            if len(exponents) != 1:
+                fail(
+                    "EVIDENCE_FRED_UNITS_RESCALE_AMBIGUOUS",
+                    f"{series_id}:{effective_from}:{sorted(exponents)}",
+                )
+            dates = sorted({d for _, group in by_boundary[effective_from] for d in group})
+            derived.append({
+                "effective_from": effective_from,
+                "power_of_ten": exponents.pop(),
+                "observation_date_count": len(dates),
+                "derivation": UNITS_RESCALE_DERIVATION,
+            })
+        return derived
+
+    def units_scale(self) -> dict:
+        return copy.deepcopy(self._units_scale)
+
+    def _derive_units_scale(self) -> dict:
+        """Per liquidity series: the capture-time unit plus the derived timeline.
+
+        Only the two liquidity series have a normalization at all -- VIXCLS is an
+        index and carries none -- so only those are resolved here.
+        """
+        scale = {}
+        for series_id in self.contract["fred"]["liquidity_series"]:
+            body = json.loads(self.fred_metadata_raw[series_id].decode("utf-8"))
+            units = body["seriess"][0].get("units")
+            base = units.split(",", 1)[0].strip() if isinstance(units, str) else None
+            if base not in FMD.FRED_LIQUIDITY_UNITS:
+                fail("EVIDENCE_FRED_UNITS_INVALID", f"{series_id}:{units}")
+            normalized_unit, capture_factor = FMD.FRED_LIQUIDITY_UNITS[base]
+            scale[series_id] = {
+                "capture_unit": units,
+                "capture_normalization_factor": str(capture_factor),
+                "normalized_unit": normalized_unit,
+                "rescale_events": self.units_rescale_events(series_id),
+            }
+        return scale
+
     def descriptor(self) -> dict:
         """What a population records about the store it read.
 
@@ -353,6 +466,11 @@ class EvidenceStore:
                     "collectors/free_market_data_history.py"
                     "::observations_available_at"
                 ),
+                # The derived units timeline the liquidity normalization is
+                # resolved against. Published here rather than inside a record,
+                # because a rescale's effective_from is later than most replayed
+                # dates and a date inside a measurement is bound as a source date.
+                "units_scale": self.units_scale(),
             },
             "derived_window": {
                 "return_windows_sessions": list(self.return_windows),
@@ -369,6 +487,21 @@ class EvidenceStore:
                 "scoreable_session_last": scoreable[-1] if scoreable else None,
             },
         }
+
+
+def _power_of_ten(earlier: object, later: object) -> int | None:
+    """``k`` if ``later == earlier * 10**k`` exactly, else ``None``."""
+    try:
+        first, second = Decimal(str(earlier)), Decimal(str(later))
+    except Exception:  # noqa: BLE001 — a non-numeric row is simply not a rescale.
+        return None
+    if first == 0 or second == 0:
+        return None
+    ratio = second / first
+    for exponent in range(-12, 13):
+        if ratio == Decimal(10) ** exponent:
+            return exponent
+    return None
 
 
 # ---------------------------------------------------------------------------
