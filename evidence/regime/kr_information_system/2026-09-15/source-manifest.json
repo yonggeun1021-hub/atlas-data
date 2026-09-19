@@ -1,0 +1,235 @@
+{
+  "capture_completed_at_utc": "2026-09-16T01:06:47Z",
+  "capture_started_at_utc": "2026-09-16T01:06:38Z",
+  "cookies_retained": false,
+  "credentials_retained": false,
+  "dates": [
+    "20260914",
+    "20260915"
+  ],
+  "original_response_bytes_retained": true,
+  "payload_sha256": "9d5de4338f7b80ad7a87927b3427763263f0159ab38fb3fb3230417921e7ba31",
+  "provider_published_at_is_received_at": false,
+  "records": [
+    {
+      "key": "20260914:KOSDAQ:index",
+      "normalized_frame": {
+        "raw_to_frame_equivalent": true,
+        "required_projection_sha256": "f69328bbe7b5a4237d4aae00f8ed9e0a75ddc38e47c4692b94e004ac9874d3a6",
+        "schema": "pykrx_1_2_8_index_required_projection/1",
+        "sha256": "9dd32b15427ee304d350aa1179bb57470580c092f0b3ff3435ec478c0fde1130"
+      },
+      "request": {
+        "method": "POST",
+        "public_params": {
+          "bld": "dbms/MDC/STAT/standard/MDCSTAT00101",
+          "idxIndMidclssCd": "03",
+          "trdDd": "20260914"
+        },
+        "url": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+      },
+      "response": {
+        "bytes": 10762,
+        "content_type": "text/html; charset=utf-8",
+        "parser_input_sha256": "88331b15d3e2cd9969651c0ec4d6a5b6f593dee86bcf3ed858843fd1abf5eb97",
+        "path": "responses/20260914-KOSDAQ-index.json",
+        "provider_published_at": null,
+        "received_at_utc": "2026-09-16T01:06:42Z",
+        "sha256": "88331b15d3e2cd9969651c0ec4d6a5b6f593dee86bcf3ed858843fd1abf5eb97"
+      }
+    },
+    {
+      "key": "20260914:KOSDAQ:stock",
+      "normalized_frame": {
+        "raw_to_frame_equivalent": true,
+        "required_projection_sha256": "bba811689087ded5b6a9ef449912bede28142f39b2fcd84b71f16a0952df1fc2",
+        "schema": "pykrx_1_2_8_stock_required_projection/1",
+        "sha256": "b60473572a0ae1408e11f4e021644ee1ecbaa63535805d500abea6f506c7ca33"
+      },
+      "request": {
+        "method": "POST",
+        "public_params": {
+          "bld": "dbms/MDC/STAT/standard/MDCSTAT01501",
+          "mktId": "KSQ",
+          "trdDd": "20260914"
+        },
+        "url": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+      },
+      "response": {
+        "bytes": 740339,
+        "content_type": "text/html; charset=utf-8",
+        "parser_input_sha256": "9249bcdd7dd681ec5e402e204efd24585d42886e93f506318c5eb77b982d1f8d",
+        "path": "responses/20260914-KOSDAQ-stock.json",
+        "provider_published_at": null,
+        "received_at_utc": "2026-09-16T01:06:41Z",
+        "sha256": "9249bcdd7dd681ec5e402e204efd24585d42886e93f506318c5eb77b982d1f8d"
+      }
+    },
+    {
+      "key": "20260914:KOSPI:index",
+      "normalized_frame": {
+        "raw_to_frame_equivalent": true,
+        "required_projection_sha256": "0e0b3e74a130199807918702a4a1d5eafbabf8203e14f876a51c5c7c4a5c283c",
+        "schema": "pykrx_1_2_8_index_required_projection/1",
+        "sha256": "008f95688e68e8c2a7f08259e277f8a6991c5ea6a8f74d3b30502983bc8bb28c"
+      },
+      "request": {
+        "method": "POST",
+        "public_params": {
+          "bld": "dbms/MDC/STAT/standard/MDCSTAT00101",
+          "idxIndMidclssCd": "02",
+          "trdDd": "20260914"
+        },
+        "url": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+      },
+      "response": {
+        "bytes": 14751,
+        "content_type": "text/html; charset=utf-8",
+        "parser_input_sha256": "412e5acdce7d1464efae56bd3ce00f6d96678ecf3f8c04504c1a90c7e58d8ef4",
+        "path": "responses/20260914-KOSPI-index.json",
+        "provider_published_at": null,
+        "received_at_utc": "2026-09-16T01:06:40Z",
+        "sha256": "412e5acdce7d1464efae56bd3ce00f6d96678ecf3f8c04504c1a90c7e58d8ef4"
+      }
+    },
+    {
+      "key": "20260914:KOSPI:stock",
+      "normalized_frame": {
+        "raw_to_frame_equivalent": true,
+        "required_projection_sha256": "f55313e6197ecd700e2554aae075053619a794ba36cb205edd637d66941236cd",
+        "schema": "pykrx_1_2_8_stock_required_projection/1",
+        "sha256": "44fe51e4d4fabfadd17c22479b6afc078af727a9739a699de4eadd35febcfd52"
+      },
+      "request": {
+        "method": "POST",
+        "public_params": {
+          "bld": "dbms/MDC/STAT/standard/MDCSTAT01501",
+          "mktId": "STK",
+          "trdDd": "20260914"
+        },
+        "url": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+      },
+      "response": {
+        "bytes": 368602,
+        "content_type": "text/html; charset=utf-8",
+        "parser_input_sha256": "defa59f53407d6e23d4f5393b7b5b00d2b893124d663d09955185e14a9404186",
+        "path": "responses/20260914-KOSPI-stock.json",
+        "provider_published_at": null,
+        "received_at_utc": "2026-09-16T01:06:39Z",
+        "sha256": "defa59f53407d6e23d4f5393b7b5b00d2b893124d663d09955185e14a9404186"
+      }
+    },
+    {
+      "key": "20260915:KOSDAQ:index",
+      "normalized_frame": {
+        "raw_to_frame_equivalent": true,
+        "required_projection_sha256": "72a4d44443e29905421447e13328d932377b0239d6d41b3f0f7d93a68c3a5e65",
+        "schema": "pykrx_1_2_8_index_required_projection/1",
+        "sha256": "148c66cad096323494056b107203c9174513a15d45227ebf0a7978a2c3b78e22"
+      },
+      "request": {
+        "method": "POST",
+        "public_params": {
+          "bld": "dbms/MDC/STAT/standard/MDCSTAT00101",
+          "idxIndMidclssCd": "03",
+          "trdDd": "20260915"
+        },
+        "url": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+      },
+      "response": {
+        "bytes": 10712,
+        "content_type": "text/html; charset=utf-8",
+        "parser_input_sha256": "8c6589a748abcb99ecc8ad4340f327df517581dc8b8f11f25ec238a7a97b4791",
+        "path": "responses/20260915-KOSDAQ-index.json",
+        "provider_published_at": null,
+        "received_at_utc": "2026-09-16T01:06:47Z",
+        "sha256": "8c6589a748abcb99ecc8ad4340f327df517581dc8b8f11f25ec238a7a97b4791"
+      }
+    },
+    {
+      "key": "20260915:KOSDAQ:stock",
+      "normalized_frame": {
+        "raw_to_frame_equivalent": true,
+        "required_projection_sha256": "f8c7a8537cd59ec6ca5c27cc1cc690abb7600feb14dc7c02a0236f8fb1c49e17",
+        "schema": "pykrx_1_2_8_stock_required_projection/1",
+        "sha256": "633bcbd5dc0db3d6346d828ba1b21491b286456cee96f73758358869f61447d7"
+      },
+      "request": {
+        "method": "POST",
+        "public_params": {
+          "bld": "dbms/MDC/STAT/standard/MDCSTAT01501",
+          "mktId": "KSQ",
+          "trdDd": "20260915"
+        },
+        "url": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+      },
+      "response": {
+        "bytes": 738814,
+        "content_type": "text/html; charset=utf-8",
+        "parser_input_sha256": "729dcda17d9f1a26ded8df2557eafc7d2912f4564d0b0a9a1fe1fd7ff2a9d6a6",
+        "path": "responses/20260915-KOSDAQ-stock.json",
+        "provider_published_at": null,
+        "received_at_utc": "2026-09-16T01:06:45Z",
+        "sha256": "729dcda17d9f1a26ded8df2557eafc7d2912f4564d0b0a9a1fe1fd7ff2a9d6a6"
+      }
+    },
+    {
+      "key": "20260915:KOSPI:index",
+      "normalized_frame": {
+        "raw_to_frame_equivalent": true,
+        "required_projection_sha256": "5bb3c693cc95d2a6b4da15c476b48b9eb4d1be763c1161c31cdb13a99819203c",
+        "schema": "pykrx_1_2_8_index_required_projection/1",
+        "sha256": "21beadd9eb6e2dab568d536d0ef28bda6c110ed9adf687fcebd3f3480f092068"
+      },
+      "request": {
+        "method": "POST",
+        "public_params": {
+          "bld": "dbms/MDC/STAT/standard/MDCSTAT00101",
+          "idxIndMidclssCd": "02",
+          "trdDd": "20260915"
+        },
+        "url": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+      },
+      "response": {
+        "bytes": 14746,
+        "content_type": "text/html; charset=utf-8",
+        "parser_input_sha256": "1099fa48288ef969cbe072dc31054287f33839c6a83ffc8ce2a1825c1b0eb0ff",
+        "path": "responses/20260915-KOSPI-index.json",
+        "provider_published_at": null,
+        "received_at_utc": "2026-09-16T01:06:44Z",
+        "sha256": "1099fa48288ef969cbe072dc31054287f33839c6a83ffc8ce2a1825c1b0eb0ff"
+      }
+    },
+    {
+      "key": "20260915:KOSPI:stock",
+      "normalized_frame": {
+        "raw_to_frame_equivalent": true,
+        "required_projection_sha256": "9a770079260cb6c674091f8916c10a7599f33c22fd791bf47442bb7692867e6d",
+        "schema": "pykrx_1_2_8_stock_required_projection/1",
+        "sha256": "eddd3443ee16c6536e36500a0361623b995cb024bcd372062c0bcf19d7699214"
+      },
+      "request": {
+        "method": "POST",
+        "public_params": {
+          "bld": "dbms/MDC/STAT/standard/MDCSTAT01501",
+          "mktId": "STK",
+          "trdDd": "20260915"
+        },
+        "url": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+      },
+      "response": {
+        "bytes": 368739,
+        "content_type": "text/html; charset=utf-8",
+        "parser_input_sha256": "3a48efd74c032af4406687626ed7b9ccedffd4fea1307177f253394bba7c584b",
+        "path": "responses/20260915-KOSPI-stock.json",
+        "provider_published_at": null,
+        "received_at_utc": "2026-09-16T01:06:43Z",
+        "sha256": "3a48efd74c032af4406687626ed7b9ccedffd4fea1307177f253394bba7c584b"
+      }
+    }
+  ],
+  "request_headers_retained": false,
+  "response_body_schema_allowlisted_before_retention": true,
+  "schema": "krx_information_system_source_capture/2",
+  "status": "COMPLETE"
+}

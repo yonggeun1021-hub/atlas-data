@@ -1,0 +1,111 @@
+{
+  "authority": {
+    "action_authority": false,
+    "buy_authority": false,
+    "collector_authority": false,
+    "order_authority": false,
+    "production_authority": false,
+    "retrieval_pointer_only": true,
+    "stage_authority": false,
+    "trading_authority": false
+  },
+  "bootstrap_path": "evidence/scheduled_briefing_retrieval/2026-09-18/morning/rev-001.json",
+  "bootstrap_policy": "UNIQUE_DATE_SLOT_APPEND_ONLY_SEQUENTIAL_REVISIONS",
+  "bootstrap_url": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/main/evidence/scheduled_briefing_retrieval/2026-09-18/morning/rev-001.json",
+  "compact_immutable_url_templates": {
+    "dart": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/7daa8344bea590ae1a4e60d2345894673c44d5d2/data/briefing/dart/{symbol}.json",
+    "krx": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/7daa8344bea590ae1a4e60d2345894673c44d5d2/data/briefing/krx/{symbol}.json",
+    "sec": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/7daa8344bea590ae1a4e60d2345894673c44d5d2/data/briefing/sec/{symbol}.json"
+  },
+  "consumer_rules": {
+    "bootstrap_missing_or_invalid": "RETRIEVAL_AUTHORITY_UNAVAILABLE",
+    "bootstrap_query_nonce_required": true,
+    "expected_date_mismatch": "RETRIEVAL_AUTHORITY_UNAVAILABLE",
+    "floating_artifact_fallback_allowed": false,
+    "generation_mismatch": "RETRIEVAL_AUTHORITY_UNAVAILABLE",
+    "prior_date_fallback_allowed": false,
+    "revision_discovery": "ASCENDING_FROM_001_STOP_AT_FIRST_MISSING_USE_HIGHEST_VALID"
+  },
+  "delivery_artifacts": [
+    {
+      "content_sha256": "5a83cd1ff0a25218f07b03d211ef2c323ecfabe1d41fe24fc45d8120a7b4a366",
+      "git_blob_sha1": "7cb5c7d8f6aeb400b7598e1fe5f44d6ea4ecacff",
+      "immutable_url": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/7daa8344bea590ae1a4e60d2345894673c44d5d2/data/briefing/daily_briefing_sources.json",
+      "path": "data/briefing/daily_briefing_sources.json"
+    },
+    {
+      "content_sha256": "12a1b7a3d67afdc2666a5f03d4bfa1822d759b5bdfdfa7a2d79323b8f5b780a2",
+      "git_blob_sha1": "66c2afb3a28938f3ebd3ef6a8469b883c3de5c81",
+      "immutable_url": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/7daa8344bea590ae1a4e60d2345894673c44d5d2/evidence/daily_briefing/morning/2026-09-18/index.json",
+      "path": "evidence/daily_briefing/morning/2026-09-18/index.json"
+    },
+    {
+      "content_sha256": "9c1b6bacb419b7324ea735530a36412dfad60ce93fd76631b67501dba6c42fd3",
+      "git_blob_sha1": "84896345b0b9b451f38d02da7e729e5ae2b91ece",
+      "immutable_url": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/7daa8344bea590ae1a4e60d2345894673c44d5d2/evidence/daily_briefing/morning/2026-09-18/rev-001/packet.json",
+      "path": "evidence/daily_briefing/morning/2026-09-18/rev-001/packet.json"
+    },
+    {
+      "content_sha256": "a6f58fcc51c10cea14e7472b671b62f341f9b6309e14d0b65e30a264d26b7dac",
+      "git_blob_sha1": "e661014f675b539659956babd9d1fe4647c5a80b",
+      "immutable_url": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/7daa8344bea590ae1a4e60d2345894673c44d5d2/evidence/daily_briefing/morning/2026-09-18/rev-001/briefing.md",
+      "path": "evidence/daily_briefing/morning/2026-09-18/rev-001/briefing.md"
+    }
+  ],
+  "delivery_locator": {
+    "authority": {
+      "action": false,
+      "buy": false,
+      "order": false,
+      "production": false,
+      "stage": false,
+      "trading": false
+    },
+    "briefing_path": "evidence/daily_briefing/morning/2026-09-18/rev-001/briefing.md",
+    "briefing_sha256": "a6f58fcc51c10cea14e7472b671b62f341f9b6309e14d0b65e30a264d26b7dac",
+    "decision_date": "2026-09-18",
+    "delivery_scope": [
+      "INVESTMENT_DECISION_REVIEW",
+      "INVESTMENT_REVIEW_SHADOW",
+      "SHADOW_ENTRY_REVIEW"
+    ],
+    "index_path": "evidence/daily_briefing/morning/2026-09-18/index.json",
+    "index_sha256": "12a1b7a3d67afdc2666a5f03d4bfa1822d759b5bdfdfa7a2d79323b8f5b780a2",
+    "packet_file_sha256": "9c1b6bacb419b7324ea735530a36412dfad60ce93fd76631b67501dba6c42fd3",
+    "packet_path": "evidence/daily_briefing/morning/2026-09-18/rev-001/packet.json",
+    "packet_sha256": "147f32108c59c0d4f8cbee9c825ef7801af4f80888fdd687ccf73a047115aab9",
+    "revision": 1,
+    "schema_version": "daily_briefing_delivery/1",
+    "slot": "morning"
+  },
+  "expected_kst_date": "2026-09-18",
+  "generation_id": "4a10ba41c738c98e53fb10c9ba233167a2aa7445d5938c20dc28b1f5a1c35de3",
+  "required_artifacts": [
+    {
+      "content_sha256": "8c8036ce8a2031b116b5c9fc406beae6fcffce106e0125c314de1e1accf7cf7d",
+      "git_blob_sha1": "754662d26d533ab931755d67e479e029b8f15736",
+      "immutable_url": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/7daa8344bea590ae1a4e60d2345894673c44d5d2/data/briefing/step0_status.json",
+      "path": "data/briefing/step0_status.json"
+    },
+    {
+      "content_sha256": "4a11e63f8041e862b1eff9d59d56a88ea74e35738c3835b006ce0147c224bac8",
+      "git_blob_sha1": "12a2f225fd5300bdb09682885877025335dead71",
+      "immutable_url": "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/7daa8344bea590ae1a4e60d2345894673c44d5d2/data/briefing_status.json",
+      "path": "data/briefing_status.json"
+    }
+  ],
+  "revision": 1,
+  "schema_version": "scheduled_briefing_retrieval_authority/4",
+  "slot": "morning",
+  "source_commit": "7daa8344bea590ae1a4e60d2345894673c44d5d2",
+  "source_date_binding": {
+    "calendar_day_lag": 0,
+    "decision_date": "2026-09-18",
+    "last_confirmed_evidence_relabelled_as_decision_date": false,
+    "market_session_semantics": "MARKET_SESSION_STATE_NOT_INFERRED",
+    "mode": "DECISION_DATE_EXACT",
+    "prior_date_fallback_used": false,
+    "source_evidence_kst_date": "2026-09-18"
+  },
+  "stale_detection": "PASS"
+}

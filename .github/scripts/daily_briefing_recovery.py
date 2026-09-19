@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
@@ -65,7 +67,167 @@ def select_target_run(runs: list[dict], decision_date: str, slot: str) -> dict |
     return max(candidates, key=lambda row: (_parse_utc(row["created_at"]), int(row.get("run_attempt", 0))))
 
 
-def classify_recovery(run: dict, jobs: list[dict]) -> str:
+def _load_handoff_report(repo_root: Path, slot: str, decision_date: str) -> dict:
+    """Read the canonical handoff state instead of re-deriving delivery health."""
+    script = Path(__file__).with_name("briefing_handoff_watchdog.py")
+    spec = importlib.util.spec_from_file_location("briefing_handoff_watchdog", script)
+    if spec is None or spec.loader is None:
+        raise RecoveryError("HANDOFF_WATCHDOG_IMPORT_FAILED")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    report = module.run_check(repo_root, slot, decision_date)
+    if not isinstance(report, dict) or not isinstance(report.get("status"), str):
+        raise RecoveryError("HANDOFF_WATCHDOG_REPORT_INVALID")
+    return report
+
+
+def _load_finalization_module():
+    script = Path(__file__).with_name("briefing_finalization.py")
+    spec = importlib.util.spec_from_file_location("briefing_finalization", script)
+    if spec is None or spec.loader is None:
+        raise RecoveryError("FINALIZATION_IMPORT_FAILED")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _validate_delivery_receipt(
+    finalization,
+    directory: Path,
+    draft: dict,
+    validation: dict,
+    receipt: dict,
+) -> None:
+    payload = finalization._read_bytes(
+        directory / f"payload-rev-{draft['rev']:03d}.md",
+        "FINALIZATION_PAYLOAD_MISSING",
+    )
+    payload_sha = finalization._sha256(payload)
+    expected = {
+        "contract_version": finalization.CONTRACT_VERSION,
+        "briefing_id": draft.get("briefing_id"),
+        "slot": draft.get("slot"),
+        "kst_date": draft.get("kst_date"),
+        "sealed_payload_sha256": payload_sha,
+        "delivery_marker": draft.get("delivery_marker"),
+        "source_briefing_sha256": (draft.get("source") or {}).get("briefing_sha256"),
+        "source_revision": (draft.get("source") or {}).get("revision"),
+        "draft_rev": draft.get("rev"),
+        "validation_rev": validation.get("rev"),
+        "validation_status_at_delivery": validation.get("validation_status"),
+        "immutable": True,
+    }
+    if draft.get("delivery_payload_sha256") != payload_sha:
+        raise RecoveryError("FINAL_HANDOFF_SEALED_PAYLOAD_MISMATCH")
+    if any(receipt.get(key) != value for key, value in expected.items()):
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_IDENTITY_MISMATCH")
+
+    required = receipt.get("required_channels")
+    channels = receipt.get("channels")
+    proofs = receipt.get("delivery_proofs")
+    if (
+        not isinstance(required, list)
+        or not required
+        or not all(isinstance(channel, str) and channel for channel in required)
+        or len(required) != len(set(required))
+        or not isinstance(channels, list)
+        or not all(isinstance(channel, str) and channel for channel in channels)
+        or len(channels) != len(set(channels))
+        or not set(required).issubset(channels)
+        or not isinstance(proofs, list)
+        or not all(isinstance(proof, dict) for proof in proofs)
+    ):
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_CHANNELS_INVALID")
+    proof_channels = [proof.get("channel") for proof in proofs]
+    if (
+        len(proof_channels) != len(set(proof_channels))
+        or set(proof_channels) != set(channels)
+        or any(not isinstance(proof.get("covers_full_payload"), bool) for proof in proofs)
+    ):
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_PROOFS_INVALID")
+    full_payload = sorted(
+        proof["channel"] for proof in proofs if proof["covers_full_payload"]
+    )
+    if receipt.get("full_payload_channels") != full_payload:
+        raise RecoveryError("FINAL_HANDOFF_FULL_PAYLOAD_CHANNELS_INVALID")
+    if not isinstance(receipt.get("attempts"), int) or receipt["attempts"] < 1:
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_ATTEMPTS_INVALID")
+    try:
+        delivered_at = _parse_utc(receipt["delivered_at_utc"])
+        sealed_at = _parse_utc(draft["sealed_at_utc"])
+    except (KeyError, TypeError):
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_TIME_INVALID") from None
+    if delivered_at < sealed_at:
+        raise RecoveryError("FINAL_HANDOFF_DELIVERY_TIME_INVALID")
+
+
+def _validate_complete_handoff(repo_root: Path, slot: str, decision_date: str) -> None:
+    """Validate the existing finalization chain without invoking any writer."""
+    finalization = _load_finalization_module()
+    directory = finalization.slot_dir(repo_root, decision_date, slot)
+    draft_path = finalization._latest(directory, "draft")
+    if draft_path is None:
+        raise RecoveryError("FINAL_HANDOFF_DRAFT_MISSING")
+    try:
+        draft = finalization._read_json(draft_path, "FINALIZATION_DRAFT_UNREADABLE")
+        validation, problem = finalization.resolve_validation(directory)
+        if problem is not None or validation is None:
+            raise RecoveryError("FINAL_HANDOFF_GOVERNING_VALIDATION_MISSING")
+        expected_identity = {
+            "contract_version": finalization.CONTRACT_VERSION,
+            "briefing_id": finalization.briefing_id(decision_date, slot),
+            "slot": slot,
+            "kst_date": decision_date,
+        }
+        if any(draft.get(key) != value for key, value in expected_identity.items()):
+            raise RecoveryError("FINAL_HANDOFF_DRAFT_IDENTITY_MISMATCH")
+        if (
+            any(validation.get(key) != value for key, value in expected_identity.items())
+            or validation.get("delivery_payload_sha256")
+            != draft.get("delivery_payload_sha256")
+        ):
+            raise RecoveryError("FINAL_HANDOFF_VALIDATION_IDENTITY_MISMATCH")
+        routing = validation.get("routing") or finalization.derive_routing(
+            validation, finalization.load_ratified_specs(repo_root)
+        )
+        if routing.get("status_deliverable") is not True:
+            raise RecoveryError("FINAL_HANDOFF_VALIDATION_NOT_DELIVERABLE")
+        finalization.verify_pre_delivery_portal_receipt(
+            repo_root,
+            decision_date,
+            slot,
+            draft=draft,
+            validation=validation,
+        )
+        receipt = finalization._read_json(
+            finalization.receipt_path(repo_root, decision_date, slot),
+            "FINALIZATION_RECEIPT_UNREADABLE",
+        )
+        _validate_delivery_receipt(
+            finalization, directory, draft, validation, receipt
+        )
+    except finalization.FinalizationError as exc:
+        raise RecoveryError(f"FINAL_HANDOFF_INVALID:{exc.code}") from None
+
+
+def _classify_successful_producer(handoff_report: dict | None) -> str:
+    if handoff_report is None:
+        return "HANDOFF_STATUS_REQUIRED"
+    if handoff_report.get("status") == "COMPLETE":
+        return "HEALTHY"
+    semantic = (handoff_report.get("checks") or {}).get("semantic_verdict") or {}
+    if semantic.get("exists") and semantic.get("status_deliverable") is False:
+        return "HANDOFF_HOLD"
+    if handoff_report.get("alert") is True:
+        return "HANDOFF_FAILED"
+    return "HANDOFF_WAIT"
+
+
+def classify_recovery(
+    run: dict,
+    jobs: list[dict],
+    handoff_report: dict | None = None,
+) -> str:
     attempt = int(run.get("run_attempt", 1))
     briefing = next((job for job in jobs if job.get("name") == "briefing"), None)
     if run.get("status") != "completed":
@@ -73,7 +235,7 @@ def classify_recovery(run: dict, jobs: list[dict]) -> str:
     if briefing is not None and briefing.get("status") != "completed":
         return "WAIT_RUNNING"
     if briefing is not None and briefing.get("conclusion") == "success":
-        return "HEALTHY"
+        return _classify_successful_producer(handoff_report)
     if attempt >= MAX_RUN_ATTEMPTS:
         return "ATTEMPTS_EXHAUSTED"
     if briefing is not None and briefing.get("conclusion") in RETRYABLE_CONCLUSIONS:
@@ -122,7 +284,13 @@ class GitHubApi:
         return value
 
 
-def run_watchdog(slot: str, decision_date: str, final_check: bool, api: GitHubApi) -> str:
+def run_watchdog(
+    slot: str,
+    decision_date: str,
+    final_check: bool,
+    api: GitHubApi,
+    repo_root: Path | None = None,
+) -> str:
     payload = api.request(
         "GET", "/actions/workflows/daily-briefing.yml/runs?event=schedule&per_page=50"
     )
@@ -142,9 +310,43 @@ def run_watchdog(slot: str, decision_date: str, final_check: bool, api: GitHubAp
     jobs = jobs_payload.get("jobs")
     if not isinstance(jobs, list):
         raise RecoveryError("WORKFLOW_JOBS_INVALID")
-    action = classify_recovery(target, jobs)
+    briefing = next((job for job in jobs if job.get("name") == "briefing"), None)
+    handoff_report = None
+    if (
+        target.get("status") == "completed"
+        and briefing is not None
+        and briefing.get("status") == "completed"
+        and briefing.get("conclusion") == "success"
+    ):
+        handoff_report = _load_handoff_report(
+            (repo_root or Path.cwd()).resolve(), slot, decision_date
+        )
+        if handoff_report.get("status") == "COMPLETE":
+            _validate_complete_handoff(
+                (repo_root or Path.cwd()).resolve(), slot, decision_date
+            )
+    action = classify_recovery(target, jobs, handoff_report)
     if action == "HEALTHY":
-        return f"PASS: {slot} briefing job succeeded for {decision_date} (run {run_id})"
+        return (
+            f"PASS: {slot} briefing handoff is COMPLETE for {decision_date} "
+            f"(producer run {run_id})"
+        )
+    if action in {"HANDOFF_WAIT", "HANDOFF_HOLD"}:
+        status = handoff_report["status"]
+        reason = handoff_report.get("reason", status)
+        prefix = "HOLD" if action == "HANDOFF_HOLD" else "WAIT"
+        return (
+            f"{prefix}: {slot} producer run {run_id} succeeded but handoff is "
+            f"{status} ({reason}); no producer rerun requested"
+        )
+    if action == "HANDOFF_FAILED":
+        status = handoff_report["status"]
+        reason = handoff_report.get("reason", status)
+        raise RecoveryError(
+            f"BRIEFING_HANDOFF_FAILED:run={run_id}:status={status}:reason={reason}"
+        )
+    if action == "HANDOFF_STATUS_REQUIRED":
+        raise RecoveryError(f"BRIEFING_HANDOFF_STATUS_REQUIRED:run={run_id}")
     if action == "WAIT_RUNNING":
         return f"WAIT: {slot} briefing run {run_id} is still running"
     if action == "RERUN_FAILED_JOBS":

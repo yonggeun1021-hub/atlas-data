@@ -7,7 +7,9 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -29,8 +31,37 @@ def write_json(path: Path, value) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def weekend_context_lines(schema_version: str, source_date: str) -> str:
+    """The weekend delivery lines each retrieval authority version requires.
+
+    The synthetic packet carries no KRX presentation reference and no
+    FREE_MARKET_DATA row, so the v4 market-scoped dates are UNKNOWN.
+    """
+    if schema_version == M.SCHEMA_V3:
+        return (
+            "- market_session: MARKET_CLOSED\n"
+            "- new_session: NONE\n"
+            f"- latest_confirmed_evidence_date: {source_date}\n"
+            "- latest_confirmed_evidence_relabelled_as_today: false\n"
+        )
+    return (
+        "- market_session: MARKET_CLOSED\n"
+        "- new_session: NONE\n"
+        f"- source_evidence_kst_date: {source_date}\n"
+        "- krx_latest_confirmed_close_date: UNKNOWN\n"
+        "- us_latest_verified_session_date: UNKNOWN\n"
+        "- latest_confirmed_evidence_relabelled_as_today: false\n"
+    )
+
+
 class AuthorityRepo:
-    def __init__(self, decision_date: str = DATE, source_date: str | None = None, slot: str = "morning"):
+    def __init__(
+        self,
+        decision_date: str = DATE,
+        source_date: str | None = None,
+        slot: str = "morning",
+        schema_version: str | None = None,
+    ):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.decision_date = decision_date
@@ -40,9 +71,11 @@ class AuthorityRepo:
         subprocess.run(["git", "-C", str(self.root), "config", "user.name", "test"], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.email", "test@example.com"], check=True)
         (self.root / "config").mkdir()
-        (self.root / M.CONTRACT_PATH).write_bytes(
-            (ROOT / M.CONTRACT_PATH).read_bytes()
-        )
+        contract = json.loads((ROOT / M.CONTRACT_PATH).read_text(encoding="utf-8"))
+        if schema_version is not None:
+            contract["schema_version"] = schema_version
+        self.schema_version = contract["schema_version"]
+        write_json(self.root / M.CONTRACT_PATH, contract)
         (self.root / "config/read_model_authority_contract.json").write_bytes(
             (ROOT / "config/read_model_authority_contract.json").read_bytes()
         )
@@ -126,12 +159,7 @@ class AuthorityRepo:
         briefing_path.parent.mkdir(parents=True, exist_ok=True)
         briefing = f"# briefing revision {revision}\n"
         if slot == "morning" and self.decision_date in {"2026-08-29", "2026-08-30"}:
-            briefing += (
-                "- market_session: MARKET_CLOSED\n"
-                "- new_session: NONE\n"
-                f"- latest_confirmed_evidence_date: {self.source_date}\n"
-                "- latest_confirmed_evidence_relabelled_as_today: false\n"
-            )
+            briefing += weekend_context_lines(self.schema_version, self.source_date)
         briefing_path.write_text(briefing, encoding="utf-8")
         relative = lambda path: path.relative_to(self.root).as_posix()
         digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
@@ -345,7 +373,7 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
             envelope = M.build_envelope(
                 repo.root, repo.commit, "morning", repo.decision_date
             )
-            self.assertEqual(envelope["schema_version"], "scheduled_briefing_retrieval_authority/3")
+            self.assertEqual(envelope["schema_version"], "scheduled_briefing_retrieval_authority/4")
             self.assertEqual(envelope["source_date_binding"], {
                 "mode": "WEEKEND_MORNING_PREVIOUS_FRIDAY",
                 "decision_date": "2026-08-29",
@@ -407,6 +435,66 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         finally:
             repo.close()
 
+    def test_v3_contract_commit_still_requires_its_own_weekend_line(self):
+        """A commit whose contract is v3 keeps v3 rules; v4 lines do not pass as v3."""
+        repo = AuthorityRepo("2026-08-29", "2026-08-28", schema_version=M.SCHEMA_V3)
+        try:
+            envelope = M.build_envelope(repo.root, repo.commit, "morning", repo.decision_date)
+            self.assertEqual(envelope["schema_version"], M.SCHEMA_V3)
+            M.validate_envelope(repo.root, envelope)
+            locator_path = repo.root / "data/briefing/daily_briefing_sources.json"
+            locator = json.loads(locator_path.read_text())
+            briefing_path = repo.root / locator["briefing_path"]
+            briefing_path.write_text(
+                "# briefing revision 1\n" + weekend_context_lines(M.SCHEMA_V4, "2026-08-28"),
+                encoding="utf-8",
+            )
+            locator["briefing_sha256"] = hashlib.sha256(briefing_path.read_bytes()).hexdigest()
+            write_json(locator_path, locator)
+            commit = repo.commit_all("v4-lines-under-v3-contract")
+            with self.assertRaisesRegex(
+                M.ScheduledAuthorityError, "WEEKEND_BRIEFING_SESSION_CONTEXT_MISSING"
+            ):
+                M.build_envelope(repo.root, commit, "morning", repo.decision_date)
+            # Relabelling the old v3 envelope as v4 is drift, not acceptance.
+            relabelled = copy.deepcopy(envelope)
+            relabelled["schema_version"] = M.SCHEMA_V4
+            with self.assertRaisesRegex(M.ScheduledAuthorityError, "ENVELOPE_DRIFT_OR_TAMPER"):
+                M.validate_envelope(repo.root, relabelled)
+        finally:
+            repo.close()
+
+    def test_v4_rejects_the_v3_line_and_unscoped_dates(self):
+        repo = AuthorityRepo("2026-08-29", "2026-08-28")
+        try:
+            locator_path = repo.root / "data/briefing/daily_briefing_sources.json"
+            locator = json.loads(locator_path.read_text())
+            briefing_path = repo.root / locator["briefing_path"]
+            v4_lines = weekend_context_lines(M.SCHEMA_V4, "2026-08-28")
+            cases = (
+                ("v3 lines only", "WEEKEND_BRIEFING_AMBIGUOUS_EVIDENCE_DATE_LINE",
+                 weekend_context_lines(M.SCHEMA_V3, "2026-08-28")),
+                ("v4 lines plus the v3 line", "WEEKEND_BRIEFING_AMBIGUOUS_EVIDENCE_DATE_LINE",
+                 v4_lines + "- latest_confirmed_evidence_date: 2026-08-28\n"),
+                ("fabricated KRX date", "WEEKEND_BRIEFING_SESSION_DATE_MISMATCH: krx_latest_confirmed_close_date",
+                 v4_lines.replace("krx_latest_confirmed_close_date: UNKNOWN",
+                                  "krx_latest_confirmed_close_date: 2026-08-28")),
+                ("duplicated US line", "WEEKEND_BRIEFING_SESSION_DATE_MISMATCH: us_latest_verified_session_date",
+                 v4_lines + "- us_latest_verified_session_date: 2026-08-28\n"),
+                ("wrong source date", "WEEKEND_BRIEFING_SESSION_DATE_MISMATCH: source_evidence_kst_date",
+                 weekend_context_lines(M.SCHEMA_V4, "2026-08-27")),
+            )
+            for label, expected, lines in cases:
+                with self.subTest(case=label):
+                    briefing_path.write_text("# b\n" + lines, encoding="utf-8")
+                    locator["briefing_sha256"] = hashlib.sha256(briefing_path.read_bytes()).hexdigest()
+                    write_json(locator_path, locator)
+                    commit = repo.commit_all(f"v4-mutation {label}")
+                    with self.assertRaisesRegex(M.ScheduledAuthorityError, expected):
+                        M.build_envelope(repo.root, commit, "morning", repo.decision_date)
+        finally:
+            repo.close()
+
     def test_weekend_briefing_must_explicitly_disclose_session_context(self):
         repo = AuthorityRepo("2026-08-29", "2026-08-28")
         try:
@@ -460,6 +548,37 @@ class ScheduledBriefingRetrievalAuthorityTests(unittest.TestCase):
         self.assertEqual(first.read_bytes(), first_bytes)
         self.assertEqual(json.loads(second.read_text())["revision"], 2)
         self.assertEqual(json.loads(second.read_text())["source_commit"], new_commit)
+
+    def test_workflow_retry_retains_source_for_validation_and_downstream_receipts(self):
+        first, _ = M.publish(self.repo.root, self.repo.commit, "morning", DATE)
+        first_bytes = first.read_bytes()
+        retry_commit = self.repo.commit_all("authority-commit-after-original-delivery")
+        envelope = json.loads(first_bytes)
+        # Reproduce the incident: the retry checkout differs from the immutable
+        # envelope even though generation and delivery artifacts are identical.
+        with self.assertRaisesRegex(M.ScheduledAuthorityError, "ENVELOPE_EXPECTED_IDENTITY_MISMATCH"):
+            M.validate_expected_identity(self.repo.root, envelope, first, retry_commit, "morning", DATE)
+
+        workflow = (ROOT / ".github/workflows/daily-briefing.yml").read_text()
+        start = workflow.index("            AUTHORITY_OUTPUT=$(")
+        end = workflow.index('            if [ "$AUTHORITY_CHANGED"', start)
+        phase_b = workflow[start:end].replace(
+            "python3 .github/scripts/publish_scheduled_briefing_authority.py",
+            f"python3 {shlex.quote(str(SCRIPT))} --repo-root {shlex.quote(str(self.repo.root))}",
+        )
+        handoff = 'CONSUMER_READY_COMMIT="$AUTHORITY_SOURCE_COMMIT"'
+        self.assertIn(handoff, workflow[end:workflow.index("# Phase C", end)])
+        result = subprocess.run(
+            ["bash", "-eu", "-c", phase_b + "\n" + handoff + '\nprintf "RETAINED=%s\\n" "$CONSUMER_READY_COMMIT"'],
+            cwd=self.repo.root,
+            env={**os.environ, "SLOT": "morning", "DECISION_DATE": DATE, "CONSUMER_READY_COMMIT": retry_commit},
+            text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("authority_changed=false", result.stdout)
+        self.assertIn(f"RETAINED={self.repo.commit}", result.stdout)
+        self.assertEqual(first.read_bytes(), first_bytes)
+        self.assertEqual(len(list(first.parent.glob("rev-*.json"))), 1)
 
     def test_same_generation_new_delivery_appends_authority_revision(self):
         first, _ = M.publish(self.repo.root, self.repo.commit, "morning", DATE)

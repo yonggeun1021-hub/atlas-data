@@ -14,7 +14,8 @@ P1-KR-07 SECTOR identity, never a cross-market Theme grouping), verified
 `source_available_at` official publication timing (still null -- Korea
 Breadth's own eligibility today rests entirely on first-seen evidence),
 confirmed investor-flow release timing, and live scheduled-cron briefing
-integration (this remains a manual proof, not a cron). READY at the P2-03
+integration. The P2-03 ordered producer now reuses the existing Leadership
+schedule, but briefing integration remains a separate boundary. READY at the P2-03
 level still never grants Buy/Stage/Action/Order/Production/trading authority
 -- those stay closed unconditionally, independent of this contract.
 
@@ -40,16 +41,51 @@ dates via `korea_market_signals.py`'s existing `discover_session_pair()`
 (unchanged) -- no invented trading-day calendar. Manual
 `workflow_dispatch` with explicit dates is unchanged.
 
-Honest, still-open half of the gap: Korea Breadth
-(`p1-kr05-korea-breadth-live.yml`) and this combined observation-pair
-workflow remain `workflow_dispatch`-only -- there is still no automatic
-daily trigger for Breadth, so a same-date Breadth+Leadership pair (what
-`korea_capital_rotation.py`'s own no-lookahead check actually needs) is
-not yet fully automatic end to end. A scheduled Leadership-only sample
-can therefore still see `BREADTH_MARKET_SOURCE_AVAILABLE_AT` unavailable
-for its own date until Breadth is separately dispatched (or scheduled)
-for that same date. Closing that remaining half is a separate, not yet
-approved, bounded slice.
+**Update (2026-09-12, automatic ordered-pair controller):** the existing
+Leadership 18:10/18:25 KST schedule is now the single controller for scheduled
+P2-03 production. It discovers the same completed KRX session pair, waits
+without claiming completion when two sessions or policy effectivity are not
+ready, and synchronously calls the existing combined workflow through
+`workflow_call`. The combined workflow still owns the only Breadth -> commit
+-> Leadership -> current-ratified packet implementation and still has no
+schedule of its own. Manual Leadership `workflow_dispatch` keeps its prior
+standalone behavior.
+
+The 18:25 recovery slot is serialized by the existing controller concurrency
+group. It skips a pair only after downloading a prior successful run's exact
+final rotation artifact and independently revalidating that artifact against
+the same requested dates, the current ratified policy, and the current
+committed source identities. A green run with missing/NOT_EVALUATED output, an
+invalid artifact, or refreshed policy/source bytes remains retryable. An
+already-running manual combined request with the same exact dates suppresses
+only the concurrent duplicate; a later slot still requires a validated final
+artifact before treating the pair as complete. Existing Leadership without an
+eligible earlier Breadth observation waits for the next pair rather than
+backdating a Breadth capture.
+
+**Update (2026-09-13, effective-date and revision binding correction):** when
+the first completed pair straddles the rotation policy's `effective_from`, the
+controller uses that same existing evening run to capture only the current
+Leadership observation. It does not claim a completed rotation pair. This
+seeds the policy's first eligible date so the next real session can produce
+the first full effective pair. The recovery slot verifies and reuses the same
+Leadership bytes. The reusable pair workflow also re-syncs each provider
+existence check to current `main`, and carries the exact resolved source commit
+into Breadth lineage. Final handoff verification accepts the declared public
+commit only when it is the exact revision from which the current packet was
+reconstructed; naming an older ancestor is insufficient.
+
+**Update (2026-09-12, current-ratified producer connection):** after the
+combined workflow has committed Breadth and then Leadership, a final
+dependency job re-syncs to the exact resulting `main`, runs the existing
+current-ratified producer, and uploads the full
+`korea_capital_rotation_packet/4` plus the exact public commit as a workflow
+artifact. The producer remains fail-closed for pre-effective or otherwise
+invalid pairs. The workflow itself still has no schedule (it is called by the
+existing Leadership controller) and does not update the
+legacy rolling pointer or create a state ledger. The artifact is the bounded
+Stage3 handoff input only; Stage, entry, production, order, capital and trading
+authority remain unchanged.
 
 ### Real dispatch failure and fix (2026-08-22, run 32566229770)
 
@@ -191,3 +227,37 @@ no live source pointer, current file, or monkeypatch -- so a revision's own
 packet remains standalone-reprovable even after live source state moves on,
 and a self-rehashed tamper of any of these facts (order, gap, ratification
 timing) fails closed.
+
+
+## Existing Theme taxonomy v2 consumer path
+
+The legacy `theme_taxonomy/1` opaque binding remains byte-compatible. A binding
+for the existing producer's `theme_taxonomy/2` contract now requires the real
+`theme_taxonomy_input/1` source through `--taxonomy-graph` (or the
+`taxonomy_source_bytes` build argument). The consumer rebuilds that source with
+`rotation.theme_taxonomy.build_packet`, including its existing independent
+Git-provenance authority resolution, and compares taxonomy identity, decision
+identity, decision hash, packet hash and decision date. Rotation policy theme
+references must exist as active Theme nodes in that exact graph; this does not
+infer security memberships or change market-native classifications.
+
+The v2 binding retains the exact public source JSON text and SHA-256, graph
+status, authority-resolution status and membership-authorization result.
+Packet-only validation, including the common Rotation State Ledger consumer,
+rebuilds the embedded source and rechecks those derived fields. Re-signing a
+false membership/authority assertion or source digest is rejected. An external
+source supplied at validation must match the embedded bytes. No file path is
+trusted as the graph, and the CLI still refuses tracked output.
+
+The empty repository authority registry remains non-authorized. Existing
+externally supplied rotation policy still owns ranking and bucket thresholds;
+this change adds none. The output remains `korea_capital_rotation_packet/4` with
+an optional v2 binding variant, preserving legacy packets. It does not migrate
+the default /1 configuration or source-population registry pins, and it does
+not ratify graphs, populate US/Crypto memberships, ingest Asset Master data,
+claim a natural sample, or unlock candidate/Stage/REAL/order/trading authority.
+
+Validation uses synthetic graph/leadership fixtures through the real producer,
+Korea consumer and ledger. Operational completion still requires an actual
+canonical graph/source and existing ratified rotation policy to pass this path
+in a natural run; engineering integration is not that completion.

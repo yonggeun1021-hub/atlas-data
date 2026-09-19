@@ -1,0 +1,136 @@
+{
+  "as_of_session_date": "2026-09-10",
+  "authority": {
+    "action_authorized": false,
+    "candidate_creation_authorized": false,
+    "candidate_ranking_authorized": false,
+    "entry_eligibility_authorized": false,
+    "observation_only": true,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "stage_promotion_authorized": false,
+    "trading_authorized": false
+  },
+  "generated_at": "2026-09-12T22:39:27Z",
+  "generation_id": "c8d76b28490f5b09bd0aaaf52052b4ec44600bbc7d7abbd2f10c357c7fff4a61",
+  "market": "KR",
+  "payload_sha256": "13a0bd4143d3b33a2eeed77e98e1b439a0f5bfdf627a8bb78ff0cb91a8d89de2",
+  "policy_undefined": [
+    {
+      "condition": "KRX_INVESTABLE_UNIVERSE_POLICY_RATIFIED",
+      "defined_by": "krx_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "KRX_LIQUIDITY_POLICY_RATIFIED",
+      "defined_by": "krx_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "KRX_LISTING_DELISTING_POLICY_RATIFIED",
+      "defined_by": "krx_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "KRX_THEME_TAXONOMY_RATIFIED",
+      "defined_by": "krx_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "KRX_TRADABILITY_POLICY_RATIFIED",
+      "defined_by": "krx_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "FINAL_KOREA_REGIME_POLICY_RATIFIED",
+      "defined_by": "korea_symbol_market_review five_axis.final_policy=PENDING_POLICY_RATIFICATION",
+      "status": "UNMET"
+    },
+    {
+      "condition": "CANDIDATE_PASS_RULE",
+      "defined_by": "no ratified population-level candidate rule",
+      "status": "미정"
+    },
+    {
+      "condition": "STAGE_TRANSITION_RULE",
+      "defined_by": "no ratified Discovery/Candidate/Ready transition rule",
+      "status": "미정"
+    }
+  ],
+  "population": {
+    "as_of": "2026-09-10",
+    "count": 2766,
+    "market_counts": {
+      "KOSDAQ": 1823,
+      "KOSPI": 943
+    },
+    "population_id": "P3.03.KRX.20260910",
+    "semantics": "exact_trading_date_source_coverage_not_investable",
+    "source": {
+      "file_sha256": "e3246a385630e2648c0990397130635ba65db498c13fc3fe613ef3799d73399c",
+      "packet_sha256": "47359badc8ee53ac26f675789f566c26c62b92e51c3357cacc64d9abec14c93e",
+      "path": "data/observations/krx_global_universe/2026-09-10/packet.json"
+    }
+  },
+  "reconciliation": {
+    "bounded_review_symbols": [
+      "012450",
+      "298040",
+      "329180"
+    ],
+    "bounded_rows_byte_identical_to_review": true,
+    "duplicate_symbols": [],
+    "evaluated_subset_of_evaluable_or_bounded": true,
+    "orphan_source_rows": [],
+    "population_equals_rows": true,
+    "population_equals_status_sum": true,
+    "population_symbols_missing_from_session_response": [],
+    "stage_history_symbols_not_in_population": [],
+    "watchlist_symbols_not_in_population": []
+  },
+  "schema_version": "population_symbol_observation_packet/1#summary",
+  "status_counts": {
+    "data_observation": {
+      "DATA_OBSERVED": 2766
+    },
+    "evaluability": {
+      "EVALUABLE": 7,
+      "NOT_EVALUABLE": 2759
+    },
+    "evaluation": {
+      "EVALUATED": 4,
+      "EVALUATED_BOUNDED": 3,
+      "NOT_EVALUATED": 2759
+    },
+    "formal_candidate": {
+      "NOT_A_FORMAL_CANDIDATE": 2763,
+      "PIPELINE_SUBJECT": 3
+    },
+    "observation_status": {
+      "EVALUABLE_PRICE_FLOW_SMA20": 4,
+      "EVALUABLE_SESSION_PRICE_ONLY": 2759,
+      "EVALUATED_BOUNDED": 3
+    }
+  },
+  "summary": {
+    "data_observed_count": 2766,
+    "entry_state_counts": {
+      "WAIT": 7
+    },
+    "evaluable_count": 7,
+    "evaluated_bounded_count": 3,
+    "evaluated_count": 7,
+    "evaluated_semantics": "ROWS_PRODUCED_BY_THE_EXISTING_SYMBOL_EVALUATOR_NOT_A_PASS_JUDGEMENT",
+    "evaluated_without_full_inputs_count": 0,
+    "formal_candidate_count": 3,
+    "not_evaluable_count": 2759,
+    "not_evaluable_reason_counts": {
+      "INVESTOR_FLOW_NOT_AVAILABLE": 2759,
+      "SMA20_NOT_COMPUTABLE:RETAINED_SESSIONS=2": 2759
+    },
+    "passed_count": 0,
+    "passed_semantics": "NO_RATIFIED_PASS_RULE_ZERO_IS_ABSENCE_OF_RULE",
+    "population_count": 2766
+  }
+}

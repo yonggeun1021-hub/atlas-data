@@ -31,7 +31,11 @@ with ACTIONS_PASS_PATH.open(encoding="utf-8") as fh:
     ACTIONS_PASS_WF = yaml.safe_load(fh)
 
 STEPS = WF["jobs"]["collect"]["steps"]
-ACTIONS_PASS_STEPS = ACTIONS_PASS_WF["jobs"]["actions-pass"]["steps"]
+# ★ CIO CI-sharding 지시 2026-09-12 — 단일 `actions-pass` job 이 preflight /
+#   structural / regression / fault-injection / actions-pass-full 다섯으로
+#   나뉘었다. "P0-03 briefing read model regression" 스텝은 값싼 offline
+#   회귀라 preflight job 에 그대로 남아 있다.
+ACTIONS_PASS_STEPS = ACTIONS_PASS_WF["jobs"]["preflight"]["steps"]
 
 
 def step(name):

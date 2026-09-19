@@ -24,8 +24,10 @@ CIO 판정 2026-08-15 로 확정된 `Actions PASS` 계약 네 가지를 기계�
 from __future__ import annotations
 
 import filecmp
+import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -71,6 +73,7 @@ APPROVED_TESTS = [
     #   packets remain explicit BLOCKED evidence. Missing/unevaluated input is
     #   never NO_ACTION, and no action/allocation/size/order authority is opened.
     "test/test_defensive_action_decision.py",
+    "test/test_runtime_regime_integration_contract.py",
     # ★ P7-12 Strategic Capital Posture readiness boundary. P1 Regime,
     #   P2 Flow/Rotation, P6 Defensive Action, and P7 risk sources are
     #   independently revalidated before any cross-market budget could exist.
@@ -152,6 +155,8 @@ APPROVED_TESTS = [
     #   remain explicitly unauthorized.
     #   ⛔ live network/tracked master 없음 — synthetic inputs + temp output only.
     "test/test_global_asset_master.py",
+    "test/test_global_asset_master_theme_ingestion.py",
+    "test/test_global_asset_master_theme_application_cli.py",
     # ★ P3-01 committed three-market population readiness.
     #   latest US source-coverage packet is independently rebuilt from the
     #   immutable raw archive; Crypto's real coverage blocker and Korea's
@@ -186,6 +191,15 @@ APPROVED_TESTS = [
     #   date. No second provider call, raw response, price field, investability,
     #   Stage, Production, or trading authority is introduced.
     "test/test_korea_global_universe_populate.py",
+    # ★ TKT-3 (W2) — KR security <-> sector membership, security_sector_membership/1.
+    #   KIS master sector codes + KIS idxcode -> the 46 ratified P2-03 sector
+    #   theme_ids (binding payload sha pinned). CIO D1-D5: KIS_ONLY single-source
+    #   (T2 C5 only, T3 keeps BOTH_MUST_AGREE), exactly two ratified aliases,
+    #   deepest-level ACTIVE <= 1 with a derived parent_view, one-publication
+    #   PENDING_CHANGE, no-code stocks UNMAPPED, no retroactive rows.
+    #   ⛔ synthetic masters + temp output only; no fetch, no per-stock public output,
+    #   no candidate/order/capital authority.
+    "test/test_security_sector_membership.py",
     # ★ P3-04 — ratified Crypto breadth selection → Global Asset Master adapter.
     #   exact append-only Kraken snapshot/manifest/policy/taxonomy/identity lineage와
     #   full target observation을 요구해 breadth source-coverage membership만 만든다.
@@ -268,6 +282,19 @@ APPROVED_TESTS = [
     #   ⛔ decision/entry/action/order/production/trading 권한 없음 — evidence only.
     "test/test_upbit_candle_finalization.py",
     "test/test_upbit_microstructure_capture.py",
+    # P4-07 orderbook second-precision regression (2026-09-14): capture v2
+    #   rounds downloaded_at_utc UP to the whole second so ms-stamped orderbook
+    #   rows are never "after" capture (v1 truncation -> ORDERBOOK_UNKNOWN on
+    #   KRW-BTC/ETH/XRP). Replays real retained 2026-09-13 provider bytes;
+    #   issued v1 packets rebuild byte-identically. Builder/policy untouched.
+    "test/test_upbit_microstructure_orderbook_second_precision.py",
+    # P4-07 candle-finalization lookahead fix (2026-09-14): capture v3 records
+    #   each candle fetch's request/response instant; finalization is judged
+    #   against the fetch request, never capture completion. Replays retained
+    #   2026-09-05 bytes (KRW-BTC 15m 01:15-01:30 no longer FINALIZED), exact
+    #   close boundary, mutation proofs; v1/v2 packets rebuild byte-identically
+    #   and their exposure (2026-09-05, 2026-09-14 15m) is pinned, not rewritten.
+    "test/test_upbit_candle_finalization_fetch_time.py",
     "test/test_upbit_market_evidence_microstructure.py",
     "test/test_upbit_p3_p4_exact_hash_consumer.py",
     # Expected governance WAIT is fail-closed and provider-call-free, but it
@@ -365,6 +392,22 @@ APPROVED_TESTS = [
     #   ⛔ live network/tracked taxonomy/master mutation 없음 — temp output only.
     "test/test_theme_taxonomy.py",
     "test/test_theme_taxonomy_authority.py",
+    # ★ Closes a verification gap found 2026-09-18: the only check on
+    #   config/theme_taxonomy_source_fact_registry.json's pinned
+    #   first_seen_commit values anywhere in the repo was a format check
+    #   (^[0-9a-f]{40}$) -- nothing confirmed the pinned commit actually
+    #   exists and is reachable from HEAD. PR #809 squash-merged that same
+    #   day and orphaned 7ef75f76453f2bbb90ecbb79247dc13a2e475aa6 (pinned
+    #   for CRYPTO.KRAKEN.IDENTITY_EXCLUSION) for several hours; it was
+    #   repaired only incidentally because PR #816 happened to land as a
+    #   merge commit. This test discovers every first_seen_commit pin by
+    #   walking the parsed registry (not a hardcoded list) and fails
+    #   closed, naming the offending source_id/path/commit, if any pin is
+    #   missing or not an ancestor of HEAD.
+    #   ⛔ read-only: reads the committed registry and runs read-only git
+    #      queries (rev-parse/merge-base) against this checkout's own
+    #      history; no network, no mutation, no authority.
+    "test/test_theme_taxonomy_source_fact_registry_provenance.py",
     # ★ P2-01 — cross-market Value-Chain EDGE authority layer (CIO 2026-09-04
     #   architecture decision). Korea/US/Crypto market-native classification
     #   families are NOT unified; this only validates a separate evidence-bound
@@ -407,9 +450,79 @@ APPROVED_TESTS = [
     #   Breadth BLOCKED + 실 Leadership 모두 briefing에 노출, 재실행
     #   byte-identical, standalone 재검증 포함.
     "test/test_korea_capital_rotation_ledger_proof.py",
+    # ★ P2-03 — durable sector identity binding + rotation-policy
+    #   canonicalization-only candidate lane (2026-09-12, corrected).
+    #   Phase A found the only korea_capital_rotation_policy/1 anywhere is
+    #   the self-ratified REAL_ROTATION_POLICY above (ratified_by=
+    #   "Atlas CIO", ratified_at_utc="2026-08-22T07:19:09Z", no external
+    #   ratification trail) with an honest all-zero taxonomy placeholder --
+    #   CIO verdict P2_03_ROTATION_POLICY_CANONICALIZATION_REQUIRED. This
+    #   lane's first attempt bound identity via a real theme_taxonomy/2
+    #   graph, but that graph is evaluated per-as_of_date and could not be
+    #   reused unchanged across sessions; ratifying it was also rejected
+    #   (a RATIFIED graph requires non-empty edges/memberships + US+KOREA
+    #   coverage -- the cross-market P2-01 contract, out of P2-03's scope,
+    #   owned separately under #576). CIO correction: adds one dedicated,
+    #   P2-03-owned, date-independent contract
+    #   (config/korea_sector_identity_binding_contract.json) plus a small,
+    #   surgical extension to korea_capital_rotation.py::_validate_binding()
+    #   accepting it as a third binding version. Four real, UNRATIFIED
+    #   candidate documents: a fixed positional series_identity->theme_id
+    #   binding for the real 46 already-RATIFIED
+    #   config/korea_leadership_policy.json SECTOR records (no as_of_date
+    #   field anywhere), a taxonomy_binding candidate, and a
+    #   korea_capital_rotation_policy/1 candidate (top_count=bottom_count=3,
+    #   maximum_calendar_gap_days=7 per revised CIO direction). Proven
+    #   durable: the identical committed binding/policy bytes validate,
+    #   unchanged, against two real Day N / Day N+1 Leadership observation
+    #   pairs built by the real korea_leadership.py::build_transform()
+    #   against the real committed policy file -- no rebuild, no new hash.
+    #   Fabricated/missing identity and upstream policy SHA drift both fail
+    #   closed against real code. P2-01's real authority registry stays
+    #   untouched (0 records, still #576's scope); no schedule/cron
+    #   touched; no production/trading/Regime/Candidate/Stage authority
+    #   opened; no full-packet automation.
+    "test/test_korea_capital_rotation_policy_candidate.py",
+    # ★ P2-03 — RATIFICATION MATERIALIZATION (2026-09-12), separate bounded
+    #   slice from the canonicalization-only candidate lane above (PR #669,
+    #   merged; that lane's own module/test stay unmodified, historical
+    #   UNRATIFIED evidence). External ratification trail: PR #669 review
+    #   comment issuecomment-5643258809 ("CIO RATIFICATION DECISION --
+    #   P2-03 Korea Rotation Policy semantics: GO", 2026-09-12T03:47:23Z),
+    #   ratifying the same 46-identity KOSPI/KOSDAQ mapping,
+    #   RELATIVE_STRENGTH_VS_OWN_BENCHMARK / DESCENDING_WITHIN_BENCHMARK_
+    #   SCOPE / SERIES_IDENTITY_ASC, top_count=bottom_count=3,
+    #   maximum_calendar_gap_days=7. ratified_by="Atlas CIO",
+    #   ratified_at_utc="2026-09-12T03:47:23Z" (the real decision instant,
+    #   never the tainted 2026-08-22T07:19:09Z timestamp or either
+    #   candidate-authoring placeholder). effective_from="2026-09-14" is
+    #   mechanically resolved -- never guessed from weekday arithmetic --
+    #   from the real, committed official KRX holiday capture
+    #   (evidence/market_calendar/krx_global_holiday/2026-09-09/
+    #   capture-2026.json): 2026-09-12/13 are a real Sat/Sun, so 2026-09-14
+    #   is the first verified trading day after ratification. Because
+    #   effective_from postdates ratified_at_utc, korea_capital_rotation.py's
+    #   own anti-lookahead invariant makes it structurally impossible for
+    #   any pre-existing evidence to satisfy covers_both -- proven directly,
+    #   plus a regression that the artifact stays honestly inert for any
+    #   pre-effective_from pair (ratification alone is not a natural proof)
+    #   and only activates for a structurally in-interval pair (a mechanism
+    #   proof, not a claim that a real natural sample exists yet). Real P2-01
+    #   authority registry stays untouched (0 records); no new schedule/cron
+    #   is introduced; no Regime/Candidate/Stage/briefing/Production/
+    #   trading/order/capital authority opened; Phase B stays closed until a
+    #   real post-ratification natural observation pair is verified.
+    "test/test_korea_capital_rotation_policy_ratified.py",
+    # ★ P2-03 — opt-in current-ratified natural-proof adapter. Re-derives the
+    #   four committed ratification artifacts, emits only to an explicit
+    #   external path, preserves the historical default proof path, and does
+    #   not write a rolling pointer or invoke the P2-05 state ledger.
+    "test/test_korea_capital_rotation_current_ratified_proof.py",
+    # Stage1 display-only context never substitutes for a P2-03 packet/4.
+    "test/test_korea_capital_rotation_paper_consumption.py",
     # ★ P2-03 — dependency-ordered Breadth->Leadership observation-pair
     #   workflow (2026-08-22, no new cron): structural YAML checks only --
-    #   still workflow_dispatch-only, real `needs:` chain (Leadership job
+    #   manual and reusable entrypoints share exact inputs, real `needs:` chain (Leadership job
     #   needs the Breadth context-commit job) that structurally guarantees
     #   Breadth's real first_seen_at predates Leadership's real
     #   available_at (decision_time), no new fetch logic/endpoint, least-
@@ -452,6 +565,20 @@ APPROVED_TESTS = [
     #   ⛔ repository default policy/live network/tracked ledger 없음 — temp only.
     "test/test_rotation_state_ledger.py",
     "test/test_rotation_state_ledger_operational_readiness.py",
+    # ★ P2-05 — CIO-ratified per-market rotation_state_policy/1 identity/
+    #   evidence (2026-09-11). Not a repository default state policy --
+    #   nothing here is auto-loaded by rotation_state_ledger.py, which stays
+    #   unchanged. build_policy() only binds the CIO-ratified 9-cell mapping/
+    #   semantics/gap to a caller-supplied, already-real upstream contract
+    #   version + rotation-policy SHA; it exposes no override parameter, so
+    #   it cannot reproduce the PR #348 self-ratification-bypass shape. Korea's
+    #   maximum_ledger_gap_days=7 is independently recomputed here from the
+    #   canonical KRX holiday capture, not just asserted. Building a policy
+    #   is not an append: state_ledger_authorized/p2_state_vocabulary_
+    #   authorized stay false until a real natural record exists, and
+    #   Regime/Candidate/Stage/briefing/Production/trading authority stay
+    #   false regardless. No schedule/cron touched.
+    "test/test_rotation_state_policy_ratification.py",
     # ★ P3-05 — published growth-rate Business Acceleration radar capability.
     #   동일 measurement/basis의 연속 3기간 evidence envelope에서 두 번 연속
     #   성장률 상승만 투명하게 기록한다. Persisted validator가 decimal 산술,
@@ -587,6 +714,11 @@ APPROVED_TESTS = [
     #   --verify-existing-only 경로를 재사용하는지를 오프라인 YAML 구조
     #   검증만으로 확인한다. ⛔ live KRX 호출 없음 — YAML 파싱/문자열 검증뿐.
     "test/test_korea_leadership_live_proof_workflow.py",
+    # ★ P2-03 automatic pair controller — policy effectivity, missing-input
+    #   waiting, Breadth-before-Leadership chronology, exact-request active
+    #   dedupe, and final artifact/source/policy revalidation. A green run
+    #   without the exact final artifact never suppresses a recovery call.
+    "test/test_korea_observation_pair_controller.py",
     # ★ P1-KR-06 — Korea Risk / Vol transient derived-feature contract.
     #   비준된 KRX index available_at envelope에서 RV/drawdown만 재현하며
     #   기본 source timing policy와 stress/Regime/Production 권한은 닫아 둔다.
@@ -609,6 +741,8 @@ APPROVED_TESTS = [
     #   retaining no raw response or per-symbol row and opening no Regime,
     #   Stage, Buy, Action, Order, Production, or trading authority.
     "test/test_korea_market_signals.py",
+    "test/test_korea_market_signals_pykrx_candidate.py",
+    "test/test_krx_information_system_capture.py",
     # ★ Korea 5/5 observation → staged-symbol review bridge. Confirmed KRX
     #   price/SMA20/investor flow is joined to 012450/298040/329180 while the
     #   final market policy and every entry/exit/order authority remain closed.
@@ -643,6 +777,17 @@ APPROVED_TESTS = [
     #   breadth/entry/action/order authority.
     #   ⛔ regression uses injected bytes only; no live key/network access.
     "test/test_free_market_data.py",
+    # ★ US capture publication reliability (ratified 2026-09-18). The commit
+    #   step must publish through the shared bounded push-retry helper, never a
+    #   bare `git push` -- runs 34911129881/35163739007/35287712594 captured US
+    #   evidence and then lost it to "! [rejected] main -> main (fetch first)".
+    #   The retry is exercised against real local clones racing on one bare
+    #   origin: a rejected push is replayed, and a persistent failure or a
+    #   rebase conflict still fails and publishes nothing. Also pins the
+    #   ratified fingerprint record to the workflow's real bytes and asserts
+    #   the sha256-pinned source-owner registry file was NOT edited.
+    #   ⛔ offline only — temp git repos, no network, no key, no cron change.
+    "test/test_free_market_data_push_retry.py",
     # ★ P1-US current evidence → pipeline-symbol review bridge. Committed
     #   SPY/QQQ/IWM, VIX, liquidity and per-symbol daily bars are connected
     #   to TSM/SNDK entry/holding/exit review contexts. Missing Breadth,
@@ -650,6 +795,44 @@ APPROVED_TESTS = [
     #   Regime, entry, exit, order, broker, Production or Trading authority.
     #   ⛔ current committed inputs only; no live network or order endpoint.
     "test/test_us_symbol_market_review.py",
+    # ★ Per-symbol row extraction from the KR/US symbol reviews. The bounded
+    #   3/2-subject packets stay byte-identical; the extracted builders report
+    #   missing SMA20 / flows / prices / stage tags explicitly (never estimated).
+    "test/test_symbol_review_row_extraction.py",
+    # ★ KR/US full-population symbol observation packet. Every population
+    #   symbol appears once with data-observed / evaluable / evaluated /
+    #   formal-candidate axes; bounded rows are copied, missing inputs stay
+    #   NOT_EVALUABLE with reasons, generation-id idempotency and chunked
+    #   resume reproduce the same bytes, fresh-process reverify passes.
+    #   ⛔ no stage change, no promotion, no threshold, no network, no order.
+    "test/test_population_symbol_observation.py",
+    # ★ Daily scheduled run for the two population observations (2026-09-18).
+    #   Both producers had NO .github/workflows trigger at all, so KR sat at
+    #   2026-09-10 and US at 2026-09-11 while the committed universes they
+    #   consume had already published through 2026-09-16. Asserts the schedule
+    #   and its backup slot, that a dispatched run is guard-equivalent to a
+    #   scheduled one (no inputs, no github.event_name branch) so the server
+    #   dispatcher may be registered, and that a repeat run for an
+    #   already-captured date reports verified_existing instead of letting
+    #   persist_packet supersede committed bytes.
+    #   ⛔ observation only; no pass rule (passed_count stays 0), no authority,
+    #      no network, no new collection target or source.
+    "test/test_population_observation_daily_schedule.py",
+    # ★ Three-market evaluation-coverage receipt (stacked from PR #680/#682,
+    #   unchanged). Exact KR/US source-coverage universes and bounded symbol
+    #   reviews are kept separate; the Crypto PAPER funnel contributes only
+    #   its source-native counts. Missing population totals stay 미집계.
+    #   ⛔ read-only; no scanner/ranking/policy/promotion/order authority.
+    "test/test_three_market_evaluation_coverage.py",
+    # ★ Per-market candidate discovery status + per-symbol evidence lookup.
+    #   Reuses the coverage receipt, KR/US symbol reviews, Crypto decision
+    #   snapshot and candidate detail view; reconciles population → data
+    #   acquired → evaluated → passed/held/excluded/unevaluated per market,
+    #   classifies gaps (collection / stale-by-source-interval / not
+    #   implemented / policy 미정 / criteria unknown), keeps missing evidence
+    #   as NO_EVIDENCE (never 0) and preserves every source's own date.
+    #   ⛔ read-only; no candidate rule, threshold, ranking, or authority.
+    "test/test_market_candidate_discovery_lookup.py",
     # ★ FRED VIX append-only provenance — content-and-capture addressed raw
     #   revisions are independently decompressed/re-derived and cannot be
     #   overwritten, backdated, path-substituted, or re-signed after tamper.
@@ -692,6 +875,7 @@ APPROVED_TESTS = [
     #   stress·3/5 UNKNOWN을 검증한다. ⛔ runtime wiring/PIT replay acceptance
     #   없음 — signed axis 입력만 받고 모든 downstream 권한은 false다.
     "test/test_regime_decision_authority.py",
+    "test/test_runtime_regime_readiness.py",
     # ★ P1-COM-05 evidence population — 비준된 P1-COM-02 5/5 coverage만
     #   exact policy bytes/PR/WBS lineage로 후보에 결합한다. 나머지 8개
     #   파라미터와 replay는 BLOCKED/NOT_COMPUTABLE, 모든 downstream 권한은 false다.
@@ -714,11 +898,40 @@ APPROVED_TESTS = [
     #   replay case, market rank, Regime, capital, or trading authority is
     #   invented; resigned output/source tamper fails closed. temp output only.
     "test/test_regime_policy_calibration_readiness.py",
-    # ★ P1-COM-05 PAPER 참고판정. 이미 보존된 무료 US/KR 5축 관찰값을
+    # ★ P1-COM-05 PAPER 참고판정. 이미 보존된 무료 US/KR/Crypto 5축 관찰값을
     #   사용자 화면용 진단으로만 정규화한다. runtime/final Regime은 UNKNOWN,
     #   Stage/Buy/Action/Order/Capital/Production/Trading은 모두 false다.
-    #   Crypto 4/5는 UNKNOWN을 유지하고 입력·출력 변조는 fail-closed한다.
+    #   Crypto 원자료는 재검증하고 입력·출력 변조는 fail-closed한다.
     "test/test_paper_regime_reference.py",
+    # ★ Stage1 three-market handoff. Exact retained workflow/run/output facts
+    #   bind one consumer tuple. US/Crypto display immediately; an unadvanced
+    #   KR daily source stays explicit and prevents same-date completion.
+    #   Future natural slots are NOT_DUE and every capital/order/trading flag
+    #   remains false.
+    "test/test_stage1_market_tuple.py",
+    # ★ P1-COM-05 PAPER runtime adoption eligibility.  Reuses the already
+    #   classified three-market reference and evaluates only whether an exact
+    #   externally retained source workflow completion/readback, published
+    #   source identity, official session calendar, and caller-supplied clock
+    #   prove the observation CURRENT.  Missing terminal evidence stays
+    #   UNCONFIRMED; this helper never self-certifies, classifies, calls a
+    #   provider, advances strategy state, allocates capital, or issues orders.
+    "test/test_paper_regime_runtime_adoption.py",
+    "test/test_kr_paper_runtime.py",
+    "test/test_kr_paper_runtime_ratification_candidate.py",
+    "test/test_kr_information_system_runtime_bridge.py",
+    "test/test_kr_information_system_runtime_publication.py",
+    # KC3 daily KR PAPER evidence: offline KRX calendar packets from the
+    #   committed official capture and the rolling 28-session common-v1
+    #   history window (unchanged bridge validator; gaps fail closed).
+    "test/test_kr_paper_runtime_daily_evidence.py",
+    # KC3 KR_PAPER_RUNTIME_ADOPTION_V1 daily publisher: adoption pins,
+    #   per-session qualification derivation, validated observation chain,
+    #   dispatch-only workflow boundary (raw rows never committed).
+    "test/test_kr_paper_runtime_adoption_v1.py",
+    "test/test_kr_internal_paper_theme_application.py",
+    "test/test_kr_internal_paper_theme_next_session_v4.py",
+    "test/test_us_paper_policy_binding.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — normalization replay-readiness
     #   evidence (SHADOW only). Reuses build_us/build_kr from
     #   paper_regime_reference.py unmodified against whatever historical
@@ -781,6 +994,8 @@ APPROVED_TESTS = [
     #   Regime policy is introduced; natural_promotion and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_kr_historical_replay_population.py",
+    "test/test_kr_retained_historical_population.py",
+    "test/test_kr_contiguous_historical_range.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — US free-source historical replay
     #   population (SHADOW backfill only, never NATURAL). Scope is exactly the
     #   three axes that free/existing sources can rebuild point-in-time:
@@ -854,6 +1069,38 @@ APPROVED_TESTS = [
     #   natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_us_historical_replay_population.py",
+    # ★ US-DATA-1 U3 (CIO 2026-09-14) + user ratification
+    #   US-SESSION-CALENDAR-SOURCE-V1-20260914. US session calendar: official
+    #   NYSE capture for published years (Nasdaq cross-check where available),
+    #   Alpaca calendar AND IEX SPY bar for 2018+ earlier years, conflict/missing
+    #   = US_FINISHED_SESSION_UNKNOWN, no weekday inference. The registry bytes
+    #   stay hash-bound; the amendment is an overlay config. Offline fixtures only.
+    "test/test_us_official_session_calendar.py",
+    #   Rule-fixed US replay range declared before any run: 15 replay symbols,
+    #   61-session warm-up, latest completed session, whole-range fail-closed
+    #   truncation, no sub-range arguments; bounded (<=15 request) probe capture
+    #   with no secret or price retention; resumable/idempotent chunk driver that
+    #   evaluates US PIT acceptance only on the complete declared range.
+    "test/test_us_replay_range_declaration.py",
+    #   Probe + full replay workflows: workflow_dispatch only, least privilege,
+    #   secrets only in step env, artifacts under RUNNER_TEMP, nothing committed.
+    "test/test_us_regime_replay_workflows.py",
+    #   US-DATA-1 U3 producers for the two artifacts a later U5 adoption must
+    #   bind. The session-calendar producer adds no calendar logic: every date is
+    #   classified by market_data/us_official_session_calendar.py under the same
+    #   ratification, only the OFFICIAL_NYSE_CAPTURE basis is admitted (Nasdaq
+    #   cross-check required to attest), and one UNKNOWN date refuses the whole
+    #   file — no weekday inference, no per-date skip. The committed bytes are
+    #   proven stable across re-runs over an unchanged page, so the sha256 U5
+    #   pins cannot silently move. Both tests prove their artifact against
+    #   regime/us_paper_runtime.py's OWN exact-match loaders rather than a
+    #   restatement of them, and neither creates or activates
+    #   config/us_paper_runtime_adoption_v1.json — U5 is a user ratification.
+    "test/test_us_official_session_calendar_producer.py",
+    #   The US PIT acceptance record generator, plus the standing proof that US
+    #   acceptance is still unreachable: the 5-axis replay identity is inactive
+    #   and no population bundle is committed.
+    "test/test_us_pit_acceptance_record.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay
     #   population/report (SHADOW backfill only, never NATURAL). Joins the KR
     #   5-axis and US free-axis replay populations over ONE caller-supplied set
@@ -955,10 +1202,76 @@ APPROVED_TESTS = [
     #   natural_promotion, us_breadth, us_leadership and every
     #   action/order/capital/production/trading/real authority stay false.
     "test/test_deterministic_replay_evidence.py",
+    # P1-COM-05 CIO final verdict 2026-09-12 (docs/p1_com_05_cio_final_verdict_
+    #   20260912.md): G4 ratified as source-frequency SEMANTIC freshness, not a
+    #   numeric TTL. Session-based axes (US TREND/BREADTH/LEADERSHIP; all five
+    #   KR axes) require an exact match to the latest officially completed
+    #   session, immediate UNKNOWN/SOURCE_NOT_ADVANCED_EXPECTED_SESSION
+    #   otherwise, no carry/substitution. Release-based axes (US RISK_VOL=
+    #   VIXCLS daily, LIQUIDITY=WRESBAL/TOTBKCR weekly) require the latest
+    #   successfully fetched, hash-retained publication; an unchanged weekly
+    #   value is a normal fresh outcome. The KR 18:00 KST usability gate is
+    #   reused, hash-bound to the live config/korea_leadership_policy.json,
+    #   never re-declared. No numeric_ttl_seconds value exists anywhere in
+    #   this policy. No runtime/action/order/capital/production/trading
+    #   authority is granted.
+    "test/test_regime_semantic_freshness.py",
+    # P1-COM-05 CIO final verdict 2026-09-12: ratifies PAPER_RUNTIME_
+    #   NORMALIZATION_V1 (US/KR signed-axis normalization identity, byte-
+    #   identical to the pre-existing PM candidate in
+    #   config/paper_regime_reference_policy_v1.json; Crypto stays
+    #   unratified/UNKNOWN) and a market-scoped G8 PIT acceptance contract
+    #   independent per market (US/KR/CRYPTO) that is separate from, and does
+    #   not weaken, the existing three-market regime_replay_harness/v1. All
+    #   classification/hysteresis is the exact, unmodified
+    #   regime.decision_authority.replay_common_v1 reuse. A caller-supplied
+    #   sequence earns zero credit unless it byte-matches the real
+    #   regime.us_historical_replay_population/
+    #   regime.kr_historical_replay_population output provenance; no episode
+    #   date is ever selected by this module. Initial, and current committed,
+    #   status for every market is NOT_ACCEPTED
+    #   (data/latest_market_scoped_pit_acceptance.json). runtime_decision_
+    #   available and every action/order/capital/production/trading authority
+    #   stay false.
+    "test/test_market_scoped_pit_acceptance.py",
     # Current-reference 5/5 and official PIT-history coverage remain separate.
     # The pointer exposes automatic refresh timing and fail-closed progress;
     # it never promotes current data into final Regime or trading authority.
     "test/test_crypto_regime_refresh_status.py",
+    # PAPER-only descriptive normalization for the already published current
+    # Crypto five-axis reference.  It preserves the provisional caveats and
+    # cannot grant runtime, capital, order, Production, or trading authority.
+    "test/test_crypto_paper_descriptive_normalization.py",
+    # CRYPTO_PAPER_RUNTIME_V1 (user ratification 2026-09-14): crypto-scoped
+    # PAPER runtime identity, ratified RISK_VOL absolute rule boundaries,
+    # LEADERSHIP pilot->primary window rule, 07:00Z finalized packets with
+    # immediate UNKNOWN on stale/missing/date-mismatch/lookahead/mixed
+    # generation, PROVISIONAL_FORWARD_ACCEPTANCE with auto-revert, the Kraken
+    # bulk BTC-only replay diagnostic, and the retained-evidence publisher.
+    # Strategy, capital, order, production, trading and REAL stay closed.
+    "test/test_crypto_paper_runtime.py",
+    "test/test_crypto_kraken_btc_replay_diagnostic.py",
+    "test/test_crypto_paper_runtime_publication.py",
+    # Scheduled crypto PAPER runtime producer (07:15Z/08:45Z, --check before
+    # commit, contents:write only) and the earlier stablecoin cutoff slots;
+    # captures after 07:00Z stay lookahead-rejected.
+    "test/test_crypto_paper_runtime_schedule.py",
+    # U4 US PAPER runtime producer (CLAUDE_CIO US/crypto regime gap diagnosis
+    # 2026-09-14): common-v1 reuse over the committed free-market-data
+    # captures, SESSION_EXACT_MATCH for TREND/BREADTH/LEADERSHIP, FRED release
+    # and vintage-lookahead semantics for VIX/WRESBAL/TOTBKCR, expiry at the
+    # next official session close.  UNKNOWN with explicit reasons until an
+    # active US_PAPER_RUNTIME_ADOPTION_V1 binds a re-evaluated US PIT_ACCEPTED
+    # record and an official session calendar.  Scheduled 21:55Z/23:40Z
+    # Sun-Fri with --check before commit; authority stays closed.
+    "test/test_us_paper_runtime.py",
+    "test/test_us_paper_runtime_publication.py",
+    # The producer reads a committed capture, not its own fetch, so it states the
+    # collection coverage of the capture it read and blocks past a bound taken
+    # from the committed decision history.  Coverage is counted in the
+    # collector's cadence dates (cron "35 21 * * 0-5"), never in elapsed
+    # wall-clock days: a Sunday evaluation reading Friday's capture stays green.
+    "test/test_us_paper_runtime_collection_coverage.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
@@ -1039,6 +1352,15 @@ APPROVED_TESTS = [
     #   snapshot and binds manifest/policy/taxonomy hashes. It creates no
     #   classification, ratification, investability, Stage, or trading right.
     "test/test_crypto_taxonomy_gap_inventory.py",
+    # ★ P3-04 — preventive classification-margin monitor. Measures the rank
+    #   distance between the production eligibility scan stop and the nearest
+    #   unclassified asset on the *production* ranking, alarms on both the
+    #   level and the per-day shrink rate from committed thresholds, and
+    #   escalates automatically once primary_30d can latch as the official
+    #   LEADERSHIP window (one unknown day then costs 30+5 days instead of
+    #   7+5). ⛔ creates no classification/ratification/investability/Stage/
+    #   threshold/trading right — it reports a queue, it does not decide one.
+    "test/test_crypto_taxonomy_margin_monitor.py",
     # ★ P3-04 — minimal ratified Crypto taxonomy Slice (31 native assets +
     #   EURC exclusion). 실 raw snapshot replay로 coverage 미달 시 계속
     #   blocked임을 재확인하고, 미비준 alias/unresolved ticker는 UNKNOWN을
@@ -1067,6 +1389,55 @@ APPROVED_TESTS = [
     #   HNT/SKR resolve, SN8 stays UNKNOWN, qualified_members() stays
     #   TAXONOMY_COVERAGE_UNKNOWN because of SN8 -- no BREADTH PASS claimed.
     "test/test_crypto_breadth_hnt_skr_taxonomy_ratification.py",
+    # ★ 2026-09-14 user ratification CRYPTO-BREADTH-TAXONOMY-ADDITIONS-20260914:
+    #   LSK (effective 09-14) and SUSHI/VSN/TRIA/ZORA/XTZ/KII/0G (effective
+    #   09-15) eligible_crypto. No backfill; retained vintages 09-08..09-14
+    #   unchanged; in-memory projection of the committed 09-14 snapshot to
+    #   vintage 09-15 is no longer TAXONOMY_COVERAGE_UNKNOWN because of LSK.
+    #   ⛔ thresholds/fail-closed unchanged; no live Kraken, no date-dependent test.
+    "test/test_crypto_breadth_taxonomy_additions_20260914.py",
+    # ★ Conditional LIGHTER (same ratification): Kraken official asset page
+    #   identity confirmed; eligible_crypto effective 2026-09-16, no backfill.
+    "test/test_crypto_breadth_lighter_identity_20260914.py",
+    # ★ 2026-09-18 cutoff-band identity slice (ranks 124..152, 40-rank band
+    #   above the rank-112 eligibility-scan cutoff): BAT/CAKE/CFG/ENS/ETC/GRT/
+    #   MNT/PEAQ/SAND/SHAPE/SHX/SN51/VET eligible_crypto and MOODENG
+    #   unverified_identity, all effective 2026-09-18. Kraken leg re-checked
+    #   from the committed 09-18 Assets/AssetPairs bytes; the source-fact
+    #   receipt (evidence/crypto/identity/...20260918.json) is bound to the
+    #   taxonomy so the two cannot drift. Retained vintages 09-12..09-18 are
+    #   byte-identical with and without the records — this batch buys headroom
+    #   below the cutoff, it does not change any committed result.
+    #   ⛔ thresholds/Top-100/fail-closed unchanged; no live Kraken, no
+    #   date-dependent test; MOODENG records a failure to verify, not a guess.
+    "test/test_crypto_breadth_band_identity_20260918.py",
+    "test/test_crypto_breadth_headroom_identity_20260918.py",
+    # ★ 2026-09-18 deferred-five batch — the headroom slice left STORJ(159),
+    #   MET(161), RIVER(166), DENT(167), GALA(168) unclassified because two
+    #   independent official sources were not obtained inside that batch.
+    #   All five are now resolved on evidence and the block runs contiguous
+    #   through rank 171 (was 158), measured from minimum rank across the
+    #   seven committed vintages rather than from one day's snapshot.
+    #   ⛔ DENT is a chain-level identity only — no contract address is
+    #   published on any live official page — and the test pins that
+    #   disclosure so it cannot be silently upgraded to an exact-contract
+    #   claim.
+    "test/test_crypto_breadth_deferred_five_identity_20260918.py",
+    # ★ P1-CR-07 rank-200 push, slice A — 크립토 분류 여유 172~185위.
+    #   2026-10-07 축 전환(7일→30일) 전에 분류를 끝내기 위한 3분할 중 첫
+    #   조각. ROBO/GRASS/AXS 는 체인 수준 신원만 기록하고 그 사실을 시험이
+    #   고정한다. TURBO/ZEREBRO 는 PLAY/RE/MOODENG 와 같은 근거로
+    #   unverified_identity — 확정된 제외이며 투자 판단이 아니다.
+    #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
+    "test/test_crypto_breadth_rank200_slice_a_20260919.py",
+    # ★ P1-CR-07 rank-200 push, slice B — 크립토 분류 여유 187~193위.
+    #   slice A 위에 쌓인 두 번째 조각. TAC 은 Kraken 이 network 를 "-" 로
+    #   내보내 카탈로그만으로는 대조할 것이 없어, Kraken 자체 상장 공지와
+    #   TAC Protocol 자체 블로그가 같은 TON 연동 EVM L1 을 기술하는 것으로
+    #   확정했다. BRL1 은 발행 컨소시엄 자체 표현대로 stablecoin 제외,
+    #   STBL 은 반대로 거버넌스 토큰이라 eligible. AIN 은 체인 수준만 기록.
+    #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
+    "test/test_crypto_breadth_rank200_slice_b_20260919.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
@@ -1186,6 +1557,11 @@ APPROVED_TESTS = [
     #   Guard=fresh 는 collector만 skip하고 briefing read model은 검증/repair를 계속한다.
     #   ⛔ live network 없음 — workflow YAML 구조만 실제 파싱해 검증한다.
     "test/test_p003_workflow_contract.py",
+    # ★ CIO CI-sharding 지시 2026-09-12 — actions-pass.yml 5-job 분할
+    #   (preflight → structural/regression(4-way)/fault-injection →
+    #   actions-pass-full) 과 `run_all.py --phase` 의 partition 완전성 ·
+    #   fail-closed shard 인자 · authority 경계 불변을 증명한다.
+    "test/test_ci_phase_sharding.py",
     # ★ CIO 승인 2026-08-15 — TSMC Monthly Revenue collector pilot 회귀 추가.
     #   승인 목록은 늘어날 수 있다(테스트 삭제·누락만 FI-4 가 잡는다).
     "test/test_tsmc_monthly.py",
@@ -1388,6 +1764,26 @@ APPROVED_TESTS = [
     #   승격은 만들지 않아 new/existing candidate change는 빈 배열이다.
     #   ⛔ ranking/promotion/action/Production/trading 및 live network 없음.
     "test/test_rotation_discovery_briefing.py",
+    # ★ Rotation Stage 3 — candidate-selection **input** projection.
+    #   P8-05 briefing의 rotation.latest_changes를 순서 그대로 1:1 투영하되
+    #   selection_rank/selected/candidate_eligible/ready/promotion/action은
+    #   상수로 닫혀 있어 어떤 row도 후보 결과로 읽힐 수 없다. briefing은 스스로
+    #   재서명될 수 있으므로 source_ledger_sha256이 가리키는 exact
+    #   rotation_state_ledger packet을 함께 요구해 rotation section을 ledger에서
+    #   재파생한다 — row 추가/삭제/재배열/state·hash 변조는 counts와
+    #   packet_sha256을 다시 계산해도 거부된다. tracked output은 lexical/resolved
+    #   경로와 in-repository symlink·symlinked parent까지 replace 전에 막는다.
+    #   ⛔ ranking/selection/scoring/promotion/action/Production/trading 및
+    #      live network 없음 — synthetic packets + temp output only.
+    "test/test_rotation_candidate_selection_input.py",
+    # ★ Rotation Stage 3 retained-daily handoff.
+    #   daily_orchestrator/6 bundle 안에 이미 보관된 exact ROTATION_DISCOVERY
+    #   child를 producer validator로 재검증하고, frozen US source가 없으면
+    #   canonical empty ledger를 재유도해 Stage 3 v2 입력으로 연결한다.
+    #   latest discovery/새 수집/상태정책 발명 없이 실제 0-row packet을 만든다.
+    #   ⛔ selection/NATURAL/ranking/promotion/action/order/capital/Production/
+    #      trading 권한 없음.
+    "test/test_rotation_candidate_selection_daily_handoff.py",
     # ★ P8-06 — Action/Bear-Hedge/Portfolio briefing read model.
     #   exact P8-02/P6/P7 packet identity and SHA are presented while BUY/WATCH/
     #   REDUCE/HEDGE/EXIT/NOTHING all remain NOT_EVALUATED with action=null.
@@ -1440,6 +1836,34 @@ APPROVED_TESTS = [
     #   atomic append-only publish, self-rehash 재검증, 컴포넌트별 실패 격리,
     #   결정론적 재생성을 검증한다. ⛔ live network·provider 호출 없음.
     "test/test_daily_orchestrator.py",
+    # ★ Briefing content recency (CLAUDE_CIO briefing audit 2026-09-14 Task B) —
+    #   real audited slots 09-10 AM/PM … 09-13 AM as fixtures. KRX confirmed
+    #   close binds to latest_krx decision_readiness, weekend shows Friday's
+    #   recorded session, PAPER regime reference shown dated and labelled
+    #   (runtime regime stays UNKNOWN), rows carry 기준일, KOSPI/KOSDAQ moves
+    #   recomputed from retained raw index bytes. Presentation only; no status,
+    #   aggregate, action, order, Production or trading authority changes.
+    "test/test_briefing_content_recency_20260914.py",
+    # ★ Briefing renderer ↔ B5 semantic checklist alignment (S8 section 6,
+    #   CLAUDE_CIO 2026-09-14) — pinned copy of the staging
+    #   briefing_semantic_checks.py (sha256 fd98a204…) runs on real retained
+    #   09-13 AM / 09-14 AM rev-001·002 renders with seal-commit inputs.
+    #   Row date tokens (decision_date/filing_date/evidence_as_of/…), PAPER
+    #   "런타임 미승인" label, dated trend ETF closes, stale-pointer label.
+    #   Checks are not loosened: the sealed payloads still HOLD/PWC.
+    #   Presentation only; no packet, status, action or authority change.
+    "test/test_briefing_b5_renderer_alignment_20260914.py",
+    # ★ Weekend briefing evidence-date contract (scheduled_briefing_retrieval_authority/4,
+    #   CLAUDE_CIO 2026-09-14) — the ambiguous weekend line
+    #   latest_confirmed_evidence_date is replaced by source_evidence_kst_date,
+    #   krx_latest_confirmed_close_date and us_latest_verified_session_date,
+    #   re-derived by renderer, publisher (re-reads the latest_krx blob) and
+    #   consumer from the same hash-bound packet sources; UNKNOWN when unbound.
+    #   Real retained 09-12 AM rev-001·002 / 09-13 AM renders pass the pinned
+    #   B5-1 (sha256 fd98a204…, unmodified); sealed v3 payloads still HOLD;
+    #   retained v3 envelopes still validate under v3; v3 line rejected under v4.
+    #   No authority, status or packet change; scratch git repos only.
+    "test/test_briefing_weekend_evidence_date_contract_20260914.py",
     # ★ Daily Briefing same-day recovery — original natural schedule run만
     #   KST slot/date로 식별하고 briefing job 실패 시 최대 3회 안에서 재실행한다.
     #   성공한 briefing은 병렬 regression 결론과 분리해 다시 실행하지 않으며,
@@ -1467,6 +1891,7 @@ APPROVED_TESTS = [
     #   polling·notification은 여전히 미배선이다.
     #   ⛔ notification/action/order/Production/trading 및 신규 network 없음.
     "test/test_important_event_detector.py",
+    "test/test_intraday_risk_observation_preparation.py",
     # ★ P9-05 — external RATIFIED intraday risk escalation thresholds.
     #   drawdown/down-gap/spread/relative-volume을 exact observation에서 계산하지만
     #   ALERT는 evidence일 뿐 reduce/STOP/action/order 후보를 만들지 않는다.
@@ -1495,6 +1920,7 @@ APPROVED_TESTS = [
     #   PASS/REJECTED/BLOCKED packet을 exact SHA chain으로 기록하되 proposal 관측은
     #   Shadow 편입·Stage 변경·capital/action/order로 승격되지 않는다.
     "test/test_investment_review_shadow_ledger.py",
+    "test/test_investment_review_shadow_store.py",
     # ★ P10-02 — Atlas vs existing judgment same-period evidence alignment.
     #   P7/P9 lineage를 포함한 Shadow v4 record·external legacy judgment·external
     #   outcome을 decision_id+market로 exact match하고 세 source를 packet에 보존한다.
@@ -1633,6 +2059,7 @@ APPROVED_TESTS = [
     #   OPPORTUNITY_STATE_UNMAPPED로 loud하게 fail-closed됨을 별도 회귀로 확인.
     #   ⛔ Shadow 편입·Stage 변경·capital/action/order/Production/trading 없음.
     "test/test_alpha_shadow_ledger.py",
+    "test/test_ai_external_analysis_shadow_evaluation.py",
     # ★ P10-11 — account-independent Crypto PAPER order simulator and
     #   append-only ledger foundation. Caller supplies every quantity, limit,
     #   fee rate, queue fraction, expiry, mark, and frozen public orderbook;
@@ -1644,6 +2071,15 @@ APPROVED_TESTS = [
     #   endpoint exists and every exchange/broker/withdrawal/Production/
     #   Trading/REAL authority remains false.
     "test/test_crypto_paper_simulator.py",
+    # ★ Stage5 PAPER fixture adapter. A closed-authority, hash-bound Stage4
+    # envelope is checked for closed-candle/PIT order then delegated to the
+    # existing P10-11 offline simulator. Fixture NOT_EVALUATED is preserved;
+    # no policy, broker, capital, production, or trading authority is opened.
+    "test/test_stage5_paper_envelope_ledger.py",
+    # ★ Stage5 private lifecycle → P7-19 readiness boundary. The connector
+    # envelope/receipt/ledger are re-derived, but same-call caller pins remain
+    # explicitly untrusted; performance stays null and sample contribution 0.
+    "test/test_stage5_virtual_fill_performance_adapter.py",
     # ★ P7-13 — deterministic Crypto PAPER exit/position-management review.
     #   Entry-time plan embeds the exact P10-11 account and caller-supplied
     #   ordered triggers; current account and observation are independently
@@ -1856,6 +2292,8 @@ APPROVED_TESTS = [
     # freshness prerequisites can resolve, but accountFact stays null until
     # a separate account-fact authority is ratified.
     "test/test_portfolio_account_fact_v3.py",
+    "test/test_portfolio_account_fact_v3_producer.py",
+    "test/test_kis_account_observation_input.py",
     # ★ Portfolio position provider-identity lineage transport.  Alpaca's
     #   exact /v2/positions asset_id is retained with its provider name;
     #   manual source pairs remain unverified/fail-closed.  This does not
@@ -1958,6 +2396,16 @@ APPROVED_TESTS = [
     # kis_paper_domestic_balance/071050 chain. Proposal artifacts stay
     # PROPOSED and every money/trading authority remains false.
     "test/test_kis_071050_identity_authority.py",
+    "test/test_kis_realtime_trade_observation.py",
+    # CIO-selected Option A calendar-source bridge. Exact retained KRX
+    # observations may prove only an OPEN_REGULAR date; missing rows never
+    # infer CLOSED and price/flow finality plus all money authority stay shut.
+    "test/test_krx_post_close_session_calendar.py",
+    # Official KRX Global [01023] calendar bridge for KIS PAPER quotes.
+    # Exact response bytes and point-in-time availability are retained; listed
+    # holidays/weekends close deterministically, while every money and order
+    # authority remains shut. The test suite is offline against committed bytes.
+    "test/test_krx_official_holiday_calendar.py",
     # P8-12 source lineage bridge: provider adapters preserve structured
     # source_name/source_asset_id through ClockEvent -> candidate without
     # resolving identity or changing tier/authority.
@@ -2006,6 +2454,11 @@ APPROVED_TESTS = [
     # ★ P5-06/P7-08 — cross-row audit of unratified identity proposals.
     #   Coherence is review material only and never creates authority.
     "test/test_candidate_identity_authority_review_inventory.py",
+    # ★ Stage3 candidate evidence lifecycle — fail-closed candidate_stage_gate_input/1
+    #   adapter and lifecycle receipt. Missing evidence stays MISSING/UNKNOWN; a system
+    #   Candidate is never Stage4, order, or real-capital authority.
+    "test/test_candidate_evidence_lifecycle_receipt.py",
+    "test/test_candidate_stage_gate_input_adapter.py",
     # ★ P5-08 — Crypto Candidate Promotion Rule: TRADEABLE_UNIVERSE/
     #   PAPER_ELIGIBLE (P3-12) -> WATCH/FOCUSED_REVIEW/BLOCKED. Pure
     #   derivation over embedded, consumer-revalidated P3-12/P1-CR-08/
@@ -2017,6 +2470,28 @@ APPROVED_TESTS = [
     #      same convention as test_capture_azure_fixture.py above so it is
     #      not silently hidden from the test-set comparison.
     "test/test_crypto_candidate_promotion.py",
+    # ★ P5-08 contract/3 (opt-in; contract/2 default stays byte-identical):
+    #   VOLUME_LIQUIDITY reads only the hash-bound RATIFIED P4-07 policy, and
+    #   REGIME consumes the CRYPTO_PAPER_RUNTIME_V1 decision mapped through
+    #   the PAPER-MARKET-ALLOCATION-V2 new-buy table (RISK_ON/NEUTRAL PASS,
+    #   RISK_OFF/STRESS FAIL, UNKNOWN/missing/not-current UNKNOWN). Tests
+    #   every regime state and the 2026-09-20 07:00Z transition day. State
+    #   rule RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1 (user B2, record
+    #   hash-bound): only the six T2 required conditions block; TREND/
+    #   OVEREXTENSION record-only, RS score, P4-07 quality and material
+    #   blocker warnings. Rotation membership is not wired -> UNKNOWN.
+    "test/test_crypto_candidate_promotion_v3.py",
+    "test/test_crypto_candidate_trend_metrics.py",
+    "test/test_crypto_candidate_volume_metrics.py",
+    # ★ P5-08 observation capability, deliberately unwired: the two
+    #   price-distance measurements (close-to-EMA fraction, lagged close
+    #   return fraction) the merged trend calculator never reported. Pure
+    #   arithmetic over already-validated candles; status is only ever
+    #   CALCULATED/UNAVAILABLE. No overextension predicate, bound or
+    #   threshold is added -- evaluate_overextension stays UNKNOWN /
+    #   NO_RATIFIED_OVEREXTENSION_THRESHOLD and U2 stays unresolved. No
+    #   capture/network call; every authority field stays false.
+    "test/test_crypto_candidate_price_distance_metrics.py",
     # ★ P5-09 — Crypto PAPER Buy Eligibility: FOCUSED_REVIEW (P5-08) ->
     #   WATCH/WAIT/BLOCKED/PAPER_BUY_ELIGIBLE. Pure derivation over an
     #   already-revalidated P5-08 promotion packet only. REGIME_PERMITS_
@@ -2044,6 +2519,9 @@ APPROVED_TESTS = [
     #      same convention as test_crypto_paper_buy_eligibility.py above so
     #      it is not silently hidden from the test-set comparison.
     "test/test_crypto_paper_decision_snapshot.py",
+    # ★ Hotfix 2026-09-15 -- leadership lineage manifests are verified in the
+    #   capture-vintage folder raw/<as_of+1>/ (crypto_leadership.py convention).
+    "test/test_crypto_leadership_manifest_vintage.py",
     # ★ P5-10 Crypto 5-axis entry/exit bridge -- the exact revalidated
     #   decision generation is projected into per-symbol entry and exit
     #   contexts. Missing axes or the unratified aggregate policy cap every
@@ -2051,12 +2529,40 @@ APPROVED_TESTS = [
     #   priority remains verbatim. No numeric threshold, order draft,
     #   network/exchange call, Production/Trading/REAL authority is added.
     "test/test_crypto_axis_trade_bridge.py",
+    "test/test_crypto_axis_trade_bridge_explanation.py",
     # ★ P1-CR-08 Crypto live-component registry -- exact public natural
     #   BTC trend/risk, stablecoin and breadth rows, bound by point-in-time
     #   retained download cutoff plus full directory fingerprint. Evidence
     #   presence only; no axis interpretation, threshold, strategy, action,
     #   PAPER/exchange order, withdrawal, Production, Trading or REAL authority.
     "test/test_crypto_live_component_registry.py",
+    # ★ W5-01/W5-02 (2026-09-14) Crypto decision-generation defects D1/D2.
+    #   The unratified realtime gate overall_status STALE no longer blocks a
+    #   scheduler decision packet (MISSING/CONNECTION/DATE_MISMATCH stay WAIT;
+    #   cap_state_for_freshness is unchanged and still caps action state).
+    #   The live component registry binds UTC-keyed sources to the UTC vintage
+    #   date (schema /2); issued /1 records keep revalidating; absent sources
+    #   stay absent. Crypto regime remains UNKNOWN; no new threshold/authority.
+    "test/test_crypto_regime_vintage_d1_d2.py",
+    # ★ 2026-09-14 Crypto capture-to-decision timing. The decision step runs
+    #   directly after the P9-06 realtime capture and the ~30s decision-
+    #   isolated validation capture runs after the decision chain, so the
+    #   ratified 20s/3s CRYPTO freshness re-evaluation no longer sees a
+    #   pipeline-added 30s age. A read-only guard fails over a 5s ENGINEERING
+    #   budget (scheduler hand-off, not a freshness policy). No threshold,
+    #   decision semantics or authority change.
+    "test/test_crypto_decision_capture_timing.py",
+    # ★ 2026-09-14 user ratification CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1
+    #   (option B) + CIO companion liquidity decision. Realtime freshness is
+    #   judged per market with the unchanged 20s/3s thresholds; a non-FRESH
+    #   market caps only its own action state (aggregate is display only);
+    #   the action set applies the ratified P3-12 30-day average turnover
+    #   floor per market (CIO addendum; unknown excluded), the realtime
+    #   subscription is every admitted P3-12 market with no holdings input
+    #   (scope addendum), and held stale positions HOLD with a 30-minute
+    #   engineering alert budget.
+    #   Decision packets /1 before the effective instant keep revalidating.
+    "test/test_crypto_realtime_per_market_freshness.py",
     # ★ CIO item 3 (2026-08-29): CRYPTO_BREADTH real coverage-ratio
     #   diagnostics (additive, never a new gate) and CRYPTO_LEADERSHIP's
     #   daily_orchestrator.py component-row wiring into build_packet(),
@@ -2085,9 +2591,593 @@ APPROVED_TESTS = [
     #   User-ratified economic inputs have no defaults. No credentials,
     #   exchange endpoints, or REAL authority are introduced.
     "test/test_crypto_paper_runtime_bridge.py",
+    # ★ Per-market realtime freshness in the P10-11 bridge (user ratification
+    #   CRYPTO-REALTIME-FRESHNESS-PER-MARKET-V1-20260914 + CIO addenda):
+    #   request /3 judges each market by its own ratified freshness and floor
+    #   cap on natural 2026-09-13 bytes; a stale/capped/missing-book market is
+    #   its own blocker, never a whole-request abort; issued /2 requests keep
+    #   rebuilding byte-identically. No order/exchange/REAL authority.
+    "test/test_crypto_paper_runtime_bridge_per_market.py",
+    # ★ Crypto PAPER wiring v2 (build plan PR3): decision snapshot /4 behind
+    #   the config cutover T_cut (inactive by default, /3 byte-identical),
+    #   promotion contract/3 rotation source, buy eligibility contract/3
+    #   (session budget size, record-only features/planned loss, R1 key,
+    #   07:00Z expiry), runtime request /4 (multi-candidate session budget,
+    #   marketable limit + registry 150bp quantity reduction, market-state
+    #   mapping, exit-intent sells). No order/exchange/REAL authority.
+    "test/test_crypto_paper_wiring_v2.py",
+    # ★ Wiring v2 follow-up: stale hold, rule lineage and funnel briefing
+    #   accept decision /4 (additive, issued briefing contract/3 frozen); new
+    #   decision packets are stamped at the first whole second no realtime
+    #   input postdates (fixes REALTIME_*_FUTURE_DATED), /4 enforces it,
+    #   committed packets replay byte-identically.
+    "test/test_crypto_paper_wiring_v2_consumers.py",
+    # ★ D1 per-market account marks (crypto_paper_account_state/2): a stale
+    #   held market is valued UNKNOWN instead of freezing FRESH markets'
+    #   exits; unknown NAV blocks new entries only. /1 unchanged.
+    "test/test_crypto_paper_per_market_account_marks.py",
+    # ★ US-DATA-1 item 1 (CIO 2026-09-13): US-U1 investable-universe T1
+    #   display generator -- deterministic ETF/Test-Issue/Financial-Status
+    #   flag filter + a documented, unratified Security-Name common/ADS
+    #   pattern heuristic + a SEC company_tickers_exchange CIK presence
+    #   cross-check over the already-published P3-02 us_global_universe
+    #   packet. Every exclusion reason is counted and the pipeline fails
+    #   closed unless kept+excluded reconciles to the source row count.
+    #   t1_display_only=true, ratified=false on every row; no W2/W3/T2/T3
+    #   authority and no trading/order/capital authority anywhere.
+    "test/test_us_investable_universe_v1.py",
+    # ★ US-DATA-1 item 2 (CIO 2026-09-13): US price-history backfill request
+    #   planner (`collectors/us_price_history_backfill.py`). Reuses
+    #   `fetch_alpaca_daily_bars` unmodified, chaining its fixed 180-day
+    #   lookback into PIT-anchored HISTORICAL_BACKFILL windows (regime/
+    #   us_historical_replay_population.py::replay_trend_source lookahead
+    #   discipline). Pure-logic coverage: anchor chaining, batching,
+    #   configurable pacing estimate, dry-run plan shape (zero network
+    #   calls by default), and the live path exercised only through a
+    #   synthetic in-memory getter that never touches urllib. Public repo
+    #   boundary is enforced in code (`--out-dir` must resolve outside this
+    #   repo) and asserted here. authority is false everywhere; no network
+    #   call, no order/trading/capital authority anywhere in this file.
+    "test/test_us_price_history_backfill.py",
+    # ★ US_BACKFILL user approval (USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_
+    #   20260915) + CLAUDE_CIO 2026-09-15: pre-registered US sector rotation
+    #   event study re-run on the 1-year Alpaca backfill. Backfill live path is
+    #   write-once/resumable and bounded (22 approved symbols, <=364 days,
+    #   <=66 requests, pacing floor). Study is a line-by-line port of the
+    #   pre-registered engine (hash-pinned document, frozen parameters/gates)
+    #   and emits aggregate-only statistics; the artifact schema rejects any
+    #   price/close/volume/bar/per-day return series. Workflow: dispatch only,
+    #   contents: read, secrets only in the backfill step env, vendor rows only
+    #   under RUNNER_TEMP, one aggregated JSON upload, nothing committed.
+    #   Offline synthetic fixtures only; no network call.
+    "test/test_us_sector_rotation_event_study.py",
+    "test/test_us_sector_rotation_backfill_study_workflow.py",
+    # ★ P0-06 consumer derivation-marker acceptance (CLAUDE_CIO 2026-09-14):
+    #   _validate_pinned_delivery_packet's closed top-level field set predated
+    #   the additive daily_orchestrator/6 packet fields
+    #   (runtime_regime_readiness_version, flow_replay_version,
+    #   crypto_derivation_version) and rejected every retained packet since
+    #   2026-09-06 AM with DELIVERY_PACKET_FIELDS_MISMATCH. The consumer now
+    #   allows exactly these three optional markers, each a plain int in its
+    #   hard-coded supported set and accepted only under contract_version
+    #   daily_orchestrator/6. Every retained /3-/6 packet.json under
+    #   evidence/daily_briefing validates; every retained /2 packet still
+    #   fails by design. No import of the orchestrator; no authority change.
+    "test/test_briefing_consumer_derivation_markers_20260914.py",
+    # ★ KR sector index history backfill + pre-registered 20-session rotation
+    #   event study (CLAUDE_CIO 2026-09-15; user ratification KR = TEMPORARY
+    #   until KRX sector index history is re-verified). Offline only: synthetic
+    #   KRX index responses through an in-memory opener exercise the request
+    #   budget (2 requests per requested weekday, hard caps), write-once
+    #   resume, fail-closed stops on HTTP 401/403/429 and KRX error codes,
+    #   response-decided sessions with official-calendar cross-checks, the
+    #   pinned pre-registration hash, R1-k/R2/R3/R4/R5 mechanics and gates,
+    #   and the aggregate-only public validator (no index values, no per-day
+    #   sequences). The workflow test pins workflow_dispatch-only, contents:
+    #   read, persist-credentials false, the KRX secret in one step env only,
+    #   runner-temp private records and a tracked-change prohibition. No
+    #   network call, no policy/ledger/order/trading authority.
+    "test/test_kr_sector_index_history_backfill.py",
+    "test/test_kr_rotation_event_study.py",
+    "test/test_kr_sector_history_study_workflow.py",
+    # ★ User-ratified capital rotation confirmation layer (CLAUDE_CIO 2026-09-15,
+    #   USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915 sha c6f5dbbe…):
+    #   policy bound to the ratification record sha; STRONG_CONFIRMED/HELD/
+    #   RELEASED/EMERGING_WATCH/NEUTRAL replayed from committed daily evidence
+    #   (US SPDR 20-session, KR 1-session TEMPORARY with the 20-session switch
+    #   refused, CRYPTO primary_30d); byte-deterministic, prefix-stable (no
+    #   lookahead), append-only packets; T1/T2 C5/new-buy wiring uses only
+    #   confirmed/held, release = new-buy stop only (no forced exit). Existing
+    #   membership C5 and ledger/ratification contracts are asserted unchanged.
+    "test/test_rotation_confirmation.py",
+    "test/test_rotation_confirmation_wiring.py",
+    # ★ PAPER entry opportunity ledger (RULE.ENTRY.PAPER_BASELINE_B.V1, user
+    #   ratification 2026-09-15 sha b2a905c4…): every STRONG_CONFIRMED/HELD
+    #   sector/bucket per day with point-in-time allocation v2 market-state
+    #   verdict, T2 PENDING, record-only EMA20/breakout/ATR features from
+    #   committed bars up to the session, null forward-return fields; final-day
+    #   rule, byte-deterministic, append-only; chained workflow has no cron and
+    #   no secret, and the sha-pinned source workflows stay untouched.
+    "test/test_rotation_opportunity_ledger.py",
+    # ★ #752 robustness (CLAUDE_CIO PAPER execution v1 build plan PR2): per-market
+    #   build/verify isolation (exit 3), committed packets preferred so late older
+    #   evidence is reported instead of replayed, workflow push retry, and a
+    #   regression that post-session bars never enter record-only features.
+    "test/test_rotation_confirmation_robustness.py",
+    # ★ PAPER exit policy v1 (USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915
+    #   sha 47276abe…, observation-gap interpretation ed2ca92d…, D1 time contract
+    #   10de02bf…): persistent paper_exit_intent/1 on confirmed release (survives
+    #   the next day and restarts, append-only store), gap lapse = hold / new-buy
+    #   stop / 판정 공백 with the first post-gap judgment deciding, crypto 21-day
+    #   stop at the first FRESH decision snapshot, KR/US/crypto first allowed fill
+    #   time; rotation policy v1 file unchanged (superseded via rule_refs only).
+    "test/test_paper_exit_policy_v1.py",
+    # ★ Record-only shadow controls (RULE.EXIT.SHADOW_CONTROLS.V1, exit study v2
+    #   definitions): 1-B, TS14, PTP1, DS5 with the D9 monitored stop fill model
+    #   and monitoring gaps; KR/US emitted NOT_DEFINED (P3 undecided).
+    "test/test_paper_shadow_controls.py",
+    # ★ Crypto rotation 30d strength one-time coverage recalculation
+    #   (RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1, user ratification P1
+    #   USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915 sha 2a94be2b…): write-once
+    #   recalculated CR-06 points for days >= 2026-08-19 using confirmed later
+    #   classifications (prices from the same as-captured snapshot), idempotent
+    #   verify, '재계산' mark into rotation packets / entry gate / opportunity rows,
+    #   committed packets preferred; regime LEADERSHIP axis, natural leadership
+    #   packets and current_catalog_backfill_authorized untouched.
+    "test/test_crypto_rotation_30d_coverage_recalc.py",
+    # ★ Alpaca historical SIP daily-bar access probe (user approval
+    #   2026-09-15: "Alpaca 과거 SIP 데이터 접근 확인 테스트 승인"). Answers, once,
+    #   on request: can the existing dedicated ALPACA_MARKET_DATA_API_KEY/
+    #   ALPACA_MARKET_DATA_API_SECRET credential read HISTORICAL SIP daily
+    #   bars (feed=sip) outside the real-time SIP embargo, and how does SIP
+    #   daily volume compare with IEX daily volume over the same window?
+    #   Bounded to at most 6 requests to /v2/stocks/bars (multi-symbol):
+    #   once with feed=sip and once with feed=iex over the SAME fixed
+    #   10-session window ending >=2 days before the run, each with at most
+    #   one retry on a transient (network/429/5xx) failure only -- a
+    #   definitive 401/403 is never retried. Symbols are 3 approved
+    #   config/free_market_data_contract.json alpaca.symbols (SPY/XLK/AAPL
+    #   preferred; SPY/XLK/MSFT fallback since AAPL is not currently
+    #   approved). Output is aggregate-only: per-request status/error
+    #   class, whether SIP returned bars, bar counts, the SIP/IEX
+    #   volume ratio and the (vwap*volume)/(close*volume) notional-ratio
+    #   per symbol (median across the shared session window) -- never a
+    #   per-day price/close/volume/vwap value. assert_no_forbidden_fields
+    #   checks that mechanically before anything is written, and the
+    #   workflow re-checks the written file the same way before upload.
+    #   Workflow: dispatch only, contents: read, persist-credentials
+    #   false, secrets in exactly one step env, aggregate JSON only under
+    #   RUNNER_TEMP, nothing committed, tracked-change guard. Offline
+    #   fixture/fake-HTTP-layer regression only; no network call from
+    #   tests.
+    "test/test_alpaca_sip_access_probe.py",
+    "test/test_alpaca_sip_access_probe_workflow.py",
+    # ★ US T2 C3 liquidity, RULE.LIQUIDITY.US_SIP_SOURCE.V1 (user
+    #   ratification 2026-09-15, USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_
+    #   20260915 + base record PAPER-LIQUIDITY-KR-US-V1-20260914): Alpaca
+    #   historical SIP daily bars (>=15 minutes past regular-session close
+    #   only) for the 22 already-approved
+    #   config/free_market_data_contract.json alpaca.symbols (per-symbol
+    #   requests with bounded page_token pagination -- the multi-symbol
+    #   endpoint silently dropped SPY/MSFT in the prior probe, run
+    #   34907066300); feed=iex is the fallback only when SIP is denied/
+    #   empty for a symbol. Public output is derived-only per symbol:
+    #   20-session average traded value (close*volume), the selected
+    #   feed's own last close (the one deliberate single-price exception,
+    #   required by the ratified price-floor condition itself), session
+    #   count, source feed, and the composite status plus its three
+    #   sub-checks (volume_status/price_status/otc_exclusion_status) --
+    #   never a raw open/high/low/close/volume/vwap/trade_count field.
+    #   universe/us_liquidity_sip_source.py is the pure rule evaluator: SIP
+    #   with a full window is authoritative (PASS/FAIL); IEX fallback is
+    #   PASS or UNKNOWN, never FAIL; fewer than 20 sessions on every feed
+    #   is NOT_EVALUATED (the base record's own vocabulary), not UNKNOWN.
+    #   ★ 2026-09-15 correction: the ratified USD threshold ($10,000,000
+    #   20-session average, $5 min close) is now BOUND via the committed
+    #   config/us_liquidity_sip_source_policy.json, sha256-cross-checked
+    #   against byte-identical copies at evidence/authority/
+    #   paper_liquidity_kr_us_user_ratification_20260914.json and
+    #   evidence/authority/us_liquidity_sip_source_user_ratification_
+    #   20260915.json (both also landing via #753) -- load_policy() fails
+    #   closed to None (every sub-check UNKNOWN) only if that policy file
+    #   or either cited evidence file is missing/tampered, never by
+    #   default. ★ 2026-09-15 wiring: otc_exclusion_status now comes from
+    #   universe/us_listing_lookup.py, a point-in-time (never a later
+    #   packet than the run's own as-of date, by directory scan -- no
+    #   `latest` pointer needed) reader of the already-committed Nasdaq
+    #   Trader Symbol Directory capture
+    #   (data/observations/us_global_universe/<date>/packet.json,
+    #   universe/us_global_universe.py + its own workflow, both untouched
+    #   by this change). Presence in either captured file (nasdaq_listed
+    #   or other_listed -- both exchange-listed-only directories, per
+    #   config/us_breadth_forward_contract.json) -> EXCHANGE_LISTED; a
+    #   confirmed Nasdaq "Test Issue"=Y row -> TEST_ISSUE (a distinct,
+    #   evidence-backed exclusion this source CAN assert -- it structurally
+    #   cannot assert "OTC" directly, since neither captured file ever
+    #   contains an OTC security); absent from the selected packet, or no
+    #   packet at all as-of the evaluation date -> UNKNOWN, never assumed.
+    #   listing_packet_age_days is recorded only -- no staleness threshold
+    #   is invented. Workflow: dispatch only (no cron -- scheduling needs
+    #   separate approval), contents: write, secrets in exactly one step
+    #   env, commits ONLY the two derived data paths, guarded on an actual
+    #   staged diff. Offline mocked-HTTP/temp-fixture regression only; no
+    #   network call from tests, and the real ~74MB committed packets are
+    #   read (fast, ~0.2s) only by a couple of dedicated tests that verify
+    #   the real wiring, never by the bulk of the suite.
+    "test/test_us_liquidity_sip_source.py",
+    "test/test_us_listing_lookup.py",
+    "test/test_alpaca_sip_daily_bars.py",
+    "test/test_alpaca_sip_daily_bars_workflow.py",
+    # ★ Rule registry v1 + decision lineage (CLAUDE_CIO 2026-09-15, user
+    #   ratification RULE-GOVERNANCE-EVIDENCE-GATED-ADJUSTMENT). Offline only:
+    #   config/rule_registry_v1.json validates against byte-exact authority
+    #   record copies (hash, ids, pointer-bound parameters/triggers, monotone
+    #   versions); rule_refs / rule_lineage_event/1 tamper checks; additive
+    #   sidecars for every committed crypto PAPER decision packet and PAPER
+    #   reference packet reproduce each decision verbatim, lineage steps
+    #   never raise and the packets still revalidate byte-for-byte.
+    "test/test_rule_registry_and_lineage.py",
+    # ★ PAPER execution core v1 (CLAUDE_CIO build plan PR1): pure library, no
+    #   runtime wiring. Every ratified number resolves from
+    #   config/rule_registry_v1.json through config/paper_execution_core_v1.json
+    #   (sha-pinned); session budget (NAV0, Room/3, water-filling,
+    #   session_budget_record/1, restart reuse), allocation envelope (v2 caps,
+    #   D6 base-ratio reallocation, D5 reductions, UNKNOWN 2-cycle cap,
+    #   combined-NAV drawdown without peak reset, KR STRESS fixture-only),
+    #   DEXKOUS FX staleness, position episodes / D7 re-entry, D4 status
+    #   vocabulary and delay-loss rows, D10 checklist, D11 scorecard + P6
+    #   cooling-off. Undecided items are emitted as NOT_DEFINED.
+    "test/test_paper_execution_core_v1.py",
+    "test/test_paper_execution_core_v1_episodes_validation.py",
+    # ★ RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 evidence capture
+    #   (collectors/fred_dexkous_fx.py) + reader (latest_available).
+    #   FRED_API_KEY-or-public-CSV fetch, append-only per-observation
+    #   capture keyed by this run's own wall-clock time (availability_
+    #   captured_at_utc), UNKNOWN_BACKFILL rows for the one-time historical
+    #   seed never usable as point-in-time evidence, business-day staleness
+    #   clock (CIO interpretation, > 10 business days -> 'NAV 일부 미검증'
+    #   display only, never blocks allocation). Fully offline / mocked-HTTP;
+    #   no network call, no trading/allocation authority (every
+    #   *_authorized field stays False).
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_fred_dexkous_fx.py",
+    "test/test_fred_dexkous_fx_workflow.py",
+    # ★ Evidence-loss guard for fred-dexkous-fx.yml's commit step
+    #   (collectors/verify_evidence_staged.py). Added after a 2026-09-17/18
+    #   investigation into an apparent FRED DEXKOUS FX observation gap that
+    #   turned out to be a log-reading false alarm (test/test_fred_dexkous_fx.py's
+    #   own offline end-to-end test prints a summary that looks like a real
+    #   write because it hardcodes the fixture date "2026-09-15", but it
+    #   runs against an isolated tempfile.TemporaryDirectory(), never the
+    #   real checkout). The real gap the investigation surfaced: nothing
+    #   would have caught it if a commit had genuinely dropped a file the
+    #   collector reported writing -- this test proves that shape now goes
+    #   red (exit 1) instead of green.
+    #   ⛔ CI-only git-staging check; runs entirely inside a throwaway local
+    #      `git init` repo it creates itself; no network, no trading/
+    #      allocation authority, never touches the real evidence tree.
+    "test/test_verify_evidence_staged.py",
+    # ★ RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 evidence capture
+    #   (collectors/spdr_sector_holdings.py) + reader
+    #   (universe/us_spdr_sector_mapping.py). Daily holdings for the 11
+    #   SPDR Select Sector ETFs (XLB XLC XLE XLF XLI XLK XLP XLRE XLU XLV
+    #   XLY, verified against config/free_market_data_contract.json); the
+    #   downloaded workbook itself is never committed (licensing) -- only a
+    #   per-ETF derived symbol/weight-rank/weight-bucket mapping plus
+    #   capture metadata/hash. CIO review 2026-09-15 (PR #761): the rule's
+    #   cross-fund "largest weight ETF" tie-break is resolved from EXACT
+    #   weights held only in memory at capture time, and only when a single
+    #   run covers all 11 ETFs (a "complete batch") -- per symbol, only the
+    #   outcome (primary_sector_etf / holder_etf_count / tie flag) is
+    #   committed, never the exact weight. An incomplete batch (an ETF
+    #   fetch failed) resolves nothing that day; the reader falls back to
+    #   the most recent earlier complete batch rather than trust a partial
+    #   one. UNKNOWN (no T2) for an unheld symbol, own-sector for a sector
+    #   ETF, and NO_POINT_IN_TIME_CAPTURE_AVAILABLE (distinct from UNKNOWN)
+    #   when no complete capture yet exists -- holdings history is
+    #   physically time-gated and cannot be backfilled. Fully offline: a
+    #   small in-memory fixture .xlsx workbook and a fake HTTP layer only;
+    #   the real SSGA endpoint is never contacted by this suite, and the
+    #   untrusted workflow_dispatch ticker-list input is passed through
+    #   env:/a quoted shell variable, never substituted directly into the
+    #   run: script, then split and validated against the 11-ticker
+    #   allowlist in Python before any HTTP request. Every *_authorized
+    #   field stays False.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_spdr_sector_holdings.py",
+    "test/test_spdr_sector_holdings_workflow.py",
+    "test/test_us_spdr_sector_mapping.py",
+    # ★ Macro event calendar (CIO decision 2026-09-16) --
+    #   collectors/macro_event_calendar.py. Evidence capture only: US FOMC
+    #   decision dates (Federal Reserve's own calendar page), US CPI
+    #   releases and nonfarm payrolls (BLS "Schedule of Releases" tables for
+    #   cpi.htm/empsit.htm), and Bank of Korea rate decisions (BOK "Meeting
+    #   Dates" page) -- each fetched and PARSED from its own official page,
+    #   never a hand-written date table. FOMC status (scheduled/released) is
+    #   SOURCE-STATED (a posted statement link, cross-checked against its
+    #   own embedded date); CPI/NFP/BOK carry no such marker on their pages
+    #   so status there is a coarse CIO clock inference, explicitly tagged
+    #   status_basis so the two are never confused. Bounded capture window
+    #   (like fred_dexkous_fx.py's RECENT_WINDOW_DAYS) keeps a normal run
+    #   from re-parsing a decade of FOMC/BOK history; append-only,
+    #   content-addressed observations (state_hash over status/time/
+    #   timezone/detail) mean an unchanged re-observation is a no-op and
+    #   only a genuine change (typically scheduled -> released) writes a
+    #   new file. This module opens no trading/direction/risk-day/buy-pause
+    #   authority (every *_authorized field stays False) and is not
+    #   imported by any briefing, decision, rule, or execution path in this
+    #   PR. Fully offline / fixture HTML only; no network call is ever made
+    #   by these two files. BLS's own bot manager blocks this dev sandbox's
+    #   IP outright (confirmed 2026-09-18); real GitHub Actions runner
+    #   reachability is UNVERIFIED until the workflow's first live run,
+    #   exactly like spdr_sector_holdings.py's URL template was.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_macro_event_calendar.py",
+    "test/test_macro_event_calendar_workflow.py",
+    # ★ TKT-2 (W1) KR full-universe daily price history (#718): market-agnostic
+    #   price_history_session/1 contract, KR collector (no default opener, no
+    #   collection before next-morning publication, calendar-only session
+    #   selection, EMPTY never stored as data but repairable to OK), store
+    #   reader + calendar window, optional evaluator input with a
+    #   PRIVATE_ONLY public-write guard. Zero price bytes tracked publicly.
+    "test/test_krx_price_history.py",
+    "test/test_korea_population_price_history_input.py",
+    # ★ KR T2 C3 liquidity evaluator: thresholds read from the sha-verified
+    #   evidence/authority/paper_liquidity_kr_us_user_ratification_20260914.json
+    #   (no number in code); window = calendar's last 20 sessions ending at the
+    #   required session; any missing/EMPTY session, gap or flag gap -> UNKNOWN;
+    #   NOT_EVALUATED only for <20 sessions of listing history; per-symbol
+    #   results private, public summary counts only.
+    "test/test_kr_liquidity_c3.py",
+    # ★ CIO 확정 2026-09-18 (CLAUDE_CIO_ADVERSE_DISCLOSURE_CARD_20260916.md ·
+    #   USER_RATIFICATION_DECISION_BUNDLE_20260918.json 항목
+    #   2_adverse_disclosure) — collectors/dart.py 의 KEYWORDS 를 악재성
+    #   공시(Group A: 상장폐지·정리매매·감사의견거절/부적정/한정·회생·파산·
+    #   횡령·배임, Group B: 불성실공시법인·최대주주변경·경영권분쟁)까지
+    #   확대하고, 매칭 제목에 사실 기반 group(A/B/C) + matched_keyword 를
+    #   붙인다. 기존 Group C 7종은 그대로 유지(하위호환). 두 그룹 동시
+    #   매칭은 A>B>C 우선순위로 결정론적으로 정한다. 매칭 실패는 "C"로
+    #   조용히 떨어지지 않고 명시적으로 미분류(None)다.
+    #   ⛔ 매도/매수 차단 등 조치는 이 커밋에 없다 — 수집·분류만 한다.
+    #      runtime/decision/portfolio 모듈 미변경. 관리종목·투자경고·
+    #      단기과열·거래정지는 KIS 종목 마스터 전용으로 남겨 중복 수집하지
+    #      않는다. live DART API 호출 없음 — fixture 제목만 오프라인 검증.
+    "test/test_dart_adverse_filing_classification.py",
+    # ★ Benchmark ("simply bought and held") NAV series
+    #   (validation/paper_benchmark_nav_series.py +
+    #   config/paper_benchmark_nav_series_policy.json). Unblocks checkpoint B
+    #   (day 30) stop rules 1 (비용 차감 후 그냥 보유보다 낮다) and 5 (하락
+    #   구간에서 그냥 보유보다 더 깎였다), neither of which was computable:
+    #   validation/crypto_paper_counterfactual.py's only counterfactual is
+    #   no_trade_benchmark_pnl = "0", which is not holding. The anchor is the
+    #   product: anchor_utc is derived from the ledger's first FILL_APPLIED
+    #   event (a supplied value is only ever compared), the anchor price must
+    #   already have existed at that instant within the RATIFIED Upbit
+    #   orderbook staleness window, two eligible prices refuse as ambiguous,
+    #   the record must be written within one decision cycle of the fill, and
+    #   the pointer is created with open(..., "x") so a second different
+    #   anchor refuses. Both benchmark variants (EXPOSURE_MATCHED comparable
+    #   with the account's total NAV, ASSET_ONLY the sleeve alone) are emitted
+    #   and NEITHER is a verdict -- which one binds the stop rules is
+    #   RATIFICATION_VARIANT_BINDING. CIO decision 2026-09-18 (option c, card
+    #   CLAUDE_CIO_DECISION_BENCHMARK_NOTIONAL_BASIS_20260918.md): both notional
+    #   bases are emitted from ONE anchor, so four named series --
+    #   {FLAT_BASE_SHARE, MULTIPLIER_MATCHED} x {EXPOSURE_MATCHED, ASSET_ONLY}.
+    #   The mapping (rule 1 -> flat, rule 5 -> multiplier-matched) is
+    #   declared_stop_rule_binding in the policy, RATIFIED 2026-09-18 by the
+    #   user's own record (evidence/authority/
+    #   USER_RATIFICATION_BENCHMARK_NOTIONAL_BASIS_20260918.json, sha256
+    #   ae04aea2...) which load_policy resolves and HASHES rather than trusting
+    #   as a string -- a policy that claims a binding the record does not say is
+    #   refused. It is copied into every anchor and series record, so it cannot
+    #   be chosen at day 30 to suit the result. Ratifying the binding is NOT
+    #   authority to publish a verdict: verdict_authorized stays false, every
+    #   verdict stays NOT_EMITTED_RATIFICATION_REQUIRED, and the two disclosed
+    #   residuals (RATIFICATION_LEDGER_ATTESTATION,
+    #   RATIFICATION_CLOCK_ATTESTATION) stay open -- a policy marking either
+    #   resolved is refused.
+    #   The market state at the anchoring fill enters through exactly ONE named
+    #   function (read_market_state) with a documented contract and NO path of
+    #   this module's own -- the state-multiplier wiring has not settled on an
+    #   artifact yet (RATIFICATION_MARKET_STATE_SOURCE_BINDING). UNKNOWN at the
+    #   anchoring fill refuses outright rather than taking 0.50 from its ratified
+    #   sentence; RISK_OFF/STRESS refuse as states that deny new buys; an absent,
+    #   future or stale state (beyond the ratified crypto observation gap) refuses
+    #   rather than assuming RISK_ON. Fee rate and entry slippage come off the
+    #   account's own first fill (the simulator has no repository default for
+    #   fee); no cost constant is invented here. Fail closed: a missing mark
+    #   at a sample, an off-grid mark, a gap wider than the ratified rotation
+    #   gap, a null NAV. Review 2026-09-18 closed three forgery gaps, each with
+    #   its own regression: the ledger must be recovered from its published
+    #   append-only snapshot store and matched to a genesis pin (a bare
+    #   hash-consistent dict is refused), recorded_at_utc is bounded by an
+    #   independently observed post-fill clock witness instead of being taken on
+    #   trust, and the binding is read back out of append-only bindings markers
+    #   plus the content-addressed records, so deleting the pointer file no
+    #   longer lets a second anchor bind. Fully offline -- ledgers are built by the P10-11
+    #   simulator's own builders, prices are fixtures, no network and no
+    #   evidence directory outside a temporary one. Invoked by no workflow or
+    #   schedule in THIS repo (a test asserts that, and that the CLI is
+    #   dispatch-only). Its one caller is the private crypto PAPER runtime,
+    #   which derives the anchor after its own restart-verified ledger write and
+    #   cannot let a benchmark failure touch the fill; the former
+    #   test_this_module_is_wired_into_no_workflow was replaced by the three
+    #   properties that actually hold (no public caller; no anchor before a
+    #   fill; one binding per account, a second different anchor refuses).
+    #   Every *_authorized field stays False.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_paper_benchmark_nav_series.py",
+    # 일일 산출물 정체 감시(watchdog/daily_producer_freshness.py) — 감시 대상
+    #   11개 산출물에 대해 "우리가 보유한 최신 관측일"과 "원천이 스스로
+    #   제공한다고 밝힌 최신일" 두 값을 각각 기록하고 그 쌍으로 판정한다.
+    #   원천 최신일은 이미 커밋된 증거에서만 읽는다(raw manifest 의
+    #   observation_date_range 끝, venue manifest 의 latest_finalized_day,
+    #   산출물이 스스로 입력으로 지목한 상류 producer 의 최신 날짜 디렉터리).
+    #   네트워크 호출·신규 수집 출처 추가 없음.
+    #   COLLECTION_BEHIND_SOURCE = 원천이 더 최신을 제공하는데 우리가 놓친
+    #   경우로 가장 큰 경보(일정 축이 FRESH 여도 검사한다). 반대로
+    #   SOURCE_NOT_YET_PUBLISHED 는 원천이 아직 발표하지 않은 정상 상태이므로
+    #   경보가 아니다 — 2026-09-11 에서 멈춘 fred_dexkous_fx 를 3일치 환율
+    #   관측 유실로 잘못 보고한 오경보를 이 구분이 철회한다.
+    #   원천 최신일을 확보할 수 없으면 SOURCE_LATEST_UNKNOWN 이라는 독립
+    #   상태로 남긴다 — "정상"으로도 "정체"로도 접어넣지 않고, 값을 임의로
+    #   만들어 채우지도 않는다.
+    #   ⛔ 읽기 전용 관측만 한다 — data/·evidence/ 기록 없음, workflow 는
+    #      dispatch 전용(schedule 트리거 없음)이고 git commit/push 단계도
+    #      없다. authority 는 read_only_watch 를 제외하고 전부 false 이며
+    #      주문·매매·자본 배분 권한은 열리지 않는다. 오프라인 fixture 와 이
+    #      저장소에 이미 커밋된 KRX 공식 휴장 capture 만 사용한다.
+    "test/test_daily_producer_freshness_watchdog.py",
+    # ★ Class-wide guard: every workflow checkout that feeds a real
+    #   git-history-walking consumer (first-seen/tamper verdicts via
+    #   `git log`/`git show`/`git merge-base`) must use `fetch-depth: 0`.
+    #   Closes the btc-price-capture.yml gap (2026-09-18 review of PR
+    #   #817's docs/do_not_touch_and_why.md): that workflow already had the
+    #   correct fetch-depth: 0, but no test asserted it, unlike
+    #   actions-pass.yml's regression job. Discovery of "which jobs" is
+    #   automatic (walks every workflow's run: text); the registry of
+    #   "which scripts actually walk history" is a hand-verified allowlist
+    #   that fails closed if a new git-history consumer anywhere in the
+    #   repository is not registered in it.
+    #   ⛔ Read-only: parses workflow YAML and greps repository .py files;
+    #      no network, no git history mutation, no authority.
+    "test/test_workflow_history_checkout_depth.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
+
+# ══════════════════════════════════════════════════════════════════════
+# ★ opt-in 결정론적 회귀 shard (CIO 채택 2026-09-07).
+#   ⛔ 기본 동작은 바뀌지 않는다 — shard 를 요청하지 않으면 지금까지와 똑같은
+#      단일 full 회귀다. shard 는 **회귀 대상 선택**만 바꾼다.
+#   각 shard 는 자기 clean checkout 에서 사본 보존 · builder 직렬 재빌드 ·
+#   byte 비교 · authority 경계 · FI suite 전량을 똑같이 수행한다. 한쪽 shard 의
+#   성공은 부분 증거일 뿐이고, 최종 Actions 판정은 두 shard 를 모두 요구하는
+#   aggregate job 이 한다 (runner 는 부분 실행에서 전체 PASS 를 주장하지 않는다).
+REGRESSION_SHARD_COUNT = 2
+
+# ★ 이미 기록된 실행 시간(초)만 균형 **추정**에 쓴다 — 새 benchmark 를 돌리지 않는다.
+#   출처: PR614_PARITY_TIMING_COMPARISON.json 의 US run. US run 이 완주하지 못한
+#   구간(candidate_identity_authority_review_inventory 이후)은 같은 파일의 common
+#   run 값을 그대로 쓴다 — 보수적(과소) 추정이라 균형만 조금 나빠진다.
+#   ⛔ 이 표는 가중치일 뿐 권위가 아니다. 회귀 population 의 권위는 언제나
+#      APPROVED_TESTS 다. 표가 낡거나 모듈이 빠져도 완전성·중복없음·disjoint 는
+#      깨지지 않는다 (여기 없는 모듈은 DEFAULT_ESTIMATED_SECONDS 를 받는다).
+REGRESSION_ESTIMATED_SECONDS = {
+    "test/test_daily_orchestrator.py": 1294.7,
+    "test/test_dynamic_clock_end_to_end.py": 270.0,
+    "test/test_regime_policy_calibration_readiness.py": 260.7,
+    "test/test_us_forward_universe_populate.py": 204.0,
+    "test/test_dynamic_clock_orchestrator_defects.py": 131.3,
+    "test/test_candidate_lifecycle_observation.py": 119.2,
+    "test/test_briefing_validator.py": 114.8,
+    "test/test_candidate_identity_authority_proposal.py": 112.4,
+    "test/test_global_asset_master_population_readiness.py": 90.7,
+    "test/test_capital_reallocation_readiness.py": 63.4,
+    "test/test_shadow_entry_review.py": 62.5,
+    "test/test_profit_harvest_operational_readiness.py": 51.1,
+    "test/test_dynamic_clock_operational_evaluation_time.py": 48.2,
+    "test/test_daily_briefing_delivery.py": 46.7,
+    "test/test_crypto_breadth_leadership_axis_wiring_20260829.py": 41.7,
+    "test/test_portfolio_account_fact_v3_producer.py": 39.6,
+    "test/test_entry_proposal_boundary.py": 38.3,
+    "test/test_crypto_live_component_registry.py": 36.5,
+    "test/test_crypto_regime_vintage_d1_d2.py": 30.0,
+    "test/test_profit_harvest_population.py": 34.3,
+    "test/test_profit_harvest_end_to_end.py": 33.6,
+    "test/test_pit_replay_end_to_end.py": 33.4,
+    "test/test_candidate_identity_authority_review_inventory.py": 32.1,
+    "test/test_crypto_axis_trade_bridge_explanation.py": 31.2,
+    "test/test_crypto_axis_trade_bridge.py": 30.5,
+    "test/test_candidate_identity_observation.py": 26.6,
+    "test/test_entry_policy_readiness.py": 25.9,
+    "test/test_candidate_lifecycle_evidence_inventory.py": 24.5,
+    "test/test_candidate_validity_shadow_observation.py": 24.4,
+    "test/test_rotation_discovery_briefing.py": 24.4,
+    "test/test_dynamic_clock_identity_lineage.py": 23.2,
+    "test/test_population_symbol_observation.py": 60.0,
+    "test/test_population_observation_daily_schedule.py": 20.0,
+    "test/test_three_market_evaluation_coverage.py": 60.0,
+    "test/test_market_candidate_discovery_lookup.py": 120.0,
+}
+DEFAULT_ESTIMATED_SECONDS = 1.0
+
+
+def _partition_by_estimated_load(population, count):
+    """canonical 결정론적 partition — 순서보존 · 중복없음 · disjoint · 합집합 == population.
+
+    ★ `regression_shards()`(CIO 채택 2026-09-07, 2-shard 고정) 와
+      `ci_phase_regression_shards()`(CIO CI-sharding 지시 2026-09-12, N-shard) 가
+      **같은 알고리즘 하나**를 공유한다 — 두 번째 partition 구현을 새로 만들지 않는다.
+    ★ 배정은 기록된 추정 시간 내림차순 greedy(동률은 선언 순서)라 같은 입력이면
+      항상 같은 결과가 나온다. 각 shard 안의 상대 순서는 선언 순서 그대로다.
+    ⛔ 비거나 중복된 population, 혹은 count < 1 은 여기서 예외로 막는다 —
+       자식 프로세스를 하나라도 실행하기 전이다.
+    """
+    if not population:
+        raise ValueError("승인 회귀 목록이 비어 있다 — shard 를 만들 수 없다")
+    duplicates = sorted({t for t in population if population.count(t) > 1})
+    if duplicates:
+        raise ValueError(f"승인 회귀 목록에 중복이 있다: {duplicates}")
+    if count < 1:
+        raise ValueError(f"shard 수는 1 이상이어야 한다: {count!r}")
+    if len(population) < count:
+        raise ValueError(f"승인 회귀 {len(population)}건으로는 {count} shard 를 채울 수 없다")
+
+    declared = {t: i for i, t in enumerate(population)}
+    load = [0.0] * count
+    assigned = [[] for _ in range(count)]
+    for test in sorted(population,
+                       key=lambda t: (-REGRESSION_ESTIMATED_SECONDS.get(t, DEFAULT_ESTIMATED_SECONDS),
+                                      declared[t])):
+        target = min(range(count), key=lambda s: (load[s], s))
+        load[target] += REGRESSION_ESTIMATED_SECONDS.get(test, DEFAULT_ESTIMATED_SECONDS)
+        assigned[target].append(test)
+    shards = [sorted(chunk, key=lambda t: declared[t]) for chunk in assigned]
+
+    # 분할 자체를 다시 증명한다 — 누락 · 중복 · 빈 shard 는 전부 fail-closed.
+    flat = [t for chunk in shards for t in chunk]
+    if sorted(flat) != sorted(population) or len(flat) != len(set(flat)):
+        raise ValueError("shard 합집합이 승인 회귀 전량과 다르다")
+    for i, chunk in enumerate(shards, 1):
+        if not chunk:
+            raise ValueError(f"shard {i}/{count} 가 비어 있다")
+    return shards
+
+
+def regression_shards(tests=None, count=REGRESSION_SHARD_COUNT):
+    """현재 승인 회귀 목록을 순서보존 · 중복없음 · disjoint shard 로 나눈다.
+
+    ★ 합집합은 **언제나** 전체 승인 목록과 정확히 같다. 개수나 부분집합을
+      고정하지 않는다 — population 은 호출 시점의 APPROVED_TESTS 다.
+    ⛔ CIO 채택 2026-09-07 로 지원 shard 수는 {REGRESSION_SHARD_COUNT} 로 고정이다 —
+       `us-paper-market-data-contract.yml` 이 이 고정 계약에 의존한다. 임의 count 가
+       필요하면 `ci_phase_regression_shards()` 를 쓴다 (actions-pass.yml 4-way matrix).
+    """
+    population = list(APPROVED_TESTS if tests is None else tests)
+    if count != REGRESSION_SHARD_COUNT:
+        raise ValueError(f"지원하는 shard 수는 {REGRESSION_SHARD_COUNT} 뿐이다: {count!r}")
+    return _partition_by_estimated_load(population, count)
+
+
+def ci_phase_regression_shards(count, tests=None):
+    """`--phase regression --shard-count N` 전용 N-way 분할 (CIO CI-sharding 지시
+    2026-09-12). `regression_shards()` 와 같은 canonical greedy 알고리즘을 공유하되
+    2-shard 고정 제약이 없다 — count>=1 이면 무엇이든 받는다. 나머지 불변식
+    (순서보존 · 중복없음 · disjoint · 합집합 == APPROVED_TESTS) 은
+    `_partition_by_estimated_load` 가 전부 증명한다.
+    """
+    population = list(APPROVED_TESTS if tests is None else tests)
+    return _partition_by_estimated_load(population, count)
+
 
 # ★ Production / evaluator 경계 — 이 실행으로 바뀌면 안 되는 값.
 FROZEN_BOUNDARY = {
@@ -2123,6 +3213,151 @@ def disposable_checkout_proof():
     return problems
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ★ checkout 완전성 게이트 — 회귀 2026-09-18: shallow clone 과 sparse checkout
+#   이 둘 다 "저장소가 깨졌다"처럼 읽히는 실패를 냈다 (KNOWLEDGE_PROVENANCE_
+#   SHALLOW_HISTORY 는 traceback 150줄 뒤에야 나오는 provenance guard, sparse
+#   는 REFERENCE_REDERIVATION_MISMATCH). 둘 다 실제로는 checkout 문제였다.
+#   이 게이트는 그 두 guard 를 대체하거나 약화하지 않는다 — 어떤 test 파일보다
+#   먼저, 더 이르고 더 명확하게 "checkout 이 문제다" 라고 말하는 신호를 하나
+#   추가할 뿐이다. 기존 guard 는 그대로 남는다 (이 게이트가 못 잡는 경우를
+#   위한 것이다).
+#
+#   판정 순서는 항상 absence 먼저다: 커밋이 없다 -> 트리가 잘렸다 -> 파일이
+#   없다. "있는데 내용이 다르다" 는 이 게이트의 영역이 아니다 — 그건 real
+#   finding 이고 기존 guard(KNOWLEDGE_PROVENANCE_SHALLOW_HISTORY,
+#   REFERENCE_REDERIVATION_MISMATCH 등)가 계속 담당한다.
+#
+#   ⛔ git 이 아예 없거나 ROOT 가 git 저장소가 아니면 이 게이트는 아무 것도
+#      판정하지 않는다 (조용히 통과) — test/test_fault_injection.py 의 FI
+#      clone() 이 정확히 이 모양이다: rules/test/config 만 사본으로 뜬 임시
+#      디렉터리이고 `.git`이 없다. 그건 "불완전한 checkout" 이 아니라 FI
+#      suite 가 의도적으로 만든 격리된 사본이다 — 이 게이트의 대상이 아니다.
+REQUIRED_EVIDENCE_ROOTS = [
+    # ★ 코드로 추적된 것 — 위시리스트가 아니다.
+    #   test/test_paper_regime_reference.py (APPROVED_TESTS 소속) 는
+    #   regime/paper_regime_reference.build_reference() 를 root 인자 없이
+    #   호출한다. 그 함수의 root 기본값은 이 checkout 자신이다 (tmp 사본이
+    #   아니다). build_reference() -> build_crypto() 는
+    #   evidence/crypto/btc/raw/<as_of_date>/_manifest.json 을 읽어
+    #   crypto_descriptive_normalization_sources 를 만들고,
+    #   validate_reference() 가 그 결과를 committed packet 과 재파생
+    #   비교한다. 이 디렉터리가 sparse 로 잘려 나가면 건드린 파일이 하나도
+    #   없어도 그 비교가 REFERENCE_REDERIVATION_MISMATCH 로 깨진다
+    #   (2026-09-18 증명, symlink farm 로 evidence/crypto/btc/raw 하나만
+    #   제외해 재현).
+    #   ⛔ 날짜 하위 디렉터리(예: .../2026-09-18)는 매일 롤오버되므로 여기
+    #      넣지 않는다 — 부모 디렉터리 자체의 존재/비어있지-않음만 본다.
+    #      그래서 이 목록은 스스로 시한폭탄이 되지 않는다.
+    "evidence/crypto/btc/raw",
+]
+
+
+def checkout_completeness_problems():
+    """이 checkout 이 회귀 스위트가 요구하는 완전한 트리인지 — 실제 git 저장소일
+    때만 판정한다. 문제가 있으면 human-readable 문장 리스트를 돌려준다."""
+    try:
+        shallow_probe = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=ROOT, capture_output=True, text=True)
+    except FileNotFoundError:
+        return []     # git 이 없다 — 이 게이트는 판정하지 않는다
+    if shallow_probe.returncode != 0:
+        # ROOT 가 git 저장소가 아니다 (예: FI suite 의 격리된 사본). 이 게이트는
+        # 실제 checkout 을 위한 것이지, git 이 아닌 사본을 판정하지 않는다.
+        return []
+
+    problems = []
+
+    # 1) shallow history — commit 이 없다.
+    if shallow_probe.stdout.strip() == "true":
+        problems.append(
+            "shallow clone 이다 (git rev-parse --is-shallow-repository == true). "
+            "고치는 법: git fetch --unshallow (또는 전체 히스토리로 다시 clone).")
+
+    # 2) sparse / partial checkout — 트리가 잘렸다. 어떻게 만들어졌든 잡는다:
+    #    actions/checkout 의 sparse-checkout 옵션은 조용히 partial clone
+    #    (blob:none) 을 같이 걸기 때문에, 평범해 보이는 checkout 이 실제로는
+    #    부분본일 수 있다.
+    signals = []
+    try:
+        sparse_cfg = subprocess.run(
+            ["git", "config", "--bool", "core.sparseCheckout"],
+            cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        sparse_cfg = ""
+    if sparse_cfg == "true":
+        signals.append("core.sparseCheckout=true")
+    try:
+        sparse_list = subprocess.run(
+            ["git", "sparse-checkout", "list"],
+            cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        sparse_list = ""
+    if sparse_list:
+        signals.append("git sparse-checkout list 가 비어 있지 않다")
+    try:
+        partial_filter = subprocess.run(
+            ["git", "config", "remote.origin.partialclonefilter"],
+            cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        partial_filter = ""
+    if partial_filter:
+        signals.append(f"remote.origin.partialclonefilter={partial_filter}")
+    if signals:
+        problems.append(
+            "sparse/partial checkout 이다 (" + ", ".join(signals) + "). "
+            "고치는 법: git sparse-checkout disable 로 전체 트리를 복원하거나, "
+            "sparse-checkout/partial-clone 옵션 없이 다시 clone.")
+
+    # 3) 승인 회귀가 이 checkout 의 실제 ROOT 에서 읽는 evidence 루트가 실제로
+    #    있고 비어 있지 않은가 — sparse 신호가 (2) 로 안 잡히는 경우까지
+    #    대비한 방어선이다(예: git 메타데이터를 안 건드리고 디렉터리만 지운
+    #    사본). 날짜 하위 디렉터리는 절대 요구하지 않는다.
+    for rel in REQUIRED_EVIDENCE_ROOTS:
+        path = os.path.join(ROOT, rel)
+        if not os.path.isdir(path):
+            problems.append(
+                f"필요한 evidence 디렉터리가 checkout 에 없다: {rel}. "
+                "고치는 법: sparse-checkout 없이 다시 clone하거나 "
+                "git sparse-checkout disable 로 전체 트리를 복원.")
+        elif not os.listdir(path):
+            problems.append(
+                f"필요한 evidence 디렉터리가 비어 있다: {rel}. "
+                "고치는 법: sparse-checkout 없이 다시 clone하거나 "
+                "git sparse-checkout disable 로 전체 트리를 복원.")
+    return problems
+
+
+def verify_checkout_completeness():
+    """어떤 test 파일보다 먼저, 딱 한 번 실행한다. 불완전한 checkout 을 저장소
+    결함처럼 보이는 실패로 마스커레이드하게 두지 않고, 여기서 먼저 명확하게
+    말한다. 문제가 없으면 아무 것도 출력하지 않고 조용히 돌아간다."""
+    problems = checkout_completeness_problems()
+    if not problems:
+        return None
+    print("⛔ CHECKOUT INCOMPLETE — this is not a repository defect.")
+    print()
+    print("main is fine. Your checkout of it is not — it is missing history")
+    print("or files this suite reads. Do not file this as a broken-main")
+    print("incident before fixing the checkout:")
+    print()
+    print("⛔ 사본이 불완전합니다 — 저장소 결함이 아닙니다.")
+    print()
+    print("main은 멀쩡하고, 문제는 당신이 받아온 사본입니다. 이 사본에는 검사가")
+    print("읽어야 할 이력이나 파일이 빠져 있습니다. 사본을 고치기 전에")
+    print('"main이 깨졌다"고 올리지 마십시오.')
+    print()
+    for p in problems:
+        print("  •", p)
+    print()
+    print("Fix: git fetch --unshallow, or re-clone with full history and")
+    print("no sparse-checkout, then re-run.")
+    print("고치는 법: git fetch --unshallow, 또는 전체 이력으로 sparse-checkout 없이")
+    print("다시 복제한 뒤 재실행하십시오.")
+    return 1
+
+
 SNAPSHOT_DIR = "_committed_snapshot"
 
 
@@ -2130,10 +3365,62 @@ def sha(path):
     return hashlib.sha256(open(path, "rb").read()).hexdigest()
 
 
+def redact_diagnostics(text):
+    """Do not persist credential environment values or common credential forms."""
+    for key, value in os.environ.items():
+        if value and re.search(r"TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY|API_KEY", key, re.I):
+            text = text.replace(value, "[REDACTED]")
+    text = re.sub(r"(?i)(authorization\s*[:=]\s*(?:bearer|basic)\s+)\S+",
+                  r"\1[REDACTED]", text)
+    text = re.sub(r"\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b",
+                  "[REDACTED]", text)
+    text = re.sub(r"-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----.*?-----END (?:[A-Z]+ )?PRIVATE KEY-----",
+                  "[REDACTED PRIVATE KEY]", text, flags=re.S)
+    return text
+
+
+def failure_summary(text):
+    # Keep every unittest testcase header plus the useful end of each traceback.
+    blocks = re.split(r"(?m)(?=^(?:ERROR|FAIL): )", text)
+    lines = []
+    for block in blocks:
+        chunk = block.strip().splitlines()
+        if not chunk:
+            continue
+        lines.extend(chunk if len(chunk) <= 14 else chunk[:2] + ["... (summary truncated)"] + chunk[-12:])
+    return "\n".join(lines)
+
+
 class Runner:
-    def __init__(self):
+    def __init__(self, fail_fast=False, log_dir=None, shard=None):
         self.failures = []
         self.lines = []
+        self.fail_fast = fail_fast
+        self.log_dir = log_dir
+        # shard 는 1-based 이고, None 이면 지금까지와 같은 전량 실행이다.
+        self.shard = shard
+
+    def child(self, script):
+        result = subprocess.run([PY, script], cwd=ROOT, capture_output=True, text=True)
+        # Preserve both complete streams, with credentials redacted, outside checkout.
+        result.stdout = redact_diagnostics(result.stdout or "")
+        result.stderr = redact_diagnostics(result.stderr or "")
+        if self.log_dir:
+            os.makedirs(self.log_dir, mode=0o700, exist_ok=True)
+            stem = script.replace("/", "__")
+            for stream in ("stdout", "stderr"):
+                path = os.path.join(self.log_dir, stem + "." + stream + ".log")
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(getattr(result, stream))
+        return result
+
+    def child_failure(self, stage, script, result):
+        message = (f"{script} → exit {result.returncode}\n"
+                   + failure_summary(result.stdout + "\n" + result.stderr))
+        if self.log_dir:
+            message += f"\nFull redacted stdout/stderr: {self.log_dir}/{script.replace('/', '__')}.*.log"
+        self.fail(stage, message)
+        self.say(message)
 
     def fail(self, stage, msg):
         self.failures.append(f"[{stage}] {msg}")
@@ -2162,11 +3449,10 @@ class Runner:
     # ── builder 직렬 실행 ────────────────────────────────────────────
     def rebuild(self):
         for i, (script, out) in enumerate(BUILDERS, 1):
-            r = subprocess.run([PY, script], cwd=ROOT, capture_output=True, text=True)
+            r = self.child(script)
             tag = f"{i:02d} {script}"
             if r.returncode != 0:
-                self.fail("rebuild", f"{tag} → exit {r.returncode}\n"
-                                     f"{(r.stderr or r.stdout).strip()[-600:]}")
+                self.child_failure("rebuild", script, r)
                 return False           # 순서가 의미를 가지므로 즉시 중단한다
             if not os.path.exists(os.path.join(ROOT, out)):
                 self.fail("rebuild", f"{tag} → 산출물 미생성: {out}")
@@ -2193,6 +3479,42 @@ class Runner:
 
     # ── ①③ 승인 회귀 ───────────────────────────────────────────────
     def approved_tests(self):
+        if not self.test_set():
+            return False
+        # ★ 무엇을 돌릴지부터 정한다 — 잘못된 population 이면 자식 하나도 실행하지 않는다.
+        try:
+            selected = self.selected_regression()
+        except ValueError as error:
+            self.fail("regression-shard", str(error))
+            return False
+        if self.shard is not None:
+            self.say(f"  regression shard {self.shard}/{REGRESSION_SHARD_COUNT} — "
+                     f"선택 {len(selected)} / 승인 전체 {len(APPROVED_TESTS)}파일 (PARTIAL)")
+        ok = True
+        # Same process environment and post-rebuild inputs; no cache or second run.
+        priority = (["test/test_runner_reporting.py", "test/test_daily_orchestrator.py"]
+                    if self.fail_fast else [])
+        ordered = ([t for t in priority if t in selected]
+                   + [t for t in selected if t not in priority])
+        for t in ordered:
+            self.say(f"  RUN {t}")
+            r = self.child(t)
+            if r.returncode != 0:
+                ok = False
+                self.child_failure("regression", t, r)
+                if self.fail_fast:
+                    return False
+            else:
+                self.say(f"  {t} ok")
+        return ok
+
+    def selected_regression(self):
+        """이번 실행이 돌릴 회귀 목록 — 기본은 승인 전량, shard 요청 시 해당 shard."""
+        if self.shard is None:
+            return list(APPROVED_TESTS)
+        return regression_shards()[self.shard - 1]
+
+    def test_set(self):
         actual = sorted("test/" + f for f in os.listdir(os.path.join(ROOT, "test"))
                         if f.startswith("test_") and f.endswith(".py"))
         expected = sorted(APPROVED_TESTS + [FI_SUITE])
@@ -2202,26 +3524,14 @@ class Runner:
                       f"        누락 {sorted(set(expected) - set(actual))}\n"
                       f"        미승인 {sorted(set(actual) - set(expected))}")
             return False
-        ok = True
-        for t in APPROVED_TESTS:
-            r = subprocess.run([PY, t], cwd=ROOT, capture_output=True, text=True)
-            if r.returncode != 0:
-                ok = False
-                self.fail("regression",
-                          f"{t} → exit {r.returncode}\n"
-                          f"{(r.stdout or r.stderr).strip()[-600:]}")
-            else:
-                self.say(f"  {t} ok")
-        return ok
+        return True
 
     # ── ④ Fault Injection ───────────────────────────────────────────
     def fault_injection(self):
-        r = subprocess.run([PY, FI_SUITE], cwd=ROOT, capture_output=True, text=True)
+        r = self.child(FI_SUITE)
         print(r.stdout, end="", flush=True)
         if r.returncode != 0:
-            self.fail("fault-injection",
-                      f"{FI_SUITE} → exit {r.returncode}\n"
-                      f"{(r.stdout or r.stderr).strip()[-600:]}")
+            self.child_failure("fault-injection", FI_SUITE, r)
             return False
         return True
 
@@ -2251,12 +3561,210 @@ def approved_test_label():
     return f"[4/5] 승인 회귀 {len(APPROVED_TESTS)}파일"
 
 
+def finish_phase(r, label):
+    """`--phase {structural,regression,fi}` 전용 종료 배너.
+
+    ⛔ `finish()` 를 재사용하지 않는다 — `finish()` 의 무-shard 분기는
+       "✅ Actions PASS = YES" 를 찍는데, bounded phase 하나의 성공은 전체
+       Actions PASS 가 아니다. 그 문구를 여기서 절대 찍지 않는다 — 최종
+       판정은 `actions-pass-full` aggregate job 만 한다.
+    """
+    print()
+    if r.failures:
+        print(f"⛔ FAIL — {len(r.failures)}건")
+        for f in r.failures:
+            print("  •", f)
+        print(f"\n{label} = NO")
+        return 1
+    print(f"✅ {label} 완료 — PARTIAL")
+    print("   ⛔ 이것은 승인된 phase 하나의 결과다. 전체 Actions PASS 판정은")
+    print("      preflight · structural · regression 전체 shard · fault-injection")
+    print("      을 모두 요구하는 최종 aggregate job(actions-pass-full)이 한다.")
+    return 0
+
+
+def run_bounded_phase(args):
+    """`--phase {structural,regression,fi}` — CIO CI-sharding 지시 2026-09-12.
+
+    ★ 각 phase 는 독립적으로 authoritative 하다 (구조 재현/회귀/FI 를 서로
+      기다리지 않는다). 어느 phase 도 전체 Actions PASS 를 주장하지 않는다 —
+      `finish_phase()` 가 항상 PARTIAL 로 찍는다.
+    ⛔ authority 의미를 새로 만들지 않는다 — structural 은 기존 스냅샷/재빌드/
+       byte 비교/경계 로직을 그대로 재사용하고, regression 은 기존 test_set()
+       완전성 검사를 그대로 재사용하며, fi 는 기존 FI suite 를 그대로 부른다.
+    """
+    r = Runner(fail_fast=args.fail_fast, log_dir=args.log_dir)
+    print("Atlas Actions runner — Python", sys.version.split()[0], f"[phase={args.phase}]")
+    print("⛔ Production HOLD · evaluator 미연결 · 이 실행은 상태를 바꾸지 않는다\n")
+
+    if args.phase == "structural":
+        label = "structural phase"
+        if not args.authoritative:
+            r.fail("mode", "--phase structural requires --authoritative — the rebuild "
+                           f"it verifies is destructive and needs {DISPOSABLE_ENV}=1 declared")
+            return finish_phase(r, label)
+        blockers = disposable_checkout_proof()
+        if blockers:
+            for b in blockers:
+                r.fail("guard", b)
+            print("⛔ authoritative rebuild 차단 — 어떤 파일도 건드리지 않았다")
+            return finish_phase(r, label)
+        with tempfile.TemporaryDirectory(prefix="atlas_committed_") as snap_dir:
+            print("[1/3] committed 산출물 사본 보존")
+            kept = r.snapshot(snap_dir)
+            if args.fail_fast and r.failures:
+                return finish_phase(r, label)
+            if kept:
+                print("[2/3] builder ①→⑭ 직렬 재빌드")
+                r.rebuild()
+                if args.fail_fast and r.failures:
+                    return finish_phase(r, label)
+                print("[3/3] committed ↔ rebuilt byte 비교")
+                r.compare(kept)
+                if args.fail_fast and r.failures:
+                    return finish_phase(r, label)
+            r.boundary()
+        return finish_phase(r, label)
+
+    if args.phase == "regression":
+        shard_count, shard_index = args.shard_count, args.shard_index
+        label = f"regression shard {shard_index}/{shard_count}"
+        if not r.test_set():
+            return finish_phase(r, label)
+        try:
+            selected = ci_phase_regression_shards(shard_count)[shard_index]
+        except ValueError as error:
+            r.fail("regression-shard", str(error))
+            return finish_phase(r, label)
+        print(f"[regression] shard {shard_index}/{shard_count} — 선택 {len(selected)} / "
+              f"승인 전체 {len(APPROVED_TESTS)}파일 (PARTIAL)")
+        priority = (["test/test_runner_reporting.py", "test/test_daily_orchestrator.py"]
+                    if args.fail_fast else [])
+        ordered = ([t for t in priority if t in selected]
+                   + [t for t in selected if t not in priority])
+        for t in ordered:
+            r.say(f"  RUN {t}")
+            res = r.child(t)
+            if res.returncode != 0:
+                r.child_failure("regression", t, res)
+                if args.fail_fast:
+                    return finish_phase(r, label)          # fail-fast 는 이 shard 안에서만 유효하다
+            else:
+                r.say(f"  {t} ok")
+        return finish_phase(r, label)
+
+    if args.phase == "fi":
+        label = "fault-injection phase"
+        print("[fi] Fault Injection suite")
+        r.fault_injection()
+        return finish_phase(r, label)
+
+    raise AssertionError(f"unreachable --phase value: {args.phase!r}")
+
+
 def main():
-    r = Runner()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--authoritative", action="store_true")
+    parser.add_argument("--no-fi", action="store_true")
+    parser.add_argument("--fail-fast", action="store_true")
+    parser.add_argument("--log-dir", help="Complete redacted child logs, outside the checkout")
+    parser.add_argument("--regression-shard-index", type=int,
+                        help=f"1-based deterministic regression shard (1..{REGRESSION_SHARD_COUNT})")
+    parser.add_argument("--regression-shard-count", type=int,
+                        help=f"Total regression shards — only {REGRESSION_SHARD_COUNT} is supported")
+    # ★ CIO CI-sharding 지시 2026-09-12 — actions-pass.yml 의 bounded phase 실행.
+    #   ⛔ 인자를 주지 않으면 `--phase all` 이 기본값이라 아래 옛 경로가 그대로
+    #      실행된다 — 기존 기본 동작(authoritative 전체 실행)은 한 글자도 바뀌지
+    #      않는다. 이 네 값 이외에는 argparse choices 가 fail-closed 로 막는다.
+    parser.add_argument("--phase", choices=["all", "structural", "regression", "fi"],
+                        default="all",
+                        help="Bounded execution phase for the sharded CI lane "
+                             "(default: all — full authoritative gate, unchanged)")
+    parser.add_argument("--shard-count", type=int,
+                        help="--phase regression only: total shards (>=1)")
+    parser.add_argument("--shard-index", type=int,
+                        help="--phase regression only: 0-based shard index "
+                             "(0 <= index < --shard-count)")
+    args = parser.parse_args()
+    # ★ test 파일을 실제로 실행하는 phase 로 갈 때만, 그 어떤 test 파일보다 먼저
+    #   checkout 자체가 완전한지 한 번 본다.
+    #   ⛔ `structural` 과 `fi` 는 대상이 아니다 — 위시리스트가 아니라 이 저장소
+    #      자신의 actions-pass.yml 이 이미 그렇게 선언하고 있다:
+    #      "fetch-depth: 0 은 [regression] matrix 에만 준다 — test_replay_
+    #      asset_identity.py 가 실제 git 커밋 히스토리를 직접 읽는다" (해당 워크플로
+    #      주석). `structural` 은 builder 재빌드/byte 비교만 하고 test 파일을 하나도
+    #      실행하지 않으며, `fi` 는 test/test_fault_injection.py 하나만 자식으로
+    #      실행하는데 그 파일은 스스로 만든 `.git` 없는 임시 사본 안에서만 검증한다
+    #      (바깥 checkout 의 역사/evidence 완전성과 무관). 그래서 두 job 모두 CI 에서
+    #      의도적으로 기본 fetch-depth: 1(shallow) 로 checkout 된다 — 이 게이트가 그
+    #      두 곳에서도 unconditionally 발동하면, 올바르게 구성된 checkout 을 스스로
+    #      불완전하다고 오판하게 된다(2026-09-18 밤에 실제로 그랬다: 첫 커밋부터
+    #      `structural`/`fault-injection` 이 이 이유로 즉시 FAIL 했다 — 한국어 배너를
+    #      추가하기 전부터다).
+    #   `regression` 과 legacy `all` 경로는 실제로 APPROVED_TESTS 파일을 실행하므로
+    #   (test_global_asset_master_population_readiness.py, test_paper_regime_
+    #   reference.py 포함) 계속 검사한다.
+    if args.phase in ("all", "regression"):
+        checkout_abort = verify_checkout_completeness()
+        if checkout_abort is not None:
+            return checkout_abort
+    if args.log_dir:
+        args.log_dir = os.path.realpath(args.log_dir)
+        if os.path.commonpath([args.log_dir, os.path.realpath(ROOT)]) == os.path.realpath(ROOT):
+            parser.error("--log-dir must be outside the checkout")
+    if args.phase != "regression" and (args.shard_count is not None or args.shard_index is not None):
+        parser.error("--shard-count/--shard-index only apply to --phase regression")
+    if args.phase == "regression":
+        if (args.shard_count is None) != (args.shard_index is None):
+            parser.error("--shard-count and --shard-index must be given together")
+        shard_count = args.shard_count if args.shard_count is not None else 1
+        shard_index = args.shard_index if args.shard_index is not None else 0
+        if shard_count < 1:
+            parser.error("--shard-count must be >= 1")
+        if not 0 <= shard_index < shard_count:
+            parser.error(f"--shard-index must satisfy 0 <= index < {shard_count}")
+        args.shard_count, args.shard_index = shard_count, shard_index
+    if args.phase == "fi" and args.no_fi:
+        parser.error("--phase fi cannot be combined with --no-fi")
+    if args.phase != "all" and (args.regression_shard_index is not None
+                                 or args.regression_shard_count is not None):
+        parser.error("--regression-shard-index/--regression-shard-count are the --phase all "
+                     "(legacy 2-shard) surface; use --shard-count/--shard-index with --phase regression")
+    if args.phase != "all":
+        return run_bounded_phase(args)
+    # ★ shard 인자는 어떤 작업보다 먼저 검증한다 — 잘못된 조합은 아무것도 실행하지 않는다.
+    shard = None
+    if (args.regression_shard_index is None) != (args.regression_shard_count is None):
+        parser.error("--regression-shard-index and --regression-shard-count must be given together")
+    if args.regression_shard_count is not None:
+        if args.regression_shard_count != REGRESSION_SHARD_COUNT:
+            parser.error(f"--regression-shard-count must be exactly {REGRESSION_SHARD_COUNT}")
+        if not 1 <= args.regression_shard_index <= args.regression_shard_count:
+            parser.error(f"--regression-shard-index must be 1..{REGRESSION_SHARD_COUNT}")
+        # shard 는 권위 검증이나 FI 를 건너뛰는 통로가 아니다.
+        if not args.authoritative:
+            parser.error("--regression-shard-index requires --authoritative; "
+                         "a shard never skips authoritative rebuild/byte verification")
+        if args.no_fi:
+            parser.error("--regression-shard-index cannot be combined with --no-fi; "
+                         "every shard runs the complete Fault Injection suite")
+        shard = args.regression_shard_index
+    r = Runner(fail_fast=args.fail_fast, log_dir=args.log_dir, shard=shard)
     print("Atlas Actions runner — Python", sys.version.split()[0])
     print(f"⛔ Production HOLD · evaluator 미연결 · 이 실행은 상태를 바꾸지 않는다\n")
 
-    authoritative = "--authoritative" in sys.argv
+    authoritative = args.authoritative
+    # Cheap exact population check before any expensive work or mutation.
+    if shard is not None:
+        if not r.test_set():
+            return finish(r)
+        try:
+            r.selected_regression()
+        except ValueError as error:
+            r.fail("regression-shard", str(error))
+            return finish(r)
+    elif args.fail_fast and not r.test_set():
+        return finish(r)
     with tempfile.TemporaryDirectory(prefix="atlas_committed_") as snap_dir:
         if not authoritative:
             print("[1-3/5] rebuild · byte 비교 — 건너뜀 (inspection mode)")
@@ -2273,24 +3781,39 @@ def main():
                     r.fail("guard", b)
                 print("[1-3/5] ⛔ authoritative rebuild 차단 — 어떤 파일도 건드리지 않았다")
                 kept = {}
+                if args.fail_fast:
+                    return finish(r)
             else:
                 print("[1/5] committed 산출물 사본 보존")
                 kept = r.snapshot(snap_dir)
+                if args.fail_fast and r.failures:
+                    return finish(r)
 
                 if kept:
                     print("[2/5] builder ①→⑭ 직렬 재빌드")
                     r.rebuild()
+                    if args.fail_fast and r.failures:
+                        return finish(r)
 
                     print("[3/5] committed ↔ rebuilt byte 비교")
                     r.compare(kept)
+                    if args.fail_fast and r.failures:
+                        return finish(r)
 
+        if args.fail_fast:
+            if not r.failures:
+                r.boundary()
+            if r.failures:
+                return finish(r)
         print(approved_test_label())
         r.approved_tests()
+        if args.fail_fast and r.failures:
+            return finish(r)
 
         # ★ `--no-fi` 는 **Fault Injection suite 전용** 스위치다. FI-1 · FI-4 는 이
         #   runner 자체를 사본에서 실행해 Gate 동작을 검증하는데, 그 사본이 다시 FI
         #   suite 를 부르면 무한 재귀가 된다. Actions 는 이 스위치 없이 실행한다.
-        if "--no-fi" in sys.argv:
+        if args.no_fi:
             print("[5/5] Fault Injection suite — 건너뜀 (--no-fi, FI 내부 실행)")
         else:
             print("[5/5] Fault Injection suite")
@@ -2298,6 +3821,10 @@ def main():
 
         r.boundary()
 
+    return finish(r)
+
+
+def finish(r):
     print()
     if r.failures:
         print(f"⛔ FAIL — {len(r.failures)}건")
@@ -2305,6 +3832,12 @@ def main():
             print("  •", f)
         print("\nActions PASS = NO")
         return 1
+    # ★ 부분 실행은 전체 판정을 주장하지 않는다 — 최종 aggregate job 이 판정한다.
+    if getattr(r, "shard", None) is not None:
+        print(f"✅ regression shard {r.shard}/{REGRESSION_SHARD_COUNT} 완료 — PARTIAL")
+        print("   ⛔ 이것은 승인 회귀의 일부다. 전체 판정은 두 shard 를 모두 요구하는")
+        print("      최종 aggregate job 이 한다 — 이 출력은 전체 통과를 뜻하지 않는다.")
+        return 0
     print("✅ Actions PASS = YES")
     print("   ⛔ 단, 이것은 CI 통과이지 Production 승인도 evaluator 승인도 아니다.")
     print("   ★ FI-3 frozen input tamper = KNOWN GAP / NOT GATED (미검증 영역)")

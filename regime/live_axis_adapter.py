@@ -338,10 +338,17 @@ def _btc_trend(rows: dict, generated_at: str, binding: dict) -> dict:
         "direction": packet.get("direction"),
         "dma_200": packet.get("dma_200"),
     }
+    temporal_expected = {
+        **expected,
+        "latest_finalized_day": packet.get("latest_finalized_day"),
+        "capture_date": packet.get("lineage", {}).get("vintage_date"),
+    }
+    # Frozen legacy rows omit both dates. Current rows must match both dates
+    # rederived from immutable raw evidence; partial or extra fields fail closed.
     if (
         row.get("contract_version") != binding["source_transform_version"]
         or packet.get("transform_version") != binding["source_transform_version"]
-        or row.get("packet") != expected
+        or row.get("packet") not in (expected, temporal_expected)
         or row.get("generated_at") != packet.get("lineage", {}).get("available_at")
         or row.get("as_of_date") != packet.get("lineage", {}).get("vintage_date")
     ):
@@ -362,10 +369,17 @@ def _btc_risk(rows: dict, generated_at: str, binding: dict) -> dict:
     path = _source_dir(row, "evidence/crypto/btc/raw/")
     packet = BTC_RISK.build_transform(path)
     expected = {"status": packet.get("status"), "risk_point": packet.get("risk_point")}
+    temporal_expected = {
+        **expected,
+        "latest_finalized_day": packet.get("latest_finalized_day"),
+        "capture_date": packet.get("lineage", {}).get("vintage_date"),
+    }
+    # Frozen legacy rows omit both dates. Current rows must match both dates
+    # rederived from immutable raw evidence; partial or extra fields fail closed.
     if (
         row.get("contract_version") != binding["source_transform_version"]
         or packet.get("transform_version") != binding["source_transform_version"]
-        or row.get("packet") != expected
+        or row.get("packet") not in (expected, temporal_expected)
         or row.get("generated_at") != packet.get("lineage", {}).get("available_at")
         or row.get("as_of_date") != packet.get("lineage", {}).get("vintage_date")
     ):

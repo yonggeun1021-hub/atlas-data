@@ -149,6 +149,103 @@ def plan(*, triggers=None, entry_account=None):
     )
 
 
+def submitted_ledger():
+    ledger = SIM.create_ledger(
+        ledger_id="PAPER.EXIT.TEST",
+        initial_cash="1000",
+        opened_at="2026-08-29T01:00:00Z",
+        idempotency_key="PAPER.ACCOUNT.OPEN",
+    )
+    return SIM.submit_order(ledger, sim_intent())
+
+
+def partially_filled_ledger():
+    return SIM.match_order(
+        submitted_ledger(),
+        order_id="PAPER.ENTRY.1",
+        snapshot=book(asks=[{"price": "100", "quantity": "1"}]),
+        event_at="2026-08-29T01:31:01Z",
+        idempotency_key="PAPER.ENTRY.MATCH.1",
+    )
+
+
+def draft_entry_account():
+    return account(observed_at="2026-08-29T01:32:00Z", price="101", source_sha="e" * 64)
+
+
+def order_draft(**changes):
+    """A P5-09 order draft as an upstream producer would hand it to a caller."""
+    value = {
+        "draft_id": "P509.ORDER.DRAFT.1",
+        "market": "KRW-BTC",
+        "planned_stop_price": "90",
+        "expires_at": "2026-08-29T02:30:00Z",
+        "next_review_at": "2026-08-29T03:00:00Z",
+    }
+    value.update(changes)
+    return value
+
+
+def binding(
+    source_field, trigger_id, category, action, *, fraction=None,
+    order_id=None, key=None,
+):
+    return {
+        "source_field": source_field,
+        "trigger_id": trigger_id,
+        "category": category,
+        "action": action,
+        "quantity_fraction": fraction,
+        "paper_order_id": order_id,
+        "paper_order_idempotency_key": key,
+    }
+
+
+def default_bindings():
+    return [
+        binding(
+            "planned_stop_price", "TRIGGER.STOP", "HARD_EXIT", "EXIT_REVIEW",
+            fraction="1", order_id="PAPER.EXIT.STOP", key="PAPER.EXIT.STOP.SUBMIT",
+        ),
+        binding(
+            "next_review_at", "TRIGGER.TIME", "TIME_REVIEW", "EXIT_REVIEW",
+            fraction="1", order_id="PAPER.EXIT.TIME", key="PAPER.EXIT.TIME.SUBMIT",
+        ),
+    ]
+
+
+def expected_draft_triggers():
+    return [
+        trigger(
+            "TRIGGER.STOP", "HARD_EXIT", "PRICE_AT_OR_BELOW", "EXIT_REVIEW",
+            threshold="90", fraction="1", order_id="PAPER.EXIT.STOP",
+            key="PAPER.EXIT.STOP.SUBMIT",
+        ),
+        trigger(
+            "TRIGGER.TIME", "TIME_REVIEW", "TIME_AT_OR_AFTER", "EXIT_REVIEW",
+            threshold="2026-08-29T03:00:00Z", fraction="1",
+            order_id="PAPER.EXIT.TIME", key="PAPER.EXIT.TIME.SUBMIT",
+        ),
+    ]
+
+
+def draft_plan(*, draft=None, bindings=None, source_account=None, **changes):
+    source_account = draft_entry_account() if source_account is None else source_account
+    arguments = {
+        "plan_id": "PAPER.EXIT.PLAN.1",
+        "market": "KRW-BTC",
+        "source_entry_order_id": "PAPER.ENTRY.1",
+        "created_at": source_account["observed_at"],
+        "order_draft": order_draft() if draft is None else draft,
+        "trigger_bindings": default_bindings() if bindings is None else bindings,
+        "source_entry_account": source_account,
+        "source_entry_plan_ref": "test://entry-plan/PAPER.ENTRY.1",
+        "source_entry_plan_sha256": "a" * 64,
+    }
+    arguments.update(changes)
+    return MODULE.build_exit_plan_from_order_draft(**arguments)
+
+
 def signals(**changes):
     value = {
         "kill_switch": "CLEAR",
@@ -187,6 +284,116 @@ def evaluate(*, exit_plan=None, current_account=None, observed=None):
         source_sha=observed["source_sha256"],
     )
     return MODULE.evaluate_exit(exit_plan or plan(), current_account, observed)
+
+
+def harvest_decision():
+    """A partial-harvest exit decision with a SELL identity and positive quantity."""
+    return evaluate(observed=observation(price="120", prior_high="120"))
+
+
+def stop_decision():
+    """A full EXIT_REVIEW decision for the whole current position."""
+    return evaluate(observed=observation(price="90", prior_high="115"))
+
+
+def mapped_sell_intent(*, exit_decision=None, **changes):
+    exit_decision = harvest_decision() if exit_decision is None else exit_decision
+    arguments = {
+        "exit_decision": exit_decision,
+        "order_type": "MARKET",
+        "limit_price": None,
+        "fee_rate": "0",
+        "queue_fraction": "1",
+        "submitted_at": exit_decision["observed_at"],
+        "expires_at": "2026-08-29T02:40:00Z",
+        "source_exit_plan_ref": "test://p7-13-exit-plan/PAPER.EXIT.PLAN.1",
+        "source_observation_ref": "test://p7-13-observation/KRW-BTC",
+    }
+    arguments.update(changes)
+    return MODULE.build_sell_intent_from_exit_decision(**arguments)
+
+
+def dust_decision():
+    """A decision whose planned fraction floors to zero at the canonical scale."""
+    ledger = SIM.create_ledger(
+        ledger_id="PAPER.EXIT.DUST",
+        initial_cash="1000",
+        opened_at="2026-08-29T01:00:00Z",
+        idempotency_key="PAPER.ACCOUNT.OPEN",
+    )
+    ledger = SIM.submit_order(ledger, sim_intent(quantity="0.000000000000000001"))
+    ledger = SIM.match_order(
+        ledger,
+        order_id="PAPER.ENTRY.1",
+        snapshot=book(),
+        event_at="2026-08-29T01:31:01Z",
+        idempotency_key="PAPER.ENTRY.MATCH.1",
+    )
+    entry = account(ledger, observed_at="2026-08-29T01:32:00Z", price="101", source_sha="e" * 64)
+    dust_plan = MODULE.build_exit_plan(
+        plan_id="PAPER.EXIT.PLAN.DUST",
+        market="KRW-BTC",
+        source_entry_order_id="PAPER.ENTRY.1",
+        created_at=entry["observed_at"],
+        triggers=[
+            trigger(
+                "TRIGGER.STOP", "HARD_EXIT", "PRICE_AT_OR_BELOW", "EXIT_REVIEW",
+                threshold="90", fraction="0.5", order_id="PAPER.EXIT.STOP",
+                key="PAPER.EXIT.STOP.SUBMIT",
+            )
+        ],
+        source_entry_account=entry,
+        source_entry_plan_ref="test://entry-plan/PAPER.ENTRY.1",
+        source_entry_plan_sha256="a" * 64,
+    )
+    observed = observation(price="90", prior_high="115")
+    return MODULE.evaluate_exit(
+        dust_plan,
+        account(ledger, observed_at=observed["observed_at"], price="90", source_sha=observed["source_sha256"]),
+        observed,
+    )
+
+
+def harvest_lifecycle():
+    """Offline decision -> helper intent -> existing simulator submit/match/re-evaluate."""
+    buy_ledger = bought_ledger()
+    observed = observation(price="120", prior_high="120")
+    current = account(
+        buy_ledger,
+        observed_at=observed["observed_at"],
+        price=observed["current_price"],
+        source_sha=observed["source_sha256"],
+    )
+    decision = evaluate(current_account=current, observed=observed)
+    intent = mapped_sell_intent(exit_decision=decision)
+    sell_ledger = SIM.submit_order(buy_ledger, intent)
+    sell_ledger = SIM.match_order(
+        sell_ledger,
+        order_id=intent["order_id"],
+        snapshot=book(
+            snapshot_id="SNAPSHOT.EXIT.HARVEST",
+            captured_at="2026-08-29T01:41:00Z",
+            bids=[{"price": "120", "quantity": "2"}],
+            source_sha=observed["source_sha256"],
+        ),
+        event_at="2026-08-29T01:41:01Z",
+        idempotency_key="PAPER.EXIT.HARVEST.MATCH",
+    )
+    final = SIM.build_account_state(
+        sell_ledger,
+        observed_at="2026-08-29T01:42:00Z",
+        mark_prices={"KRW-BTC": "120"},
+        mark_freshness_status="FRESH",
+        mark_source_ref="test://mark/final",
+        mark_source_sha256="9" * 64,
+    )
+    repeated = evaluate(
+        current_account=final,
+        observed=observation(
+            observed_at="2026-08-29T01:42:00Z", price="120", prior_high="120", source_sha="9" * 64,
+        ),
+    )
+    return {"decision": decision, "intent": intent, "final_account": final, "repeated": repeated}
 
 
 class ContractAndPlanTests(unittest.TestCase):
@@ -386,6 +593,536 @@ class EvaluationTests(unittest.TestCase):
                 MODULE.CryptoPaperExitManagerError, "OUTPUT_DERIVATION_MISMATCH"
             ):
                 MODULE.validate_output(tampered)
+
+
+class OrderDraftAdapterTests(unittest.TestCase):
+    def test_adapter_mirrors_build_exit_plan_arguments_without_policy_defaults(self):
+        signature = inspect.signature(MODULE.build_exit_plan_from_order_draft)
+        direct = inspect.signature(MODULE.build_exit_plan)
+        for parameter in signature.parameters.values():
+            self.assertIs(parameter.kind, inspect.Parameter.KEYWORD_ONLY, parameter.name)
+        self.assertNotIn("triggers", signature.parameters)
+        self.assertEqual(
+            set(signature.parameters) - {"order_draft", "trigger_bindings"},
+            set(direct.parameters) - {"triggers"},
+        )
+        for name in ("order_draft", "trigger_bindings"):
+            self.assertIs(signature.parameters[name].default, inspect.Parameter.empty)
+        for name in ("stop_price", "harvest_fraction", "category", "action", "quantity_fraction"):
+            self.assertNotIn(name, signature.parameters)
+
+    def test_adapter_maps_declared_source_fields_to_exact_conditions_and_values(self):
+        value = draft_plan()
+        self.assertEqual(value["triggers"], expected_draft_triggers())
+        self.assertEqual(value["initial_quantity"], "2")
+        self.assertEqual(value["entry_price"], "100.5")
+        self.assertEqual(MODULE.validate_exit_plan(value), value)
+        self.assertEqual(value["authority"], CONTRACT["plan_authority"])
+
+    def test_adapter_output_equals_direct_build_exit_plan(self):
+        source = draft_entry_account()
+        adapted = draft_plan(source_account=source)
+        direct = MODULE.build_exit_plan(
+            plan_id="PAPER.EXIT.PLAN.1",
+            market="KRW-BTC",
+            source_entry_order_id="PAPER.ENTRY.1",
+            created_at=source["observed_at"],
+            triggers=expected_draft_triggers(),
+            source_entry_account=source,
+            source_entry_plan_ref="test://entry-plan/PAPER.ENTRY.1",
+            source_entry_plan_sha256="a" * 64,
+        )
+        self.assertEqual(MODULE.canonical_json(adapted), MODULE.canonical_json(direct))
+        self.assertEqual(adapted["packet_sha256"], direct["packet_sha256"])
+        self.assertEqual(draft_plan(source_account=source, contract=CONTRACT), direct)
+
+    def test_adapter_plan_drives_the_existing_evaluate_path(self):
+        result = evaluate(exit_plan=draft_plan(), observed=observation(price="90", prior_high="115"))
+        self.assertEqual(result["status"], "TRIGGER_SELECTED_REVIEW_ONLY")
+        self.assertEqual(result["selected_trigger_id"], "TRIGGER.STOP")
+        self.assertEqual(result["action"], "EXIT_REVIEW")
+        self.assertEqual(result["target_quantity"], "2")
+        self.assertEqual(result["paper_order_identity_candidate"]["order_id"], "PAPER.EXIT.STOP")
+        self.assertTrue(result["human_review_required"])
+        self.assertFalse(result["authority"]["exchange_order_authorized"])
+
+    def test_adapter_uses_only_caller_supplied_category_action_and_fraction(self):
+        bindings = [
+            binding(
+                "planned_stop_price", "TRIGGER.RISK", "RISK_REGIME", "REDUCE",
+                fraction="0.25", order_id="PAPER.EXIT.RISK", key="PAPER.EXIT.RISK.SUBMIT",
+            ),
+            binding(
+                "expires_at", "TRIGGER.EXPIRY", "TIME_REVIEW", "HARVEST_PARTIAL",
+                fraction="0.5", order_id="PAPER.EXIT.EXPIRY", key="PAPER.EXIT.EXPIRY.SUBMIT",
+            ),
+        ]
+        value = draft_plan(bindings=bindings)
+        self.assertEqual(
+            [
+                (row["condition"], row["threshold"], row["category"], row["action"], row["quantity_fraction"])
+                for row in value["triggers"]
+            ],
+            [
+                ("PRICE_AT_OR_BELOW", "90", "RISK_REGIME", "REDUCE", "0.25"),
+                ("TIME_AT_OR_AFTER", "2026-08-29T02:30:00Z", "TIME_REVIEW", "HARVEST_PARTIAL", "0.5"),
+            ],
+        )
+        observed = observation(observed_at="2026-08-29T02:30:00Z", price="110", source_sha="7" * 64)
+        result = evaluate(
+            exit_plan=value,
+            current_account=account(observed_at=observed["observed_at"], price="110", source_sha="7" * 64),
+            observed=observed,
+        )
+        self.assertEqual(result["selected_trigger_id"], "TRIGGER.EXPIRY")
+        self.assertEqual(result["target_quantity"], "1")
+
+    def test_adapter_rejects_missing_null_and_malformed_source_values(self):
+        cases = (
+            ({"planned_stop_price": None}, "ORDER_DRAFT_PRICE_INVALID:0"),
+            ({"planned_stop_price": "0"}, "ORDER_DRAFT_PRICE_INVALID:0"),
+            ({"planned_stop_price": "-5"}, "ORDER_DRAFT_PRICE_INVALID:0"),
+            ({"planned_stop_price": 90}, "ORDER_DRAFT_PRICE_INVALID:0"),
+            ({"planned_stop_price": "90.50"}, "ORDER_DRAFT_PRICE_INVALID:0:NON_CANONICAL"),
+            ({"next_review_at": None}, "ORDER_DRAFT_TIME_INVALID:1"),
+            ({"next_review_at": "2026-08-29 03:00:00"}, "ORDER_DRAFT_TIME_INVALID:1"),
+            ({"next_review_at": "2026-02-30T03:00:00Z"}, "ORDER_DRAFT_TIME_INVALID:1"),
+        )
+        for changes, code in cases:
+            with self.subTest(changes=changes), self.assertRaisesRegex(
+                MODULE.CryptoPaperExitManagerError, code
+            ):
+                draft_plan(draft=order_draft(**changes))
+        missing = order_draft()
+        del missing["planned_stop_price"]
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "ORDER_DRAFT_SOURCE_FIELD_MISSING:0:planned_stop_price"
+        ):
+            draft_plan(draft=missing)
+
+    def test_adapter_rejects_unsupported_source_fields_and_binding_shapes(self):
+        unsupported = [
+            binding(
+                "planned_take_profit_price", "TRIGGER.TP", "PROFIT_TRAIL", "HARVEST_PARTIAL",
+                fraction="0.5", order_id="PAPER.EXIT.TP", key="PAPER.EXIT.TP.SUBMIT",
+            )
+        ]
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "ORDER_DRAFT_SOURCE_FIELD_UNSUPPORTED:0"
+        ):
+            draft_plan(bindings=unsupported)
+        caller_condition = default_bindings()
+        caller_condition[1]["condition"] = "PRICE_AT_OR_ABOVE"
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_BINDING_FIELDS_MISMATCH:1"):
+            draft_plan(bindings=caller_condition)
+        incomplete = default_bindings()
+        del incomplete[0]["quantity_fraction"]
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_BINDING_FIELDS_MISMATCH:0"):
+            draft_plan(bindings=incomplete)
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_BINDINGS_EMPTY"):
+            draft_plan(bindings=[])
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_BINDINGS_INVALID"):
+            draft_plan(bindings=tuple(default_bindings()))
+        for bad_draft in ([("planned_stop_price", "90")], {1: "90"}):
+            with self.subTest(draft=bad_draft), self.assertRaisesRegex(
+                MODULE.CryptoPaperExitManagerError, "ORDER_DRAFT_INVALID"
+            ):
+                draft_plan(draft=bad_draft)
+
+    def test_adapter_rejects_invalid_categories_actions_and_quantity_metadata(self):
+        cases = (
+            ("MOMENTUM", "EXIT_REVIEW", "1", "PAPER.EXIT.STOP", "TRIGGER.STOP", "TRIGGER_CATEGORY_INVALID:0"),
+            ("HARD_EXIT", "SELL", "1", "PAPER.EXIT.STOP", "TRIGGER.STOP", "TRIGGER_ACTION_INVALID:0"),
+            ("HARD_EXIT", "EXIT_REVIEW", "0", "PAPER.EXIT.STOP", "TRIGGER.STOP", "TRIGGER_QUANTITY_FRACTION_INVALID:0"),
+            ("HARD_EXIT", "EXIT_REVIEW", "1.5", "PAPER.EXIT.STOP", "TRIGGER.STOP", "TRIGGER_QUANTITY_FRACTION_INVALID:0"),
+            ("HARD_EXIT", "EXIT_REVIEW", "1", None, "TRIGGER.STOP", "TRIGGER_PAPER_ORDER_ID_INVALID:0"),
+            (
+                "PROFIT_TRAIL", "TRAIL", "1", "PAPER.EXIT.STOP", "TRIGGER.STOP",
+                "NON_QUANTITY_TRIGGER_ORDER_IDENTITY_FORBIDDEN:0",
+            ),
+            ("HARD_EXIT", "EXIT_REVIEW", "1", "PAPER.EXIT.STOP", "trigger.stop", "TRIGGER_ID_INVALID:0"),
+        )
+        for category, action, fraction, order_id, trigger_id, code in cases:
+            row = binding(
+                "planned_stop_price", trigger_id, category, action,
+                fraction=fraction, order_id=order_id, key="PAPER.EXIT.STOP.SUBMIT",
+            )
+            with self.subTest(code=code), self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, code):
+                draft_plan(bindings=[row])
+
+    def test_adapter_rejects_duplicate_identities_and_never_sorts_bindings(self):
+        duplicated_id = default_bindings()
+        duplicated_id[1]["trigger_id"] = duplicated_id[0]["trigger_id"]
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "TRIGGER_ID_DUPLICATE"):
+            draft_plan(bindings=duplicated_id)
+        duplicated_order = default_bindings()
+        duplicated_order[1]["paper_order_id"] = duplicated_order[0]["paper_order_id"]
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "PAPER_ORDER_IDENTITY_DUPLICATE"):
+            draft_plan(bindings=duplicated_order)
+        duplicated_key = default_bindings()
+        duplicated_key[1]["paper_order_idempotency_key"] = duplicated_key[0]["paper_order_idempotency_key"]
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "PAPER_ORDER_IDENTITY_DUPLICATE"):
+            draft_plan(bindings=duplicated_key)
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "PRIORITY_ORDER"):
+            draft_plan(bindings=list(reversed(default_bindings())))
+
+    def test_adapter_preserves_existing_entry_account_boundaries(self):
+        unfilled = account(
+            submitted_ledger(), observed_at="2026-08-29T01:32:00Z", price="101", source_sha="e" * 64,
+        )
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "SOURCE_ENTRY_ORDER_NOT_FILLED_BUY"):
+            draft_plan(source_account=unfilled)
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "SOURCE_ENTRY_ORDER_NOT_FOUND"):
+            draft_plan(source_entry_order_id="PAPER.ENTRY.404")
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "PLAN_MARKET_ENTRY_ORDER_MISMATCH"):
+            draft_plan(market="KRW-ETH")
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "PLAN_CREATED_AT_MUST_EQUAL_ENTRY_ACCOUNT_OBSERVED_AT"
+        ):
+            draft_plan(created_at="2026-08-29T01:40:00Z")
+        partial = draft_plan(source_account=account(
+            partially_filled_ledger(), observed_at="2026-08-29T01:32:00Z", price="101", source_sha="e" * 64,
+        ))
+        self.assertEqual(partial["initial_quantity"], "1")
+        self.assertEqual(partial["entry_price"], "100")
+        self.assertEqual(partial["triggers"], expected_draft_triggers())
+
+    def test_adapter_leaves_caller_inputs_unchanged_and_repeats_deterministically(self):
+        draft = order_draft()
+        bindings = default_bindings()
+        source = draft_entry_account()
+        draft_before = copy.deepcopy(draft)
+        bindings_before = copy.deepcopy(bindings)
+        source_before = copy.deepcopy(source)
+        first = draft_plan(draft=draft, bindings=bindings, source_account=source)
+        second = draft_plan(draft=draft, bindings=bindings, source_account=source)
+        self.assertEqual(draft, draft_before)
+        self.assertEqual(bindings, bindings_before)
+        self.assertEqual(source, source_before)
+        self.assertEqual(first, second)
+        first["triggers"][0]["threshold"] = "1"
+        first["triggers"].append("TAMPER")
+        self.assertEqual(draft_plan(draft=draft, bindings=bindings, source_account=source), second)
+        draft["planned_stop_price"] = "80"
+        bindings[0]["trigger_id"] = "TRIGGER.MUTATED"
+        self.assertEqual(second["triggers"][0]["threshold"], "90")
+        self.assertEqual(second["triggers"][0]["trigger_id"], "TRIGGER.STOP")
+
+
+class ExitDecisionSellIntentTests(unittest.TestCase):
+    def test_helper_is_keyword_only_and_requires_every_execution_term(self):
+        signature = inspect.signature(MODULE.build_sell_intent_from_exit_decision)
+        for parameter in signature.parameters.values():
+            self.assertIs(parameter.kind, inspect.Parameter.KEYWORD_ONLY, parameter.name)
+        for name in (
+            "exit_decision", "order_type", "limit_price", "fee_rate", "queue_fraction",
+            "submitted_at", "expires_at", "source_exit_plan_ref", "source_observation_ref",
+        ):
+            self.assertIs(signature.parameters[name].default, inspect.Parameter.empty, name)
+        self.assertIsNone(signature.parameters["contract"].default)
+        for name in (
+            "order_id", "idempotency_key", "market", "side", "quantity",
+            "market_regime_status", "ttl_seconds", "source_plan_sha256",
+        ):
+            self.assertNotIn(name, signature.parameters)
+
+    def test_partial_harvest_decision_maps_identity_quantity_regime_and_lineage(self):
+        decision = harvest_decision()
+        intent = mapped_sell_intent(exit_decision=decision)
+        self.assertEqual(decision["action"], "HARVEST_PARTIAL")
+        self.assertEqual(intent["order_id"], "PAPER.EXIT.HARVEST")
+        self.assertEqual(intent["idempotency_key"], "PAPER.EXIT.HARVEST.SUBMIT")
+        self.assertEqual(intent["market"], "KRW-BTC")
+        self.assertEqual(intent["side"], "SELL")
+        self.assertEqual(intent["quantity"], decision["target_quantity"])
+        self.assertEqual(intent["quantity"], "1")
+        self.assertEqual(intent["market_regime_status"], "UNKNOWN")
+        self.assertEqual(intent["source_plan_ref"], "test://p7-13-exit-plan/PAPER.EXIT.PLAN.1")
+        self.assertEqual(
+            intent["source_plan_sha256"], decision["source_packets"]["exit_plan"]["packet_sha256"]
+        )
+        self.assertEqual(intent["source_evidence_ref"], "test://p7-13-observation/KRW-BTC")
+        self.assertEqual(
+            intent["source_evidence_sha256"], decision["source_packets"]["observation"]["packet_sha256"]
+        )
+        self.assertEqual(SIM.validate_intent(intent), intent)
+        self.assertTrue(intent["authority"]["paper_simulation_requested"])
+        for field, value in intent["authority"].items():
+            if field != "paper_simulation_requested":
+                self.assertIs(value, False, field)
+        self.assertTrue(decision["human_review_required"])
+        self.assertEqual(decision["authority"], CONTRACT["authority"])
+
+    def test_full_exit_review_decision_maps_the_whole_target_quantity(self):
+        decision = stop_decision()
+        intent = mapped_sell_intent(exit_decision=decision, submitted_at=decision["observed_at"])
+        self.assertEqual(decision["action"], "EXIT_REVIEW")
+        self.assertEqual(decision["target_quantity"], "2")
+        self.assertEqual(intent["order_id"], "PAPER.EXIT.STOP")
+        self.assertEqual(intent["quantity"], "2")
+        self.assertEqual(intent["side"], "SELL")
+
+    def test_helper_output_equals_direct_build_intent_call(self):
+        decision = harvest_decision()
+        adapted = mapped_sell_intent(exit_decision=decision)
+        direct = SIM.build_intent(
+            order_id="PAPER.EXIT.HARVEST",
+            idempotency_key="PAPER.EXIT.HARVEST.SUBMIT",
+            market="KRW-BTC",
+            side="SELL",
+            order_type="MARKET",
+            quantity="1",
+            limit_price=None,
+            fee_rate="0",
+            queue_fraction="1",
+            submitted_at=decision["observed_at"],
+            expires_at="2026-08-29T02:40:00Z",
+            market_regime_status="UNKNOWN",
+            source_plan_ref="test://p7-13-exit-plan/PAPER.EXIT.PLAN.1",
+            source_plan_sha256=decision["source_packets"]["exit_plan"]["packet_sha256"],
+            source_evidence_ref="test://p7-13-observation/KRW-BTC",
+            source_evidence_sha256=decision["source_packets"]["observation"]["packet_sha256"],
+        )
+        self.assertEqual(SIM.canonical_json(adapted), SIM.canonical_json(direct))
+        self.assertEqual(adapted["packet_sha256"], direct["packet_sha256"])
+        self.assertEqual(mapped_sell_intent(exit_decision=decision, contract=CONTRACT), direct)
+
+    def test_explicit_limit_and_market_terms_are_used_verbatim(self):
+        limit = mapped_sell_intent(order_type="LIMIT", limit_price="119", fee_rate="0.0005", queue_fraction="0.5")
+        self.assertEqual(limit["order_type"], "LIMIT")
+        self.assertEqual(limit["limit_price"], "119")
+        self.assertEqual(limit["fee_rate"], "0.0005")
+        self.assertEqual(limit["queue_fraction"], "0.5")
+        market = mapped_sell_intent()
+        self.assertEqual(market["order_type"], "MARKET")
+        self.assertIsNone(market["limit_price"])
+        self.assertEqual(market["fee_rate"], "0")
+        with self.assertRaisesRegex(
+            SIM.CryptoPaperSimulatorError, "MARKET_INTENT_LIMIT_PRICE_MUST_BE_NULL"
+        ):
+            mapped_sell_intent(order_type="MARKET", limit_price="119")
+
+    def test_rejects_no_trigger_hold_wait_and_already_applied_decisions(self):
+        unknown_triggers = [
+            trigger(
+                "TRIGGER.REGIME", "RISK_REGIME", "REGIME_FAIL", "REDUCE",
+                fraction="0.5", order_id="PAPER.EXIT.REGIME", key="PAPER.EXIT.REGIME.SUBMIT",
+            ),
+            trigger(
+                "TRIGGER.PROFIT", "PROFIT_TRAIL", "PRICE_AT_OR_ABOVE", "HARVEST_PARTIAL",
+                threshold="100", fraction="0.5", order_id="PAPER.EXIT.PROFIT",
+                key="PAPER.EXIT.PROFIT.SUBMIT",
+            ),
+        ]
+        cases = (
+            (evaluate(), "NO_TRIGGER_HOLD"),
+            (evaluate(observed=observation(price="90", freshness="STALE")), "WAIT_STALE_EVIDENCE"),
+            (
+                evaluate(
+                    exit_plan=plan(triggers=unknown_triggers),
+                    observed=observation(price="120", prior_high="120"),
+                ),
+                "WAIT_UNKNOWN_EVIDENCE",
+            ),
+            (harvest_lifecycle()["repeated"], "TRIGGER_ALREADY_APPLIED"),
+        )
+        for decision, status in cases:
+            self.assertEqual(decision["status"], status)
+            with self.subTest(status=status), self.assertRaisesRegex(
+                MODULE.CryptoPaperExitManagerError, f"SELL_INTENT_DECISION_STATUS_INVALID:{status}"
+            ):
+                mapped_sell_intent(exit_decision=decision, submitted_at=decision["observed_at"])
+
+    def test_rejects_non_quantity_action_and_zero_quantity_after_rounding(self):
+        trailing = evaluate(
+            exit_plan=plan(triggers=[
+                trigger(
+                    "TRIGGER.TRAIL", "PROFIT_TRAIL", "PRICE_AT_OR_ABOVE", "TRAIL",
+                    threshold="100",
+                )
+            ]),
+            observed=observation(price="120", prior_high="120"),
+        )
+        self.assertEqual(trailing["status"], "TRIGGER_SELECTED_REVIEW_ONLY")
+        self.assertEqual(trailing["target_quantity"], "0")
+        self.assertIsNone(trailing["paper_order_identity_candidate"])
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "SELL_INTENT_DECISION_ACTION_NOT_QUANTITY:TRAIL"
+        ):
+            mapped_sell_intent(exit_decision=trailing, submitted_at=trailing["observed_at"])
+        dust = dust_decision()
+        self.assertEqual(dust["status"], "TRIGGER_SELECTED_REVIEW_ONLY")
+        self.assertEqual(dust["action"], "EXIT_REVIEW")
+        self.assertEqual(dust["target_quantity"], "0")
+        self.assertEqual(dust["paper_order_identity_candidate"]["side"], "SELL")
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "SELL_INTENT_TARGET_QUANTITY_NOT_POSITIVE"
+        ):
+            mapped_sell_intent(exit_decision=dust, submitted_at=dust["observed_at"])
+
+    def test_rejects_tampered_rehashed_decision_identity_and_embedded_lineage(self):
+        decision = harvest_decision()
+        for field, changed in (
+            ("target_quantity", "2"),
+            ("action", "HOLD"),
+        ):
+            tampered = copy.deepcopy(decision)
+            tampered[field] = changed
+            tampered["packet_sha256"] = MODULE.payload_sha256(
+                {k: v for k, v in tampered.items() if k != "packet_sha256"}
+            )
+            with self.subTest(field=field), self.assertRaisesRegex(
+                MODULE.CryptoPaperExitManagerError, "OUTPUT_DERIVATION_MISMATCH"
+            ):
+                mapped_sell_intent(exit_decision=tampered)
+        promoted = copy.deepcopy(decision)
+        promoted["paper_order_identity_candidate"]["order_id"] = "PAPER.EXIT.OTHER"
+        promoted["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in promoted.items() if k != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "OUTPUT_DERIVATION_MISMATCH"
+        ):
+            mapped_sell_intent(exit_decision=promoted)
+        for path, changed, code in (
+            (("exit_plan", "initial_quantity"), "20", "PLAN_INITIAL_QUANTITY_ENTRY_ORDER_MISMATCH"),
+            (("exit_plan", "source_entry_plan_ref"), "test://forged", "PLAN_PACKET_SHA_MISMATCH"),
+            (("observation", "source_ref"), "test://forged", "OBSERVATION_PACKET_SHA_MISMATCH"),
+        ):
+            embedded = copy.deepcopy(decision)
+            embedded["source_packets"][path[0]][path[1]] = changed
+            embedded["packet_sha256"] = MODULE.payload_sha256(
+                {k: v for k, v in embedded.items() if k != "packet_sha256"}
+            )
+            with self.subTest(path=path), self.assertRaisesRegex(
+                MODULE.CryptoPaperExitManagerError, code
+            ):
+                mapped_sell_intent(exit_decision=embedded)
+        relineage = copy.deepcopy(decision)
+        relineage["lineage"]["observation_sha256"] = "0" * 64
+        relineage["packet_sha256"] = MODULE.payload_sha256(
+            {k: v for k, v in relineage.items() if k != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "OUTPUT_LINEAGE_MISMATCH"):
+            mapped_sell_intent(exit_decision=relineage)
+        unsigned = copy.deepcopy(decision)
+        unsigned["target_quantity"] = "2"
+        with self.assertRaisesRegex(MODULE.CryptoPaperExitManagerError, "OUTPUT_PACKET_SHA_MISMATCH"):
+            mapped_sell_intent(exit_decision=unsigned)
+
+    def test_rejects_backdated_submission_but_accepts_the_decision_instant(self):
+        decision = harvest_decision()
+        self.assertEqual(decision["observed_at"], "2026-08-29T01:40:00Z")
+        self.assertEqual(
+            mapped_sell_intent(exit_decision=decision, submitted_at="2026-08-29T01:40:00Z")["submitted_at"],
+            "2026-08-29T01:40:00Z",
+        )
+        self.assertEqual(
+            mapped_sell_intent(exit_decision=decision, submitted_at="2026-08-29T01:41:00Z")["submitted_at"],
+            "2026-08-29T01:41:00Z",
+        )
+        with self.assertRaisesRegex(
+            MODULE.CryptoPaperExitManagerError, "SELL_INTENT_SUBMITTED_AT_PRECEDES_DECISION"
+        ):
+            mapped_sell_intent(exit_decision=decision, submitted_at="2026-08-29T01:39:59Z")
+        for bad in ("2026-08-29 01:40:00", "2026-08-29T01:40:00+00:00", None):
+            with self.subTest(submitted_at=bad), self.assertRaisesRegex(
+                MODULE.CryptoPaperExitManagerError, "SELL_INTENT_SUBMITTED_AT_INVALID"
+            ):
+                mapped_sell_intent(exit_decision=decision, submitted_at=bad)
+
+    def test_delegates_fee_expiry_type_and_source_ref_checks_to_the_simulator(self):
+        cases = (
+            ({"fee_rate": "1"}, "INTENT_FEE_RATE_INVALID"),
+            ({"fee_rate": "-0.1"}, "INTENT_FEE_RATE_INVALID"),
+            ({"fee_rate": "0.00050"}, "INTENT_FEE_RATE_INVALID:NON_CANONICAL"),
+            ({"queue_fraction": "0"}, "INTENT_QUEUE_FRACTION_INVALID"),
+            ({"queue_fraction": "1.5"}, "INTENT_QUEUE_FRACTION_INVALID"),
+            ({"expires_at": "2026-08-29T01:40:00Z"}, "INTENT_EXPIRY_NOT_AFTER_SUBMISSION"),
+            ({"expires_at": "2026-08-29T01:00:00Z"}, "INTENT_EXPIRY_NOT_AFTER_SUBMISSION"),
+            ({"expires_at": "2026-08-29 02:40:00"}, "INTENT_EXPIRES_AT_INVALID"),
+            ({"order_type": "STOP_LIMIT"}, "INTENT_ORDER_TYPE_INVALID"),
+            ({"order_type": "LIMIT", "limit_price": None}, "INTENT_LIMIT_PRICE_INVALID"),
+            ({"order_type": "LIMIT", "limit_price": "0"}, "INTENT_LIMIT_PRICE_INVALID"),
+            ({"source_exit_plan_ref": ""}, "SOURCE_PLAN_REF_INVALID"),
+            ({"source_observation_ref": " padded "}, "SOURCE_EVIDENCE_REF_INVALID"),
+        )
+        for changes, code in cases:
+            with self.subTest(changes=changes), self.assertRaisesRegex(
+                SIM.CryptoPaperSimulatorError, code
+            ):
+                mapped_sell_intent(**changes)
+
+    def test_preserves_unknown_and_not_evaluated_regime_without_promotion(self):
+        self.assertEqual(mapped_sell_intent()["market_regime_status"], "UNKNOWN")
+        not_evaluated = evaluate(
+            observed=observation(
+                price="120", prior_high="120", signal_values=signals(regime="NOT_EVALUATED"),
+            )
+        )
+        intent = mapped_sell_intent(exit_decision=not_evaluated, submitted_at=not_evaluated["observed_at"])
+        self.assertEqual(intent["market_regime_status"], "NOT_EVALUATED")
+        self.assertEqual(
+            not_evaluated["source_packets"]["observation"]["signals"]["regime"], "NOT_EVALUATED"
+        )
+        self.assertFalse(not_evaluated["authority"]["market_judgment_authorized"])
+
+    def test_leaves_caller_inputs_unchanged_and_repeats_deterministically(self):
+        decision = harvest_decision()
+        before = copy.deepcopy(decision)
+        first = mapped_sell_intent(exit_decision=decision)
+        second = mapped_sell_intent(exit_decision=decision)
+        self.assertEqual(decision, before)
+        self.assertEqual(first, second)
+        first["quantity"] = "2"
+        first["authority"]["exchange_order_authorized"] = True
+        self.assertEqual(mapped_sell_intent(exit_decision=decision), second)
+        self.assertEqual(decision, before)
+
+    def test_helper_never_submits_matches_or_writes_state(self):
+        text = SOURCE.read_text(encoding="utf-8")
+        for forbidden in (
+            "SIMULATOR.submit_order", "SIMULATOR.match_order", "SIMULATOR.cancel_order",
+            "SIMULATOR.expire_order", "SIMULATOR.create_ledger", "write_text", "mkdir",
+        ):
+            self.assertNotIn(forbidden, text)
+
+        decision = harvest_decision()
+
+        def refuse(*args, **kwargs):
+            raise AssertionError("simulator state mutation must not be called")
+
+        guarded = {}
+        for name in ("submit_order", "match_order", "cancel_order", "expire_order"):
+            guarded[name] = getattr(SIM, name)
+            setattr(SIM, name, refuse)
+        try:
+            intent = mapped_sell_intent(exit_decision=decision)
+        finally:
+            for name, original in guarded.items():
+                setattr(SIM, name, original)
+        self.assertEqual(SIM.validate_intent(intent), intent)
+
+    def test_offline_decision_to_simulator_fill_reduces_position_and_excludes_duplicates(self):
+        lifecycle = harvest_lifecycle()
+        final = lifecycle["final_account"]
+        self.assertEqual(lifecycle["intent"]["order_id"], "PAPER.EXIT.HARVEST")
+        self.assertEqual(lifecycle["intent"]["quantity"], "1")
+        self.assertEqual(final["positions"][0]["quantity"], "1")
+        self.assertEqual(final["cash"], "919")
+        exit_order = next(row for row in final["orders"] if row["order_id"] == "PAPER.EXIT.HARVEST")
+        self.assertEqual(exit_order["status"], "FILLED")
+        self.assertEqual(exit_order["filled_quantity"], "1")
+        self.assertEqual(exit_order["side"], "SELL")
+        self.assertEqual(exit_order["market_regime_status"], "UNKNOWN")
+        self.assertFalse(final["authority"]["exchange_order_authorized"])
+        repeated = lifecycle["repeated"]
+        self.assertEqual(repeated["status"], "TRIGGER_ALREADY_APPLIED")
+        self.assertIsNone(repeated["target_quantity"])
+        self.assertEqual(
+            repeated["blockers"], ["PAPER_ORDER_ALREADY_PRESENT:PAPER.EXIT.HARVEST"]
+        )
+        self.assertEqual(harvest_lifecycle()["intent"], lifecycle["intent"])
 
 
 class EndToEndPaperLifecycleTests(unittest.TestCase):

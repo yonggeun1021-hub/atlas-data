@@ -39,6 +39,9 @@ WILDCARD_FIXTURE = load_module(
     "rotation_discovery_wildcard_fixture",
     ROOT / "test" / "test_wildcard_operational_intake.py",
 )
+DART_FIXTURE = load_module(
+    "rotation_discovery_dart_fixture", ROOT / "test" / "test_dart_event_observation.py"
+)
 CONTRACT = MODULE.load_contract()
 
 
@@ -316,40 +319,60 @@ class RotationDiscoveryBriefingTests(unittest.TestCase):
         self.assertIn("WITH_PARTIAL_FAILURES", section["status"])
 
     def test_dart_source_and_projection_tamper_fail_closed(self):
-        _, generated_at, _ = operational_dart_times()
-        source = MODULE.load_operational_dart_observation_packet(
-            generated_at, ROOT
-        )
-        tampered_source = copy.deepcopy(source)
-        tampered_source["observations"][0]["filing_title"] = "조작된 공시"
-        tampered_source["packet_sha256"] = MODULE.payload_sha256({
-            key: value for key, value in tampered_source.items()
-            if key != "packet_sha256"
-        })
-        with self.assertRaisesRegex(
-            MODULE.RotationDiscoveryBriefingError,
-            "DART_OBSERVATION_PACKET_INVALID",
-        ):
-            MODULE.build_briefing(
-                empty_ledger(), records(), bindings(),
-                "evening", generated_at, CONTRACT,
-                dart_observation_packet=tampered_source, dart_root=ROOT,
+        # Rolling latest may be empty. Exercise both tamper boundaries using
+        # one retained filing with its actual source, manifest and raw bytes.
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw).resolve()
+            source_path, content_path, data_root, subject_id, rcept_no = (
+                DART_FIXTURE.retained_raw_fixture(root)
             )
+            # Relocate only the repository path base; validators stay real.
+            with mock.patch.object(MODULE.DART_OBSERVATION, "ROOT", root):
+                source = MODULE.DART_OBSERVATION.build_packet(
+                    decision_at="2026-08-31T21:00:39Z", source_path=source_path,
+                    content_path=content_path, data_root=data_root,
+                )
+                self.assertEqual(
+                    [(row["subject_id"], row["rcept_no"]) for row in source["observations"]],
+                    [(subject_id, rcept_no)],
+                )
+                generated_at = "2026-08-31T21:00:40Z"
+                result = MODULE.build_briefing(
+                    empty_ledger(), records(), bindings(),
+                    "evening", generated_at, CONTRACT,
+                    dart_observation_packet=source, dart_root=root,
+                )
+                self.assertEqual(result["dart_observations"]["observation_count"], 1)
+                self.assertEqual(
+                    result["dart_observations"]["observations"][0]["ready_status"],
+                    "NOT_EVALUATED",
+                )
 
-        result = MODULE.build_briefing(
-            empty_ledger(), records(), bindings(),
-            "evening", generated_at, CONTRACT,
-            dart_observation_packet=source, dart_root=ROOT,
-        )
-        result["dart_observations"]["observations"][0]["ready_status"] = "READY"
-        result["packet_sha256"] = MODULE.payload_sha256({
-            key: value for key, value in result.items() if key != "packet_sha256"
-        })
-        with self.assertRaisesRegex(
-            MODULE.RotationDiscoveryBriefingError,
-            "BRIEFING_DART_DERIVATION_MISMATCH",
-        ):
-            MODULE.validate_briefing(result, CONTRACT, dart_root=ROOT)
+                tampered_source = copy.deepcopy(source)
+                tampered_source["observations"][0]["filing_title"] = "조작된 공시"
+                tampered_source["packet_sha256"] = MODULE.payload_sha256({
+                    key: value for key, value in tampered_source.items()
+                    if key != "packet_sha256"
+                })
+                with self.assertRaisesRegex(
+                    MODULE.RotationDiscoveryBriefingError,
+                    "DART_OBSERVATION_PACKET_INVALID",
+                ):
+                    MODULE.build_briefing(
+                        empty_ledger(), records(), bindings(),
+                        "evening", generated_at, CONTRACT,
+                        dart_observation_packet=tampered_source, dart_root=root,
+                    )
+
+                result["dart_observations"]["observations"][0]["ready_status"] = "READY"
+                result["packet_sha256"] = MODULE.payload_sha256({
+                    key: value for key, value in result.items() if key != "packet_sha256"
+                })
+                with self.assertRaisesRegex(
+                    MODULE.RotationDiscoveryBriefingError,
+                    "BRIEFING_DART_DERIVATION_MISMATCH",
+                ):
+                    MODULE.validate_briefing(result, CONTRACT, dart_root=root)
 
     def test_future_dart_observation_is_not_backfilled(self):
         before_first, _, _ = operational_dart_times()

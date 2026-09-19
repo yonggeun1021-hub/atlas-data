@@ -1,0 +1,566 @@
+{
+  "schema_version": 1,
+  "contract_version": "security_sector_membership/1",
+  "document_schema_version": "security_sector_membership/1",
+  "public_summary_schema_version": "security_sector_membership_public_summary/1",
+  "market_scope": "KR",
+  "markets": [
+    "KOSDAQ",
+    "KOSPI"
+  ],
+  "row_statuses": [
+    "ACTIVE",
+    "PENDING_CHANGE",
+    "CONFLICT",
+    "UNMAPPED"
+  ],
+  "status_semantics": {
+    "ACTIVE": "exactly one ratified sector series at the deepest non-zero KIS level; the only status that counts as membership",
+    "PENDING_CHANGE": "the KIS sector assignment changed at this publication; not a member until the next publication for a later session confirms it",
+    "CONFLICT": "reserved for a future second source that disagrees; never produced under KIS_ONLY",
+    "UNMAPPED": "no ratified series can be assigned; not a member"
+  },
+  "unmapped_reasons": [
+    "NO_SECTOR_CODE",
+    "SECTOR_CODE_NOT_IN_TABLE",
+    "SECTOR_CODE_NAME_CHANGED",
+    "HIERARCHY_UNDECLARED",
+    "SECTOR_SMALL_LEVEL_UNDECLARED"
+  ],
+  "membership_definition": "members(membership_id, t) = {asset_id | row.status == ACTIVE and row.membership_id == membership_id and row.effective_from <= t < row.effective_to (open if null)}",
+  "retroactivity": "FORBIDDEN: a row's effective_from is the observed_at_utc of the publication that first recorded it; a later publication may only close an open row at its own observed_at_utc and append new rows",
+  "source_policy": {
+    "decision_id": "CIO-TKT3-MEMBERSHIP-D1-D5-20260914",
+    "decision_sha256": "1fb9a8d525491dbcacac379b36d07c8c50c0b8ae90700e9de51bf83f106cf220",
+    "probe_result_sha256": "492015c57fb397d298c08a0149a2fae489daae171ab0e20435ef8fa3699d8157",
+    "kr_sector_membership_source": "KIS_ONLY",
+    "source_count": 1,
+    "verification": "SINGLE_SOURCE_KIS",
+    "satisfies_t2_c5": true,
+    "satisfies_t3": false,
+    "t3_target": "BOTH_MUST_AGREE",
+    "change_detection": {
+      "on": "every KIS master publication",
+      "pending_change_publications": 1
+    },
+    "second_source_access": "no login, cookie reuse, credentials or KRX bypass"
+  },
+  "taxonomy_binding": {
+    "document_path": "config/korea_rotation_sector_identity_binding_document.json",
+    "document_payload_sha256": "6027e89b70766599bac4a242aef5bf608f7979628a6e8b5cbaf23219cab287e3",
+    "taxonomy_binding_path": "config/korea_rotation_sector_identity_taxonomy_binding.json",
+    "taxonomy_id": "TAXONOMY.P2_03.KOREA_SECTOR_IDENTITY.RATIFIED.V1",
+    "membership_id_field": "theme_id"
+  },
+  "kis_source": {
+    "registry_contract_path": "config/krx_investable_registry_contract.json",
+    "stock_master_reader": "universe/krx_investable_registry.py:_read_master",
+    "product_classifier": "universe/krx_investable_registry.py:_product",
+    "population_product_type": "COMMON_STOCK",
+    "idxcode_url": "https://new.real.download.dws.co.kr/common/master/idxcode.mst.zip",
+    "idxcode_archive_member": "idxcode.mst",
+    "idxcode_encoding": "cp949",
+    "idxcode_line_byte_length": 45,
+    "sector_code_fields": [
+      "sector_large",
+      "sector_medium",
+      "sector_small"
+    ],
+    "zero_code": "0000",
+    "leaf_rule": "DEEPEST_NONZERO_LEVEL"
+  },
+  "ratified_aliases": [
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0013",
+      "source_name": "전기·전자",
+      "series_identity": "KOSPI::전기전자"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1028",
+      "source_name": "전기·전자",
+      "series_identity": "KOSDAQ::전기전자"
+    }
+  ],
+  "alias_rule": "explicit table keyed by (market, code); no general punctuation normalization; any other mismatch -> UNMAPPED",
+  "sector_code_table": [
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1006",
+      "source_name": "일반서비스",
+      "series_identity": "KOSDAQ::일반서비스",
+      "membership_id": "KOSDAQ.SECTOR.15",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1009",
+      "source_name": "제조",
+      "series_identity": "KOSDAQ::제조",
+      "membership_id": "KOSDAQ.SECTOR.18",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1010",
+      "source_name": "건설",
+      "series_identity": "KOSDAQ::건설",
+      "membership_id": "KOSDAQ.SECTOR.02",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1011",
+      "source_name": "유통",
+      "series_identity": "KOSDAQ::유통",
+      "membership_id": "KOSDAQ.SECTOR.12",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1013",
+      "source_name": "운송·창고",
+      "series_identity": "KOSDAQ::운송·창고",
+      "membership_id": "KOSDAQ.SECTOR.10",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1014",
+      "source_name": "금융",
+      "series_identity": "KOSDAQ::금융",
+      "membership_id": "KOSDAQ.SECTOR.04",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1015",
+      "source_name": "오락·문화",
+      "series_identity": "KOSDAQ::오락·문화",
+      "membership_id": "KOSDAQ.SECTOR.09",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1019",
+      "source_name": "음식료·담배",
+      "series_identity": "KOSDAQ::음식료·담배",
+      "membership_id": "KOSDAQ.SECTOR.13",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1020",
+      "source_name": "섬유·의류",
+      "series_identity": "KOSDAQ::섬유·의류",
+      "membership_id": "KOSDAQ.SECTOR.08",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1021",
+      "source_name": "종이·목재",
+      "series_identity": "KOSDAQ::종이·목재",
+      "membership_id": "KOSDAQ.SECTOR.19",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1022",
+      "source_name": "출판·매체복제",
+      "series_identity": "KOSDAQ::출판·매체복제",
+      "membership_id": "KOSDAQ.SECTOR.20",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1023",
+      "source_name": "화학",
+      "series_identity": "KOSDAQ::화학",
+      "membership_id": "KOSDAQ.SECTOR.22",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1024",
+      "source_name": "제약",
+      "series_identity": "KOSDAQ::제약",
+      "membership_id": "KOSDAQ.SECTOR.17",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1025",
+      "source_name": "비금속",
+      "series_identity": "KOSDAQ::비금속",
+      "membership_id": "KOSDAQ.SECTOR.07",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1026",
+      "source_name": "금속",
+      "series_identity": "KOSDAQ::금속",
+      "membership_id": "KOSDAQ.SECTOR.03",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1027",
+      "source_name": "기계·장비",
+      "series_identity": "KOSDAQ::기계·장비",
+      "membership_id": "KOSDAQ.SECTOR.05",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1028",
+      "source_name": "전기·전자",
+      "series_identity": "KOSDAQ::전기전자",
+      "membership_id": "KOSDAQ.SECTOR.16",
+      "match": "RATIFIED_ALIAS"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1029",
+      "source_name": "의료·정밀기기",
+      "series_identity": "KOSDAQ::의료·정밀기기",
+      "membership_id": "KOSDAQ.SECTOR.14",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1030",
+      "source_name": "운송장비·부품",
+      "series_identity": "KOSDAQ::운송장비·부품",
+      "membership_id": "KOSDAQ.SECTOR.11",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1031",
+      "source_name": "기타제조",
+      "series_identity": "KOSDAQ::기타제조",
+      "membership_id": "KOSDAQ.SECTOR.06",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1032",
+      "source_name": "통신",
+      "series_identity": "KOSDAQ::통신",
+      "membership_id": "KOSDAQ.SECTOR.21",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSDAQ",
+      "kis_sector_code": "1033",
+      "source_name": "IT 서비스",
+      "series_identity": "KOSDAQ::IT 서비스",
+      "membership_id": "KOSDAQ.SECTOR.01",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0005",
+      "source_name": "음식료·담배",
+      "series_identity": "KOSPI::음식료·담배",
+      "membership_id": "KOSPI.SECTOR.14",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0006",
+      "source_name": "섬유·의류",
+      "series_identity": "KOSPI::섬유·의류",
+      "membership_id": "KOSPI.SECTOR.09",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0007",
+      "source_name": "종이·목재",
+      "series_identity": "KOSPI::종이·목재",
+      "membership_id": "KOSPI.SECTOR.21",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0008",
+      "source_name": "화학",
+      "series_identity": "KOSPI::화학",
+      "membership_id": "KOSPI.SECTOR.24",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0009",
+      "source_name": "제약",
+      "series_identity": "KOSPI::제약",
+      "membership_id": "KOSPI.SECTOR.19",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0010",
+      "source_name": "비금속",
+      "series_identity": "KOSPI::비금속",
+      "membership_id": "KOSPI.SECTOR.08",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0011",
+      "source_name": "금속",
+      "series_identity": "KOSPI::금속",
+      "membership_id": "KOSPI.SECTOR.03",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0012",
+      "source_name": "기계·장비",
+      "series_identity": "KOSPI::기계·장비",
+      "membership_id": "KOSPI.SECTOR.05",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0013",
+      "source_name": "전기·전자",
+      "series_identity": "KOSPI::전기전자",
+      "membership_id": "KOSPI.SECTOR.18",
+      "match": "RATIFIED_ALIAS"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0014",
+      "source_name": "의료·정밀기기",
+      "series_identity": "KOSPI::의료·정밀기기",
+      "membership_id": "KOSPI.SECTOR.15",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0015",
+      "source_name": "운송장비·부품",
+      "series_identity": "KOSPI::운송장비·부품",
+      "membership_id": "KOSPI.SECTOR.12",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0016",
+      "source_name": "유통",
+      "series_identity": "KOSPI::유통",
+      "membership_id": "KOSPI.SECTOR.13",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0017",
+      "source_name": "전기·가스",
+      "series_identity": "KOSPI::전기·가스",
+      "membership_id": "KOSPI.SECTOR.17",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0018",
+      "source_name": "건설",
+      "series_identity": "KOSPI::건설",
+      "membership_id": "KOSPI.SECTOR.02",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0019",
+      "source_name": "운송·창고",
+      "series_identity": "KOSPI::운송·창고",
+      "membership_id": "KOSPI.SECTOR.11",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0020",
+      "source_name": "통신",
+      "series_identity": "KOSPI::통신",
+      "membership_id": "KOSPI.SECTOR.23",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0021",
+      "source_name": "금융",
+      "series_identity": "KOSPI::금융",
+      "membership_id": "KOSPI.SECTOR.04",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0024",
+      "source_name": "증권",
+      "series_identity": "KOSPI::증권",
+      "membership_id": "KOSPI.SECTOR.22",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0025",
+      "source_name": "보험",
+      "series_identity": "KOSPI::보험",
+      "membership_id": "KOSPI.SECTOR.06",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0026",
+      "source_name": "일반서비스",
+      "series_identity": "KOSPI::일반서비스",
+      "membership_id": "KOSPI.SECTOR.16",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0027",
+      "source_name": "제조",
+      "series_identity": "KOSPI::제조",
+      "membership_id": "KOSPI.SECTOR.20",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0028",
+      "source_name": "부동산",
+      "series_identity": "KOSPI::부동산",
+      "membership_id": "KOSPI.SECTOR.07",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0029",
+      "source_name": "IT 서비스",
+      "series_identity": "KOSPI::IT 서비스",
+      "membership_id": "KOSPI.SECTOR.01",
+      "match": "EXACT"
+    },
+    {
+      "market": "KOSPI",
+      "kis_sector_code": "0030",
+      "source_name": "오락·문화",
+      "series_identity": "KOSPI::오락·문화",
+      "membership_id": "KOSPI.SECTOR.10",
+      "match": "EXACT"
+    }
+  ],
+  "parent_view": [
+    {
+      "market": "KOSPI",
+      "parent_kis_sector_code": "0027",
+      "parent_series_identity": "KOSPI::제조",
+      "parent_membership_id": "KOSPI.SECTOR.20",
+      "child_kis_sector_codes": [
+        "0005",
+        "0006",
+        "0007",
+        "0008",
+        "0009",
+        "0010",
+        "0011",
+        "0012",
+        "0013",
+        "0014",
+        "0015"
+      ],
+      "child_membership_ids": [
+        "KOSPI.SECTOR.14",
+        "KOSPI.SECTOR.09",
+        "KOSPI.SECTOR.21",
+        "KOSPI.SECTOR.24",
+        "KOSPI.SECTOR.19",
+        "KOSPI.SECTOR.08",
+        "KOSPI.SECTOR.03",
+        "KOSPI.SECTOR.05",
+        "KOSPI.SECTOR.18",
+        "KOSPI.SECTOR.15",
+        "KOSPI.SECTOR.12"
+      ]
+    },
+    {
+      "market": "KOSDAQ",
+      "parent_kis_sector_code": "1009",
+      "parent_series_identity": "KOSDAQ::제조",
+      "parent_membership_id": "KOSDAQ.SECTOR.18",
+      "child_kis_sector_codes": [
+        "1019",
+        "1020",
+        "1021",
+        "1022",
+        "1023",
+        "1024",
+        "1025",
+        "1026",
+        "1027",
+        "1028",
+        "1029",
+        "1030",
+        "1031"
+      ],
+      "child_membership_ids": [
+        "KOSDAQ.SECTOR.13",
+        "KOSDAQ.SECTOR.08",
+        "KOSDAQ.SECTOR.19",
+        "KOSDAQ.SECTOR.20",
+        "KOSDAQ.SECTOR.22",
+        "KOSDAQ.SECTOR.17",
+        "KOSDAQ.SECTOR.07",
+        "KOSDAQ.SECTOR.03",
+        "KOSDAQ.SECTOR.05",
+        "KOSDAQ.SECTOR.16",
+        "KOSDAQ.SECTOR.14",
+        "KOSDAQ.SECTOR.11",
+        "KOSDAQ.SECTOR.06"
+      ]
+    },
+    {
+      "market": "KOSPI",
+      "parent_kis_sector_code": "0021",
+      "parent_series_identity": "KOSPI::금융",
+      "parent_membership_id": "KOSPI.SECTOR.04",
+      "child_kis_sector_codes": [
+        "0024",
+        "0025"
+      ],
+      "child_membership_ids": [
+        "KOSPI.SECTOR.22",
+        "KOSPI.SECTOR.06"
+      ]
+    }
+  ],
+  "parent_view_rule": "satisfied when the stock's ACTIVE series is selected by rotation, or when rotation selects a parent series and the stock's ACTIVE series is a child of it in parent_view",
+  "path_a_crosswalk": [
+    {
+      "path_a_registry_path": "config/kr_internal_paper_theme_source_admission_registry.json",
+      "path_a_rule_id": "KR.KOSPI.INDUSTRY_MIDDLE_DIVISION_TO_THEME_V1",
+      "path_a_theme_id": "THEME.KR.KOSPI.ELECTRICAL_ELECTRONIC_EQUIPMENT",
+      "rotation_series_identity": "KOSPI::전기전자",
+      "membership_id": "KOSPI.SECTOR.18"
+    }
+  ],
+  "distribution_boundary": {
+    "private": "per-stock membership document",
+    "public": "contract, code, tests, per-membership_id and per-market counts only",
+    "raw_kis_master_bytes_in_public": false,
+    "asset_identifiers_in_public_summary": false
+  },
+  "authority": {
+    "membership_is_candidate_approval": false,
+    "t2_eligibility_granted": false,
+    "t3_real_candidate_authorized": false,
+    "paper_order_authorized": false,
+    "real_order_authorized": false,
+    "capital_movement_authorized": false,
+    "production_authorized": false
+  }
+}

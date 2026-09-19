@@ -164,6 +164,7 @@ def build_packets(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
                 trades=trade_record.get("body"),
                 orderbook_row=orderbook_record,
                 as_of=as_of, captured_at=captured_at, policy=policy,
+                candle_fetch_windows=candle_fetch_windows(manifest, contract, market),
             )
             market_results[market] = EV.market_evidence_result(
                 packets[market], policy=policy, generated_at=generated_at,
@@ -198,6 +199,22 @@ def build_packets(snapshot_date: str, raw_root: Path = RAW_ROOT) -> dict:
         "policy_id": policy.get("policy_id"),
         "policy_packet_sha256": policy.get("packet_sha256"),
         "policy_ratified": policy.get("approval_status") == "RATIFIED",
+    }
+
+
+def candle_fetch_windows(manifest: dict, contract: dict, market: str) -> dict | None:
+    """Per-timeframe candle fetch request/response instants for a capture v3+
+    manifest -- P4-07 judges finalization against each fetch's own request
+    instant, never the capture completion time. ``None`` for a legacy v1/v2
+    capture: those never recorded per-fetch time, and their issued packets
+    must keep re-deriving byte-identically (their finalization lookahead
+    exposure is reported, never rewritten -- see
+    ``test/test_upbit_candle_finalization_fetch_time.py``)."""
+    if CAP.CANDLE_FETCH_TIMES_FIELD not in manifest:
+        return None
+    return {
+        timeframe: CAP.candle_fetch_window(manifest, timeframe, market)
+        for timeframe in contract["timeframes"]
     }
 
 

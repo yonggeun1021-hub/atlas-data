@@ -1,0 +1,181 @@
+{
+  "schema_version": "paper_exit_policy/1",
+  "policy_id": "PAPER_EXIT_POLICY.V1",
+  "records": {
+    "exit_provisional_v1": {
+      "record_id": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915",
+      "repo_path": "evidence/authority/paper_exit_provisional_v1_user_ratification_20260915.json",
+      "sha256": "47276abe432102c33b208a5c3a5d10b30c3c30c79fcb809bb1283c97efb95619"
+    },
+    "rotation_observation_gap": {
+      "record_id": "USER_RATIFICATION_ROTATION_INTERPRETATION_OBSERVATION_GAP_20260915",
+      "repo_path": "evidence/authority/rotation_interpretation_observation_gap_user_ratification_20260915.json",
+      "sha256": "ed2ca92d9b9cfe6b2e912c686f874c62f664fe25b0b20814264a853366c2487a"
+    },
+    "execution_contract_d1_d11": {
+      "record_id": "USER_RATIFICATION_PAPER_EXECUTION_CONTRACT_D1_D3_D5_D11_20260915",
+      "repo_path": "evidence/authority/paper_execution_contract_d1_d3_d5_d11_user_ratification_20260915.json",
+      "sha256": "10de02bf98fd4e5776ed77c09daad36de914e03942675cbe960c121e5dbd668c"
+    },
+    "data_failure_priority_c": {
+      "record_id": "USER_RATIFICATION_PAPER_DATA_FAILURE_RISK_REDUCTION_PRIORITY_C_20260915",
+      "repo_path": "evidence/authority/paper_data_failure_risk_reduction_priority_c_user_ratification_20260915.json",
+      "sha256": "3d07cbf1fbba35caaed032b7d3d52cec78e804ad6b415ed7e240191b4f45d1f6"
+    },
+    "build_plan_p1_p6": {
+      "record_id": "USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915",
+      "repo_path": "evidence/authority/USER_RATIFICATION_PAPER_BUILD_PLAN_P1_P6_20260915.json",
+      "sha256": "2a94be2b593ed49a61e38cecfc2c992802ffa8102b292bf40bd964e7391d5fdd"
+    },
+    "rotation_max_observation_gap": {
+      "record_id": "USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_20260915",
+      "repo_path": "evidence/authority/USER_RATIFICATION_ROTATION_MAX_OBSERVATION_GAP_20260915.json",
+      "sha256": "d65f58c60eb7b78f5e8fa2e054497e17903cf290a517b5b9a246e0419b199903"
+    }
+  },
+  "source_documents": {
+    "exit_study_v2": {
+      "document": "CLAUDE_CIO_EXIT_MODEL_CRYPTO_STUDY_V2_20260915.md",
+      "sha256": "2f8e4b39a26aa108b701a22b477b8b945cff2b6d8087c9b9556ead07cd005c81",
+      "preregistration_sha256": "3b167792334f44d57b12d86d87a194ed1a6643fcaf180412b310da98fd581307",
+      "sections_used": "study v2 3-2, 5-1 (configuration names); PREREGISTRATION_V2 2, 3, 5"
+    },
+    "execution_contract_canon": {
+      "document": "CLAUDE_CIO_PAPER_EXECUTION_CONTRACT_CANON_20260915.md",
+      "sha256": "7a26907f9c05935278ae9232e4de90bb0d23e39447a57c22f66484642a35127c",
+      "sections_used": "1-1, 1-2, 1-3, 7-3"
+    }
+  },
+  "rotation_policy": {
+    "path": "config/rotation_confirmation_policy_v1.json",
+    "policy_sha256": "0bf2af4b63171c2bc7dda2cbcfde0b7023bba4a63d4ef10d4ed5361a223885d8",
+    "modified_by_this_layer": false
+  },
+  "rules": {
+    "release_full_sell": {
+      "rule_id": "RULE.EXIT.RELEASE_FULL_SELL.V1",
+      "status": "PROVISIONAL",
+      "record": "exit_provisional_v1",
+      "markets": ["CRYPTO", "KR", "US"],
+      "quantity": "FULL_POSITION",
+      "timing": "FIRST_ALLOWED_FILL_TIME",
+      "supersedes": {
+        "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
+        "superseded_field": "held_position_action",
+        "superseded_value": "FOLLOW_EXISTING_STOP_LOSS_TAKE_PROFIT_RULES",
+        "registry_key_parameter": "held_positions",
+        "new_buy_stop_retained": true
+      },
+      "effective_held_position_action": "SELL_FULL_POSITION_AT_FIRST_ALLOWED_FILL_TIME"
+    },
+    "crypto_time_stop": {
+      "rule_id": "RULE.EXIT.CRYPTO_TIME_STOP_21D.V1",
+      "status": "PROVISIONAL",
+      "record": "exit_provisional_v1",
+      "markets": ["CRYPTO"],
+      "days": 21,
+      "clock_start": "FIRST_FILL_AT_OF_POSITION_EPISODE",
+      "day_length_hours": 24,
+      "execution": "FIRST_FRESH_DECISION_SNAPSHOT_AT_OR_AFTER_DEADLINE",
+      "quantity": "FULL_POSITION"
+    },
+    "observation_gap": {
+      "rule_id": "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1",
+      "record": "rotation_observation_gap",
+      "gap_lapse": "HOLD_STOP_NEW_BUYS_DISPLAY_JUDGMENT_GAP",
+      "gap_lapse_display_ko": "판정 공백",
+      "on_return_outside_top_bucket": "RELEASE_FULL_SELL",
+      "on_return_inside_top_bucket": "STRENGTH_CONTINUES",
+      "time_stops_apply_during_gap": true,
+      "maximum_observation_gap_days": {
+        "read_from": "config/rotation_confirmation_policy_v1.json#/markets/<MARKET>/maximum_observation_gap_days",
+        "kind": "USER_RATIFIED",
+        "rule_id": "RULE.ROTATION.MAX_OBSERVATION_GAP.V1",
+        "record": "rotation_max_observation_gap",
+        "unit": "CALENDAR_DAYS",
+        "values": {"CRYPTO": 2, "US": 4, "KR": 7},
+        "registry_status": "NOT_YET_IN_RULE_REGISTRY_CITED_BY_RECORD"
+      },
+      "chain_break_handling": "ROTATION_CHAIN_RESET_BY_GAP_IS_GAP_STATE_NOT_RELEASE_RESOLVED_ON_FIRST_POST_GAP_JUDGMENT"
+    },
+    "time_contract": {
+      "rule_id": "RULE.EXEC.TIME_CONTRACT.V1",
+      "record": "execution_contract_d1_d11",
+      "fill_windows": {
+        "KR": {"timezone": "Asia/Seoul", "start": "09:15", "end": "15:20", "end_exclusive": true, "session_status_required": "OPEN"},
+        "US": {"timezone": "America/New_York", "start": "09:45", "end": "15:50", "end_exclusive": true, "session_status_required": "OPEN"},
+        "window_basis": {
+          "start_and_end": "USER_TEXT_D1 (KR 09:15~15:20, US 09:45~15:50 ET)",
+          "end_exclusive": "CIO_INTERPRETATION_NOT_USER_TEXT",
+          "end_exclusive_source": "execution contract canon 1-3: 15:20 KST is the start of the closing single-price auction; 15:50 ET is the closing-imbalance time. The user sentence gives the window without stating whether the end instant itself is inside."
+        },
+        "CRYPTO": {"timezone": "UTC", "window": "24H", "decision_cycle_anchor": "07:00"}
+      },
+      "excluded_sessions": ["KR_NXT_PRE_AND_AFTER_MARKET", "KRX_AFTER_MARKET", "US_EXTENDED_HOURS"],
+      "order_time_equals_decision_time": true,
+      "fill_observation_strictly_after_order_time": true
+    },
+    "data_failure_priority": {
+      "rule_id": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1",
+      "record": "data_failure_priority_c",
+      "ordinary_exits_hold_while_stale": ["RELEASE_FULL_SELL", "CRYPTO_TIME_STOP_21D"]
+    },
+    "shadow_controls": {
+      "rule_id": "RULE.EXIT.SHADOW_CONTROLS.V1",
+      "status": "RATIFIED",
+      "record": "exit_provisional_v1",
+      "record_only": true,
+      "baseline": "RATIFIED_DEFAULT_EXITS_AS_EXECUTED_PLUS_ONE_COMPONENT",
+      "crypto_units": {
+        "atr_period": 14,
+        "atr_method": "WILDER_DAILY_UTC_BARS",
+        "atr_as_of": "FIRST_ENTRY_DECISION_DAY_COMPLETED_BARS_ONLY",
+        "r_ref_atr_multiple": "3",
+        "level_anchor": "FIRST_FILL_PRICE",
+        "top_ups_change_levels": false
+      },
+      "controls": {
+        "1-B": {"study_configuration": "LAG", "component": "SELL_ALL_ON_LAGGING_WARNING_AT_ROTATION_PACKET", "lagging_source": "rotation packet entity lagging (RRG N30/M7)", "benchmark_bucket": "LAGGING_NOT_DEFINED"},
+        "TS14": {"study_configuration": "TS14", "component": "TIME_STOP", "days": 14, "day_length_hours": 24, "execution": "FIRST_FRESH_DECISION_SNAPSHOT_AT_OR_AFTER_DEADLINE"},
+        "PTP1": {"study_configuration": "PTP1", "component": "RESTING_LIMIT_PARTIAL_TAKE_PROFIT", "r_multiple": "1", "quantity_fraction": "0.5", "no_top_ups_after_fill": true},
+        "DS5": {"study_configuration": "DS5", "component": "MONITORED_DISASTER_STOP", "atr_multiple": "5", "fill_model_rule_id": "RULE.EXEC.MONITORED_STOP_FILL_MODEL.V1"}
+      },
+      "kr_us_units": {
+        "status": "DEFINED",
+        "rule_id": "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1",
+        "record": "build_plan_p1_p6",
+        "registry_status": "NOT_YET_IN_RULE_REGISTRY_CITED_BY_RECORD",
+        "record_only": true,
+        "1-B": {"component": "RELEASE_ONLY_EQUALS_DEFAULT_RELEASE_SELL", "reverts_to_original_when_lagging_definition_confirmed": true},
+        "TS14": {"trading_days": 14, "calendar": "CALLER_SUPPLIED_OFFICIAL_SESSION_CALENDAR"},
+        "PTP1": {"r_multiple": "1", "r_ref_atr_multiple": "3"},
+        "DS5": {"atr_multiple": "5"},
+        "atr_period": 14,
+        "atr_bar": "DAILY_REGULAR_SESSION",
+        "cio_interpretations": {
+          "atr_method": "Wilder, the same computation as the crypto units (the record says daily ATR14 without a method)",
+          "ptp1_quantity_fraction": "0.5, the PTP1 control definition (study v2 PTP1) inherited; the record names the control, not a new fraction",
+          "ts14_due": "the first decision at or after the end of the D1 fill window of the 14th OPEN session after the first-fill session; the shadow fill is the first allowed price after that decision",
+          "ds5_fill": "the same D9 model as crypto (first allowed price after the trigger, gap at the open); canon 7-3 'stop x (1 - slippage)' is not used because no slippage number is ratified",
+          "monitoring_gaps": "measured inside D1 fill windows of OPEN sessions only"
+        }
+      }
+    },
+    "monitored_stop_fill_model": {
+      "rule_id": "RULE.EXEC.MONITORED_STOP_FILL_MODEL.V1",
+      "record": "execution_contract_d1_d11",
+      "trigger": "PRICE_OBSERVED_AFTER_ENTRY_FILL_AT_OR_BELOW_STOP",
+      "fill": "FIRST_ALLOWED_PRICE_AFTER_TRIGGER_OBSERVATION",
+      "gap_down": "OPEN",
+      "monitoring_gap_interval_multiple": "2",
+      "monitoring_gap_source": "execution contract canon 7-3 item 4"
+    }
+  },
+  "authority": {
+    "order_authorized": false,
+    "real_trading_authorized": false,
+    "exchange_order_authorized": false,
+    "secret_access_authorized": false,
+    "allocation_change_authorized": false
+  }
+}

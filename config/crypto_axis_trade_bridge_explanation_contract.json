@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_axis_trade_bridge_explanation/1",
+  "output_schema_version": "crypto_axis_trade_bridge_explanation_packet/1",
+  "mode": "PAPER_REVIEW_ONLY",
+  "source_contract_version": "crypto_axis_trade_bridge/1",
+  "source_packet_schema_version": "crypto_axis_trade_bridge_packet/1",
+  "axis_order": [
+    "TREND",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "BREADTH",
+    "LEADERSHIP"
+  ],
+  "axis_labels": {
+    "TREND": "추세",
+    "RISK_VOL": "위험·변동성",
+    "LIQUIDITY": "유동성",
+    "BREADTH": "시장 폭",
+    "LEADERSHIP": "주도력"
+  },
+  "axis_status_labels": {
+    "DEFINED": "확보됨",
+    "UNDEFINED": "미확보"
+  },
+  "axis_hold_text": "{axis_label}({axis}) 축이 미확보라 이 종목의 신규 진입이 보류된다.",
+  "axis_defined_text": "{axis_label}({axis}) 축은 확보됐다. 확보는 데이터 완성도를 뜻할 뿐 매수 허가가 아니다.",
+  "stages": [
+    {
+      "stage_id": "ENTRY_WAIT",
+      "label": "매수대기",
+      "kind": "ENTRY",
+      "source_entry_state": "WAIT",
+      "empty_reason_code": null
+    },
+    {
+      "stage_id": "ENTRY_BLOCKED",
+      "label": "진입 차단",
+      "kind": "ENTRY",
+      "source_entry_state": "BLOCKED",
+      "empty_reason_code": null
+    },
+    {
+      "stage_id": "ENTRY_REVIEW",
+      "label": "진입검토",
+      "kind": "ENTRY",
+      "source_entry_state": null,
+      "empty_reason_code": "AGGREGATE_POLICY_UNRATIFIED"
+    },
+    {
+      "stage_id": "HOLDING",
+      "label": "보유",
+      "kind": "POSITION",
+      "source_entry_state": null,
+      "empty_reason_code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET"
+    },
+    {
+      "stage_id": "REDUCE",
+      "label": "축소",
+      "kind": "POSITION",
+      "source_entry_state": null,
+      "empty_reason_code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET"
+    },
+    {
+      "stage_id": "EXIT_REVIEW",
+      "label": "청산검토",
+      "kind": "POSITION",
+      "source_entry_state": null,
+      "empty_reason_code": "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET"
+    }
+  ],
+  "exit_state_labels": {
+    "NOT_APPLICABLE_UNTIL_VIRTUAL_FILL": "가상 체결 전이라 청산 단계가 아직 해당되지 않음"
+  },
+  "exit_priority_ladder": [
+    {
+      "category": "HARD_EXIT",
+      "label": "하드 청산(최우선)"
+    },
+    {
+      "category": "SECURITY_LIQUIDITY",
+      "label": "종목 안전성·유동성"
+    },
+    {
+      "category": "RISK_REGIME",
+      "label": "위험·국면"
+    },
+    {
+      "category": "TREND",
+      "label": "추세"
+    },
+    {
+      "category": "PROFIT_TRAIL",
+      "label": "이익 보전"
+    },
+    {
+      "category": "TIME_REVIEW",
+      "label": "기간 경과 검토"
+    }
+  ],
+  "reason_text": {
+    "AGGREGATE_POLICY_UNRATIFIED": "종합 Regime 방향·임계값 정책이 아직 비준되지 않아 신규 진입은 매수대기로 제한된다.",
+    "NO_VIRTUAL_FILL_POSITION_IN_PUBLIC_DECISION_PACKET": "이 입력 패킷에는 가상 체결 포지션이 없어 이 단계에 표시할 종목이 없다. 실제 계좌의 보유 자산 유무를 뜻하지 않는다.",
+    "P7_13_HARD_EXIT_SECURITY_LIQUIDITY_PRIORITY_PRESERVED": "가상 체결 이후 청산은 기존 P7-13 관리자가 담당하며 하드 청산·안전성/유동성 우선순위가 그대로 유지된다.",
+    "NO_SYMBOL_ROWS_IN_SOURCE_PACKET": "원본 브리지 패킷에 종목 행이 없어 어떤 단계에도 표시할 종목이 없다.",
+    "NO_SYMBOL_IN_THIS_STAGE": "이번 세대에는 이 단계로 분류된 종목이 없다."
+  },
+  "reason_prefix_text": {
+    "UPSTREAM_STATE": "상류 P5-08/P5-09 판정 상태는 {value}이다.",
+    "OFFICIAL_AXES_INCOMPLETE": "공식 5개 축 가운데 {value}이(가) 아직 미확보라 신규 진입이 보류된다."
+  },
+  "authority": {
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false,
+    "market_judgment_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exit_action_authorized": false,
+    "exchange_order_authorized": false,
+    "broker_submission_authorized": false
+  }
+}

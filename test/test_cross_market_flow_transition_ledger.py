@@ -21,6 +21,17 @@ SPEC.loader.exec_module(MODULE)
 
 V1_CONTRACT_VERSION = "cross_market_flow_transition_ledger/1"
 
+# Deterministic clock for the copied crypto refresh pointer. Every fixture
+# date in this file is 2026-09-09 or later, so with the copied pointer pinned
+# here the US observation timestamp is always the latest of the three PAPER
+# inputs and therefore always drives the producer generated_at. Without this
+# pin the repository's live pointer (regenerated several times a day and
+# crossing the KST day boundary every night) could silently dominate
+# generated_at and turn an "older" fixture into a "same source day" one.
+FIXTURE_CRYPTO_GENERATED_AT = "2026-09-02T00:00:00Z"
+FIXTURE_CRYPTO_AS_OF_DATE = "2026-09-02"
+FIXTURE_CRYPTO_PRICE_AS_OF_DATE = "2026-09-01"
+
 
 def render(value: dict) -> bytes:
     return (
@@ -31,8 +42,10 @@ def render(value: dict) -> bytes:
 class CrossMarketFlowTransitionLedgerTest(unittest.TestCase):
     """/2 continues the frozen /1 chain and orders only by source_generated_date_kst.
 
-    Fixture dates sit after 2026-09-02 so the US observation timestamp, not the
-    copied crypto refresh timestamp, drives the producer generated_at.
+    Fixture dates sit after 2026-09-02 and the copied crypto refresh pointer is
+    pinned to FIXTURE_CRYPTO_GENERATED_AT, so the US observation timestamp --
+    never the repository's live crypto refresh timestamp -- drives the
+    producer generated_at.
     """
 
     def setUp(self):
@@ -58,6 +71,7 @@ class CrossMarketFlowTransitionLedgerTest(unittest.TestCase):
         self.latest_path = (
             self.root / "data" / "latest_cross_market_flow_transition_ledger.json"
         )
+        self._pin_crypto_fixture_clock()
         self.seed_packet = self._seed_predecessor("2026-09-10")
 
     def tearDown(self):
@@ -73,6 +87,29 @@ class CrossMarketFlowTransitionLedgerTest(unittest.TestCase):
             json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+
+    def _pin_crypto_fixture_clock(self) -> None:
+        """Isolate the fixture clock from the repository's live crypto pointer.
+
+        Only the copied fixture file changes: its generated_at moves to the
+        fixed FIXTURE_CRYPTO_GENERATED_AT, the current-reference dates the
+        PAPER producer binds to that timestamp move with it, and the packet is
+        re-signed. Coverage, axes, authority and every other field stay as
+        retained, so the crypto market renders exactly as the repository's
+        pointer would -- just on a clock that no daily regeneration can move.
+        """
+        crypto = self._json("latest_crypto_regime_refresh_status.json")
+        crypto["generated_at"] = FIXTURE_CRYPTO_GENERATED_AT
+        official = crypto.get("official_decision")
+        if isinstance(official, dict) and "captured_at_utc" in official:
+            official["captured_at_utc"] = FIXTURE_CRYPTO_GENERATED_AT
+        current = crypto.get("current_reference")
+        if isinstance(current, dict):
+            current["as_of_date"] = FIXTURE_CRYPTO_AS_OF_DATE
+            current["price_as_of_date"] = FIXTURE_CRYPTO_PRICE_AS_OF_DATE
+        crypto.pop("payload_sha256", None)
+        crypto["payload_sha256"] = MODULE.payload_sha256(crypto)
+        self._write("latest_crypto_regime_refresh_status.json", crypto)
 
     def _set_market_inputs(
         self,
@@ -333,6 +370,32 @@ class CrossMarketFlowTransitionLedgerTest(unittest.TestCase):
         with self.assertRaises(MODULE.CrossMarketFlowTransitionLedgerError) as ctx:
             MODULE.validate_contract(repointed, production=True)
         self.assertIn("CONTRACT_PRODUCTION_PREDECESSOR_MISMATCH", str(ctx.exception))
+
+    # ---- fixture clock ----------------------------------------------------
+
+    def test_fixture_clock_is_driven_by_the_us_observation_not_the_crypto_pointer(self):
+        crypto = self._json("latest_crypto_regime_refresh_status.json")
+        self.assertEqual(crypto["generated_at"], FIXTURE_CRYPTO_GENERATED_AT)
+        self.assertLess(FIXTURE_CRYPTO_GENERATED_AT, self.seed_packet["generated_at"])
+        us = self._json("latest_free_market_data.json")
+        self.assertEqual(self.seed_packet["generated_at"], us["observed_at_utc"])
+        self.assertEqual(
+            MODULE.source_generated_date_kst(self.seed_packet),
+            MODULE.source_generated_date_kst({"generated_at": us["observed_at_utc"]}),
+        )
+        # The isolation is total: a stale fixture stays strictly older and a
+        # same-day fixture stays same-day no matter what the repository's
+        # live crypto pointer says today.
+        _, stale = self._build_source("clock-stale.json", "2026-09-09")
+        _, same = self._build_source("clock-same.json", "2026-09-10", reverse=True)
+        self.assertLess(
+            MODULE.source_generated_date_kst(stale),
+            MODULE.source_generated_date_kst(self.seed_packet),
+        )
+        self.assertEqual(
+            MODULE.source_generated_date_kst(same),
+            MODULE.source_generated_date_kst(self.seed_packet),
+        )
 
     # ---- order key --------------------------------------------------------
 

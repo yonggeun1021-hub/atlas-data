@@ -1,0 +1,62 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "ratification_id": "PAPER-ACTIVE-INVERSE-HEDGE-V1-20260913",
+  "ratified_at_utc": "2026-09-13T14:46:00Z",
+  "ratified_by": "USER (explicit instruction: '적극 헤지안 채택' + refinement: take first profit reliably, do not be only pessimistic, short-term rebounds happen)",
+  "recommended_by": "CLAUDE_CIO",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "companion": {
+    "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json",
+    "sha256": "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8"
+  },
+  "amends": "P6-07 private config/three_market_hedge/policy.json for PAPER: adds STANDALONE defensive inverse allocation that does not require held long exposure. P6-07 held-long hedge (RISK_OFF 25%-50% of held long exposure) remains.",
+  "scope": "INTERNAL_VIRTUAL_PAPER_ONLY. REAL unchanged/prohibited.",
+  "framing": "Defensive allocation (Cash/Reduce/Hedge/Inverse layer). Not a short-alpha engine. Performance tracked separately as hedge sleeve.",
+  "instruments": {
+    "KR": "114800 KODEX Inverse (1x)",
+    "US": "SH (1x)",
+    "CRYPTO": "cash; BTC perp short <=5% NAV only as stage-2 option after event study and a known crypto regime",
+    "prohibited": "leveraged/2x inverse products"
+  },
+  "allocation_caps_nav": {
+    "all_markets_STRESS": {
+      "KR": "0.15",
+      "US": "0.15",
+      "total": "0.30"
+    },
+    "single_market_STRESS": "<=0.10 in that market",
+    "RISK_OFF": "P6-07 held-long hedge only (25%-50% of held long exposure)",
+    "NEUTRAL_or_better": "0"
+  },
+  "entry": {
+    "trigger": "market STRESS confirmed 1 session (market regime KNOWN; UNKNOWN never triggers)",
+    "pace": "one third of the cap per session",
+    "no_chase": "skip a tranche when the inverse instrument already moved >= +3% from the prior session close"
+  },
+  "exit_staged_take_profit": {
+    "initial_stop": "position -4% from average entry -> exit that market's inverse",
+    "TP1": "position +3% -> sell 50% (first take-profit priority); move stop on remainder to breakeven",
+    "rebound_guard": "while in profit and before TP1: if underlying index rebounds >= +1.5% intraday/close (inverse <= -1.5% day), execute TP1 immediately",
+    "TP2": "position +6% -> sell 25% of original",
+    "runner": "last 25% trailing stop 3% from peak position value",
+    "regime_exits": "market back to RISK_OFF -> reduce remaining inverse by 50%; NEUTRAL or better -> exit all",
+    "time_stop": "10 sessions max holding; extension only if STRESS re-confirmed"
+  },
+  "re_entry": "after TP1, if STRESS persists and underlying makes a new low, re-enter up to the sold quantity once per episode, within caps",
+  "validation": {
+    "status": "initial PAPER defaults",
+    "required": "event study on KR/US STRESS episodes: n, TP1 touch rate vs SL first-touch rate, MFE/MAE, cost 2x, recent vs full period; one controlled parameter revision allowed",
+    "portal": "04 portfolio + 05 performance show hedge sleeve separately (TP1 hit rate, stop rate, drawdown reduction)"
+  },
+  "known_blockers": [
+    "US and Crypto market regime currently UNKNOWN -> rule inactive there until regime is KNOWN",
+    "KR regime must be KNOWN and confirmed"
+  ],
+  "future_note": "User principle 'first take-profit matters, rebounds happen' to be considered for the long-side Exit layer design (separate decision).",
+  "authority": {
+    "real_order": false,
+    "capital_transfer": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

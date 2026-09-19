@@ -1,0 +1,87 @@
+{
+  "as_of_date": "2026-09-10",
+  "authority": {
+    "breadth_classification_authorized": false,
+    "historical_reconstruction_authorized": false,
+    "price_breadth_authorized": false,
+    "production_wiring_authorized": false,
+    "regime_score_authorized": false,
+    "threshold_authorized": false,
+    "trading_action_authorized": false
+  },
+  "membership": {
+    "changed_attribute_ids": [
+      "nasdaq_listed:PMA"
+    ],
+    "changed_attributes_count": 1,
+    "current_count": 13209,
+    "current_source_counts": {
+      "nasdaq_listed": 5601,
+      "other_listed": 7608
+    },
+    "entered_count": 20,
+    "entered_ids": [
+      "nasdaq_listed:ACBE",
+      "nasdaq_listed:ACBH",
+      "nasdaq_listed:AIFR",
+      "nasdaq_listed:AIMG",
+      "nasdaq_listed:ATTT",
+      "nasdaq_listed:BRTM",
+      "nasdaq_listed:BRTMW",
+      "nasdaq_listed:CRAM",
+      "nasdaq_listed:EOCN",
+      "nasdaq_listed:SWRD",
+      "nasdaq_listed:VEEM",
+      "other_listed:MFSD",
+      "other_listed:MFSX",
+      "other_listed:NMCO.R",
+      "other_listed:NRAM",
+      "other_listed:VEGX",
+      "other_listed:XLCD",
+      "other_listed:XLCU",
+      "other_listed:XLPD",
+      "other_listed:XLPU"
+    ],
+    "exited_count": 4,
+    "exited_ids": [
+      "nasdaq_listed:GLMD",
+      "nasdaq_listed:RAY",
+      "nasdaq_listed:TMCWW",
+      "other_listed:NMCO.V"
+    ],
+    "previous_count": 13193,
+    "previous_source_counts": {
+      "nasdaq_listed": 5593,
+      "other_listed": 7600
+    },
+    "unchanged_count": 13189
+  },
+  "observation": "SOURCE_DIRECTORY_MEMBERSHIP_CHANGE_ONLY",
+  "paid_data_checkpoint": {
+    "allowed_without_reconfirmation": [
+      "forward_only_current_day_symbol_directory_capture",
+      "append_only_raw_persistence",
+      "captured_snapshot_membership_diff"
+    ],
+    "approved": false,
+    "status": "USER_RECONFIRMATION_REQUIRED",
+    "stop_before": [
+      "historical_breadth_reconstruction",
+      "delisted_security_ohlcv_acquisition",
+      "paid_api_or_vendor_integration",
+      "license_or_subscription_cost",
+      "trial_that_converts_to_paid"
+    ]
+  },
+  "previous_date": "2026-09-09",
+  "price_breadth": {
+    "advance_fraction": null,
+    "advancing_count": null,
+    "declining_count": null,
+    "status": "UNKNOWN_PRICE_SOURCE_UNAVAILABLE",
+    "unchanged_count": null
+  },
+  "schema_version": 1,
+  "status": "PASS",
+  "universe_semantics": "source_directory_membership_not_investable_universe"
+}

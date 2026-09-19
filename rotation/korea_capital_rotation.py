@@ -15,12 +15,39 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from rotation import theme_taxonomy as TT
+except ModuleNotFoundError:  # direct ``python rotation/korea_capital_rotation.py`` CLI
+    import sys
+
+    sys.path.insert(0, str(ROOT))
+    from rotation import theme_taxonomy as TT
+
 CONTRACT_PATH = ROOT / "config" / "korea_capital_rotation_contract.json"
+SECTOR_IDENTITY_BINDING_CONTRACT_PATH = (
+    ROOT / "config" / "korea_sector_identity_binding_contract.json"
+)
 INPUT_SCHEMA_VERSION = "korea_capital_rotation_input/1"
 POLICY_SCHEMA_VERSION = "korea_capital_rotation_policy/1"
 OUTPUT_SCHEMA_VERSION = "korea_capital_rotation_packet/4"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,127}$")
+
+# The historical opaque binding (contract["taxonomy_contract_version"]) plus
+# the source and derived fields a real ``theme_taxonomy/2`` consumption derives for itself.
+# They are never accepted from the caller at build time: build_packet() runs
+# the exact supplied graph source bytes through the real producer and writes
+# what that producer actually returned.
+TAXONOMY_BINDING_FIELDS = {
+    "taxonomy_contract_version", "taxonomy_id", "taxonomy_decision_id",
+    "taxonomy_decision_sha256", "taxonomy_packet_sha256",
+    "upstream_leadership_policy_sha256",
+}
+TAXONOMY_V2_DERIVED_FIELDS = {
+    "taxonomy_source_json", "taxonomy_source_sha256", "taxonomy_graph_status",
+    "taxonomy_authority_status", "theme_membership_authorized",
+}
 
 
 class KoreaCapitalRotationError(ValueError):
@@ -178,18 +205,82 @@ def _render(value: Decimal, places: int) -> str:
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
-def _validate_binding(value: dict, contract: dict) -> dict:
-    fields = {
-        "taxonomy_contract_version", "taxonomy_id", "taxonomy_decision_id",
-        "taxonomy_decision_sha256", "taxonomy_packet_sha256",
-        "upstream_leadership_policy_sha256",
-    }
-    if not isinstance(value, dict) or set(value) != fields:
+def taxonomy_producer_contract_version() -> str:
+    """The exact ``contract_version`` of the real P2-01 Theme taxonomy producer.
+
+    Read from that producer's own committed contract instead of being
+    duplicated as a literal here, so this consumer cannot drift into
+    accepting a taxonomy contract version the producer no longer emits.
+    """
+    try:
+        return TT.load_contract()["contract_version"]
+    except TT.ThemeTaxonomyError as exc:
+        raise KoreaCapitalRotationError(
+            f"TAXONOMY_PRODUCER_CONTRACT_UNAVAILABLE:{exc}"
+        ) from exc
+
+
+def sector_identity_binding_contract_version(
+    path: Path = SECTOR_IDENTITY_BINDING_CONTRACT_PATH,
+) -> str:
+    """The exact ``contract_version`` of the dedicated, P2-03-owned,
+    date-independent sector identity binding (``config/korea_sector_
+    identity_binding_contract.json``).
+
+    This is a narrower, separate contract from the P2-01 cross-market
+    ``theme_taxonomy/2`` producer: it binds only a fixed
+    ``series_identity -> theme_id`` map pinned to a specific ratified
+    upstream Leadership policy, carries no per-decision-date graph, requires
+    no edges/memberships/authority-registry record, and creates no asset-to-
+    theme membership or cross-market taxonomy authority. Read from its own
+    committed contract instead of being duplicated as a literal here, for the
+    same drift-safety reason as ``taxonomy_producer_contract_version()``.
+    """
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise KoreaCapitalRotationError(
+            f"SECTOR_IDENTITY_BINDING_CONTRACT_UNAVAILABLE:{exc}"
+        ) from exc
+    version = value.get("contract_version") if isinstance(value, dict) else None
+    if not isinstance(version, str) or not version:
+        raise KoreaCapitalRotationError("SECTOR_IDENTITY_BINDING_CONTRACT_UNAVAILABLE")
+    return version
+
+
+def _validate_binding(value: dict, contract: dict, *, derived: bool) -> dict:
+    """Validate the taxonomy binding for any supported binding version.
+
+    ``contract["taxonomy_contract_version"]`` (``theme_taxonomy/1``) is the
+    unchanged legacy binding: four opaque caller-supplied identity strings
+    that this module can only carry, never resolve. The P2-01 producer's own
+    current version (``theme_taxonomy/2``) additionally requires the exact
+    graph source bytes at build time, and the persisted packet then carries
+    the source and derived fields build_packet() derived from the real
+    producer -- but that graph is evaluated for one specific ``as_of_date``,
+    so a v2 binding cannot be reused unchanged across multiple decision
+    dates. ``korea_sector_identity_binding/1`` (this module's own, narrower
+    contract) is the date-independent alternative: a fixed positional
+    ``series_identity -> theme_id`` map pinned to one ratified upstream
+    Leadership policy, with no per-date graph, no edges/memberships, and no
+    P2-01 cross-market taxonomy authority -- reusable byte-identical across
+    Day N, Day N+1, and every later natural session.
+    """
+    if not isinstance(value, dict):
         raise KoreaCapitalRotationError("TAXONOMY_BINDING_FIELDS_MISMATCH")
-    if value.get("taxonomy_contract_version") != contract["taxonomy_contract_version"]:
+    version = value.get("taxonomy_contract_version")
+    legacy_version = contract["taxonomy_contract_version"]
+    producer_version = taxonomy_producer_contract_version()
+    sector_identity_version = sector_identity_binding_contract_version()
+    if version not in (legacy_version, producer_version, sector_identity_version):
         raise KoreaCapitalRotationError("TAXONOMY_CONTRACT_VERSION_MISMATCH")
-    return {
-        "taxonomy_contract_version": value["taxonomy_contract_version"],
+    fields = set(TAXONOMY_BINDING_FIELDS)
+    if derived and version == producer_version:
+        fields |= TAXONOMY_V2_DERIVED_FIELDS
+    if set(value) != fields:
+        raise KoreaCapitalRotationError("TAXONOMY_BINDING_FIELDS_MISMATCH")
+    binding = {
+        "taxonomy_contract_version": version,
         "taxonomy_id": _token(value.get("taxonomy_id"), "TAXONOMY_ID_INVALID"),
         "taxonomy_decision_id": _token(
             value.get("taxonomy_decision_id"), "TAXONOMY_DECISION_ID_INVALID"
@@ -205,6 +296,154 @@ def _validate_binding(value: dict, contract: dict) -> dict:
             "UPSTREAM_LEADERSHIP_POLICY_SHA_INVALID",
         ),
     }
+    if derived and version == producer_version:
+        membership_authorized = value.get("theme_membership_authorized")
+        if membership_authorized is not True and membership_authorized is not False:
+            raise KoreaCapitalRotationError("TAXONOMY_MEMBERSHIP_AUTHORITY_INVALID")
+        if not isinstance(value.get("taxonomy_source_json"), str):
+            raise KoreaCapitalRotationError("TAXONOMY_SOURCE_JSON_INVALID")
+        binding.update({
+            "taxonomy_source_json": value["taxonomy_source_json"],
+            "taxonomy_source_sha256": _sha(
+                value.get("taxonomy_source_sha256"), "TAXONOMY_SOURCE_SHA_INVALID"
+            ),
+            "taxonomy_graph_status": _token(
+                value.get("taxonomy_graph_status"), "TAXONOMY_GRAPH_STATUS_INVALID"
+            ),
+            "taxonomy_authority_status": _token(
+                value.get("taxonomy_authority_status"),
+                "TAXONOMY_AUTHORITY_STATUS_INVALID",
+            ),
+            "theme_membership_authorized": membership_authorized,
+        })
+    return binding
+
+
+def _consume_taxonomy(
+    binding: dict,
+    source_bytes,
+    as_of_date: dt.date,
+    registry_path,
+    trusted_commit: str | None,
+) -> tuple[dict, set[str] | None]:
+    """Actually consume a real ``theme_taxonomy/2`` graph, or stay legacy.
+
+    Nothing the caller declares about the taxonomy is trusted.  The exact
+    supplied source bytes are re-run through the existing P2-01 producer
+    (``theme_taxonomy.build_packet``), which performs its own structural
+    validation and its own independent, git-provenance-bound authority
+    resolution (``theme_taxonomy_authority.resolve_graph_authority``).  The
+    caller's declared taxonomy identity and packet digest must equal what
+    that producer actually derived, so a ``theme_taxonomy/1`` binding cannot
+    be relabelled ``theme_taxonomy/2`` by editing four strings.
+
+    The producer's authorization verdict is recorded exactly as returned --
+    with the repository's empty approval-authority registry that verdict is
+    "not authorized", and this consumer never upgrades or fabricates it.  It
+    also never becomes rotation authority: rotation ranking stays gated only
+    by the externally supplied rotation_policy.
+
+    Returns the derived binding fields and, for a real consumption, the set
+    of Theme node ids that graph reports as active on this decision date.
+    """
+    version = binding["taxonomy_contract_version"]
+    if version != taxonomy_producer_contract_version():
+        if source_bytes is not None:
+            raise KoreaCapitalRotationError(
+                "TAXONOMY_SOURCE_NOT_ALLOWED_FOR_LEGACY_BINDING"
+            )
+        return {}, None
+    if source_bytes is None:
+        raise KoreaCapitalRotationError("TAXONOMY_SOURCE_REQUIRED_FOR_V2_BINDING")
+    if not isinstance(source_bytes, (bytes, bytearray)):
+        raise KoreaCapitalRotationError("TAXONOMY_SOURCE_BYTES_INVALID")
+    source_bytes = bytes(source_bytes)
+    try:
+        graph = json.loads(source_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise KoreaCapitalRotationError(f"TAXONOMY_SOURCE_JSON_INVALID:{exc}") from exc
+    try:
+        packet = TT.build_packet(
+            graph,
+            authority_registry_path=(
+                TT.TTA.REGISTRY_PATH if registry_path is None else Path(registry_path)
+            ),
+            trusted_commit=trusted_commit,
+        )
+    except TT.ThemeTaxonomyError as exc:
+        raise KoreaCapitalRotationError(
+            f"TAXONOMY_SOURCE_REJECTED_BY_PRODUCER:{exc}"
+        ) from exc
+    if (
+        packet.get("schema_version") != TT.OUTPUT_SCHEMA_VERSION
+        or packet.get("contract_version") != version
+    ):
+        raise KoreaCapitalRotationError("TAXONOMY_PRODUCER_IDENTITY_MISMATCH")
+    # The graph must have been evaluated on this rotation's own decision
+    # date; a graph resolved for another day is a different point-in-time
+    # fact and is never reused here.
+    if packet.get("as_of_date") != as_of_date.isoformat():
+        raise KoreaCapitalRotationError("TAXONOMY_AS_OF_DATE_MISMATCH")
+    approval = packet.get("approval")
+    if not isinstance(approval, dict):
+        raise KoreaCapitalRotationError("TAXONOMY_APPROVAL_INVALID")
+    if (
+        packet.get("taxonomy_id") != binding["taxonomy_id"]
+        or approval.get("decision_id") != binding["taxonomy_decision_id"]
+        or approval.get("decision_sha256") != binding["taxonomy_decision_sha256"]
+    ):
+        raise KoreaCapitalRotationError("TAXONOMY_SOURCE_IDENTITY_MISMATCH")
+    if packet.get("payload_sha256") != binding["taxonomy_packet_sha256"]:
+        raise KoreaCapitalRotationError("TAXONOMY_PACKET_SHA_NOT_DERIVED_FROM_SOURCE")
+    membership_authorized = packet.get("theme_membership_authorized")
+    if membership_authorized is not True and membership_authorized is not False:
+        raise KoreaCapitalRotationError("TAXONOMY_MEMBERSHIP_AUTHORITY_INVALID")
+    resolution = packet.get("authority_resolution")
+    if not isinstance(resolution, dict):
+        raise KoreaCapitalRotationError("TAXONOMY_AUTHORITY_RESOLUTION_INVALID")
+    nodes = packet.get("nodes")
+    if not isinstance(nodes, list):
+        raise KoreaCapitalRotationError("TAXONOMY_NODES_INVALID")
+    # Exactly the producer's own interval semantics, reused rather than
+    # re-specified, and cross-checked against its own active_node_count.
+    active_theme_ids = {
+        node["theme_id"]
+        for node in nodes
+        if TT._active(node["valid_from"], node["valid_to"], packet["as_of_date"])
+    }
+    if len(active_theme_ids) != packet.get("active_node_count"):
+        raise KoreaCapitalRotationError("TAXONOMY_ACTIVE_NODE_DERIVATION_MISMATCH")
+    derived = {
+        "taxonomy_source_json": source_bytes.decode("utf-8"),
+        "taxonomy_source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "taxonomy_graph_status": _token(
+            packet.get("graph_status"), "TAXONOMY_GRAPH_STATUS_INVALID"
+        ),
+        "taxonomy_authority_status": _token(
+            resolution.get("status"), "TAXONOMY_AUTHORITY_STATUS_INVALID"
+        ),
+        "theme_membership_authorized": membership_authorized,
+    }
+    return derived, active_theme_ids
+
+
+def _assert_theme_nodes(theme_ids, active_theme_ids: set[str] | None) -> None:
+    """Every rotation-policy theme_id must name a Theme node the consumed
+    graph itself reports as active on this decision date.
+
+    This is referential integrity against the exact graph that was actually
+    consumed -- it selects nothing, ratifies nothing, and creates no
+    asset-to-Theme membership.  It only applies when a real graph was
+    consumed; the legacy opaque binding cannot be checked at all, which is
+    precisely the gap the ``theme_taxonomy/2`` path closes.
+    """
+    if active_theme_ids is None:
+        return
+    for theme_id in sorted(theme_ids):
+        if theme_id not in active_theme_ids:
+            raise KoreaCapitalRotationError(
+                f"TAXONOMY_THEME_NODE_NOT_ACTIVE:{theme_id}"
+            )
 
 
 _BREADTH_STATUS_SEVERITY = {"UNKNOWN": 0, "BLOCKED": 1, "STALE": 2, "AVAILABLE": 3}
@@ -718,7 +957,24 @@ def _buckets(ranked: list[str], top_count: int, bottom_count: int) -> dict[str, 
     }
 
 
-def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dict:
+def build_packet(
+    value: dict,
+    policy: dict,
+    contract: dict | None = None,
+    *,
+    taxonomy_source_bytes: bytes | None = None,
+    taxonomy_authority_registry_path=None,
+    taxonomy_trusted_commit: str | None = None,
+) -> dict:
+    """Build one Korea rotation packet.
+
+    ``taxonomy_source_bytes`` is the optional real P2-01 input path: the exact
+    bytes of a ``theme_taxonomy_input/1`` graph document.  It is required when
+    the input's ``taxonomy_binding`` declares the producer's own
+    ``theme_taxonomy/2`` contract version, and forbidden for the legacy opaque
+    binding.  The legacy path is unchanged and still produces byte-identical
+    packets.
+    """
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "as_of_date", "taxonomy_binding", "coverage_context",
@@ -729,7 +985,12 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
     if set(value) != fields:
         raise KoreaCapitalRotationError("INPUT_FIELDS_MISMATCH")
     as_of_date = _date(value.get("as_of_date"), "AS_OF_DATE_INVALID")
-    binding = _validate_binding(value.get("taxonomy_binding"), contract)
+    binding = _validate_binding(value.get("taxonomy_binding"), contract, derived=False)
+    taxonomy_derived, active_theme_ids = _consume_taxonomy(
+        binding, taxonomy_source_bytes, as_of_date,
+        taxonomy_authority_registry_path, taxonomy_trusted_commit,
+    )
+    binding.update(taxonomy_derived)
     prior = _validate_upstream(value.get("prior_observation"), "prior", contract)
     current = _validate_upstream(value.get("current_observation"), "current", contract)
     # decision_time = the current Leadership observation's own real,
@@ -766,6 +1027,14 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
     checked_policy, effective, scopes = _validate_policy(
         policy, binding, eligible, prior["observation_date"],
         current["observation_date"], prior["available_at"],
+    )
+    _assert_theme_nodes(
+        {
+            theme_id
+            for scope in scopes.values()
+            for theme_id in scope["series_to_theme"].values()
+        },
+        active_theme_ids,
     )
     scope_outputs = []
     places = contract["output_decimal_places"]
@@ -884,11 +1153,29 @@ def build_packet(value: dict, policy: dict, contract: dict | None = None) -> dic
         ],
     }
     packet["payload_sha256"] = payload_sha256(packet)
-    return validate_packet(packet, contract)
+    return validate_packet(
+        packet, contract,
+        taxonomy_source_bytes=taxonomy_source_bytes,
+        taxonomy_authority_registry_path=taxonomy_authority_registry_path,
+        taxonomy_trusted_commit=taxonomy_trusted_commit,
+    )
 
 
-def validate_packet(packet: dict, contract: dict | None = None) -> dict:
-    """Validate the complete v1 output without inventing omitted source rows."""
+def validate_packet(
+    packet: dict,
+    contract: dict | None = None,
+    *,
+    taxonomy_source_bytes: bytes | None = None,
+    taxonomy_authority_registry_path=None,
+    taxonomy_trusted_commit: str | None = None,
+) -> dict:
+    """Validate the complete v1 output without inventing omitted source rows.
+
+    V2 packets carry the exact public graph source text. Every validation,
+    including a ledger's packet-only call, re-runs the existing producer and
+    independent registry resolver. An optional external source must match the
+    embedded source exactly. Derived authority fields are never trusted.
+    """
     contract = _validate_contract(contract) if contract is not None else load_contract()
     fields = {
         "schema_version", "contract_version", "measurement", "market",
@@ -933,7 +1220,20 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     )
     if prior_available_at >= current_available_at:
         raise KoreaCapitalRotationError("OUTPUT_AVAILABLE_AT_ORDER_INVALID")
-    binding = _validate_binding(packet.get("taxonomy_binding"), contract)
+    binding = _validate_binding(packet.get("taxonomy_binding"), contract, derived=True)
+    active_theme_ids = None
+    if binding["taxonomy_contract_version"] == taxonomy_producer_contract_version():
+        embedded_source = binding["taxonomy_source_json"].encode("utf-8")
+        if taxonomy_source_bytes is not None and taxonomy_source_bytes != embedded_source:
+            raise KoreaCapitalRotationError("OUTPUT_TAXONOMY_DERIVATION_MISMATCH")
+        taxonomy_source_bytes = embedded_source
+    if taxonomy_source_bytes is not None:
+        derived, active_theme_ids = _consume_taxonomy(
+            binding, taxonomy_source_bytes, as_of,
+            taxonomy_authority_registry_path, taxonomy_trusted_commit,
+        )
+        if {key: binding.get(key) for key in TAXONOMY_V2_DERIVED_FIELDS} != derived:
+            raise KoreaCapitalRotationError("OUTPUT_TAXONOMY_DERIVATION_MISMATCH")
     _validate_context(packet.get("coverage_context"), as_of, current_available_at)
 
     policy = packet.get("rotation_policy")
@@ -1068,6 +1368,7 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         }
     if policy_scope_order != sorted(policy_scope_order):
         raise KoreaCapitalRotationError("OUTPUT_POLICY_SCOPE_ORDER_INVALID")
+    _assert_theme_nodes(all_theme_ids, active_theme_ids)
 
     raw_outputs = packet.get("benchmark_scopes")
     if not isinstance(raw_outputs, list) or len(raw_outputs) != len(policy_scopes):
@@ -1276,6 +1577,511 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
     return copy.deepcopy(packet)
 
 
+def consume_paper_runtime_context(
+    runtime_bytes: bytes,
+    *,
+    expected_runtime_sha256: str,
+    source_commit: str,
+    evaluation_at: str,
+    prior_date: str,
+    current_date: str,
+    rotation_policy: dict,
+    rotation_packet: dict | None,
+    rotation_error: str | None = None,
+) -> dict:
+    """Consume a pinned Stage1 display decision alongside real P2-03 output.
+
+    This is a read-only receipt, NOT a korea_capital_rotation_packet/4.
+    The original ranking transform and its strict packet/4 contract remain
+    unchanged. Stage1's aggregate leadership count is never converted into
+    sector returns, Theme membership, buckets, or entry permission.
+    ``expected_runtime_sha256`` must come from the caller's trusted immutable
+    source, not a digest supplied inside the runtime document.
+    """
+    digest = hashlib.sha256(runtime_bytes).hexdigest()
+    if digest != _sha(expected_runtime_sha256, "PAPER_RUNTIME_EXPECTED_SHA_INVALID"):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_SOURCE_SHA_MISMATCH")
+    if not isinstance(source_commit, str) or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_SOURCE_COMMIT_INVALID")
+    try:
+        runtime = json.loads(runtime_bytes)
+    except (ValueError, UnicodeError) as exc:
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_JSON_INVALID") from exc
+    expected_authority = {
+        "paper_runtime_display_authorized": True,
+        **{f"{name}_authorized": False for name in (
+            "action", "buy", "capital", "order", "production", "real",
+            "stage", "strategy", "trading",
+        )},
+    }
+    if not isinstance(runtime, dict) or any(runtime.get(key) != value for key, value in {
+        "schema_version": "kr_paper_runtime_decision/5",
+        "market": "KR",
+        "evidence_class": "LIVE_NATURAL",
+        "actual_source_qualification": "RATIFIED_KR_PAPER_DISPLAY_ONLY",
+        "decision_status": "PAPER_RUNTIME_CLASSIFIED",
+        "reasons": [],
+    }.items()) or runtime.get("runtime_decision_available") is not True:
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_NOT_QUALIFIED_FOR_DISPLAY")
+    authority = runtime.get("authority")
+    if not isinstance(authority, dict) or set(authority) != set(expected_authority) or any(
+        authority[key] is not value for key, value in expected_authority.items()
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_AUTHORITY_MISMATCH")
+    observation = runtime.get("current_observation")
+    boundary = runtime.get("session_boundary_freshness")
+    if not isinstance(observation, dict) or not isinstance(boundary, dict):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_CONTEXT_MISSING")
+    prior = _date(prior_date, "PAPER_PRIOR_DATE_INVALID")
+    current = _date(current_date, "PAPER_CURRENT_DATE_INVALID")
+    if not prior < current or observation.get("as_of_date") != current_date or (
+        boundary.get("context_session_date") != current_date
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_CONTEXT_DATE_MISMATCH")
+    regime = runtime.get("runtime_regime")
+    if regime not in {"RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS"} or any(
+        value != regime for value in (
+            runtime.get("paper_regime"), observation.get("confirmed_regime"),
+        )
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_CONFIRMED_REGIME_MISMATCH")
+    if runtime.get("direction") not in {"IMPROVING", "STABLE", "DETERIORATING"}:
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_DIRECTION_INVALID")
+    confidence = _decimal(runtime.get("confidence"), "PAPER_RUNTIME_CONFIDENCE_INVALID")
+    if not Decimal(0) <= confidence <= Decimal(1):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_CONFIDENCE_INVALID")
+    now = _timestamp(evaluation_at, "PAPER_CONSUMPTION_TIME_INVALID")
+    published = _timestamp(runtime.get("evaluation_at"), "PAPER_RUNTIME_TIME_INVALID")
+    usable = _timestamp(boundary.get("calendar_usable_from"), "PAPER_CALENDAR_TIME_INVALID")
+    close = _timestamp(boundary.get("context_session_close_at"), "PAPER_CONTEXT_CLOSE_INVALID")
+    expires = _timestamp(boundary.get("execution_session_close_at"), "PAPER_EXPIRY_INVALID")
+    kst = dt.timezone(dt.timedelta(hours=9))
+    if close.astimezone(kst).date() != current or (
+        expires.astimezone(kst).date().isoformat() != boundary.get("execution_session_date")
+    ) or not current < expires.astimezone(kst).date():
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_SESSION_DATE_MISMATCH")
+    if boundary.get("paper_policy_use_authorized") is not True or not (
+        close <= published and usable <= published <= now < expires
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_NOT_AVAILABLE_OR_EXPIRED")
+    if type(boundary.get("derived_ttl_seconds")) is not int or (
+        boundary["derived_ttl_seconds"] != (expires - close).total_seconds()
+    ):
+        raise KoreaCapitalRotationError("PAPER_RUNTIME_TTL_MISMATCH")
+
+    if not isinstance(rotation_policy, dict) or (
+        rotation_policy.get("schema_version") != POLICY_SCHEMA_VERSION
+        or rotation_policy.get("approval_status") != "RATIFIED"
+    ):
+        raise KoreaCapitalRotationError("PAPER_ROTATION_POLICY_NOT_RATIFIED")
+    effective_from = _date(rotation_policy.get("effective_from"), "PAPER_POLICY_DATE_INVALID")
+    effective_to = rotation_policy.get("effective_to")
+    effective = effective_from <= prior and (
+        effective_to is None or current < _date(effective_to, "PAPER_POLICY_END_INVALID")
+    )
+    reasons = [] if effective else ["POLICY_NOT_EFFECTIVE_FOR_OBSERVATION_PAIR"]
+    packet = None
+    if rotation_packet is None:
+        reasons.append("ROTATION_PACKET_UNAVAILABLE")
+        if not isinstance(rotation_error, str) or not rotation_error:
+            raise KoreaCapitalRotationError("PAPER_ROTATION_MISSING_REASON_REQUIRED")
+        reasons.append(rotation_error)
+    else:
+        if rotation_error is not None:
+            raise KoreaCapitalRotationError("PAPER_ROTATION_RESULT_ERROR_CONFLICT")
+        packet = validate_packet(rotation_packet)
+        pair = packet["observation_pair"]
+        if packet["rotation_policy"] != rotation_policy or (
+            pair["prior_date"] != prior_date or pair["current_date"] != current_date
+        ):
+            raise KoreaCapitalRotationError("PAPER_ROTATION_PACKET_BINDING_MISMATCH")
+        if _timestamp(pair["current_available_at"], "PAPER_ROTATION_TIME_INVALID") > now:
+            raise KoreaCapitalRotationError("PAPER_ROTATION_PACKET_NOT_YET_AVAILABLE")
+        if packet["status"] != "ROTATION_BUCKETS_OBSERVED":
+            reasons.append(packet["status"])
+        if packet["coverage_context"]["breadth"]["status"] != "AVAILABLE":
+            reasons.append("ROTATION_BREADTH_NOT_AVAILABLE")
+
+    lineage = {
+        "runtime_source_commit": source_commit,
+        "runtime_path": "data/latest_kr_paper_runtime_decision.json",
+        "runtime_file_sha256": digest,
+        "expected_runtime_file_sha256": expected_runtime_sha256,
+        "runtime_decision_id": runtime.get("decision_id"),
+        "runtime_evaluation_at": runtime["evaluation_at"],
+        "runtime_producer_code_revision": runtime.get("code_revision"),
+        "rotation_policy_sha256": payload_sha256(rotation_policy),
+        "rotation_packet_sha256": None if packet is None else packet["payload_sha256"],
+    }
+    for key in (
+        "qualification_sha256", "source_sha256", "source_manifest_sha256",
+        "historical_acceptance_sha256", "historical_replay_sha256",
+    ):
+        lineage[key] = _sha(runtime.get(key), f"PAPER_RUNTIME_LINEAGE_INVALID:{key}")
+    receipt = {
+        "schema_version": "korea_capital_rotation_paper_consumption/1",
+        "mode": "INTERNAL_PAPER_READ_ONLY_CONTEXT",
+        "evaluation_at": evaluation_at,
+        "observation_pair": {"prior_date": prior_date, "current_date": current_date},
+        "market_context": {
+            "status": "CONSUMED_DISPLAY_ONLY",
+            "as_of_date": current_date,
+            "runtime_regime": regime,
+            "direction": runtime["direction"],
+            "confidence": runtime["confidence"],
+            "current_observation": copy.deepcopy(observation),
+            "expires_at": boundary["execution_session_close_at"],
+            "execution_session_date": boundary["execution_session_date"],
+            "ranking_input_authorized": False,
+        },
+        "rotation": {
+            "status": "ROTATION_PACKET_AVAILABLE" if not reasons else "WAIT_ROTATION_INPUT",
+            "reasons": list(dict.fromkeys(reasons)),
+            "policy_id": rotation_policy["policy_id"],
+            "policy_effective_from": rotation_policy["effective_from"],
+            "policy_effective_for_pair": effective,
+            "packet": packet,
+        },
+        "stage3_handoff": {
+            "market_context_available": True,
+            "rotation_packet_ready_for_contract_validation": not reasons,
+            "required_rotation_schema": OUTPUT_SCHEMA_VERSION,
+            "rotation_packet_field": "rotation.packet",
+            "entry_authorized": False,
+            "remaining_contract_checks": [
+                "EXACT_D_TO_E_SESSION_AND_TTL",
+                "INDEPENDENT_ASSET_THEME_MEMBERSHIP_AND_SAME_THEME_TOP_BUCKET",
+                "E_SESSION_IDENTITY_TRADABILITY_PRICE_COST_AND_FORWARD_EVIDENCE",
+            ],
+            "aggregate_leadership_is_not_sector_rotation_input": True,
+        },
+        "lineage": lineage,
+        "authority": expected_authority | {
+            "regime_as_ranking_input_authorized": False,
+            "candidate_ranking_authorized": False,
+            "stage3_entry_authorized": False,
+        },
+    }
+    receipt["payload_sha256"] = payload_sha256(receipt)
+    return receipt
+
+
+USABLE_SEED_CONSUMPTION_SCHEMA_VERSION = "korea_capital_rotation_usable_seed_consumption/1"
+LEADERSHIP_LIVE_ATTEMPT_SCHEMA_VERSION = "korea_leadership_live_attempt/1"
+USABLE_SEED_SOURCE_DIRECTORY = "data/observations/korea_leadership_context"
+# Where the seed bytes were found at the caller's source commit. Every value
+# except PINNED is a fixed, reasoned NOT_READY; a committed-but-unmaterialized
+# file is a readback capability gap, never evidence that the seed is absent.
+USABLE_SEED_AVAILABILITY_REASONS = {
+    "PINNED": (),
+    "COMMITTED_NOT_MATERIALIZED": ("NATURAL_READBACK_UNAVAILABLE_MATERIALIZATION",),
+    "SOURCE_COMMIT_UNAVAILABLE": (
+        "NATURAL_READBACK_UNAVAILABLE_MATERIALIZATION", "SEED_SOURCE_COMMIT_UNAVAILABLE",
+    ),
+    "ABSENT_AT_SOURCE_COMMIT": ("SEED_OBSERVATION_ABSENT_AT_SOURCE_COMMIT",),
+    "UNCOMMITTED_LOCAL_ONLY": ("SEED_OBSERVATION_NOT_COMMITTED_AT_SOURCE_COMMIT",),
+    "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT": ("SEED_LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT",),
+}
+_USABLE_SEED_COMMITTED_AVAILABILITY = {
+    "PINNED", "COMMITTED_NOT_MATERIALIZED", "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT",
+}
+_USABLE_SEED_LOCAL_REQUIRED = {"PINNED", "UNCOMMITTED_LOCAL_ONLY", "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT"}
+_USABLE_SEED_LOCAL_FORBIDDEN = {"COMMITTED_NOT_MATERIALIZED", "ABSENT_AT_SOURCE_COMMIT"}
+
+
+def _usable_seed_record(seed: dict, label: str, contract: dict) -> tuple[dict, dict | None]:
+    """Re-derive one committed Leadership seed's readiness from its own bytes.
+
+    ``seed`` carries the exact committed bytes, the caller's already-run
+    generic verifier output and the predecessor ``require_usable_seed``
+    verdict.  None of those are trusted: the outer and inner digests, dates
+    and populated/non-null outcome are re-proven here and must agree.  The
+    file digest is recorded as an observation of those bytes, never as an
+    independently approved expected hash.  Integrity failures raise;
+    readiness gaps return a reasoned NOT_READY record.
+    """
+    fields = {
+        "observation_date", "seed_fetch_prior_date", "source_commit", "source_path",
+        "availability", "committed_bytes", "local_file_sha256", "verified_summary",
+        "predecessor_not_ready_reason",
+    }
+    if not isinstance(seed, dict) or set(seed) != fields:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_FIELDS_MISMATCH:{label}")
+    observation_date = _date(seed["observation_date"], f"USABLE_SEED_DATE_INVALID:{label}")
+    fetch_prior = _date(
+        seed["seed_fetch_prior_date"], f"USABLE_SEED_FETCH_PRIOR_DATE_INVALID:{label}"
+    )
+    if not fetch_prior < observation_date:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_FETCH_PRIOR_DATE_INVALID:{label}")
+    source_commit = seed["source_commit"]
+    if not isinstance(source_commit, str) or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SOURCE_COMMIT_INVALID:{label}")
+    if seed["source_path"] != (
+        f"{USABLE_SEED_SOURCE_DIRECTORY}/{observation_date.isoformat()}/packet.json"
+    ):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SOURCE_PATH_MISMATCH:{label}")
+    availability = seed["availability"]
+    if availability not in USABLE_SEED_AVAILABILITY_REASONS:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_AVAILABILITY_INVALID:{label}")
+    committed = seed["committed_bytes"]
+    if (committed is not None) is not (availability in _USABLE_SEED_COMMITTED_AVAILABILITY) or (
+        committed is not None and not isinstance(committed, bytes)
+    ):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_COMMITTED_BYTES_BINDING_INVALID:{label}")
+    committed_sha = None if committed is None else hashlib.sha256(committed).hexdigest()
+    local_sha = seed["local_file_sha256"]
+    if local_sha is not None:
+        _sha(local_sha, f"USABLE_SEED_LOCAL_SHA_INVALID:{label}")
+    if (
+        (local_sha is None and availability in _USABLE_SEED_LOCAL_REQUIRED)
+        or (local_sha is not None and availability in _USABLE_SEED_LOCAL_FORBIDDEN)
+        or (availability == "PINNED" and local_sha != committed_sha)
+        or (availability == "LOCAL_BYTES_DIFFER_FROM_SOURCE_COMMIT" and local_sha == committed_sha)
+    ):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_LOCAL_BYTES_BINDING_INVALID:{label}")
+    summary = seed["verified_summary"]
+    not_ready = seed["predecessor_not_ready_reason"]
+    record = {
+        "observation_date": observation_date.isoformat(),
+        "seed_fetch_prior_date": fetch_prior.isoformat(),
+        "source_commit": source_commit,
+        "source_path": seed["source_path"],
+        "availability": availability,
+        "committed_file_sha256_observed": committed_sha,
+        "local_file_sha256_observed": local_sha,
+        "hash_role": "OBSERVED_FROM_SOURCE_BYTES_NOT_INDEPENDENTLY_APPROVED",
+        "readiness": "NOT_READY",
+        "reasons": list(USABLE_SEED_AVAILABILITY_REASONS[availability]),
+        "summary": None,
+        "leadership": None,
+    }
+    if availability != "PINNED":
+        if summary is not None or not_ready is not None:
+            raise KoreaCapitalRotationError(f"USABLE_SEED_UNPINNED_SUMMARY_FORBIDDEN:{label}")
+        return record, None
+    try:
+        decoded = json.loads(committed)
+    except (ValueError, UnicodeError) as exc:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SOURCE_JSON_INVALID:{label}") from exc
+    if not isinstance(summary, dict) or decoded != summary:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_VERIFIED_SUMMARY_BYTES_MISMATCH:{label}")
+    if (
+        summary.get("schema_version") != LEADERSHIP_LIVE_ATTEMPT_SCHEMA_VERSION
+        or summary.get("observation_date") != observation_date.isoformat()
+        or summary.get("prior_date") != fetch_prior.isoformat()
+    ):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SUMMARY_IDENTITY_MISMATCH:{label}")
+    unsigned = copy.deepcopy(summary)
+    claimed = unsigned.pop("payload_sha256", None)
+    if claimed != payload_sha256(unsigned):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_SUMMARY_HASH_MISMATCH:{label}")
+    inner = summary.get("leadership_packet")
+    inner_claimed = summary.get("leadership_packet_sha256")
+    if inner is None:
+        if inner_claimed is not None:
+            raise KoreaCapitalRotationError(f"USABLE_SEED_LEADERSHIP_HASH_MISMATCH:{label}")
+    else:
+        if not isinstance(inner, dict):
+            raise KoreaCapitalRotationError(f"USABLE_SEED_LEADERSHIP_HASH_MISMATCH:{label}")
+        inner_unsigned = copy.deepcopy(inner)
+        inner_digest = inner_unsigned.pop("payload_sha256", None)
+        if inner_digest != payload_sha256(inner_unsigned) or inner_claimed != inner_digest:
+            raise KoreaCapitalRotationError(f"USABLE_SEED_LEADERSHIP_HASH_MISMATCH:{label}")
+    record["summary"] = {
+        "payload_sha256": claimed,
+        "observation_date": summary["observation_date"],
+        "prior_date": summary["prior_date"],
+        "outcome": summary.get("outcome"),
+        "reason": summary.get("reason"),
+        "generated_at": summary.get("generated_at"),
+        "leadership_packet_sha256": inner_claimed,
+    }
+    ready = summary.get("outcome") == "populated" and inner is not None
+    if not_ready is not None and (not isinstance(not_ready, str) or not not_ready):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_READINESS_DERIVATION_MISMATCH:{label}")
+    if ready is not (not_ready is None):
+        raise KoreaCapitalRotationError(f"USABLE_SEED_READINESS_DERIVATION_MISMATCH:{label}")
+    if not ready:
+        record["reasons"] = [not_ready]
+        return record, None
+    try:
+        parsed = _validate_upstream(inner, label, contract)
+    except KoreaCapitalRotationError as exc:
+        record["reasons"] = [f"SEED_LEADERSHIP_PACKET_INVALID:{exc}"]
+        return record, None
+    if parsed["observation_date"] != observation_date:
+        raise KoreaCapitalRotationError(f"USABLE_SEED_INNER_OBSERVATION_DATE_MISMATCH:{label}")
+    record["readiness"] = "READY"
+    record["reasons"] = []
+    record["leadership"] = {
+        "payload_sha256": parsed["packet_sha256"],
+        "observation_date": inner["observation_date"],
+        "available_at": inner["available_at"],
+        "status": inner["status"],
+        "lookback_sessions": parsed["lookback_sessions"],
+        "policy_version": inner["policy"]["policy_version"],
+        "policy_sha256": parsed["policy_sha256"],
+    }
+    return record, parsed
+
+
+def usable_seed_readiness(seed: dict, label: str) -> dict:
+    """Public readiness view of one seed; the connection must not attempt a
+    rotation build unless both seeds are READY here."""
+    record, _ = _usable_seed_record(seed, label, load_contract())
+    return record
+
+
+def _assert_usable_seed_lineage(
+    packet: dict, prior: dict, current: dict, rotation_policy: dict, contract: dict
+) -> None:
+    """The validated packet/4 must be exactly the existing consumer's output
+    for these two READY seeds: same dates, available_at, upstream packet and
+    policy digests, and relative-strength values rendered from the seeds'
+    own rows. Nothing is recomputed into the packet."""
+    pair = packet["observation_pair"]
+    lineage = packet["lineage"]
+    checks = {
+        "prior_date": pair["prior_date"] == prior["observation_date"].isoformat(),
+        "current_date": pair["current_date"] == current["observation_date"].isoformat(),
+        "prior_available_at": _timestamp(
+            pair["prior_available_at"], "USABLE_SEED_ROTATION_TIME_INVALID"
+        ) == prior["available_at"],
+        "current_available_at": _timestamp(
+            pair["current_available_at"], "USABLE_SEED_ROTATION_TIME_INVALID"
+        ) == current["available_at"],
+        "lookback_sessions": pair["lookback_sessions"] == current["lookback_sessions"],
+        "prior_upstream_packet_sha256": (
+            lineage["prior_upstream_packet_sha256"] == prior["packet_sha256"]
+        ),
+        "current_upstream_packet_sha256": (
+            lineage["current_upstream_packet_sha256"] == current["packet_sha256"]
+        ),
+        "upstream_leadership_policy_sha256": (
+            lineage["upstream_leadership_policy_sha256"]
+            == prior["policy_sha256"] == current["policy_sha256"]
+        ),
+        "rotation_policy": packet["rotation_policy"] == rotation_policy,
+    }
+    for key, matched in checks.items():
+        if not matched:
+            raise KoreaCapitalRotationError(f"USABLE_SEED_ROTATION_LINEAGE_MISMATCH:{key}")
+    places = contract["output_decimal_places"]
+    for scope in packet["benchmark_scopes"]:
+        for row in scope["theme_observations"]:
+            series = row["series_identity"]
+            before = prior["rows"].get(series)
+            after = current["rows"].get(series)
+            if (
+                before is None or after is None or row["role"] != after["role"]
+                or row["prior_relative_strength_vs_benchmark"]
+                != _render(before["relative_strength_vs_benchmark"], places)
+                or row["current_relative_strength_vs_benchmark"]
+                != _render(after["relative_strength_vs_benchmark"], places)
+            ):
+                raise KoreaCapitalRotationError(
+                    f"USABLE_SEED_ROTATION_LINEAGE_MISMATCH:relative_strength:{series}"
+                )
+
+
+def consume_usable_seed_pair(
+    prior_seed: dict,
+    current_seed: dict,
+    *,
+    rotation_policy: dict,
+    rotation_packet: dict | None,
+    rotation_error: str | None = None,
+) -> dict:
+    """Opt-in read-only receipt connecting two committed Leadership seeds to
+    the existing packet/4 consumer.
+
+    This is NOT a korea_capital_rotation_packet/4 and adds nothing to one:
+    the unchanged packet is carried as-is under ``rotation.packet``. A READY
+    seed proves only that one committed observation is usable; the pair still
+    needs the existing policy effectivity, Breadth and timing checks, and a
+    NOT_READY seed forbids any rotation attempt. No classification, threshold,
+    candidate or order authority is created here.
+    """
+    contract = load_contract()
+    prior_record, prior = _usable_seed_record(prior_seed, "prior", contract)
+    current_record, current = _usable_seed_record(current_seed, "current", contract)
+    prior_date = _date(prior_record["observation_date"], "USABLE_SEED_DATE_INVALID:prior")
+    current_date = _date(current_record["observation_date"], "USABLE_SEED_DATE_INVALID:current")
+    if not prior_date < current_date:
+        raise KoreaCapitalRotationError("USABLE_SEED_PAIR_DATE_ORDER_INVALID")
+    if prior_record["source_commit"] != current_record["source_commit"]:
+        raise KoreaCapitalRotationError("USABLE_SEED_SOURCE_COMMIT_MISMATCH")
+    if not isinstance(rotation_policy, dict) or (
+        rotation_policy.get("schema_version") != POLICY_SCHEMA_VERSION
+        or rotation_policy.get("approval_status") != "RATIFIED"
+    ):
+        raise KoreaCapitalRotationError("USABLE_SEED_ROTATION_POLICY_NOT_RATIFIED")
+    effective_from = _date(rotation_policy.get("effective_from"), "USABLE_SEED_POLICY_DATE_INVALID")
+    effective_to = rotation_policy.get("effective_to")
+    effective = effective_from <= prior_date and (
+        effective_to is None
+        or current_date < _date(effective_to, "USABLE_SEED_POLICY_END_INVALID")
+    )
+    reasons = [] if effective else ["POLICY_NOT_EFFECTIVE_FOR_OBSERVATION_PAIR"]
+    pair_ready = prior is not None and current is not None
+    packet = None
+    if not pair_ready:
+        if rotation_packet is not None or rotation_error is not None:
+            raise KoreaCapitalRotationError("USABLE_SEED_NOT_READY_ROTATION_ATTEMPT_FORBIDDEN")
+        reasons.append("USABLE_SEED_PAIR_NOT_READY")
+        for label, record in (("prior", prior_record), ("current", current_record)):
+            reasons.extend(f"{label}:{reason}" for reason in record["reasons"])
+    elif rotation_packet is None:
+        if not isinstance(rotation_error, str) or not rotation_error:
+            raise KoreaCapitalRotationError("USABLE_SEED_ROTATION_MISSING_REASON_REQUIRED")
+        reasons.extend(["ROTATION_PACKET_UNAVAILABLE", rotation_error])
+    else:
+        if rotation_error is not None:
+            raise KoreaCapitalRotationError("USABLE_SEED_ROTATION_RESULT_ERROR_CONFLICT")
+        packet = validate_packet(rotation_packet)
+        _assert_usable_seed_lineage(packet, prior, current, rotation_policy, contract)
+        if packet["status"] != "ROTATION_BUCKETS_OBSERVED":
+            reasons.append(packet["status"])
+        if packet["coverage_context"]["breadth"]["status"] != "AVAILABLE":
+            reasons.append("ROTATION_BREADTH_NOT_AVAILABLE")
+    receipt = {
+        "schema_version": USABLE_SEED_CONSUMPTION_SCHEMA_VERSION,
+        "mode": "READ_ONLY_USABLE_SEED_ROTATION_CONNECTION",
+        "observation_pair": {
+            "prior_date": prior_date.isoformat(), "current_date": current_date.isoformat(),
+        },
+        "seeds": {"prior": prior_record, "current": current_record},
+        "seed_pair_readiness": "READY" if pair_ready else "NOT_READY",
+        "rotation": {
+            "status": "ROTATION_PACKET_AVAILABLE" if not reasons else "WAIT_ROTATION_INPUT",
+            "reasons": list(dict.fromkeys(reasons)),
+            "policy_id": rotation_policy.get("policy_id"),
+            "policy_effective_from": rotation_policy["effective_from"],
+            "policy_ratified_at_utc": rotation_policy.get("ratified_at_utc"),
+            "policy_effective_for_pair": effective,
+            "packet": packet,
+        },
+        "lineage": {
+            "source_commit": prior_record["source_commit"],
+            "prior_upstream_packet_sha256": None if prior is None else prior["packet_sha256"],
+            "current_upstream_packet_sha256": None if current is None else current["packet_sha256"],
+            "upstream_leadership_policy_sha256": (
+                None if packet is None else packet["lineage"]["upstream_leadership_policy_sha256"]
+            ),
+            "rotation_policy_sha256": payload_sha256(rotation_policy),
+            "rotation_packet_sha256": None if packet is None else packet["payload_sha256"],
+        },
+        "authority": copy.deepcopy(contract["authority"]) | {
+            "candidate_promotion_authorized": False,
+            "account_linkage_authorized": False,
+            "order_authorized": False,
+            "stage3_entry_authorized": False,
+        },
+    }
+    receipt["payload_sha256"] = payload_sha256(receipt)
+    return receipt
+
+
 def write_json_atomic(path: Path, value: dict) -> None:
     path = Path(path)
     try:
@@ -1301,11 +2107,33 @@ def write_json_atomic(path: Path, value: dict) -> None:
         raise
 
 
-def run(input_path: Path, policy_path: Path, output_path: Path) -> int:
+def _read_bytes(path: Path) -> bytes:
     try:
+        return Path(path).read_bytes()
+    except OSError as exc:
+        raise KoreaCapitalRotationError(
+            f"TAXONOMY_SOURCE_READ_FAILED:{path}:{exc}"
+        ) from exc
+
+
+def run(
+    input_path: Path,
+    policy_path: Path,
+    output_path: Path,
+    taxonomy_graph_path: Path | None = None,
+    taxonomy_trusted_commit: str | None = None,
+) -> int:
+    try:
+        source_bytes = (
+            None if taxonomy_graph_path is None else _read_bytes(taxonomy_graph_path)
+        )
         write_json_atomic(
             output_path,
-            build_packet(_read_json(input_path), _read_json(policy_path)),
+            build_packet(
+                _read_json(input_path), _read_json(policy_path),
+                taxonomy_source_bytes=source_bytes,
+                taxonomy_trusted_commit=taxonomy_trusted_commit,
+            ),
         )
         return 0
     except (KoreaCapitalRotationError, OSError, TypeError, ValueError) as exc:
@@ -1318,8 +2146,23 @@ def main() -> int:
     parser.add_argument("input", type=Path)
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--taxonomy-graph", type=Path, default=None,
+        help=(
+            "Exact theme_taxonomy_input/1 graph document consumed through the "
+            "real theme_taxonomy producer. Required for a theme_taxonomy/2 "
+            "binding, forbidden for the legacy opaque binding."
+        ),
+    )
+    parser.add_argument(
+        "--taxonomy-trusted-commit", default=None,
+        help="Immutable commit the taxonomy authority registry is read at.",
+    )
     args = parser.parse_args()
-    return run(args.input, args.policy, args.out)
+    return run(
+        args.input, args.policy, args.out,
+        args.taxonomy_graph, args.taxonomy_trusted_commit,
+    )
 
 
 if __name__ == "__main__":

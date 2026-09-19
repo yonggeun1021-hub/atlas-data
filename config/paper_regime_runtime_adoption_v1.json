@@ -1,0 +1,135 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "paper_reference_display_authorized": true,
+    "position_size_authorized": false,
+    "real_trading": false,
+    "relative_strength_comparison_authorized": true,
+    "runtime_production_regime_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "target_weight_authorized": false,
+    "trading_authorized": false
+  },
+  "comparability_and_caveats": {
+    "comparison_key": "market decision/as_of date exactly as produced",
+    "consumer_complete_gate": "Every market must be non-UNKNOWN and CURRENT or CURRENT_AS_FETCHED_NOT_PIT as allowed by its source-frequency rule; pending, failed, stale, calendar-unknown, source-not-advanced, or required unassessed state prevents COMPLETE.",
+    "cross_market_date_coercion_authorized": false,
+    "price_date_substitution_authorized": false,
+    "required_crypto_caveats": [
+      "PROVISIONAL_CRYPTO_PAPER_POLICY",
+      "RISK_DIRECTION_ONLY",
+      "ABSOLUTE_STRESS_NOT_ASSESSED",
+      "CONFIDENCE_MATCHING_AXIS_FRACTION_NOT_PROBABILITY",
+      "CURRENT_REFERENCE_NOT_PIT_REPLAY"
+    ]
+  },
+  "contract_version": "paper_regime_runtime_adoption/v1",
+  "eligibility_states": {
+    "before_due_with_prior_observation": "AWAITING_SCHEDULED_PUBLICATION",
+    "crypto_missing_day": "SOURCE_INVALID",
+    "due_no_terminal_receipt": "DUE_COLLECTION_UNCONFIRMED",
+    "official_calendar_missing_or_conflicting": "SESSION_CALENDAR_UNKNOWN",
+    "official_exchange_closed": "OFFICIAL_HOLIDAY_CARRY",
+    "queued_or_running": "COLLECTION_RUNNING_OR_QUEUED",
+    "terminal_failure": "COLLECTION_FAILED",
+    "terminal_success_current_fetch_with_slower_source_frequency": "CURRENT_AS_FETCHED_NOT_PIT",
+    "terminal_success_new_expected_source": "CURRENT",
+    "terminal_success_old_daily_source_not_advanced": "SOURCE_NOT_ADVANCED_EXPECTED_SESSION"
+  },
+  "evaluation_clock": "Explicit caller-supplied evaluation_at, retained and hash-bound. Never infer from source generated_at or local wall clock.",
+  "event_receipt": {
+    "external_evidence_trust": "This offline helper validates content/identity and temporal coherence. Original GitHub payload acquisition, exact source publication binding and official calendar provenance are supplied by separately reviewed existing adapters. A self-supplied hash/verified boolean alone is not provider authenticity.",
+    "hash_binding": "Hash exact retained event/readback bytes and source-output bytes against independently supplied expected identities; include consumed hashes and explicit evaluation_at in eligibility identity.",
+    "identity_fields": [
+      "source_id",
+      "workflow.path",
+      "workflow.github_head_sha",
+      "workflow.run_id",
+      "workflow.run_attempt"
+    ],
+    "missing_semantics": "Missing evidence required for a particular eligibility conclusion yields UNCONFIRMED for that claim. No timestamp/slot/hash/step/causal-output invention.",
+    "nullable_fields": [
+      "workflow.file_sha256",
+      "workflow.event_schedule",
+      "event.slot_id",
+      "event.expected_at_utc",
+      "event.expected_at_kst",
+      "event.scheduled_event_date_kst",
+      "terminal.completed_at_utc",
+      "terminal.producer_step_outcome",
+      "terminal.validation_step_outcome",
+      "source_output.path",
+      "source_output.file_sha256",
+      "source_output.payload_sha256",
+      "source_output.observation_identity_sha256",
+      "source_output.observation_date",
+      "source_output.price_date",
+      "source_output.available_at",
+      "source_output.publication_result"
+    ],
+    "permitted_terminal_evidence": [
+      "GITHUB_WORKFLOW_RUN_COMPLETED_EVENT",
+      "GITHUB_ACTIONS_REST_TERMINAL_READBACK"
+    ],
+    "schema_version": "paper_regime_source_event_receipt/1",
+    "source_workflow_self_terminal_authorized": false,
+    "terminal_failure": "An actual matching failed/cancelled completed run proves COLLECTION_FAILED even if failed run produced no output; missing output is never fabricated.",
+    "terminal_observed_at": "Record when actual completed-event/readback bytes were observed. This is not exact run completion time.",
+    "terminal_success": "Success alone is insufficient for CURRENT. Require matching source publication identity and due slot evidence appropriate to that source; absent causal binding remains DUE_COLLECTION_UNCONFIRMED."
+  },
+  "mode": "PAPER_READ_ONLY_CURRENT_ELIGIBILITY",
+  "new_provider_calls": false,
+  "new_schedules": false,
+  "no_classification": "Reuse already-produced PAPER classifications unchanged. This helper must not normalize Crypto axes, aggregate scores, advance strategy state, size positions or issue orders.",
+  "source_frequency_rules": {
+    "CRYPTO_BTC_AND_BREADTH": {
+      "frequency": "daily, prior finalized UTC price day",
+      "observation_date_rule": "preserve decision_date and price_as_of_date separately"
+    },
+    "CRYPTO_STABLECOIN": {
+      "frequency": "daily first-complete snapshot across configured capture slots",
+      "observation_date_rule": "same-day successful event or independently confirmed skipped-existing event; crypto never uses holiday carry"
+    },
+    "KR_FIVE_SIGNALS": {
+      "frequency": "each completed KRX session",
+      "observation_date_rule": "as_of_date must equal latest officially completed OPEN_REGULAR session only after successful publication event"
+    },
+    "US_ETF_DAILY": {
+      "frequency": "exchange session daily",
+      "observation_date_rule": "must equal latest officially completed US session when current eligible",
+      "source": "data/latest_free_market_data.json::us_market_reference.as_of_session_date"
+    },
+    "US_TOTBKCR": {
+      "eligibility": "CURRENT_AS_FETCHED_NOT_PIT after successful current fetch; unchanged weekly value is permitted",
+      "frequency": "Weekly, Ending Wednesday",
+      "observation_date_rule": "retain observation_date and previous_observation_date from FRED response",
+      "raw_replay_limit": "current response is hash-attested; do not claim full historical PIT from this field alone"
+    },
+    "US_VIXCLS": {
+      "eligibility": "CURRENT_AS_FETCHED_NOT_PIT only after a successful current collection event and retained raw hash validation",
+      "frequency": "Daily as published by FRED",
+      "observation_date_rule": "retain FRED observation_date; must not be forced to ETF session date",
+      "source": "data/latest_free_market_data.json::fred"
+    },
+    "US_WRESBAL": {
+      "eligibility": "CURRENT_AS_FETCHED_NOT_PIT after successful current fetch; unchanged weekly value is permitted",
+      "frequency": "Weekly, Ending Wednesday",
+      "observation_date_rule": "retain observation_date and previous_observation_date from FRED response",
+      "raw_replay_limit": "current response is hash-attested; do not claim full historical PIT from this field alone"
+    }
+  },
+  "source_workflow_edits": false,
+  "status": "CIO_ADOPTED_TECHNICAL_CONTRACT",
+  "unchanged_and_hysteresis": {
+    "daily_expected_session_exception": "If a new completed daily session is expected but the successful event leaves the old observation date, the market is SOURCE_NOT_ADVANCED_EXPECTED_SESSION, not CURRENT.",
+    "event_identity": "A new independently evidenced successful collection event can confirm a source was fetched even when output bytes are unchanged.",
+    "observation_identity": "Hysteresis advances only when observation_identity_sha256 changes for a newly finalized market observation.",
+    "policy_only_rerender": "Never advances hysteresis.",
+    "slower_frequency_exception": "A successful current fetch may retain the latest weekly FRED observation as CURRENT_AS_FETCHED_NOT_PIT without pretending it is a new daily observation.",
+    "unchanged_source_hash": "Never advances hysteresis and never rewrites the retained source artifact."
+  }
+}

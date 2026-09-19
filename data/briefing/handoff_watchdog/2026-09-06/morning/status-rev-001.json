@@ -1,0 +1,70 @@
+{
+  "alert": true,
+  "authority": {
+    "dispatch_invoked": false,
+    "envelope_created": false,
+    "fact_inference_unknown_decision": false,
+    "manual_recovery_invoked": false,
+    "natural_evidence_changed": false,
+    "notion_written": false,
+    "source_bridge_authored": false
+  },
+  "briefing_id": "2026-09-06-morning",
+  "checked_at_utc": "2026-09-05T22:29:20Z",
+  "checks": {
+    "final_drain": {
+      "exists": false,
+      "path": "data/briefing/finalization/2026-09-06/morning/delivery_receipt.json"
+    },
+    "natural_receipt": {
+      "exists": true,
+      "path": "evidence/daily_briefing/morning/2026-09-06/index.json"
+    },
+    "portal_final_receipt": {
+      "exists": false,
+      "path": null
+    },
+    "semantic_verdict": {
+      "exists": false
+    },
+    "source_bridge": {
+      "discoverable_by_chain_build": false,
+      "exists": false,
+      "path": "evidence/briefing_events/2026-09-06/morning/index.json"
+    },
+    "validated_envelope": {
+      "exists": false,
+      "path": "evidence/validated_briefing_portal/morning/2026-09-06/index.json"
+    }
+  },
+  "decision_date": "2026-09-06",
+  "display_status": "BLOCKED",
+  "grace_deadline_kst": "2026-09-06T07:25:00+0900",
+  "grace_deadline_source": "existing slot observation deadline (natural cron + configured grace); not semantic timeout",
+  "grace_timeout_minutes": 20,
+  "notes": [],
+  "past_grace": true,
+  "reason": "SEALED_DRAFT_MISSING",
+  "recovery": {
+    "action_authority": false,
+    "backfill_promotion_authorized": false,
+    "buy_authority": false,
+    "natural_evidence_mutation_authorized": false,
+    "natural_sample_treatment": "NO_NATURAL_SAMPLE_MUTATION",
+    "next_action": "READ_THE_EXACT_SEALED_DRAFT_AND_MACHINE_RESULT; PUBLISH_ONLY_AN_INDEPENDENT_PASS_PASS_WITH_CORRECTION_OR_HOLD_VERDICT",
+    "order_authority": false,
+    "owner": "CODEX_HEARTBEAT_KRX_PAPER",
+    "production_authority": false,
+    "recovery_key": "6fb6bd0acfc8e587cf414dac86cd3c6fa08ae71997353f659f6a30285c5a3f69",
+    "requires_semantic_judgment": true,
+    "route": "CANONICAL_EXTERNAL_SEMANTIC_VALIDATION",
+    "safe_to_automate": false,
+    "stage_authority": false,
+    "trading_authority": false
+  },
+  "schema_version": "briefing_handoff_watchdog/2",
+  "slot": "morning",
+  "slot_expected_today": true,
+  "stage": "SEAL",
+  "status": "WAITING_VALIDATION"
+}

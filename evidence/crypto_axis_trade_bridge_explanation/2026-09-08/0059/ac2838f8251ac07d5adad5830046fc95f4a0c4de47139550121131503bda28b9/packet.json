@@ -1,0 +1,260 @@
+{
+  "aggregate_policy": {
+    "authorized_regimes": [
+      "UNKNOWN"
+    ],
+    "regime": "UNKNOWN",
+    "status": "UNRATIFIED"
+  },
+  "authority": {
+    "action_authorized": false,
+    "broker_submission_authorized": false,
+    "buy_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exchange_order_authorized": false,
+    "exit_action_authorized": false,
+    "market_judgment_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "stage_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "crypto_axis_trade_bridge_explanation/1",
+  "exit_priority_ladder": [
+    {
+      "category": "HARD_EXIT",
+      "label": "하드 청산(최우선)",
+      "rank": 1
+    },
+    {
+      "category": "SECURITY_LIQUIDITY",
+      "label": "종목 안전성·유동성",
+      "rank": 2
+    },
+    {
+      "category": "RISK_REGIME",
+      "label": "위험·국면",
+      "rank": 3
+    },
+    {
+      "category": "TREND",
+      "label": "추세",
+      "rank": 4
+    },
+    {
+      "category": "PROFIT_TRAIL",
+      "label": "이익 보전",
+      "rank": 5
+    },
+    {
+      "category": "TIME_REVIEW",
+      "label": "기간 경과 검토",
+      "rank": 6
+    }
+  ],
+  "five_axis_explained": [
+    {
+      "available_at": "2026-09-08T00:42:02Z",
+      "axis": "TREND",
+      "axis_label": "추세",
+      "entry_consumers": [
+        "P5-08_TREND"
+      ],
+      "exit_consumers": [
+        "P7-13_TREND"
+      ],
+      "is_hold_cause": false,
+      "observation_date": "2026-09-07",
+      "status": "DEFINED",
+      "status_label": "확보됨",
+      "text": "추세(TREND) 축은 확보됐다. 확보는 데이터 완성도를 뜻할 뿐 매수 허가가 아니다.",
+      "warnings": [
+        "REGIME_INTERPRETATION_UNAUTHORIZED"
+      ]
+    },
+    {
+      "available_at": "2026-09-08T00:42:02Z",
+      "axis": "RISK_VOL",
+      "axis_label": "위험·변동성",
+      "entry_consumers": [
+        "P5-09_REGIME_RISK_CONTEXT"
+      ],
+      "exit_consumers": [
+        "P7-13_RISK_REGIME"
+      ],
+      "is_hold_cause": false,
+      "observation_date": "2026-09-07",
+      "status": "DEFINED",
+      "status_label": "확보됨",
+      "text": "위험·변동성(RISK_VOL) 축은 확보됐다. 확보는 데이터 완성도를 뜻할 뿐 매수 허가가 아니다.",
+      "warnings": [
+        "REGIME_INTERPRETATION_UNAUTHORIZED",
+        "STRESS_THRESHOLDS_UNCALIBRATED"
+      ]
+    },
+    {
+      "available_at": null,
+      "axis": "LIQUIDITY",
+      "axis_label": "유동성",
+      "entry_consumers": [
+        "P5-08_LIQUIDITY",
+        "P5-09_BLOCKER_FRESHNESS"
+      ],
+      "exit_consumers": [
+        "P7-13_SECURITY_LIQUIDITY"
+      ],
+      "is_hold_cause": true,
+      "observation_date": null,
+      "status": "UNDEFINED",
+      "status_label": "미확보",
+      "text": "유동성(LIQUIDITY) 축이 미확보라 이 종목의 신규 진입이 보류된다.",
+      "warnings": [
+        "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+      ]
+    },
+    {
+      "available_at": null,
+      "axis": "BREADTH",
+      "axis_label": "시장 폭",
+      "entry_consumers": [
+        "P1-CR-08_AGGREGATE_REGIME"
+      ],
+      "exit_consumers": [
+        "P7-13_RISK_REGIME"
+      ],
+      "is_hold_cause": true,
+      "observation_date": null,
+      "status": "UNDEFINED",
+      "status_label": "미확보",
+      "text": "시장 폭(BREADTH) 축이 미확보라 이 종목의 신규 진입이 보류된다.",
+      "warnings": [
+        "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+      ]
+    },
+    {
+      "available_at": null,
+      "axis": "LEADERSHIP",
+      "axis_label": "주도력",
+      "entry_consumers": [
+        "P5-08_RELATIVE_STRENGTH",
+        "P1-CR-08_AGGREGATE_REGIME"
+      ],
+      "exit_consumers": [
+        "P7-13_RISK_REGIME"
+      ],
+      "is_hold_cause": true,
+      "observation_date": null,
+      "status": "UNDEFINED",
+      "status_label": "미확보",
+      "text": "주도력(LEADERSHIP) 축이 미확보라 이 종목의 신규 진입이 보류된다.",
+      "warnings": [
+        "LIVE_AXIS_EVIDENCE_UNAVAILABLE"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-08T00:59:39Z",
+  "mode": "PAPER_REVIEW_ONLY",
+  "operational_date_kst": "2026-09-08",
+  "payload_sha256": "35375d5c472beb2b58af28eca7c6a11a889a6db40624b5f9af94b2d679b403c0",
+  "schema_version": "crypto_axis_trade_bridge_explanation_packet/1",
+  "source_bridge_contract_version": "crypto_axis_trade_bridge/1",
+  "source_bridge_sha256": "4bf4adf01280a648bfe61ebed4190629ee0f3a9e8573d715f89a9fe06792f332",
+  "source_capture_date": "2026-09-08",
+  "source_capture_hhmm": "0059",
+  "source_decision_sha256": "381a2fdb352501b6ca265436085f89d00d2baf9207be99a22b2e22848973e4da",
+  "source_generation_id": "ac2838f8251ac07d5adad5830046fc95f4a0c4de47139550121131503bda28b9",
+  "stages": [
+    {
+      "empty_reason": {
+        "code": "NO_SYMBOL_ROWS_IN_SOURCE_PACKET",
+        "text": "원본 브리지 패킷에 종목 행이 없어 어떤 단계에도 표시할 종목이 없다."
+      },
+      "kind": "ENTRY",
+      "label": "매수대기",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": "WAIT",
+      "stage_id": "ENTRY_WAIT"
+    },
+    {
+      "empty_reason": {
+        "code": "NO_SYMBOL_ROWS_IN_SOURCE_PACKET",
+        "text": "원본 브리지 패킷에 종목 행이 없어 어떤 단계에도 표시할 종목이 없다."
+      },
+      "kind": "ENTRY",
+      "label": "진입 차단",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": "BLOCKED",
+      "stage_id": "ENTRY_BLOCKED"
+    },
+    {
+      "empty_reason": {
+        "code": "NO_SYMBOL_ROWS_IN_SOURCE_PACKET",
+        "text": "원본 브리지 패킷에 종목 행이 없어 어떤 단계에도 표시할 종목이 없다."
+      },
+      "kind": "ENTRY",
+      "label": "진입검토",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": null,
+      "stage_id": "ENTRY_REVIEW"
+    },
+    {
+      "empty_reason": {
+        "code": "NO_SYMBOL_ROWS_IN_SOURCE_PACKET",
+        "text": "원본 브리지 패킷에 종목 행이 없어 어떤 단계에도 표시할 종목이 없다."
+      },
+      "kind": "POSITION",
+      "label": "보유",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": null,
+      "stage_id": "HOLDING"
+    },
+    {
+      "empty_reason": {
+        "code": "NO_SYMBOL_ROWS_IN_SOURCE_PACKET",
+        "text": "원본 브리지 패킷에 종목 행이 없어 어떤 단계에도 표시할 종목이 없다."
+      },
+      "kind": "POSITION",
+      "label": "축소",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": null,
+      "stage_id": "REDUCE"
+    },
+    {
+      "empty_reason": {
+        "code": "NO_SYMBOL_ROWS_IN_SOURCE_PACKET",
+        "text": "원본 브리지 패킷에 종목 행이 없어 어떤 단계에도 표시할 종목이 없다."
+      },
+      "kind": "POSITION",
+      "label": "청산검토",
+      "member_count": 0,
+      "members": [],
+      "source_entry_state": null,
+      "stage_id": "EXIT_REVIEW"
+    }
+  ],
+  "summary": {
+    "aggregate_policy_status": "UNRATIFIED",
+    "axis_defined_count": 2,
+    "axis_hold_cause_count": 3,
+    "axis_required_count": 5,
+    "entry_blocked_count": 0,
+    "entry_wait_count": 0,
+    "position_stage_member_count": 0,
+    "stage_member_counts": {
+      "ENTRY_BLOCKED": 0,
+      "ENTRY_REVIEW": 0,
+      "ENTRY_WAIT": 0,
+      "EXIT_REVIEW": 0,
+      "HOLDING": 0,
+      "REDUCE": 0
+    },
+    "symbol_count": 0
+  },
+  "symbols": []
+}

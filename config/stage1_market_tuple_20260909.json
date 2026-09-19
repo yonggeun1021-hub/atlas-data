@@ -1,0 +1,102 @@
+{
+  "contract_version": "stage1_market_tuple_input/v1",
+  "evaluation_at": "2026-09-09T15:10:00Z",
+  "events": [
+    {
+      "completed_at": "2026-09-08T21:42:57Z",
+      "expected_at": "2026-09-08T21:35:00Z",
+      "github_head_sha": "ba7e00a89574dac463dc8c6fe4c04029b811dcdb",
+      "market": "US",
+      "observation_date": "2026-09-08",
+      "output_path": "data/latest_free_market_data.json",
+      "publication_commit_sha": "2897564e0896260ecd3ee3aa6bf29d76f310da40",
+      "publication_result": "published",
+      "run_attempt": 1,
+      "run_id": 34282070041,
+      "source_id": "US_FIVE_SIGNALS",
+      "workflow_file_sha256": "39f8ca4e7822a35d6899d06de4218e0a2db0464078a89acc9f5c5c151b216c8f",
+      "workflow_path": ".github/workflows/free-market-data.yml"
+    },
+    {
+      "completed_at": "2026-09-09T09:25:07Z",
+      "expected_at": "2026-09-09T09:10:00Z",
+      "github_head_sha": "3c4c60a6d3aabb3f32bb47a708e7919bc5a3d991",
+      "market": "KR",
+      "observation_date": "2026-09-08",
+      "output_path": "data/latest_korea_market_signals.json",
+      "publication_commit_sha": "d15c5cdec6f25dfaacc919df277344e91fd888ed",
+      "publication_result": "skipped_existing",
+      "run_attempt": 1,
+      "run_id": 34334537391,
+      "source_id": "KR_FIVE_SIGNALS",
+      "workflow_file_sha256": "1381c480e48467e5c0ed3d38cb01f4f33e9b48fa17fe40c6ec1046ca7c5fb54f",
+      "workflow_path": ".github/workflows/korea-market-signals.yml"
+    },
+    {
+      "completed_at": "2026-09-09T00:41:45Z",
+      "expected_at": "2026-09-09T00:20:00Z",
+      "github_head_sha": "c2fd2c89117b92aaf7b948948896cb3f45916299",
+      "market": "CRYPTO",
+      "observation_date": "2026-09-09",
+      "output_path": "evidence/crypto/btc/raw/2026-09-09/_manifest.json",
+      "price_date": "2026-09-08",
+      "publication_commit_sha": "ffe90781b62426fd225cf1a2be569fae7a28cb0a",
+      "publication_result": "published",
+      "run_attempt": 1,
+      "run_id": 34296065748,
+      "source_id": "CRYPTO_BTC",
+      "workflow_file_sha256": "865cd6427ab9a5a6aae7413c74ba109d57a44961df66a0c5ac46c3ed26238728",
+      "workflow_path": ".github/workflows/btc-price-capture.yml"
+    },
+    {
+      "completed_at": "2026-09-09T01:08:15Z",
+      "expected_at": "2026-09-09T00:40:00Z",
+      "github_head_sha": "ffe90781b62426fd225cf1a2be569fae7a28cb0a",
+      "market": "CRYPTO",
+      "observation_date": "2026-09-09",
+      "output_path": "data/observations/crypto_recent_reference/2026-09-09/packet.json",
+      "price_date": "2026-09-08",
+      "publication_commit_sha": "c4945aa0374aec35e3f5d0b1a2d5b9f87abd5fd6",
+      "publication_result": "published",
+      "run_attempt": 1,
+      "run_id": 34296923637,
+      "source_id": "CRYPTO_BREADTH_LEADERSHIP",
+      "workflow_file_sha256": "681303894864cd5ea0ca446d9274d00fd5f47e8e23269841b53a341fdd1ba1a8",
+      "workflow_path": ".github/workflows/crypto-breadth-capture.yml"
+    },
+    {
+      "completed_at": "2026-09-09T06:39:15Z",
+      "expected_at": "2026-09-09T06:20:00Z",
+      "github_head_sha": "99e6f8796c5856c170c18dd1f6fff54593aee96b",
+      "market": "CRYPTO",
+      "observation_date": "2026-09-09",
+      "output_path": "evidence/stablecoin/raw/2026-09-09/_manifest.json",
+      "publication_commit_sha": "0dcc2896da042f8a2f970a526e160b5c84adaf32",
+      "publication_result": "published",
+      "run_attempt": 1,
+      "run_id": 34320002286,
+      "source_id": "CRYPTO_STABLECOIN",
+      "workflow_file_sha256": "76f27b63933570bb4e8eec7977ad4615a5cad31f8a83601a1401ed0fc9dd7de6",
+      "workflow_path": ".github/workflows/stablecoin-capture.yml"
+    }
+  ],
+  "expected_market_dates": {
+    "CRYPTO": "2026-09-09",
+    "KR": "2026-09-09",
+    "US": "2026-09-08"
+  },
+  "future_slots": [
+    {"expected_at": "2026-09-09T21:35:00Z", "market": "US", "slot_id": "2026-09-10-primary", "status": "NOT_DUE"},
+    {"expected_at": "2026-09-09T21:45:00Z", "market": "KR", "slot_id": "2026-09-10-primary", "status": "NOT_DUE"},
+    {"expected_at": "2026-09-09T21:55:00Z", "market": "KR", "slot_id": "2026-09-10-recovery-1", "status": "NOT_DUE"},
+    {"expected_at": "2026-09-09T22:10:00Z", "market": "KR", "slot_id": "2026-09-10-recovery-2", "status": "NOT_DUE"},
+    {"expected_at": "2026-09-10T00:20:00Z", "market": "CRYPTO", "slot_id": "2026-09-10-btc", "status": "NOT_DUE"},
+    {"expected_at": "2026-09-10T00:40:00Z", "market": "CRYPTO", "slot_id": "2026-09-10-breadth", "status": "NOT_DUE"},
+    {"expected_at": "2026-09-10T06:20:00Z", "market": "CRYPTO", "slot_id": "2026-09-10-stablecoin", "status": "NOT_DUE"}
+  ],
+  "official_calendar": {
+    "CRYPTO": {"latest_completed_session": "2026-09-09", "status": "CONTINUOUS"},
+    "KR": {"latest_completed_session": "2026-09-09", "status": "OPEN_REGULAR"},
+    "US": {"latest_completed_session": "2026-09-08", "status": "OPEN_REGULAR"}
+  }
+}

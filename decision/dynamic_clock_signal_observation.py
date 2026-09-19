@@ -21,10 +21,12 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config/dynamic_clock_signal_observation_contract.json"
+KST = ZoneInfo("Asia/Seoul")
 
 
 class DynamicClockSignalObservationError(ValueError):
@@ -128,6 +130,29 @@ def _utc(value: object) -> str:
     return value
 
 
+def _kst_business_date(value: str) -> str:
+    """Return the Asia/Seoul business date of an already-validated UTC instant.
+
+    ``as_of_utc`` stays a UTC instant, while the report's ``decision_date`` is
+    the KST business date the scheduled briefing keys on (``DECISION_DATE`` is
+    derived with ``TZ=Asia/Seoul``).  The weekday morning run fires at 22:05Z,
+    which is 07:05 the *next* KST day, so comparing the first ten characters of
+    the two strings rejects every normal morning packet.  Only this comparison
+    basis is normalized: ``_utc`` format validation and every candidate,
+    market and authority guard keep their own bases.
+
+    Same basis as the merged mirrors
+    ``portfolio/strategic_capital_posture.py::_kst_business_date``,
+    ``portfolio/defensive_action_decision.py::_kst_business_date``,
+    ``decision/unified_decision_contract.py::_kst_operating_date`` and
+    ``regime/crypto_live_component_registry.py::_operational_date_kst``.
+    """
+    parsed = dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=dt.timezone.utc
+    )
+    return parsed.astimezone(KST).date().isoformat()
+
+
 def _validate_report(report: object, contract: dict, as_of_utc: str) -> list[dict]:
     if not isinstance(report, dict) or set(report) != {
         "wbs_item", "report_asof_evidence_date", "decision_date", "mode",
@@ -141,7 +166,9 @@ def _validate_report(report: object, contract: dict, as_of_utc: str) -> list[dic
         # is deterministic; this comparison separately rejects additions.
         if not isinstance(by_market, dict) or set(by_market) != set(contract["source_markets"]):
             raise DynamicClockSignalObservationError("REPORT_MARKETS_MISMATCH")
-    as_of_date = dt.datetime.strptime(as_of_utc, "%Y-%m-%dT%H:%M:%SZ").date()
+    # ``as_of_utc`` is a UTC instant; ``decision_date`` is a KST business date.
+    # Compare like with like, on the KST basis the report is keyed on.
+    as_of_date = dt.date.fromisoformat(_kst_business_date(as_of_utc))
     try:
         decision_date = dt.date.fromisoformat(report["decision_date"])
     except (TypeError, ValueError) as exc:

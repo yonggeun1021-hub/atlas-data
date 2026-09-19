@@ -1,0 +1,55 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "ratification_id": "CRYPTO-PAPER-RUNTIME-V1-20260914",
+  "ratified_at_utc": "2026-09-13T17:00:00Z",
+  "ratified_by": "USER (explicit instruction: '코인 시장판정안 채택')",
+  "recommended_by": "CLAUDE_CIO",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "basis": {
+    "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/CLAUDE_CIO_US_CRYPTO_REGIME_GAP_DIAGNOSIS_20260914.md",
+    "sha256": "37964b134c4dea8e058554c4737a4b0605e8f0ee5179748a1fa8214abec421c5",
+    "section": "4 CRYPTO"
+  },
+  "reverses": "CIO decline of crypto normalization on 2026-09-12, for INTERNAL_VIRTUAL_PAPER scope only",
+  "scope": "INTERNAL_VIRTUAL_PAPER only. REAL, orders, capital closed. Allocation v2 and hedge consume crypto only as a market state; crypto hedge instrument remains cash.",
+  "normalization": {
+    "source": "crypto_paper_descriptive_normalization.py:50-71 provisional values verbatim",
+    "TREND": {
+      "ABOVE_200DMA": 1,
+      "AT_200DMA": 0,
+      "BELOW_200DMA": -1
+    },
+    "BREADTH": "advance fraction >= 0.55 -> +1; <= 0.45 -> -1; else 0",
+    "LIQUIDITY": "stablecoin daily and weekly net issuance both > 0 -> +1; both < 0 -> -1; else 0",
+    "LEADERSHIP": "BROAD_ALT_LEADERSHIP +1; other defined codes 0; UNKNOWN code -> axis missing"
+  },
+  "RISK_VOL": {
+    "inputs": "btc_risk/v1: vol = 30-return realized vol annualized over 365 days; dd = drawdown from 90-close high",
+    "order": "evaluate top to bottom",
+    "rules": [
+      "STRESS if dd <= -0.25, or (vol >= 0.90 and dd <= -0.10)",
+      "NEGATIVE (-1) if dd <= -0.15 or vol >= 0.70",
+      "POSITIVE (+1) if dd > -0.08 and vol < 0.45",
+      "otherwise NEUTRAL (0)"
+    ],
+    "status": "initial PAPER defaults; one controlled revision allowed after Kraken-bulk replay event study (diagnostic only)"
+  },
+  "aggregation": "common-v1 unchanged: RISK_ON >= +3; RISK_OFF <= -3; STRESS overrides; ordinary transition 2 finalized packets; STRESS entry immediate; STRESS exit 2 non-stress readings and S > -3",
+  "finalized_packet": "one per UTC day at 07:00Z after stablecoin capture; BTC and breadth observation date = previous completed UTC day; stablecoin same-UTC-day capture; any missing/invalid/stale axis -> immediate UNKNOWN, no carry",
+  "leadership_window": "pilot 7d official until primary 30d observed, then 30d automatically; any TAXONOMY_COVERAGE_UNKNOWN day -> axis missing",
+  "acceptance": {
+    "keep": "G8 conditions 1-5 on retained natural history (real evidence, 5/5, no-lookahead, byte-identical rerun, exact common-v1 replay); minimum 5 consecutive complete UTC days",
+    "replace_condition_6_crypto_only": "diagnostic Kraken bulk OHLCVT replay of BTC-only axes (TREND, RISK_VOL) 2019-01-01..latest must show RISK_VOL producing STRESS, NEGATIVE and POSITIVE at least once, no range selection",
+    "label": "PROVISIONAL_FORWARD_ACCEPTANCE",
+    "auto_revert": "UNKNOWN on any validator failure",
+    "re_review": "when natural history contains all four confirmed regimes"
+  },
+  "user_acknowledged_tradeoff": "condition 6 replacement weakens one acceptance check for crypto only; accepted with provisional label and auto-revert",
+  "earliest_known_estimate": "about 2026-09-20 07:00Z if D1/D2 fixed and implementation lands by 2026-09-15",
+  "authority": {
+    "real_order": false,
+    "capital_transfer": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

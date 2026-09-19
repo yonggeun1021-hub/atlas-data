@@ -1,0 +1,109 @@
+name: SPDR Sector Holdings Capture
+
+# RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 evidence capture
+# (collectors/spdr_sector_holdings.py).
+#
+# User approval 2026-09-15: daily schedule activation approved. First live
+# workflow_dispatch run 34926977666 SUCCEEDED -- complete 11-ETF batch, 515
+# symbols resolved, 0 multi-holder; the previously-unverified
+# HOLDINGS_URL_TEMPLATE/workbook layout is now confirmed working against
+# the real SSGA endpoint. Schedule timing:
+#   '0 22 * * 1-5'  # ~07:00 KST Tue-Sat.
+# Re-justified against the source's own publication timing: SSGA typically
+# refreshes each fund's daily holdings file overnight, and 22:00 UTC
+# (18:00 ET / 6pm Eastern in EDT) is 2 hours after the 4pm ET close --
+# plausibly inside that overnight refresh window. But SSGA publishes no
+# exact SLA, and this collector has never independently confirmed the
+# timing (see collectors/spdr_sector_holdings.py's module docstring,
+# "Holdings 'As of' date" -- exactly why that field exists): a 22:00 UTC
+# run MAY still land on the *prior* trading day's file if SSGA has not
+# refreshed yet, and this collector never assumes same-day freshness --
+# it records the file's own claimed as-of date and the reader exposes it,
+# rather than trusting the capture's own wall-clock date. Unlike a price
+# or FX series, a fund's holdings on a given day are never published again
+# once that day passes -- this data is physically time-gated and cannot be
+# backfilled (see the collector's module docstring) -- so daily capture is
+# not merely convenient here, it is the only way this evidence can exist
+# at all; every day this schedule had stayed off was evidence that could
+# never be recovered later.
+#
+# No new secret: this collector needs no credential (SSGA's daily holdings
+# download is public). Derived-only storage: the downloaded workbook itself
+# is never committed (see "Licensing" in the collector's module docstring)
+# -- only a derived symbol/sector/rank mapping plus capture metadata/hash.
+
+on:
+  schedule:
+    - cron: '0 22 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "Space-separated tickers to capture (default: all 11 SPDR Select Sector ETFs)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-spdr-sector-holdings
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install parser dependency (openpyxl -- no network beyond PyPI)
+        run: python3 -m pip install --quiet "openpyxl>=3.1.0"
+      - name: Offline contract regression (fixture workbook, fake HTTP layer, no network)
+        run: |
+          python3 test/test_spdr_sector_holdings.py
+          python3 test/test_us_spdr_sector_mapping.py
+      - name: Capture SPDR sector holdings (derived mapping only, no raw workbook committed)
+        # CIO review 2026-09-15 (PR #761): the untrusted workflow_dispatch
+        # input is never substituted directly into the run: script text
+        # (that would let its content be parsed as shell before reaching
+        # Python -- a script-injection risk). It is passed through env: and
+        # referenced only as a quoted shell variable, so bash performs no
+        # word-splitting/glob expansion on it either; collectors/
+        # spdr_sector_holdings.py itself splits and validates every ticker
+        # against the 11-ticker SECTOR_ETFS allowlist before making any
+        # HTTP request.
+        env:
+          TICKERS: ${{ inputs.tickers }}
+        run: |
+          if [ -n "$TICKERS" ]; then
+            python3 collectors/spdr_sector_holdings.py --tickers "$TICKERS"
+          else
+            python3 collectors/spdr_sector_holdings.py
+          fi
+      - name: Commit derived evidence and latest pointer (bounded push retry)
+        # 2026-09-15 incident: this workflow's first live run and
+        # fred-dexkous-fx.yml's first live run raced each other -- this one
+        # pushed first, and the FRED run's plain `git push` then failed
+        # outright with no retry. `git pull --rebase` replays this run's
+        # one commit on top of whatever landed on main first, then retries
+        # the push; bounded at 3 attempts so a real, non-race failure
+        # (auth, network) still fails the job instead of looping.
+        run: |
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add evidence/spdr_sector_holdings data/latest_spdr_sector_holdings.json
+          if git diff --staged --quiet; then exit 0; fi
+          git commit -m "data: SPDR sector holdings evidence $(date -u +%Y-%m-%d)"
+          attempt=1
+          max_attempts=3
+          until git push; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "push failed after $max_attempts attempts" >&2
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
+            git pull --rebase
+          done

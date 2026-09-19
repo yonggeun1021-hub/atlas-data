@@ -1,0 +1,72 @@
+{
+ "schema": "user_ratification/1",
+ "id": "USER_RATIFICATION_PAPER_EXIT_PROVISIONAL_V1_20260915",
+ "recorded_by": "CLAUDE_CIO",
+ "recorded_at_kst": "2026-09-15T07:57+09:00",
+ "user_sentence_verbatim": "PAPER 청산 임시값을 확정한다: ① 세 시장 공통으로 강세 해제가 확인되면 첫 허용 체결 시각에 해당 보유분을 전량 매도한다(로테이션 확정의 '보유분은 기존 손절·익절 규칙' 문구를 이것으로 대체). ② 코인은 첫 매수 21일 뒤 전량 정리하는 시간 손절을 추가한다. ③ 재난 손절과 부분 익절은 기본값에 넣지 않고, 1-B·14일 시간 손절·부분 익절 1R·5×ATR 손절은 모든 진입에 그림자 비교로 기록한다. ④ BTC·ETH 종목 한도는 5%를 유지하고 계획손실 한도는 기록만 하며 동시 손실 시나리오를 표시한다. ⑤ NAV 낙폭 규칙은 세 시장 합산 NAV로 판정하고, −5% 단계는 고점 대비 −2.5% 이내, −10% 단계는 −5% 이내로 회복하면 해제한다. 이는 수익 우위 확정이 아니며 효력일 이후 성적표로 재판정한다.",
+ "source_documents": {
+  "CLAUDE_CIO_EXIT_OPTIONS_SHEET_CRYPTO_V2_20260915.md": "fefbbf24380485e2f2abc8a52ad0affc3de25c6fa26ddb0a17b95a38f361e301",
+  "CLAUDE_CIO_EXIT_MODEL_CRYPTO_STUDY_V2_20260915.md": "2f8e4b39a26aa108b701a22b477b8b945cff2b6d8087c9b9556ead07cd005c81",
+  "CLAUDE_CIO_PAPER_EXECUTION_CONTRACT_CANON_20260915.md": "7a26907f9c05935278ae9232e4de90bb0d23e39447a57c22f66484642a35127c"
+ },
+ "amends": [
+  {
+   "record": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915.json",
+   "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+   "decision_key": "RELEASE_HANDLING",
+   "change": "'stop new buys only; held positions follow existing stop/TP rules' replaced by: on confirmed strength release, sell the held position in full at the first allowed execution time (all three markets)"
+  },
+  {
+   "record": "USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json",
+   "sha256": "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8",
+   "decision_key": "NAV drawdown override lift condition",
+   "change": "judged on combined three-market NAV; −5% stage lifts when drawdown from peak recovers to within −2.5%; −10% stage lifts when within −5%"
+  }
+ ],
+ "decision": {
+  "RULE.EXIT.RELEASE_FULL_SELL.V1": {
+   "status": "PROVISIONAL",
+   "markets": [
+    "KR",
+    "US",
+    "CRYPTO"
+   ],
+   "text": "on confirmed strength release, sell the held position in full at the first allowed execution time (execution contract canon §1-2 definition)"
+  },
+  "RULE.EXIT.CRYPTO_TIME_STOP_21D.V1": {
+   "status": "PROVISIONAL",
+   "markets": [
+    "CRYPTO"
+   ],
+   "text": "sell the position in full 21 days after the first buy"
+  },
+  "RULE.EXIT.SHADOW_CONTROLS.V1": {
+   "status": "RATIFIED",
+   "text": "no disaster stop and no partial take-profit in defaults; record for every entry shadow results of 1-B (release+lagging), 14-day time stop, partial TP 1R, 5xATR disaster stop"
+  },
+  "RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1": {
+   "status": "RATIFIED",
+   "text": "BTC/ETH per-name cap stays at 5% NAV (B8A not adopted)"
+  },
+  "RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1": {
+   "status": "RATIFIED",
+   "text": "planned loss cap is record-only; display simultaneous loss scenarios"
+  },
+  "RULE.RISK.NAV_DRAWDOWN_LIFT.V1": {
+   "status": "RATIFIED",
+   "new_numbers": [
+    "-2.5%",
+    "-5%"
+   ],
+   "text": "NAV drawdown override judged on combined three-market NAV; -5% stage lifts on recovery to within -2.5% of peak; -10% stage lifts on recovery to within -5% of peak"
+  },
+  "evaluation": "not a confirmation of return edge; re-judged by the rule scorecard after the effective date (governance RULE.GOVERNANCE.EVIDENCE_GATED.V1)"
+ },
+ "evidence_level": "crypto study v2 level C (no exit rule proven to add return; release exit supported directionally in KR/US/crypto studies; 21-day time stop improved worst-10% with CI above zero, return effect indistinguishable from zero)",
+ "not_changed": [
+  "allocation v2 numbers",
+  "hedge rules",
+  "REAL/order/payment/secret authority"
+ ],
+ "correction_note": "recorded_at_kst corrected by CIO on 2026-09-15 08:1x KST from '2026-09-15T10:00+09:00' (CIO clock-estimation error) to the file creation time; previous file sha256 1df7726ea778adc5fd5304b120ae0d782606ede1371bfbe6b92c64aadad7b69a; decision content unchanged."
+}

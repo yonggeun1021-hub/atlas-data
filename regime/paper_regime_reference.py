@@ -11,22 +11,71 @@ from __future__ import annotations
 
 import argparse
 import copy
+import datetime as dt
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 from pathlib import Path
 import re
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 POLICY_PATH = ROOT / "config" / "paper_regime_reference_policy_v1.json"
 US_PATH = ROOT / "data" / "latest_free_market_data.json"
 KR_PATH = ROOT / "data" / "latest_korea_market_signals.json"
 CRYPTO_PATH = ROOT / "data" / "latest_crypto_regime_refresh_status.json"
 LATEST_PATH = ROOT / "data" / "latest_paper_regime_reference.json"
 SCHEMA_VERSION = "paper_regime_reference/v2"
+# Absent version is the retained v2 renderer and its original identity recipe.
+KR_TREND_RENDER_VERSION = "kr_trend_direction/v1"
+LEGACY_CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v2"
+PREVIOUS_CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v3"
+CURRENT_RENDER_VERSION = "paper_reference_current_crypto/v4"
+SUPPORTED_RENDER_VERSIONS = {
+    KR_TREND_RENDER_VERSION,
+    LEGACY_CURRENT_RENDER_VERSION,
+    PREVIOUS_CURRENT_RENDER_VERSION,
+    CURRENT_RENDER_VERSION,
+}
 AXES = ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+CURRENT_REFERENCE_MODE = "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY"
+ZERO = Decimal("0")
+ONE = Decimal("1")
+
+# The KR axis rules build_kr actually executes.  Each name below is the only
+# method this module can evaluate; a policy declaring anything else is a
+# declared-but-unimplemented rule and fails closed rather than silently falling
+# back to a built-in number.
+KR_METHOD = {
+    "TREND": "kospi_kosdaq_one_session_return_sign",
+    "BREADTH": "combined_advance_fraction",
+    "RISK_VOL": "combined_mean_absolute_stock_move_pct",
+    "LIQUIDITY": "combined_trading_value_change_pct",
+    "LEADERSHIP": "positive_sector_return_fraction",
+}
+# TREND carries no threshold; its three sign semantics are what sign_pair()
+# implements, so they are validated verbatim instead of being parsed.
+KR_TREND_SIGN = {
+    "positive": "both_positive",
+    "negative": "both_negative",
+    "neutral": "mixed_or_zero",
+}
+# Nine causal thresholds plus RISK_VOL.stress_above, which is an alias of the
+# NEGATIVE ceiling rather than a tenth independent edge.
+KR_THRESHOLD_KEYS = {
+    "BREADTH": ("positive_min", "negative_max"),
+    "RISK_VOL": ("positive_max", "neutral_max", "negative_max", "stress_above"),
+    "LIQUIDITY": ("positive_min", "negative_max"),
+    "LEADERSHIP": ("positive_min", "negative_max"),
+}
+KR_FRACTION_AXES = ("BREADTH", "LEADERSHIP")
+KR_ORDERED_AXES = ("BREADTH", "LIQUIDITY", "LEADERSHIP")
 
 
 class PaperRegimeReferenceError(ValueError):
@@ -130,7 +179,91 @@ def confidence(regime: str, axes: list[dict]) -> Decimal | None:
     return Decimal(sum(row["direction"] == target for row in axes)) / Decimal(5)
 
 
+US_METHODS = {
+    "TREND": "majority_positive_20_session_returns",
+    "BREADTH": "representative_etf_advance_fraction",
+    "RISK_VOL": "fred_vix_level",
+    "LIQUIDITY": "fred_reserve_balances_and_bank_credit_change_sign",
+    "LEADERSHIP": "positive_20_session_group_return_fraction",
+}
+US_LIQUIDITY_SIGNS = {
+    "positive": "both_positive",
+    "negative": "both_negative",
+    "neutral": "mixed_or_zero",
+}
+US_RATIO_AXES = (
+    ("TREND", "positive_min_fraction", "negative_max_fraction"),
+    ("BREADTH", "positive_min", "negative_max"),
+    ("LEADERSHIP", "positive_min_fraction", "negative_max_fraction"),
+)
+US_VIX_LADDER = ("positive_below", "neutral_below", "negative_below")
+
+
+def _us_policy_decimal(block: dict, axis_name: str, key: str) -> Decimal:
+    """One configured US threshold as an exact finite Decimal, or fail closed.
+
+    There is deliberately no default: an absent, non-scalar, boolean, or
+    non-finite threshold blocks the US reference instead of silently reverting
+    to a previously hardcoded value.
+    """
+    if key not in block:
+        fail("US_POLICY_VALUE_MISSING", f"{axis_name}.{key}")
+    value = block[key]
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        fail("US_POLICY_VALUE_INVALID", f"{axis_name}.{key}")
+    return decimal(value, f"US_POLICY_VALUE_INVALID:{axis_name}.{key}")
+
+
+def _us_market_policy(policy: dict) -> dict:
+    """Resolve the configured ``markets.US`` block build_us executes.
+
+    Semantics (method identity, LIQUIDITY sign vocabulary) are checked for
+    exact equality; the nine numeric thresholds are resolved as Decimals and
+    order-guarded.  ``stress_min`` carries no separate comparison: it is the
+    published alias of ``negative_below`` and must equal it.
+    """
+    markets = policy.get("markets")
+    market = markets.get("US") if isinstance(markets, dict) else None
+    if not isinstance(market, dict):
+        fail("US_POLICY_MISSING")
+
+    blocks = {}
+    for axis_name in AXES:
+        block = market.get(axis_name)
+        if not isinstance(block, dict):
+            fail("US_POLICY_BLOCK_INVALID", axis_name)
+        if block.get("method") != US_METHODS[axis_name]:
+            fail("US_POLICY_METHOD_INVALID", axis_name)
+        blocks[axis_name] = block
+
+    for key, expected in US_LIQUIDITY_SIGNS.items():
+        if blocks["LIQUIDITY"].get(key) != expected:
+            fail("US_POLICY_SIGN_INVALID", key)
+
+    resolved = {}
+    for axis_name, positive_key, negative_key in US_RATIO_AXES:
+        positive_min = _us_policy_decimal(blocks[axis_name], axis_name, positive_key)
+        negative_max = _us_policy_decimal(blocks[axis_name], axis_name, negative_key)
+        if not all(Decimal(0) <= bound <= Decimal(1) for bound in (positive_min, negative_max)):
+            fail("US_POLICY_FRACTION_RANGE_INVALID", axis_name)
+        if negative_max >= positive_min:
+            fail("US_POLICY_FRACTION_ORDER_INVALID", axis_name)
+        resolved[axis_name] = {"positive_min": positive_min, "negative_max": negative_max}
+
+    ladder = [_us_policy_decimal(blocks["RISK_VOL"], "RISK_VOL", key) for key in US_VIX_LADDER]
+    if ladder[0] < Decimal(0):
+        fail("US_POLICY_VIX_RANGE_INVALID")
+    if not ladder[0] < ladder[1] < ladder[2]:
+        fail("US_POLICY_VIX_ORDER_INVALID")
+    stress_min = _us_policy_decimal(blocks["RISK_VOL"], "RISK_VOL", "stress_min")
+    if stress_min != ladder[2]:
+        fail("US_POLICY_STRESS_ALIAS_INVALID")
+    resolved["RISK_VOL"] = {**dict(zip(US_VIX_LADDER, ladder)), "stress_min": stress_min}
+    return resolved
+
+
 def build_us(packet: dict, policy: dict) -> dict:
+    us_policy = _us_market_policy(policy)
     reference = packet.get("us_market_reference")
     if not isinstance(reference, dict) or reference.get("status") != "READY":
         fail("US_REFERENCE_NOT_READY")
@@ -141,19 +274,21 @@ def build_us(packet: dict, policy: dict) -> dict:
 
     trend_returns = [decimal(row.get("returns", {}).get("20_session_pct"), "US_TREND_INVALID") for row in trends]
     trend_positive_fraction = Decimal(sum(value > 0 for value in trend_returns)) / Decimal(len(trend_returns))
-    trend_direction = ratio_direction(trend_positive_fraction, Decimal("0.666667"), Decimal("0.333333"))
+    trend_direction = ratio_direction(trend_positive_fraction, us_policy["TREND"]["positive_min"], us_policy["TREND"]["negative_max"])
 
     breadth_value = decimal(proxy.get("BREADTH", {}).get("measurement", {}).get("advance_fraction"), "US_BREADTH_INVALID")
-    breadth_direction = ratio_direction(breadth_value, Decimal("0.55"), Decimal("0.45"))
+    breadth_direction = ratio_direction(breadth_value, us_policy["BREADTH"]["positive_min"], us_policy["BREADTH"]["negative_max"])
 
     vix = decimal(packet.get("fred", {}).get("value"), "US_VIX_INVALID")
-    if vix < Decimal("15"):
+    if vix < us_policy["RISK_VOL"]["positive_below"]:
         risk_direction = "POSITIVE"
-    elif vix < Decimal("25"):
+    elif vix < us_policy["RISK_VOL"]["neutral_below"]:
         risk_direction = "NEUTRAL"
-    elif vix < Decimal("30"):
+    elif vix < us_policy["RISK_VOL"]["negative_below"]:
         risk_direction = "NEGATIVE"
     else:
+        # stress_min is the published alias of negative_below and is validated
+        # equal to it, so this branch is exactly `vix >= stress_min`.
         risk_direction = "STRESS"
 
     liquidity_rows = packet.get("fred_liquidity", {}).get("series")
@@ -167,7 +302,7 @@ def build_us(packet: dict, policy: dict) -> dict:
         fail("US_LEADERSHIP_INVALID")
     positive_groups = sum(decimal(row.get("return_pct"), "US_LEADERSHIP_INVALID") > 0 for row in groups)
     leadership_fraction = Decimal(positive_groups) / Decimal(len(groups))
-    leadership_direction = ratio_direction(leadership_fraction, Decimal("0.666667"), Decimal("0.333333"))
+    leadership_direction = ratio_direction(leadership_fraction, us_policy["LEADERSHIP"]["positive_min"], us_policy["LEADERSHIP"]["negative_max"])
 
     rows = [
         axis("TREND", trend_direction, {"positive": sum(value > 0 for value in trend_returns), "total": 3}, f"대표지수 3개 중 {sum(value > 0 for value in trend_returns)}개가 20거래일 기준 상승입니다."),
@@ -180,7 +315,75 @@ def build_us(packet: dict, policy: dict) -> dict:
     return market_packet("US", reference["as_of_session_date"], rows, regime, score, explanation)
 
 
-def build_kr(packet: dict, policy: dict) -> dict:
+def kr_threshold(block: dict, name: str, key: str) -> Decimal:
+    """Read one declared KR threshold.  No default and no numeric fallback."""
+    if key not in block:
+        fail("KR_POLICY_INVALID", f"{name}.{key}")
+    raw = block[key]
+    if isinstance(raw, bool) or not isinstance(raw, (str, int, float)):
+        fail("KR_POLICY_INVALID", f"{name}.{key}")
+    return decimal(raw, f"KR_POLICY_INVALID:{name}.{key}")
+
+
+def kr_policy(policy: dict) -> dict:
+    """Validate the declared KR block and return the thresholds build_kr uses.
+
+    Every number build_kr applies comes from here, so a policy edit is causal.
+    Anything absent, unimplemented, unparseable, or self-contradictory fails
+    closed instead of degrading to a built-in constant.
+    """
+    markets = policy.get("markets")
+    if not isinstance(markets, dict):
+        fail("KR_POLICY_INVALID", "markets")
+    block = markets.get("KR")
+    if not isinstance(block, dict):
+        fail("KR_POLICY_INVALID", "KR")
+    axes = {}
+    for name in AXES:
+        declared = block.get(name)
+        if not isinstance(declared, dict):
+            fail("KR_POLICY_INVALID", name)
+        if declared.get("method") != KR_METHOD[name]:
+            fail("KR_POLICY_INVALID", f"{name}.method")
+        axes[name] = declared
+    for key, expected in KR_TREND_SIGN.items():
+        if axes["TREND"].get(key) != expected:
+            fail("KR_POLICY_INVALID", f"TREND.{key}")
+
+    bound = {
+        name: {key: kr_threshold(axes[name], name, key) for key in keys}
+        for name, keys in KR_THRESHOLD_KEYS.items()
+    }
+    for name in KR_FRACTION_AXES:
+        for key, value in bound[name].items():
+            if not ZERO <= value <= ONE:
+                fail("KR_POLICY_INVALID", f"{name}.{key}")
+    for name in KR_ORDERED_AXES:
+        if bound[name]["negative_max"] >= bound[name]["positive_min"]:
+            fail("KR_POLICY_INVALID", f"{name}.bounds")
+    risk = bound["RISK_VOL"]
+    if risk["positive_max"] < ZERO:
+        fail("KR_POLICY_INVALID", "RISK_VOL.positive_max")
+    if not risk["positive_max"] < risk["neutral_max"] < risk["negative_max"]:
+        fail("KR_POLICY_INVALID", "RISK_VOL.ladder")
+    if risk["stress_above"] != risk["negative_max"]:
+        fail("KR_POLICY_INVALID", "RISK_VOL.stress_above")
+    return bound
+
+
+def normalize_kr_measurements(
+    packet: dict, policy: dict, *, render_version: str | None = None,
+) -> list[dict]:
+    """Derive signed KR axes using the explicitly supplied reference policy.
+
+    This is arithmetic reuse, not sensor-policy or runtime ratification.
+    Source qualification and point-in-time acceptance belong to the caller.
+    Versionless leaf calls retain historical v2 text. Versioned producers use
+    one of the supported render namespaces for the corrected trend wording.
+    """
+    if render_version is not None and render_version not in SUPPORTED_RENDER_VERSIONS:
+        fail("REFERENCE_RENDER_VERSION_INVALID")
+    thresholds = kr_policy(policy)
     if packet.get("status") != "OBSERVED_UNCLASSIFIED" or packet.get("coverage", {}).get("ratio") != "5/5":
         fail("KR_REFERENCE_NOT_READY")
     axes = packet.get("axes")
@@ -191,32 +394,47 @@ def build_kr(packet: dict, policy: dict) -> dict:
     trend_values = [decimal(benchmarks[name]["one_session_return_pct"], "KR_TREND_INVALID") for name in ("KOSPI", "KOSDAQ")]
     trend_direction = sign_pair(trend_values)
     breadth_value = decimal(axes["BREADTH"]["measurement"]["combined"]["advance_fraction"], "KR_BREADTH_INVALID")
-    breadth_direction = ratio_direction(breadth_value, Decimal("0.55"), Decimal("0.45"))
+    breadth_direction = ratio_direction(breadth_value, thresholds["BREADTH"]["positive_min"], thresholds["BREADTH"]["negative_max"])
     move = decimal(axes["RISK_VOL"]["measurement"]["combined_mean_absolute_stock_move_pct"], "KR_RISK_INVALID")
-    if move <= Decimal("1.5"):
+    risk = thresholds["RISK_VOL"]
+    if move <= risk["positive_max"]:
         risk_direction = "POSITIVE"
-    elif move <= Decimal("2.5"):
+    elif move <= risk["neutral_max"]:
         risk_direction = "NEUTRAL"
-    elif move <= Decimal("3.5"):
+    elif move <= risk["negative_max"]:
         risk_direction = "NEGATIVE"
     else:
         risk_direction = "STRESS"
     trading_value_change = decimal(axes["LIQUIDITY"]["measurement"]["combined"]["trading_value_change_pct"], "KR_LIQUIDITY_INVALID")
-    liquidity_direction = "POSITIVE" if trading_value_change >= 5 else "NEGATIVE" if trading_value_change <= -5 else "NEUTRAL"
+    liquidity = thresholds["LIQUIDITY"]
+    liquidity_direction = "POSITIVE" if trading_value_change >= liquidity["positive_min"] else "NEGATIVE" if trading_value_change <= liquidity["negative_max"] else "NEUTRAL"
     sectors = axes["LEADERSHIP"]["measurement"]["observations"]
     if not isinstance(sectors, list) or not sectors:
         fail("KR_LEADERSHIP_INVALID")
     positive_sectors = sum(decimal(row.get("sector_return_pct"), "KR_LEADERSHIP_INVALID") > 0 for row in sectors)
     leadership_fraction = Decimal(positive_sectors) / Decimal(len(sectors))
-    leadership_direction = ratio_direction(leadership_fraction, Decimal("0.60"), Decimal("0.40"))
+    leadership_direction = ratio_direction(leadership_fraction, thresholds["LEADERSHIP"]["positive_min"], thresholds["LEADERSHIP"]["negative_max"])
 
+    trend_summary = {
+        "POSITIVE": "두 지수가 모두 상승했습니다.",
+        "NEGATIVE": "두 지수가 모두 하락했습니다.",
+        "NEUTRAL": "혼조 또는 보합을 보였습니다.",
+    }[trend_direction] if render_version in SUPPORTED_RENDER_VERSIONS else "방향이 엇갈렸습니다."
     rows = [
-        axis("TREND", trend_direction, {"KOSPI": str(trend_values[0]), "KOSDAQ": str(trend_values[1])}, f"코스피 {trend_values[0]:+.2f}%, 코스닥 {trend_values[1]:+.2f}%로 방향이 엇갈렸습니다."),
+        axis("TREND", trend_direction, {"KOSPI": str(trend_values[0]), "KOSDAQ": str(trend_values[1])}, f"코스피 {trend_values[0]:+.2f}%, 코스닥 {trend_values[1]:+.2f}%로 {trend_summary}"),
         axis("BREADTH", breadth_direction, {"advance_fraction": str(breadth_value)}, f"전체 종목 중 상승 비중은 {breadth_value * 100:.1f}%입니다."),
         axis("RISK_VOL", risk_direction, {"mean_absolute_move_pct": str(move)}, f"종목 평균 절대 등락폭은 {move:.2f}%로 보통 구간입니다."),
         axis("LIQUIDITY", liquidity_direction, {"trading_value_change_pct": str(trading_value_change)}, f"거래대금은 이전 거래일보다 {trading_value_change:+.1f}% 변했습니다."),
         axis("LEADERSHIP", leadership_direction, {"positive_sectors": positive_sectors, "total": len(sectors)}, f"업종 {len(sectors)}개 중 {positive_sectors}개가 상승했습니다."),
     ]
+    return rows
+
+
+def build_kr(
+    packet: dict, policy: dict, *, render_version: str | None = None,
+) -> dict:
+    # Versionless historical callers retain their original text and hashes.
+    rows = normalize_kr_measurements(packet, policy, render_version=render_version)
     regime, score, explanation = classify(rows, policy)
     return market_packet("KR", packet["as_of_date"], rows, regime, score, explanation)
 
@@ -234,7 +452,96 @@ def market_packet(market: str, as_of_date: str, axes: list[dict], regime: str, s
     }
 
 
-def build_crypto(packet: dict) -> dict:
+def _load_crypto_descriptive_inputs(packet: dict, root: Path) -> dict:
+    """Rederive the current Crypto measurements from hash-bound retained bytes."""
+    from regime.crypto_paper_descriptive_normalization import (
+        CryptoPaperDescriptiveNormalizationError,
+        normalize_crypto_measurements,
+    )
+    from regime.live_axis_adapter import BTC_RISK
+
+    indexed = {
+        row.get("kind"): row
+        for row in packet.get("sources", [])
+        if isinstance(row, dict)
+    }
+    current_binding = indexed.get("CURRENT_REFERENCE")
+    official_binding = indexed.get("OFFICIAL_DECISION")
+    if not isinstance(current_binding, dict) or not isinstance(official_binding, dict):
+        fail("CRYPTO_DESCRIPTIVE_SOURCE_BINDING_MISSING")
+
+    def bound_json(binding: dict, code: str) -> dict:
+        relative = binding.get("path")
+        claimed = binding.get("sha256")
+        if (
+            not isinstance(relative, str)
+            or Path(relative).is_absolute()
+            or not isinstance(claimed, str)
+            or SHA256.fullmatch(claimed) is None
+        ):
+            fail(code)
+        path = root / relative
+        if file_sha256(path) != claimed:
+            fail(code, "sha256")
+        return read_json(path, code)
+
+    current_source = bound_json(current_binding, "CRYPTO_CURRENT_SOURCE_INVALID")
+    official_source = bound_json(official_binding, "CRYPTO_OFFICIAL_SOURCE_INVALID")
+    rows = official_source.get("source_components", {}).get("rows")
+    if not isinstance(rows, dict):
+        fail("CRYPTO_COMPONENT_ROWS_INVALID")
+    trend = rows.get("BTC_TREND", {}).get("packet", {}).get("direction")
+    liquidity = rows.get("STABLECOIN_NET_ISSUANCE", {}).get("packet")
+    if not isinstance(liquidity, dict):
+        fail("CRYPTO_LIQUIDITY_COMPONENT_INVALID")
+
+    decision_date = packet["current_reference"]["as_of_date"]
+    price_date = packet["current_reference"]["price_as_of_date"]
+    current_risk_dir = root / "evidence" / "crypto" / "btc" / "raw" / decision_date
+    prior_risk_dir = root / "evidence" / "crypto" / "btc" / "raw" / price_date
+    try:
+        current_risk = BTC_RISK.build_transform(current_risk_dir)
+        prior_risk = BTC_RISK.build_transform(prior_risk_dir)
+    except Exception as exc:
+        raise PaperRegimeReferenceError("CRYPTO_RISK_REDERIVATION_FAILED") from exc
+
+    try:
+        return normalize_crypto_measurements(
+            trend_category=trend,
+            breadth_advance_fraction=current_source.get("windows", {}).get("7d", {}).get(
+                "positive_asset_fraction"
+            ),
+            stablecoin_daily_net_issuance=liquidity.get(
+                "daily_net_issuance_native_usd_peg"
+            ),
+            stablecoin_weekly_net_issuance=liquidity.get(
+                "weekly_net_issuance_native_usd_peg"
+            ),
+            leadership_code=current_source.get("leadership_reference", {}).get(
+                "composite_code"
+            ),
+            current_risk_transform=current_risk,
+            current_risk_payload_sha256=payload_sha256(current_risk),
+            prior_risk_transform=prior_risk,
+            prior_risk_payload_sha256=payload_sha256(prior_risk),
+            decision_at=packet["generated_at"],
+            decision_date=decision_date,
+            price_as_of_date=price_date,
+            current_reference_mode=packet["current_reference"]["mode"],
+        )
+    except CryptoPaperDescriptiveNormalizationError as exc:
+        raise PaperRegimeReferenceError(
+            f"CRYPTO_DESCRIPTIVE_NORMALIZATION_FAILED:{exc}"
+        ) from exc
+
+
+def build_crypto(
+    packet: dict,
+    *,
+    render_version: str | None = CURRENT_RENDER_VERSION,
+    root: Path | None = None,
+    policy: dict | None = None,
+) -> dict:
     if packet.get("schema_version") != "crypto_regime_refresh_status/1":
         fail("CRYPTO_SOURCE_INVALID")
     unsigned = copy.deepcopy(packet)
@@ -252,27 +559,99 @@ def build_crypto(packet: dict) -> dict:
         if key != "read_only_reference" and value is not False:
             fail("CRYPTO_SOURCE_AUTHORITY_INVALID", key)
     official = packet.get("official_decision")
-    coverage = official.get("coverage") if isinstance(official, dict) else None
-    if (
-        not isinstance(coverage, dict)
-        or coverage.get("required_count") != 5
-        or coverage.get("defined_count") not in range(0, 6)
-        or coverage.get("ratio") != f"{coverage['defined_count']}/5"
-        or coverage.get("defined_axes") != [axis for axis in AXES if axis not in coverage.get("missing_axes", [])]
-    ):
-        fail("CRYPTO_SOURCE_COVERAGE_INVALID")
+    official_coverage = official.get("coverage") if isinstance(official, dict) else None
+    current = packet.get("current_reference")
+    if "current_reference" in packet and not isinstance(current, dict):
+        fail("CRYPTO_CURRENT_REFERENCE_INVALID")
+    current_coverage_supplied = isinstance(current, dict) and "coverage" in current
+    current_coverage = current.get("coverage") if isinstance(current, dict) else None
+
+    def validated_coverage(value: object, code: str) -> dict:
+        if not isinstance(value, dict):
+            fail(code)
+        required_count = value.get("required_count")
+        defined_count = value.get("defined_count")
+        defined_axes = value.get("defined_axes")
+        missing_axes = value.get("missing_axes")
+        if (
+            type(required_count) is not int
+            or required_count != len(AXES)
+            or type(defined_count) is not int
+            or defined_count not in range(0, len(AXES) + 1)
+            or not isinstance(defined_axes, list)
+            or not isinstance(missing_axes, list)
+            or defined_axes != [axis for axis in AXES if axis in defined_axes]
+            or missing_axes != [axis for axis in AXES if axis not in defined_axes]
+            or defined_count != len(defined_axes)
+            or len(missing_axes) != required_count - defined_count
+            or value.get("ratio") != f"{defined_count}/{required_count}"
+        ):
+            fail(code)
+        return value
+
+    def strict_date(value: object, code: str) -> dt.date:
+        if not isinstance(value, str) or ISO_DATE.fullmatch(value) is None:
+            fail(code)
+        try:
+            parsed = dt.date.fromisoformat(value)
+        except ValueError:
+            fail(code)
+        if parsed.isoformat() != value:
+            fail(code)
+        return parsed
+
+    official_coverage = validated_coverage(official_coverage, "CRYPTO_SOURCE_COVERAGE_INVALID")
+    # Older retained status packets did not expose current-reference coverage.
+    # Preserve their rendering while allowing today's descriptive 5/5 state to
+    # be displayed independently from official PIT-history acceptance.
+    if current_coverage_supplied:
+        if current.get("mode") != CURRENT_REFERENCE_MODE:
+            fail("CRYPTO_CURRENT_MODE_INVALID")
+        generated_at = packet.get("generated_at")
+        if not isinstance(generated_at, str) or UTC.fullmatch(generated_at) is None:
+            fail("CRYPTO_CURRENT_GENERATION_TIME_INVALID")
+        try:
+            generated_time = dt.datetime.strptime(generated_at, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            fail("CRYPTO_CURRENT_GENERATION_TIME_INVALID")
+        decision_date = strict_date(current.get("as_of_date"), "CRYPTO_CURRENT_DATE_INVALID")
+        price_as_of_date = strict_date(
+            current.get("price_as_of_date"), "CRYPTO_CURRENT_PRICE_DATE_INVALID"
+        )
+        if decision_date != generated_time.date():
+            fail("CRYPTO_CURRENT_DATE_CONTEXT_INVALID")
+        # The retained producer excludes its current candle, so the finalized
+        # close used for prices must precede the decision date.
+        if price_as_of_date >= decision_date:
+            fail("CRYPTO_CURRENT_PRICE_DATE_CONTEXT_INVALID")
+        current_coverage = validated_coverage(
+            current_coverage, "CRYPTO_CURRENT_COVERAGE_INVALID"
+        )
+    current_render_versions = {
+        LEGACY_CURRENT_RENDER_VERSION,
+        PREVIOUS_CURRENT_RENDER_VERSION,
+        CURRENT_RENDER_VERSION,
+    }
+    coverage = (
+        current_coverage
+        if current_coverage is not None and render_version in current_render_versions
+        else official_coverage
+    )
     complete = coverage["defined_count"] == 5
     refresh_pending = official.get("classification_status") == "WAIT_OFFICIAL_DECISION_REFRESH"
-    if refresh_pending:
+    if refresh_pending and not complete:
         classification_status = "WAIT_OFFICIAL_DECISION_REFRESH"
         explanation = "오늘 참고자료는 확인했지만 현재 코드와 정책으로 검증된 공식 코인 판정이 아직 없어 새 판정 생성을 기다립니다."
     elif complete:
         classification_status = "WAIT_MARKET_NORMALIZATION_POLICY"
-        explanation = "필수 신호 5개는 모두 확인됐지만 코인 전용 방향·점수 규칙의 검증이 끝날 때까지 Risk On/Off를 보류합니다."
+        explanation = "오늘 리더십을 포함한 필수 신호 5개는 모두 확인됐습니다. 코인 전용 방향·점수 규칙이 확정될 때까지 Risk On/Off 판정만 보류합니다."
     else:
         classification_status = "WAIT_OFFICIAL_INPUT_COVERAGE"
-        explanation = "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다."
-    return {
+        if render_version == CURRENT_RENDER_VERSION:
+            explanation = f"오늘 참고 신호는 {coverage['defined_count']}/5개 확인됐습니다. 확인되지 않은 신호가 있어 코인 판정을 보류합니다."
+        else:
+            explanation = "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다."
+    result = {
         "market": "CRYPTO",
         "as_of_date": packet.get("current_reference", {}).get("as_of_date"),
         "coverage": copy.deepcopy(coverage),
@@ -286,9 +665,69 @@ def build_crypto(packet: dict) -> dict:
         "runtime_regime": "UNKNOWN",
         "axes": [],
     }
+    if current_coverage is not None and render_version in current_render_versions:
+        result["official_validation"] = {
+            "classification_status": official.get("classification_status"),
+            "coverage": copy.deepcopy(official_coverage),
+        }
+        result["leadership_code"] = current.get("leadership_code")
+    if current_coverage is not None and render_version in {
+        PREVIOUS_CURRENT_RENDER_VERSION,
+        CURRENT_RENDER_VERSION,
+    }:
+        result["mode"] = current["mode"]
+        result["price_as_of_date"] = current["price_as_of_date"]
+    # Historical direct callers intentionally retain the pre-integration
+    # UNKNOWN rendering.  The producer supplies both root and policy, which is
+    # the boundary where immutable source bytes can be rederived and scored.
+    if (
+        complete
+        and current_coverage is not None
+        and render_version == CURRENT_RENDER_VERSION
+        and root is not None
+        and policy is not None
+    ):
+        try:
+            normalized = _load_crypto_descriptive_inputs(packet, root)
+        except PaperRegimeReferenceError as exc:
+            result["classification_status"] = "WAIT_MARKET_NORMALIZATION_INPUT"
+            result["paper_reference"]["explanation_ko"] = (
+                "필수 신호는 확인됐지만 원자료 재검증이 완료되지 않아 코인 판정을 보류합니다."
+            )
+            result["normalization_error"] = str(exc).split(":", 1)[0]
+            return result
+        rows = normalized["axes"]
+        regime, score, explanation = classify(rows, policy)
+        result = market_packet(
+            "CRYPTO", current["as_of_date"], rows, regime, score, explanation
+        )
+        result.update({
+            "mode": current["mode"],
+            "price_as_of_date": current["price_as_of_date"],
+            "leadership_code": current.get("leadership_code"),
+            "official_validation": {
+                "classification_status": official.get("classification_status"),
+                "coverage": copy.deepcopy(official_coverage),
+            },
+            "normalization_schema_version": normalized["schema_version"],
+            "risk_binding": normalized["risk_binding"],
+            "descriptive_caveats": normalized["caveats"],
+            "caveats": [
+                "PROVISIONAL_CRYPTO_PAPER_POLICY",
+                "RISK_DIRECTION_ONLY",
+                "ABSOLUTE_STRESS_NOT_ASSESSED",
+                "CONFIDENCE_MATCHING_AXIS_FRACTION_NOT_PROBABILITY",
+                "CURRENT_REFERENCE_NOT_PIT_REPLAY",
+            ],
+        })
+    return result
 
 
-def build_reference(root: Path = ROOT) -> dict:
+def build_reference(
+    root: Path = ROOT, *, render_version: str | None = CURRENT_RENDER_VERSION,
+) -> dict:
+    if render_version is not None and render_version not in SUPPORTED_RENDER_VERSIONS:
+        fail("REFERENCE_RENDER_VERSION_INVALID")
     policy_path = root / "config" / "paper_regime_reference_policy_v1.json"
     us_path = root / "data" / "latest_free_market_data.json"
     kr_path = root / "data" / "latest_korea_market_signals.json"
@@ -311,17 +750,58 @@ def build_reference(root: Path = ROOT) -> dict:
         {"market": "KR", "path": "data/latest_korea_market_signals.json", "sha256": file_sha256(kr_path)},
         {"market": "CRYPTO", "path": "data/latest_crypto_regime_refresh_status.json", "sha256": file_sha256(crypto_path)},
     ]
-    generation_id = payload_sha256({"policy_sha256": file_sha256(policy_path), "sources": sources})
+    generation_binding = {"policy_sha256": file_sha256(policy_path), "sources": sources}
+    crypto_normalization_sources = None
+    current = crypto_source.get("current_reference")
+    if (
+        render_version == CURRENT_RENDER_VERSION
+        and isinstance(current, dict)
+        and current.get("coverage", {}).get("ratio") == "5/5"
+    ):
+        extra_paths = [
+            root / "regime" / "crypto_paper_descriptive_normalization.py",
+            root / "evidence" / "crypto" / "btc" / "raw" / current.get("as_of_date", "") / "_manifest.json",
+            root / "evidence" / "crypto" / "btc" / "raw" / current.get("price_as_of_date", "") / "_manifest.json",
+        ]
+        for binding in crypto_source.get("sources", []):
+            if isinstance(binding, dict) and isinstance(binding.get("path"), str):
+                extra_paths.append(root / binding["path"])
+        if all(path.is_file() for path in extra_paths):
+            crypto_normalization_sources = [
+                {
+                    "path": str(path.relative_to(root)),
+                    "sha256": file_sha256(path),
+                }
+                for path in extra_paths
+            ]
+            generation_binding["crypto_descriptive_normalization_sources"] = (
+                crypto_normalization_sources
+            )
+    if render_version is not None:
+        generation_binding["render_version"] = render_version
+    generation_id = payload_sha256(generation_binding)
     markets = [
         build_us(us_source, policy),
-        build_kr(kr_source, policy),
-        build_crypto(crypto_source),
+        build_kr(kr_source, policy, render_version=render_version),
+        build_crypto(
+            crypto_source,
+            render_version=render_version,
+            root=root,
+            policy=policy,
+        ),
     ]
     packet = {
         "schema_version": SCHEMA_VERSION,
         "contract_version": policy["contract_version"],
         "mode": policy["mode"],
-        "status": "PARTIAL_REFERENCE_AVAILABLE",
+        "status": (
+            "REFERENCE_AVAILABLE"
+            if all(
+                row["paper_reference"]["candidate_regime"] != "UNKNOWN"
+                for row in markets
+            )
+            else "PARTIAL_REFERENCE_AVAILABLE"
+        ),
         "generated_at": max(
             us_source["observed_at_utc"],
             kr_source["generated_at"],
@@ -333,20 +813,108 @@ def build_reference(root: Path = ROOT) -> dict:
         "markets": markets,
         "authority": copy.deepcopy(authority),
     }
+    if render_version is not None:
+        packet["render_version"] = render_version
+    if crypto_normalization_sources is not None:
+        packet["crypto_descriptive_normalization_sources"] = (
+            crypto_normalization_sources
+        )
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
 
 
-def validate_reference(packet: dict, root: Path = ROOT) -> dict:
+def _validate_authenticated_frozen_v4(packet: dict, root: Path) -> None:
+    """Validate a Git-authenticated v4 packet when its raw closure is not materialized.
+
+    The caller has already authenticated the packet bytes to a trusted Git
+    commit.  Primary inputs and the policy remain materialized and are checked
+    byte-for-byte; the raw Crypto closure stays represented by the hashes that
+    are inside those authenticated packet bytes.
+    """
+    policy_path = root / "config" / "paper_regime_reference_policy_v1.json"
+    policy = read_json(policy_path, "POLICY_INVALID")
+    primary = {
+        "US": root / "data" / "latest_free_market_data.json",
+        "KR": root / "data" / "latest_korea_market_signals.json",
+        "CRYPTO": root / "data" / "latest_crypto_regime_refresh_status.json",
+    }
+    expected_sources = [
+        {"market": market, "path": str(path.relative_to(root)), "sha256": file_sha256(path)}
+        for market, path in primary.items()
+    ]
+    if packet.get("sources") != expected_sources:
+        fail("REFERENCE_FROZEN_PRIMARY_SOURCE_MISMATCH")
+    normalization_sources = packet.get("crypto_descriptive_normalization_sources")
+    if not isinstance(normalization_sources, list) or not normalization_sources:
+        fail("REFERENCE_FROZEN_NORMALIZATION_BINDING_MISSING")
+    for row in normalization_sources:
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("path"), str)
+            or not isinstance(row.get("sha256"), str)
+            or SHA256.fullmatch(row["sha256"]) is None
+        ):
+            fail("REFERENCE_FROZEN_NORMALIZATION_BINDING_INVALID")
+    generation_binding = {
+        "policy_sha256": file_sha256(policy_path),
+        "sources": expected_sources,
+        "crypto_descriptive_normalization_sources": normalization_sources,
+        "render_version": CURRENT_RENDER_VERSION,
+    }
+    if packet.get("generation_id") != payload_sha256(generation_binding):
+        fail("REFERENCE_FROZEN_GENERATION_MISMATCH")
+    by_market = {
+        row.get("market"): row for row in packet.get("markets", []) if isinstance(row, dict)
+    }
+    if set(by_market) != {"US", "KR", "CRYPTO"}:
+        fail("REFERENCE_FROZEN_MARKETS_INVALID")
+    us = build_us(read_json(primary["US"], "US_SOURCE_INVALID"), policy)
+    kr = build_kr(
+        read_json(primary["KR"], "KR_SOURCE_INVALID"),
+        policy,
+        render_version=CURRENT_RENDER_VERSION,
+    )
+    if by_market["US"] != us or by_market["KR"] != kr:
+        fail("REFERENCE_FROZEN_MARKET_REDERIVATION_MISMATCH")
+    crypto = by_market["CRYPTO"]
+    axes = crypto.get("axes")
+    if not isinstance(axes, list) or [row.get("axis") for row in axes] != AXES:
+        fail("REFERENCE_FROZEN_CRYPTO_AXES_INVALID")
+    regime, score, explanation = classify(axes, policy)
+    reference = crypto.get("paper_reference")
+    if reference != {
+        "candidate_regime": regime,
+        "score": score,
+        "confidence": str(confidence(regime, axes)),
+        "explanation_ko": explanation,
+    }:
+        fail("REFERENCE_FROZEN_CRYPTO_CLASSIFICATION_MISMATCH")
+    if crypto.get("runtime_regime") != "UNKNOWN":
+        fail("REFERENCE_FROZEN_CRYPTO_AUTHORITY_INVALID")
+    if packet.get("authority") != policy.get("authority"):
+        fail("REFERENCE_FROZEN_AUTHORITY_MISMATCH")
+
+
+def validate_reference(
+    packet: dict,
+    root: Path = ROOT,
+    *,
+    frozen_packet_authenticated: bool = False,
+) -> dict:
     if not isinstance(packet, dict) or packet.get("schema_version") != SCHEMA_VERSION:
         fail("REFERENCE_SCHEMA_INVALID")
     unsigned = copy.deepcopy(packet)
     claimed = unsigned.pop("payload_sha256", None)
     if not isinstance(claimed, str) or SHA256.fullmatch(claimed) is None or payload_sha256(unsigned) != claimed:
         fail("REFERENCE_SHA_INVALID")
-    expected = build_reference(root)
+    if "render_version" in packet and packet["render_version"] not in SUPPORTED_RENDER_VERSIONS:
+        fail("REFERENCE_RENDER_VERSION_INVALID")
+    expected = build_reference(root, render_version=packet.get("render_version"))
     if packet != expected:
-        fail("REFERENCE_REDERIVATION_MISMATCH")
+        if frozen_packet_authenticated and packet.get("render_version") == CURRENT_RENDER_VERSION:
+            _validate_authenticated_frozen_v4(packet, root)
+        else:
+            fail("REFERENCE_REDERIVATION_MISMATCH")
     return copy.deepcopy(packet)
 
 

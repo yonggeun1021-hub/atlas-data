@@ -1,0 +1,94 @@
+{
+  "schema_version": "crypto_paper_wiring/2",
+  "policy_id": "CRYPTO_PAPER_WIRING.V2",
+  "description": "Crypto PAPER wiring v2 (build plan PR3): decision snapshot /4 binds the CRYPTO_PAPER_RUNTIME_V1 decision and the crypto rotation confirmation packet as sources and requests promotion contract/3 and buy eligibility contract/3; the runtime bridge emits crypto_paper_runtime_request/4 (session budget allocation, marketable limit with the ratified 150bp actual-notional slippage quantity reduction, exit-policy sell requests). Every number is read from config/rule_registry_v1.json or an existing repository contract; this file carries no investment number.",
+  "decision_snapshot_v4_cutover": {
+    "t_cut_utc": "2026-09-18T07:00:00Z",
+    "status": "ACTIVE_FROM_T_CUT",
+    "source_record": {
+      "rule_id": "RULE.CRYPTO.PAPER_V2_TCUT.V1",
+      "path": "evidence/authority/USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915.json",
+      "sha256": "ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56"
+    },
+    "activation_requires": "CIO_OR_USER_SET_UTC_INSTANT_AFTER_SERVER_REINSTALL",
+    "time_of_day_must_equal_registry_parameter": {"rule_id": "RULE.EXEC.TIME_CONTRACT.V1", "key_parameter": "crypto_decision_cycle"},
+    "before_t_cut": "EMIT_crypto_paper_decision_snapshot_packet/3_BYTE_IDENTICAL",
+    "source": "build plan 2-3 principle 3 and section 6 S1 (T_cut = a 07:00Z after the private runtime reinstall; the pinned server consumes /3 until then)"
+  },
+  "decision_snapshot_v4_sources": {
+    "crypto_paper_runtime_decision": {
+      "root": "evidence/regime/crypto_paper_runtime",
+      "layout": "<current_decision_date>/<sha256>.json",
+      "selection": "LATEST_EVALUATION_AT_NOT_AFTER_GENERATED_AT",
+      "promotion_use": "crypto_candidate_promotion_contract/3 REGIME and T2_REGIME_PERMITS_NEW_BUYS"
+    },
+    "rotation_confirmation_packet": {
+      "root": "evidence/rotation/confirmation/CRYPTO",
+      "layout": "<as_of_date>/packet.json",
+      "selection": "LATEST_AS_OF_DATE_STRICTLY_BEFORE_CAPTURE_DATE",
+      "promotion_use": "crypto_candidate_promotion_contract/3 T2_ROTATION_MEMBERSHIP (bucket BTC/ETH/ALT)"
+    }
+  },
+  "contracts": {
+    "promotion": "crypto_candidate_promotion_contract/3",
+    "eligibility": "crypto_paper_buy_eligibility_contract/3",
+    "runtime_request": "crypto_paper_runtime_request/4"
+  },
+  "registry_parameters": {
+    "crypto_decision_cycle": {"rule_id": "RULE.EXEC.TIME_CONTRACT.V1", "key_parameter": "crypto_decision_cycle"},
+    "crypto_slippage": {"rule_id": "RULE.EXEC.QUALITY_LAYERS.V1", "key_parameter": "crypto_slippage"},
+    "reentry_same_packet": {"rule_id": "RULE.EXEC.REENTRY.V1", "key_parameter": "same_packet"},
+    "planned_loss_role": {"rule_id": "RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1", "key_parameter": "role"},
+    "record_only_features": {"rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1", "key_parameter": "record_only_features"}
+  },
+  "cio_interpretations": {
+    "order_price": {
+      "value": "MARKETABLE_LIMIT_AT_WORST_DECISION_SNAPSHOT_LEVEL_NEEDED_FOR_THE_MAXIMUM_QUANTITY_WITH_VWAP_WITHIN_THRESHOLD",
+      "source": "build plan section 9 CIO note 6 (crypto order = marketable limit on the decision snapshot book, maximum quantity whose actual-notional consumption slippage stays within 150bp, RULE.EXEC.QUALITY_LAYERS.V1 D3); slippage is realized VWAP versus snapshot best price (docs/crypto_paper_simulator_contract.md); level capacity uses the runtime config queue_fraction exactly as the simulator fills"
+    },
+    "order_sides": {
+      "value": "BUY_AND_SELL",
+      "source": "RULE.EXEC.QUALITY_LAYERS.V1 names orders without a side; exit sells keep their remaining quantity in the persistent paper_exit_intent/1 and continue at the next decision slot"
+    },
+    "quantity_step": {
+      "value": "CRYPTO_QUANTITY_DECIMAL_PLACES",
+      "decimal_places": 8,
+      "source": "execution contract canon 2-2 allocation step 4 (quantities floored to the trading unit; coin 8 decimal places), applied to /4 orders and session budget lines only; level capacity keeps the simulator decimal_scale; a sell of the whole remaining quantity is not floored"
+    },
+    "sell_order_validity": {
+      "value": "THROUGH_THE_NEXT_DECISION_SLOT_CAPPED_AT_THE_SESSION_ORDER_VALIDITY",
+      "source": "exit sells get one match opportunity at the next capture and are re-sized on a fresh book by the decision after it; slot length = decision/crypto_paper_decision_snapshot.py SCHEDULED_SLOT_MINUTES (the realtime capture cron); expiry = min(slot bound, session order_valid_before = next 07:00Z) so no order outlives its decision cycle (execution contract canon 2-3), and a sell issued in the last slot before 07:00Z is re-issued by the next session's first decision"
+    },
+    "open_buys_on_exit": {
+      "value": "CANCEL_BEFORE_EXIT_ORDER",
+      "source": "execution contract canon 1-4 (open buy remainder cancelled before the exit order)"
+    },
+    "session_budget_nav_mode": {
+      "value": "CRYPTO_LEDGER_ONLY_WHILE_KR_US_HOLD_NOTHING",
+      "source": "build plan 2-3 principle 4 and section 9 CIO note 3 (NAV0 = virtual capital + crypto ledger P&L while KR/US hold nothing)"
+    },
+    "one_allocation_per_session": {
+      "value": "RECORD_AT_THE_FIRST_DECISION_OF_THE_SESSION_WITH_AT_LEAST_ONE_ALLOCATION_CANDIDATE_A_RECORD_FROM_AN_EARLIER_DECISION_BLOCKS_NEW_BUYS_THE_SAME_DECISION_REUSES_THE_RECORD_VERBATIM_AND_SUBMITS_ONLY_LINES_WITH_UNKNOWN_IDEMPOTENCY_KEYS",
+      "source": "canon 2-3 and 2-4; build plan C2 (block only when the same market and session already has an allocation record). A decision without an allocation candidate writes no record: an empty record would allocate nothing yet close the session (for example before the day's 07:15Z runtime decision publication)"
+    },
+    "planned_loss_record_basis": {
+      "value": "QUANTITY_TIMES_DS5_ATR_MULTIPLE_TIMES_WILDER_ATR14",
+      "source": "build plan section 9 CIO note 4 (record-only planned loss uses the shadow 5xATR14 stop distance); RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1"
+    },
+    "reentry_packet_id": {
+      "value": "CRYPTO_PAPER_DECISION_SNAPSHOT_GENERATION_ID",
+      "source": "canon 6-1 R1 key = (market, decision packet id, instrument); RULE.EXEC.REENTRY.V1"
+    },
+    "strength_confirmation_available_at": {
+      "value": "END_OF_ROTATION_AS_OF_UTC_DAY",
+      "source": "a rotation packet for as-of date D cannot exist before D ends; the earliest bound makes D7 re-entry denials conservative"
+    }
+  },
+  "authority": {
+    "order_authorized": false,
+    "exchange_order_authorized": false,
+    "real_trading_authorized": false,
+    "secret_access_authorized": false,
+    "server_change_authorized": false
+  }
+}

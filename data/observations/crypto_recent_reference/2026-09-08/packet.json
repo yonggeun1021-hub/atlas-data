@@ -1,0 +1,828 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "historical_replay_authorized": false,
+    "order_authorized": false,
+    "production_wiring_authorized": false,
+    "reference_only": true,
+    "regime_classification_authorized": false,
+    "stage_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "crypto_recent_reference/v2",
+  "decision_date": "2026-09-08",
+  "generated_at_utc": "2026-09-08T17:06:20Z",
+  "leadership_reference": {
+    "composite_code": "MIXED_WINDOW_LEADERSHIP",
+    "status": "OBSERVED_REFERENCE_ONLY",
+    "window_alignment": "MIXED",
+    "windows": {
+      "30d": {
+        "alt_median_above_btc_and_eth": false,
+        "raw_leader": "ALT_EQUAL_WEIGHT",
+        "state": "ALT_NARROW"
+      },
+      "7d": {
+        "alt_median_above_btc_and_eth": true,
+        "raw_leader": "ALT_EQUAL_WEIGHT",
+        "state": "ALT_BROAD"
+      }
+    }
+  },
+  "member_returns": [
+    {
+      "canonical_asset_id": "BTC",
+      "pair_id": "BTC/USD",
+      "return_30d_pct": "21.862804",
+      "return_7d_pct": "0.667209",
+      "selected_rank": 1
+    },
+    {
+      "canonical_asset_id": "XRP",
+      "pair_id": "XRP/USD",
+      "return_30d_pct": "34.4476",
+      "return_7d_pct": "1.233118",
+      "selected_rank": 2
+    },
+    {
+      "canonical_asset_id": "ETH",
+      "pair_id": "ETH/USD",
+      "return_30d_pct": "29.998695",
+      "return_7d_pct": "0.914021",
+      "selected_rank": 3
+    },
+    {
+      "canonical_asset_id": "SOL",
+      "pair_id": "SOL/USD",
+      "return_30d_pct": "36.660521",
+      "return_7d_pct": "0.718168",
+      "selected_rank": 4
+    },
+    {
+      "canonical_asset_id": "ZEC",
+      "pair_id": "ZEC/USD",
+      "return_30d_pct": "124.456661",
+      "return_7d_pct": "34.259718",
+      "selected_rank": 5
+    },
+    {
+      "canonical_asset_id": "HYPE",
+      "pair_id": "HYPE/USD",
+      "return_30d_pct": "54.5636",
+      "return_7d_pct": "1.175912",
+      "selected_rank": 6
+    },
+    {
+      "canonical_asset_id": "DOGE",
+      "pair_id": "DOGE/USD",
+      "return_30d_pct": "28.575306",
+      "return_7d_pct": "9.279421",
+      "selected_rank": 7
+    },
+    {
+      "canonical_asset_id": "ADA",
+      "pair_id": "ADA/USD",
+      "return_30d_pct": "10.577883",
+      "return_7d_pct": "11.419126",
+      "selected_rank": 8
+    },
+    {
+      "canonical_asset_id": "TAO",
+      "pair_id": "TAO/USD",
+      "return_30d_pct": "27.506633",
+      "return_7d_pct": "12.81737",
+      "selected_rank": 9
+    },
+    {
+      "canonical_asset_id": "SUI",
+      "pair_id": "SUI/USD",
+      "return_30d_pct": "18.205462",
+      "return_7d_pct": "12.654916",
+      "selected_rank": 10
+    },
+    {
+      "canonical_asset_id": "LINK",
+      "pair_id": "LINK/USD",
+      "return_30d_pct": "53.689228",
+      "return_7d_pct": "12.6559",
+      "selected_rank": 11
+    },
+    {
+      "canonical_asset_id": "XMR",
+      "pair_id": "XMR/USD",
+      "return_30d_pct": "37.584728",
+      "return_7d_pct": "-0.071154",
+      "selected_rank": 12
+    },
+    {
+      "canonical_asset_id": "PUMP",
+      "pair_id": "PUMP/USD",
+      "return_30d_pct": "81.330561",
+      "return_7d_pct": "-1.977973",
+      "selected_rank": 13
+    },
+    {
+      "canonical_asset_id": "ENA",
+      "pair_id": "ENA/USD",
+      "return_30d_pct": "82.039911",
+      "return_7d_pct": "9.759358",
+      "selected_rank": 14
+    },
+    {
+      "canonical_asset_id": "NEAR",
+      "pair_id": "NEAR/USD",
+      "return_30d_pct": "43.179703",
+      "return_7d_pct": "20.344108",
+      "selected_rank": 15
+    },
+    {
+      "canonical_asset_id": "UNI",
+      "pair_id": "UNI/USD",
+      "return_30d_pct": "71.33653",
+      "return_7d_pct": "31.095231",
+      "selected_rank": 16
+    },
+    {
+      "canonical_asset_id": "LTC",
+      "pair_id": "LTC/USD",
+      "return_30d_pct": "20.073945",
+      "return_7d_pct": "13.717817",
+      "selected_rank": 17
+    },
+    {
+      "canonical_asset_id": "CRV",
+      "pair_id": "CRV/USD",
+      "return_30d_pct": "63.157198",
+      "return_7d_pct": "9.226314",
+      "selected_rank": 18
+    },
+    {
+      "canonical_asset_id": "XLM",
+      "pair_id": "XLM/USD",
+      "return_30d_pct": "17.785862",
+      "return_7d_pct": "9.208686",
+      "selected_rank": 19
+    },
+    {
+      "canonical_asset_id": "AAVE",
+      "pair_id": "AAVE/USD",
+      "return_30d_pct": "44.817006",
+      "return_7d_pct": "6.537686",
+      "selected_rank": 20
+    },
+    {
+      "canonical_asset_id": "TRUMP",
+      "pair_id": "TRUMP/USD",
+      "return_30d_pct": "54.83871",
+      "return_7d_pct": "-4.517199",
+      "selected_rank": 21
+    },
+    {
+      "canonical_asset_id": "PEPE",
+      "pair_id": "PEPE/USD",
+      "return_30d_pct": "27.052632",
+      "return_7d_pct": "1.827897",
+      "selected_rank": 22
+    },
+    {
+      "canonical_asset_id": "AVAX",
+      "pair_id": "AVAX/USD",
+      "return_30d_pct": "24.648866",
+      "return_7d_pct": "11.63948",
+      "selected_rank": 23
+    },
+    {
+      "canonical_asset_id": "AKE",
+      "pair_id": "AKE/USD",
+      "return_30d_pct": "318.004535",
+      "return_7d_pct": "103.151135",
+      "selected_rank": 24
+    },
+    {
+      "canonical_asset_id": "DASH",
+      "pair_id": "DASH/USD",
+      "return_30d_pct": "97.053482",
+      "return_7d_pct": "40.552553",
+      "selected_rank": 25
+    },
+    {
+      "canonical_asset_id": "FARTCOIN",
+      "pair_id": "FARTCOIN/USD",
+      "return_30d_pct": "31.082118",
+      "return_7d_pct": "-2.788845",
+      "selected_rank": 26
+    },
+    {
+      "canonical_asset_id": "BNB",
+      "pair_id": "BNB/USD",
+      "return_30d_pct": "23.285617",
+      "return_7d_pct": "7.040542",
+      "selected_rank": 27
+    },
+    {
+      "canonical_asset_id": "ARB",
+      "pair_id": "ARB/USD",
+      "return_30d_pct": "117.029449",
+      "return_7d_pct": "54.794521",
+      "selected_rank": 28
+    },
+    {
+      "canonical_asset_id": "USELESS",
+      "pair_id": "USELESS/USD",
+      "return_30d_pct": "475.331167",
+      "return_7d_pct": "156.250696",
+      "selected_rank": 29
+    },
+    {
+      "canonical_asset_id": "PENGU",
+      "pair_id": "PENGU/USD",
+      "return_30d_pct": "34.142087",
+      "return_7d_pct": "-3.115336",
+      "selected_rank": 30
+    },
+    {
+      "canonical_asset_id": "ONDO",
+      "pair_id": "ONDO/USD",
+      "return_30d_pct": "9.133549",
+      "return_7d_pct": "10.947028",
+      "selected_rank": 31
+    },
+    {
+      "canonical_asset_id": "BCH",
+      "pair_id": "BCH/USD",
+      "return_30d_pct": "20.204639",
+      "return_7d_pct": "5.036815",
+      "selected_rank": 32
+    },
+    {
+      "canonical_asset_id": "TRX",
+      "pair_id": "TRX/USD",
+      "return_30d_pct": "1.753436",
+      "return_7d_pct": "0.61181",
+      "selected_rank": 33
+    },
+    {
+      "canonical_asset_id": "POL",
+      "pair_id": "POL/USD",
+      "return_30d_pct": "24.466274",
+      "return_7d_pct": "4.866475",
+      "selected_rank": 34
+    },
+    {
+      "canonical_asset_id": "CC",
+      "pair_id": "CC/USD",
+      "return_30d_pct": "11.671958",
+      "return_7d_pct": "-12.561107",
+      "selected_rank": 35
+    },
+    {
+      "canonical_asset_id": "ICP",
+      "pair_id": "ICP/USD",
+      "return_30d_pct": "36.094675",
+      "return_7d_pct": "24.531445",
+      "selected_rank": 36
+    },
+    {
+      "canonical_asset_id": "SPX",
+      "pair_id": "SPX/USD",
+      "return_30d_pct": "67.864823",
+      "return_7d_pct": "-1.336222",
+      "selected_rank": 37
+    },
+    {
+      "canonical_asset_id": "INJ",
+      "pair_id": "INJ/USD",
+      "return_30d_pct": "40.385925",
+      "return_7d_pct": "25.461554",
+      "selected_rank": 38
+    },
+    {
+      "canonical_asset_id": "FET",
+      "pair_id": "FET/USD",
+      "return_30d_pct": "34.160584",
+      "return_7d_pct": "19.739414",
+      "selected_rank": 39
+    },
+    {
+      "canonical_asset_id": "VVV",
+      "pair_id": "VVV/USD",
+      "return_30d_pct": "63.417228",
+      "return_7d_pct": "10.155317",
+      "selected_rank": 40
+    },
+    {
+      "canonical_asset_id": "HBAR",
+      "pair_id": "HBAR/USD",
+      "return_30d_pct": "18.836163",
+      "return_7d_pct": "11.218253",
+      "selected_rank": 41
+    },
+    {
+      "canonical_asset_id": "MON",
+      "pair_id": "MON/USD",
+      "return_30d_pct": "29.606526",
+      "return_7d_pct": "2.155825",
+      "selected_rank": 42
+    },
+    {
+      "canonical_asset_id": "CSPR",
+      "pair_id": "CSPR/USD",
+      "return_30d_pct": "48.864697",
+      "return_7d_pct": "2.806817",
+      "selected_rank": 43
+    },
+    {
+      "canonical_asset_id": "WLD",
+      "pair_id": "WLD/USD",
+      "return_30d_pct": "56.464812",
+      "return_7d_pct": "30.815545",
+      "selected_rank": 44
+    },
+    {
+      "canonical_asset_id": "ASTER",
+      "pair_id": "ASTER/USD",
+      "return_30d_pct": "28.30783",
+      "return_7d_pct": "10.405136",
+      "selected_rank": 45
+    },
+    {
+      "canonical_asset_id": "JUP",
+      "pair_id": "JUP/USD",
+      "return_30d_pct": "37.937405",
+      "return_7d_pct": "13.614393",
+      "selected_rank": 46
+    },
+    {
+      "canonical_asset_id": "BTR",
+      "pair_id": "BTR/USD",
+      "return_30d_pct": "79.4279",
+      "return_7d_pct": "-51.941646",
+      "selected_rank": 47
+    },
+    {
+      "canonical_asset_id": "CAP",
+      "pair_id": "CAP/USD",
+      "return_30d_pct": "26.157728",
+      "return_7d_pct": "-32.150048",
+      "selected_rank": 48
+    },
+    {
+      "canonical_asset_id": "SKR",
+      "pair_id": "SKR/USD",
+      "return_30d_pct": "175.527806",
+      "return_7d_pct": "-24.922829",
+      "selected_rank": 49
+    },
+    {
+      "canonical_asset_id": "ALGO",
+      "pair_id": "ALGO/USD",
+      "return_30d_pct": "11.376629",
+      "return_7d_pct": "13.743578",
+      "selected_rank": 50
+    },
+    {
+      "canonical_asset_id": "XPL",
+      "pair_id": "XPL/USD",
+      "return_30d_pct": "21.91601",
+      "return_7d_pct": "10.463734",
+      "selected_rank": 51
+    },
+    {
+      "canonical_asset_id": "KAS",
+      "pair_id": "KAS/USD",
+      "return_30d_pct": "36.895388",
+      "return_7d_pct": "30.813329",
+      "selected_rank": 52
+    },
+    {
+      "canonical_asset_id": "DOT",
+      "pair_id": "DOT/USD",
+      "return_30d_pct": "30.434783",
+      "return_7d_pct": "26.503871",
+      "selected_rank": 53
+    },
+    {
+      "canonical_asset_id": "SHIB",
+      "pair_id": "SHIB/USD",
+      "return_30d_pct": "17.697966",
+      "return_7d_pct": "7.38255",
+      "selected_rank": 54
+    },
+    {
+      "canonical_asset_id": "XCN",
+      "pair_id": "XCN/USD",
+      "return_30d_pct": "31.372549",
+      "return_7d_pct": "17.888563",
+      "selected_rank": 55
+    },
+    {
+      "canonical_asset_id": "BICO",
+      "pair_id": "BICO/USD",
+      "return_30d_pct": "-63.833492",
+      "return_7d_pct": "-2.433817",
+      "selected_rank": 56
+    },
+    {
+      "canonical_asset_id": "TON",
+      "pair_id": "TON/USD",
+      "return_30d_pct": "2.129222",
+      "return_7d_pct": "0",
+      "selected_rank": 57
+    },
+    {
+      "canonical_asset_id": "RENDER",
+      "pair_id": "RENDER/USD",
+      "return_30d_pct": "16.868381",
+      "return_7d_pct": "8.421053",
+      "selected_rank": 58
+    },
+    {
+      "canonical_asset_id": "ZRO",
+      "pair_id": "ZRO/USD",
+      "return_30d_pct": "35.434007",
+      "return_7d_pct": "11.121951",
+      "selected_rank": 59
+    },
+    {
+      "canonical_asset_id": "HNT",
+      "pair_id": "HNT/USD",
+      "return_30d_pct": "187.280468",
+      "return_7d_pct": "-16.517167",
+      "selected_rank": 60
+    },
+    {
+      "canonical_asset_id": "STX",
+      "pair_id": "STX/USD",
+      "return_30d_pct": "109.269028",
+      "return_7d_pct": "10.681546",
+      "selected_rank": 61
+    },
+    {
+      "canonical_asset_id": "MORPHO",
+      "pair_id": "MORPHO/USD",
+      "return_30d_pct": "28.004656",
+      "return_7d_pct": "-1.535272",
+      "selected_rank": 62
+    },
+    {
+      "canonical_asset_id": "BONK",
+      "pair_id": "BONK/USD",
+      "return_30d_pct": "18.014291",
+      "return_7d_pct": "4.66978",
+      "selected_rank": 63
+    },
+    {
+      "canonical_asset_id": "FIL",
+      "pair_id": "FIL/USD",
+      "return_30d_pct": "17.887324",
+      "return_7d_pct": "22.368421",
+      "selected_rank": 64
+    },
+    {
+      "canonical_asset_id": "ESPORTS",
+      "pair_id": "ESPORTS/USD",
+      "return_30d_pct": "-23.913043",
+      "return_7d_pct": "-20.903955",
+      "selected_rank": 65
+    },
+    {
+      "canonical_asset_id": "VIRTUAL",
+      "pair_id": "VIRTUAL/USD",
+      "return_30d_pct": "28.938115",
+      "return_7d_pct": "5.388705",
+      "selected_rank": 66
+    },
+    {
+      "canonical_asset_id": "XDC",
+      "pair_id": "XDC/USD",
+      "return_30d_pct": "8.460111",
+      "return_7d_pct": "5.829109",
+      "selected_rank": 67
+    },
+    {
+      "canonical_asset_id": "AERO",
+      "pair_id": "AERO/USD",
+      "return_30d_pct": "41.561713",
+      "return_7d_pct": "30.752961",
+      "selected_rank": 68
+    },
+    {
+      "canonical_asset_id": "APT",
+      "pair_id": "APT/USD",
+      "return_30d_pct": "6.374502",
+      "return_7d_pct": "19.730942",
+      "selected_rank": 69
+    },
+    {
+      "canonical_asset_id": "BMT",
+      "pair_id": "BMT/USD",
+      "return_30d_pct": "36.96319",
+      "return_7d_pct": "-11.01146",
+      "selected_rank": 70
+    },
+    {
+      "canonical_asset_id": "FLR",
+      "pair_id": "FLR/USD",
+      "return_30d_pct": "7.71757",
+      "return_7d_pct": "-7.082153",
+      "selected_rank": 71
+    },
+    {
+      "canonical_asset_id": "ATOM",
+      "pair_id": "ATOM/USD",
+      "return_30d_pct": "17.489727",
+      "return_7d_pct": "10.894121",
+      "selected_rank": 72
+    },
+    {
+      "canonical_asset_id": "SEI",
+      "pair_id": "SEI/USD",
+      "return_30d_pct": "18.052543",
+      "return_7d_pct": "10.290475",
+      "selected_rank": 73
+    },
+    {
+      "canonical_asset_id": "DCR",
+      "pair_id": "DCR/USD",
+      "return_30d_pct": "23.024778",
+      "return_7d_pct": "8.605035",
+      "selected_rank": 74
+    },
+    {
+      "canonical_asset_id": "WIF",
+      "pair_id": "WIF/USD",
+      "return_30d_pct": "52.216749",
+      "return_7d_pct": "9.463563",
+      "selected_rank": 75
+    },
+    {
+      "canonical_asset_id": "QUID",
+      "pair_id": "QUID/USD",
+      "return_30d_pct": "-26.084587",
+      "return_7d_pct": "3.843798",
+      "selected_rank": 76
+    },
+    {
+      "canonical_asset_id": "CHIP",
+      "pair_id": "CHIP/USD",
+      "return_30d_pct": "118.126521",
+      "return_7d_pct": "38.992248",
+      "selected_rank": 77
+    },
+    {
+      "canonical_asset_id": "SN8",
+      "pair_id": "SN8/USD",
+      "return_30d_pct": "19.107532",
+      "return_7d_pct": "10.231331",
+      "selected_rank": 78
+    },
+    {
+      "canonical_asset_id": "GWEI",
+      "pair_id": "GWEI/USD",
+      "return_30d_pct": "-5.656991",
+      "return_7d_pct": "-3.30681",
+      "selected_rank": 79
+    },
+    {
+      "canonical_asset_id": "APR",
+      "pair_id": "APR/USD",
+      "return_30d_pct": "-7.955372",
+      "return_7d_pct": "-0.628437",
+      "selected_rank": 80
+    },
+    {
+      "canonical_asset_id": "UAI",
+      "pair_id": "UAI/USD",
+      "return_30d_pct": "198.137709",
+      "return_7d_pct": "90.392512",
+      "selected_rank": 81
+    },
+    {
+      "canonical_asset_id": "MINA",
+      "pair_id": "MINA/USD",
+      "return_30d_pct": "97.6353",
+      "return_7d_pct": "21.090366",
+      "selected_rank": 82
+    },
+    {
+      "canonical_asset_id": "LUNA",
+      "pair_id": "LUNA/USD",
+      "return_30d_pct": "8.304569",
+      "return_7d_pct": "5.477556",
+      "selected_rank": 83
+    },
+    {
+      "canonical_asset_id": "RAY",
+      "pair_id": "RAY/USD",
+      "return_30d_pct": "84.144427",
+      "return_7d_pct": "46.992481",
+      "selected_rank": 84
+    },
+    {
+      "canonical_asset_id": "QNT",
+      "pair_id": "QNT/USD",
+      "return_30d_pct": "12.628735",
+      "return_7d_pct": "9.145942",
+      "selected_rank": 85
+    },
+    {
+      "canonical_asset_id": "US",
+      "pair_id": "US/USD",
+      "return_30d_pct": "-69.176136",
+      "return_7d_pct": "-8.217523",
+      "selected_rank": 86
+    },
+    {
+      "canonical_asset_id": "ETHFI",
+      "pair_id": "ETHFI/USD",
+      "return_30d_pct": "53.974459",
+      "return_7d_pct": "4.234298",
+      "selected_rank": 87
+    },
+    {
+      "canonical_asset_id": "OP",
+      "pair_id": "OP/USD",
+      "return_30d_pct": "25.140924",
+      "return_7d_pct": "18.589744",
+      "selected_rank": 88
+    },
+    {
+      "canonical_asset_id": "BABYSHARK",
+      "pair_id": "BABYSHARK/USD",
+      "return_30d_pct": "10.093014",
+      "return_7d_pct": "1.663012",
+      "selected_rank": 89
+    },
+    {
+      "canonical_asset_id": "CVX",
+      "pair_id": "CVX/USD",
+      "return_30d_pct": "46.505552",
+      "return_7d_pct": "0.089246",
+      "selected_rank": 90
+    },
+    {
+      "canonical_asset_id": "PROS",
+      "pair_id": "PROS/USD",
+      "return_30d_pct": "13.919228",
+      "return_7d_pct": "9.230395",
+      "selected_rank": 91
+    },
+    {
+      "canonical_asset_id": "BLESS",
+      "pair_id": "BLESS/USD",
+      "return_30d_pct": "-30.912477",
+      "return_7d_pct": "-8.080808",
+      "selected_rank": 92
+    },
+    {
+      "canonical_asset_id": "KAITO",
+      "pair_id": "KAITO/USD",
+      "return_30d_pct": "-55.744035",
+      "return_7d_pct": "6.824234",
+      "selected_rank": 93
+    },
+    {
+      "canonical_asset_id": "ACU",
+      "pair_id": "ACU/USD",
+      "return_30d_pct": "77.64277",
+      "return_7d_pct": "22.753988",
+      "selected_rank": 94
+    },
+    {
+      "canonical_asset_id": "PYTH",
+      "pair_id": "PYTH/USD",
+      "return_30d_pct": "34.385093",
+      "return_7d_pct": "9.118418",
+      "selected_rank": 95
+    },
+    {
+      "canonical_asset_id": "WLFI",
+      "pair_id": "WLFI/USD",
+      "return_30d_pct": "10.136452",
+      "return_7d_pct": "-1.396161",
+      "selected_rank": 96
+    },
+    {
+      "canonical_asset_id": "AKT",
+      "pair_id": "AKT/USD",
+      "return_30d_pct": "10.873048",
+      "return_7d_pct": "8.58992",
+      "selected_rank": 97
+    },
+    {
+      "canonical_asset_id": "DRV",
+      "pair_id": "DRV/USD",
+      "return_30d_pct": "62.276189",
+      "return_7d_pct": "10.00279",
+      "selected_rank": 98
+    },
+    {
+      "canonical_asset_id": "KTA",
+      "pair_id": "KTA/USD",
+      "return_30d_pct": "-27.174976",
+      "return_7d_pct": "-12.146226",
+      "selected_rank": 99
+    },
+    {
+      "canonical_asset_id": "COTI",
+      "pair_id": "COTI/USD",
+      "return_30d_pct": "36.158192",
+      "return_7d_pct": "27.416918",
+      "selected_rank": 100
+    }
+  ],
+  "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
+  "price_as_of_date": "2026-09-07",
+  "schema_version": 2,
+  "selection": {
+    "current_catalog_backfill_for_historical_replay_authorized": false,
+    "excluded_before_cutoff_count": 11,
+    "selected_asset_count": 100,
+    "selection_rule": "ratified_current_taxonomy_over_trailing_30d_turnover_top_100",
+    "target_asset_count": 100,
+    "taxonomy_as_of_date": "2026-09-08",
+    "taxonomy_policy_version": "crypto_breadth_exclusion_taxonomy/v2",
+    "taxonomy_sha256": "26a1308f8d3df5f82af73f21946266ac0e6ee98e90adb2d5264d337d7f62fb38",
+    "taxonomy_unknown_before_cutoff_count": 0,
+    "universe_policy_sha256": "b9189e59ae697b1c5cb2cefa68a96601b2fefe38b365b8fbc7328e196c894aa7",
+    "universe_policy_version": "crypto_breadth_universe/v1"
+  },
+  "source": {
+    "capture_version": "crypto-breadth-capture/v2",
+    "current_candle_excluded": true,
+    "fetched_at_utc": "2026-09-08T00:54:41Z",
+    "manifest_sha256": "147fe566f1031fc6d9a5a17c0fe6a6659e3c011e66f252d47b3b3e5174856070",
+    "snapshot_date": "2026-09-08",
+    "snapshot_path": "evidence/crypto/breadth/raw/2026-09-08",
+    "source_commit": "bda1d96d1a2ea6f1b0fce68de5d048e8a3410c06",
+    "source_name": "kraken_spot_market_data"
+  },
+  "top_30d_strength": [
+    {
+      "canonical_asset_id": "USELESS",
+      "pair_id": "USELESS/USD",
+      "return_30d_pct": "475.331167"
+    },
+    {
+      "canonical_asset_id": "AKE",
+      "pair_id": "AKE/USD",
+      "return_30d_pct": "318.004535"
+    },
+    {
+      "canonical_asset_id": "UAI",
+      "pair_id": "UAI/USD",
+      "return_30d_pct": "198.137709"
+    },
+    {
+      "canonical_asset_id": "HNT",
+      "pair_id": "HNT/USD",
+      "return_30d_pct": "187.280468"
+    },
+    {
+      "canonical_asset_id": "SKR",
+      "pair_id": "SKR/USD",
+      "return_30d_pct": "175.527806"
+    }
+  ],
+  "windows": {
+    "30d": {
+      "alt_equal_weight_return_pct": "43.641421",
+      "alt_median_return_pct": "29.272321",
+      "btc_return_pct": "21.862804",
+      "calendar_days": 30,
+      "end_date": "2026-09-07",
+      "eth_return_pct": "29.998695",
+      "leading_bucket_by_raw_return": "ALT_EQUAL_WEIGHT",
+      "missing_asset_count": 0,
+      "missing_assets": [],
+      "observed_asset_count": 100,
+      "outperform_btc_asset_count": 63,
+      "outperform_btc_comparison_count": 99,
+      "outperform_btc_fraction": "0.636364",
+      "positive_asset_count": 91,
+      "positive_asset_fraction": "0.91",
+      "selected_asset_count": 100,
+      "start_date": "2026-08-08"
+    },
+    "7d": {
+      "alt_equal_weight_return_pct": "11.477304",
+      "alt_median_return_pct": "9.177314",
+      "btc_return_pct": "0.667209",
+      "calendar_days": 7,
+      "end_date": "2026-09-07",
+      "eth_return_pct": "0.914021",
+      "leading_bucket_by_raw_return": "ALT_EQUAL_WEIGHT",
+      "missing_asset_count": 0,
+      "missing_assets": [],
+      "observed_asset_count": 100,
+      "outperform_btc_asset_count": 74,
+      "outperform_btc_comparison_count": 99,
+      "outperform_btc_fraction": "0.747475",
+      "positive_asset_count": 77,
+      "positive_asset_fraction": "0.77",
+      "selected_asset_count": 100,
+      "start_date": "2026-08-31"
+    }
+  }
+}

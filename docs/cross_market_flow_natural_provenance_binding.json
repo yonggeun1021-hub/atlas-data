@@ -1,0 +1,275 @@
+{
+  "schema_version": "cross_market_flow_natural_provenance_binding/1",
+  "task_id": "flow-natural-provenance-binding-01",
+  "checked_at_utc": "2026-09-05T06:38:52Z",
+  "mandate": {
+    "kind": "BOUNDED_INTEGRATION_EVIDENCE_PREFLIGHT_AND_CONTROLLER_REPAIR",
+    "authorized_output": "docs/cross_market_flow_natural_provenance_binding.json",
+    "local_engineering_completion_is_not_canonical_ratification": true,
+    "root_supervisor_owns_canonical_state_consumption": true,
+    "unchanged_constraints": {
+      "production_schema_bump": false,
+      "natural_counting_semantics_changed": false,
+      "first_seen_semantics_changed": false,
+      "policy_threshold_ttl_or_pit_ratified": false,
+      "paid_data_authorized": false,
+      "real_live_order_or_trading_authority": false,
+      "actual_flow_claim": "UNKNOWN"
+    }
+  },
+  "verdict": {
+    "bounded_natural_run_acceptance": "PROVEN",
+    "engineering_integration_recommendation": "INTEGRATED",
+    "reason": "GitHub run metadata, authentic run-log excerpts, immutable committed packet bytes, and the local commit graph form one exact chain from the first-attempt scheduled producer run through its post-rebase latest packet to the first-attempt scheduled NATURAL ledger revision 4 output and current main.",
+    "canonical_policy_or_wbs_ratification": "NOT_PERFORMED",
+    "actual_flow_claim": "UNKNOWN",
+    "remaining_integration_evidence_gap": "NONE_FOR_THIS_BOUNDED_RUN"
+  },
+  "exact_main": {
+    "repo": "yonggeun1021-hub/atlas-data",
+    "commit": "6e18ea7e76af83802c00f4cd2d1a5a9d8698898b",
+    "checkout_mode": "DETACHED_HEAD",
+    "worktree_clean_before_authorized_output": true,
+    "producer_output_commit_is_ancestor": true,
+    "ledger_output_commit_is_ancestor": true
+  },
+  "merge_and_publication_ancestry": {
+    "linear_ancestor_chain_verified": [
+      "5304d7892b7c31e3bff865a806685ea7d80a8107",
+      "0407f7810a9b8d4d410d72c5c49194f2ce91e3ca",
+      "ba8b50bf16e5f9bb33e32ececfd56c6c69763f02",
+      "55cd80da30a13e5703eff53e54434a01912f7a3e",
+      "cddc11fba80f56ea4089d1fb4d8d94c2eb2f3bba",
+      "d212a0d882fc41c3a01e8558bc494b90e8281a32",
+      "55f969bd9ba85a57edb8a151b22c3d98ddb9fb80",
+      "6d9dcef979888ec99180c49a7ef697980405e567",
+      "6e18ea7e76af83802c00f4cd2d1a5a9d8698898b"
+    ],
+    "merge_571": {
+      "commit": "5304d7892b7c31e3bff865a806685ea7d80a8107",
+      "is_ancestor_of_producer_run_source": true
+    },
+    "merge_577": {
+      "commit": "0407f7810a9b8d4d410d72c5c49194f2ce91e3ca",
+      "is_ancestor_of_producer_run_source": true
+    },
+    "pr_584": {
+      "state": "MERGED",
+      "head": "9a21bedb2db10fd4b38988162333430656957a91",
+      "merge_commit": "55f969bd9ba85a57edb8a151b22c3d98ddb9fb80",
+      "ci": "GREEN",
+      "is_ancestor_of_exact_main": true
+    },
+    "pr_585": {
+      "state": "MERGED",
+      "head": "bcf5620ea50d378e5332d6b2c5ce90dc427c3de4",
+      "merge_commit": "6d9dcef979888ec99180c49a7ef697980405e567",
+      "ci": "GREEN",
+      "is_ancestor_of_exact_main": true
+    }
+  },
+  "producer": {
+    "workflow": ".github/workflows/paper-regime-reference.yml",
+    "workflow_name": "PAPER Market Risk Reference",
+    "run": {
+      "id": 33937415897,
+      "url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/33937415897",
+      "event": "schedule",
+      "run_attempt": 1,
+      "created_at": "2026-09-05T01:51:41Z",
+      "updated_at": "2026-09-05T01:52:39Z",
+      "conclusion": "success",
+      "source_head": "ba8b50bf16e5f9bb33e32ececfd56c6c69763f02"
+    },
+    "source_identity": {
+      "producer_code_path": "portfolio/capital_flow_posture_reference.py",
+      "producer_code_git_blob": "e52d5d5283a06c9a82d139889ae66f448bd5bb9b",
+      "workflow_git_blob": "d2376c9bc43e3f73036537da86063aa5ad64eb6c",
+      "same_relevant_code_and_workflow_blobs_at_source_head_rebase_parent_and_output_commit": true
+    },
+    "pre_rebase_output": {
+      "classification": "PRE_REBASE_BUILD_RETAINED_AS_APPEND_ONLY_EVIDENCE_NOT_SELECTED_BY_FINAL_POINTER",
+      "transient_commit_log_abbreviation": "e129a4ae",
+      "transient_commit_rewritten_by_rebase_and_amend": true,
+      "packet_path": "evidence/portfolio/capital_flow_posture_reference/2026-09-05/2d1e7e3f336922e9bc110be0282fb0ca457e5a54974846a71add93378c8f4f9a/packet.json",
+      "generation_id": "2d1e7e3f336922e9bc110be0282fb0ca457e5a54974846a71add93378c8f4f9a",
+      "generated_at": "2026-09-05T01:24:50Z",
+      "payload_sha256": "682ed55f007cc59c00e0a864c774248ec1337ce4bb65589a1c851c47ea2453b4",
+      "file_sha256": "25aa279c662b523058df1948d560dd860d406b8246e41fa2f7be9f91525c35f5",
+      "git_blob": "9027082e177badc7f7125c39938f423f03873fc0",
+      "retained_in_final_pushed_commit": "cddc11fba80f56ea4089d1fb4d8d94c2eb2f3bba",
+      "selected_by_final_latest_pointer": false,
+      "consumed_by_ledger_revision_4": false
+    },
+    "post_rebase_output": {
+      "classification": "POST_REBASE_REBUILD_SELECTED_BY_FINAL_POINTER_AND_CONSUMED_BY_LEDGER",
+      "rebase_parent": "55cd80da30a13e5703eff53e54434a01912f7a3e",
+      "output_commit": "cddc11fba80f56ea4089d1fb4d8d94c2eb2f3bba",
+      "output_commit_parent": "55cd80da30a13e5703eff53e54434a01912f7a3e",
+      "packet_path": "evidence/portfolio/capital_flow_posture_reference/2026-09-05/61d7bd3884c6103b9f0c6ff9bec0201c694db5f845484f3619be4d420563a7c0/packet.json",
+      "generation_id": "61d7bd3884c6103b9f0c6ff9bec0201c694db5f845484f3619be4d420563a7c0",
+      "generated_at": "2026-09-05T01:51:45Z",
+      "payload_sha256": "60bd51ecddadf9e9b29ac2cac4c720c2805acc67dc0c389a08b37df8518b7d1e",
+      "file_sha256": "21afb74d9231410f28617ba9d1ad656333a98a796bfdd69c87adff49c06b89d3",
+      "git_blob": "4c9196b9a9eea70889ebb4d4b4803f60d716518d",
+      "latest_pointer_path": "data/latest_capital_flow_posture_reference.json",
+      "latest_pointer_byte_identical": true,
+      "latest_pointer_git_blob": "4c9196b9a9eea70889ebb4d4b4803f60d716518d",
+      "selected_by_final_latest_pointer": true,
+      "consumed_by_ledger_revision_4": true
+    },
+    "authentic_log_binding": [
+      {
+        "at": "2026-09-05T01:52:23.8034554Z",
+        "fact": "pre-rebase producer packet generation_id 2d1e7e3f336922e9bc110be0282fb0ca457e5a54974846a71add93378c8f4f9a was written"
+      },
+      {
+        "at": "2026-09-05T01:52:24.5340408Z",
+        "fact": "transient pre-rebase commit logged as e129a4ae"
+      },
+      {
+        "at": "2026-09-05T01:52:25.2604747Z",
+        "fact": "git pull --rebase completed"
+      },
+      {
+        "at": "2026-09-05T01:52:34.5023239Z",
+        "fact": "post-rebase producer packet generation_id 61d7bd3884c6103b9f0c6ff9bec0201c694db5f845484f3619be4d420563a7c0 was written"
+      },
+      {
+        "at": "2026-09-05T01:52:34.6212575Z",
+        "fact": "amended final commit logged as cddc11fb"
+      },
+      {
+        "at": "2026-09-05T01:52:35.7181667Z",
+        "fact": "push advanced main from 55cd80da to cddc11fb"
+      }
+    ]
+  },
+  "ledger": {
+    "workflow": ".github/workflows/cross-market-flow-transition-ledger.yml",
+    "workflow_name": "P2-COM-03 Cross-Market Flow Transition Ledger",
+    "run": {
+      "id": 33938653855,
+      "url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/33938653855",
+      "event": "schedule",
+      "run_attempt": 1,
+      "created_at": "2026-09-05T02:17:30Z",
+      "updated_at": "2026-09-05T02:17:53Z",
+      "conclusion": "success",
+      "source_head": "cddc11fba80f56ea4089d1fb4d8d94c2eb2f3bba",
+      "source_head_exactly_equals_producer_output_commit": true,
+      "workflow_classification": "NATURAL"
+    },
+    "source_identity": {
+      "ledger_code_path": "portfolio/cross_market_flow_transition_ledger.py",
+      "ledger_code_git_blob": "5276c67bb1de004cd8027cf50e9bb35d52d1500b",
+      "workflow_git_blob": "51cb30adbd6db1f49c9023204d4d062b84f3eb27"
+    },
+    "output": {
+      "output_commit": "d212a0d882fc41c3a01e8558bc494b90e8281a32",
+      "output_commit_parent": "cddc11fba80f56ea4089d1fb4d8d94c2eb2f3bba",
+      "packet_path": "evidence/portfolio/cross_market_flow_transition_ledger/2026-09-05/bf5c1ad26c1fceafedc55e0eb549828916560fcd1f3dd5a01da34c6ee4fbad7d/packet.json",
+      "payload_sha256": "bf5c1ad26c1fceafedc55e0eb549828916560fcd1f3dd5a01da34c6ee4fbad7d",
+      "file_sha256": "3ed0a2dda522513f520f83a62c3dea5e0cd62c2138c3c822d2d26aebe40780e7",
+      "git_blob": "8018194fb0c811d16563ea794fc70ddcfcd75509",
+      "latest_pointer_path": "data/latest_cross_market_flow_transition_ledger.json",
+      "latest_pointer_byte_identical": true,
+      "latest_pointer_git_blob": "8018194fb0c811d16563ea794fc70ddcfcd75509",
+      "ledger_revision": 4,
+      "status": "HISTORY_OBSERVED"
+    },
+    "revision_4_binding": {
+      "observation_mode": "NATURAL",
+      "counts_toward_persistence": true,
+      "entry_sha256": "0ecbb0a225ea3dc137c47aeb10f80d7e96498e47c7185cd90137535617f62232",
+      "previous_entry_sha256": "cbccf4cc027ad96a74bfb9586fbf12b59b4a0cfd8fccb610ea0765047bb8e143",
+      "observed_at": "2026-09-05T01:51:45Z",
+      "source_generated_date_kst": "2026-09-05",
+      "transition_type": "UNCHANGED",
+      "input_generation_id": "61d7bd3884c6103b9f0c6ff9bec0201c694db5f845484f3619be4d420563a7c0",
+      "input_payload_sha256": "60bd51ecddadf9e9b29ac2cac4c720c2805acc67dc0c389a08b37df8518b7d1e",
+      "input_file_sha256": "21afb74d9231410f28617ba9d1ad656333a98a796bfdd69c87adff49c06b89d3",
+      "embedded_input_packet_equals_post_rebase_latest_producer_json": true,
+      "pre_rebase_generation_id_not_consumed": "2d1e7e3f336922e9bc110be0282fb0ca457e5a54974846a71add93378c8f4f9a"
+    },
+    "authentic_log_binding": [
+      {
+        "at": "2026-09-05T02:17:49.0439493Z",
+        "fact": "OBSERVATION_MODE NATURAL"
+      },
+      {
+        "at": "2026-09-05T02:17:49.1270543Z",
+        "fact": "ledger revision 4 and payload bf5c1ad26c1fceafedc55e0eb549828916560fcd1f3dd5a01da34c6ee4fbad7d were written"
+      },
+      {
+        "at": "2026-09-05T02:17:49.3245486Z",
+        "fact": "output commit logged as d212a0d8"
+      },
+      {
+        "at": "2026-09-05T02:17:50.7545791Z",
+        "fact": "push advanced main from cddc11fb to d212a0d8"
+      }
+    ]
+  },
+  "acceptance_evidence": {
+    "producer_run_is_first_attempt_schedule": true,
+    "producer_post_rebase_packet_is_exactly_bound_to_run_and_output_commit": true,
+    "ledger_run_is_first_attempt_schedule": true,
+    "ledger_run_source_is_exact_producer_output_commit": true,
+    "ledger_natural_entry_binds_exact_post_rebase_producer_generation_payload_and_file_hashes": true,
+    "pre_rebase_producer_packet_is_distinguished_and_not_counted_as_revision_4_input": true,
+    "producer_and_ledger_outputs_are_ancestors_of_exact_main": true,
+    "authority_containment_verified": {
+      "actual_flow_claim": "UNKNOWN",
+      "actual_flow_claim_authorized": false,
+      "cross_market_allocation_authorized": false,
+      "stage_authorized": false,
+      "buy_authorized": false,
+      "action_authorized": false,
+      "order_authorized": false,
+      "production_authorized": false,
+      "trading_authorized": false
+    }
+  },
+  "focused_verification": [
+    {
+      "command": "python3 test/test_capital_flow_posture_reference.py",
+      "result": "PASS",
+      "tests_run": 22
+    },
+    {
+      "command": "python3 test/test_cross_market_flow_transition_ledger.py",
+      "result": "PASS",
+      "tests_run": 23
+    },
+    {
+      "command": "python3 test/test_defensive_action_decision.py",
+      "result": "PASS",
+      "tests_run": 17,
+      "note": "The printed TRACKED_OUTPUT_FORBIDDEN diagnostic is the suite's expected fail-closed negative case."
+    },
+    {
+      "command": "python3 portfolio/capital_flow_posture_reference.py --verify data/latest_capital_flow_posture_reference.json",
+      "result": "PASS_CAPITAL_FLOW_POSTURE_REFERENCE_VERIFIED"
+    },
+    {
+      "command": "python3 portfolio/cross_market_flow_transition_ledger.py --verify data/latest_cross_market_flow_transition_ledger.json",
+      "result": "PASS_CROSS_MARKET_FLOW_TRANSITION_LEDGER_VERIFIED"
+    }
+  ],
+  "remaining_gap_and_boundary": {
+    "bounded_run_gap": null,
+    "non_blocking_durable_provenance_caveat": "Producer and ledger packet schemas do not themselves store GitHub run IDs or producer event metadata. This bounded acceptance is nevertheless exact because supplied GitHub run metadata and authentic logs join run IDs to pushed commits, and committed ledger revision 4 joins the ledger run source commit to the post-rebase producer packet's generation, payload, and file hashes.",
+    "future_claim_condition": "A future natural-run acceptance needs equivalent external run-log-commit-hash binding unless a separately authorized contract change adds durable in-packet run provenance.",
+    "historical_schema_bump_proposal_status": "NOT_AN_AUTHORIZED_REQUIREMENT_AND_NOT_NEEDED_TO_ACCEPT_THIS_BOUNDED_RUN",
+    "policy_gates": "UNCHANGED_AND_UNRATIFIED",
+    "canonical_status_action": "ROOT_SUPERVISOR_MAY_CONSUME_ENGINEERING_INTEGRATED_RECOMMENDATION; TRACKER_COCKPIT_MASTER_MAP_NOT_CHANGED_HERE"
+  },
+  "evidence_sources": {
+    "inline_report_sha256": "2f5d8b593949e2b088a18d5aa7b2381eae72531d622da93543fd0d4de2996b52",
+    "run_metadata": "AUTHORIZED_INLINE_GITHUB_RUN_METADATA",
+    "run_logs": "AUTHORIZED_INLINE_AUTHENTIC_LOG_EXCERPTS",
+    "committed_bytes": "LOCAL_GIT_OBJECTS_AT_EXACT_MAIN",
+    "ancestry_method": "git merge-base --is-ancestor plus commit parent and blob identity readback"
+  }
+}

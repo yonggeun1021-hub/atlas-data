@@ -1,0 +1,175 @@
+{
+  "schema_version": "kr_first_paper_experiment_application/1",
+  "application_id": "KR-FIRST-INTERNAL-PAPER-EXPERIMENT-20260907",
+  "recorded_at": "2026-09-07T10:53:09.501314+00:00",
+  "decision_source": {
+    "owner": "Atlas CIO — 전체 진행·검증 총괄",
+    "task_id": "01a07123-2140-7de3-8049-affc270372f6",
+    "decision": "Explicit bounded experiment selection received in current session; exact original values only, no global ratification or real authority",
+    "proposal_sha256": "79f588ef0ce06364c4c003f981a388549c37bc79b8496b52bdd07c93b4fc6e94"
+  },
+  "status": "HYPOTHESIS_ADOPTED_RUNTIME_GATES_PENDING",
+  "source_commit": "98537aaf64b3bdcd84d157f9b13841094df2811f",
+  "scope": {
+    "market": "KOREA",
+    "purpose": "First limited internal PAPER experiment hypothesis",
+    "benchmark": "KOSPI",
+    "required_index_sources": [
+      "KOSPI",
+      "KOSDAQ"
+    ],
+    "profitability_validated": false,
+    "suitability_validated": false,
+    "experiment_effective_window": null
+  },
+  "adopted_normalization": {
+    "path": "config/paper_regime_reference_policy_v1.json",
+    "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
+    "original_status_preserved": "PM_BASELINE_CANDIDATE_NOT_CIO_RATIFIED_SENSOR_POLICY",
+    "methods_and_values": {
+      "source_path": "data/latest_korea_market_signals.json",
+      "TREND": {
+        "method": "kospi_kosdaq_one_session_return_sign",
+        "positive": "both_positive",
+        "negative": "both_negative",
+        "neutral": "mixed_or_zero"
+      },
+      "BREADTH": {
+        "method": "combined_advance_fraction",
+        "positive_min": "0.55",
+        "negative_max": "0.45"
+      },
+      "RISK_VOL": {
+        "method": "combined_mean_absolute_stock_move_pct",
+        "positive_max": "1.5",
+        "neutral_max": "2.5",
+        "negative_max": "3.5",
+        "stress_above": "3.5"
+      },
+      "LIQUIDITY": {
+        "method": "combined_trading_value_change_pct",
+        "positive_min": "5",
+        "negative_max": "-5"
+      },
+      "LEADERSHIP": {
+        "method": "positive_sector_return_fraction",
+        "positive_min": "0.60",
+        "negative_max": "0.40"
+      }
+    },
+    "independent_numeric_edges": [
+      "BREADTH.positive_min=0.55",
+      "BREADTH.negative_max=0.45",
+      "RISK_VOL.positive_max=1.5",
+      "RISK_VOL.neutral_max=2.5",
+      "RISK_VOL.negative_max=3.5",
+      "LIQUIDITY.positive_min=5",
+      "LIQUIDITY.negative_max=-5",
+      "LEADERSHIP.positive_min=0.60",
+      "LEADERSHIP.negative_max=0.40"
+    ],
+    "retuned": false
+  },
+  "adopted_common_calculation": {
+    "path": "config/regime_source_owner_registry_v2.json",
+    "sha256": "ebc632c77f0aa2191b4e729a63a554eafb0ac301abd3e7a405f0b2753b5b27f4",
+    "original_ratified_scope_preserved": "RATIFIED_PAPER_BASELINE_V1 common replay; market normalization/freshness/PIT/runtime use not inherited",
+    "calculation": {
+      "policy_status": "RATIFIED_PAPER_BASELINE_V1",
+      "repository_v2_alignment_status": "ALIGNED_ARCHITECTURE_ONLY_RUNTIME_NOT_WIRED",
+      "legacy_runtime_contract": {
+        "path": "config/regime_decision_authority_contract.json",
+        "contract_version": "regime_decision_authority/v1",
+        "sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+        "status": "UNCHANGED_FAIL_CLOSED"
+      },
+      "required_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "LEADERSHIP"
+      ],
+      "normalized_axis_values": {
+        "POSITIVE": 1,
+        "NEUTRAL": 0,
+        "NEGATIVE": -1
+      },
+      "weights": {
+        "TREND": 1,
+        "BREADTH": 1,
+        "RISK_VOL": 1,
+        "LIQUIDITY": 1,
+        "LEADERSHIP": 1
+      },
+      "classification": {
+        "RISK_ON": "S>=3",
+        "NEUTRAL": "-2<=S<=2",
+        "RISK_OFF": "S<=-3",
+        "STRESS": "RISK_VOL_STRESS_OR_RATIFIED_MARKET_KILL_STRESS_CONDITION",
+        "UNKNOWN": "COVERAGE_OR_FRESHNESS_OR_POLICY_OR_LINEAGE_OR_INVALIDATION_FAILURE"
+      },
+      "direction": {
+        "IMPROVING": "DELTA_S>=2",
+        "STABLE": "-1<=DELTA_S<=1",
+        "DETERIORATING": "DELTA_S<=-2",
+        "UNKNOWN": "NO_COMPARABLE_PRIOR_FINALIZED_PACKET"
+      },
+      "confidence": {
+        "RISK_ON": "POSITIVE_AXIS_COUNT_DIV_5",
+        "RISK_OFF": "NEGATIVE_AXIS_COUNT_DIV_5",
+        "NEUTRAL": "NEUTRAL_AXIS_COUNT_DIV_5",
+        "STRESS": "EXPLICIT_STRESS_OVERRIDE_1_DIV_1",
+        "UNKNOWN": null
+      },
+      "hysteresis": {
+        "ordinary_transition_finalized_packets": 2,
+        "stress_entry": "IMMEDIATE",
+        "unknown_on_coverage_freshness_invalidation_failure": "IMMEDIATE",
+        "stress_exit": "TWO_CONSECUTIVE_NON_STRESS_AND_S_GREATER_THAN_NEGATIVE_3"
+      },
+      "market_specific_normalization_freshness_and_replay_inherited": false
+    }
+  },
+  "source_overlay_constraints": {
+    "path": "config/korea_leadership_policy.json",
+    "sha256": "3b532ad57ba3a6750c83346eb7d832a184fe4f218b91843611eaad37c7510585",
+    "policy_version": "korea_leadership/v1",
+    "approval_status": "RATIFIED",
+    "market": "KOREA",
+    "effective_from": "2026-08-01",
+    "allowed_run_modes": [
+      "FORWARD_SHADOW"
+    ],
+    "earliest_usable_time_kst": "18:00:00",
+    "use": "Reuse active sector identities/coverage and existing earliest source usability checks; does not approve full five-axis runtime normalization or PAPER operation"
+  },
+  "unresolved_runtime_gates": {
+    "ttl_seconds": null,
+    "freshness_adopted": false,
+    "pit_acceptance": "NOT_ACCEPTED",
+    "actual_source_admission": "UNCONFIRMED",
+    "expected_qualification_sha256": null,
+    "leadership_source_paper_use_authorized": false,
+    "leadership_usage_conflict": "Existing leadership allows FORWARD_SHADOW only; this experiment selection does not extend it to LIVE/PAPER sources.",
+    "complete_runtime_policy_available": false
+  },
+  "authority": {
+    "bounded_hypothesis_selection_recorded": true,
+    "global_sensor_policy_ratified": false,
+    "source_acceptance_granted": false,
+    "natural_runtime_ready": false,
+    "paper_forward_complete": false,
+    "real_order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  },
+  "forbidden_substitutions": [
+    "No fixture TTL 14400 deployment",
+    "No fixture or caller-computed expected hash as admission",
+    "No UNKNOWN or missing gate promotion",
+    "No source overlay run-mode expansion",
+    "No candidate status overwrite to global RATIFIED"
+  ],
+  "payload_sha256": "10e4c5ca7ebba28b1aa74c6ef8fde59f3ee97826ac93d0ca020032ec39e0463c"
+}

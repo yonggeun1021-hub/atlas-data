@@ -1,0 +1,67 @@
+{
+  "schema_version": "candidate_stage_evaluation_policy/1",
+  "policy_id": "P3-05-SEPARATE-SYSTEM-EVALUATED-STAGE",
+  "policy_version": "1",
+  "option": "A_SEPARATE_SYSTEM_EVALUATED_STAGE",
+  "decision_expression": "ALL_REQUIRED_GATES_PASS",
+  "required_gate_order": [
+    "canonical_population_membership",
+    "resolved_security_identity",
+    "market_native_evaluation_coverage",
+    "evidence_quality_status",
+    "translation_status",
+    "expectations_gap_status",
+    "invalidation_status",
+    "freshness_status",
+    "active_veto_status"
+  ],
+  "accepted_gate_status": "PASS",
+  "hold_gate_statuses": [
+    "MISSING",
+    "UNKNOWN",
+    "STALE",
+    "FAIL",
+    "ACTIVE_VETO"
+  ],
+  "manual_system_boundary": "MANUAL_NOTION_TAG_RETAINED_AS_SOURCE_FACT_NEVER_REQUIRED_AS_SYSTEM_PROMOTION_INPUT",
+  "manual_stage_mutation_authorized": false,
+  "system_stage_output": "Candidate",
+  "allowed_transition_graph": [
+    {
+      "from": "EVALUATION_ELIGIBLE",
+      "to": "Candidate",
+      "decision": "PROMOTE"
+    },
+    {
+      "from": "Candidate",
+      "to": "Candidate",
+      "decision": "MAINTAIN"
+    }
+  ],
+  "missing_data_policy": "HOLD_OR_NOT_COMPUTABLE_NEVER_PASS",
+  "demotion_drop_policy": "ONLY_SEPARATELY_RATIFIED_MARKET_NATIVE_INVALIDATION_OR_EXIT_MAY_DEMOTE_OR_DROP_MISSING_EVIDENCE_NEVER_DOES",
+  "reentry_policy": "FRESH_FULL_EVALUATION_AND_NEW_EVIDENCE_REFS_REQUIRED",
+  "evidence_reference_contract": {
+    "required_fields": [
+      "ref",
+      "sha256",
+      "available_at_utc"
+    ],
+    "point_in_time_rule": "AVAILABLE_AT_MUST_NOT_FOLLOW_SYSTEM_EVALUATION_TIME"
+  },
+  "input_contract_version": "candidate_stage_gate_input/1",
+  "market_policy": "COMMON_STAGE_ENVELOPE_MARKET_NATIVE_EVALUATORS_NO_CROSS_MARKET_SCORE_OR_SECTOR_THEME_INFERENCE",
+  "numeric_thresholds_added": false,
+  "authority": {
+    "system_candidate_stage_evaluation": true,
+    "stage4_internal_paper_candidate_handoff": true,
+    "manual_stage_mutation": false,
+    "candidate_ranking": false,
+    "buy": false,
+    "action": false,
+    "order": false,
+    "production": false,
+    "trading": false,
+    "real_capital": false
+  }
+}

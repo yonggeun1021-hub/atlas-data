@@ -77,6 +77,28 @@ HISTORICAL_RECORDS = sorted(
 )
 
 
+def adjacent_real_record_pair():
+    """Two REAL, already-committed records, genuinely adjacent in the
+    forward-only hash chain (the second's `previous_record_sha256` names
+    the first), with two DIFFERENT real `source_commit` values -- so a
+    test using them cannot pass merely because
+    `_validate_daily_at_commit`'s own in-memory `functools.lru_cache`
+    collapsed two calls for the SAME key into one. `HISTORICAL_RECORDS` is
+    filename (content-hash) order, not chain order, so this walks actual
+    `previous_record_sha256` links rather than trusting list position."""
+    by_sha = {
+        row["record_sha256"]: row
+        for row in (
+            json.loads(path.read_text(encoding="utf-8")) for path in HISTORICAL_RECORDS
+        )
+    }
+    genesis = next(row for row in by_sha.values() if row["previous_record_sha256"] is None)
+    successor = next(
+        row for row in by_sha.values() if row["previous_record_sha256"] == genesis["record_sha256"]
+    )
+    return genesis, successor
+
+
 def commit_for(path: Path) -> str:
     relative = path.relative_to(ROOT).as_posix()
     return subprocess.check_output(
@@ -251,6 +273,104 @@ class OperationalDecisionLineageTests(unittest.TestCase):
             validated = MODULE.validate_record(record)
         self.assertEqual(validated["record_sha256"], record["record_sha256"])
 
+    def test_load_history_reuses_one_worktree_across_all_records(self):
+        """Pins the fix for `load_history()`'s O(records-ever-published)
+        `git worktree add`/`remove` cost: it fully re-validates EVERY
+        already-published historical record on every single publish (by
+        design -- nothing is skipped or cached, see
+        `_shared_exact_checkout_scope`), but previously did that by
+        creating and destroying a brand-new worktree per record, growing
+        without bound as the record chain grows by roughly two records a
+        day. A wall-clock assertion here could pass by luck on a fast,
+        otherwise-idle disk and silently regress on a slower or busier one;
+        counting real `git worktree add` invocations cannot.
+
+        Uses two REAL, genuinely different commits (not the same key
+        twice) so this cannot pass merely because
+        `_validate_daily_at_commit`'s own in-memory `functools.lru_cache`
+        already collapsed repeat calls for an identical key -- it must be
+        the shared-worktree reuse doing the work."""
+        genesis, successor = adjacent_real_record_pair()
+        self.assertNotEqual(genesis["source_commit"], successor["source_commit"])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / f"record-{genesis['record_sha256']}.json").write_text(
+                json.dumps(genesis, sort_keys=True), encoding="utf-8"
+            )
+            (root / f"record-{successor['record_sha256']}.json").write_text(
+                json.dumps(successor, sort_keys=True), encoding="utf-8"
+            )
+
+            real_run = MODULE.subprocess.run
+            worktree_add_calls = []
+
+            def spy(args, *a, **kw):
+                if isinstance(args, (list, tuple)) and list(args[:3]) == [
+                    "git", "worktree", "add",
+                ]:
+                    worktree_add_calls.append(list(args))
+                return real_run(args, *a, **kw)
+
+            with mock.patch.object(
+                MODULE, "_validate_daily_at_commit", side_effect=REAL_VALIDATE_DAILY_AT_COMMIT,
+            ), mock.patch.object(MODULE.subprocess, "run", side_effect=spy):
+                REAL_VALIDATE_DAILY_AT_COMMIT.cache_clear()
+                history = MODULE.load_history(root)
+
+        self.assertEqual(len(history), 2)
+        self.assertEqual(
+            len(worktree_add_calls), 1,
+            "load_history() must materialize exactly one shared worktree for "
+            "its entire pass over the record chain, not one per record",
+        )
+
+    def test_shared_checkout_scope_removes_worktree_on_mid_pass_failure(self):
+        """`git worktree add` runs as the FIRST command inside
+        `_materialize_exact_commit`; a LATER step in that same call
+        (`sparse-checkout set`, here forced to fail) can still raise. That
+        is exactly the window the MEDIUM finding identified: gating
+        cleanup on a `created` flag set only AFTER
+        `_materialize_exact_commit` returns misses it, because the
+        worktree -- and its registration under this repository's real
+        `.git/worktrees/` -- already exists by then. This must be
+        deregistered for real (checked via `git worktree list` on the
+        real repository, not just this module's own bookkeeping), and the
+        shared-scope state must still be cleared for a later, unrelated
+        call."""
+        real_run = MODULE.subprocess.run
+
+        def fail_after_worktree_add(args, *a, **kw):
+            if isinstance(args, (list, tuple)) and "sparse-checkout" in args:
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="forced failure for this test"
+                )
+            return real_run(args, *a, **kw)
+
+        before = subprocess.check_output(
+            ["git", "worktree", "list"], cwd=ROOT, text=True
+        )
+        with mock.patch.object(MODULE.subprocess, "run", side_effect=fail_after_worktree_add):
+            with self.assertRaisesRegex(
+                MODULE.OperationalDecisionLineageError, "SOURCE_COMMIT_CHECKOUT_FAILED"
+            ):
+                with MODULE._shared_exact_checkout_scope():
+                    with MODULE._exact_commit_checkout(SOURCE_COMMIT, ()):
+                        self.fail(
+                            "must not reach the checkout body: "
+                            "sparse-checkout was forced to fail first"
+                        )
+        after = subprocess.check_output(
+            ["git", "worktree", "list"], cwd=ROOT, text=True
+        )
+        self.assertEqual(
+            before, after,
+            "the worktree registered by the forced-failing checkout must be "
+            "deregistered (git worktree remove/prune), not left stale in "
+            "`git worktree list`",
+        )
+        self.assertIsNone(MODULE._SHARED_EXACT_CHECKOUT["path"])
+        self.assertFalse(MODULE._SHARED_EXACT_CHECKOUT["created"])
+
     def test_snapshot_source_ref_is_exact_repo_commit_path_only(self):
         with self.assertRaisesRegex(
             MODULE.OperationalDecisionLineageError,
@@ -263,10 +383,8 @@ class OperationalDecisionLineageTests(unittest.TestCase):
             )
 
     def test_exact_source_checkout_retains_git_provenance_and_is_clean(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            checkout = Path(temporary) / "repo"
-            MODULE._materialize_exact_commit(SOURCE_COMMIT, checkout)
-            self.assertTrue((checkout / ".git").is_dir())
+        with MODULE._exact_commit_checkout(SOURCE_COMMIT, ()) as checkout:
+            self.assertTrue((checkout / ".git").is_file())
             self.assertEqual(
                 subprocess.check_output(
                     ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
@@ -294,6 +412,139 @@ class OperationalDecisionLineageTests(unittest.TestCase):
                 ).strip(),
                 "",
             )
+            self.assertFalse((checkout / "data").exists())
+            self.assertFalse((checkout / "evidence").exists())
+
+    def test_exact_source_checkout_uses_local_sparse_worktree_without_network(self):
+        commands = []
+
+        def record(command, **kwargs):
+            commands.append(command)
+            if "rev-parse" in command:
+                return subprocess.CompletedProcess(command, 0, stdout=SOURCE_COMMIT + "\n")
+            return subprocess.CompletedProcess(command, 0, stdout="")
+
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            MODULE.subprocess, "run", side_effect=record
+        ):
+            checkout = Path(temporary) / "repo"
+            with mock.patch.object(Path, "exists", return_value=False):
+                MODULE._materialize_exact_commit(SOURCE_COMMIT, checkout)
+
+        worktree = next(command for command in commands if "worktree" in command)
+        sparse = next(command for command in commands if "sparse-checkout" in command)
+        self.assertIn("add", worktree)
+        self.assertIn("--no-checkout", worktree)
+        self.assertIn(str(checkout), worktree)
+        self.assertEqual(sparse[-3:], ["/*", "!/data/", "!/evidence/"])
+        self.assertTrue(all("https://" not in part for command in commands for part in command))
+
+    def test_exact_validator_payload_patterns_are_finite_and_safe(self):
+        unified = current_unified()
+        rotation = next(
+            row for row in unified["components"]
+            if row["component"] == "ROTATION_DISCOVERY"
+        )["source_packet"]
+        rotation["wildcard_observations"]["source_envelopes"] = [{
+            "submission_lineage": [{"path": "data/intake/wildcard/submission.json"}],
+            "packet": {"submissions": [{"evidence": [{
+                "audit_provenance": {
+                    "record_locator": "evidence/source/example.json"
+                }
+            }]}]},
+        }]
+        rotation["dart_observations"]["source_packet"] = {
+            "lineage": {
+                "source_path": "data/latest_dart.json",
+                "content_run_path": "data/latest_dart_content.json",
+            },
+            "observations": [{
+                "subject_id": "012450",
+                "rcept_no": "20260831800137",
+                "evidence": {
+                    "status": "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+                },
+            }],
+        }
+        self.assertEqual(
+            MODULE._exact_validator_payload_patterns(unified),
+            (
+                "/data/dart_content/012450/20260831800137/",
+                "/data/intake/wildcard/submission.json",
+                "/data/latest_dart.json",
+                "/data/latest_dart_content.json",
+                "/evidence/source/example.json",
+            ),
+        )
+        rotation["wildcard_observations"]["source_envelopes"][0][
+            "submission_lineage"
+        ][0]["path"] = "../../outside"
+        with self.assertRaisesRegex(
+            MODULE.OperationalDecisionLineageError,
+            "EXACT_VALIDATOR_SOURCE_PATH_INVALID",
+        ):
+            MODULE._exact_validator_payload_patterns(unified)
+
+    def test_exact_validator_payload_patterns_allow_unavailable_rotation(self):
+        unified = current_unified()
+        rotation = next(
+            row for row in unified["components"]
+            if row["component"] == "ROTATION_DISCOVERY"
+        )
+        rotation["source_packet"] = None
+        self.assertEqual(MODULE._exact_validator_payload_patterns(unified), ())
+
+    def test_sparse_checkout_treats_payload_metacharacters_as_literal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+            subprocess.run(
+                ["git", "config", "user.name", "Atlas Test"], cwd=source, check=True
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "atlas@example.invalid"],
+                cwd=source,
+                check=True,
+            )
+            (source / "validator.py").write_text("VALID = True\n", encoding="utf-8")
+            payload_root = source / "data" / "raw"
+            payload_root.mkdir(parents=True)
+            exact = payload_root / "[ab]*?.json"
+            neighbor = payload_root / "a-neighbor-x.json"
+            exact.write_text('{"exact":true}\n', encoding="utf-8")
+            neighbor.write_text('{"neighbor":true}\n', encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=source, check=True)
+            subprocess.run(
+                ["git", "commit", "--quiet", "-m", "fixture"],
+                cwd=source,
+                check=True,
+            )
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=source, text=True
+            ).strip()
+            path = MODULE._exact_validator_sparse_path(
+                "data/raw/[ab]*?.json"
+            )
+            with mock.patch.object(MODULE, "ROOT", source):
+                with MODULE._exact_commit_checkout(commit, (path,)) as checkout:
+                    self.assertTrue((checkout / "data/raw/[ab]*?.json").is_file())
+                    self.assertFalse((checkout / "data/raw/a-neighbor-x.json").exists())
+                with self.assertRaisesRegex(
+                    MODULE.OperationalDecisionLineageError,
+                    "EXACT_VALIDATOR_REQUIRED_PAYLOAD_MISSING",
+                ):
+                    with MODULE._exact_commit_checkout(
+                        commit, ("/data/raw/missing.json",)
+                    ):
+                        pass
+
+        for invalid in ("data/raw/line\nbreak.json", "data/raw/nul\x00byte.json"):
+            with self.assertRaisesRegex(
+                MODULE.OperationalDecisionLineageError,
+                "EXACT_VALIDATOR_SOURCE_PATH_INVALID",
+            ):
+                MODULE._exact_validator_sparse_path(invalid)
 
     def test_real_committed_briefing_builds_created_zero_authority_record(self):
         record = self.record()

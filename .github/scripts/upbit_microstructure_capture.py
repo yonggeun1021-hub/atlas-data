@@ -59,7 +59,18 @@ CONTRACT_PATH = ROOT / "config" / "upbit_market_evidence_contract.json"
 UTC = dt.timezone.utc
 USER_AGENT = "Project-Atlas-upbit-microstructure-capture/1.0"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-CAPTURE_VERSION = "upbit-microstructure-capture/v1"
+# v2 (2026-09-14): downloaded_at_utc is the completion instant rounded UP to
+# the whole second (see ceil_to_utc_second); v1 truncated it.  Layout is
+# unchanged and v1 snapshots keep validating and re-deriving byte-for-byte.
+# v3 (2026-09-14): the manifest records every candle fetch's own request/
+# response instant (``candle_fetch_times``) so P4-07 judges finalization
+# against when each candle list was requested, never against the capture's
+# completion time (finalization lookahead). v1/v2 manifests carry no such
+# field and keep validating and re-deriving byte-for-byte.
+CAPTURE_VERSION = "upbit-microstructure-capture/v3"
+LEGACY_CAPTURE_VERSIONS = ("upbit-microstructure-capture/v1", "upbit-microstructure-capture/v2")
+CANDLE_FETCH_TIMES_FIELD = "candle_fetch_times"
+FETCH_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 MAX_MARKETS_PER_BATCH_CALL = 400
 SNAPSHOT_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-p3-[0-9a-f]{16}$")
 
@@ -78,6 +89,53 @@ def utc_now() -> dt.datetime:
 
 def iso_utc(value: dt.datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def ceil_to_utc_second(value: dt.datetime) -> dt.datetime:
+    """Round an aware instant UP to the next whole UTC second.
+
+    ``downloaded_at_utc`` is serialized at whole-second precision, but Upbit
+    stamps orderbook rows with millisecond ``timestamp`` values. Truncating
+    the completion instant (``iso_utc``'s ``timespec="seconds"``) produced a
+    recorded ``downloaded_at_utc`` up to 999 ms *earlier* than orderbook rows
+    that were already in hand, which P4-07's builder correctly rejects as an
+    impossible ordering (``ORDERBOOK_UNKNOWN``) -- every liquid market whose
+    book updated inside the final wall-clock second of the capture. Rounding
+    the completion instant up keeps it a true upper bound on every response
+    it covers; the start instant stays truncated (a true lower bound).
+    """
+    value = value.astimezone(UTC)
+    if value.microsecond:
+        value = value.replace(microsecond=0) + dt.timedelta(seconds=1)
+    return value
+
+
+def iso_utc_ms_floor(value: dt.datetime) -> str:
+    """Millisecond ISO-8601 UTC, rounded DOWN (a lower bound)."""
+    value = value.astimezone(UTC)
+    value = value.replace(microsecond=value.microsecond // 1000 * 1000)
+    return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def iso_utc_ms_ceil(value: dt.datetime) -> str:
+    """Millisecond ISO-8601 UTC, rounded UP (an upper bound)."""
+    value = value.astimezone(UTC)
+    if value.microsecond % 1000:
+        value = value.replace(microsecond=value.microsecond // 1000 * 1000) + dt.timedelta(milliseconds=1)
+    return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def parse_fetch_time(value) -> dt.datetime:
+    if not isinstance(value, str) or FETCH_TIME_RE.fullmatch(value) is None:
+        fail("MANIFEST_CANDLE_FETCH_TIME_INVALID", repr(value))
+    return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+
+
+def _parse_manifest_second(value, label: str) -> dt.datetime:
+    try:
+        return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except (TypeError, ValueError):
+        fail("MANIFEST_TIMESTAMP_INVALID", f"{label}={value!r}")
 
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict:
@@ -254,23 +312,49 @@ def capture_snapshot(
             max_attempts=max_attempts, backoff_base_seconds=backoff_base, sleeper=sleeper,
         )
 
+    def timed_robust_fetch(url: str) -> tuple[bytes, dict]:
+        """Fetch with retry and record the successful attempt's own request
+        instant (a lower bound on when the provider served the rows) and the
+        instant the response was in hand (an upper bound on what it can
+        describe). P4-07 judges candle finalization against the former."""
+        attempt_started: list[dt.datetime] = []
+
+        def timed(url_: str, timeout_: int) -> bytes:
+            attempt_started.append(clock().astimezone(UTC))
+            return fetch(url_, timeout_)
+
+        raw = fetch_with_retry(
+            url, fetcher=timed, timeout_seconds=timeout_seconds,
+            max_attempts=max_attempts, backoff_base_seconds=backoff_base, sleeper=sleeper,
+        )
+        received = clock().astimezone(UTC)
+        requested = attempt_started[-1]
+        if requested < observed_start or received < requested:
+            fail("CAPTURE_CLOCK_REVERSED", f"start={observed_start} requested={requested} received={received}")
+        return raw, {
+            "request_started_at_utc": iso_utc_ms_floor(requested),
+            "response_received_at_utc": iso_utc_ms_ceil(received),
+        }
+
     markets = sorted(set(markets))
     temporary_parent = Path(tempfile.mkdtemp(prefix="upbit-microstructure-", dir=str(target.parent)))
     snapshot = temporary_parent / key
     snapshot.mkdir()
     try:
         checksums: dict[str, str] = {}
+        candle_fetch_times: dict[str, dict[str, dict]] = {}
 
         for timeframe in contract["timeframes"]:
             count = contract["candle_lookback_count_by_timeframe"][timeframe]
             unit = contract.get("candle_upbit_unit_by_timeframe", {}).get(timeframe)
             records = []
+            fetch_times_for_timeframe = candle_fetch_times.setdefault(timeframe, {})
             for index, market in enumerate(markets):
                 if unit is not None:
                     url = contract["candles_minutes_endpoint_template"].format(UNIT=unit, MARKET=market, COUNT=count)
                 else:
                     url = contract["candles_days_endpoint_template"].format(MARKET=market, COUNT=count)
-                raw = robust_fetch(url)
+                raw, fetch_times_for_timeframe[market] = timed_robust_fetch(url)
                 parse_json_array(raw, f"{market}:{timeframe}")
                 records.append({
                     "market": market,
@@ -320,6 +404,9 @@ def capture_snapshot(
         completed_at = clock().astimezone(UTC)
         if completed_at < observed_start:
             fail("CAPTURE_CLOCK_REVERSED", f"start={observed_start} completed={completed_at}")
+        # Whole-second upper bound on the instant every response above was in
+        # hand -- see ceil_to_utc_second.
+        completed_at = ceil_to_utc_second(completed_at)
         (snapshot / "_downloaded_at.txt").write_text(iso_utc(completed_at) + "\n", encoding="utf-8")
         (snapshot / "_sha256.txt").write_text(
             "".join(f"{checksums[name]}  {name}\n" for name in sorted(checksums)), encoding="utf-8",
@@ -337,6 +424,7 @@ def capture_snapshot(
             "universe_lineage": universe_lineage,
             "timeframes": list(contract["timeframes"]),
             "checksums": checksums,
+            CANDLE_FETCH_TIMES_FIELD: candle_fetch_times,
             "auth_required": False,
             "order_or_withdrawal_endpoints_called": False,
         }
@@ -416,9 +504,55 @@ def validate_snapshot(snapshot_dir: Path) -> dict:
                     fail("MANIFEST_UNIVERSE_TRANSITION_PIN_INVALID", pin_label)
             if transition["successor"]["payload_sha256"] != lineage.get("record_payload_sha256"):
                 fail("MANIFEST_UNIVERSE_TRANSITION_SUCCESSOR_HASH_MISMATCH", str(snapshot_dir))
+    _validate_candle_fetch_times(manifest, snapshot_dir)
     if manifest.get("auth_required") is not False or manifest.get("order_or_withdrawal_endpoints_called") is not False:
         fail("MANIFEST_SAFETY_INVARIANT_VIOLATED", str(snapshot_dir))
     return manifest
+
+
+def _validate_candle_fetch_times(manifest: dict, snapshot_dir: Path) -> None:
+    """v3 manifests must carry one request/response instant per captured
+    (timeframe, market) candle fetch, inside the capture window; legacy v1/v2
+    manifests must carry none (they are revalidated exactly as issued)."""
+    version = manifest.get("capture_version")
+    has_field = CANDLE_FETCH_TIMES_FIELD in manifest
+    if version != CAPTURE_VERSION:
+        if has_field:
+            fail("MANIFEST_CANDLE_FETCH_TIMES_UNEXPECTED", f"{snapshot_dir}: capture_version={version!r}")
+        return
+    fetch_times = manifest.get(CANDLE_FETCH_TIMES_FIELD)
+    if not isinstance(fetch_times, dict):
+        fail("MANIFEST_CANDLE_FETCH_TIMES_MISSING", str(snapshot_dir))
+    timeframes = manifest.get("timeframes")
+    if not isinstance(timeframes, list) or set(fetch_times) != set(timeframes):
+        fail("MANIFEST_CANDLE_FETCH_TIMES_TIMEFRAMES_MISMATCH", str(snapshot_dir))
+    window_start = _parse_manifest_second(manifest.get("capture_started_at_utc"), "capture_started_at_utc")
+    window_end = _parse_manifest_second(manifest.get("downloaded_at_utc"), "downloaded_at_utc")
+    for timeframe in timeframes:
+        by_market = fetch_times[timeframe]
+        if not isinstance(by_market, dict) or sorted(by_market) != manifest["markets"]:
+            fail("MANIFEST_CANDLE_FETCH_TIMES_MARKETS_MISMATCH", f"{snapshot_dir}:{timeframe}")
+        for market, window in by_market.items():
+            if not isinstance(window, dict) or set(window) != {"request_started_at_utc", "response_received_at_utc"}:
+                fail("MANIFEST_CANDLE_FETCH_TIMES_SHAPE_INVALID", f"{timeframe}:{market}")
+            requested = parse_fetch_time(window["request_started_at_utc"])
+            received = parse_fetch_time(window["response_received_at_utc"])
+            if not (window_start <= requested <= received <= window_end):
+                fail("MANIFEST_CANDLE_FETCH_TIME_OUTSIDE_CAPTURE", f"{timeframe}:{market}")
+
+
+def candle_fetch_window(manifest: dict, timeframe: str, market: str) -> dict | None:
+    """The recorded (request_started, response_received) instants for one
+    candle fetch of an already-validated manifest, or ``None`` for a legacy
+    v1/v2 capture that never recorded them."""
+    fetch_times = manifest.get(CANDLE_FETCH_TIMES_FIELD)
+    if fetch_times is None:
+        return None
+    window = fetch_times[timeframe][market]
+    return {
+        "request_started_at": parse_fetch_time(window["request_started_at_utc"]),
+        "response_received_at": parse_fetch_time(window["response_received_at_utc"]),
+    }
 
 
 def main(argv=None) -> int:

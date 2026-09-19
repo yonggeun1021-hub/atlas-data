@@ -113,20 +113,30 @@ class RuntimeFixture(unittest.TestCase):
         self.assertTrue(checked["policy_ratified"])
         self.assertEqual(checked["policy_version"], policy["policy_version"])
 
-    def decision(self, *, received_at="2026-08-29T01:30:30.000000Z"):
+    def decision(
+        self, *, received_at="2026-08-30T01:30:30.000000Z",
+        orderbook_received_at=None, include_ratified_binding=True,
+    ):
         latest = {}
         received = dt.datetime.strptime(received_at, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
-        for raw in (raw_ticker(), raw_orderbook()):
+        orderbook_received = dt.datetime.strptime(
+            orderbook_received_at or received_at, "%Y-%m-%dT%H:%M:%S.%fZ",
+        ).replace(tzinfo=UTC)
+        raw_and_received = (
+            (raw_ticker(timestamp=int((received - dt.timedelta(seconds=1)).timestamp() * 1000)), received),
+            (raw_orderbook(timestamp=int(orderbook_received.timestamp() * 1000)), orderbook_received),
+        )
+        for raw, retained_at in raw_and_received:
             parsed = BRIDGE.REALTIME.parse_message(raw)
             CAPTURE.retain_latest_public_message(
                 latest,
                 raw=raw,
                 result={"action": "ACCEPTED", "market": parsed["market"], "kind": parsed["kind"]},
-                received_at=received,
+                received_at=retained_at,
             )
         status = {
             "schema_version": "upbit_realtime_gate_status/1",
-            "generated_at": "2026-08-29T01:30:31Z",
+            "generated_at": "2026-08-30T01:30:31Z",
             "connection_state": "CONNECTED",
             "reconnect_count": 0,
             "last_disconnect_reason": None,
@@ -145,8 +155,8 @@ class RuntimeFixture(unittest.TestCase):
         }
         status["payload_sha256"] = BRIDGE.payload_sha256(status)
         run = {
-            "started_at": "2026-08-29T01:30:00Z",
-            "ended_at": "2026-08-29T01:30:31Z",
+            "started_at": "2026-08-30T01:30:00Z",
+            "ended_at": "2026-08-30T01:30:31Z",
             "requested_duration_seconds": 31,
             "markets": ["KRW-BTC"],
             "message_log": [{
@@ -158,6 +168,23 @@ class RuntimeFixture(unittest.TestCase):
             "latest_public_messages_schema_version": CAPTURE.LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
             "latest_public_messages": latest,
         }
+        if include_ratified_binding:
+            contract = DECISION.REALTIME_GATE.load_contract()
+            parsed_ticker = DECISION.REALTIME_GATE.parse_message(raw_and_received[0][0])
+            quote = DECISION.REALTIME_GATE.quote_row_from_ticker(
+                parsed_ticker, received_at=received,
+            )
+            observed_at = dt.datetime(2026, 8, 30, 1, 30, 31, tzinfo=UTC)
+            run["ratified_freshness_policy"] = {
+                "path": contract["ratified_freshness_policy_path"],
+                "packet_sha256": contract["ratified_freshness_policy_sha256"],
+                "consumer_result": DECISION.REALTIME_GATE.evaluate_with_ratified_freshness_policy(
+                    [quote],
+                    observed_at=observed_at,
+                    batch_id="P9_06_20260830T013031Z",
+                    contract=contract,
+                ),
+            }
         record = {
             "schema_version": "upbit_realtime_capture_run/1",
             "transform_version": "upbit_realtime_gate/1",
@@ -167,13 +194,13 @@ class RuntimeFixture(unittest.TestCase):
             "run": run,
         }
         record["source_sha256"] = BRIDGE.payload_sha256(run)
-        directory = self.tmp / "realtime" / "2026-08-29"
+        directory = self.tmp / "realtime" / "2026-08-30"
         directory.mkdir(parents=True)
         path = directory / "run_001.json"
         path.write_text(json.dumps(record), encoding="utf-8")
-        entry = {"date": "2026-08-29", "path": path, "record": record}
+        entry = {"date": "2026-08-30", "path": path, "record": record}
         return DECISION.build_snapshot(
-            generated_at="2026-08-29T01:31:00Z",
+            generated_at="2026-08-30T01:30:40Z",
             source_commit=SOURCE_COMMIT,
             universe_entry=None,
             market_evidence_entry=None,
@@ -181,12 +208,12 @@ class RuntimeFixture(unittest.TestCase):
         )
 
     def account_with_open_order(
-        self, *, submitted_at="2026-08-29T01:00:00Z",
-        expires_at="2026-08-29T02:00:00Z",
+        self, *, submitted_at="2026-08-30T01:00:00Z",
+        expires_at="2026-08-30T02:00:00Z",
     ):
         ledger = SIMULATOR.create_ledger(
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash="1000",
-            opened_at="2026-08-29T00:59:00Z",
+            opened_at="2026-08-30T00:59:00Z",
             idempotency_key="PAPER.ACCOUNT.OPEN.RUNTIME.TEST",
         )
         intent = SIMULATOR.build_intent(
@@ -201,7 +228,7 @@ class RuntimeFixture(unittest.TestCase):
         )
         ledger = SIMULATOR.submit_order(ledger, intent)
         return SIMULATOR.build_account_state(
-            ledger, observed_at="2026-08-29T01:31:00Z", mark_prices={},
+            ledger, observed_at="2026-08-30T01:31:00Z", mark_prices={},
             mark_freshness_status="FRESH", mark_source_ref="test://marks/runtime",
             mark_source_sha256="d" * 64,
         )
@@ -209,11 +236,11 @@ class RuntimeFixture(unittest.TestCase):
     def empty_account(self):
         ledger = SIMULATOR.create_ledger(
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash="1000",
-            opened_at="2026-08-29T00:59:00Z",
+            opened_at="2026-08-30T00:59:00Z",
             idempotency_key="PAPER.ACCOUNT.OPEN.RUNTIME.TEST",
         )
         return SIMULATOR.build_account_state(
-            ledger, observed_at="2026-08-29T01:31:00Z", mark_prices={},
+            ledger, observed_at="2026-08-30T01:31:00Z", mark_prices={},
             mark_freshness_status="FRESH", mark_source_ref="test://marks/runtime",
             mark_source_sha256="d" * 64,
         )
@@ -221,7 +248,7 @@ class RuntimeFixture(unittest.TestCase):
     def config(self):
         return BRIDGE.build_runtime_config(
             approval_status=BRIDGE.RUNTIME_CONFIG_APPROVAL,
-            approved_by="CIO_TEST", approved_at="2026-08-29T01:00:00Z",
+            approved_by="CIO_TEST", approved_at="2026-08-30T01:00:00Z",
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash_krw="1000",
             fee_rate="0", queue_fraction="1", order_type="LIMIT",
             limit_price_source="ENTRY_ZONE_LOW",
@@ -253,9 +280,77 @@ class RuntimeFixture(unittest.TestCase):
     @staticmethod
     def promotion_packet():
         return {
-            "evaluation_as_of": "2026-08-29T01:31:00Z",
+            "evaluation_as_of": "2026-08-30T01:31:00Z",
             "source_packets": {"regime": {"regime": "UNKNOWN"}},
         }
+
+    def stage5_fixture_envelope(self, *, source_path=None):
+        source_path = source_path or (
+            ROOT / "test" / "fixtures" / "stage5_paper_stage4_lineage_fixture.json"
+        )
+        source_ref = str(source_path.relative_to(ROOT))
+        source_sha = BRIDGE._file_sha256(source_path)
+        contract = BRIDGE.STAGE5.load_contract()
+        decision = {
+            "schema_version": contract["input_schema_version"],
+            "decision_id": "STAGE4.FIXTURE.CRYPTO.20260912",
+            "status": "NOT_EVALUATED",
+            "candle_open_at": "2026-09-12T12:54:00Z",
+            "candle_closed_at": "2026-09-12T12:55:00Z",
+            "available_at": "2026-09-12T13:26:25Z",
+            "decided_at": "2026-09-12T13:26:25Z",
+            "source_ref": source_ref,
+            "source_sha256": source_sha,
+            "authority": copy.deepcopy(contract["authority"]),
+        }
+        decision["packet_sha256"] = BRIDGE.STAGE5.payload_sha256(decision)
+        snapshot = BRIDGE.STAGE5.SIMULATOR.build_snapshot(
+            snapshot_id="STAGE5.FIXTURE.SNAPSHOT.CRYPTO.1",
+            market="KRW-BTC",
+            captured_at="2026-09-12T13:27:00Z",
+            freshness_status="FRESH",
+            ask_levels=[{"price": "100", "quantity": "2"}],
+            bid_levels=[{"price": "99", "quantity": "2"}],
+            source_ref="fixture://stage5/orderbook/crypto/1",
+            source_sha256="b" * 64,
+        )
+        envelope = {
+            "schema_version": contract["input_schema_version"],
+            "contract_version": contract["contract_version"],
+            "mode": contract["mode"],
+            "envelope_id": "STAGE5.FIXTURE.ENVELOPE.CRYPTO.1",
+            "decision": decision,
+            "plan": {
+                "plan_id": "STAGE5.FIXTURE.PLAN.CRYPTO.1",
+                "ledger_id": "STAGE5.FIXTURE.LEDGER.CRYPTO.1",
+                "initial_cash": "1000",
+                "opened_at": "2026-09-12T13:26:25Z",
+                "opening_idempotency_key": "STAGE5.FIXTURE.OPEN.CRYPTO.1",
+                "order_id": "STAGE5.FIXTURE.ORDER.CRYPTO.1",
+                "submit_idempotency_key": "STAGE5.FIXTURE.SUBMIT.CRYPTO.1",
+                "match_idempotency_key": "STAGE5.FIXTURE.MATCH.CRYPTO.1",
+                "side": "BUY",
+                "order_type": "MARKET",
+                "quantity": "1",
+                "limit_price": None,
+                "fee_rate": "0",
+                "queue_fraction": "1",
+                "submitted_at": "2026-09-12T13:26:26Z",
+                "expires_at": "2026-09-12T13:31:00Z",
+                "match_at": "2026-09-12T13:27:01Z",
+                "mark_price": "101",
+                "account_observed_at": "2026-09-12T13:27:02Z",
+            },
+            "snapshot": snapshot,
+            "authority": copy.deepcopy(contract["authority"]),
+        }
+        envelope["packet_sha256"] = BRIDGE.STAGE5.payload_sha256(envelope)
+        pins = {
+            "expected_envelope_sha256": envelope["packet_sha256"],
+            "expected_decision_packet_sha256": decision["packet_sha256"],
+            "expected_decision_source_sha256": source_sha,
+        }
+        return envelope, pins
 
 
 class LatestPublicMessageTests(unittest.TestCase):
@@ -582,7 +677,7 @@ class BridgeContractTests(RuntimeFixture):
             decision,
         )
         snapshot = BRIDGE.orderbook_snapshot(decision, market="KRW-BTC")
-        self.assertEqual(snapshot["captured_at"], "2026-08-29T01:30:30Z")
+        self.assertEqual(snapshot["captured_at"], "2026-08-30T01:30:30Z")
         self.assertEqual(snapshot["ask_levels"], [{"price": "101", "quantity": "2"}])
         self.assertEqual(snapshot["bid_levels"], [{"price": "99", "quantity": "3"}])
         self.assertFalse(snapshot["authority"]["exchange_order_authorized"])
@@ -596,6 +691,94 @@ class BridgeContractTests(RuntimeFixture):
         self.assertEqual(request["requests"], [])
         self.assertEqual(request["match_snapshots"], [])
         self.assertFalse(request["authority"]["exchange_order_authorized"])
+
+    def test_stage4_fixture_calls_stage5_and_preserves_exact_upstream_lineage(self):
+        envelope, pins = self.stage5_fixture_envelope()
+        with mock.patch.object(
+            BRIDGE.DECISION,
+            "build_regime_snapshot",
+            side_effect=AssertionError("Stage5 fixture path must not read raw regime"),
+        ):
+            receipt = BRIDGE.build_stage5_fixture_connection(envelope, **pins)
+
+        self.assertEqual(
+            receipt["mode"], "MOCK_PATH_VERIFIED_NOT_PAPER_EXECUTION"
+        )
+        self.assertEqual(
+            receipt["execution_state"], "NOT_EXECUTED_FIXTURE_RESULT_ONLY"
+        )
+        lineage = receipt["stage4_lineage"]
+        source = lineage["source_record"]
+        self.assertEqual(lineage["decision_status"], "NOT_EVALUATED")
+        self.assertEqual(lineage["evaluated_at"], "2026-09-12T13:26:25Z")
+        self.assertEqual(source["market_regime"]["candidate_regime"], "NEUTRAL")
+        self.assertEqual(source["market_regime"]["runtime_regime"], "UNKNOWN")
+        self.assertEqual(
+            source["market_regime"]["source_identity"]["generation_id"],
+            "70176ad3877836620cf7403ddc30af7f2275a657df111c950a2338c1c87961af",
+        )
+        self.assertEqual(
+            source["market_regime"]["source_identity"]["payload_sha256"],
+            "735fab39899e0963fed4d91bb56e1fa2adcc796e78034499e54371d20b7b0bed",
+        )
+        self.assertEqual(
+            source["candidate"]["rejection_reasons"],
+            [
+                "STAGE3_PACKET_MISSING_STAGE1_REGIME_LINEAGE",
+                "P7_15_THREE_MARKET_REGIME_NOT_PROVEN_TO_STAGE1_LINEAGE",
+                "NUMERIC_POLICY_UNRATIFIED",
+                "POSITION_AND_EXIT_POLICY_NOT_SUPPLIED",
+            ],
+        )
+        result = receipt["stage5_result"]
+        self.assertEqual(result["virtual_plan"]["market_regime_status"], "NOT_EVALUATED")
+        self.assertEqual(result["ledger"]["ledger_id"], "STAGE5.FIXTURE.LEDGER.CRYPTO.1")
+        self.assertEqual(result["source"]["decision_source_sha256"], lineage["source_sha256"])
+        self.assertTrue(all(value is False for value in receipt["authority"].values()))
+
+    def test_stage5_fixture_source_reason_or_receipt_rehash_cannot_change_lineage(self):
+        original = ROOT / "test" / "fixtures" / "stage5_paper_stage4_lineage_fixture.json"
+        copied = self.tmp / "stage4" / "decision.json"
+        copied.parent.mkdir(parents=True)
+        shutil.copy2(original, copied)
+        envelope, pins = self.stage5_fixture_envelope(source_path=copied)
+        receipt = BRIDGE.build_stage5_fixture_connection(envelope, **pins)
+
+        changed = json.loads(copied.read_text(encoding="utf-8"))
+        changed["candidate"]["rejection_reasons"] = []
+        copied.write_text(json.dumps(changed), encoding="utf-8")
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "STAGE5_DECISION_SOURCE_SHA_MISMATCH",
+        ):
+            BRIDGE.build_stage5_fixture_connection(envelope, **pins)
+
+        shutil.copy2(original, copied)
+        forged = copy.deepcopy(receipt)
+        forged["stage4_lineage"]["source_record"]["candidate"][
+            "rejection_reasons"
+        ] = []
+        forged["packet_sha256"] = BRIDGE.payload_sha256(
+            {key: value for key, value in forged.items() if key != "packet_sha256"}
+        )
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "STAGE5_CONNECTION_DERIVATION_MISMATCH",
+        ):
+            BRIDGE.validate_stage5_fixture_connection(forged)
+
+    def test_stage5_fixture_cannot_use_existing_runtime_account_namespace(self):
+        envelope, pins = self.stage5_fixture_envelope()
+        envelope["plan"]["ledger_id"] = "PAPER.LEDGER.RUNTIME.TEST"
+        envelope["packet_sha256"] = BRIDGE.STAGE5.payload_sha256(
+            {key: value for key, value in envelope.items() if key != "packet_sha256"}
+        )
+        pins["expected_envelope_sha256"] = envelope["packet_sha256"]
+        with self.assertRaisesRegex(
+            BRIDGE.CryptoPaperRuntimeBridgeError,
+            "STAGE5_FIXTURE_LEDGER_NAMESPACE_INVALID",
+        ):
+            BRIDGE.build_stage5_fixture_connection(envelope, **pins)
 
     def test_prior_open_order_gets_current_snapshot_while_new_same_run_order_never_can(self):
         request = BRIDGE.build_runtime_request(
@@ -612,10 +795,10 @@ class BridgeContractTests(RuntimeFixture):
 
     def test_equal_timestamp_is_not_a_later_match_snapshot(self):
         request = BRIDGE.build_runtime_request(
-            self.decision(received_at="2026-08-29T01:30:30.000000Z"),
+            self.decision(received_at="2026-08-30T01:30:30.000000Z"),
             expected_source_commit=SOURCE_COMMIT,
             account_state=self.account_with_open_order(
-                submitted_at="2026-08-29T01:30:30Z",
+                submitted_at="2026-08-30T01:30:30Z",
             ),
             open_position_risk=None,
             runtime_config=None,
@@ -627,20 +810,15 @@ class BridgeContractTests(RuntimeFixture):
         )
 
     def test_unratified_realtime_freshness_cannot_match_virtual_order(self):
-        with mock.patch.object(
-            DECISION.REALTIME_GATE,
-            "load_freshness_policy_proposal",
-            return_value={"approval_status": "PROPOSED_UNRATIFIED"},
-        ):
-            decision = self.decision()
-            self.assertEqual(decision["freshness_status"]["realtime"], "UNKNOWN")
-            request = BRIDGE.build_runtime_request(
-                decision,
-                expected_source_commit=SOURCE_COMMIT,
-                account_state=self.account_with_open_order(),
-                open_position_risk=None,
-                runtime_config=None,
-            )
+        decision = self.decision(include_ratified_binding=False)
+        self.assertEqual(decision["freshness_status"]["realtime"], "UNKNOWN")
+        request = BRIDGE.build_runtime_request(
+            decision,
+            expected_source_commit=SOURCE_COMMIT,
+            account_state=self.account_with_open_order(),
+            open_position_risk=None,
+            runtime_config=None,
+        )
         self.assertEqual(request["match_snapshots"], [])
         self.assertTrue(any(
             "DECISION_REALTIME_FRESHNESS_NOT_RATIFIED_FRESH" in blocker
@@ -673,7 +851,7 @@ class BridgeContractTests(RuntimeFixture):
     def test_future_runtime_ratification_cannot_apply_to_past_decision(self):
         config = BRIDGE.build_runtime_config(
             approval_status=BRIDGE.RUNTIME_CONFIG_APPROVAL,
-            approved_by="CIO_TEST", approved_at="2026-08-29T01:32:00Z",
+            approved_by="CIO_TEST", approved_at="2026-08-30T01:32:00Z",
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash_krw="1000",
             fee_rate="0", queue_fraction="1", order_type="LIMIT",
             limit_price_source="ENTRY_ZONE_LOW",
@@ -689,7 +867,9 @@ class BridgeContractTests(RuntimeFixture):
             )
 
     def test_future_retained_public_message_cannot_be_used_as_decision_evidence(self):
-        decision = self.decision(received_at="2026-08-29T01:31:01.000000Z")
+        decision = self.decision(
+            orderbook_received_at="2026-08-30T01:31:01.000000Z",
+        )
         with self.assertRaisesRegex(
             BRIDGE.CryptoPaperRuntimeBridgeError,
             "REALTIME_ORDERBOOK_FUTURE_DATED:KRW-BTC",
@@ -759,7 +939,7 @@ class BridgeContractTests(RuntimeFixture):
     def test_runtime_config_requires_explicit_ratification_hash_and_keeps_real_authority_false(self):
         config = BRIDGE.build_runtime_config(
             approval_status=BRIDGE.RUNTIME_CONFIG_APPROVAL,
-            approved_by="CIO_TEST", approved_at="2026-08-29T01:00:00Z",
+            approved_by="CIO_TEST", approved_at="2026-08-30T01:00:00Z",
             ledger_id="PAPER.LEDGER.RUNTIME.TEST", initial_cash_krw="1000",
             fee_rate="0", queue_fraction="1", order_type="LIMIT",
             limit_price_source="ENTRY_ZONE_LOW",
@@ -782,6 +962,67 @@ class BridgeContractTests(RuntimeFixture):
             "DECISION_REDERIVATION_FAILED:SOURCE_REF_HASH_MISMATCH",
         ):
             BRIDGE.validate_decision_snapshot(decision, expected_source_commit=SOURCE_COMMIT)
+
+
+
+class LeadershipObservationRootTests(unittest.TestCase):
+    def test_observation_manifest_root_and_tamper_rejection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # as_of 2000-01-01 is backed by capture-vintage folder raw/2000-01-02.
+            manifest = root / 'evidence/crypto/breadth/raw/2000-01-02/_manifest.json'
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"fixture":"observation-only"}')
+            validator = BRIDGE._decision_validator(root)
+            record = {'schema_version': 2, 'market': 'CRYPTO',
+                      'as_of_date': '2000-01-01', 'status': 'PARTIAL',
+                      'lineage': {'manifest_sha256_by_date': [{
+                          'as_of_date': '2000-01-01',
+                          'manifest_sha256': BRIDGE._file_sha256(manifest)}]}}
+            entry = {'date': '2000-01-01', 'record': record}
+            validator._validate_leadership_entry(entry)
+            manifest.write_text('{"fixture":"tampered"}')
+            with self.assertRaisesRegex(validator.CryptoPaperDecisionSnapshotError,
+                                        'LEADERSHIP_LINEAGE_MANIFEST_NOT_NATURAL'):
+                validator._validate_leadership_entry(entry)
+
+    def test_full_rederivation_preserves_hash_and_role_guards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            raw_root = root / 'evidence/crypto/breadth/raw'
+            manifest = raw_root / '2026-08-29/_manifest.json'  # vintage for as_of 2026-08-28
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"fixture":"no-order"}')
+            record = {'schema_version':2, 'market':'CRYPTO',
+                      'as_of_date':'2026-08-28', 'status':'UNKNOWN',
+                      'lineage':{'manifest_sha256_by_date':[{
+                          'as_of_date':'2026-08-28',
+                          'manifest_sha256':BRIDGE._file_sha256(manifest)}]}}
+            path = root / 'data/observations/crypto_leadership/2026-08-28/packet.json'
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(record))
+            with mock.patch.object(DECISION,'ROOT',root), mock.patch.object(DECISION,'CRYPTO_BREADTH_RAW_ROOT',raw_root):
+                packet = DECISION.build_snapshot(
+                    generated_at='2026-08-29T01:31:00Z', source_commit=SOURCE_COMMIT,
+                    universe_entry=None,market_evidence_entry=None,realtime_entry=None,
+                    leadership_entry={'date':'2026-08-28','path':path,'record':record})
+            self.assertEqual(BRIDGE.validate_decision_snapshot(packet,observation_root=root),packet)
+            self.assertTrue(all(x is False for x in packet['authority'].values()))
+            for role in ['crypto_leadership_packet','invented_role']:
+                forged=copy.deepcopy(packet)
+                extra=copy.deepcopy(forged['source_refs'][0]);extra['role']=role
+                forged['source_refs'].append(extra)
+                forged['payload_sha256']=BRIDGE.payload_sha256({k:v for k,v in forged.items() if k!='payload_sha256'})
+                with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError,'SOURCE_REF_ROLE_INVALID'):
+                    BRIDGE.validate_decision_snapshot(forged,observation_root=root)
+            path.write_text(json.dumps({**record,'status':'PARTIAL'}))
+            with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError,'SOURCE_REF_HASH_MISMATCH'):
+                BRIDGE.validate_decision_snapshot(packet,observation_root=root)
+            path.write_text(json.dumps(record))
+            outside=root/'outside.json';outside.write_bytes(manifest.read_bytes())
+            manifest.unlink();manifest.symlink_to(outside)
+            with self.assertRaisesRegex(BRIDGE.CryptoPaperRuntimeBridgeError,'LEADERSHIP_LINEAGE_PATH_SYMLINK'):
+                BRIDGE.validate_decision_snapshot(packet,observation_root=root)
 
 
 if __name__ == "__main__":

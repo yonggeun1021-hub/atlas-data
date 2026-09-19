@@ -12,9 +12,9 @@ Private main: `201b451ec9f988110e5c6099a20a2aabd04c9609`.
 Runtime Regime owners: Claude #584 technical wiring and Codex #585 integration
 review. Open public #570/#576/#545/#475 and private #150 are unrelated. No changed
 path overlaps these PRs, including their shared `run_all.py`. Dedicated CI runs
-this contract without modifying their runner list. The existing immutable action-pin
-regression increments checkout/setup-python counts for the one new workflow; the
-exact SHA checks remain unchanged. No WBS row/status is created
+this contract without modifying their runner list. The current immutable action-pin regression derives observed uses from workflow
+files; no hardcoded workflow/action counts are restored. Exact SHA checks remain
+unchanged. No WBS row/status is created
 or promoted. The bootstrap Doctrine locator returns a deleted historical page;
 current explicit user authorization and live Cockpit IC6 correction define this
 bounded implementation. P9-03 remains an unrelated downstream eligibility gate.
@@ -112,3 +112,32 @@ weekly persistence hook, with money workers undisturbed. It does not mean comple
 IC6 audit findings, profitability evidence, canonical lifecycle aggregation, WBS
 completion, new investment authority, or merged/deployed public Portal UI.
 Auto-merge is not authorized. Human review follows exact-head CI.
+
+## 2026-09-19 reconciliation and activation boundary
+
+Reconciled with public main `cd3f71aeafd8e04e3cd70f4b14ae02bedf60d69a`.
+The sole merge conflict was the retired literal action-use counts in
+`test/test_github_actions_runtime.py`; the current main test is preserved exactly.
+`run_all.py::test_set` enumerates only immediate `test/test_*.py` files, so this
+PR's `validation/tests/test_ic_weekly_control.py` is executed by its dedicated CI
+workflow and is not added to APPROVED_TESTS. No runner list was edited.
+
+`ic-weekly-control.yml` is absent from the thirteen server-pinned workflows in
+`docs/do_not_touch_and_why.md` section 3. No existing workflow is changed.
+
+The statement “there is no weekly mechanism” needs qualification: GitHub has no
+weekly schedule, but `controller_hook.tick()` already creates a deduplicated
+Saturday (Asia/Seoul) carry-forward packet. That packet explicitly has unknown
+KPI deltas and is not a fresh external weekly review. Do not create a second
+weekly timer just to rerun contract tests. Recommended activation is the existing
+controller tick plus explicit external-owner delivery, after compatibility review
+and separate installation approval. No schedule was enabled here.
+
+Read-only inspection of the live controller found the installer dispatcher anchor
+once, but its exact atlas-status anchor zero times; both files already mention
+`ic_control_bridge`. The legacy installer must NOT be run as-is. This PR's green
+CI proves the standalone mechanism, not compatibility with the redesigned live
+controller or successful operator delivery. Live hooks/state were not modified.
+The new controller integration is a separately scoped owner task, not permission
+to bypass its authority boundary. Existing KPI values remain evidence-based or
+NOT_COMPUTABLE/null.

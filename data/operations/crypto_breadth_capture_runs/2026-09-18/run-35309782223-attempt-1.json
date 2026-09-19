@@ -1,0 +1,62 @@
+{
+  "authority": "operations_telemetry_only",
+  "authority_flags": {
+    "data_readiness_authorized": false,
+    "production_wiring_authorized": false,
+    "ranking_authorized": false,
+    "regime_score_authorized": false,
+    "trading_action_authorized": false
+  },
+  "capture": {
+    "provider_calls_skipped": true,
+    "raw_publication_eligible": false,
+    "reason": "snapshot_already_exists",
+    "result": "skipped_existing",
+    "step_outcome": "success"
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "schedule",
+    "event_schedule": "40 0 * * *",
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "run_id": 35309782223,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/35309782223"
+  },
+  "p1_cr_06_validation": {
+    "result": "passed",
+    "step_outcome": "success"
+  },
+  "p1_cr_07_validation": {
+    "result": "passed",
+    "step_outcome": "success"
+  },
+  "p2_04_source_pair_population": {
+    "output_path": "/home/runner/work/atlas-data/atlas-data/data/observations/crypto_rotation_source_pair/2026-09-17/pair-d112f8fdbaf5b320.json",
+    "payload_sha256": "d112f8fdbaf5b320f7247097a9fe1b40682ee6b0358bf1f0828fc30b9ce1a053",
+    "reason": "ROTATION_POLICY_ABSENT_SOURCE_PAIR_ONLY",
+    "result": "verified_existing",
+    "step_outcome": "success"
+  },
+  "p3_04_population": {
+    "output_path": "/home/runner/work/atlas-data/atlas-data/data/observations/crypto_global_universe/2026-09-18/packet.json",
+    "payload_sha256": "7e92038c687cee84d5ad6371c37586db4b5dbbf75683943cfc6fc302036f2521",
+    "reason": null,
+    "result": "verified_existing",
+    "step_outcome": "success"
+  },
+  "runner": {
+    "observed_started_at_kst": "2026-09-18T14:16:09+09:00",
+    "observed_started_at_utc": "2026-09-18T05:16:09Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": 16569,
+    "expected_start_kst": "2026-09-18T09:40:00+09:00",
+    "expected_start_utc": "2026-09-18T00:40:00Z",
+    "id": "daily_0940_kst",
+    "timing_status": "measured"
+  },
+  "snapshot_date_utc": "2026-09-18",
+  "workflow": "P1-CR-06 Crypto Breadth Daily Capture"
+}

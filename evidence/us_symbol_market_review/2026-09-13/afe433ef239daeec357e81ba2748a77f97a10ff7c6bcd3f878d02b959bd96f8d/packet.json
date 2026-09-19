@@ -1,0 +1,3559 @@
+{
+  "authority": {
+    "broker_submission_authorized": false,
+    "entry_eligibility_authorized": false,
+    "exit_action_authorized": false,
+    "holding_action_authorized": false,
+    "market_regime_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "us_symbol_market_review/1",
+  "five_axis": {
+    "aggregate_regime": "UNKNOWN",
+    "axes": {
+      "BREADTH": {
+        "as_of": "2026-09-11",
+        "facts": {
+          "advance_fraction": "0.857143",
+          "advancing_count": 12,
+          "as_of_session_date": "2026-09-11",
+          "declining_count": 2,
+          "method": "latest_session_advance_decline_across_representative_etfs",
+          "observations": [
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8273",
+              "previous_session_date": "2026-09-10",
+              "symbol": "SPY"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8692",
+              "previous_session_date": "2026-09-10",
+              "symbol": "QQQ"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.4032",
+              "previous_session_date": "2026-09-10",
+              "symbol": "IWM"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "1.3063",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLK"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.6065",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLF"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.2849",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLE"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "1.0849",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLI"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "-0.1811",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLV"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8754",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLY"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.3369",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLP"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.3546",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLB"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "-0.3527",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLU"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8831",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLRE"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.9957",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLC"
+            }
+          ],
+          "observed_count": 14,
+          "previous_session_date": "2026-09-10",
+          "required_count": 14,
+          "scope": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE",
+          "unchanged_count": 0
+        },
+        "reason": null,
+        "status": "DEFINED"
+      },
+      "LEADERSHIP": {
+        "as_of": "2026-09-11",
+        "facts": {
+          "as_of_session_date": "2026-09-11",
+          "benchmark": "SPY",
+          "method": "observed_return_order_and_relative_return_vs_spy",
+          "observed_count": 12,
+          "ordered_groups": [
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 1,
+              "relative_to_spy_pct": "8.4362",
+              "return_pct": "6.6749",
+              "symbol": "XLE",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 2,
+              "relative_to_spy_pct": "1.7791",
+              "return_pct": "0.0178",
+              "symbol": "XLC",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 3,
+              "relative_to_spy_pct": "0.1415",
+              "return_pct": "-1.6198",
+              "symbol": "XLK",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 4,
+              "relative_to_spy_pct": "0.0102",
+              "return_pct": "-1.7511",
+              "symbol": "XLF",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 5,
+              "relative_to_spy_pct": "-0.0234",
+              "return_pct": "-1.7847",
+              "symbol": "XLV",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 6,
+              "relative_to_spy_pct": "-0.8391",
+              "return_pct": "-2.6004",
+              "symbol": "XLB",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 7,
+              "relative_to_spy_pct": "-1.2565",
+              "return_pct": "-3.0178",
+              "symbol": "XLP",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 8,
+              "relative_to_spy_pct": "-1.7256",
+              "return_pct": "-3.4869",
+              "symbol": "SMH",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 9,
+              "relative_to_spy_pct": "-1.9752",
+              "return_pct": "-3.7365",
+              "symbol": "XLU",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 10,
+              "relative_to_spy_pct": "-2.0286",
+              "return_pct": "-3.7899",
+              "symbol": "XLRE",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 11,
+              "relative_to_spy_pct": "-2.8908",
+              "return_pct": "-4.6521",
+              "symbol": "XLY",
+              "window_sessions": 20
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "observed_return_order": 12,
+              "relative_to_spy_pct": "-5.4669",
+              "return_pct": "-7.2282",
+              "symbol": "XLI",
+              "window_sessions": 20
+            }
+          ],
+          "outperforming_spy_count": 4,
+          "required_count": 12,
+          "scope": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE",
+          "window_sessions": 20
+        },
+        "reason": null,
+        "status": "DEFINED"
+      },
+      "LIQUIDITY": {
+        "as_of": "2026-09-13T07:17:39Z",
+        "facts": [
+          {
+            "change": "96779",
+            "frequency": "Weekly, Ending Wednesday",
+            "metadata_response_sha256": "96bcc01da8a09539ba622192d4fe9831c876240930710fc2aa36a4a6934a4cc3",
+            "normalization_factor": "1",
+            "normalized_unit": "Millions of U.S. Dollars",
+            "observation_date": "2026-09-09",
+            "observations_response_sha256": "2148ea263e0c0dced355b55dfbcba9807a8ec581db0c59c7a0b60f74c1814067",
+            "previous_observation_date": "2026-09-02",
+            "previous_value": "2894531",
+            "realtime_end": "2026-09-13",
+            "realtime_start": "2026-09-13",
+            "series_id": "WRESBAL",
+            "source_unit": "Millions of U.S. Dollars",
+            "title": "Liabilities and Capital: Other Factors Draining Reserve Balances: Reserve Balances with Federal Reserve Banks: Week Average",
+            "value": "2991310"
+          },
+          {
+            "change": "4553",
+            "frequency": "Weekly, Ending Wednesday",
+            "metadata_response_sha256": "8fcfe34ee9ed921b0a334819ad828d1e231a41aa0c50cdd1b1927985f39741bc",
+            "normalization_factor": "1000",
+            "normalized_unit": "Millions of U.S. Dollars",
+            "observation_date": "2026-09-02",
+            "observations_response_sha256": "982657c3e84661f28c6b2337173db4cce306e6c96e9df661a8f20f1a9f73c3c2",
+            "previous_observation_date": "2026-08-26",
+            "previous_value": "19830701.5",
+            "realtime_end": "2026-09-13",
+            "realtime_start": "2026-09-13",
+            "series_id": "TOTBKCR",
+            "source_unit": "Billions of U.S. Dollars",
+            "title": "Bank Credit, All Commercial Banks",
+            "value": "19835254.5"
+          }
+        ],
+        "reason": null,
+        "status": "DEFINED"
+      },
+      "RISK_VOL": {
+        "as_of": "2026-09-10",
+        "facts": {
+          "series_id": "VIXCLS",
+          "value": "17.84"
+        },
+        "reason": null,
+        "status": "DEFINED"
+      },
+      "TREND": {
+        "as_of": "2026-09-11",
+        "facts": [
+          {
+            "as_of_session_date": "2026-09-11",
+            "available_session_count": 124,
+            "close": "764.14",
+            "returns": {
+              "20_session_pct": "-1.7613",
+              "5_session_pct": "-1.1609",
+              "60_session_pct": "1.8066"
+            },
+            "symbol": "SPY"
+          },
+          {
+            "as_of_session_date": "2026-09-11",
+            "available_session_count": 124,
+            "close": "714.89",
+            "returns": {
+              "20_session_pct": "-2.3521",
+              "5_session_pct": "-0.3881",
+              "60_session_pct": "-2.0524"
+            },
+            "symbol": "QQQ"
+          },
+          {
+            "as_of_session_date": "2026-09-11",
+            "available_session_count": 124,
+            "close": "288.89",
+            "returns": {
+              "20_session_pct": "-4.8076",
+              "5_session_pct": "-2.1309",
+              "60_session_pct": "-1.1159"
+            },
+            "symbol": "IWM"
+          }
+        ],
+        "reason": null,
+        "status": "DEFINED"
+      }
+    },
+    "defined_count": 5,
+    "missing_axes": [],
+    "ratio": "5/5",
+    "required_count": 5
+  },
+  "generated_at": "2026-09-13T07:17:39Z",
+  "mode": "CURRENT_OBSERVATION_REVIEW_ONLY",
+  "operational_date_kst": "2026-09-13",
+  "packet_sha256": "9917c8fc83ad3f1e2c6d37917322edc491986199e7b5e3ca171dba25e8708d5c",
+  "schema_version": "us_symbol_market_review_packet/1",
+  "source": {
+    "contract": {
+      "authority": {
+        "broker_submission_authorized": false,
+        "entry_eligibility_authorized": false,
+        "exit_action_authorized": false,
+        "holding_action_authorized": false,
+        "market_regime_authorized": false,
+        "order_authorized": false,
+        "production_authorized": false,
+        "real_capital_authorized": false,
+        "trading_authorized": false
+      },
+      "contract_version": "us_symbol_market_review/1",
+      "entry_policy": {
+        "automatic_entry_generated": false,
+        "missing_price_state": "BLOCKED",
+        "observed_price_state": "WAIT",
+        "required_missing_axes": [
+          "BREADTH",
+          "LEADERSHIP"
+        ]
+      },
+      "exit_policy": {
+        "automatic_exit_generated": false,
+        "state_without_account_position": "NOT_APPLICABLE_NO_POSITION_CONTEXT"
+      },
+      "holding_policy": {
+        "automatic_holding_action_generated": false,
+        "state_without_account_position": "NOT_POSITION_AWARE"
+      },
+      "mode": "CURRENT_OBSERVATION_REVIEW_ONLY",
+      "output_schema_version": "us_symbol_market_review_packet/1",
+      "required_axes": [
+        "TREND",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "BREADTH",
+        "LEADERSHIP"
+      ],
+      "return_windows_sessions": [
+        5,
+        20,
+        60
+      ],
+      "schema_version": 1,
+      "supported_pipeline_subjects": [
+        "TSM",
+        "SNDK"
+      ],
+      "symbol_leadership_proxies": {
+        "SNDK": [
+          "SMH",
+          "XLK"
+        ],
+        "TSM": [
+          "SMH",
+          "XLK"
+        ]
+      }
+    },
+    "fred": {
+      "evidence": {
+        "evidence_revision_id": "d0bc6eea7dfb18bf9715f1f75c4245933a9731a0936b22476222e54936c6abfb",
+        "manifest_file_sha256": "b92551ffa9ce1cb57d3ee4c31ec4df0f1fb5a726ad71f9a76b304484904ac0b8",
+        "manifest_path": "evidence/free_market_data/fred/raw/2026-09-13/d0bc6eea7dfb18bf9715f1f75c4245933a9731a0936b22476222e54936c6abfb/manifest.json",
+        "raw_file_sha256": "1fb0b617cf498927144bb328e2755abd38d3842bb7cb049f5549bd9711f849ac",
+        "raw_path": "evidence/free_market_data/fred/raw/2026-09-13/d0bc6eea7dfb18bf9715f1f75c4245933a9731a0936b22476222e54936c6abfb/fred_vixcls.json.gz",
+        "raw_response_sha256": "432649473dd6e41e1269da51c9ffa0283bdbb5f75258e594c0345757a7bc958f"
+      },
+      "observation_date": "2026-09-10",
+      "raw_retention": "APPEND_ONLY_CONTENT_ADDRESSED",
+      "realtime_end": "2026-09-13",
+      "realtime_start": "2026-09-13",
+      "response_sha256": "432649473dd6e41e1269da51c9ffa0283bdbb5f75258e594c0345757a7bc958f",
+      "series_id": "VIXCLS",
+      "source_scope": "FRED_OFFICIAL_SERIES_API",
+      "status": "READY",
+      "value": "17.84"
+    },
+    "fred_liquidity": {
+      "captured_at_utc": "2026-09-13T07:17:39Z",
+      "derivation_version": "fred_liquidity_current/v1",
+      "derived_payload_sha256": "7fa05f752c118bcb2996934d7cff9e1f9bd7f64440fa03df74b2f44fcf04d948",
+      "raw_retention": "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED",
+      "response_hashes": {
+        "TOTBKCR": {
+          "metadata_response_sha256": "8fcfe34ee9ed921b0a334819ad828d1e231a41aa0c50cdd1b1927985f39741bc",
+          "observations_response_sha256": "982657c3e84661f28c6b2337173db4cce306e6c96e9df661a8f20f1a9f73c3c2"
+        },
+        "WRESBAL": {
+          "metadata_response_sha256": "96bcc01da8a09539ba622192d4fe9831c876240930710fc2aa36a4a6934a4cc3",
+          "observations_response_sha256": "2148ea263e0c0dced355b55dfbcba9807a8ec581db0c59c7a0b60f74c1814067"
+        }
+      },
+      "series": [
+        {
+          "change": "96779",
+          "frequency": "Weekly, Ending Wednesday",
+          "metadata_response_sha256": "96bcc01da8a09539ba622192d4fe9831c876240930710fc2aa36a4a6934a4cc3",
+          "normalization_factor": "1",
+          "normalized_unit": "Millions of U.S. Dollars",
+          "observation_date": "2026-09-09",
+          "observations_response_sha256": "2148ea263e0c0dced355b55dfbcba9807a8ec581db0c59c7a0b60f74c1814067",
+          "previous_observation_date": "2026-09-02",
+          "previous_value": "2894531",
+          "realtime_end": "2026-09-13",
+          "realtime_start": "2026-09-13",
+          "series_id": "WRESBAL",
+          "source_unit": "Millions of U.S. Dollars",
+          "title": "Liabilities and Capital: Other Factors Draining Reserve Balances: Reserve Balances with Federal Reserve Banks: Week Average",
+          "value": "2991310"
+        },
+        {
+          "change": "4553",
+          "frequency": "Weekly, Ending Wednesday",
+          "metadata_response_sha256": "8fcfe34ee9ed921b0a334819ad828d1e231a41aa0c50cdd1b1927985f39741bc",
+          "normalization_factor": "1000",
+          "normalized_unit": "Millions of U.S. Dollars",
+          "observation_date": "2026-09-02",
+          "observations_response_sha256": "982657c3e84661f28c6b2337173db4cce306e6c96e9df661a8f20f1a9f73c3c2",
+          "previous_observation_date": "2026-08-26",
+          "previous_value": "19830701.5",
+          "realtime_end": "2026-09-13",
+          "realtime_start": "2026-09-13",
+          "series_id": "TOTBKCR",
+          "source_unit": "Billions of U.S. Dollars",
+          "title": "Bank Credit, All Commercial Banks",
+          "value": "19835254.5"
+        }
+      ],
+      "source_scope": "FRED_OFFICIAL_SERIES_API",
+      "status": "READY",
+      "warnings": [
+        "CURRENT_SNAPSHOT_ONLY_NOT_HISTORICAL_PIT_REPLAY"
+      ]
+    },
+    "market_capture": {
+      "alpaca_scope": "IEX_ONLY_PARTIAL_US_MARKET",
+      "alpaca_status": "READY",
+      "contract_version": "free_market_data/3",
+      "observed_at_utc": "2026-09-13T07:17:39Z",
+      "packet_sha256": "afe433ef239daeec357e81ba2748a77f97a10ff7c6bcd3f878d02b959bd96f8d",
+      "schema_version": "free_market_data_capture/5"
+    },
+    "stage_history_sha256": "ae23ef264ec8264666f1b15fa30db4139319e6498cc8212a004bde7d5b41e843",
+    "stage_snapshot": {
+      "as_of": "2026-09-11",
+      "subjects": {
+        "SNDK": {
+          "name": "SanDisk",
+          "stage": "Discovery"
+        },
+        "TSM": {
+          "name": "TSMC",
+          "stage": "Ready"
+        }
+      }
+    },
+    "symbol_daily_bars": {
+      "SNDK": [
+        {
+          "close": "720.16",
+          "high": "721.13",
+          "low": "695.19",
+          "open": "714.38",
+          "opened_at": "2026-03-17T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "246176"
+        },
+        {
+          "close": "753.55",
+          "high": "759.5",
+          "low": "716.61",
+          "open": "736.3",
+          "opened_at": "2026-03-18T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "316361"
+        },
+        {
+          "close": "771.915",
+          "high": "775.65",
+          "low": "694.145",
+          "open": "706.65",
+          "opened_at": "2026-03-19T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "267081"
+        },
+        {
+          "close": "710.34",
+          "high": "775.25",
+          "low": "698.58",
+          "open": "771.6",
+          "opened_at": "2026-03-20T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "288870"
+        },
+        {
+          "close": "702.035",
+          "high": "748.17",
+          "low": "679",
+          "open": "715.6",
+          "opened_at": "2026-03-23T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "304371"
+        },
+        {
+          "close": "702.62",
+          "high": "710",
+          "low": "680.32",
+          "open": "692.82",
+          "opened_at": "2026-03-24T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "192897"
+        },
+        {
+          "close": "678.13",
+          "high": "686.7",
+          "low": "640.19",
+          "open": "650.815",
+          "opened_at": "2026-03-25T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "328469"
+        },
+        {
+          "close": "602.665",
+          "high": "658.83",
+          "low": "602.26",
+          "open": "647.17",
+          "opened_at": "2026-03-26T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "281996"
+        },
+        {
+          "close": "615.93",
+          "high": "636.9",
+          "low": "599.75",
+          "open": "599.75",
+          "opened_at": "2026-03-27T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "273863"
+        },
+        {
+          "close": "572.65",
+          "high": "650.325",
+          "low": "559.03",
+          "open": "642.45",
+          "opened_at": "2026-03-30T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "325759"
+        },
+        {
+          "close": "635.97",
+          "high": "636.185",
+          "low": "578.5",
+          "open": "588.35",
+          "opened_at": "2026-03-31T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "337567"
+        },
+        {
+          "close": "692.79",
+          "high": "710.59",
+          "low": "645.61",
+          "open": "651.525",
+          "opened_at": "2026-04-01T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "312904"
+        },
+        {
+          "close": "701.8",
+          "high": "707",
+          "low": "643.19",
+          "open": "645.73",
+          "opened_at": "2026-04-02T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "209827"
+        },
+        {
+          "close": "724.12",
+          "high": "735.86",
+          "low": "711.81",
+          "open": "720.25",
+          "opened_at": "2026-04-06T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "161760"
+        },
+        {
+          "close": "710.36",
+          "high": "737.31",
+          "low": "688.42",
+          "open": "722.585",
+          "opened_at": "2026-04-07T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "218379"
+        },
+        {
+          "close": "780.76",
+          "high": "806.05",
+          "low": "758.39",
+          "open": "784.71",
+          "opened_at": "2026-04-08T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "237222"
+        },
+        {
+          "close": "851.55",
+          "high": "854.875",
+          "low": "805.71",
+          "open": "817.08",
+          "opened_at": "2026-04-09T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "212445"
+        },
+        {
+          "close": "851.045",
+          "high": "871.59",
+          "low": "835.875",
+          "open": "871.59",
+          "opened_at": "2026-04-10T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "194209"
+        },
+        {
+          "close": "952.38",
+          "high": "952.96",
+          "low": "867.375",
+          "open": "867.375",
+          "opened_at": "2026-04-13T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "262097"
+        },
+        {
+          "close": "944.13",
+          "high": "963.27",
+          "low": "902.905",
+          "open": "963.27",
+          "opened_at": "2026-04-14T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "359021"
+        },
+        {
+          "close": "891.27",
+          "high": "936.13",
+          "low": "875",
+          "open": "929.505",
+          "opened_at": "2026-04-15T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "360445"
+        },
+        {
+          "close": "918.44",
+          "high": "929.09",
+          "low": "893.18",
+          "open": "894.805",
+          "opened_at": "2026-04-16T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "253564"
+        },
+        {
+          "close": "920.795",
+          "high": "930.42",
+          "low": "887.15",
+          "open": "920.54",
+          "opened_at": "2026-04-17T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "339913"
+        },
+        {
+          "close": "912.96",
+          "high": "950",
+          "low": "900.47",
+          "open": "932.15",
+          "opened_at": "2026-04-20T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "124709"
+        },
+        {
+          "close": "903.74",
+          "high": "937.09",
+          "low": "899.94",
+          "open": "928.1",
+          "opened_at": "2026-04-21T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "184988"
+        },
+        {
+          "close": "979.29",
+          "high": "980.98",
+          "low": "896.66",
+          "open": "922.495",
+          "opened_at": "2026-04-22T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "292545"
+        },
+        {
+          "close": "932.79",
+          "high": "977.9",
+          "low": "926.99",
+          "open": "947.89",
+          "opened_at": "2026-04-23T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "158946"
+        },
+        {
+          "close": "989.42",
+          "high": "1001.32",
+          "low": "949.385",
+          "open": "949.385",
+          "opened_at": "2026-04-24T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "178220"
+        },
+        {
+          "close": "1069.93",
+          "high": "1070.575",
+          "low": "1011.38",
+          "open": "1021.27",
+          "opened_at": "2026-04-27T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "190944"
+        },
+        {
+          "close": "1003.01",
+          "high": "1053.89",
+          "low": "980.61",
+          "open": "1026.995",
+          "opened_at": "2026-04-28T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "232113"
+        },
+        {
+          "close": "1064.98",
+          "high": "1102.25",
+          "low": "1060.05",
+          "open": "1070.6",
+          "opened_at": "2026-04-29T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "294253"
+        },
+        {
+          "close": "1098.675",
+          "high": "1114.555",
+          "low": "1077.895",
+          "open": "1112.36",
+          "opened_at": "2026-04-30T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "216209"
+        },
+        {
+          "close": "1188.14",
+          "high": "1189.15",
+          "low": "1049.585",
+          "open": "1060.02",
+          "opened_at": "2026-05-01T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "495984"
+        },
+        {
+          "close": "1255.83",
+          "high": "1274.51",
+          "low": "1205.46",
+          "open": "1222.52",
+          "opened_at": "2026-05-04T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "377862"
+        },
+        {
+          "close": "1406.185",
+          "high": "1418.33",
+          "low": "1287.86",
+          "open": "1293.2",
+          "opened_at": "2026-05-05T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "355942"
+        },
+        {
+          "close": "1409.9",
+          "high": "1439.17",
+          "low": "1338.31",
+          "open": "1437.14",
+          "opened_at": "2026-05-06T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "485513"
+        },
+        {
+          "close": "1339.37",
+          "high": "1399.98",
+          "low": "1293.42",
+          "open": "1372.94",
+          "opened_at": "2026-05-07T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "292729"
+        },
+        {
+          "close": "1562.145",
+          "high": "1563.73",
+          "low": "1393.2",
+          "open": "1395.76",
+          "opened_at": "2026-05-08T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "325101"
+        },
+        {
+          "close": "1547.24",
+          "high": "1600",
+          "low": "1516.17",
+          "open": "1586.35",
+          "opened_at": "2026-05-11T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "355655"
+        },
+        {
+          "close": "1450.86",
+          "high": "1507.34",
+          "low": "1368.005",
+          "open": "1492",
+          "opened_at": "2026-05-12T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "364504"
+        },
+        {
+          "close": "1446.91",
+          "high": "1508.985",
+          "low": "1405.34",
+          "open": "1508.985",
+          "opened_at": "2026-05-13T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "271470"
+        },
+        {
+          "close": "1382.79",
+          "high": "1449.02",
+          "low": "1363.42",
+          "open": "1392.68",
+          "opened_at": "2026-05-14T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "252472"
+        },
+        {
+          "close": "1407.06",
+          "high": "1425.01",
+          "low": "1318.21",
+          "open": "1321.445",
+          "opened_at": "2026-05-15T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "252970"
+        },
+        {
+          "close": "1333.47",
+          "high": "1434.65",
+          "low": "1277.71",
+          "open": "1432.55",
+          "opened_at": "2026-05-18T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "307198"
+        },
+        {
+          "close": "1382.69",
+          "high": "1392.555",
+          "low": "1278.11",
+          "open": "1294.45",
+          "opened_at": "2026-05-19T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "250640"
+        },
+        {
+          "close": "1391.91",
+          "high": "1443.24",
+          "low": "1367.54",
+          "open": "1438.94",
+          "opened_at": "2026-05-20T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "195668"
+        },
+        {
+          "close": "1542.67",
+          "high": "1546",
+          "low": "1379.08",
+          "open": "1379.08",
+          "opened_at": "2026-05-21T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "222186"
+        },
+        {
+          "close": "1478.76",
+          "high": "1527.68",
+          "low": "1476.29",
+          "open": "1522.01",
+          "opened_at": "2026-05-22T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "205014"
+        },
+        {
+          "close": "1588.54",
+          "high": "1641.05",
+          "low": "1523.11",
+          "open": "1536.35",
+          "opened_at": "2026-05-26T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "244020"
+        },
+        {
+          "close": "1589.8",
+          "high": "1657.25",
+          "low": "1528.55",
+          "open": "1646.79",
+          "opened_at": "2026-05-27T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "167644"
+        },
+        {
+          "close": "1643.07",
+          "high": "1697.37",
+          "low": "1561.08",
+          "open": "1593.95",
+          "opened_at": "2026-05-28T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "190623"
+        },
+        {
+          "close": "1694.38",
+          "high": "1707.9",
+          "low": "1641.895",
+          "open": "1682.445",
+          "opened_at": "2026-05-29T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "145451"
+        },
+        {
+          "close": "1760.4",
+          "high": "1801.42",
+          "low": "1687.88",
+          "open": "1732.32",
+          "opened_at": "2026-06-01T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "194628"
+        },
+        {
+          "close": "1716.33",
+          "high": "1771.04",
+          "low": "1709.57",
+          "open": "1750.71",
+          "opened_at": "2026-06-02T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "108141"
+        },
+        {
+          "close": "1833.98",
+          "high": "1860.47",
+          "low": "1710",
+          "open": "1748.2",
+          "opened_at": "2026-06-03T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "207432"
+        },
+        {
+          "close": "1758.72",
+          "high": "1825.01",
+          "low": "1725.48",
+          "open": "1739.18",
+          "opened_at": "2026-06-04T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "229804"
+        },
+        {
+          "close": "1557.74",
+          "high": "1680.3",
+          "low": "1515",
+          "open": "1680.01",
+          "opened_at": "2026-06-05T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "282128"
+        },
+        {
+          "close": "1641.99",
+          "high": "1694.85",
+          "low": "1602.59",
+          "open": "1633.86",
+          "opened_at": "2026-06-08T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "204759"
+        },
+        {
+          "close": "1649.51",
+          "high": "1800.38",
+          "low": "1537.93",
+          "open": "1701.965",
+          "opened_at": "2026-06-09T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "302642"
+        },
+        {
+          "close": "1641.19",
+          "high": "1763.99",
+          "low": "1590.14",
+          "open": "1624.38",
+          "opened_at": "2026-06-10T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "160415"
+        },
+        {
+          "close": "1879.94",
+          "high": "1893.91",
+          "low": "1671.375",
+          "open": "1672.265",
+          "opened_at": "2026-06-11T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "338017"
+        },
+        {
+          "close": "1981.01",
+          "high": "2021",
+          "low": "1867",
+          "open": "1887.33",
+          "opened_at": "2026-06-12T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "250482"
+        },
+        {
+          "close": "2108.25",
+          "high": "2118.45",
+          "low": "2023",
+          "open": "2100.39",
+          "opened_at": "2026-06-15T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "195097"
+        },
+        {
+          "close": "1992.89",
+          "high": "2165.55",
+          "low": "1980.64",
+          "open": "2131.95",
+          "opened_at": "2026-06-16T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "332051"
+        },
+        {
+          "close": "1960.13",
+          "high": "2072.92",
+          "low": "1941",
+          "open": "2072.92",
+          "opened_at": "2026-06-17T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "204052"
+        },
+        {
+          "close": "2185.16",
+          "high": "2189.57",
+          "low": "2030",
+          "open": "2043.26",
+          "opened_at": "2026-06-18T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "262861"
+        },
+        {
+          "close": "2275",
+          "high": "2353.12",
+          "low": "2251.55",
+          "open": "2292.075",
+          "opened_at": "2026-06-22T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "200602"
+        },
+        {
+          "close": "1962.94",
+          "high": "2059.22",
+          "low": "1950",
+          "open": "2007.2",
+          "opened_at": "2026-06-23T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "294456"
+        },
+        {
+          "close": "1918.005",
+          "high": "2020.93",
+          "low": "1862.035",
+          "open": "1984.4",
+          "opened_at": "2026-06-24T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "183275"
+        },
+        {
+          "close": "2335.46",
+          "high": "2347.71",
+          "low": "2093.42",
+          "open": "2236.61",
+          "opened_at": "2026-06-25T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "441630"
+        },
+        {
+          "close": "2092.28",
+          "high": "2254.8",
+          "low": "2065.2",
+          "open": "2170.1",
+          "opened_at": "2026-06-26T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "338620"
+        },
+        {
+          "close": "2051.04",
+          "high": "2086.535",
+          "low": "1896",
+          "open": "2082.88",
+          "opened_at": "2026-06-29T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "324046"
+        },
+        {
+          "close": "2272.055",
+          "high": "2280.4",
+          "low": "2073.25",
+          "open": "2111.9",
+          "opened_at": "2026-06-30T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "240201"
+        },
+        {
+          "close": "2034.06",
+          "high": "2129.96",
+          "low": "2002.52",
+          "open": "2086.09",
+          "opened_at": "2026-07-01T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "396715"
+        },
+        {
+          "close": "1743.66",
+          "high": "2050.065",
+          "low": "1693.96",
+          "open": "2039.84",
+          "opened_at": "2026-07-02T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "473688"
+        },
+        {
+          "close": "1742.58",
+          "high": "1837.24",
+          "low": "1715.91",
+          "open": "1815.045",
+          "opened_at": "2026-07-06T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "216964"
+        },
+        {
+          "close": "1617.92",
+          "high": "1638",
+          "low": "1487.07",
+          "open": "1614.93",
+          "opened_at": "2026-07-07T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "368973"
+        },
+        {
+          "close": "1727.67",
+          "high": "1734.18",
+          "low": "1592",
+          "open": "1596.4",
+          "opened_at": "2026-07-08T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "319605"
+        },
+        {
+          "close": "1857.02",
+          "high": "1950.815",
+          "low": "1801.5",
+          "open": "1832.92",
+          "opened_at": "2026-07-09T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "253644"
+        },
+        {
+          "close": "1916.5",
+          "high": "1946.09",
+          "low": "1776.69",
+          "open": "1784.3",
+          "opened_at": "2026-07-10T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "256797"
+        },
+        {
+          "close": "1673.32",
+          "high": "1799.065",
+          "low": "1647.2",
+          "open": "1796.745",
+          "opened_at": "2026-07-13T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "312631"
+        },
+        {
+          "close": "1758.7",
+          "high": "1810.58",
+          "low": "1712.35",
+          "open": "1805.27",
+          "opened_at": "2026-07-14T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "162944"
+        },
+        {
+          "close": "1613.19",
+          "high": "1726.34",
+          "low": "1479.41",
+          "open": "1715.46",
+          "opened_at": "2026-07-15T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "495941"
+        },
+        {
+          "close": "1411.08",
+          "high": "1549.47",
+          "low": "1390.04",
+          "open": "1529.465",
+          "opened_at": "2026-07-16T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "471773"
+        },
+        {
+          "close": "1352.67",
+          "high": "1500.91",
+          "low": "1325.48",
+          "open": "1363.82",
+          "opened_at": "2026-07-17T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "462372"
+        },
+        {
+          "close": "1389.55",
+          "high": "1454.98",
+          "low": "1376.03",
+          "open": "1405.685",
+          "opened_at": "2026-07-20T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "258658"
+        },
+        {
+          "close": "1589.28",
+          "high": "1595.46",
+          "low": "1490.29",
+          "open": "1510.995",
+          "opened_at": "2026-07-21T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "384656"
+        },
+        {
+          "close": "1599.71",
+          "high": "1628.24",
+          "low": "1518.99",
+          "open": "1525.68",
+          "opened_at": "2026-07-22T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "182183"
+        },
+        {
+          "close": "1611.45",
+          "high": "1696.29",
+          "low": "1560",
+          "open": "1571.08",
+          "opened_at": "2026-07-23T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "275960"
+        },
+        {
+          "close": "1436.645",
+          "high": "1568.32",
+          "low": "1412.01",
+          "open": "1551.66",
+          "opened_at": "2026-07-24T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "381084"
+        },
+        {
+          "close": "1278",
+          "high": "1462.99",
+          "low": "1222.71",
+          "open": "1462.99",
+          "opened_at": "2026-07-27T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "578583"
+        },
+        {
+          "close": "1095.78",
+          "high": "1185.19",
+          "low": "1050.72",
+          "open": "1171.36",
+          "opened_at": "2026-07-28T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "783435"
+        },
+        {
+          "close": "1015.165",
+          "high": "1123.98",
+          "low": "998.21",
+          "open": "1117.01",
+          "opened_at": "2026-07-29T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "515002"
+        },
+        {
+          "close": "1279.955",
+          "high": "1285.48",
+          "low": "1124.35",
+          "open": "1133.515",
+          "opened_at": "2026-07-30T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "816818"
+        },
+        {
+          "close": "1214.05",
+          "high": "1404.99",
+          "low": "1189.02",
+          "open": "1383.675",
+          "opened_at": "2026-07-31T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "607519"
+        },
+        {
+          "close": "1288.33",
+          "high": "1316.18",
+          "low": "1122.23",
+          "open": "1159.84",
+          "opened_at": "2026-08-03T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "330330"
+        },
+        {
+          "close": "1428.18",
+          "high": "1446.23",
+          "low": "1342.08",
+          "open": "1355.34",
+          "opened_at": "2026-08-04T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "384913"
+        },
+        {
+          "close": "1349.7",
+          "high": "1440.7",
+          "low": "1348",
+          "open": "1400.435",
+          "opened_at": "2026-08-05T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "451712"
+        },
+        {
+          "close": "1258.82",
+          "high": "1323.13",
+          "low": "1163.97",
+          "open": "1172.355",
+          "opened_at": "2026-08-06T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "567579"
+        },
+        {
+          "close": "1212.81",
+          "high": "1308.49",
+          "low": "1185",
+          "open": "1307.745",
+          "opened_at": "2026-08-07T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "351240"
+        },
+        {
+          "close": "1238.23",
+          "high": "1278.44",
+          "low": "1194.63",
+          "open": "1198",
+          "opened_at": "2026-08-10T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "239988"
+        },
+        {
+          "close": "1270.765",
+          "high": "1286.84",
+          "low": "1242.25",
+          "open": "1260",
+          "opened_at": "2026-08-11T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "204731"
+        },
+        {
+          "close": "1344.43",
+          "high": "1388.46",
+          "low": "1312",
+          "open": "1359.91",
+          "opened_at": "2026-08-12T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "263495"
+        },
+        {
+          "close": "1527.7",
+          "high": "1580.8",
+          "low": "1332.88",
+          "open": "1341.5",
+          "opened_at": "2026-08-13T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "504332"
+        },
+        {
+          "close": "1641.275",
+          "high": "1666.62",
+          "low": "1565.97",
+          "open": "1646.44",
+          "opened_at": "2026-08-14T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "452418"
+        },
+        {
+          "close": "1787.84",
+          "high": "1827.42",
+          "low": "1699.295",
+          "open": "1700.745",
+          "opened_at": "2026-08-17T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "470239"
+        },
+        {
+          "close": "1625.58",
+          "high": "1722.28",
+          "low": "1600.375",
+          "open": "1677.54",
+          "opened_at": "2026-08-18T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "440048"
+        },
+        {
+          "close": "1568.31",
+          "high": "1698.26",
+          "low": "1542.665",
+          "open": "1672.46",
+          "opened_at": "2026-08-19T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "372486"
+        },
+        {
+          "close": "1601.49",
+          "high": "1630.25",
+          "low": "1559.49",
+          "open": "1567.14",
+          "opened_at": "2026-08-20T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "202644"
+        },
+        {
+          "close": "1596.37",
+          "high": "1613.51",
+          "low": "1570.22",
+          "open": "1609.97",
+          "opened_at": "2026-08-21T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "194132"
+        },
+        {
+          "close": "1491.835",
+          "high": "1516.37",
+          "low": "1417.01",
+          "open": "1494.5",
+          "opened_at": "2026-08-24T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "325756"
+        },
+        {
+          "close": "1480.99",
+          "high": "1561.66",
+          "low": "1468.09",
+          "open": "1533.85",
+          "opened_at": "2026-08-25T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "175015"
+        },
+        {
+          "close": "1498.89",
+          "high": "1511.4",
+          "low": "1451.79",
+          "open": "1455",
+          "opened_at": "2026-08-26T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "228309"
+        },
+        {
+          "close": "1483.81",
+          "high": "1555.515",
+          "low": "1456.88",
+          "open": "1548.1",
+          "opened_at": "2026-08-27T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "195101"
+        },
+        {
+          "close": "1484.3",
+          "high": "1516.67",
+          "low": "1437.64",
+          "open": "1447.17",
+          "opened_at": "2026-08-28T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "130481"
+        },
+        {
+          "close": "1568.135",
+          "high": "1572.665",
+          "low": "1449.91",
+          "open": "1487.905",
+          "opened_at": "2026-08-31T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "395935"
+        },
+        {
+          "close": "1536.55",
+          "high": "1609.475",
+          "low": "1514.13",
+          "open": "1526.39",
+          "opened_at": "2026-09-01T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "270416"
+        },
+        {
+          "close": "1552.945",
+          "high": "1586.12",
+          "low": "1511",
+          "open": "1530",
+          "opened_at": "2026-09-02T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "149202"
+        },
+        {
+          "close": "1556.1",
+          "high": "1576.01",
+          "low": "1511.52",
+          "open": "1546.02",
+          "opened_at": "2026-09-03T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "202879"
+        },
+        {
+          "close": "1739.915",
+          "high": "1739.915",
+          "low": "1583.67",
+          "open": "1586",
+          "opened_at": "2026-09-04T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "325251"
+        },
+        {
+          "close": "1737.67",
+          "high": "1806.955",
+          "low": "1733.975",
+          "open": "1769.6",
+          "opened_at": "2026-09-08T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "209375"
+        },
+        {
+          "close": "1763.72",
+          "high": "1807.01",
+          "low": "1728.73",
+          "open": "1749.24",
+          "opened_at": "2026-09-09T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "217412"
+        },
+        {
+          "close": "1691.695",
+          "high": "1733.95",
+          "low": "1674.02",
+          "open": "1718.34",
+          "opened_at": "2026-09-10T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "194431"
+        },
+        {
+          "close": "1632.99",
+          "high": "1718.665",
+          "low": "1616.99",
+          "open": "1710.76",
+          "opened_at": "2026-09-11T04:00:00Z",
+          "symbol": "SNDK",
+          "volume": "180423"
+        }
+      ],
+      "TSM": [
+        {
+          "close": "346.04",
+          "high": "346.74",
+          "low": "338.5",
+          "open": "340",
+          "opened_at": "2026-03-17T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "378121"
+        },
+        {
+          "close": "339.5",
+          "high": "347.81",
+          "low": "339.365",
+          "open": "345.675",
+          "opened_at": "2026-03-18T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "289708"
+        },
+        {
+          "close": "338.825",
+          "high": "339.71",
+          "low": "325.69",
+          "open": "329.24",
+          "opened_at": "2026-03-19T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "447913"
+        },
+        {
+          "close": "329.14",
+          "high": "337.49",
+          "low": "325.9",
+          "open": "336.685",
+          "opened_at": "2026-03-20T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "655424"
+        },
+        {
+          "close": "338.45",
+          "high": "343.39",
+          "low": "331.19",
+          "open": "331.19",
+          "opened_at": "2026-03-23T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "581230"
+        },
+        {
+          "close": "343.27",
+          "high": "344.8",
+          "low": "334.11",
+          "open": "335.7",
+          "opened_at": "2026-03-24T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "329326"
+        },
+        {
+          "close": "347.75",
+          "high": "350.375",
+          "low": "343.51",
+          "open": "345.69",
+          "opened_at": "2026-03-25T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "292023"
+        },
+        {
+          "close": "326.13",
+          "high": "340.86",
+          "low": "325.78",
+          "open": "339.885",
+          "opened_at": "2026-03-26T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "581301"
+        },
+        {
+          "close": "326.85",
+          "high": "329.54",
+          "low": "322.375",
+          "open": "323.91",
+          "opened_at": "2026-03-27T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "512267"
+        },
+        {
+          "close": "316.48",
+          "high": "329.58",
+          "low": "313.81",
+          "open": "327.12",
+          "opened_at": "2026-03-30T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "506204"
+        },
+        {
+          "close": "338.13",
+          "high": "338.34",
+          "low": "321.32",
+          "open": "322.52",
+          "opened_at": "2026-03-31T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "642621"
+        },
+        {
+          "close": "341.485",
+          "high": "348.67",
+          "low": "339.82",
+          "open": "343.735",
+          "opened_at": "2026-04-01T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "584131"
+        },
+        {
+          "close": "338.8",
+          "high": "341.85",
+          "low": "326.99",
+          "open": "326.99",
+          "opened_at": "2026-04-02T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "302546"
+        },
+        {
+          "close": "341.76",
+          "high": "344.05",
+          "low": "338.695",
+          "open": "339.92",
+          "opened_at": "2026-04-06T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "202992"
+        },
+        {
+          "close": "345.36",
+          "high": "345.44",
+          "low": "335.68",
+          "open": "340.17",
+          "opened_at": "2026-04-07T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "268874"
+        },
+        {
+          "close": "365.785",
+          "high": "374.23",
+          "low": "359.32",
+          "open": "370.115",
+          "opened_at": "2026-04-08T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "606499"
+        },
+        {
+          "close": "365.47",
+          "high": "368.17",
+          "low": "360.805",
+          "open": "366.11",
+          "opened_at": "2026-04-09T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "360193"
+        },
+        {
+          "close": "370.58",
+          "high": "377.99",
+          "low": "369.81",
+          "open": "375.39",
+          "opened_at": "2026-04-10T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "444503"
+        },
+        {
+          "close": "369.67",
+          "high": "371.455",
+          "low": "366.105",
+          "open": "369.97",
+          "opened_at": "2026-04-13T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "434799"
+        },
+        {
+          "close": "380.03",
+          "high": "382.11",
+          "low": "373.29",
+          "open": "379.14",
+          "opened_at": "2026-04-14T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "472436"
+        },
+        {
+          "close": "375.28",
+          "high": "381.19",
+          "low": "372.31",
+          "open": "381.13",
+          "opened_at": "2026-04-15T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "450493"
+        },
+        {
+          "close": "363.42",
+          "high": "370.12",
+          "low": "360.57",
+          "open": "368.28",
+          "opened_at": "2026-04-16T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "695540"
+        },
+        {
+          "close": "370.55",
+          "high": "375.525",
+          "low": "365.235",
+          "open": "372.58",
+          "opened_at": "2026-04-17T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "624799"
+        },
+        {
+          "close": "366.29",
+          "high": "369.98",
+          "low": "364.27",
+          "open": "369.07",
+          "opened_at": "2026-04-20T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "374192"
+        },
+        {
+          "close": "367.975",
+          "high": "370.69",
+          "low": "365.25",
+          "open": "368.06",
+          "opened_at": "2026-04-21T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "330811"
+        },
+        {
+          "close": "387.545",
+          "high": "387.87",
+          "low": "370.72",
+          "open": "371.78",
+          "opened_at": "2026-04-22T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "596868"
+        },
+        {
+          "close": "382.55",
+          "high": "388.67",
+          "low": "375.97",
+          "open": "384.8",
+          "opened_at": "2026-04-23T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "438790"
+        },
+        {
+          "close": "402.46",
+          "high": "409.45",
+          "low": "393.92",
+          "open": "396.325",
+          "opened_at": "2026-04-24T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "745546"
+        },
+        {
+          "close": "404.95",
+          "high": "414.4",
+          "low": "400.48",
+          "open": "413.29",
+          "opened_at": "2026-04-27T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "513322"
+        },
+        {
+          "close": "392.34",
+          "high": "397.86",
+          "low": "384.71",
+          "open": "391.445",
+          "opened_at": "2026-04-28T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "501404"
+        },
+        {
+          "close": "393.76",
+          "high": "395.55",
+          "low": "388.37",
+          "open": "392.61",
+          "opened_at": "2026-04-29T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "297091"
+        },
+        {
+          "close": "396.11",
+          "high": "398.64",
+          "low": "385.74",
+          "open": "397.575",
+          "opened_at": "2026-04-30T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "591181"
+        },
+        {
+          "close": "397.605",
+          "high": "403.96",
+          "low": "392.34",
+          "open": "393.01",
+          "opened_at": "2026-05-01T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "342545"
+        },
+        {
+          "close": "401.59",
+          "high": "407.64",
+          "low": "395.28",
+          "open": "404.99",
+          "opened_at": "2026-05-04T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "305606"
+        },
+        {
+          "close": "394.35",
+          "high": "405.785",
+          "low": "392.66",
+          "open": "405.49",
+          "opened_at": "2026-05-05T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "650182"
+        },
+        {
+          "close": "419.5",
+          "high": "419.655",
+          "low": "400.69",
+          "open": "401.26",
+          "opened_at": "2026-05-06T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "720432"
+        },
+        {
+          "close": "414.22",
+          "high": "419.96",
+          "low": "408.18",
+          "open": "419.21",
+          "opened_at": "2026-05-07T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "632516"
+        },
+        {
+          "close": "411.31",
+          "high": "416.74",
+          "low": "401.03",
+          "open": "416.355",
+          "opened_at": "2026-05-08T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "846615"
+        },
+        {
+          "close": "404.43",
+          "high": "407.54",
+          "low": "398.255",
+          "open": "406.76",
+          "opened_at": "2026-05-11T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "504643"
+        },
+        {
+          "close": "397.27",
+          "high": "402.14",
+          "low": "386.19",
+          "open": "397.5",
+          "opened_at": "2026-05-12T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "631374"
+        },
+        {
+          "close": "399.92",
+          "high": "404.61",
+          "low": "391.525",
+          "open": "398.13",
+          "opened_at": "2026-05-13T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "697295"
+        },
+        {
+          "close": "417.76",
+          "high": "421.9",
+          "low": "402.3",
+          "open": "402.88",
+          "opened_at": "2026-05-14T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "728110"
+        },
+        {
+          "close": "404.4",
+          "high": "409.76",
+          "low": "401.19",
+          "open": "405.285",
+          "opened_at": "2026-05-15T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "363094"
+        },
+        {
+          "close": "396.03",
+          "high": "406.2",
+          "low": "391.1",
+          "open": "406.2",
+          "opened_at": "2026-05-18T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "465780"
+        },
+        {
+          "close": "392.63",
+          "high": "398.825",
+          "low": "385.09",
+          "open": "389.4",
+          "opened_at": "2026-05-19T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "411453"
+        },
+        {
+          "close": "401.815",
+          "high": "403.52",
+          "low": "396.02",
+          "open": "397.47",
+          "opened_at": "2026-05-20T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "393986"
+        },
+        {
+          "close": "407.1",
+          "high": "411.435",
+          "low": "401.15",
+          "open": "401.15",
+          "opened_at": "2026-05-21T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "326578"
+        },
+        {
+          "close": "404.33",
+          "high": "410.57",
+          "low": "402.93",
+          "open": "409.06",
+          "opened_at": "2026-05-22T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "207465"
+        },
+        {
+          "close": "412.4",
+          "high": "416.38",
+          "low": "410.12",
+          "open": "413.17",
+          "opened_at": "2026-05-26T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "307581"
+        },
+        {
+          "close": "422.7",
+          "high": "430.46",
+          "low": "415.51",
+          "open": "426.03",
+          "opened_at": "2026-05-27T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "478239"
+        },
+        {
+          "close": "424.75",
+          "high": "427.55",
+          "low": "414.71",
+          "open": "422.53",
+          "opened_at": "2026-05-28T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "233780"
+        },
+        {
+          "close": "418.61",
+          "high": "430.26",
+          "low": "417.31",
+          "open": "426.63",
+          "opened_at": "2026-05-29T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "395133"
+        },
+        {
+          "close": "436.03",
+          "high": "449.33",
+          "low": "422.81",
+          "open": "425.04",
+          "opened_at": "2026-06-01T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "850064"
+        },
+        {
+          "close": "446.74",
+          "high": "448.34",
+          "low": "436.11",
+          "open": "440.385",
+          "opened_at": "2026-06-02T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "471974"
+        },
+        {
+          "close": "437.13",
+          "high": "450.1",
+          "low": "434.77",
+          "open": "450.1",
+          "opened_at": "2026-06-03T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "423647"
+        },
+        {
+          "close": "444.73",
+          "high": "448.01",
+          "low": "427.48",
+          "open": "428.87",
+          "opened_at": "2026-06-04T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "488936"
+        },
+        {
+          "close": "415.14",
+          "high": "433.565",
+          "low": "412.855",
+          "open": "429.27",
+          "opened_at": "2026-06-05T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "787126"
+        },
+        {
+          "close": "426.77",
+          "high": "433.72",
+          "low": "422.9",
+          "open": "423.48",
+          "opened_at": "2026-06-08T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "453570"
+        },
+        {
+          "close": "427.91",
+          "high": "438.06",
+          "low": "405.705",
+          "open": "431.545",
+          "opened_at": "2026-06-09T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "876677"
+        },
+        {
+          "close": "408.49",
+          "high": "426.27",
+          "low": "407.72",
+          "open": "413.955",
+          "opened_at": "2026-06-10T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "498200"
+        },
+        {
+          "close": "421.06",
+          "high": "422.11",
+          "low": "408.99",
+          "open": "413.875",
+          "opened_at": "2026-06-11T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "972428"
+        },
+        {
+          "close": "423.76",
+          "high": "426.91",
+          "low": "417.57",
+          "open": "419.15",
+          "opened_at": "2026-06-12T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "572365"
+        },
+        {
+          "close": "440.86",
+          "high": "442.54",
+          "low": "432.105",
+          "open": "438.605",
+          "opened_at": "2026-06-15T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "419137"
+        },
+        {
+          "close": "426.025",
+          "high": "440.21",
+          "low": "425.55",
+          "open": "436.4",
+          "opened_at": "2026-06-16T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "526007"
+        },
+        {
+          "close": "432.12",
+          "high": "442.395",
+          "low": "431.655",
+          "open": "434.5",
+          "opened_at": "2026-06-17T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "404624"
+        },
+        {
+          "close": "462.15",
+          "high": "464.905",
+          "low": "438.87",
+          "open": "439.08",
+          "opened_at": "2026-06-18T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "665690"
+        },
+        {
+          "close": "467.69",
+          "high": "476.02",
+          "low": "465.24",
+          "open": "475.305",
+          "opened_at": "2026-06-22T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "588709"
+        },
+        {
+          "close": "436.63",
+          "high": "447.24",
+          "low": "435.83",
+          "open": "439.28",
+          "opened_at": "2026-06-23T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "645086"
+        },
+        {
+          "close": "441.07",
+          "high": "443.86",
+          "low": "432.67",
+          "open": "433.74",
+          "opened_at": "2026-06-24T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "407588"
+        },
+        {
+          "close": "435.27",
+          "high": "451.17",
+          "low": "433.23",
+          "open": "450.6",
+          "opened_at": "2026-06-25T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "666509"
+        },
+        {
+          "close": "431.91",
+          "high": "436.04",
+          "low": "419.24",
+          "open": "424.93",
+          "opened_at": "2026-06-26T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "770114"
+        },
+        {
+          "close": "455.12",
+          "high": "456.07",
+          "low": "431.27",
+          "open": "437.65",
+          "opened_at": "2026-06-29T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "677854"
+        },
+        {
+          "close": "477.24",
+          "high": "478.55",
+          "low": "453.15",
+          "open": "455.25",
+          "opened_at": "2026-06-30T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "796968"
+        },
+        {
+          "close": "444.1",
+          "high": "468.41",
+          "low": "443.51",
+          "open": "466.7",
+          "opened_at": "2026-07-01T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "843930"
+        },
+        {
+          "close": "434.64",
+          "high": "461.41",
+          "low": "429.56",
+          "open": "449.98",
+          "opened_at": "2026-07-02T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "888645"
+        },
+        {
+          "close": "451.84",
+          "high": "460",
+          "low": "445.81",
+          "open": "448.38",
+          "opened_at": "2026-07-06T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "596303"
+        },
+        {
+          "close": "432.755",
+          "high": "439.44",
+          "low": "428.11",
+          "open": "438.04",
+          "opened_at": "2026-07-07T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "604707"
+        },
+        {
+          "close": "436.935",
+          "high": "440.3",
+          "low": "429.475",
+          "open": "429.535",
+          "opened_at": "2026-07-08T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "603398"
+        },
+        {
+          "close": "437",
+          "high": "447.555",
+          "low": "436.65",
+          "open": "446.74",
+          "opened_at": "2026-07-09T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "525733"
+        },
+        {
+          "close": "434.43",
+          "high": "439.655",
+          "low": "428.31",
+          "open": "438.03",
+          "opened_at": "2026-07-10T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "393144"
+        },
+        {
+          "close": "421.59",
+          "high": "437.745",
+          "low": "421.12",
+          "open": "432.675",
+          "opened_at": "2026-07-13T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "618521"
+        },
+        {
+          "close": "420.71",
+          "high": "431.055",
+          "low": "418.93",
+          "open": "431.055",
+          "opened_at": "2026-07-14T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "687472"
+        },
+        {
+          "close": "419.575",
+          "high": "428.59",
+          "low": "410.81",
+          "open": "425.99",
+          "opened_at": "2026-07-15T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "791370"
+        },
+        {
+          "close": "409.97",
+          "high": "415.925",
+          "low": "403.56",
+          "open": "407.09",
+          "opened_at": "2026-07-16T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "1036120"
+        },
+        {
+          "close": "398.035",
+          "high": "404.65",
+          "low": "386.02",
+          "open": "392.5",
+          "opened_at": "2026-07-17T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "1010319"
+        },
+        {
+          "close": "402.47",
+          "high": "409.82",
+          "low": "400.1",
+          "open": "406.74",
+          "opened_at": "2026-07-20T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "860391"
+        },
+        {
+          "close": "424.505",
+          "high": "425.305",
+          "low": "413.59",
+          "open": "418.165",
+          "opened_at": "2026-07-21T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "1082931"
+        },
+        {
+          "close": "421.19",
+          "high": "424.75",
+          "low": "414.87",
+          "open": "415",
+          "opened_at": "2026-07-22T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "385180"
+        },
+        {
+          "close": "415.57",
+          "high": "420.72",
+          "low": "411.8",
+          "open": "414",
+          "opened_at": "2026-07-23T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "397034"
+        },
+        {
+          "close": "404.01",
+          "high": "412.91",
+          "low": "400.82",
+          "open": "410.89",
+          "opened_at": "2026-07-24T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "496494"
+        },
+        {
+          "close": "399.26",
+          "high": "406.955",
+          "low": "388.87",
+          "open": "406.075",
+          "opened_at": "2026-07-27T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "840211"
+        },
+        {
+          "close": "392.16",
+          "high": "395.14",
+          "low": "381.37",
+          "open": "385.95",
+          "opened_at": "2026-07-28T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "879423"
+        },
+        {
+          "close": "374.65",
+          "high": "391.21",
+          "low": "373.53",
+          "open": "388.205",
+          "opened_at": "2026-07-29T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "1540899"
+        },
+        {
+          "close": "403.31",
+          "high": "406.67",
+          "low": "387.975",
+          "open": "392.19",
+          "opened_at": "2026-07-30T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "800206"
+        },
+        {
+          "close": "404.35",
+          "high": "419.84",
+          "low": "398.945",
+          "open": "419.84",
+          "opened_at": "2026-07-31T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "497474"
+        },
+        {
+          "close": "406.12",
+          "high": "407.415",
+          "low": "398.275",
+          "open": "399.79",
+          "opened_at": "2026-08-03T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "600175"
+        },
+        {
+          "close": "417.08",
+          "high": "420.23",
+          "low": "412.26",
+          "open": "416.95",
+          "opened_at": "2026-08-04T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "725412"
+        },
+        {
+          "close": "414.03",
+          "high": "426.3",
+          "low": "413.19",
+          "open": "418.585",
+          "opened_at": "2026-08-05T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "510885"
+        },
+        {
+          "close": "418.18",
+          "high": "423.24",
+          "low": "408.04",
+          "open": "409.91",
+          "opened_at": "2026-08-06T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "335085"
+        },
+        {
+          "close": "419.92",
+          "high": "424.7",
+          "low": "413.15",
+          "open": "424.33",
+          "opened_at": "2026-08-07T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "440449"
+        },
+        {
+          "close": "418.59",
+          "high": "425.8",
+          "low": "416.065",
+          "open": "420.91",
+          "opened_at": "2026-08-10T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "540738"
+        },
+        {
+          "close": "422.01",
+          "high": "424.9",
+          "low": "418.9",
+          "open": "423",
+          "opened_at": "2026-08-11T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "468921"
+        },
+        {
+          "close": "429.13",
+          "high": "432.46",
+          "low": "427.16",
+          "open": "432.33",
+          "opened_at": "2026-08-12T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "401272"
+        },
+        {
+          "close": "430.44",
+          "high": "436.015",
+          "low": "428.42",
+          "open": "428.64",
+          "opened_at": "2026-08-13T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "438278"
+        },
+        {
+          "close": "426.41",
+          "high": "429",
+          "low": "424.195",
+          "open": "428.12",
+          "opened_at": "2026-08-14T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "202046"
+        },
+        {
+          "close": "430.94",
+          "high": "435.71",
+          "low": "426.975",
+          "open": "430.085",
+          "opened_at": "2026-08-17T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "312075"
+        },
+        {
+          "close": "413.485",
+          "high": "419.62",
+          "low": "410.765",
+          "open": "417.085",
+          "opened_at": "2026-08-18T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "578744"
+        },
+        {
+          "close": "412.27",
+          "high": "418.86",
+          "low": "407.95",
+          "open": "418.1",
+          "opened_at": "2026-08-19T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "283879"
+        },
+        {
+          "close": "416.045",
+          "high": "417.91",
+          "low": "408.77",
+          "open": "408.77",
+          "opened_at": "2026-08-20T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "223494"
+        },
+        {
+          "close": "418.9",
+          "high": "425.54",
+          "low": "416.82",
+          "open": "422.46",
+          "opened_at": "2026-08-21T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "368349"
+        },
+        {
+          "close": "410.22",
+          "high": "414.025",
+          "low": "405.22",
+          "open": "413.46",
+          "opened_at": "2026-08-24T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "484814"
+        },
+        {
+          "close": "417.34",
+          "high": "419.655",
+          "low": "414.205",
+          "open": "415.11",
+          "opened_at": "2026-08-25T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "327508"
+        },
+        {
+          "close": "417.79",
+          "high": "420.425",
+          "low": "414.46",
+          "open": "418.27",
+          "opened_at": "2026-08-26T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "299950"
+        },
+        {
+          "close": "427.165",
+          "high": "429.615",
+          "low": "420.65",
+          "open": "422.52",
+          "opened_at": "2026-08-27T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "479594"
+        },
+        {
+          "close": "417.46",
+          "high": "429.06",
+          "low": "417.33",
+          "open": "427.25",
+          "opened_at": "2026-08-28T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "1036911"
+        },
+        {
+          "close": "415.305",
+          "high": "423.39",
+          "low": "414.655",
+          "open": "417.32",
+          "opened_at": "2026-08-31T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "341902"
+        },
+        {
+          "close": "414.065",
+          "high": "418.24",
+          "low": "412.065",
+          "open": "417.595",
+          "opened_at": "2026-09-01T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "384624"
+        },
+        {
+          "close": "415.57",
+          "high": "416.2",
+          "low": "411.28",
+          "open": "412.935",
+          "opened_at": "2026-09-02T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "250887"
+        },
+        {
+          "close": "417.015",
+          "high": "417.24",
+          "low": "407.91",
+          "open": "412.27",
+          "opened_at": "2026-09-03T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "388294"
+        },
+        {
+          "close": "428.635",
+          "high": "429.2",
+          "low": "419.42",
+          "open": "420.855",
+          "opened_at": "2026-09-04T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "751410"
+        },
+        {
+          "close": "439.01",
+          "high": "444.26",
+          "low": "433.72",
+          "open": "438.245",
+          "opened_at": "2026-09-08T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "720512"
+        },
+        {
+          "close": "435.44",
+          "high": "439.4",
+          "low": "431.99",
+          "open": "434.71",
+          "opened_at": "2026-09-09T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "378911"
+        },
+        {
+          "close": "428.29",
+          "high": "432.51",
+          "low": "424.09",
+          "open": "426.54",
+          "opened_at": "2026-09-10T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "456660"
+        },
+        {
+          "close": "433.19",
+          "high": "435.31",
+          "low": "428.92",
+          "open": "431.08",
+          "opened_at": "2026-09-11T04:00:00Z",
+          "symbol": "TSM",
+          "volume": "320081"
+        }
+      ]
+    },
+    "us_market_reference": {
+      "as_of_session_date": "2026-09-11",
+      "coverage": {
+        "missing_symbols": [],
+        "observed_symbols": [
+          "IWM",
+          "QQQ",
+          "SMH",
+          "SPY",
+          "XLB",
+          "XLC",
+          "XLE",
+          "XLF",
+          "XLI",
+          "XLK",
+          "XLP",
+          "XLRE",
+          "XLU",
+          "XLV",
+          "XLY"
+        ],
+        "ratio": "15/15",
+        "required_symbols": [
+          "IWM",
+          "QQQ",
+          "SMH",
+          "SPY",
+          "XLB",
+          "XLC",
+          "XLE",
+          "XLF",
+          "XLI",
+          "XLK",
+          "XLP",
+          "XLRE",
+          "XLU",
+          "XLV",
+          "XLY"
+        ]
+      },
+      "interpretation": "OBSERVED_UNCLASSIFIED",
+      "payload_sha256": "35ab64cba9cf351c0764e0c71dd666fbc955fb815020807234b5bcc18fea2858",
+      "proxy_axes": {
+        "BREADTH": {
+          "measurement": {
+            "advance_fraction": "0.857143",
+            "advancing_count": 12,
+            "as_of_session_date": "2026-09-11",
+            "declining_count": 2,
+            "method": "latest_session_advance_decline_across_representative_etfs",
+            "observations": [
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.8273",
+                "previous_session_date": "2026-09-10",
+                "symbol": "SPY"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.8692",
+                "previous_session_date": "2026-09-10",
+                "symbol": "QQQ"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.4032",
+                "previous_session_date": "2026-09-10",
+                "symbol": "IWM"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "1.3063",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLK"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.6065",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLF"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.2849",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLE"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "1.0849",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLI"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "-0.1811",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLV"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.8754",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLY"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.3369",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLP"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.3546",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLB"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "-0.3527",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLU"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.8831",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLRE"
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "latest_session_return_pct": "0.9957",
+                "previous_session_date": "2026-09-10",
+                "symbol": "XLC"
+              }
+            ],
+            "observed_count": 14,
+            "previous_session_date": "2026-09-10",
+            "required_count": 14,
+            "scope": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE",
+            "unchanged_count": 0
+          },
+          "status": "OBSERVED"
+        },
+        "LEADERSHIP": {
+          "measurement": {
+            "as_of_session_date": "2026-09-11",
+            "benchmark": "SPY",
+            "method": "observed_return_order_and_relative_return_vs_spy",
+            "observed_count": 12,
+            "ordered_groups": [
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 1,
+                "relative_to_spy_pct": "8.4362",
+                "return_pct": "6.6749",
+                "symbol": "XLE",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 2,
+                "relative_to_spy_pct": "1.7791",
+                "return_pct": "0.0178",
+                "symbol": "XLC",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 3,
+                "relative_to_spy_pct": "0.1415",
+                "return_pct": "-1.6198",
+                "symbol": "XLK",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 4,
+                "relative_to_spy_pct": "0.0102",
+                "return_pct": "-1.7511",
+                "symbol": "XLF",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 5,
+                "relative_to_spy_pct": "-0.0234",
+                "return_pct": "-1.7847",
+                "symbol": "XLV",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 6,
+                "relative_to_spy_pct": "-0.8391",
+                "return_pct": "-2.6004",
+                "symbol": "XLB",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 7,
+                "relative_to_spy_pct": "-1.2565",
+                "return_pct": "-3.0178",
+                "symbol": "XLP",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 8,
+                "relative_to_spy_pct": "-1.7256",
+                "return_pct": "-3.4869",
+                "symbol": "SMH",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 9,
+                "relative_to_spy_pct": "-1.9752",
+                "return_pct": "-3.7365",
+                "symbol": "XLU",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 10,
+                "relative_to_spy_pct": "-2.0286",
+                "return_pct": "-3.7899",
+                "symbol": "XLRE",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 11,
+                "relative_to_spy_pct": "-2.8908",
+                "return_pct": "-4.6521",
+                "symbol": "XLY",
+                "window_sessions": 20
+              },
+              {
+                "as_of_session_date": "2026-09-11",
+                "observed_return_order": 12,
+                "relative_to_spy_pct": "-5.4669",
+                "return_pct": "-7.2282",
+                "symbol": "XLI",
+                "window_sessions": 20
+              }
+            ],
+            "outperforming_spy_count": 4,
+            "required_count": 12,
+            "scope": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE",
+            "window_sessions": 20
+          },
+          "status": "OBSERVED"
+        }
+      },
+      "schema_version": "us_market_reference/v2",
+      "sector_etfs": [
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "187.68",
+          "relative_to_spy_pct": {
+            "20_session_pct": "0.1415",
+            "5_session_pct": "2.0587",
+            "60_session_pct": "-1.1685"
+          },
+          "returns": {
+            "20_session_pct": "-1.6198",
+            "5_session_pct": "0.8978",
+            "60_session_pct": "0.6381"
+          },
+          "symbol": "XLK"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "57.23",
+          "relative_to_spy_pct": {
+            "20_session_pct": "0.0102",
+            "5_session_pct": "-1.0769",
+            "60_session_pct": "3.4924"
+          },
+          "returns": {
+            "20_session_pct": "-1.7511",
+            "5_session_pct": "-2.2378",
+            "60_session_pct": "5.299"
+          },
+          "symbol": "XLF"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "65.125",
+          "relative_to_spy_pct": {
+            "20_session_pct": "8.4362",
+            "5_session_pct": "1.9268",
+            "60_session_pct": "15.8325"
+          },
+          "returns": {
+            "20_session_pct": "6.6749",
+            "5_session_pct": "0.7659",
+            "60_session_pct": "17.6391"
+          },
+          "symbol": "XLE"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "172.37",
+          "relative_to_spy_pct": {
+            "20_session_pct": "-5.4669",
+            "5_session_pct": "-0.0824",
+            "60_session_pct": "-5.9869"
+          },
+          "returns": {
+            "20_session_pct": "-7.2282",
+            "5_session_pct": "-1.2433",
+            "60_session_pct": "-4.1803"
+          },
+          "symbol": "XLI"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "165.37",
+          "relative_to_spy_pct": {
+            "20_session_pct": "-0.0234",
+            "5_session_pct": "-3.415",
+            "60_session_pct": "6.3278"
+          },
+          "returns": {
+            "20_session_pct": "-1.7847",
+            "5_session_pct": "-4.5759",
+            "60_session_pct": "8.1344"
+          },
+          "symbol": "XLV"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "112.93",
+          "relative_to_spy_pct": {
+            "20_session_pct": "-2.8908",
+            "5_session_pct": "-1.8702",
+            "60_session_pct": "-6.499"
+          },
+          "returns": {
+            "20_session_pct": "-4.6521",
+            "5_session_pct": "-3.0311",
+            "60_session_pct": "-4.6924"
+          },
+          "symbol": "XLY"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "83.395",
+          "relative_to_spy_pct": {
+            "20_session_pct": "-1.2565",
+            "5_session_pct": "-1.0151",
+            "60_session_pct": "-4.3825"
+          },
+          "returns": {
+            "20_session_pct": "-3.0178",
+            "5_session_pct": "-2.176",
+            "60_session_pct": "-2.5759"
+          },
+          "symbol": "XLP"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "50.94",
+          "relative_to_spy_pct": {
+            "20_session_pct": "-0.8391",
+            "5_session_pct": "-2.0686",
+            "60_session_pct": "-5.2013"
+          },
+          "returns": {
+            "20_session_pct": "-2.6004",
+            "5_session_pct": "-3.2295",
+            "60_session_pct": "-3.3947"
+          },
+          "symbol": "XLB"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "42.38",
+          "relative_to_spy_pct": {
+            "20_session_pct": "-1.9752",
+            "5_session_pct": "-0.3039",
+            "60_session_pct": "-7.7542"
+          },
+          "returns": {
+            "20_session_pct": "-3.7365",
+            "5_session_pct": "-1.4648",
+            "60_session_pct": "-5.9476"
+          },
+          "symbol": "XLU"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "43.41",
+          "relative_to_spy_pct": {
+            "20_session_pct": "-2.0286",
+            "5_session_pct": "-0.7152",
+            "60_session_pct": "-5.5111"
+          },
+          "returns": {
+            "20_session_pct": "-3.7899",
+            "5_session_pct": "-1.8761",
+            "60_session_pct": "-3.7045"
+          },
+          "symbol": "XLRE"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "112.59",
+          "relative_to_spy_pct": {
+            "20_session_pct": "1.7791",
+            "5_session_pct": "0.451",
+            "60_session_pct": "-1.5885"
+          },
+          "returns": {
+            "20_session_pct": "0.0178",
+            "5_session_pct": "-0.7099",
+            "60_session_pct": "0.2181"
+          },
+          "symbol": "XLC"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "568.52",
+          "relative_to_spy_pct": {
+            "20_session_pct": "-1.7256",
+            "5_session_pct": "4.0195",
+            "60_session_pct": "-9.5481"
+          },
+          "returns": {
+            "20_session_pct": "-3.4869",
+            "5_session_pct": "2.8586",
+            "60_session_pct": "-7.7415"
+          },
+          "symbol": "SMH"
+        }
+      ],
+      "source_scope": "ALPACA_IEX_DAILY_BARS_PARTIAL_EXCHANGE_REFERENCE",
+      "status": "READY",
+      "trend_etfs": [
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "764.14",
+          "returns": {
+            "20_session_pct": "-1.7613",
+            "5_session_pct": "-1.1609",
+            "60_session_pct": "1.8066"
+          },
+          "symbol": "SPY"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "714.89",
+          "returns": {
+            "20_session_pct": "-2.3521",
+            "5_session_pct": "-0.3881",
+            "60_session_pct": "-2.0524"
+          },
+          "symbol": "QQQ"
+        },
+        {
+          "as_of_session_date": "2026-09-11",
+          "available_session_count": 124,
+          "close": "288.89",
+          "returns": {
+            "20_session_pct": "-4.8076",
+            "5_session_pct": "-2.1309",
+            "60_session_pct": "-1.1159"
+          },
+          "symbol": "IWM"
+        }
+      ],
+      "warnings": [
+        "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE",
+        "NOT_FULL_US_SECURITY_LEVEL_BREADTH",
+        "NOT_INVESTMENT_RANKING",
+        "REGIME_INTERPRETATION_UNAUTHORIZED"
+      ]
+    }
+  },
+  "source_market_packet_sha256": "afe433ef239daeec357e81ba2748a77f97a10ff7c6bcd3f878d02b959bd96f8d",
+  "source_stage_history_sha256": "ae23ef264ec8264666f1b15fa30db4139319e6498cc8212a004bde7d5b41e843",
+  "summary": {
+    "automatic_entry_count": 0,
+    "automatic_exit_count": 0,
+    "entry_blocked_count": 0,
+    "entry_wait_count": 2,
+    "price_connected_count": 2,
+    "symbol_count": 2
+  },
+  "symbols": [
+    {
+      "entry_review": {
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "CURRENT_PRICE_AND_RETURN_CONTEXT_CONNECTED",
+          "FIVE_AXIS_CURRENT_REFERENCE_CONNECTED",
+          "FINAL_US_REGIME_NOT_AVAILABLE",
+          "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY"
+        ],
+        "state": "WAIT"
+      },
+      "exit_review": {
+        "automatic_exit_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_APPLICABLE_NO_POSITION_CONTEXT"
+      },
+      "holding_review": {
+        "automatic_holding_action_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_POSITION_AWARE"
+      },
+      "market_context": {
+        "breadth_reference": {
+          "advance_fraction": "0.857143",
+          "advancing_count": 12,
+          "as_of_session_date": "2026-09-11",
+          "declining_count": 2,
+          "method": "latest_session_advance_decline_across_representative_etfs",
+          "observations": [
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8273",
+              "previous_session_date": "2026-09-10",
+              "symbol": "SPY"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8692",
+              "previous_session_date": "2026-09-10",
+              "symbol": "QQQ"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.4032",
+              "previous_session_date": "2026-09-10",
+              "symbol": "IWM"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "1.3063",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLK"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.6065",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLF"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.2849",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLE"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "1.0849",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLI"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "-0.1811",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLV"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8754",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLY"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.3369",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLP"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.3546",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLB"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "-0.3527",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLU"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8831",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLRE"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.9957",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLC"
+            }
+          ],
+          "observed_count": 14,
+          "previous_session_date": "2026-09-10",
+          "required_count": 14,
+          "scope": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE",
+          "unchanged_count": 0
+        },
+        "five_axis_reference_ratio": "5/5",
+        "interpretation": "OBSERVED_UNCLASSIFIED",
+        "leadership_proxies": [
+          {
+            "as_of_session_date": "2026-09-11",
+            "observed_return_order": 8,
+            "relative_to_spy_pct": "-1.7256",
+            "return_pct": "-3.4869",
+            "symbol": "SMH",
+            "window_sessions": 20
+          },
+          {
+            "as_of_session_date": "2026-09-11",
+            "observed_return_order": 3,
+            "relative_to_spy_pct": "0.1415",
+            "return_pct": "-1.6198",
+            "symbol": "XLK",
+            "window_sessions": 20
+          }
+        ],
+        "scope_warning": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE"
+      },
+      "name": "TSMC",
+      "pipeline_as_of": "2026-09-11",
+      "pipeline_stage": "Ready",
+      "price_context": {
+        "as_of_session_date": "2026-09-11",
+        "available_session_count": 124,
+        "close_usd": "433.19",
+        "returns": {
+          "20_session_pct": "0.6389",
+          "5_session_pct": "3.8788",
+          "60_session_pct": "1.6818"
+        },
+        "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
+        "status": "OBSERVED"
+      },
+      "symbol": "TSM"
+    },
+    {
+      "entry_review": {
+        "automatic_entry_generated": false,
+        "order_draft": null,
+        "reasons": [
+          "CURRENT_PRICE_AND_RETURN_CONTEXT_CONNECTED",
+          "FIVE_AXIS_CURRENT_REFERENCE_CONNECTED",
+          "FINAL_US_REGIME_NOT_AVAILABLE",
+          "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY"
+        ],
+        "state": "WAIT"
+      },
+      "exit_review": {
+        "automatic_exit_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_APPLICABLE_NO_POSITION_CONTEXT"
+      },
+      "holding_review": {
+        "automatic_holding_action_generated": false,
+        "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+        "state": "NOT_POSITION_AWARE"
+      },
+      "market_context": {
+        "breadth_reference": {
+          "advance_fraction": "0.857143",
+          "advancing_count": 12,
+          "as_of_session_date": "2026-09-11",
+          "declining_count": 2,
+          "method": "latest_session_advance_decline_across_representative_etfs",
+          "observations": [
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8273",
+              "previous_session_date": "2026-09-10",
+              "symbol": "SPY"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8692",
+              "previous_session_date": "2026-09-10",
+              "symbol": "QQQ"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.4032",
+              "previous_session_date": "2026-09-10",
+              "symbol": "IWM"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "1.3063",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLK"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.6065",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLF"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.2849",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLE"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "1.0849",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLI"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "-0.1811",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLV"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8754",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLY"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.3369",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLP"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.3546",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLB"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "-0.3527",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLU"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.8831",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLRE"
+            },
+            {
+              "as_of_session_date": "2026-09-11",
+              "latest_session_return_pct": "0.9957",
+              "previous_session_date": "2026-09-10",
+              "symbol": "XLC"
+            }
+          ],
+          "observed_count": 14,
+          "previous_session_date": "2026-09-10",
+          "required_count": 14,
+          "scope": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE",
+          "unchanged_count": 0
+        },
+        "five_axis_reference_ratio": "5/5",
+        "interpretation": "OBSERVED_UNCLASSIFIED",
+        "leadership_proxies": [
+          {
+            "as_of_session_date": "2026-09-11",
+            "observed_return_order": 8,
+            "relative_to_spy_pct": "-1.7256",
+            "return_pct": "-3.4869",
+            "symbol": "SMH",
+            "window_sessions": 20
+          },
+          {
+            "as_of_session_date": "2026-09-11",
+            "observed_return_order": 3,
+            "relative_to_spy_pct": "0.1415",
+            "return_pct": "-1.6198",
+            "symbol": "XLK",
+            "window_sessions": 20
+          }
+        ],
+        "scope_warning": "FREE_IEX_REPRESENTATIVE_ETF_REFERENCE_NOT_FULL_US_SECURITY_UNIVERSE"
+      },
+      "name": "SanDisk",
+      "pipeline_as_of": "2026-09-11",
+      "pipeline_stage": "Discovery",
+      "price_context": {
+        "as_of_session_date": "2026-09-11",
+        "available_session_count": 124,
+        "close_usd": "1632.99",
+        "returns": {
+          "20_session_pct": "6.8921",
+          "5_session_pct": "4.9412",
+          "60_session_pct": "-18.0592"
+        },
+        "source_scope": "IEX_ONLY_PARTIAL_US_MARKET",
+        "status": "OBSERVED"
+      },
+      "symbol": "SNDK"
+    }
+  ]
+}

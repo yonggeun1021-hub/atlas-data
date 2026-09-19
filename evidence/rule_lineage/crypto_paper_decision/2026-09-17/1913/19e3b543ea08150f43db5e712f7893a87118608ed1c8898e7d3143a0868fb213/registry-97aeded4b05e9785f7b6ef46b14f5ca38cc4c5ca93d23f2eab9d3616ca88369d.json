@@ -1,0 +1,735 @@
+{
+  "decision_outcome_changed": false,
+  "events": [
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-BTC",
+      "event_id": "1e15a282db5ef8981e7761fe075df1696b19bdf5ea901a8c7713f3f34c0d953d",
+      "event_type": "DECISION",
+      "gate": "candidate_state",
+      "inputs_sha256": "0fd15653de0703254b96a78218dbbaf2fc227fb965cd295e55c0617410fd3513",
+      "instrument": "KRW-BTC",
+      "market": "CRYPTO",
+      "outcome": {
+        "freshness_cap_reason": null,
+        "freshness_capped": false,
+        "market_action_cap_reason": "MARKET_REALTIME_FRESHNESS_NOT_FRESH:KRW-BTC:UNKNOWN",
+        "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+        "state": "WATCH"
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": [
+        {
+          "reason_code": "ALLOCATION_NOT_APPLIED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.ALLOCATION.V2"
+        },
+        {
+          "reason_code": "SNAPSHOT_REGIME_NOT_WIRED_TO_RUNTIME_V1",
+          "rule_id": "RULE.CRYPTO.RUNTIME.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.CRYPTO.V1"
+        }
+      ]
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-BTC",
+      "event_id": "6c73ba14d865230a0c7748ddba204652e7331b3c271456d572574df1bc10c5ae",
+      "event_type": "BLOCK",
+      "gate": "realtime_freshness_per_market",
+      "inputs_sha256": "dc5799d6f9bd5acb1121b69ff5beb69602bb35f142ef93f508c101c802b8fabb",
+      "instrument": "KRW-BTC",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "is_recorded_action_cap": true,
+        "realtime_status": "UNKNOWN",
+        "reasons": [
+          "P9_01_GUARD_REJECTED:QUOTE_VOLUME_INVALID:quote:0"
+        ]
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-BTC",
+      "event_id": "90f98e3d8a50dd0100ba84fae374549e5365315c349e5f979026f73187c3b62c",
+      "event_type": "DECISION",
+      "gate": "realtime_liquidity_floor",
+      "inputs_sha256": "75c14df4ef3daf95875dfff4cd9159b81698747bb0d5f98b6857e7167f406355",
+      "instrument": "KRW-BTC",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "floor_status": "INCLUDED",
+        "is_recorded_action_cap": false,
+        "krw_30d_avg_turnover": "130627383494.65297133",
+        "reason": null
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-ETH",
+      "event_id": "83e4fdedf27697d8291d7154c3abca3060b4a7ad1732ed1659ab2bb306b3f60a",
+      "event_type": "DECISION",
+      "gate": "candidate_state",
+      "inputs_sha256": "d6c3f0b3660c7675f8f56ea6a854f77302b50faf4932353de7e12bd310230c98",
+      "instrument": "KRW-ETH",
+      "market": "CRYPTO",
+      "outcome": {
+        "freshness_cap_reason": null,
+        "freshness_capped": false,
+        "market_action_cap_reason": "MARKET_REALTIME_FRESHNESS_NOT_FRESH:KRW-ETH:UNKNOWN",
+        "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+        "state": "WATCH"
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": [
+        {
+          "reason_code": "ALLOCATION_NOT_APPLIED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.ALLOCATION.V2"
+        },
+        {
+          "reason_code": "SNAPSHOT_REGIME_NOT_WIRED_TO_RUNTIME_V1",
+          "rule_id": "RULE.CRYPTO.RUNTIME.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.CRYPTO.V1"
+        }
+      ]
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-ETH",
+      "event_id": "4bd628160fa2bd517fca31086b998beea7d1175786788a856872e097e03c107e",
+      "event_type": "BLOCK",
+      "gate": "realtime_freshness_per_market",
+      "inputs_sha256": "dc5799d6f9bd5acb1121b69ff5beb69602bb35f142ef93f508c101c802b8fabb",
+      "instrument": "KRW-ETH",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "is_recorded_action_cap": true,
+        "realtime_status": "UNKNOWN",
+        "reasons": [
+          "P9_01_GUARD_REJECTED:QUOTE_VOLUME_INVALID:quote:0"
+        ]
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-ETH",
+      "event_id": "98e71696f0a8ca7145e8cb4478934a1ff4b9c19170ce94fd9c724d5bdd8bf9e2",
+      "event_type": "DECISION",
+      "gate": "realtime_liquidity_floor",
+      "inputs_sha256": "58453bda6845cfbde165bf40f18cbd45d192174fe696b443e5c993dfbe5d411c",
+      "instrument": "KRW-ETH",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "floor_status": "INCLUDED",
+        "is_recorded_action_cap": false,
+        "krw_30d_avg_turnover": "103244579553.58768767",
+        "reason": null
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-LINK",
+      "event_id": "2205cd3d2392cbacadf2a3775c17ab450ba1c96de1baaf6f630ee5e2a0722d12",
+      "event_type": "DECISION",
+      "gate": "candidate_state",
+      "inputs_sha256": "3a70f068f84960e0740279dbb1b4d644a7d187d482099473c24ae19a1e7d2916",
+      "instrument": "KRW-LINK",
+      "market": "CRYPTO",
+      "outcome": {
+        "freshness_cap_reason": null,
+        "freshness_capped": false,
+        "market_action_cap_reason": "MARKET_REALTIME_FRESHNESS_NOT_FRESH:KRW-LINK:UNKNOWN",
+        "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+        "state": "WATCH"
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": [
+        {
+          "reason_code": "ALLOCATION_NOT_APPLIED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.ALLOCATION.V2"
+        },
+        {
+          "reason_code": "SNAPSHOT_REGIME_NOT_WIRED_TO_RUNTIME_V1",
+          "rule_id": "RULE.CRYPTO.RUNTIME.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.CRYPTO.V1"
+        }
+      ]
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-LINK",
+      "event_id": "578a0139f2600cbc3e7b04226df22cc41213efb6fcff334101663c08430ded78",
+      "event_type": "BLOCK",
+      "gate": "realtime_freshness_per_market",
+      "inputs_sha256": "dc5799d6f9bd5acb1121b69ff5beb69602bb35f142ef93f508c101c802b8fabb",
+      "instrument": "KRW-LINK",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "is_recorded_action_cap": true,
+        "realtime_status": "UNKNOWN",
+        "reasons": [
+          "P9_01_GUARD_REJECTED:QUOTE_VOLUME_INVALID:quote:0"
+        ]
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-LINK",
+      "event_id": "9e7963bddd9004e0da4b50af8aa3b4c78ea491e58d58252afaae6a6d4c697904",
+      "event_type": "DECISION",
+      "gate": "realtime_liquidity_floor",
+      "inputs_sha256": "78e6801e471ff7c6b79cc393991a7e16cc2491f5daa904f61f430139191c33bf",
+      "instrument": "KRW-LINK",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "floor_status": "INCLUDED",
+        "is_recorded_action_cap": false,
+        "krw_30d_avg_turnover": "7642398595.81238424",
+        "reason": null
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-SHIB",
+      "event_id": "5873d65af94ad8bc798345b9935587bd1d2b507a1375100988e277d42a78133e",
+      "event_type": "DECISION",
+      "gate": "candidate_state",
+      "inputs_sha256": "222bf27c97f8dae5d523718d3428148cc40078722cfab919d22f6b024bc40107",
+      "instrument": "KRW-SHIB",
+      "market": "CRYPTO",
+      "outcome": {
+        "freshness_cap_reason": null,
+        "freshness_capped": false,
+        "market_action_cap_reason": "MARKET_REALTIME_FRESHNESS_NOT_FRESH:KRW-SHIB:UNKNOWN",
+        "reason": "CRITERIA_FAILED:MATERIAL_BLOCKER",
+        "state": "BLOCKED"
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": [
+        {
+          "reason_code": "ALLOCATION_NOT_APPLIED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.ALLOCATION.V2"
+        },
+        {
+          "reason_code": "SNAPSHOT_REGIME_NOT_WIRED_TO_RUNTIME_V1",
+          "rule_id": "RULE.CRYPTO.RUNTIME.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.CRYPTO.V1"
+        }
+      ]
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-SHIB",
+      "event_id": "9121495211a13d1b673231dda5c038f1a9ed609f16f147443c458a8c4bfc89b5",
+      "event_type": "BLOCK",
+      "gate": "realtime_freshness_per_market",
+      "inputs_sha256": "dc5799d6f9bd5acb1121b69ff5beb69602bb35f142ef93f508c101c802b8fabb",
+      "instrument": "KRW-SHIB",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "is_recorded_action_cap": true,
+        "realtime_status": "UNKNOWN",
+        "reasons": [
+          "P9_01_GUARD_REJECTED:QUOTE_VOLUME_INVALID:quote:0"
+        ]
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-SHIB",
+      "event_id": "60484d29463904046ff734a72057d36f68a9cae3949aa9bf57715c0a4670f733",
+      "event_type": "DECISION",
+      "gate": "realtime_liquidity_floor",
+      "inputs_sha256": "e41b3e9bdba3dc236150bfef4fc26f6be15570e0672200788c7c1cfc91eab785",
+      "instrument": "KRW-SHIB",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "floor_status": "INCLUDED",
+        "is_recorded_action_cap": false,
+        "krw_30d_avg_turnover": "7603171896.29198709",
+        "reason": null
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-SOL",
+      "event_id": "2de475ac0b07634006e876e659c090a9f02624d42329357e9d172b850003f9bf",
+      "event_type": "DECISION",
+      "gate": "candidate_state",
+      "inputs_sha256": "057a8c598516252b0009efdc59c82c28e2d1cb88521427479c8d84b37930f79c",
+      "instrument": "KRW-SOL",
+      "market": "CRYPTO",
+      "outcome": {
+        "freshness_cap_reason": null,
+        "freshness_capped": false,
+        "market_action_cap_reason": "MARKET_REALTIME_FRESHNESS_NOT_FRESH:KRW-SOL:UNKNOWN",
+        "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+        "state": "WATCH"
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": [
+        {
+          "reason_code": "ALLOCATION_NOT_APPLIED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.ALLOCATION.V2"
+        },
+        {
+          "reason_code": "SNAPSHOT_REGIME_NOT_WIRED_TO_RUNTIME_V1",
+          "rule_id": "RULE.CRYPTO.RUNTIME.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.CRYPTO.V1"
+        }
+      ]
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-SOL",
+      "event_id": "ac610081768043d3d4572ad7a1d012f7f57bd192b0e53d73ac2ddd0a9d56d9e9",
+      "event_type": "BLOCK",
+      "gate": "realtime_freshness_per_market",
+      "inputs_sha256": "dc5799d6f9bd5acb1121b69ff5beb69602bb35f142ef93f508c101c802b8fabb",
+      "instrument": "KRW-SOL",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "is_recorded_action_cap": true,
+        "realtime_status": "UNKNOWN",
+        "reasons": [
+          "P9_01_GUARD_REJECTED:QUOTE_VOLUME_INVALID:quote:0"
+        ]
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-SOL",
+      "event_id": "e06e10555df932f08824b97a1fb68b18a7f955152c1206e8eea348fd08f63d16",
+      "event_type": "DECISION",
+      "gate": "realtime_liquidity_floor",
+      "inputs_sha256": "54725890567f72c4e803e8bad3212964fa8e802d793f8cd15bdb11b110cf1982",
+      "instrument": "KRW-SOL",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "floor_status": "INCLUDED",
+        "is_recorded_action_cap": false,
+        "krw_30d_avg_turnover": "42301002643.72148633",
+        "reason": null
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-XRP",
+      "event_id": "5f5ffcc07f1ba2a5019b9b80175fdf8f868c8f3746e225a3310a4a1364cbc481",
+      "event_type": "DECISION",
+      "gate": "candidate_state",
+      "inputs_sha256": "ea6e2e4e2729d6c9e5eb2333bf91aef8b1a1c7d6749210964a078860044f63aa",
+      "instrument": "KRW-XRP",
+      "market": "CRYPTO",
+      "outcome": {
+        "freshness_cap_reason": null,
+        "freshness_capped": false,
+        "market_action_cap_reason": "MARKET_REALTIME_FRESHNESS_NOT_FRESH:KRW-XRP:UNKNOWN",
+        "reason": "CRITERIA_UNKNOWN:MATERIAL_BLOCKER,OVEREXTENSION,REGIME,RELATIVE_STRENGTH,TREND,VOLUME_LIQUIDITY",
+        "state": "WATCH"
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": [
+        {
+          "reason_code": "ALLOCATION_NOT_APPLIED_BY_ANY_PUBLIC_PRODUCER",
+          "rule_id": "RULE.ALLOCATION.V2"
+        },
+        {
+          "reason_code": "SNAPSHOT_REGIME_NOT_WIRED_TO_RUNTIME_V1",
+          "rule_id": "RULE.CRYPTO.RUNTIME.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1"
+        },
+        {
+          "reason_code": "ROTATION_NOT_WIRED_TO_CRYPTO_CANDIDATE_FUNNEL",
+          "rule_id": "RULE.ROTATION.CRYPTO.V1"
+        }
+      ]
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-XRP",
+      "event_id": "284951559a899fae0630af7648bfc57ba6e999b23108bca6f32c3d2674bfde21",
+      "event_type": "BLOCK",
+      "gate": "realtime_freshness_per_market",
+      "inputs_sha256": "dc5799d6f9bd5acb1121b69ff5beb69602bb35f142ef93f508c101c802b8fabb",
+      "instrument": "KRW-XRP",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "is_recorded_action_cap": true,
+        "realtime_status": "UNKNOWN",
+        "reasons": [
+          "P9_01_GUARD_REJECTED:QUOTE_VOLUME_INVALID:quote:0"
+        ]
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "BLOCKED_BY",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    },
+    {
+      "decision_id": "crypto_paper_decision:50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5:KRW-XRP",
+      "event_id": "279bdb682dffa338b0a3be50b97f9ff23c7b35df1e19b47d2a0f8bbde552bb64",
+      "event_type": "DECISION",
+      "gate": "realtime_liquidity_floor",
+      "inputs_sha256": "c57d727bf08cbbb905c19a3f0d65c890b42df2988728fb09595330e4d4f1583e",
+      "instrument": "KRW-XRP",
+      "market": "CRYPTO",
+      "outcome": {
+        "capped_actionable_state": false,
+        "floor_status": "INCLUDED",
+        "is_recorded_action_cap": false,
+        "krw_30d_avg_turnover": "286830531194.94104495",
+        "reason": null
+      },
+      "producer": "decision/crypto_paper_decision_snapshot.py",
+      "rule_refs": [
+        {
+          "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+          "role": "APPLIED",
+          "rule_id": "RULE.CRYPTO.FRESHNESS.PER_MARKET.V1",
+          "source_record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+          "version": 1
+        }
+      ],
+      "schema_version": "rule_lineage_event/1",
+      "source_packet": {
+        "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+        "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+        "schema_version": "crypto_paper_decision_snapshot_packet/3"
+      },
+      "timestamp_utc": "2026-09-17T19:13:36Z",
+      "unapplied_rules": []
+    }
+  ],
+  "payload_sha256": "a20e4ccbae79798713c9707a714baf97a55038f2cf2b17eb4c30ef2219070438",
+  "producer": "decision/crypto_paper_decision_snapshot.py",
+  "registry_path": "config/rule_registry_v1.json",
+  "registry_sha256": "97aeded4b05e9785f7b6ef46b14f5ca38cc4c5ca93d23f2eab9d3616ca88369d",
+  "schema_version": "rule_lineage_sidecar/1",
+  "source_packet": {
+    "path": "evidence/crypto_paper_decision/2026-09-17/1913/50558b2f79d282dcf874e2e9b08a0ebe880cfe765256b43a5b8b4d074a449df5/packet.json",
+    "payload_sha256": "19e3b543ea08150f43db5e712f7893a87118608ed1c8898e7d3143a0868fb213",
+    "schema_version": "crypto_paper_decision_snapshot_packet/3"
+  }
+}

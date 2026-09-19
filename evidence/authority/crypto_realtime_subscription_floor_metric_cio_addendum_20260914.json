@@ -1,0 +1,17 @@
+{
+  "schema_version": "atlas_cio_addendum/1",
+  "addendum_id": "CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-FLOOR-METRIC-20260914",
+  "created_at_utc": "2026-09-14T01:40:00Z",
+  "by": "CLAUDE_CIO",
+  "ratification": {
+    "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/USER_RATIFICATION_CRYPTO_REALTIME_FRESHNESS_PER_MARKET_20260914.json",
+    "sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4"
+  },
+  "correction": "The companion CIO decision misstated the ratified Upbit liquidity floor as '24h traded value >= KRW 5B'. The ratified universe policy's KRW 5B floor is a 30-day average traded value. A CIO decision cannot introduce a new metric; the subscription/candidate floor must use the ratified 30-day average exactly as the universe policy defines it (fail-closed if unknown). Under that metric all 8 current markets pass; thin markets are handled by the user-ratified per-market freshness cap instead.",
+  "additional_cio_decision": "Held positions: a market with an open PAPER position is always kept in the realtime subscription regardless of the floor, so exits remain possible; if its data is still stale, the ratified per-market HOLD + 30-minute alert applies.",
+  "authority": {
+    "real_order": false,
+    "payment": false,
+    "secret_disclosure": false
+  }
+}

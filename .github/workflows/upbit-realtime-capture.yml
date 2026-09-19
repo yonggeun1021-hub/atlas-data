@@ -24,16 +24,31 @@ concurrency:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Was 10; the job has been observed exceeding it since 2026-09-18 (e.g.
+    # 02:06:13 -> 02:17:18Z, 11m05s). A timed-out job is marked cancelled,
+    # which silently skips every not-cancelled-guarded step below (rule
+    # lineage sidecar, axis bridge, bridge explanation, funnel briefing,
+    # candidate detail, capture-to-decision timing guard) even though the
+    # decision packet itself (its own step runs unconditionally) still
+    # commits -- see docs/do_not_touch_and_why.md section 3. This literal key
+    # and its integer value carry none of the tokens that section's
+    # dispatcher-pin fingerprint regex matches, so raising it is a byte-drift
+    # (compatible) change, not a fingerprint-changing (blocking) one -- change
+    # verified by recomputing that regex over this file before and after.
+    # 20m keeps a wide margin under the 30-minute schedule interval.
+    timeout-minutes: 20
     steps:
       - name: Capture Upbit realtime runner start time
         id: runner_start
         run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # Consumers below never read git history (no git log/show/blame/
+      # merge-base); the commit+push step only needs HEAD, so a shallow
+      # checkout is sufficient and avoids re-cloning 3500+ commits daily.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.11'
@@ -49,6 +64,8 @@ jobs:
         run: python3 test/test_crypto_paper_decision_snapshot.py
       - name: Offline P5-10 Crypto five-axis entry and exit bridge regression
         run: python3 test/test_crypto_axis_trade_bridge.py
+      - name: Offline P5-10 Crypto five-axis bridge state explanation regression
+        run: python3 test/test_crypto_axis_trade_bridge_explanation.py
       - name: Offline P1-CR-08 hash-bound live component registry regression
         run: python3 test/test_crypto_live_component_registry.py
       - name: Offline P8-16 Crypto funnel briefing regression
@@ -66,6 +83,10 @@ jobs:
       # private endpoint. See config/upbit_realtime_gate_contract.json and
       # realtime/upbit_realtime_gate.py::PRIVATE_WS_TYPES_FORBIDDEN /
       # build_subscription_message (fails closed on any private channel).
+      # Subscription = every admitted P3-12 market (TRADEABLE_UNIVERSE and
+      # PAPER_ELIGIBLE), independent of the liquidity floor and of holdings
+      # (CIO addendum CIO-ADDENDUM-CRYPTO-SUBSCRIPTION-SCOPE-NO-HOLDINGS-LEAK-
+      # 20260914). The ratified 30-day floor is a per-market decision cap only.
       - name: Bounded-duration public WebSocket capture
         id: capture
         env:
@@ -84,34 +105,21 @@ jobs:
             --duration-seconds "$DURATION_SECONDS" \
             "${UNIVERSE_ARG[@]}"
           echo "result=captured" >> "$GITHUB_OUTPUT"
-      # Observation-only reference markets prove the public ticker/trade/
-      # orderbook/candle transport even while P3-12 has zero approved
-      # subscription markets.  This separate root is never passed to the
-      # P3/P5/P8 decision chain and carries zero strategy/order authority.
-      - name: Public WebSocket natural transport validation (decision-isolated)
-        id: validation_capture
-        env:
-          DURATION_SECONDS: ${{ github.event.inputs.validation_duration_seconds || '30' }}
-        run: |
-          set -euo pipefail
-          SNAPSHOT_DATE=$(date -u +%F)
-          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
-          python3 .github/scripts/upbit_realtime_capture.py \
-            --evidence-root evidence/crypto/upbit/realtime_validation \
-            --validation-anchor-contract config/upbit_public_validation_anchor_contract.json \
-            --snapshot-date "$SNAPSHOT_DATE" \
-            --duration-seconds "$DURATION_SECONDS"
-          echo "result=captured" >> "$GITHUB_OUTPUT"
       # P1-CR-08 (Regime) + P5-08 (Candidate Promotion) + P5-09 (PAPER Buy
-      # Eligibility) composition, tacked onto the tail of this existing
-      # 30-minute job -- NOT a new schedule. Pure read-only derivation over
-      # already-committed evidence (this run's just-captured P9-06 evidence
-      # included); zero network/order calls -- see
+      # Eligibility) composition, tacked onto this existing 30-minute job --
+      # NOT a new schedule.  It must run IMMEDIATELY after the realtime
+      # capture step: the ratified CRYPTO freshness policy is re-evaluated at
+      # this step's generated_at, so any step in between adds its duration to
+      # every ticker's provider age (see the capture-to-decision guard below).
+      # Pure read-only derivation over already-committed evidence (this run's
+      # just-captured P9-06 evidence included); zero network/order calls -- see
       # decision/crypto_paper_decision_snapshot.py's own module docstring
       # for the full scope boundary (Continuous Briefing/alerting stays
-      # UNDEFINED/out of scope). Runs unconditionally: it degrades honestly
-      # (MISSING/STALE/WAIT) rather than skipping when upstream evidence is
-      # absent, exactly like the P3-12 classification step above.
+      # UNDEFINED/out of scope). Runs unconditionally, but writes no decision
+      # generation until universe, market-evidence and this run's realtime
+      # capture share the scheduler's UTC date. Before then it reports the
+      # explicit WAIT / NOT_EVALUATED state and retains the prior actual
+      # evaluation reference for telemetry.
       - name: Crypto PAPER decision snapshot (P1-CR-08 + P5-08 + P5-09 composition, read-only)
         id: crypto_paper_decision
         if: always()
@@ -122,15 +130,22 @@ jobs:
         run: |
           set -euo pipefail
           GENERATED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          EXPECTED_VINTAGE_DATE="${GENERATED_AT:0:10}"
           SOURCE_COMMIT="$(git rev-parse HEAD)"
-          ARGS=(--generated-at "$GENERATED_AT" --source-commit "$SOURCE_COMMIT")
+          ARGS=(
+            --generated-at "$GENERATED_AT"
+            --source-commit "$SOURCE_COMMIT"
+            --expected-vintage-date "$EXPECTED_VINTAGE_DATE"
+          )
           if [ -n "${OBSERVED_STARTED_AT_UTC:-}" ]; then
             ARGS+=(--started-at "$OBSERVED_STARTED_AT_UTC")
           fi
+          echo "generated_at=$GENERATED_AT" >> "$GITHUB_OUTPUT"
           if [ "$CAPTURE_RESULT" = "captured" ] && [ -n "$SNAPSHOT_DATE" ]; then
             RUN_PATH=$(ls -1 "evidence/crypto/upbit/realtime/$SNAPSHOT_DATE"/run_*.json 2>/dev/null | sort | tail -n 1 || true)
             if [ -n "$RUN_PATH" ]; then
               ARGS+=(--realtime-run-path "$RUN_PATH")
+              echo "realtime_run_path=$RUN_PATH" >> "$GITHUB_OUTPUT"
             fi
           fi
           python3 decision/crypto_paper_decision_snapshot.py \
@@ -143,19 +158,35 @@ jobs:
       # order endpoint are read.
       - name: P5-10 Crypto five-axis per-symbol entry and exit bridge (read-only)
         id: crypto_axis_trade_bridge
-        if: steps.crypto_paper_decision.outcome == 'success'
+        if: steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED'
         env:
           DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
         run: |
           set -euo pipefail
           test -n "$DECISION_PATH"
           python3 decision/crypto_axis_trade_bridge.py --decision-packet "$DECISION_PATH"
+      # Read-only explanation of the exact bridge packet produced immediately
+      # above -- it consumes only that step's own output path and derives no
+      # new state, threshold, aggregate Regime reading or authority. It runs
+      # only when the producer succeeded; a missing path fails the step rather
+      # than falling back to another generation or an empty explanation.
+      - name: P5-10 Crypto five-axis bridge state explanation (read-only)
+        id: crypto_axis_trade_bridge_explanation
+        if: steps.crypto_axis_trade_bridge.outcome == 'success'
+        env:
+          BRIDGE_PATH: ${{ steps.crypto_axis_trade_bridge.outputs.path }}
+        run: |
+          set -euo pipefail
+          test -n "$BRIDGE_PATH"
+          python3 decision/crypto_axis_trade_bridge_explanation.py \
+            --bridge-packet "$BRIDGE_PATH" \
+            --output-root evidence/crypto_axis_trade_bridge_explanation
       # P8-16 consumes only the exact decision packet created immediately
       # above. It performs no fallback, network call, threshold evaluation,
       # candidate promotion, PAPER execution, or private-ledger read.
       - name: P8-16 Crypto funnel and PAPER decision briefing (read-only)
         id: crypto_funnel_briefing
-        if: steps.crypto_paper_decision.outcome == 'success'
+        if: steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED'
         env:
           DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
         run: |
@@ -164,7 +195,7 @@ jobs:
           python3 briefing/crypto_funnel_briefing.py --decision-packet "$DECISION_PATH"
       - name: Crypto candidate detail projection (read-only)
         id: crypto_candidate_detail
-        if: steps.crypto_paper_decision.outcome == 'success'
+        if: steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED'
         env:
           DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
         run: |
@@ -173,6 +204,53 @@ jobs:
           python3 decision/crypto_candidate_detail_view.py \
             --decision-packet "$DECISION_PATH" \
             --output-root evidence/crypto_candidate_detail
+      # Scheduler-ordering regression guard.  Measures the decision's
+      # generated_at minus the consumed realtime run's status.generated_at and
+      # fails this step when it exceeds the ENGINEERING budget in
+      # .github/scripts/check_crypto_decision_capture_gap.py (5s; expected
+      # 0-1s).  That budget is not a freshness policy: it never changes the
+      # ratified 20s/3s CRYPTO limits or any decision outcome.  Placed after
+      # the read-only consumers so a failure never suppresses them; telemetry
+      # and the evidence commit still run.
+      - name: Crypto capture-to-decision timing guard (engineering budget, read-only)
+        id: crypto_decision_capture_gap
+        if: ${{ !cancelled() && steps.crypto_paper_decision.outputs.realtime_run_path != '' }}
+        env:
+          REALTIME_RUN_PATH: ${{ steps.crypto_paper_decision.outputs.realtime_run_path }}
+          DECISION_GENERATED_AT: ${{ steps.crypto_paper_decision.outputs.generated_at }}
+          DECISION_PACKET_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
+        run: |
+          set -euo pipefail
+          ARGS=(--realtime-run-path "$REALTIME_RUN_PATH" --decision-generated-at "$DECISION_GENERATED_AT")
+          if [ -n "${DECISION_PACKET_PATH:-}" ]; then
+            ARGS+=(--decision-packet "$DECISION_PACKET_PATH")
+          fi
+          python3 .github/scripts/check_crypto_decision_capture_gap.py "${ARGS[@]}"
+      # Observation-only reference markets prove the public ticker/trade/
+      # orderbook/candle transport even while P3-12 has zero approved
+      # subscription markets.  This separate root is never passed to the
+      # P3/P5/P8 decision chain and carries zero strategy/order authority.
+      # It runs AFTER the decision chain: its ~30s window used to sit between
+      # the realtime capture and the decision step, so the decision (which
+      # re-evaluates the ratified CRYPTO freshness policy at its own
+      # generated_at) always saw every ticker >= 30s old.  It still runs
+      # exactly when the realtime capture succeeded, independent of the
+      # decision chain's own outcome.
+      - name: Public WebSocket natural transport validation (decision-isolated)
+        id: validation_capture
+        if: ${{ !cancelled() && steps.capture.outcome == 'success' }}
+        env:
+          DURATION_SECONDS: ${{ github.event.inputs.validation_duration_seconds || '30' }}
+        run: |
+          set -euo pipefail
+          SNAPSHOT_DATE=$(date -u +%F)
+          echo "snapshot_date=$SNAPSHOT_DATE" >> "$GITHUB_OUTPUT"
+          python3 .github/scripts/upbit_realtime_capture.py \
+            --evidence-root evidence/crypto/upbit/realtime_validation \
+            --validation-anchor-contract config/upbit_public_validation_anchor_contract.json \
+            --snapshot-date "$SNAPSHOT_DATE" \
+            --duration-seconds "$DURATION_SECONDS"
+          echo "result=captured" >> "$GITHUB_OUTPUT"
       - name: Record P9-06 realtime scheduler telemetry
         if: always()
         env:
@@ -187,9 +265,14 @@ jobs:
           ATLAS_VALIDATION_CAPTURE_RESULT: ${{ steps.validation_capture.outputs.result }}
           ATLAS_CRYPTO_PAPER_DECISION_STEP_OUTCOME: ${{ steps.crypto_paper_decision.outcome }}
           ATLAS_CRYPTO_PAPER_DECISION_OUTCOME: ${{ steps.crypto_paper_decision.outputs.outcome }}
+          ATLAS_CRYPTO_PAPER_DECISION_EVALUATION_STATUS: ${{ steps.crypto_paper_decision.outputs.evaluation_status }}
+          ATLAS_CRYPTO_PAPER_DECISION_STATE: ${{ steps.crypto_paper_decision.outputs.decision_state }}
+          ATLAS_CRYPTO_PAPER_DECISION_REASON: ${{ steps.crypto_paper_decision.outputs.reason }}
           ATLAS_CRYPTO_PAPER_DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
           ATLAS_CRYPTO_PAPER_DECISION_GENERATION_ID: ${{ steps.crypto_paper_decision.outputs.generation_id }}
           ATLAS_CRYPTO_PAPER_DECISION_SHA256: ${{ steps.crypto_paper_decision.outputs.payload_sha256 }}
+          ATLAS_CRYPTO_PAPER_DECISION_LAST_EVALUATED_GENERATION_ID: ${{ steps.crypto_paper_decision.outputs.last_evaluated_generation_id }}
+          ATLAS_CRYPTO_PAPER_DECISION_LAST_EVALUATED_SHA256: ${{ steps.crypto_paper_decision.outputs.last_evaluated_payload_sha256 }}
           ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_STEP_OUTCOME: ${{ steps.crypto_axis_trade_bridge.outcome }}
           ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_OUTCOME: ${{ steps.crypto_axis_trade_bridge.outputs.outcome }}
           ATLAS_CRYPTO_AXIS_TRADE_BRIDGE_PATH: ${{ steps.crypto_axis_trade_bridge.outputs.path }}
@@ -201,6 +284,10 @@ jobs:
           ATLAS_CRYPTO_FUNNEL_BRIEFING_GENERATION_ID: ${{ steps.crypto_funnel_briefing.outputs.generation_id }}
           ATLAS_CRYPTO_FUNNEL_BRIEFING_SHA256: ${{ steps.crypto_funnel_briefing.outputs.packet_sha256 }}
           ATLAS_CRYPTO_CANDIDATE_DETAIL_STEP_OUTCOME: ${{ steps.crypto_candidate_detail.outcome }}
+          ATLAS_CRYPTO_DECISION_CAPTURE_GAP_STEP_OUTCOME: ${{ steps.crypto_decision_capture_gap.outcome }}
+          ATLAS_CRYPTO_DECISION_CAPTURE_GAP_STATUS: ${{ steps.crypto_decision_capture_gap.outputs.status }}
+          ATLAS_CRYPTO_DECISION_CAPTURE_GAP_SECONDS: ${{ steps.crypto_decision_capture_gap.outputs.gap_seconds }}
+          ATLAS_CRYPTO_DECISION_CAPTURE_GAP_ENGINEERING_BUDGET_SECONDS: ${{ steps.crypto_decision_capture_gap.outputs.engineering_budget_seconds }}
           ATLAS_REPOSITORY: ${{ github.repository }}
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: |
@@ -217,6 +304,19 @@ jobs:
               json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
           )
           PY
+      # Additive rule-lineage sidecar (config/rule_registry_v1.json ids) for the
+      # exact decision packet above, keyed by its payload_sha256. It reads that
+      # packet only, never edits it or the producer, and never exits non-zero
+      # for a lineage problem (a failure prints a ::warning:: annotation);
+      # continue-on-error and the timeout keep the evidence commit.
+      - name: Rule lineage sidecar for the Crypto PAPER decision packet (read-only)
+        id: crypto_rule_lineage
+        if: ${{ !cancelled() && steps.crypto_paper_decision.outcome == 'success' && steps.crypto_paper_decision.outputs.evaluation_status == 'EVALUATED' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
+        run: python3 governance/rule_lineage_producers.py crypto-decision --packet "$DECISION_PATH"
       - name: Commit append-only realtime evidence and run telemetry
         if: always()
         env:
@@ -241,9 +341,15 @@ jobs:
           # new, separate evidence path; committed in the same run/commit as
           # the realtime evidence above, never reusing an existing path.
           git add evidence/crypto_paper_decision || true
+          # Additive rule-lineage sidecar of that decision packet.
+          git add evidence/rule_lineage/crypto_paper_decision || true
           # P5-10 read-only, per-symbol five-axis entry/exit policy bridge.
           # It contains no private position/account bytes and no authority.
           git add evidence/crypto_axis_trade_bridge || true
+          # Same-generation read-only explanation of that bridge packet; it is
+          # absent whenever the producer or explanation step did not run, which
+          # this staging convention tolerates without masking step failure.
+          git add evidence/crypto_axis_trade_bridge_explanation || true
           # P8-16 is the read-only API/briefing projection of that exact
           # decision generation. Private P10/P7 state is never copied here.
           git add evidence/crypto_funnel_briefing || true

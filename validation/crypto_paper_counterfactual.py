@@ -339,9 +339,17 @@ def _ledger_index(ledger: dict) -> tuple[dict, list[dict]]:
     return intents, fills
 
 
+def _require_known_nav(value, code: str) -> Decimal:
+    # A per-market account view (crypto_paper_account_state/2) has a null NAV
+    # while any held market has no FRESH mark; it is never valued as zero.
+    if value is None:
+        raise CryptoPaperValidationError(code)
+    return Decimal(value)
+
+
 def _pnl_metrics(ledger: dict, account: dict) -> dict:
     initial_cash = Decimal(ledger["events"][0]["payload"]["initial_cash"])
-    final_nav = Decimal(account["total_nav"])
+    final_nav = _require_known_nav(account["total_nav"], "ACCOUNT_STATE_NAV_UNKNOWN")
     _, fills = _ledger_index(ledger)
     fees = sum((Decimal(row["fee_amount"]) for row in fills), Decimal("0"))
     slippage = sum((
@@ -373,7 +381,7 @@ def _drawdown_metrics(rows: list[dict]) -> dict:
     peak_at = None
     active_peak_at = None
     for row in rows:
-        nav = Decimal(row["total_nav"])
+        nav = _require_known_nav(row["total_nav"], "NAV_SERIES_VALUE_UNKNOWN")
         if peak is None or nav > peak:
             peak = nav
             active_peak_at = row["observed_at"]
@@ -584,6 +592,8 @@ def build_daily_report(batch: dict, contract: dict | None = None) -> dict:
     artifacts = _artifact_map(batch, generated_at, contract)
     ledger = SIMULATOR.validate_ledger(artifacts["LEDGER"]["payload"])
     account = SIMULATOR.validate_account_state(artifacts["ACCOUNT_STATE"]["payload"])
+    if account["total_nav"] is None:
+        raise CryptoPaperValidationError("ACCOUNT_STATE_NAV_UNKNOWN")
     if account["source"]["ledger_sha256"] != ledger["packet_sha256"]:
         raise CryptoPaperValidationError("ACCOUNT_LEDGER_EXACT_LINEAGE_MISMATCH")
     if _utc(account["observed_at"], "ACCOUNT_OBSERVED_AT_INVALID") > generated_at:

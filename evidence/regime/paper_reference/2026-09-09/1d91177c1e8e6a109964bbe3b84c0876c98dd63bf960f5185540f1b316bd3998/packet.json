@@ -1,0 +1,341 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "final_regime_authorized": false,
+    "order_authorized": false,
+    "paper_reference_display_authorized": true,
+    "paper_symbol_context_authorized": true,
+    "production_authorized": false,
+    "runtime_regime_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "paper_regime_reference_policy/v1",
+  "crypto_descriptive_normalization_sources": [
+    {
+      "path": "regime/crypto_paper_descriptive_normalization.py",
+      "sha256": "4ab6b41e1d0fb2b6c2bf6716109c0525a0084e38474e8929f1e048127c700a16"
+    },
+    {
+      "path": "evidence/crypto/btc/raw/2026-09-09/_manifest.json",
+      "sha256": "f23ead60c4d974933fc0f0e7ecdb4cd0dd922683ff913e20fbd98f70f152eb8a"
+    },
+    {
+      "path": "evidence/crypto/btc/raw/2026-09-08/_manifest.json",
+      "sha256": "616631d5d192d0436625ef40ac5106b5716ecd01b8cedad84b16320b4d6f31cd"
+    },
+    {
+      "path": "data/observations/crypto_recent_reference/2026-09-09/packet.json",
+      "sha256": "10c033fa3afa06bf7b93cd90ce2aedf4af08112aab55ade69847c316e916fb48"
+    },
+    {
+      "path": "evidence/crypto_paper_decision/2026-09-09/1456/cd9c6f37cf65ad5b71ab0e2e68bb48af9ef89ea20cf3c53145b5840473878573/packet.json",
+      "sha256": "61eb159a4f2b0f7f3478001de3bccc3b6b332f2aee457789e2c8d03709826c43"
+    }
+  ],
+  "generated_at": "2026-09-09T14:56:42Z",
+  "generation_id": "1d91177c1e8e6a109964bbe3b84c0876c98dd63bf960f5185540f1b316bd3998",
+  "markets": [
+    {
+      "as_of_date": "2026-09-08",
+      "axes": [
+        {
+          "axis": "TREND",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "positive": 0,
+            "total": 3
+          },
+          "score": -1,
+          "summary_ko": "대표지수 3개 중 0개가 20거래일 기준 상승입니다."
+        },
+        {
+          "axis": "BREADTH",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "advance_fraction": "0.214286"
+          },
+          "score": -1,
+          "summary_ko": "대표 ETF 중 상승 비중은 21.4%입니다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "vix": "15.3"
+          },
+          "score": 0,
+          "summary_ko": "VIX는 15.3로 보통 구간입니다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "TOTBKCR": "2016.6",
+            "WRESBAL": "-30405"
+          },
+          "score": 0,
+          "summary_ko": "연준 준비금과 은행 신용 변화 방향이 서로 엇갈립니다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "positive_groups": 4,
+            "total": 12
+          },
+          "score": 0,
+          "summary_ko": "대표 업종 12개 중 4개가 20거래일 기준 상승입니다."
+        }
+      ],
+      "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+      "coverage": {
+        "defined_count": 5,
+        "missing_axes": [],
+        "ratio": "5/5",
+        "required_count": 5
+      },
+      "market": "US",
+      "paper_reference": {
+        "candidate_regime": "NEUTRAL",
+        "confidence": "0.6",
+        "explanation_ko": "좋은 신호와 약한 신호가 섞여 있습니다.",
+        "score": -2
+      },
+      "runtime_regime": "UNKNOWN"
+    },
+    {
+      "as_of_date": "2026-09-08",
+      "axes": [
+        {
+          "axis": "TREND",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "KOSDAQ": "-1.253968",
+            "KOSPI": "-0.584242"
+          },
+          "score": -1,
+          "summary_ko": "코스피 -0.58%, 코스닥 -1.25%로 두 지수가 모두 하락했습니다."
+        },
+        {
+          "axis": "BREADTH",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "advance_fraction": "0.267269"
+          },
+          "score": -1,
+          "summary_ko": "전체 종목 중 상승 비중은 26.7%입니다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "mean_absolute_move_pct": "1.923834"
+          },
+          "score": 0,
+          "summary_ko": "종목 평균 절대 등락폭은 1.92%로 보통 구간입니다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "trading_value_change_pct": "22.260203"
+          },
+          "score": 1,
+          "summary_ko": "거래대금은 이전 거래일보다 +22.3% 변했습니다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "positive_sectors": 9,
+            "total": 46
+          },
+          "score": -1,
+          "summary_ko": "업종 46개 중 9개가 상승했습니다."
+        }
+      ],
+      "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+      "coverage": {
+        "defined_count": 5,
+        "missing_axes": [],
+        "ratio": "5/5",
+        "required_count": 5
+      },
+      "market": "KR",
+      "paper_reference": {
+        "candidate_regime": "NEUTRAL",
+        "confidence": "0.2",
+        "explanation_ko": "좋은 신호와 약한 신호가 섞여 있습니다.",
+        "score": -2
+      },
+      "runtime_regime": "UNKNOWN"
+    },
+    {
+      "as_of_date": "2026-09-09",
+      "axes": [
+        {
+          "axis": "TREND",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "category": "ABOVE_200DMA"
+          },
+          "score": 1,
+          "summary_ko": "비트코인 가격이 200일 이동평균 위에 있습니다."
+        },
+        {
+          "axis": "BREADTH",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "advance_fraction": "0.77"
+          },
+          "score": 1,
+          "summary_ko": "상승 비중은 77.0%입니다(잠정 코인 PAPER 기준)."
+        },
+        {
+          "axis": "RISK_VOL",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "current_as_of_date": "2026-09-08",
+            "drawdown_change": "DETERIORATED",
+            "prior_as_of_date": "2026-09-07",
+            "volatility_change": "DETERIORATED"
+          },
+          "score": -1,
+          "summary_ko": "직전 확정일 대비 변동성과 낙폭이 나아지지 않았습니다. 절대 위험 수준은 판정하지 않았습니다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "daily_net_issuance": "262310405.4",
+            "weekly_net_issuance": "1591590926.4"
+          },
+          "score": 1,
+          "summary_ko": "스테이블코인 일간·주간 순발행이 모두 플러스입니다(거래소 매수 여력이 아니라 발행량 대리지표)."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "leadership_code": "MIXED_WINDOW_LEADERSHIP"
+          },
+          "score": 0,
+          "summary_ko": "주도 코인 구도는 MIXED_WINDOW_LEADERSHIP입니다(잠정 서술적 해석)."
+        }
+      ],
+      "caveats": [
+        "PROVISIONAL_CRYPTO_PAPER_POLICY",
+        "RISK_DIRECTION_ONLY",
+        "ABSOLUTE_STRESS_NOT_ASSESSED",
+        "CONFIDENCE_MATCHING_AXIS_FRACTION_NOT_PROBABILITY",
+        "CURRENT_REFERENCE_NOT_PIT_REPLAY"
+      ],
+      "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+      "coverage": {
+        "defined_count": 5,
+        "missing_axes": [],
+        "ratio": "5/5",
+        "required_count": 5
+      },
+      "descriptive_caveats": {
+        "absolute_stress_status": "NOT_ASSESSED",
+        "breadth_threshold_status": "PROVISIONAL_CRYPTO_PAPER_POLICY",
+        "confidence_semantics": "CONFIDENCE_MATCHING_AXIS_FRACTION_NOT_PROBABILITY",
+        "leadership_interpretation_status": "PROVISIONAL_DESCRIPTIVE_PARTICIPATION_INTERPRETATION",
+        "liquidity_input_semantics": "NAMED_STABLECOIN_ISSUANCE_PROXY_NOT_EXCHANGE_BUYING_POWER",
+        "point_in_time_status": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
+        "risk_direction_semantics": "RELATIVE_DAY_OVER_DAY_DIRECTION_ONLY_NOT_ABSOLUTE_STRESS_LEVEL",
+        "source_qualification_status": "PAYLOAD_INTEGRITY_ONLY_RAW_SOURCE_QUALIFICATION_REQUIRED_AT_PRODUCER_INTEGRATION",
+        "stress_calibration_status": "UNDEFINED_UNCALIBRATED"
+      },
+      "leadership_code": "MIXED_WINDOW_LEADERSHIP",
+      "market": "CRYPTO",
+      "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
+      "normalization_schema_version": "crypto_paper_descriptive_normalization/v1",
+      "official_validation": {
+        "classification_status": "WAIT_PIT_LEADERSHIP_HISTORY",
+        "coverage": {
+          "defined_axes": [
+            "TREND",
+            "BREADTH",
+            "RISK_VOL",
+            "LIQUIDITY"
+          ],
+          "defined_count": 4,
+          "missing_axes": [
+            "LEADERSHIP"
+          ],
+          "ratio": "4/5",
+          "required_count": 5
+        }
+      },
+      "paper_reference": {
+        "candidate_regime": "NEUTRAL",
+        "confidence": "0.2",
+        "explanation_ko": "좋은 신호와 약한 신호가 섞여 있습니다.",
+        "score": 2
+      },
+      "price_as_of_date": "2026-09-08",
+      "risk_binding": {
+        "current": {
+          "as_of_date": "2026-09-08",
+          "available_at": "2026-09-09T00:41:37Z",
+          "current_drawdown_fraction": "-0.034776521019",
+          "maximum_drawdown_fraction": "-0.116956805759",
+          "payload_sha256": "2c2efd2b98c76fe711333cb0211e11d4a73aa4649452e4776f767db29ea5dab7",
+          "realized_vol_annualized_fraction": "0.492063564002",
+          "source_name": "kraken_spot_ohlc",
+          "source_sha256": "99c6531f2795b49845ce18025497e010ab6854b8f7450d72041191ff1c745eec",
+          "vintage_date": "2026-09-09"
+        },
+        "drawdown_change": "DETERIORATED",
+        "prior": {
+          "as_of_date": "2026-09-07",
+          "available_at": "2026-09-08T00:42:02Z",
+          "current_drawdown_fraction": "-0.026893514822",
+          "maximum_drawdown_fraction": "-0.116956805759",
+          "payload_sha256": "19647db8c31de9fd1192be3436f3d3bf56cc8933736a7c7f08df16ae82f04b75",
+          "realized_vol_annualized_fraction": "0.491256556551",
+          "source_name": "kraken_spot_ohlc",
+          "source_sha256": "b4887593873b7399e58c4aaf537a279a380bc7642ed2c0e54b8a281c03583c3c",
+          "vintage_date": "2026-09-08"
+        },
+        "raw_source_qualification": "REQUIRED_AT_PRODUCER_INTEGRATION",
+        "transform_version": "btc_risk/v1",
+        "volatility_change": "DETERIORATED"
+      },
+      "runtime_regime": "UNKNOWN"
+    }
+  ],
+  "mode": "PAPER_DIAGNOSTIC_NOT_RUNTIME",
+  "payload_sha256": "4cec07c0e3618a77d93c56e5ec98f2d16d663b90551900a05ef47eadf973df2c",
+  "policy": {
+    "path": "config/paper_regime_reference_policy_v1.json",
+    "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
+    "status": "PM_BASELINE_CANDIDATE_NOT_CIO_RATIFIED_SENSOR_POLICY"
+  },
+  "render_version": "paper_reference_current_crypto/v4",
+  "schema_version": "paper_regime_reference/v2",
+  "sources": [
+    {
+      "market": "US",
+      "path": "data/latest_free_market_data.json",
+      "sha256": "ed65b58d5188d58ad356ec6e9583bc4d6face2bb296580dcb231cfd257fcb6a5"
+    },
+    {
+      "market": "KR",
+      "path": "data/latest_korea_market_signals.json",
+      "sha256": "f9b8f3fb2610811369e8d34f3b7a12085b0eda84bfe3d3bbed765171439e2649"
+    },
+    {
+      "market": "CRYPTO",
+      "path": "data/latest_crypto_regime_refresh_status.json",
+      "sha256": "a3c123ba61b6ff6a5669e8f94556b2263bbae0c61ef51a0c5c6eb52d198c784d"
+    }
+  ],
+  "status": "REFERENCE_AVAILABLE"
+}

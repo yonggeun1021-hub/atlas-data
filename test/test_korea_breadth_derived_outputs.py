@@ -246,6 +246,7 @@ class KoreaBreadthDerivedOutputsTests(unittest.TestCase):
                     "korea-breadth-historical-kosdaq.json",
                     "korea-breadth-recent-kosdaq.json",
                     "p3-03-krx-global-universe.json",
+                    DERIVED.REQUEST_RECEIPT_NAME,
                 ]
             ),
         )
@@ -274,6 +275,281 @@ class KoreaBreadthDerivedOutputsTests(unittest.TestCase):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("krx.co.kr", text)
         self.assertNotIn("import requests", text)
+
+
+class KoreaBreadthRequestReceiptTests(unittest.TestCase):
+    """Regression for the run34235447413 diagnostic loss: a failed
+    market/date used to discard its own requested date, HTTP status,
+    response digest and shape, and a dependent date that was never
+    requested was indistinguishable from one that failed."""
+
+    def run_matrix(self, payloads, markets=("kospi",), pairs=PAIRS, statuses=None):
+        opener = FIXTURES.SequenceOpener(payloads, statuses=statuses)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = DERIVED.run_derived_outputs(
+                TOKEN, markets, pairs, Path(tmp), opener=opener, contract=CONTRACT
+            )
+            text = result["request_receipt_path"].read_text(encoding="utf-8")
+        return result, json.loads(text), text, opener
+
+    @staticmethod
+    def by_date(receipt, bas_dd):
+        return [
+            entry
+            for entry in receipt["requests"]
+            if entry["requested_bas_dd"] == bas_dd
+        ]
+
+    def test_previous_date_failure_records_its_own_request_and_skips_the_current_date(self):
+        # The exact production shape: the recent pair's previous date came
+        # back with zero rows, so the current date was never requested.
+        result, receipt, _, opener = self.run_matrix(
+            [
+                payload([row("20100104", "A", "1")]),
+                payload([row("20100105", "A", "2")]),
+                payload([]),
+            ]
+        )
+
+        # One original request per unique market/date, no retry, and the
+        # dependent current date genuinely never left the process.
+        self.assertEqual(len(opener.requests), 3)
+        self.assertEqual(len(receipt["requests"]), 3)
+        self.assertEqual(self.by_date(receipt, "20260818"), [])
+
+        failing = self.by_date(receipt, "20260814")[0]
+        self.assertEqual(failing["market"], "KOSPI")
+        self.assertEqual(failing["attempt"], "ATTEMPTED")
+        self.assertEqual(failing["outcome"], "FAILED")
+        self.assertEqual(failing["error_code"], "RESPONSE_ZERO_ROWS")
+        self.assertEqual(failing["http_status"], 200)
+        self.assertRegex(failing["response_sha256"], r"^[0-9a-f]{64}$")
+        self.assertGreater(failing["response_byte_count"], 0)
+        self.assertEqual(failing["response_shape"]["expected_block_row_count"], 0)
+        self.assertTrue(failing["response_shape"]["expected_block_present"])
+        self.assertEqual(
+            failing["endpoint"], CONTRACT["market_endpoints"]["kospi"]
+        )
+        self.assertIsNotNone(failing["captured_at"])
+        # Nothing the response does not actually show is asserted.
+        self.assertEqual(failing["provider_status"], "UNKNOWN")
+        self.assertIsNone(failing["source_available_at"])
+
+        self.assertEqual(len(receipt["not_attempted"]), 1)
+        skipped = receipt["not_attempted"][0]
+        self.assertEqual(skipped["dependent_bas_dd"], "20260818")
+        self.assertIsNone(skipped["requested_bas_dd"])
+        self.assertEqual(skipped["attempt"], "NOT_ATTEMPTED")
+        self.assertEqual(skipped["outcome"], "NOT_ATTEMPTED")
+        self.assertEqual(skipped["not_attempted_reason"], "PREVIOUS_DATE_FAILED")
+        self.assertEqual(
+            skipped["blocked_by"],
+            {"bas_dd": "20260814", "error_code": "RESPONSE_ZERO_ROWS"},
+        )
+        self.assertIsNone(skipped["http_status"])
+        self.assertIsNone(skipped["response_sha256"])
+
+        recent_scope = [s for s in receipt["scopes"] if s["scope"] == "recent"][0]
+        self.assertEqual(recent_scope["status"], "FAILED")
+        self.assertEqual(recent_scope["failing_stage"], "previous_date_fetch")
+        self.assertEqual(recent_scope["failing_bas_dd"], "20260814")
+        self.assertEqual(recent_scope["error_code"], "RESPONSE_ZERO_ROWS")
+        self.assertEqual(result["failed_count"], 1)
+        self.assertEqual(len(result["notices"]), 1)
+        self.assertIn("status=NOT_ATTEMPTED", result["notices"][0])
+        self.assertIn("dependent_bas_dd=20260818", result["notices"][0])
+
+    def test_current_date_failure_is_attributed_to_the_current_date(self):
+        # Same visible error code as the previous-date failure above, but
+        # a different requested date -- the distinction the old receiptless
+        # summary could not express.
+        result, receipt, _, opener = self.run_matrix(
+            [
+                payload([row("20100104", "A", "1")]),
+                payload([row("20100105", "A", "2")]),
+                payload([row("20260814", "C", "10")]),
+                payload([]),
+            ]
+        )
+
+        self.assertEqual(len(opener.requests), 4)
+        self.assertEqual(receipt["not_attempted"], [])
+        self.assertEqual(self.by_date(receipt, "20260814")[0]["outcome"], "SUCCESS")
+
+        failing = self.by_date(receipt, "20260818")[0]
+        self.assertEqual(failing["attempt"], "ATTEMPTED")
+        self.assertEqual(failing["error_code"], "RESPONSE_ZERO_ROWS")
+        self.assertEqual(failing["response_shape"]["expected_block_row_count"], 0)
+
+        recent_scope = [s for s in receipt["scopes"] if s["scope"] == "recent"][0]
+        self.assertEqual(recent_scope["failing_stage"], "current_date_fetch")
+        self.assertEqual(recent_scope["failing_bas_dd"], "20260818")
+        self.assertEqual(result["failed_count"], 1)
+
+    def test_a_failed_date_repeated_across_pairs_is_never_requested_again(self):
+        # Both supplied pairs share the same previous date. The failure is
+        # cached exactly like a success: no second request, no retry.
+        pairs = (
+            ("historical", "20100104", "20100105"),
+            ("recent", "20100104", "20260818"),
+        )
+        result, receipt, _, opener = self.run_matrix([payload([])], pairs=pairs)
+
+        self.assertEqual(len(opener.requests), 1)
+        self.assertEqual(len(receipt["requests"]), 1)
+        self.assertEqual(receipt["requests"][0]["requested_bas_dd"], "20100104")
+        self.assertEqual(result["failed_count"], 2)
+        self.assertEqual(
+            sorted(entry["dependent_bas_dd"] for entry in receipt["not_attempted"]),
+            ["20100105", "20260818"],
+        )
+        for entry in receipt["not_attempted"]:
+            self.assertEqual(entry["blocked_by"]["bas_dd"], "20100104")
+
+    def test_every_transport_and_decode_failure_keeps_its_own_evidence(self):
+        block = CONTRACT["response_block"]
+        cases = (
+            ("http_error_body", FIXTURES.http_error(401, b'{"x": 1}'), None,
+             "KRX_HTTP_ERROR_401", "ATTEMPTED", 401, True, True),
+            ("non_200", payload([]), 204, "KRX_HTTP_ERROR_204", "ATTEMPTED",
+             204, True, True),
+            ("malformed_json", b"{bad-json", None, "KRX_RESPONSE_MALFORMED_JSON",
+             "ATTEMPTED", 200, True, False),
+            ("not_utf8", b"\xff\xfe rows", None, "KRX_RESPONSE_NOT_UTF8_JSON",
+             "ATTEMPTED", 200, True, False),
+            ("root_not_object", b"[]", None, "KRX_RESPONSE_ROOT_NOT_OBJECT",
+             "ATTEMPTED", 200, True, True),
+            ("block_missing", {"OtherBlock": []}, None, "RESPONSE_BLOCK_MISSING",
+             "ATTEMPTED", 200, True, True),
+            ("zero_rows", payload([]), None, "RESPONSE_ZERO_ROWS", "ATTEMPTED",
+             200, True, True),
+            ("date_mismatch", payload([row("20100105", "A", "1")]), None,
+             "BAS_DD_MISMATCH", "ATTEMPTED", 200, True, True),
+            ("network_error", FIXTURES.URLError("down %s" % TOKEN), None,
+             "KRX_NETWORK_ERROR", "ATTEMPTED", None, False, False),
+        )
+        for name, body, status, code, attempt, http_status, has_digest, parseable in cases:
+            with self.subTest(case=name):
+                opener = FIXTURES.SequenceOpener(
+                    [body], statuses=None if status is None else [status]
+                )
+                record = DERIVED.attempt_fetch(
+                    TOKEN, "20100104", "kospi", opener=opener, contract=CONTRACT
+                )
+                receipt = record["receipt"]
+                self.assertIsNone(record["snapshot"])
+                self.assertEqual(len(opener.requests), 1)
+                self.assertEqual(receipt["requested_bas_dd"], "20100104")
+                self.assertEqual(receipt["attempt"], attempt)
+                self.assertEqual(receipt["outcome"], "FAILED")
+                self.assertEqual(receipt["error_code"], code)
+                self.assertEqual(receipt["http_status"], http_status)
+                self.assertIsNotNone(receipt["captured_at"])
+                if has_digest:
+                    self.assertRegex(receipt["response_sha256"], r"^[0-9a-f]{64}$")
+                    self.assertEqual(
+                        receipt["response_shape"]["parseable_json"], parseable
+                    )
+                    self.assertEqual(
+                        receipt["response_shape"]["expected_block"], block
+                    )
+                else:
+                    # No response was ever observed.
+                    self.assertIsNone(receipt["response_sha256"])
+                    self.assertIsNone(receipt["response_byte_count"])
+                    self.assertIsNone(receipt["response_shape"])
+                self.assertNotIn(TOKEN, json.dumps(receipt))
+
+    def test_a_request_that_was_never_built_is_not_reported_as_attempted(self):
+        opener = FIXTURES.SequenceOpener([])
+        record = DERIVED.attempt_fetch(
+            "", "20100104", "kospi", opener=opener, contract=CONTRACT
+        )
+        receipt = record["receipt"]
+        self.assertEqual(len(opener.requests), 0)
+        self.assertEqual(receipt["attempt"], "NOT_ATTEMPTED")
+        self.assertEqual(receipt["not_attempted_reason"], "REQUEST_NOT_CONSTRUCTED")
+        self.assertEqual(receipt["error_code"], "KRX_API_KEY_MISSING")
+        self.assertIsNone(receipt["http_status"])
+        self.assertIsNone(receipt["response_sha256"])
+
+    def test_receipt_and_printed_summaries_leak_no_raw_body_key_or_price(self):
+        leaky = json.dumps(
+            payload([row("20260818", RAW_CODE, "123456", "KOSDAQ", RAW_NAME)])
+        ).encode("utf-8")
+        result, receipt, receipt_text, opener = self.run_matrix(
+            [
+                payload([row("20100104", "A", "1", "KOSPI")]),
+                payload([row("20100105", "A", "2", "KOSPI")]),
+                payload([]),
+                payload([row("20100104", "B", "1", "KOSDAQ")]),
+                payload([row("20100105", "B", "2", "KOSDAQ")]),
+                payload([row("20260814", "D", "20", "KOSDAQ")]),
+                FIXTURES.http_error(500, leaky),
+            ],
+            markets=("kospi", "kosdaq"),
+        )
+
+        printed = "\n".join(result["summaries"] + result["notices"])
+        for forbidden in (
+            TOKEN, RAW_NAME, RAW_CODE, "123456", "response_body_base64",
+            "AUTH_KEY", "auth_key", "User-Agent", "basDd", "OutBlock_1\":",
+        ):
+            self.assertNotIn(forbidden, receipt_text)
+            self.assertNotIn(forbidden, printed)
+        # The bounded digest of that leaky error body is kept; the body is not.
+        error_entry = self.by_date(receipt, "20260818")[0]
+        self.assertEqual(error_entry["http_status"], 500)
+        self.assertRegex(error_entry["response_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(error_entry["response_byte_count"], len(leaky))
+        self.assertEqual(receipt["raw_persistence"], 0)
+
+        # No unsupported cause is ever attributed to the failure.
+        lowered = (receipt_text + printed).lower()
+        for invented in ("publication", "entitlement", "holiday", "delay", "lag"):
+            self.assertNotIn(invented, lowered)
+
+        self.assertEqual(
+            receipt["p3_03"],
+            {
+                "status": "FAILED",
+                "as_of_date": "20260818",
+                "error_code": "DEPENDENCY_UNAVAILABLE",
+                "missing_markets": ["KOSPI", "KOSDAQ"],
+            },
+        )
+        self.assertIsNone(result["p3_03_path"])
+        self.assertEqual(result["failed_count"], 3)
+
+    def test_successful_run_receipt_records_every_attempt_and_no_skips(self):
+        result, receipt, receipt_text, opener = self.run_matrix(
+            eight_point_matrix(("1", "2"), ("10", "11"), ("1", "2"), ("20", "19")),
+            markets=("kospi", "kosdaq"),
+        )
+
+        self.assertEqual(result["failed_count"], 0)
+        self.assertEqual(len(opener.requests), 8)
+        self.assertEqual(len(receipt["requests"]), 8)
+        self.assertEqual(receipt["not_attempted"], [])
+        self.assertEqual(len(receipt["scopes"]), 4)
+        for entry in receipt["requests"]:
+            self.assertEqual(entry["attempt"], "ATTEMPTED")
+            self.assertEqual(entry["outcome"], "SUCCESS")
+            self.assertEqual(entry["http_status"], 200)
+            self.assertIsNone(entry["error_code"])
+            self.assertRegex(entry["response_sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(entry["response_shape"]["expected_block_row_count"], 1)
+            self.assertEqual(entry["provider_status"], "UNKNOWN")
+            self.assertIsNone(entry["source_available_at"])
+        for scope in receipt["scopes"]:
+            self.assertEqual(scope["status"], "PASS")
+            self.assertIsNone(scope["error_code"])
+        self.assertEqual(receipt["p3_03"]["status"], "PASS")
+        self.assertEqual(receipt["schema_version"], DERIVED.REQUEST_RECEIPT_SCHEMA_VERSION)
+        for forbidden in (TOKEN, RAW_NAME, RAW_CODE, "response_body_base64"):
+            self.assertNotIn(forbidden, receipt_text)
+        digest = receipt.pop("payload_sha256")
+        self.assertEqual(digest, DERIVED.payload_sha256(receipt))
 
 
 if __name__ == "__main__":

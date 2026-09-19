@@ -1,0 +1,48 @@
+{
+  "record_type": "USER_APPROVAL",
+  "approved_at_kst": "2026-09-18T15:12:00+09:00",
+  "approved_at_utc": "2026-09-18T06:12:00Z",
+  "verbatim": "한국 5개 신호 기록을 이미 예약된 korea-leadership-live-proof.yml에서 확정된 생산기로 만들어 저장하는 것을 승인한다. 그에 따라 늘어나는 자료 수집 호출 1건을 승인하고, 출처 등록부의 기록을 실제 생산 경로와 일치하도록 고치는 것까지 함께 확정한다.",
+  "card": {
+    "path": "CLAUDE_CIO_DECISION_KR_SIGNALS_ORPHANED_WRITER_20260918.md",
+    "option_selected": "나 (option 2) — 이미 예약된 워크플로에서 확정된 생산기 실행"
+  },
+  "problem_measured": {
+    "finding": "data/latest_korea_market_signals.json 에 자동 기록자가 존재하지 않는다. 2026-09-11 이후 고아 상태.",
+    "consequence": "한국 모집단 관측이 날짜를 이 파일에서 받으므로 2026-09-10 에서 멈춤. 이미 수집된 krx_global_universe 2026-09-15 / 09-16 이 소비되지 못하고 대기.",
+    "prohibition_was_irrelevant": "korea-market-signals.yml 을 수동 실행하지 말라는 기존 지시는 이 문제의 원인이 아니다. 그 워크플로는 permissions: contents: read 이고 출력이 actions/upload-artifact 뿐이라 이 파일을 갱신할 수 없다. 돌려도 해결되지 않는다.",
+    "origin": "커밋 abb8c4775 (2026-09-13, PR #692) 가 cron 5개와 workflow_run 트리거를 제거하고 contents: write 를 read 로 바꿨다. 커밋 설명 없음, 문서 변경 없음 — 이유가 기록되지 않았다.",
+    "refuted_hypotheses": [
+      "거래일 달력 부재 — 아니다. 공식 KR 달력 231개 파일이 커밋되어 있고 discover_session_pair() 가 살아 있다.",
+      "접속 키/한도 문제 — 아니다. 문서화된 제약은 원시 행 보관에 관한 것이며 호출 빈도가 아니다."
+    ]
+  },
+  "items": {
+    "kr_signals_writer_relocation": {
+      "status": "APPROVED",
+      "host_workflow": ".github/workflows/korea-leadership-live-proof.yml",
+      "why_this_host": "평일 09:10Z·09:25Z 예약이 이미 있고 이 시각이 이 파일의 역사적 생산 시각(약 09:24Z)과 일치한다. KRX_API_KEY 보유, contents: write 작업 보유, 확정된 생산기를 이미 import 한다. 지문 연쇄 없음 — 등록부는 생산기 스크립트를 해시로, korea-market-signals.yml 의 워크플로 바이트를 해시로 고정하는데 둘 다 건드리지 않는다.",
+      "producer": "확정된 korea_market_signals.py (korea_market_signals_pykrx_candidate.py 가 아님)",
+      "output": "data/latest_korea_market_signals.json",
+      "additional_provider_call_approved": 1,
+      "registry_accuracy_fix_approved": true,
+      "registry_accuracy_rationale": "등록부의 workflow_path 가 실제 생산 경로와 달라지면, 오늘 감시장치에서 고친 것과 동일한 종류의 조용한 거짓이 된다. 사용자가 이 수정까지 함께 확정했다.",
+      "explicitly_rejected_alternatives": {
+        "option_1_restore_writer_on_pinned_workflow": "pin K2 (workflow_sha256 9226b64a…) 가 깨지고 등록부 → 설정 9개 → 확정 증거로 연쇄. 이유가 기록되지 않은 2026-09-13 결정을 되돌리는 일이므로, 그 동기를 먼저 밝히지 않은 채 하지 않는다.",
+        "option_3_relax_kr_coupling": "거부. KR_BOUNDED_REVIEW_SESSION_MISMATCH 는 날짜와 내용이 어긋난 기록을 막는 올바른 검사이며, 같은 날 미국에 추가한 검사와 동일한 취지다."
+      }
+    }
+  },
+  "cio_obligations": [
+    "등록부 수정의 지문 연쇄 규모를 먼저 측정해 보고한 뒤 실행한다. 승인은 받았으나 규모 보고 의무는 유지된다.",
+    "ME006 provisional-row 우려는 이 경우 적용되지 않음을 기록한다 — 5개 신호 기록은 직전 거래일을 서술하며, 그래서 역사적으로 18:24 KST 에 생산되었다.",
+    "새 test/ 파일은 run_all.py APPROVED_TESTS 에 같은 커밋에서 등록한다.",
+    "수집 대상과 출처는 변경하지 않는다. 승인된 추가 호출은 1건뿐이다.",
+    "korea-market-signals.yml 은 계속 수동 실행하지 않는다."
+  ],
+  "authority": {
+    "action_authorized": false,
+    "real_capital_authorized": false,
+    "scope": "PAPER / evidence accumulation only"
+  }
+}

@@ -152,13 +152,20 @@ class KoreaBreadthAggregateRetentionTest(unittest.TestCase):
             self.assertIn("artifact_id: ${{ steps.upload_derived.outputs.artifact-id }}", text)
             self.assertIn("artifact_digest: ${{ steps.upload_derived.outputs.artifact-digest }}", text)
             self.assertIn("korea_breadth_aggregate_populate.py", text)
-            self.assertIn("--source-head-sha \"${{ github.sha }}\"", text)
             self.assertIn("--artifact-id \"${{ needs.korea-breadth-live-proof.outputs.artifact_id }}\"", text)
             self.assertIn("--artifact-digest \"$ARTIFACT_DIGEST\"", text)
             self.assertIn("data/observations/korea_breadth_aggregate", text)
             if workflow == P2_WORKFLOW:
+                self.assertIn(
+                    "source_head_sha: ${{ steps.source_revision.outputs.sha }}", text
+                )
+                self.assertIn(
+                    "--source-head-sha \"${{ needs.korea-breadth-live-proof.outputs.source_head_sha }}\"",
+                    text,
+                )
                 self.assertIn(f'--workflow-path "{expected_path}"', text)
             else:
+                self.assertIn("--source-head-sha \"${{ github.sha }}\"", text)
                 self.assertNotIn("--workflow-path", text)
 
     def test_only_approved_capture_workflows_are_accepted(self):

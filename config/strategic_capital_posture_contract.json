@@ -24,10 +24,20 @@
   ],
   "unavailable_only_source_slots": [
     "P1_REGIME_DECISION",
-    "P2_CROSS_MARKET_FLOW",
     "P2_ROTATION_STATE"
   ],
   "source_specs": {
+    "P2_CROSS_MARKET_FLOW": {
+      "schema_version": "capital_flow_posture_reference/v1",
+      "contract_version": "capital_flow_posture_reference_policy/v1",
+      "statuses": [
+        "REFERENCE_AVAILABLE",
+        "PARTIAL_REFERENCE_AVAILABLE"
+      ],
+      "effective_available_at_path": [
+        "generated_at"
+      ]
+    },
     "P6_DEFENSIVE_ACTION": {
       "schema_version": "defensive_action_decision_readiness_packet/1",
       "contract_version": "defensive_action_decision_readiness/1",

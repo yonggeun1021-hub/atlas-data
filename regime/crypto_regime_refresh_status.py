@@ -177,7 +177,10 @@ def _select_official_decision(root: Path) -> tuple[Path | None, dict | None, str
         # require the scheduled producer to emit a new packet.  Hash failures,
         # missing source files, malformed schemas and every other integrity
         # failure remain hard errors rather than being hidden as WAIT.
-        if str(exc) == "OUTPUT_DERIVATION_MISMATCH":
+        if str(exc) in {
+            "OUTPUT_DERIVATION_MISMATCH",
+            "REGIME_COMPONENT_REGISTRY_INVALID:REGISTRY_DERIVATION_MISMATCH",
+        }:
             return None, None, "OFFICIAL_DECISION_REFRESH_REQUIRED"
         fail("OFFICIAL_DECISION_INVALID", str(exc))
     return path, copy.deepcopy(packet), None

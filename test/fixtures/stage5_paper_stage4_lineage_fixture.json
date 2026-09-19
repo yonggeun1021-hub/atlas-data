@@ -1,0 +1,44 @@
+{
+  "schema_version": "stage4_paper_decision_lineage_fixture/1",
+  "mode": "MOCK_PATH_ONLY_NOT_PAPER_EXECUTION",
+  "evaluated_at": "2026-09-12T13:26:25Z",
+  "market": "CRYPTO",
+  "market_regime": {
+    "as_of_date": "2026-09-12",
+    "price_as_of_date": "2026-09-11",
+    "candidate_regime": "NEUTRAL",
+    "runtime_regime": "UNKNOWN",
+    "source_identity": {
+      "path": "data/latest_paper_regime_reference.json",
+      "contract_version": "paper_regime_reference_policy/v1",
+      "schema_version": "paper_regime_reference/v2",
+      "generated_at": "2026-09-12T13:26:25Z",
+      "generation_id": "70176ad3877836620cf7403ddc30af7f2275a657df111c950a2338c1c87961af",
+      "payload_sha256": "735fab39899e0963fed4d91bb56e1fa2adcc796e78034499e54371d20b7b0bed",
+      "file_sha256": "2c3c05e630ebf133e7689b1453b762e835cd7d1a0ab13c8b8cbea63b192dc8b9"
+    }
+  },
+  "candidate": {
+    "candidate_id": null,
+    "validity": "NOT_EVALUATED",
+    "rejection_reasons": [
+      "STAGE3_PACKET_MISSING_STAGE1_REGIME_LINEAGE",
+      "P7_15_THREE_MARKET_REGIME_NOT_PROVEN_TO_STAGE1_LINEAGE",
+      "NUMERIC_POLICY_UNRATIFIED",
+      "POSITION_AND_EXIT_POLICY_NOT_SUPPLIED"
+    ]
+  },
+  "authority": {
+    "stage4_decision_authorized": false,
+    "candidate_authorized": false,
+    "entry_authorized": false,
+    "position_size_authorized": false,
+    "virtual_ledger_operational_authorized": false,
+    "broker_submission_authorized": false,
+    "exchange_order_authorized": false,
+    "capital_movement_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}

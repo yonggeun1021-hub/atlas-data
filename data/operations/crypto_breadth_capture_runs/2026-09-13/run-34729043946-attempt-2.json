@@ -1,0 +1,62 @@
+{
+  "authority": "operations_telemetry_only",
+  "authority_flags": {
+    "data_readiness_authorized": false,
+    "production_wiring_authorized": false,
+    "ranking_authorized": false,
+    "regime_score_authorized": false,
+    "trading_action_authorized": false
+  },
+  "capture": {
+    "provider_calls_skipped": true,
+    "raw_publication_eligible": false,
+    "reason": "snapshot_already_exists",
+    "result": "skipped_existing",
+    "step_outcome": "success"
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "schedule",
+    "event_schedule": "40 0 * * *",
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 2,
+    "run_id": 34729043946,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/34729043946"
+  },
+  "p1_cr_06_validation": {
+    "result": "passed",
+    "step_outcome": "success"
+  },
+  "p1_cr_07_validation": {
+    "result": "passed",
+    "step_outcome": "success"
+  },
+  "p2_04_source_pair_population": {
+    "output_path": null,
+    "payload_sha256": null,
+    "reason": "PRIOR_SOURCE_POINT_UNKNOWN;CURRENT_SOURCE_POINT_UNKNOWN",
+    "result": "blocked",
+    "step_outcome": "success"
+  },
+  "p3_04_population": {
+    "output_path": "/home/runner/work/atlas-data/atlas-data/data/observations/crypto_global_universe/2026-09-13/packet.json",
+    "payload_sha256": "7d8ec2f67475f43d1a85c01d5bb8f718f671f5c48134cc6b7428e54464102095",
+    "reason": null,
+    "result": "verified_existing",
+    "step_outcome": "success"
+  },
+  "runner": {
+    "observed_started_at_kst": "2026-09-13T11:40:34+09:00",
+    "observed_started_at_utc": "2026-09-13T02:40:34Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": 7234,
+    "expected_start_kst": "2026-09-13T09:40:00+09:00",
+    "expected_start_utc": "2026-09-13T00:40:00Z",
+    "id": "daily_0940_kst",
+    "timing_status": "measured"
+  },
+  "snapshot_date_utc": "2026-09-13",
+  "workflow": "P1-CR-06 Crypto Breadth Daily Capture"
+}

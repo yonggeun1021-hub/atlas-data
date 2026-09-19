@@ -24,7 +24,7 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
@@ -90,19 +90,45 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict:
     return contract
 
 
+# Repository-relative identity of every module this orchestrator executes,
+# captured from the bytes that were actually executed, at the moment they were
+# executed. Keyed by the exact origin path the loader compiles into each
+# function's __code__.co_filename, so a callable can be matched back to the
+# file it really came from rather than to whatever happens to sit at the same
+# relative path later. Read only by _derivation_metadata(); nothing else
+# consults it and nothing ever mutates an entry after its module is loaded.
+_MODULE_CODE_IDENTITY: dict[str, dict] = {}
+
+
 def _load(name: str, relative_path: str):
     path = ROOT / relative_path
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         fail("MODULE_LOAD_FAILED", relative_path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    origin = spec.origin or str(path)
+    source_bytes = Path(origin).read_bytes()
+    # Execute the same bytes we hash. exec_module() may instead select an old
+    # timestamp-valid .pyc, or reread source that changed after our first read.
+    exec(compile(source_bytes, origin, "exec", dont_inherit=True), module.__dict__)
+    _MODULE_CODE_IDENTITY[origin] = {
+        "code_path": relative_path,
+        "code_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "code_root": str(ROOT),
+        "code_objects": tuple(
+            value.__code__ for value in vars(module).values()
+            if getattr(getattr(value, "__code__", None), "co_filename", None) == origin
+        ),
+    }
     return module
 
 
 REGIME = _load("atlas_daily_regime", "regime/output_contract.py")
 LIVE_AXIS_ADAPTER = _load(
     "atlas_daily_live_axis_adapter", "regime/live_axis_adapter.py"
+)
+RUNTIME_REGIME_READINESS = _load(
+    "atlas_daily_runtime_regime_readiness", "regime/runtime_regime_readiness.py"
 )
 FRED_VIX_PROVENANCE = _load(
     "atlas_daily_fred_vix_provenance", "collectors/fred_vix_provenance.py"
@@ -154,6 +180,17 @@ STRATEGIC_CAPITAL_POSTURE = _load(
     "atlas_daily_strategic_capital_posture",
     "portfolio/strategic_capital_posture.py",
 )
+# P2-05's readiness producer, used here only to CAPTURE its immutable frozen
+# input tuple at build time. The rederivation that turns that tuple into
+# P2_ROTATION_STATE blockers happens inside STRATEGIC_CAPITAL_POSTURE -- this
+# orchestrator never derives readiness semantics of its own.
+#
+# Deliberately the SAME loaded instance the P7-12 adapter uses, rather than a
+# second _load() of the same file: every _load() call executes the module
+# afresh, which would give capture and rederivation two distinct copies of the
+# producer's exception classes and constants. One instance keeps "the error
+# this raised" and "the error that consumer catches" the same object.
+ROTATION_STATE_READINESS = STRATEGIC_CAPITAL_POSTURE.ROTATION_STATE_READINESS
 ACTION_SUMMARY = _load("atlas_daily_action_summary", "briefing/action_risk_portfolio_summary.py")
 FLOW_FIRST_BRIEFING = _load(
     "atlas_daily_flow_first_briefing", "briefing/flow_first_briefing.py"
@@ -1371,6 +1408,10 @@ def _classify_free_market_data(snapshot: dict, decision_date: str | None = None)
     component_reason = None if component_status == "READY" else alpaca_status
     return component_row(
         "FREE_MARKET_DATA", component_status, component_reason,
+        # Retain the established FRED clock here because the cross-asset
+        # flow contract consumes this field as VIX observation time. The US
+        # session clock is independently retained in us_market_reference
+        # below and is what the human-facing market board displays.
         as_of_date=fred.get("observation_date"),
         generated_at=payload.get("observed_at_utc"),
         available_at=payload.get("observed_at_utc"),
@@ -1412,21 +1453,176 @@ def build_free_market_data(
     )
 
 
-def _classify_btc_trend(snapshot: dict) -> dict:
+# The two exact-date crypto archives read by more than one component each
+# (BTC_TREND/BTC_RISK share one; STABLECOIN_NET_ISSUANCE has its own). Named
+# once so the per-component fetch and the prior-confirmed-reference scan
+# agree. Resolve them against the active ROOT at use time so an isolated
+# observation checkout never falls back to this module's import-time root.
+BTC_RAW_ROOT = Path("evidence/crypto/btc/raw")
+STABLECOIN_RAW_ROOT = Path("evidence/stablecoin/raw")
+
+
+# ---------------------------------------------------------------------------
+# Crypto component derivation identity
+#
+# BTC_TREND, BTC_RISK and STABLECOIN_NET_ISSUANCE are the three component rows
+# whose packet holds numbers this orchestrator COMPUTED by running a transform,
+# rather than fields copied out of a captured document. A consumer could read
+# those numbers but had no way to bind the exact transform code they were
+# computed by. This records that identity and nothing else:
+#
+#   * code_path   -- the repository-relative path this orchestrator actually
+#                    loaded the transform module from, recorded by _load() at
+#                    the moment that file's bytes were executed.
+#   * code_sha256 -- SHA-256 of those exact bytes, re-read and re-compared at
+#                    emission time.
+#   * status/reason -- VERIFIED, or UNPROVEN plus a machine reason.
+#
+# What this is NOT: a source grade, a point-in-time attestation, a publication
+# or trading permission, or any claim about how a historical packet was
+# produced. It is evidence metadata about a computation this process really
+# performed. The values, formulas, capture vintage, finalized measurement day,
+# source paths, status and authority of every component are untouched by it.
+#
+# A component whose code identity cannot be established stays UNPROVEN with
+# both fields null -- never a fabricated or substituted digest -- and that
+# disclosure is per component: an unproven BTC_TREND leaves BTC_RISK,
+# STABLECOIN_NET_ISSUANCE and every other component exactly as they were.
+#
+# Two false-attribution routes are closed structurally rather than by
+# convention:
+#
+#   * A SUBSTITUTED transform. The identity is looked up from the
+#     __code__.co_filename of the exact function object that was invoked, so a
+#     patched, wrapped or foreign callable matches no load record and is
+#     reported UNPROVEN instead of inheriting the real module's digest.
+#   * A DIFFERENT ROOT. The path and the bytes come from the load-time origin
+#     that was really executed, never from ``ROOT / code_path`` recomputed now.
+#     regime/crypto_live_component_registry.py deliberately reassigns this
+#     module's ROOT to an independently verified observation checkout while
+#     still executing the code root's transforms; consulting the active ROOT
+#     would attribute that checkout's file -- or a decoy placed there -- to an
+#     execution it never performed.
+#
+# Versioned like the two derivation axes near build_packet(), and for the same
+# reason: absent (None) is the legacy form that emits no field at all, so every
+# packet issued before this axis still rebuilds byte-identically and no old
+# record is upgraded or rewritten. The three component builders below default
+# to the legacy form because a derivation used outside a packet build has no
+# packet to record which derivation produced it; build_packet() is what opts a
+# packet in and marks it.
+# ---------------------------------------------------------------------------
+
+CRYPTO_DERIVATION_VERSION = 1
+SUPPORTED_CRYPTO_DERIVATION_VERSIONS = (1,)
+# Which derivations carry packet["derivation"]. Enumerated explicitly rather
+# than compared against CRYPTO_DERIVATION_VERSION so an already-issued packet
+# keeps its own derivation after the default moves on.
+CRYPTO_DERIVATION_METADATA_VERSIONS = (1,)
+DERIVATION_VERIFIED = "VERIFIED"
+DERIVATION_UNPROVEN = "UNPROVEN"
+
+
+def _checked_crypto_derivation_version(value):
+    """None, or exactly int 1. Nothing else.
+
+    ``type(value) is not int`` rejects bool, which would otherwise compare
+    equal to 1. An explicitly persisted null is rejected by the caller in
+    validate_packet(), because rebuilding None omits the marker entirely and
+    "absent" and "present but null" are different persisted bytes.
+    """
+    if value is None:
+        return None
+    if type(value) is not int or value not in SUPPORTED_CRYPTO_DERIVATION_VERSIONS:
+        fail("CRYPTO_DERIVATION_VERSION_INVALID", repr(value))
+    return value
+
+
+def _unproven_derivation(reason: str) -> dict:
+    """Stable carriage with no claim: the shape never varies, the identity is
+    simply absent and says why."""
+    return {
+        "status": DERIVATION_UNPROVEN,
+        "code_path": None,
+        "code_sha256": None,
+        "reason": reason,
+    }
+
+
+def _derivation_metadata(transform) -> dict:
+    """The exact module file whose code object ``transform`` came from.
+
+    ``transform`` must be the very function object that was invoked, not a
+    module attribute looked up again afterwards: re-reading the attribute
+    would describe whatever is bound now rather than what actually ran.
+    """
+    try:
+        code = getattr(transform, "__code__", None)
+        origin = getattr(code, "co_filename", None)
+        record = (
+            _MODULE_CODE_IDENTITY.get(origin) if isinstance(origin, str) else None
+        )
+        if record is None or not any(code is loaded for loaded in record["code_objects"]):
+            return _unproven_derivation("EXECUTED_CODE_NOT_A_LOADED_MODULE")
+        try:
+            current = hashlib.sha256(Path(origin).read_bytes()).hexdigest()
+        except OSError:
+            return _unproven_derivation("EXECUTED_CODE_FILE_UNREADABLE")
+        if current != record["code_sha256"]:
+            # The file on disk is no longer the file that ran. Report no
+            # identity rather than attributing today's bytes to that execution.
+            return _unproven_derivation("EXECUTED_CODE_FILE_CHANGED_SINCE_LOAD")
+        return {
+            "status": DERIVATION_VERIFIED,
+            "code_path": record["code_path"],
+            "code_sha256": current,
+            "reason": None,
+        }
+    except Exception:  # noqa: BLE001
+        # Failure isolation: an identity that cannot be established is
+        # unproven. It never demotes the component that computed real values,
+        # and never propagates to another component.
+        return _unproven_derivation("DERIVATION_IDENTITY_UNAVAILABLE")
+
+
+def _derivation_field(transform, derivation_version) -> dict:
+    """``{"derivation": ...}`` on the derivations that carry it, else ``{}``.
+
+    The strict int test mirrors _checked_crypto_derivation_version() (bool is
+    not an accepted version) but returns the legacy empty form instead of
+    raising: an unrecognised marker must never take down a component row.
+    """
+    if (
+        type(derivation_version) is not int
+        or derivation_version not in CRYPTO_DERIVATION_METADATA_VERSIONS
+    ):
+        return {}
+    return {"derivation": _derivation_metadata(transform)}
+
+
+def _classify_btc_trend(
+    snapshot: dict, *, derivation_version: int | None = None
+) -> dict:
     if snapshot["kind"] == "absent":
         return _blocked("BTC_TREND", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
     guard = _downloaded_at_guard("BTC_TREND", snapshot)
     if guard is not None:
         return guard
     resolved = ROOT / snapshot["resolved_dir"]
+    # Bind the exact function object about to run, so the derivation identity
+    # below describes the code that really produced the values on this row.
+    transform = BTC_TREND.build_transform
     try:
-        packet = BTC_TREND.build_transform(resolved)
+        packet = transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("BTC_TREND", exc)
     return component_row(
         "BTC_TREND",
         "READY",
         None,
+        # Keep the component's historical capture-vintage clock for replay
+        # compatibility. The distinct finalized measurement day is retained
+        # in packet.latest_finalized_day and used by briefing presentation.
         as_of_date=resolved.name,
         generated_at=snapshot["downloaded_at"],
         source_packet_path=snapshot["resolved_dir"],
@@ -1435,33 +1631,48 @@ def _classify_btc_trend(snapshot: dict) -> dict:
         validated=True,
         authority={k: v for k, v in packet.items() if k.endswith("_authorized")},
         contract_version=packet.get("transform_version"),
-        packet={"direction": packet.get("direction"), "dma_200": packet.get("dma_200") if "dma_200" in packet else None},
+        packet={
+            "direction": packet.get("direction"),
+            "dma_200": packet.get("dma_200") if "dma_200" in packet else None,
+            "latest_finalized_day": packet.get("latest_finalized_day"),
+            "capture_date": resolved.name,
+            **_derivation_field(transform, derivation_version),
+        },
     )
 
 
-def build_btc_trend(decision_date: str, snapshot: dict | None = None) -> dict:
+def build_btc_trend(
+    decision_date: str,
+    snapshot: dict | None = None,
+    *,
+    derivation_version: int | None = None,
+) -> dict:
     if snapshot is None:
-        snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
-        )
-    return _classify_btc_trend(snapshot)
+        snapshot = _fetch_dated_evidence_snapshot(ROOT / BTC_RAW_ROOT, decision_date)
+    return _classify_btc_trend(snapshot, derivation_version=derivation_version)
 
 
-def _classify_btc_risk(snapshot: dict) -> dict:
+def _classify_btc_risk(
+    snapshot: dict, *, derivation_version: int | None = None
+) -> dict:
     if snapshot["kind"] == "absent":
         return _blocked("BTC_RISK", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE")
     guard = _downloaded_at_guard("BTC_RISK", snapshot)
     if guard is not None:
         return guard
     resolved = ROOT / snapshot["resolved_dir"]
+    # Same binding as BTC_TREND: the invoked object, not a later lookup.
+    transform = BTC_RISK.build_transform
     try:
-        packet = BTC_RISK.build_transform(resolved)
+        packet = transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("BTC_RISK", exc)
     return component_row(
         "BTC_RISK",
         "READY",
         None,
+        # Same clock split as BTC_TREND: preserve the capture vintage here;
+        # render packet.latest_finalized_day as the measurement date.
         as_of_date=resolved.name,
         generated_at=snapshot["downloaded_at"],
         source_packet_path=snapshot["resolved_dir"],
@@ -1470,19 +1681,27 @@ def _classify_btc_risk(snapshot: dict) -> dict:
         packet={
             "status": packet.get("status"),
             "risk_point": packet.get("risk_point"),
+            "latest_finalized_day": packet.get("latest_finalized_day"),
+            "capture_date": resolved.name,
+            **_derivation_field(transform, derivation_version),
         },
     )
 
 
-def build_btc_risk(decision_date: str, snapshot: dict | None = None) -> dict:
+def build_btc_risk(
+    decision_date: str,
+    snapshot: dict | None = None,
+    *,
+    derivation_version: int | None = None,
+) -> dict:
     if snapshot is None:
-        snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
-        )
-    return _classify_btc_risk(snapshot)
+        snapshot = _fetch_dated_evidence_snapshot(ROOT / BTC_RAW_ROOT, decision_date)
+    return _classify_btc_risk(snapshot, derivation_version=derivation_version)
 
 
-def _classify_stablecoin(snapshot: dict) -> dict:
+def _classify_stablecoin(
+    snapshot: dict, *, derivation_version: int | None = None
+) -> dict:
     if snapshot["kind"] == "absent":
         return _blocked(
             "STABLECOIN_NET_ISSUANCE", "DATA_BLOCKED", "NO_CAPTURE_FOR_DECISION_DATE"
@@ -1491,8 +1710,10 @@ def _classify_stablecoin(snapshot: dict) -> dict:
     if guard is not None:
         return guard
     resolved = ROOT / snapshot["resolved_dir"]
+    # Same binding as the two BTC components above.
+    transform = STABLECOIN.build_transform
     try:
-        packet = STABLECOIN.build_transform(resolved)
+        packet = transform(resolved)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("STABLECOIN_NET_ISSUANCE", exc)
     latest_row = packet["rows"][-1] if packet.get("rows") else {}
@@ -1514,16 +1735,318 @@ def _classify_stablecoin(snapshot: dict) -> dict:
                 "weekly_net_issuance_native_usd_peg"
             ),
             "weekly_status": latest_row.get("weekly_status"),
+            **_derivation_field(transform, derivation_version),
         },
     )
 
 
-def build_stablecoin(decision_date: str, snapshot: dict | None = None) -> dict:
+def build_stablecoin(
+    decision_date: str,
+    snapshot: dict | None = None,
+    *,
+    derivation_version: int | None = None,
+) -> dict:
     if snapshot is None:
-        snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "stablecoin" / "raw", decision_date
+        snapshot = _fetch_dated_evidence_snapshot(ROOT / STABLECOIN_RAW_ROOT, decision_date)
+    return _classify_stablecoin(snapshot, derivation_version=derivation_version)
+
+
+# ---------------------------------------------------------------------------
+# Prior confirmed Crypto reference dates -- presentation metadata only
+#
+# When the exact decision-date Crypto capture is absent, the component row
+# stays DATA_BLOCKED/NO_CAPTURE_FOR_DECISION_DATE, unvalidated and decision-
+# ineligible, and its rendered evidence date stays UNKNOWN. That is the honest
+# answer for the decision and nothing here changes it. What was missing is the
+# separate, equally true fact that an older CONFIRMED measurement exists and
+# is simply not current -- displayed next to the UNKNOWN, never in place of it.
+#
+# Deliberate boundaries:
+#   * Presentation only. Every _classify_* function returns on
+#     kind == "absent" before reading anything else, so this field can never
+#     reach a component row, an aggregator, a status, a score, an authority
+#     flag or an eligibility field.
+#   * Never forward-filled. The prior measurement is reported under its own
+#     older date, never relabelled as the decision date, and never used as
+#     this decision's evidence.
+#   * The CHOICE is frozen; the DISPLAYED DATE is re-derived. A replayed
+#     snapshot never rescans the archive, so a capture committed after
+#     publication cannot change an issued revision. A resealed forgery of the
+#     displayed date is still caught, because every rebuild recomputes that
+#     date from the frozen capture's own retained bytes and validate_packet()
+#     compares whole packets.
+#   * A snapshot carrying no such field is a legacy build and is left exactly
+#     as persisted, so already-published packets keep validating unchanged.
+# ---------------------------------------------------------------------------
+
+PRIOR_CONFIRMED_REFERENCE = "prior_confirmed_reference"
+
+# Which clock each component's prior reference reports, and the only
+# components that get one. BTC reports the transform's finalized measurement
+# day -- NOT the capture directory name, since a 09-07 capture confirms 09-06
+# -- and stablecoin reports its latest observation date. CRYPTO_BREADTH is
+# deliberately absent: it is POLICY_BLOCKED/TAXONOMY_COVERAGE_UNKNOWN even
+# when its capture exists, so publishing a "confirmed reference date" for it
+# would show an admittedly incomplete universe as a complete observation.
+PRIOR_CONFIRMED_REFERENCE_BASIS = {
+    "BTC_TREND": "latest_finalized_day",
+    "BTC_RISK": "latest_finalized_day",
+    "STABLECOIN_NET_ISSUANCE": "observation_date",
+}
+
+
+def _evidence_instant(value) -> dt.datetime | None:
+    """Parse a retained evidence timestamp exactly as
+    _enforce_temporal_boundary does (ISO-8601, trailing Z accepted, a naive
+    value read as UTC), or None when it is missing or unparseable.
+
+    None is never "fine" here: every caller below treats an unparseable or
+    absent timestamp as ineligible rather than guessing an instant for it.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
+
+
+def _canonical_iso_date(value) -> str | None:
+    """The value iff it is a canonical YYYY-MM-DD date string.
+
+    fromisoformat() alone accepts other ISO spellings (e.g. "20260907"),
+    which would then compare wrongly against the canonical decision_date
+    under plain string ordering -- so the round-trip is checked, and every
+    date comparison below is a genuine date comparison.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = dt.date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value if parsed.isoformat() == value else None
+
+
+def _eligible_prior_capture(
+    root: Path, decision_date: str, generated_at_dt: dt.datetime
+) -> dict | None:
+    """The latest capture in ``root`` genuinely usable as a PRIOR reference
+    for this packet, or None.
+
+    Eligibility is point-in-time on both clocks, and a directory name alone
+    proves neither:
+      * the capture date must be STRICTLY earlier than decision_date -- an
+        exact-date or later capture is not a prior reference at all, and
+      * its own retained _downloaded_at.txt must parse and be no later than
+        the packet's generated_at, because evidence that only became
+        available after this packet was generated was not available to it.
+    A missing, unparseable or future timestamp makes a capture ineligible;
+    it is never assumed or defaulted. Symlinks and non-canonical-date
+    directory names are ignored, matching _dated_dir_for_decision's refusal
+    to accept anything but a real dated directory.
+
+    Called at BUILD time only. The result is frozen into the packet, and
+    replay re-reads that frozen choice instead of scanning again.
+    """
+    root = Path(root)
+    if not root.is_dir():
+        return None
+    candidates = []
+    for path in root.iterdir():
+        if not path.is_dir() or path.is_symlink():
+            continue
+        capture_date = _canonical_iso_date(path.name)
+        if capture_date is None or not capture_date < decision_date:
+            continue
+        downloaded_at = _read_downloaded_at(path)
+        instant = _evidence_instant(downloaded_at)
+        if instant is None or instant > generated_at_dt:
+            continue
+        candidates.append({
+            "capture_date": capture_date,
+            "resolved_dir": str(path.relative_to(ROOT)),
+            "downloaded_at": downloaded_at,
+        })
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate["capture_date"])
+
+
+def _checked_prior_capture_selection(
+    selection, decision_date: str, generated_at_dt: dt.datetime
+) -> dict | None:
+    """Re-verify a FROZEN prior-capture choice against this packet's own
+    clocks and normalize it to exactly the three fields a choice consists
+    of, or None when it does not hold up.
+
+    Re-verified rather than trusted: the frozen choice is an input like
+    every other frozen source, so a resealed packet naming a future or
+    not-yet-available capture -- or smuggling extra fields alongside it --
+    must fail the same point-in-time rules a fresh build applies instead of
+    bypassing them by being persisted.
+    """
+    if not isinstance(selection, dict):
+        return None
+    capture_date = _canonical_iso_date(selection.get("capture_date"))
+    resolved_dir = selection.get("resolved_dir")
+    downloaded_at = selection.get("downloaded_at")
+    if capture_date is None or not isinstance(resolved_dir, str):
+        return None
+    if not capture_date < decision_date:
+        return None
+    if Path(resolved_dir).name != capture_date:
+        return None
+    instant = _evidence_instant(downloaded_at)
+    if instant is None or instant > generated_at_dt:
+        return None
+    return {
+        "capture_date": capture_date,
+        "resolved_dir": resolved_dir,
+        "downloaded_at": downloaded_at,
+    }
+
+
+def _prior_confirmed_measurement_date(
+    component_id: str, resolved: Path
+) -> tuple[str | None, str | None]:
+    """(measurement_date, unknown_reason) from the component's OWN existing
+    transform, run over the chosen capture's real retained bytes.
+
+    The same transforms the READY path uses -- not a second, parallel or
+    stubbed derivation -- and with no fallback to the capture directory
+    name: a BTC capture dated 09-07 confirms 09-06, and displaying its
+    folder name as the measurement date is exactly the relabelling this
+    exists to avoid. A transform that fails yields UNKNOWN rather than
+    breaking a build over presentation metadata.
+    """
+    try:
+        if component_id == "BTC_TREND":
+            measured = BTC_TREND.build_transform(resolved).get("latest_finalized_day")
+        elif component_id == "BTC_RISK":
+            packet = BTC_RISK.build_transform(resolved)
+            measured = (
+                packet.get("latest_finalized_day")
+                or (packet.get("risk_point") or {}).get("as_of_date")
+            )
+        elif component_id == "STABLECOIN_NET_ISSUANCE":
+            rows = STABLECOIN.build_transform(resolved).get("rows") or []
+            measured = (rows[-1] if rows else {}).get("observation_date")
+        else:
+            return None, "PRIOR_MEASUREMENT_DATE_UNKNOWN"
+    except Exception:  # noqa: BLE001 - presentation metadata never fails a build
+        return None, "PRIOR_SOURCE_TRANSFORM_FAILED"
+    if not isinstance(measured, str):
+        return None, "PRIOR_MEASUREMENT_DATE_UNKNOWN"
+    return measured, None
+
+
+def _prior_confirmed_reference(
+    component_id: str,
+    selection,
+    decision_date: str,
+    generated_at_dt: dt.datetime,
+) -> dict:
+    """The presentation-only prior confirmed reference for one component.
+
+    Both clocks are checked independently. The capture/availability clock
+    decides whether the chosen snapshot may be referred to at all; the
+    derived measurement clock is then checked on its own, because a capture
+    that was legitimately available can still report a measurement day that
+    is later than its own vintage or not earlier than the decision date --
+    which would be a forward leak wearing a prior capture's name.
+    """
+    basis = PRIOR_CONFIRMED_REFERENCE_BASIS[component_id]
+
+    def unknown(reason: str) -> dict:
+        return {
+            "selected_capture": None,
+            "measurement_date": None,
+            "measurement_basis": basis,
+            "unknown_reason": reason,
+        }
+
+    checked = _checked_prior_capture_selection(
+        selection, decision_date, generated_at_dt
+    )
+    if checked is None:
+        return unknown(
+            "NO_ELIGIBLE_PRIOR_CAPTURE"
+            if selection is None
+            else "PRIOR_CAPTURE_NOT_POINT_IN_TIME_SAFE"
         )
-    return _classify_stablecoin(snapshot)
+    resolved = ROOT / checked["resolved_dir"]
+    if _read_downloaded_at(resolved) != checked["downloaded_at"]:
+        # The frozen availability claim must still be the one the retained
+        # capture itself carries. A choice whose own archive disagrees with
+        # it is not a confirmed reference, whatever it was resealed to say.
+        return unknown("PRIOR_CAPTURE_AVAILABILITY_MISMATCH")
+    measured, reason = _prior_confirmed_measurement_date(component_id, resolved)
+    if measured is not None and not (
+        _canonical_iso_date(measured) is not None
+        and measured <= checked["capture_date"]
+        and measured < decision_date
+    ):
+        measured, reason = None, "PRIOR_MEASUREMENT_DATE_NOT_POINT_IN_TIME_SAFE"
+    return {
+        "selected_capture": checked,
+        "measurement_date": measured,
+        "measurement_basis": basis,
+        "unknown_reason": reason,
+    }
+
+
+def _prior_confirmed_reference_snapshot(
+    snapshot: dict,
+    component_id: str,
+    decision_date: str,
+    generated_at_dt: dt.datetime,
+    *,
+    archive_root: Path | None,
+) -> dict:
+    """The crypto evidence snapshot, plus its prior-confirmed-reference
+    presentation field when one applies.
+
+    ``archive_root`` is the live archive on a FRESH build ("choose once,
+    now") and None on replay -- where the caller supplied this snapshot, so
+    its own frozen choice is the only one that may be used and a fresh scan
+    is exactly what must not happen.
+
+    Three deliberately distinct cases:
+      * exact-date capture present -> no field, and any field found on such
+        a snapshot is dropped: there is nothing stale to report, and a stale
+        reference line beside current evidence would simply be false.
+      * replayed snapshot with no field -> returned exactly as persisted.
+        That is a legacy build, and emitting a field it never had would
+        rewrite its own already-published bytes instead of replaying them.
+      * otherwise -> the field, with the choice carried over (replay) or
+        made now (fresh build), and the displayed date always re-derived
+        from that choice's real retained bytes.
+    """
+    if not isinstance(snapshot, dict):
+        return snapshot
+    base = {
+        key: value
+        for key, value in snapshot.items()
+        if key != PRIOR_CONFIRMED_REFERENCE
+    }
+    if base.get("kind") != "absent":
+        return base
+    frozen = snapshot.get(PRIOR_CONFIRMED_REFERENCE)
+    if frozen is None:
+        if archive_root is None:
+            return base
+        selection = _eligible_prior_capture(
+            archive_root, decision_date, generated_at_dt
+        )
+    else:
+        selection = frozen.get("selected_capture") if isinstance(frozen, dict) else None
+    return base | {
+        PRIOR_CONFIRMED_REFERENCE: _prior_confirmed_reference(
+            component_id, selection, decision_date, generated_at_dt
+        )
+    }
 
 
 def _crypto_breadth_coverage_diagnostics(packet: dict) -> dict:
@@ -1737,19 +2260,125 @@ def build_three_market_header(regime_outputs: dict[str, dict], slot: str, genera
 
 
 # ---------------------------------------------------------------------------
-# Rotation / Discovery.  Rotation remains honestly empty because no ratified
-# cross-market rotation policy exists.  Discovery, however, consumes the real
-# committed SEC D1 population and only the filing-content bindings whose
-# retained bytes independently pass P3-08 verification.  Recording an event
-# case is not ranking, promotion, Rule, action, or trading authority.
+# Rotation / Discovery.  Rotation stays honestly empty unless a caller hands
+# this build one explicit, already-ratified US rotation observation (see
+# _us_rotation_ledger below); no cross-market rotation policy is ratified
+# here.  Discovery consumes the real committed SEC D1 population and only the
+# filing-content bindings whose retained bytes independently pass P3-08
+# verification.  Recording an event case is not ranking, promotion, Rule,
+# action, or trading authority.
 # ---------------------------------------------------------------------------
 
 
-def build_rotation_discovery(
-    slot: str, generated_at: str, dynamic_report: dict | None = None
-) -> dict:
-    ledger = LEDGER.empty_ledger()
+# The one explicit, caller-supplied US rotation observation this build may be
+# handed. It is deliberately NOT discovered from disk: this module ratifies no
+# state policy, owns no P2-05 publication locator, and runs no automatic file
+# discovery for rotation state, so the ONLY way a real ledger reaches P8-05 is
+# a caller passing the exact original inputs -- the US rotation packet as its
+# producer emitted it, the external ratified state policy, and whatever
+# previous ledger that policy's history already contains. Absent, everything
+# below stays byte-for-byte what it has always been.
+US_ROTATION_LEDGER_SOURCE = "US_ROTATION_LEDGER"
+US_ROTATION_LEDGER_SOURCE_FIELDS = frozenset({
+    "rotation_packet", "state_policy", "previous_ledger",
+})
+
+
+class _RotationSourceOmitted:
+    """Type of the omitted-input sentinel below; never instantiated elsewhere."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return "US_ROTATION_LEDGER_OMITTED"
+
+
+# The ONLY value that means "no rotation source". ``None`` is deliberately NOT
+# that value: a caller who passes frozen_sources={"US_ROTATION_LEDGER": None},
+# or who passes null positionally, DID supply a rotation source and supplied
+# null for it. Null is not a rotation observation, so it fails closed like any
+# other unusable supplied input. Collapsing the two would let an explicitly
+# broken input render as the healthy legacy empty ledger, which is exactly the
+# fact this component must keep distinguishable. The sentinel is not
+# JSON-serializable, so it can never silently reach a packet either.
+US_ROTATION_LEDGER_OMITTED = _RotationSourceOmitted()
+
+
+def _us_rotation_ledger(source=US_ROTATION_LEDGER_OMITTED) -> dict:
+    """Return the Rotation state ledger the P8-05 read model is built from.
+
+    With no explicit source this is exactly what it has always been: the
+    canonical empty ledger, unchanged bytes, no rotation history claimed.
+
+    With one, the caller's ORIGINAL rotation packet, external ratified state
+    policy and optional previous ledger go straight into the UNCHANGED
+    rotation/rotation_state_ledger.py ``apply_rotation()`` -- the same
+    producer re-derivation, ratified-before-observation policy timing,
+    forward-only/gap, append-only chain and digest validation every other
+    ledger consumer gets. Nothing here maps a bucket transition to a state,
+    supplies a default policy, invents a previous ledger, or reorders records:
+    the state vocabulary applied is the caller's ratified policy's own.
+
+    A supplied input the ledger refuses fails this component closed. It is
+    never repaired and never silently replaced by the empty ledger, because
+    "the operator handed us an invalid or forged rotation observation" and
+    "no rotation was observed today" are different facts and must not render
+    as the same row. An explicitly supplied null is the first of those two
+    facts, not the second.
+    """
+    if source is US_ROTATION_LEDGER_OMITTED:
+        return LEDGER.empty_ledger()
+    if source is None:
+        fail(
+            "US_ROTATION_LEDGER_SOURCE_INVALID",
+            "an explicitly supplied null rotation source is not an absent one",
+        )
+    if not isinstance(source, dict) or set(source) != US_ROTATION_LEDGER_SOURCE_FIELDS:
+        fail(
+            "US_ROTATION_LEDGER_SOURCE_FIELDS_INVALID",
+            str(sorted(source)) if isinstance(source, dict) else type(source).__name__,
+        )
+    rotation_packet = source["rotation_packet"]
+    state_policy = source["state_policy"]
+    previous_ledger = source["previous_ledger"]
+    if not isinstance(rotation_packet, dict) or not isinstance(state_policy, dict):
+        fail(
+            "US_ROTATION_LEDGER_SOURCE_INVALID",
+            "rotation_packet and state_policy must both be objects",
+        )
+    if previous_ledger is not None and not isinstance(previous_ledger, dict):
+        fail(
+            "US_ROTATION_LEDGER_SOURCE_INVALID",
+            "previous_ledger must be an object or null",
+        )
+    # This wiring is scoped to the US daily rotation observation only. A
+    # KOREA/CRYPTO packet has its own owner and its own committed pointer;
+    # accepting one here would quietly widen this component's source scope.
+    # An already-recorded non-US history inside previous_ledger is untouched
+    # -- apply_rotation() appends, so that history is preserved, not replaced.
+    if rotation_packet.get("market") != "US" or state_policy.get("market") != "US":
+        fail(
+            "US_ROTATION_LEDGER_MARKET_INVALID",
+            f"packet={rotation_packet.get('market')} policy={state_policy.get('market')}",
+        )
     try:
+        return LEDGER.apply_rotation(
+            copy.deepcopy(rotation_packet),
+            copy.deepcopy(state_policy),
+            copy.deepcopy(previous_ledger),
+        )
+    except Exception as exc:  # noqa: BLE001
+        fail("US_ROTATION_LEDGER_INPUT_REJECTED", f"{type(exc).__name__}:{exc}")
+
+
+def build_rotation_discovery(
+    slot: str,
+    generated_at: str,
+    dynamic_report: dict | None = None,
+    us_rotation_source=US_ROTATION_LEDGER_OMITTED,
+) -> dict:
+    try:
+        ledger = _us_rotation_ledger(us_rotation_source)
         population = EVENT_POPULATION.build_population_inputs(
             repo_root=ROOT, decision_at=generated_at
         )
@@ -1786,6 +2415,15 @@ def build_rotation_discovery(
     source_dates = [population["source_as_of_date"]]
     if dart_observation_packet is not None:
         source_dates.append(dart_observation_packet["source_date"])
+    # A rotation observation is dated evidence like any other, so its own
+    # as_of_date has to be visible to the common temporal boundary
+    # (_enforce_temporal_boundary) rather than hidden behind Discovery's
+    # source date. Read back from the validated read model, never from the
+    # raw supplied input. Empty with no rotation source, so the default
+    # as_of_date is unchanged.
+    source_dates.extend(
+        row["as_of_date"] for row in packet["rotation"]["latest_changes"]
+    )
     return component_row(
         "ROTATION_DISCOVERY",
         "PENDING",
@@ -2683,17 +3321,75 @@ def build_long_short_invariant(rule_packet: dict | None) -> dict:
     )
 
 
-def build_capital_flow_posture_reference() -> dict:
+# P2-COM-02's immutable frozen source tuple: the exact committed bytes of the
+# ten repository inputs the cross-market flow reference is derived from, plus
+# the commit they came from. Several of those inputs are mutable rolling files
+# (the three market pointers, the P2-COM-03 ledger pointer), so re-reading them
+# at validation time made an honest archived Flow section depend on when it was
+# validated. The envelope is replayed against real Git objects instead, and the
+# live inputs are never consulted again.
+P2_FLOW_REPLAY_INPUTS = "P2_FLOW_REPLAY_INPUTS"
+
+
+class _FlowReplayInputsOmitted:
+    """Type of the omitted-input sentinel below; never instantiated elsewhere."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return "FLOW_REPLAY_INPUTS_OMITTED"
+
+
+# "This derivation does not freeze the Flow inputs at all", which is a
+# different fact from "it freezes them and was handed null". The second is a
+# supplied, unusable envelope and fails closed as a hard provenance error.
+# Same reasoning as US_ROTATION_LEDGER_OMITTED / P2_ROTATION_STATE_INPUTS_
+# OMITTED below.
+FLOW_REPLAY_INPUTS_OMITTED = _FlowReplayInputsOmitted()
+
+# The two Flow failures that are NEVER softened into a component row, exported
+# so a production caller can preserve them at its own STOP/structural boundary
+# instead of letting them escape as an untyped traceback.
+FLOW_REPLAY_UNPROVABLE_ERRORS = (
+    CAPITAL_FLOW_ENGINE.FlowReplayProvenanceError,
+    CAPITAL_FLOW_ENGINE.UnreplayableFlowHistoryError,
+)
+
+
+def build_capital_flow_posture_reference(
+    verified_flow_inputs: dict | None = None,
+) -> dict:
     """P2-COM-02's cross-market flow reference, wired as P6-06's P2_FLOW_ENGINE
-    source.  It re-reads and re-derives its own real committed evidence
-    (`data/latest_paper_regime_reference.json` plus the P2-COM-03 ledger it
-    consumes) -- there is nothing frozen/snapshotted to pass in here, unlike
-    the raw-archive sources fetched above.  This is a diagnostic reference,
-    never a decision: it stays PENDING with `readiness_inventory_only`-style
-    authority regardless of what its own status says.
+    source.  This is a diagnostic reference, never a decision: it stays PENDING
+    with `readiness_inventory_only`-style authority regardless of what its own
+    status says.
+
+    Two input modes, and the difference is only where the bytes come from --
+    never what the producer computes from them:
+
+      * an already-authenticated closure -- raw bytes taken from real Git
+        objects at the frozen source commit, materialized into an isolated
+        root for the producer to read;
+      * no closure at all, which reads today's live inputs exactly as this
+        function always did.
+
+    Provenance and closure are settled by the caller BEFORE this point, so an
+    unprovable input never gets far enough to produce a row. A failure raised
+    from here is ALWAYS raised, never degraded: a DEGRADED/DATA_BLOCKED row
+    would let an unprovable packet validate and would then replay identically
+    forever. A proven-but-semantically-invalid input still degrades, exactly
+    as a live build always has, and now does so deterministically from the
+    same frozen bytes.
     """
     try:
-        packet = CAPITAL_FLOW_ENGINE.build_reference()
+        if verified_flow_inputs is not None:
+            packet = CAPITAL_FLOW_ENGINE.build_reference_from_verified_inputs(
+                verified_flow_inputs
+            )
+        else:
+            packet = CAPITAL_FLOW_ENGINE.build_reference()
+    except FLOW_REPLAY_UNPROVABLE_ERRORS:
+        raise
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("P2_FLOW_ENGINE", exc)
     return component_row(
@@ -2721,17 +3417,106 @@ _POLICY_BLOCKED_ACTION_SOURCES = {
 }
 
 
+def build_p1_regime_unavailable_reasons(
+    regime_outputs: dict[str, dict] | None, generated_at: str
+) -> list[str] | None:
+    """Exact P6-06 `P1_REGIME_DECISION` blockers from the real runtime axes.
+
+    This conveys readiness only.  It re-runs the already-merged coverage,
+    decision-authority, and signed-axis boundaries over the same
+    `regime_output/v1` envelopes this briefing already builds, so the slot's
+    unavailable reasons name the real missing axes, markets, and policy
+    components instead of one opaque placeholder.  The slot stays UNAVAILABLE
+    either way; returning None means the caller keeps its existing fallback.
+    """
+    if regime_outputs is None:
+        return None
+    try:
+        readiness = RUNTIME_REGIME_READINESS.build_readiness(
+            regime_outputs, generated_at
+        )
+        return DEFENSIVE_ACTION_DECISION.p1_regime_decision_unavailable_reasons(
+            readiness
+        )
+    except Exception as exc:  # noqa: BLE001 - detail failure cannot grant authority
+        # Keep the validator's stable code, never arbitrary paths or provider data.
+        code = str(exc).split(":", 1)[0]
+        if re.fullmatch(r"[A-Z][A-Z0-9_]{2,95}", code) is None:
+            code = "VALIDATOR_EXCEPTION"
+        return [
+            "P1_REGIME_DECISION_PRODUCTION_CONTRACT_UNAVAILABLE",
+            f"P1_REGIME_READINESS_INVALID:{code}",
+        ]
+
+
+# P2-05's immutable frozen source tuple: the exact committed bytes of the
+# readiness contract, the ledger contract and the Korea rotation pointer, plus
+# the commit they came from. The Korea pointer is a mutable rolling file, so
+# re-reading it at validation time would make an honest archived verdict depend
+# on when it is validated; the envelope is replayed against real Git objects
+# instead, and the live pointer is never consulted again.
+P2_ROTATION_STATE_READINESS_INPUTS = "P2_ROTATION_STATE_READINESS_INPUTS"
+
+
+class _P2RotationReadinessInputsOmitted:
+    """Type of the omitted-input sentinel below; never instantiated elsewhere."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return "P2_ROTATION_STATE_INPUTS_OMITTED"
+
+
+# "This derivation does not bind P2_ROTATION_STATE at all", which is a
+# different fact from "this derivation binds it and was handed null". The
+# second is a supplied, unusable envelope and fails closed as a hard
+# provenance error; collapsing the two would let a null silently render as the
+# legacy generic blocker. Same reasoning as US_ROTATION_LEDGER_OMITTED above.
+P2_ROTATION_STATE_INPUTS_OMITTED = _P2RotationReadinessInputsOmitted()
+
+
+def build_p2_rotation_state_unavailable_reasons(frozen_inputs) -> list[str] | None:
+    """Exact P7-12 `P2_ROTATION_STATE` blockers from frozen committed inputs.
+
+    Returns None for the sentinel only -- the derivations that do not bind this
+    slot at all -- and then the caller keeps its existing generic blocker.
+
+    There is deliberately no try/except here, unlike the P1 helper above. A P1
+    readiness failure is a failure to *derive detail* from envelopes this run
+    already built, so degrading to a generic blocker keeps the briefing honest.
+    A P2 frozen-input failure is different in kind: it means the immutable
+    source tuple could not be authenticated at all (bad envelope, unavailable
+    Git object, untrusted commit, dirty capture, blob mismatch). Swallowing
+    that would publish a packet whose P2 row claims a derivation that was never
+    proven, so it fails the build closed instead. The one failure that IS a
+    derivation result -- authenticated bytes that fail their own contract --
+    is handled inside the adapter and reported as its fixed diagnostic.
+    """
+    if frozen_inputs is P2_ROTATION_STATE_INPUTS_OMITTED:
+        return None
+    return STRATEGIC_CAPITAL_POSTURE.p2_rotation_state_unavailable_reasons(
+        frozen_inputs
+    )
+
+
 def build_defensive_action_decision(
-    component_rows: dict[str, dict], decision_date: str, generated_at: str
+    component_rows: dict[str, dict],
+    decision_date: str,
+    generated_at: str,
+    regime_outputs: dict[str, dict] | None = None,
 ) -> dict:
     contract = DEFENSIVE_ACTION_DECISION.load_contract()
     unsupported = set(contract["unavailable_only_source_slots"])
+    p1_reasons = build_p1_regime_unavailable_reasons(regime_outputs, generated_at)
     source_packets = {}
     unavailable_reasons = {}
     for name in contract["source_order"]:
         if name in unsupported:
             source_packets[name] = None
-            unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
+            if name == "P1_REGIME_DECISION" and p1_reasons is not None:
+                unavailable_reasons[name] = list(p1_reasons)
+            else:
+                unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
             continue
         row = component_rows[name]
         if row["packet"] is not None and row["validated"]:
@@ -2767,10 +3552,43 @@ def build_defensive_action_decision(
 
 
 def build_strategic_capital_posture(
-    component_rows: dict[str, dict], decision_date: str, generated_at: str
+    component_rows: dict[str, dict],
+    decision_date: str,
+    generated_at: str,
+    regime_outputs: dict[str, dict] | None = None,
+    p2_rotation_readiness_inputs=P2_ROTATION_STATE_INPUTS_OMITTED,
 ) -> dict:
+    """P7-12 readiness inventory.
+
+    ``regime_outputs`` is the *same* optional exact-blocker wiring P6-06
+    already has above, applied to P7-12's own ``P1_REGIME_DECISION`` slot and
+    bound to derivation versions 2 and 3 (see
+    P1_EXACT_RUNTIME_BLOCKER_VERSIONS).  The reasons are re-derived here
+    through build_p1_regime_unavailable_reasons() rather than read out of the
+    P6 packet this run also built: P7-12 must not inherit another consumer's
+    stored row as if it were an independently validated input.  Passing None
+    keeps the original generic blocker, which is exactly what a legacy
+    (marker-absent or explicit-1) replay must reproduce.
+
+    ``p2_rotation_readiness_inputs`` is the same idea for the other
+    unavailable-only slot, bound to derivation version 3: P2-05's immutable
+    frozen input tuple, re-derived independently here rather than copied from
+    any persisted reason list.  The omitted sentinel keeps the original generic
+    blocker, which is what an absent/1/2 replay must reproduce.
+
+    Naming the real blockers grants nothing: the slot stays UNAVAILABLE, the
+    packet stays STRATEGIC_CAPITAL_POSTURE_READINESS_BLOCKED, budgets stay
+    null and every authority flag stays false.
+    """
     contract = STRATEGIC_CAPITAL_POSTURE.load_contract()
+    p1_reasons = build_p1_regime_unavailable_reasons(regime_outputs, generated_at)
+    p2_reasons = build_p2_rotation_state_unavailable_reasons(
+        p2_rotation_readiness_inputs
+    )
     name_map = {
+        # Same already-validated P2-COM-02 row P6-06 consumes as P2_FLOW_ENGINE
+        # in this run; P7-12 must not call it "production contract unavailable".
+        "P2_CROSS_MARKET_FLOW": "P2_FLOW_ENGINE",
         "P6_DEFENSIVE_ACTION": "DEFENSIVE_ACTION_DECISION",
         "P7_CONCENTRATION_GUARD": "CONCENTRATION_GUARD",
         "P7_MARKET_THEME_BUDGET": "MARKET_THEME_BUDGET",
@@ -2784,7 +3602,12 @@ def build_strategic_capital_posture(
     for name in contract["source_order"]:
         if name in unsupported:
             source_packets[name] = None
-            unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
+            if name == "P1_REGIME_DECISION" and p1_reasons is not None:
+                unavailable_reasons[name] = list(p1_reasons)
+            elif name == "P2_ROTATION_STATE" and p2_reasons is not None:
+                unavailable_reasons[name] = list(p2_reasons)
+            else:
+                unavailable_reasons[name] = [f"{name}_PRODUCTION_CONTRACT_UNAVAILABLE"]
             continue
         row = component_rows[name_map[name]]
         if row["packet"] is not None and row["validated"]:
@@ -2819,7 +3642,36 @@ def build_strategic_capital_posture(
     )
 
 
-def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str) -> dict:
+# The two date bases the ACTION_RISK_PORTFOLIO_SUMMARY *component row* has
+# ever been labelled with. This is only the row label; the summary packet's
+# own decision_date, and every internal date-equality guard inside
+# briefing/action_risk_portfolio_summary.py, are untouched by either value.
+#
+# PACKET_DECISION_DATE is the current, correct basis: the KST business date
+# the already-validated summary packet reports for, which build_summary has
+# proven equal to both sibling CAPITAL_ACTION rows' as_of_date.
+#
+# GENERATED_AT_UTC_DAY is the archival-only basis this row carried before
+# that fix. It is one day earlier than the KST business date on every 22:05Z
+# natural morning run, and identical to it on the 09:30Z evening run. It is
+# reachable ONLY from the legacy replay path in validate_packet(); a new
+# build can never select it (see build_packet()).
+SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE = "PACKET_DECISION_DATE"
+SUMMARY_ROW_DATE_BASIS_GENERATED_AT_UTC_DAY = "GENERATED_AT_UTC_DAY"
+SUMMARY_ROW_DATE_BASES = (
+    SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,
+    SUMMARY_ROW_DATE_BASIS_GENERATED_AT_UTC_DAY,
+)
+
+
+def build_action_risk_summary(
+    component_rows: dict[str, dict],
+    generated_at: str,
+    *,
+    summary_row_date_basis: str = SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,
+) -> dict:
+    if summary_row_date_basis not in SUMMARY_ROW_DATE_BASES:
+        fail("SUMMARY_ROW_DATE_BASIS_INVALID", repr(summary_row_date_basis))
     contract = ACTION_SUMMARY.load_contract()
     name_map = {
         "UNIFIED_DECISION": "UNIFIED_DECISION",
@@ -2850,11 +3702,26 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
         packet = ACTION_SUMMARY.build_summary(source_packets, unavailable_reasons, generated_at)
     except Exception as exc:  # noqa: BLE001
         return _degraded_from_exception("ACTION_RISK_PORTFOLIO_SUMMARY", exc)
+    # Default: the KST business date this row reports for, exactly as the two
+    # sibling CAPITAL_ACTION rows are labelled -- never generated_at's UTC
+    # calendar day, which is one day earlier on every 22:05Z natural morning
+    # run and would force the Flow-First section aggregator to
+    # SOURCE_AS_OF_DATE_MISMATCH.  build_summary has already proven this
+    # value equals both siblings' as_of_date.
+    #
+    # The alternative basis is archival replay only. Both values are derived
+    # here from independently validated inputs -- the summary packet this run
+    # just built and validated, and this run's own generated_at argument --
+    # never from a persisted component row's stored as_of_date.
+    if summary_row_date_basis == SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE:
+        row_as_of_date = packet["decision_date"]
+    else:
+        row_as_of_date = generated_at[:10]
     return component_row(
         "ACTION_RISK_PORTFOLIO_SUMMARY",
         "PENDING",
         "MOST_UPSTREAM_SOURCES_NOT_YET_LIVE",
-        as_of_date=generated_at[:10],
+        as_of_date=row_as_of_date,
         generated_at=generated_at,
         source_packet_sha256=packet.get("packet_sha256"),
         validated=True,
@@ -2862,6 +3729,539 @@ def build_action_risk_summary(component_rows: dict[str, dict], generated_at: str
         contract_version=packet.get("contract_version"),
         packet=packet,
     )
+
+
+# ---------------------------------------------------------------------------
+# Presentation-only reference context (briefing content recency, 2026-09-14)
+#
+# The 2026-09-14 briefing content audit found date defects, not arithmetic
+# defects: the KRX board named the five-axis observation date as the "latest
+# confirmed close" (one session older than data/latest_krx.json already
+# confirmed), weekend mornings showed Friday's recorded KRX session nowhere,
+# and the PAPER regime reference that PAPER posture reads was omitted while
+# every runtime regime rendered UNKNOWN.
+#
+# These references only feed the human-readable render and the claim ledger.
+# They never feed a component row, a status, an aggregate, a rule or any
+# action/order/Production/trading path, so nothing below can promote anything.
+#
+# Freeze pattern (same as PRIOR_CONFIRMED_REFERENCE): chosen once on a FRESH
+# build and attached to the STEP0_READ_MODEL_HEALTH snapshot; on replay the
+# persisted choice is used and every displayed field is re-derived from the
+# choice's own immutable retained bytes. A replayed snapshot without the field
+# is a legacy build and stays byte-identical.
+#   * krx_confirmed_close -- data/latest_krx.json is a mutable rolling pointer
+#     with no dated archive, so only the git blob id of the bytes read is
+#     frozen. Replay reads that blob from the trusted repository, requires its
+#     sha256 to equal the STEP0 gate's recorded sources.krx.source_sha256, and
+#     re-derives confirmed_through/collected_at_utc; a missing blob fails
+#     validation.
+#   * krx_post_close -- the newest immutable
+#     data/observations/krx_post_close/<date>/ bundle at or before the decision
+#     date whose own collection instant precedes generation.
+#   * paper_regime -- the immutable
+#     evidence/regime/paper_reference/<date>/<generation>/packet.json copy of
+#     data/latest_paper_regime_reference.json (the pointer PAPER posture reads),
+#     byte-identical, self-hash verified and generated before this briefing.
+#     Always labelled a PAPER reference; runtime regime stays UNKNOWN.
+# ---------------------------------------------------------------------------
+
+PRESENTATION_REFERENCES = "presentation_references"
+# The only ratified freshness rule these rows can cite: the CIO-ratified KR
+# session-based axes rule (SESSION_EXACT_MATCH, no numeric TTL). It is applied
+# to KR five-axis-derived rows only. No window is ratified for filings, pilot
+# states or official releases, so those rows carry their dates and a 기준일
+# label, never an invented stale threshold.
+KR_SESSION_FRESHNESS_POLICY_PATH = "config/regime_semantic_freshness_policy_v1.json"
+KR_SESSION_NOT_ADVANCED_REASON = "SOURCE_NOT_ADVANCED_EXPECTED_SESSION"
+KR_SESSION_FRESHNESS_POLICY_REF = f"{KR_SESSION_FRESHNESS_POLICY_PATH} KR SESSION_EXACT_MATCH"
+PRESENTATION_REFERENCES_VERSION = 1
+KRX_CONFIRMED_SOURCE_PATH = "data/latest_krx.json"
+KRX_POST_CLOSE_OBSERVATION_ROOT = Path("data") / "observations" / "krx_post_close"
+PAPER_REGIME_REFERENCE_EVIDENCE_ROOT = Path("evidence") / "regime" / "paper_reference"
+_PRESENTATION_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+_GIT_BLOB_OID = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _git_blob_oid(data: bytes) -> str:
+    return hashlib.sha1(f"blob {len(data)}".encode("ascii") + b"\0" + data).hexdigest()
+
+
+def _git_blob_bytes(repository_root: Path, oid: str) -> bytes | None:
+    """Exact blob bytes from the trusted repository's object database, or None.
+
+    Replace refs are ignored and the returned bytes are re-hashed against the
+    oid itself, so the repository cannot answer with different content.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "--no-replace-objects", "cat-file", "blob", oid],
+            cwd=repository_root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0 or _git_blob_oid(completed.stdout) != oid:
+        return None
+    return completed.stdout
+
+
+def _capture_krx_confirmed_close(root: Path, repository_root: Path) -> dict:
+    """Freeze only the git blob id of the data/latest_krx.json bytes read now.
+
+    The rolling pointer has no dated archive, so its committed git blob is the
+    immutable copy a validator can re-read. When the bytes read now are not a
+    blob the trusted repository holds (e.g. an uncommitted working-tree edit),
+    nothing is frozen and the date renders UNKNOWN; it is never trusted from a
+    packet field.
+    """
+    try:
+        raw = (Path(root) / KRX_CONFIRMED_SOURCE_PATH).read_bytes()
+    except OSError:
+        return {"source_git_blob_sha1": None}
+    oid = _git_blob_oid(raw)
+    if _git_blob_bytes(repository_root, oid) is None:
+        return {"source_git_blob_sha1": None}
+    return {"source_git_blob_sha1": oid}
+
+
+def _krx_confirmed_close_reference(
+    frozen,
+    decision_date: str,
+    generated_at_dt: dt.datetime,
+    *,
+    step0_source_sha256,
+    repository_root: Path,
+) -> dict:
+    """Re-derive the confirmed-close fields from the frozen git blob.
+
+    Only ``source_git_blob_sha1`` is read from the frozen value. Every
+    displayed field is re-derived from that blob in the trusted repository, and
+    its sha256 must equal the STEP0 gate's own recorded latest_krx sha256. A
+    frozen blob the repository does not hold fails validation outright.
+    """
+    oid = frozen.get("source_git_blob_sha1") if isinstance(frozen, dict) else None
+    result = {
+        "source_path": KRX_CONFIRMED_SOURCE_PATH,
+        "basis": "decision_readiness.confirmed_through",
+        "source_git_blob_sha1": None,
+        "source_sha256": None,
+        "collected_at_utc": None,
+        "confirmed_through": None,
+        "unknown_reason": None,
+    }
+    if oid is None:
+        return result | {"unknown_reason": "KRX_CONFIRMED_SOURCE_NOT_COMMITTED"}
+    if not isinstance(oid, str) or _GIT_BLOB_OID.fullmatch(oid) is None:
+        fail("PRESENTATION_KRX_CONFIRMED_SOURCE_BLOB_INVALID", repr(oid))
+    raw = _git_blob_bytes(repository_root, oid)
+    if raw is None:
+        fail("PRESENTATION_KRX_CONFIRMED_SOURCE_BLOB_MISSING", oid)
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = None
+    payload = payload if isinstance(payload, dict) else {}
+    readiness = payload.get("decision_readiness")
+    confirmed = readiness.get("confirmed_through") if isinstance(readiness, dict) else None
+    collected = payload.get("collected_at_utc")
+    result |= {
+        "source_git_blob_sha1": oid,
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "collected_at_utc": collected if isinstance(collected, str) else None,
+        "confirmed_through": confirmed if isinstance(confirmed, str) else None,
+    }
+    reason = None
+    if result["source_sha256"] != step0_source_sha256:
+        reason = "KRX_CONFIRMED_SOURCE_NOT_STEP0_BYTES"
+    elif _canonical_iso_date(confirmed) is None:
+        reason = "KRX_CONFIRMED_THROUGH_INVALID"
+    elif confirmed > decision_date:
+        reason = "KRX_CONFIRMED_THROUGH_AFTER_DECISION_DATE"
+    else:
+        instant = _evidence_instant(collected)
+        if instant is None:
+            reason = "KRX_CONFIRMED_SOURCE_COLLECTED_AT_INVALID"
+        elif instant > generated_at_dt:
+            reason = "KRX_CONFIRMED_SOURCE_COLLECTED_AFTER_GENERATION"
+    result["unknown_reason"] = reason
+    return result
+
+
+def _read_json_bytes(path: Path) -> tuple[bytes | None, dict | None]:
+    try:
+        raw = Path(path).read_bytes()
+    except OSError:
+        return None, None
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return raw, None
+    return raw, value if isinstance(value, dict) else None
+
+
+def _krx_post_close_reference(
+    root: Path, selected_date, decision_date: str, generated_at_dt: dt.datetime
+) -> dict:
+    """Re-derive the displayed post-close facts from the selected bundle."""
+    base = {
+        "root": KRX_POST_CLOSE_OBSERVATION_ROOT.as_posix(),
+        "selected_date": selected_date if isinstance(selected_date, str) else None,
+        "index_sha256": None,
+        "observation_status": None,
+        "latest_observed_day": None,
+        "latest_trading_day": None,
+        "collected_at_utc": None,
+        "unknown_reason": None,
+    }
+    if selected_date is None:
+        return base | {
+            "unknown_reason": "NO_RETAINED_POST_CLOSE_BUNDLE_AT_OR_BEFORE_DECISION_DATE"
+        }
+    if _canonical_iso_date(selected_date) is None or selected_date > decision_date:
+        return base | {"selected_date": None, "unknown_reason": "POST_CLOSE_SELECTION_INVALID"}
+    raw, index = _read_json_bytes(
+        Path(root) / KRX_POST_CLOSE_OBSERVATION_ROOT / selected_date / "index.json"
+    )
+    if raw is None or index is None:
+        return base | {"unknown_reason": "RETAINED_POST_CLOSE_INDEX_MISSING"}
+    source = index.get("source") if isinstance(index.get("source"), dict) else {}
+    derived = base | {
+        "index_sha256": hashlib.sha256(raw).hexdigest(),
+        "observation_status": index.get("observation_status"),
+        "latest_observed_day": index.get("latest_observed_day"),
+        "latest_trading_day": index.get("latest_trading_day"),
+        "collected_at_utc": source.get("collected_at_utc"),
+    }
+    instant = _evidence_instant(derived["collected_at_utc"])
+    if not KRX_POST_CLOSE.COLLECTOR.check_bundle(selected_date, data_root=Path(root) / "data"):
+        derived["unknown_reason"] = "RETAINED_POST_CLOSE_BUNDLE_INVALID"
+    elif derived["latest_observed_day"] != selected_date:
+        derived["unknown_reason"] = "POST_CLOSE_OBSERVED_DAY_MISMATCH"
+    elif instant is None or instant > generated_at_dt:
+        derived["unknown_reason"] = "POST_CLOSE_COLLECTED_AFTER_GENERATION"
+    return derived
+
+
+def _select_krx_post_close(
+    root: Path, decision_date: str, generated_at_dt: dt.datetime, *, limit: int = 31
+) -> str | None:
+    directory = Path(root) / KRX_POST_CLOSE_OBSERVATION_ROOT
+    try:
+        names = sorted(
+            (path.name for path in directory.iterdir() if path.is_dir()),
+            reverse=True,
+        )
+    except OSError:
+        return None
+    candidates = [
+        name for name in names
+        if _canonical_iso_date(name) is not None and name <= decision_date
+    ][:limit]
+    for name in candidates:
+        reference = _krx_post_close_reference(root, name, decision_date, generated_at_dt)
+        if reference["unknown_reason"] is None:
+            return name
+    return None
+
+
+def _paper_regime_reference(
+    root: Path, selected_path, generated_at_dt: dt.datetime
+) -> dict:
+    """Re-derive the displayed PAPER reference facts from retained bytes."""
+    base = {
+        "label": "PAPER_REFERENCE_NOT_RUNTIME_AUTHORITY",
+        "evidence_path": selected_path if isinstance(selected_path, str) else None,
+        "evidence_sha256": None,
+        "generated_at": None,
+        "runtime_regime_authorized": False,
+        "markets": [],
+        "unknown_reason": None,
+    }
+    if selected_path is None:
+        return base | {"unknown_reason": "NO_RETAINED_PAPER_REFERENCE_BEFORE_GENERATION"}
+    relative = PurePosixPath(selected_path) if isinstance(selected_path, str) else None
+    prefix = PurePosixPath(PAPER_REGIME_REFERENCE_EVIDENCE_ROOT.as_posix())
+    if (
+        relative is None
+        or relative.is_absolute()
+        or ".." in relative.parts
+        or relative.parts[: len(prefix.parts)] != prefix.parts
+        or relative.name != "packet.json"
+    ):
+        return base | {"evidence_path": None, "unknown_reason": "PAPER_REFERENCE_SELECTION_INVALID"}
+    raw, value = _read_json_bytes(Path(root) / relative)
+    if raw is None or value is None:
+        return base | {"unknown_reason": "RETAINED_PAPER_REFERENCE_MISSING"}
+    unsigned = {key: item for key, item in value.items() if key != "payload_sha256"}
+    if value.get("payload_sha256") != payload_sha256(unsigned):
+        return base | {
+            "evidence_sha256": hashlib.sha256(raw).hexdigest(),
+            "unknown_reason": "RETAINED_PAPER_REFERENCE_SELF_HASH_MISMATCH",
+        }
+    authority = value.get("authority") if isinstance(value.get("authority"), dict) else {}
+    markets = []
+    for row in value.get("markets") or []:
+        if not isinstance(row, dict):
+            continue
+        reference = row.get("paper_reference") if isinstance(row.get("paper_reference"), dict) else {}
+        coverage = row.get("coverage") if isinstance(row.get("coverage"), dict) else {}
+        markets.append({
+            "market": row.get("market"),
+            "as_of_date": row.get("as_of_date"),
+            "classification_status": row.get("classification_status"),
+            "candidate_regime": reference.get("candidate_regime"),
+            "score": reference.get("score"),
+            "confidence": reference.get("confidence"),
+            "coverage_ratio": coverage.get("ratio"),
+            "runtime_regime": row.get("runtime_regime"),
+        })
+    derived = base | {
+        "evidence_sha256": hashlib.sha256(raw).hexdigest(),
+        "generated_at": value.get("generated_at"),
+        "runtime_regime_authorized": authority.get("runtime_regime_authorized") is True,
+        "markets": markets,
+    }
+    instant = _evidence_instant(derived["generated_at"])
+    if instant is None or instant > generated_at_dt:
+        derived["unknown_reason"] = "PAPER_REFERENCE_GENERATED_AFTER_GENERATION"
+    elif derived["runtime_regime_authorized"]:
+        # The display must never read as runtime authority; a packet claiming
+        # it is outside what this presentation line is allowed to show.
+        derived["unknown_reason"] = "PAPER_REFERENCE_CLAIMS_RUNTIME_AUTHORITY"
+    return derived
+
+
+PAPER_REGIME_REFERENCE_POINTER_PATH = "data/latest_paper_regime_reference.json"
+
+
+def _select_paper_regime_reference(root: Path, generated_at_dt: dt.datetime) -> str | None:
+    """The retained evidence copy of the PAPER reference pointer PAPER reads now.
+
+    regime/paper_regime_reference.py write_packet() writes the same bytes to
+    evidence/regime/paper_reference/<max market as_of>/<generation_id>/ and to
+    the rolling pointer. The pointer's generation is selected only when that
+    immutable copy exists byte-identically and was generated before this
+    briefing; anything else selects nothing (rendered UNKNOWN, never guessed).
+    """
+    pointer_raw, pointer = _read_json_bytes(Path(root) / PAPER_REGIME_REFERENCE_POINTER_PATH)
+    if pointer_raw is None or pointer is None:
+        return None
+    generation = pointer.get("generation_id")
+    dates = [
+        row.get("as_of_date") for row in pointer.get("markets") or []
+        if isinstance(row, dict) and _canonical_iso_date(row.get("as_of_date"))
+    ]
+    if not isinstance(generation, str) or _PRESENTATION_SHA256.fullmatch(generation) is None or not dates:
+        return None
+    relative = (PAPER_REGIME_REFERENCE_EVIDENCE_ROOT / max(dates) / generation / "packet.json").as_posix()
+    try:
+        retained = (Path(root) / relative).read_bytes()
+    except OSError:
+        return None
+    if retained != pointer_raw:
+        return None
+    reference = _paper_regime_reference(root, relative, generated_at_dt)
+    return relative if reference["unknown_reason"] is None else None
+
+
+def _presentation_references_snapshot(
+    snapshot,
+    decision_date: str,
+    generated_at_dt: dt.datetime,
+    *,
+    root: Path | None,
+    repository_root: Path = ROOT,
+):
+    """STEP0 snapshot plus its presentation-only references.
+
+    ``root`` is the live repository on a FRESH build ("choose once, now") and
+    None on replay, where only the snapshot's own frozen choice may be used.
+    Replay still re-reads immutable retained bytes from ROOT, and the
+    confirmed-close blob from ``repository_root`` (the trusted repository).
+    """
+    if not isinstance(snapshot, dict):
+        return snapshot
+    frozen = snapshot.get(PRESENTATION_REFERENCES)
+    if frozen is None and root is None:
+        return snapshot
+    base = {key: value for key, value in snapshot.items() if key != PRESENTATION_REFERENCES}
+    step0_value = base.get("value") if isinstance(base.get("value"), dict) else {}
+    step0_krx = ((step0_value.get("sources") or {}).get("krx") or {}) if isinstance(
+        step0_value.get("sources"), dict
+    ) else {}
+    step0_krx_sha256 = step0_krx.get("source_sha256") if isinstance(step0_krx, dict) else None
+    if frozen is None:
+        captured = _capture_krx_confirmed_close(root, repository_root)
+        post_close_date = _select_krx_post_close(root, decision_date, generated_at_dt)
+        paper_path = _select_paper_regime_reference(root, generated_at_dt)
+    else:
+        frozen = frozen if isinstance(frozen, dict) else {}
+        captured = frozen.get("krx_confirmed_close")
+        post_close_date = (frozen.get("krx_post_close") or {}).get("selected_date") if isinstance(
+            frozen.get("krx_post_close"), dict
+        ) else None
+        paper_path = (frozen.get("paper_regime") or {}).get("evidence_path") if isinstance(
+            frozen.get("paper_regime"), dict
+        ) else None
+    return base | {
+        PRESENTATION_REFERENCES: {
+            "version": PRESENTATION_REFERENCES_VERSION,
+            "scope": "PRESENTATION_ONLY_NOT_A_COMPONENT_INPUT",
+            "krx_confirmed_close": _krx_confirmed_close_reference(
+                captured,
+                decision_date,
+                generated_at_dt,
+                step0_source_sha256=step0_krx_sha256,
+                repository_root=repository_root,
+            ),
+            "krx_post_close": _krx_post_close_reference(
+                ROOT, post_close_date, decision_date, generated_at_dt
+            ),
+            "paper_regime": _paper_regime_reference(ROOT, paper_path, generated_at_dt),
+        }
+    }
+
+
+def presentation_references(packet: dict) -> dict | None:
+    """The packet's frozen presentation references, or None for a legacy build."""
+    frozen = (packet.get("frozen_sources") or {}).get("STEP0_READ_MODEL_HEALTH")
+    value = frozen.get(PRESENTATION_REFERENCES) if isinstance(frozen, dict) else None
+    return value if isinstance(value, dict) else None
+
+
+def krx_session_context(packet: dict) -> dict | None:
+    """Market-scoped KRX session dates for render and claims.
+
+    latest_confirmed_close_date is data/latest_krx.json
+    decision_readiness.confirmed_through (the collector's own next-day
+    confirmation), bound to the exact bytes the STEP0 gate read.
+    latest_completed_session_date is the newest KRX session with any retained
+    session evidence: the confirmed close, or a later retained post-close
+    observation that is still observed_unconfirmed. Returns None for a legacy
+    packet without frozen references.
+    """
+    references = presentation_references(packet)
+    if references is None:
+        return None
+    step0 = next(
+        (
+            row for row in packet.get("components", [])
+            if isinstance(row, dict) and row.get("component_id") == "STEP0_READ_MODEL_HEALTH"
+        ),
+        {},
+    )
+    step0_krx = (((step0.get("packet") or {}).get("sources") or {}).get("krx") or {})
+    confirmed_reference = references.get("krx_confirmed_close") or {}
+    confirmed = None
+    confirmed_reason = confirmed_reference.get("unknown_reason")
+    if confirmed_reason is None:
+        if confirmed_reference.get("source_sha256") != step0_krx.get("source_sha256"):
+            confirmed_reason = "KRX_CONFIRMED_SOURCE_NOT_STEP0_BYTES"
+        else:
+            confirmed = confirmed_reference.get("confirmed_through")
+    post_close = references.get("krx_post_close") or {}
+    observed = None
+    if (
+        post_close.get("unknown_reason") is None
+        and post_close.get("observation_status") == "observed_unconfirmed"
+        and isinstance(post_close.get("latest_observed_day"), str)
+        and (confirmed is None or post_close["latest_observed_day"] > confirmed)
+    ):
+        observed = post_close["latest_observed_day"]
+    if observed is not None:
+        completed, completed_status = observed, "OBSERVED_UNCONFIRMED"
+    elif confirmed is not None:
+        completed, completed_status = confirmed, "CONFIRMED"
+    else:
+        completed, completed_status = None, "UNKNOWN"
+    return {
+        "latest_confirmed_close_date": confirmed,
+        "latest_confirmed_close_unknown_reason": confirmed_reason,
+        "latest_confirmed_close_source_sha256": confirmed_reference.get("source_sha256"),
+        "latest_observed_unconfirmed_date": observed,
+        "latest_completed_session_date": completed,
+        "latest_completed_session_status": completed_status,
+        "post_close_collected_at_utc": post_close.get("collected_at_utc") if observed else None,
+    }
+
+
+WEEKEND_SESSION_CONTEXT_DATE_KEYS = (
+    "source_evidence_kst_date",
+    "krx_latest_confirmed_close_date",
+    "us_latest_verified_session_date",
+)
+
+
+def weekend_session_context_dates(packet: dict) -> dict[str, str]:
+    """The three market-scoped weekend context dates (retrieval authority v4).
+
+    * source_evidence_kst_date -- the single collected_for_kst_date shared by
+      every STEP0 read-model source (the collector run KST date), else UNKNOWN.
+    * krx_latest_confirmed_close_date -- data/latest_krx.json
+      decision_readiness.confirmed_through from the frozen presentation
+      reference, only while that reference is bound to the exact STEP0 krx
+      bytes (krx_session_context); else UNKNOWN.
+    * us_latest_verified_session_date -- FREE_MARKET_DATA
+      us_market_reference.as_of_session_date, only when that component is
+      READY; else UNKNOWN.
+
+    A value that is not a canonical date on or before the decision date is
+    UNKNOWN. Nothing falls back to another market's or component's date.
+    The scheduled briefing authority publisher and consumer re-derive the same
+    values from the hash-bound packet (.github/scripts/*_scheduled_briefing_authority.py).
+    """
+    decision_date = packet.get("decision_date")
+    by_id = {
+        row.get("component_id"): row
+        for row in packet.get("components", [])
+        if isinstance(row, dict)
+    }
+
+    def bounded(value) -> str:
+        date = _canonical_iso_date(value)
+        if date is None or not isinstance(decision_date, str) or date > decision_date:
+            return "UNKNOWN"
+        return date
+
+    step0_packet = (by_id.get("STEP0_READ_MODEL_HEALTH") or {}).get("packet") or {}
+    sources = step0_packet.get("sources") if isinstance(step0_packet, dict) else None
+    sources = sources if isinstance(sources, dict) else {}
+    observed = {
+        value.get("collected_for_kst_date")
+        for value in sources.values()
+        if isinstance(value, dict)
+    }
+    source_date = bounded(observed.pop()) if sources and len(observed) == 1 else "UNKNOWN"
+
+    krx_session = krx_session_context(packet) or {}
+    krx_confirmed = bounded(krx_session.get("latest_confirmed_close_date"))
+
+    us_row = by_id.get("FREE_MARKET_DATA") or {}
+    us_reference = (us_row.get("packet") or {}).get("us_market_reference") if isinstance(
+        us_row.get("packet"), dict
+    ) else None
+    us_session = (
+        bounded(us_reference.get("as_of_session_date"))
+        if us_row.get("status") == "READY" and isinstance(us_reference, dict)
+        else "UNKNOWN"
+    )
+    return {
+        "source_evidence_kst_date": source_date,
+        "krx_latest_confirmed_close_date": krx_confirmed,
+        "us_latest_verified_session_date": us_session,
+    }
+
+
+def paper_regime_context(packet: dict) -> dict | None:
+    references = presentation_references(packet)
+    if references is None:
+        return None
+    return references.get("paper_regime") or None
 
 
 # ---------------------------------------------------------------------------
@@ -2924,6 +4324,167 @@ FROZEN_SOURCE_COMPONENTS = frozenset({
 # (evening only) is the same presence/absence-plus-real-observation-time
 # pattern as the six above, applied to
 # data/observations/krx_post_close/{decision_date}/.
+#
+# Optional caller-supplied replay inputs, kept deliberately separate from the
+# component snapshots above. They are frozen into packet["frozen_sources"]
+# and independently replayed by validate_packet() the same way, but they are
+# NOT component rows and nothing fetches them: each is absent unless a caller
+# explicitly passed it, so a packet built without them keeps its existing key
+# set and its existing bytes. Absence is key absence, never a null value: a
+# supplied null is a supplied input, is frozen as such, and fails its row
+# closed rather than resolving to the legacy default.
+# US_ROTATION_LEDGER holds the raw original
+# rotation packet / external state policy / previous ledger -- never the
+# derived ledger -- so revalidation re-runs the real apply_rotation() over the
+# originals instead of trusting a ledger that merely rehashes itself.
+OPTIONAL_FROZEN_INPUTS = frozenset({US_ROTATION_LEDGER_SOURCE})
+
+# Version-bound frozen inputs, kept separate from both sets above. Unlike the
+# component snapshots, nothing fetches these per component row; unlike the
+# optional caller inputs, they are not optional -- a derivation that binds one
+# always captures it on a fresh build and always requires the persisted
+# envelope on replay, and a derivation that does not bind it rejects it
+# outright rather than carrying an input it never reads. See
+# P2_ROTATION_STATE_READINESS_INPUTS above.
+VERSIONED_FROZEN_INPUTS = frozenset({
+    P2_ROTATION_STATE_READINESS_INPUTS,
+    P2_FLOW_REPLAY_INPUTS,
+})
+
+
+# ---------------------------------------------------------------------------
+# Runtime Regime readiness derivation version
+#
+# This versions the DERIVATION only -- never policy, ratification, evidence
+# quality or authority. Every version below produces the same fail-closed
+# result: P1_REGIME_DECISION stays UNAVAILABLE, both readiness packets stay
+# BLOCKED, budgets stay null and every action/order/Production/trading flag
+# stays false. What changes is only which deterministic derivation the
+# packet's own bytes were produced by, so an archived packet can be replayed
+# exactly instead of being silently re-derived under today's rules.
+#
+#   absent  -- pre-wiring. Generic P1 blocker in BOTH P6-06 and P7-12.
+#   1       -- P6-06 carries the exact, independently re-derived runtime
+#              blockers; P7-12 still carries the generic one.
+#   2       -- P6-06 AND P7-12 both carry the exact independently re-derived
+#              P1 blockers, and the ACTION_RISK_PORTFOLIO_SUMMARY component
+#              row is labelled with the KST business date of its own validated
+#              summary packet. P7-12's P2_ROTATION_STATE slot still carries
+#              only the generic production-contract blocker.
+#   3       -- default for every new packet. Everything version 2 derives,
+#              plus P7-12's P2_ROTATION_STATE slot carrying the exact
+#              per-market prerequisites P2-05 re-derives from an immutable,
+#              Git-authenticated snapshot of the three committed inputs, which
+#              is frozen into packet["frozen_sources"] under
+#              P2_ROTATION_STATE_READINESS_INPUTS. Version 3 packets are the
+#              only ones that capture, require or read that key; absent/1/2
+#              neither produce nor accept it.
+#
+# The absent and 1 forms are ambiguous about ONE field and one field only:
+# the summary component row's as_of_date. Packets of both kinds were issued
+# under the earlier GENERATED_AT_UTC_DAY basis and under the current
+# PACKET_DECISION_DATE basis, and nothing in those packets records which.
+# validate_packet() therefore rebuilds a legacy packet fully under BOTH
+# enumerated bases and accepts it only on complete canonical equality with an
+# entire reconstruction. That proves the packet is a valid historical
+# derivation. It does NOT authenticate which release produced it, and it is
+# not release provenance -- see docs/strategic_capital_posture_contract.md.
+# Versions 2 and 3 each have exactly one derivation and never fall back to
+# either legacy form.
+# ---------------------------------------------------------------------------
+
+RUNTIME_REGIME_READINESS_VERSION = 3
+SUPPORTED_RUNTIME_REGIME_READINESS_VERSIONS = (1, 2, 3)
+LEGACY_RUNTIME_REGIME_READINESS_VERSIONS = (None, 1)
+# Which derivations wire the EXACT P1 runtime blockers into P7-12. Enumerated
+# explicitly rather than tested against RUNTIME_REGIME_READINESS_VERSION: an
+# already-issued version-2 packet must keep deriving its exact P1 blockers
+# after the default moves on, so equality with "whatever today's default is"
+# would silently rewrite history.
+P1_EXACT_RUNTIME_BLOCKER_VERSIONS = (2, 3)
+# Which derivations bind the P2_ROTATION_STATE diagnostic blockers, and
+# therefore capture and require the frozen readiness inputs.
+P2_ROTATION_STATE_DIAGNOSTIC_VERSIONS = (3,)
+# Both enumerated historical summary-row bases, in the order a replay tries
+# them. Deliberately the full SUMMARY_ROW_DATE_BASES tuple: a legacy packet
+# may legitimately be either form, and for same-KST-day geometry (the 09:30Z
+# evening run) the two reconstructions coalesce to identical bytes.
+LEGACY_SUMMARY_ROW_DATE_BASES = SUMMARY_ROW_DATE_BASES
+
+
+def _checked_runtime_regime_readiness_version(value):
+    """None, or exactly int 1, 2 or 3. Nothing else.
+
+    ``type(value) is not int`` rejects bool, which would otherwise compare
+    equal to 1. Strings, floats, 0, negatives and unknown integers are
+    rejected too. An explicitly persisted null is rejected by the caller in
+    validate_packet(), because rebuilding None omits the field entirely and
+    "absent" and "present but null" are different persisted bytes.
+    """
+    if value is None:
+        return None
+    if (
+        type(value) is not int
+        or value not in SUPPORTED_RUNTIME_REGIME_READINESS_VERSIONS
+    ):
+        fail("RUNTIME_REGIME_READINESS_VERSION_INVALID", repr(value))
+    return value
+
+
+# ---------------------------------------------------------------------------
+# Flow replay derivation version
+#
+# Deliberately a SEPARATE axis from runtime_regime_readiness_version above.
+# The two version different things and move independently: that one versions
+# how P1 readiness blockers are derived, this one versions where the P2-COM-02
+# cross-market flow inputs come from. Collapsing them would make a change to
+# either silently rewrite the other's history.
+#
+#   absent  -- legacy. The P2_FLOW_ENGINE row was built by re-reading whatever
+#              was on disk at build time, and the packet records nothing about
+#              which bytes those were. Replaying such a packet therefore needs
+#              an externally trusted original source commit; there is no honest
+#              way to recover it from the packet itself.
+#   1       -- default for every new packet. The exact ten committed Flow
+#              inputs are captured once at build time into packet[
+#              "frozen_sources"] under P2_FLOW_REPLAY_INPUTS and re-read from
+#              real Git objects on every replay. Version-1 packets are the only
+#              ones that capture, require or read that key; the legacy form
+#              neither produces nor accepts it.
+#
+# This axis changes NO policy, ratification, evidence quality or authority.
+# Every form leaves P2_FLOW_ENGINE a PENDING diagnostic with capital, action,
+# order, Production and trading all false.
+# ---------------------------------------------------------------------------
+
+FLOW_REPLAY_VERSION = 1
+SUPPORTED_FLOW_REPLAY_VERSIONS = (1,)
+# Which derivations freeze the Flow inputs, and therefore capture on a fresh
+# build and require the persisted envelope on replay. Enumerated explicitly
+# rather than compared against FLOW_REPLAY_VERSION so an already-issued packet
+# keeps its own derivation after the default moves on.
+FLOW_REPLAY_FROZEN_VERSIONS = (1,)
+
+# A third, equally separate axis -- the Crypto component derivation identity --
+# is defined next to the three classifiers it belongs to (see
+# CRYPTO_DERIVATION_VERSION above). It versions only which evidence metadata a
+# computed Crypto row carries, and no policy, evidence quality or authority.
+
+
+def _checked_flow_replay_version(value):
+    """None, or exactly int 1. Nothing else.
+
+    ``type(value) is not int`` rejects bool, which would otherwise compare
+    equal to 1. Strings, floats, 0, negatives and unknown integers are
+    rejected too. An explicitly persisted null is rejected by the caller in
+    validate_packet(), because rebuilding None omits the field entirely and
+    "absent" and "present but null" are different persisted bytes.
+    """
+    if value is None:
+        return None
+    if type(value) is not int or value not in SUPPORTED_FLOW_REPLAY_VERSIONS:
+        fail("FLOW_REPLAY_VERSION_INVALID", repr(value))
+    return value
 
 
 def build_packet(
@@ -2932,7 +4493,40 @@ def build_packet(
     generated_at: str,
     contract: dict | None = None,
     frozen_sources: dict[str, dict] | None = None,
+    runtime_regime_readiness_version: int | None = RUNTIME_REGIME_READINESS_VERSION,
+    summary_row_date_basis: str = SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,
+    *,
+    flow_replay_version: int | None = FLOW_REPLAY_VERSION,
+    crypto_derivation_version: int | None = CRYPTO_DERIVATION_VERSION,
+    historical_flow_source_commit: str | None = None,
+    trusted_repository_root: Path = ROOT,
+    trusted_validation_head: str | None = None,
 ) -> dict:
+    _checked_runtime_regime_readiness_version(runtime_regime_readiness_version)
+    _checked_flow_replay_version(flow_replay_version)
+    _checked_crypto_derivation_version(crypto_derivation_version)
+    if flow_replay_version is not None and historical_flow_source_commit is not None:
+        # A frozen derivation carries its own source commit inside the
+        # envelope. Accepting a second, caller-named one here would create a
+        # path where the two disagree and the packet still validates.
+        fail(
+            "FLOW_REPLAY_HISTORICAL_CONTEXT_NOT_SUPPORTED",
+            repr(flow_replay_version),
+        )
+    if summary_row_date_basis not in SUMMARY_ROW_DATE_BASES:
+        fail("SUMMARY_ROW_DATE_BASIS_INVALID", repr(summary_row_date_basis))
+    if (
+        summary_row_date_basis != SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE
+        and runtime_regime_readiness_version
+        not in LEGACY_RUNTIME_REGIME_READINESS_VERSIONS
+    ):
+        # A current-derivation packet has exactly one date basis. The archival
+        # basis is reachable only while replaying an ambiguous legacy packet;
+        # it is never a fallback a new or version-2 build can reach.
+        fail(
+            "SUMMARY_ROW_DATE_BASIS_NOT_LEGACY",
+            f"{summary_row_date_basis}:{runtime_regime_readiness_version!r}",
+        )
     contract = load_contract() if contract is None else contract
     if slot not in contract["slots"]:
         fail("SLOT_INVALID", slot)
@@ -2943,10 +4537,99 @@ def build_packet(
     if generated_at_dt.tzinfo is None:
         fail("GENERATED_AT_INVALID", "must include a timezone offset")
     frozen_sources = frozen_sources or {}
-    if not set(frozen_sources) <= FROZEN_SOURCE_COMPONENTS:
+    accepted_frozen_sources = (
+        FROZEN_SOURCE_COMPONENTS | OPTIONAL_FROZEN_INPUTS | VERSIONED_FROZEN_INPUTS
+    )
+    if not set(frozen_sources) <= accepted_frozen_sources:
         fail(
             "FROZEN_SOURCES_INVALID",
-            str(set(frozen_sources) - FROZEN_SOURCE_COMPONENTS),
+            str(set(frozen_sources) - accepted_frozen_sources),
+        )
+
+    # P2-05's frozen readiness inputs are bound to derivation version 3 only.
+    #
+    # Absent key on a version-3 build means "capture once, now" -- the
+    # build-only default capture mode. It deliberately does NOT mean "resolve
+    # to an empty envelope": a key that is present holds whatever the caller
+    # supplied, including null or a malformed object, and that value is used
+    # as supplied so it fails closed on its own provenance rather than being
+    # quietly replaced by a fresh capture of today's repository state.
+    #
+    # A derivation that does not bind the slot never captures, never reads and
+    # never accepts the key: injecting it into an absent/1/2 build is an
+    # incompatible version/input combination, not a promotion path.
+    p2_rotation_readiness_inputs = P2_ROTATION_STATE_INPUTS_OMITTED
+    if runtime_regime_readiness_version in P2_ROTATION_STATE_DIAGNOSTIC_VERSIONS:
+        if P2_ROTATION_STATE_READINESS_INPUTS in frozen_sources:
+            p2_rotation_readiness_inputs = frozen_sources[
+                P2_ROTATION_STATE_READINESS_INPUTS
+            ]
+        else:
+            p2_rotation_readiness_inputs = (
+                ROTATION_STATE_READINESS.capture_readiness_inputs(ROOT)
+            )
+    elif P2_ROTATION_STATE_READINESS_INPUTS in frozen_sources:
+        fail(
+            "P2_ROTATION_STATE_READINESS_INPUTS_NOT_SUPPORTED",
+            repr(runtime_regime_readiness_version),
+        )
+
+    # P2-COM-02's frozen Flow inputs are bound to Flow derivation 1 only, and
+    # follow exactly the rule above: an absent key on a version-1 build means
+    # "capture once, now"; a key that is PRESENT is used as supplied --
+    # including when what was supplied is null or malformed -- so it fails
+    # closed on its own provenance instead of being quietly replaced by a
+    # fresh capture of today's repository state. The legacy derivation never
+    # captures, never reads and never accepts the key.
+    #
+    # Two variables, deliberately: `persisted_flow_inputs` is what this packet
+    # RECORDS, `flow_row_inputs` is what the P2_FLOW_ENGINE row is BUILT from.
+    # They are the same thing on a version-1 derivation. They differ for a
+    # legacy replay under external context, where the closure of the supplied
+    # commit builds the row but must not be written into the packet: adding a
+    # key a legacy build never emitted would rewrite history rather than
+    # replay it.
+    #
+    # Both forms are authenticated HERE, before any row is built, so an
+    # unprovable or unreplayable input fails immediately rather than after a
+    # whole briefing has been assembled.
+    persisted_flow_inputs = FLOW_REPLAY_INPUTS_OMITTED
+    # The sentinel, not None: a caller may legitimately have supplied null as
+    # the envelope, and that is an unusable SUPPLIED value which must fail on
+    # its own provenance -- not silently reopen the live-input path.
+    flow_envelope = FLOW_REPLAY_INPUTS_OMITTED
+    flow_row_inputs = None
+    if flow_replay_version in FLOW_REPLAY_FROZEN_VERSIONS:
+        if P2_FLOW_REPLAY_INPUTS in frozen_sources:
+            persisted_flow_inputs = frozen_sources[P2_FLOW_REPLAY_INPUTS]
+        else:
+            # The SAME trusted head the verification below anchors on, so a
+            # build captures and verifies against one chosen head rather than
+            # capturing at whatever HEAD happens to be and then proving that
+            # against a different one.
+            persisted_flow_inputs = CAPITAL_FLOW_ENGINE.capture_flow_replay_inputs(
+                trusted_repository_root,
+                trusted_validation_head=trusted_validation_head,
+            )
+        flow_envelope = persisted_flow_inputs
+    elif P2_FLOW_REPLAY_INPUTS in frozen_sources:
+        fail("P2_FLOW_REPLAY_INPUTS_NOT_SUPPORTED", repr(flow_replay_version))
+    elif historical_flow_source_commit is not None:
+        # Legacy replay under externally trusted context. The real ten-file
+        # closure of that commit is read from its ACTUAL tree; the resulting
+        # envelope is used to build the row but is deliberately NOT persisted,
+        # because adding a key a legacy build never emitted would rewrite
+        # history rather than replay it.
+        flow_envelope = CAPITAL_FLOW_ENGINE.flow_replay_inputs_at_commit(
+            historical_flow_source_commit,
+            trusted_repository_root=trusted_repository_root,
+            trusted_validation_head=trusted_validation_head,
+        )
+    if flow_envelope is not FLOW_REPLAY_INPUTS_OMITTED:
+        flow_row_inputs = CAPITAL_FLOW_ENGINE.verified_flow_replay_closure(
+            flow_envelope,
+            trusted_repository_root=trusted_repository_root,
+            trusted_validation_head=trusted_validation_head,
         )
 
     rows: dict[str, dict] = {}
@@ -2962,8 +4645,18 @@ def build_packet(
         return _enforce_temporal_boundary(row, decision_date, generated_at_dt)
 
     step0_snapshot = frozen_sources.get("STEP0_READ_MODEL_HEALTH")
-    if step0_snapshot is None:
+    step0_fresh = step0_snapshot is None
+    if step0_fresh:
         step0_snapshot = _fetch_step0_snapshot(decision_date)
+    # Presentation-only references ride on the STEP0 snapshot (chosen once on
+    # a fresh build, replayed afterwards). _classify_step0 never reads them.
+    step0_snapshot = _presentation_references_snapshot(
+        step0_snapshot,
+        decision_date,
+        generated_at_dt,
+        root=ROOT if step0_fresh else None,
+        repository_root=trusted_repository_root,
+    )
     step0 = _boundary(_classify_step0(decision_date, step0_snapshot))
     rows["STEP0_READ_MODEL_HEALTH"] = step0
     rows["KRX_PREOPEN_COMPACT"] = _boundary(
@@ -3026,26 +4719,46 @@ def build_packet(
         _classify_free_market_data(free_market_snapshot, decision_date)
     )
 
-    btc_snapshot = frozen_sources.get("BTC_TREND")
-    if btc_snapshot is None:
-        btc_snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
+    # Exactly the existing per-component freeze (supplied snapshot replayed,
+    # otherwise fetched once now), plus the presentation-only prior confirmed
+    # reference attached to the same entry -- chosen here on a fresh build and
+    # only ever replayed from the packet's own frozen choice afterwards. See
+    # _prior_confirmed_reference_snapshot for why the two paths differ.
+    def _crypto_snapshot(component_id: str, archive_root: Path) -> dict:
+        snapshot = frozen_sources.get(component_id)
+        fresh = snapshot is None
+        if fresh:
+            snapshot = _fetch_dated_evidence_snapshot(archive_root, decision_date)
+        return _prior_confirmed_reference_snapshot(
+            snapshot,
+            component_id,
+            decision_date,
+            generated_at_dt,
+            archive_root=archive_root if fresh else None,
         )
-    rows["BTC_TREND"] = _boundary(_classify_btc_trend(btc_snapshot))
 
-    btc_risk_snapshot = frozen_sources.get("BTC_RISK")
-    if btc_risk_snapshot is None:
-        btc_risk_snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "crypto" / "btc" / "raw", decision_date
+    btc_snapshot = _crypto_snapshot("BTC_TREND", ROOT / BTC_RAW_ROOT)
+    rows["BTC_TREND"] = _boundary(
+        _classify_btc_trend(
+            btc_snapshot, derivation_version=crypto_derivation_version
         )
-    rows["BTC_RISK"] = _boundary(_classify_btc_risk(btc_risk_snapshot))
+    )
 
-    stablecoin_snapshot = frozen_sources.get("STABLECOIN_NET_ISSUANCE")
-    if stablecoin_snapshot is None:
-        stablecoin_snapshot = _fetch_dated_evidence_snapshot(
-            ROOT / "evidence" / "stablecoin" / "raw", decision_date
+    btc_risk_snapshot = _crypto_snapshot("BTC_RISK", ROOT / BTC_RAW_ROOT)
+    rows["BTC_RISK"] = _boundary(
+        _classify_btc_risk(
+            btc_risk_snapshot, derivation_version=crypto_derivation_version
         )
-    rows["STABLECOIN_NET_ISSUANCE"] = _boundary(_classify_stablecoin(stablecoin_snapshot))
+    )
+
+    stablecoin_snapshot = _crypto_snapshot(
+        "STABLECOIN_NET_ISSUANCE", ROOT / STABLECOIN_RAW_ROOT
+    )
+    rows["STABLECOIN_NET_ISSUANCE"] = _boundary(
+        _classify_stablecoin(
+            stablecoin_snapshot, derivation_version=crypto_derivation_version
+        )
+    )
 
     crypto_breadth_snapshot = frozen_sources.get("CRYPTO_BREADTH")
     if crypto_breadth_snapshot is None:
@@ -3089,12 +4802,37 @@ def build_packet(
         dynamic_clock_snapshot, decision_date
     )
 
-    regime_outputs = build_regime_outputs(generated_at, rows)
+    # The live-axis adapter independently rederives the legacy value packets
+    # and compares their complete shape. Derivation identity is carriage on
+    # the emitted briefing rows, outside that adapter's input contract.
+    regime_rows = dict(rows)
+    for component_id in ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE"):
+        row = rows[component_id]
+        if isinstance(row.get("packet"), dict) and "derivation" in row["packet"]:
+            regime_rows[component_id] = {
+                **row,
+                "packet": {key: value for key, value in row["packet"].items()
+                           if key != "derivation"},
+            }
+    regime_outputs = build_regime_outputs(generated_at, regime_rows)
     rows["THREE_MARKET_REGIME_HEADER"] = _boundary(build_three_market_header(
         regime_outputs, slot, generated_at
     ))
+    # Explicit-only: there is no `if ... is None: fetch` fallback here, unlike
+    # every FROZEN_SOURCE_COMPONENTS snapshot above. Absent -- the key genuinely
+    # not in frozen_sources -- means the P8-05 rotation section keeps its
+    # existing empty-ledger semantics. Key-present-with-null is NOT absent: it
+    # is a supplied source whose value is unusable, so it is carried through as
+    # the supplied null (see _us_rotation_ledger) and fails the row closed. The
+    # sentinel default of .get() is what keeps those two cases apart; plain
+    # .get() would render an explicitly broken input as a healthy empty ledger.
+    us_rotation_source = frozen_sources.get(
+        US_ROTATION_LEDGER_SOURCE, US_ROTATION_LEDGER_OMITTED
+    )
     rows["ROTATION_DISCOVERY"] = _boundary(
-        build_rotation_discovery(slot, generated_at, dynamic_report)
+        build_rotation_discovery(
+            slot, generated_at, dynamic_report, us_rotation_source
+        )
     )
     rows["BUSINESS_ACCELERATION"] = _boundary(
         build_business_acceleration_status(generated_at)
@@ -3142,20 +4880,37 @@ def build_packet(
     )
     for name, reason in _POLICY_BLOCKED_ACTION_SOURCES.items():
         rows[name] = _blocked(name, "POLICY_BLOCKED", reason)
-    rows["P2_FLOW_ENGINE"] = _boundary(build_capital_flow_posture_reference())
+    rows["P2_FLOW_ENGINE"] = _boundary(
+        build_capital_flow_posture_reference(flow_row_inputs)
+    )
 
+    # Derivation version 1 wired the exact runtime blockers into P6-06 only;
+    # versions 2 and 3 wire them into P7-12 as well. The marker-absent form
+    # keeps the generic blocker in both. Each consumer re-derives them from
+    # these same envelopes itself -- neither reads the other's packet.
     rows["DEFENSIVE_ACTION_DECISION"] = _boundary(
-        build_defensive_action_decision(rows, decision_date, generated_at)
+        build_defensive_action_decision(
+            rows, decision_date, generated_at,
+            regime_outputs if runtime_regime_readiness_version is not None else None,
+        )
     )
     rows["STRATEGIC_CAPITAL_POSTURE"] = _boundary(
-        build_strategic_capital_posture(rows, decision_date, generated_at)
+        build_strategic_capital_posture(
+            rows, decision_date, generated_at,
+            regime_outputs
+            if runtime_regime_readiness_version in P1_EXACT_RUNTIME_BLOCKER_VERSIONS
+            else None,
+            p2_rotation_readiness_inputs,
+        )
     )
 
     # ACTION_RISK_PORTFOLIO_SUMMARY reads the two fail-closed P6/P7 readiness
     # packets plus UNIFIED_DECISION/CASH_EXPOSURE_*/LONG_SHORT_INVARIANT/
     # INVERSE_* -- all already boundary-checked above.
     rows["ACTION_RISK_PORTFOLIO_SUMMARY"] = _boundary(
-        build_action_risk_summary(rows, generated_at)
+        build_action_risk_summary(
+            rows, generated_at, summary_row_date_basis=summary_row_date_basis
+        )
     )
     rows["INVESTMENT_REVIEW_SHADOW"] = _boundary(
         build_investment_review_shadow_status(
@@ -3241,6 +4996,44 @@ def build_packet(
                 if krx_post_close_snapshot is not None
                 else {}
             ),
+            # Only present when a caller actually supplied one -- including
+            # when what they supplied was null or otherwise unusable. The
+            # supplied bytes are preserved exactly as given so a fail-closed
+            # row replays deterministically from the same rejected input;
+            # dropping the key here would rewrite an explicitly broken build
+            # into an indistinguishable "nothing was supplied" one. Deep-copied
+            # so this packet's frozen replay input is genuinely frozen: a
+            # later mutation of the caller's own object cannot retroactively
+            # change what this packet was built from, and cannot invalidate
+            # its already-computed digest.
+            **(
+                {US_ROTATION_LEDGER_SOURCE: copy.deepcopy(us_rotation_source)}
+                if us_rotation_source is not US_ROTATION_LEDGER_OMITTED
+                else {}
+            ),
+            # Present on exactly the derivations that bind
+            # P2_ROTATION_STATE, whether the envelope was captured by this
+            # build or replayed from a persisted one. Deep-copied for the
+            # same reason as the rotation source above: a later mutation of
+            # the caller's object must not retroactively change what this
+            # packet was built from.
+            **(
+                {
+                    P2_ROTATION_STATE_READINESS_INPUTS: copy.deepcopy(
+                        p2_rotation_readiness_inputs
+                    )
+                }
+                if p2_rotation_readiness_inputs is not P2_ROTATION_STATE_INPUTS_OMITTED
+                else {}
+            ),
+            # Present on exactly the derivations that freeze the Flow inputs,
+            # whether this build captured the envelope or replayed a persisted
+            # one. Deep-copied for the same reason as the two above.
+            **(
+                {P2_FLOW_REPLAY_INPUTS: copy.deepcopy(persisted_flow_inputs)}
+                if persisted_flow_inputs is not FLOW_REPLAY_INPUTS_OMITTED
+                else {}
+            ),
         },
         "unresolved_boundaries": [
             "REGIME_POLICY_VALUES_UNRATIFIED",
@@ -3261,6 +5054,20 @@ def build_packet(
             "SAME_DAY_AUTOMATIC_RECOVERY_TRIGGER_NOT_SCHEDULED",
         ],
     }
+    # Version the derivation, not policy or authority. Absent on legacy packets.
+    if runtime_regime_readiness_version is not None:
+        packet["runtime_regime_readiness_version"] = runtime_regime_readiness_version
+    # The Flow axis is independent of the runtime axis above and is marked
+    # separately, so a packet's own bytes say which Flow derivation produced
+    # it without any inference from the other marker.
+    if flow_replay_version is not None:
+        packet["flow_replay_version"] = flow_replay_version
+    # The Crypto derivation-identity axis is independent of both markers above
+    # and is marked separately for the same reason: a packet's own bytes say
+    # which form produced it, so a packet issued before this axis rebuilds
+    # exactly as it was issued instead of acquiring a field it never emitted.
+    if crypto_derivation_version is not None:
+        packet["crypto_derivation_version"] = crypto_derivation_version
     packet["packet_sha256"] = payload_sha256(packet)
     return packet
 
@@ -3281,7 +5088,31 @@ def _verify_self_hash(packet: dict) -> None:
         fail("OUTPUT_SHA_MISMATCH", "packet_sha256")
 
 
-def validate_packet(packet: dict, contract: dict | None = None) -> dict:
+def validate_packet(
+    packet: dict,
+    contract: dict | None = None,
+    *,
+    trusted_repository_root: Path = ROOT,
+    trusted_validation_head: str | None = None,
+    historical_source_commit: str | None = None,
+) -> dict:
+    """Rebuild a persisted packet completely and accept only total equality.
+
+    The three keyword-only arguments are EXTERNAL operator context and are
+    never extracted from the packet, a locator, or the live HEAD:
+
+      * ``trusted_repository_root`` / ``trusted_validation_head`` anchor Git
+        provenance. A packet may name neither a repository, a ref, a remote
+        nor a validation HEAD.
+      * ``historical_source_commit`` is the original Flow source commit for a
+        LEGACY packet -- one carrying no ``flow_replay_version`` marker. Such
+        a packet records nothing about which input bytes produced its
+        P2_FLOW_ENGINE row, so without this context it cannot be replayed at
+        all. Supplying it does not make it the original issuing commit: it
+        proves an authentic historical closure, and the full-packet equality
+        below is what decides whether that closure actually reproduces these
+        bytes.
+    """
     contract = load_contract() if contract is None else contract
     _verify_self_hash(packet)
     # Unconditional full rebuild-and-compare, with no blind-trust exemption
@@ -3308,13 +5139,131 @@ def validate_packet(packet: dict, contract: dict | None = None) -> dict:
         # not silently re-read today's larger input set and return a verdict
         # that depends on validation time.
         fail("DYNAMIC_CLOCK_SOURCE_NOT_FROZEN", "frozen_sources.DYNAMIC_CLOCK")
-    rebuilt = build_packet(
-        packet["slot"], packet["decision_date"], packet["generated_at"], contract,
-        frozen_sources=frozen_sources,
+    # Absence of the marker is what selects a legacy derivation. A key that is
+    # present but null is NOT absence: it is a persisted value, no build ever
+    # emits it (build_packet omits the field for None), and it must fail
+    # rather than resolve to the legacy default.
+    if (
+        "runtime_regime_readiness_version" in packet
+        and packet["runtime_regime_readiness_version"] is None
+    ):
+        fail("RUNTIME_REGIME_READINESS_VERSION_INVALID", "explicit null")
+    version = _checked_runtime_regime_readiness_version(
+        packet.get("runtime_regime_readiness_version")
     )
-    if rebuilt != packet:
-        fail("OUTPUT_MISMATCH", "rebuilt packet does not match persisted packet")
-    return packet
+    # A derivation that binds P2_ROTATION_STATE must carry the exact envelope
+    # it was built from. Validation NEVER captures: a persisted packet missing
+    # the key is a hard error, not an invitation to freeze today's repository
+    # state and call the result a replay. (A key present but null, or holding
+    # a malformed envelope, is a supplied value and fails on its own
+    # provenance inside the rebuild below.)
+    if (
+        version in P2_ROTATION_STATE_DIAGNOSTIC_VERSIONS
+        and P2_ROTATION_STATE_READINESS_INPUTS not in frozen_sources
+    ):
+        fail(
+            "P2_ROTATION_STATE_READINESS_INPUTS_NOT_FROZEN",
+            f"frozen_sources.{P2_ROTATION_STATE_READINESS_INPUTS}",
+        )
+
+    # --- Flow replay axis, independent of the runtime axis above ------------
+    #
+    # Same absence rule, for the same reason: an explicitly persisted null is
+    # a value, not absence. No build ever emits it (build_packet omits the
+    # field for None), so it must fail rather than resolve to legacy.
+    if "flow_replay_version" in packet and packet["flow_replay_version"] is None:
+        fail("FLOW_REPLAY_VERSION_INVALID", "explicit null")
+    flow_version = _checked_flow_replay_version(packet.get("flow_replay_version"))
+    if flow_version in FLOW_REPLAY_FROZEN_VERSIONS:
+        # A frozen derivation must carry the exact envelope it was built from.
+        # Validation NEVER captures: a persisted packet missing the key is a
+        # hard error, not an invitation to freeze today's repository state and
+        # call the result a replay. A key present but null, or holding a
+        # malformed envelope, is a supplied value and fails on its own
+        # provenance inside the rebuild below.
+        if P2_FLOW_REPLAY_INPUTS not in frozen_sources:
+            fail(
+                "P2_FLOW_REPLAY_INPUTS_NOT_FROZEN",
+                f"frozen_sources.{P2_FLOW_REPLAY_INPUTS}",
+            )
+        if historical_source_commit is not None:
+            # The envelope already names its own source commit. A second,
+            # caller-named one is a mixed form, not an override.
+            fail(
+                "FLOW_REPLAY_HISTORICAL_CONTEXT_NOT_SUPPORTED", repr(flow_version)
+            )
+    else:
+        # Legacy. The marker is absent, so the frozen key must be too:
+        # marker-absent-plus-key-present is an unsupported mixed form rather
+        # than a promotion path. (build_packet refuses it as well; stating it
+        # here keeps the persisted-bytes contract readable on its own.)
+        if P2_FLOW_REPLAY_INPUTS in frozen_sources:
+            fail("P2_FLOW_REPLAY_INPUTS_NOT_SUPPORTED", repr(flow_version))
+        if historical_source_commit is None:
+            # BEHAVIOUR CHANGE, approved: this used to pass by re-reading
+            # today's Flow inputs, which meant an archived verdict silently
+            # depended on when it was validated. There is no honest way to
+            # recover the original inputs from the packet itself, and
+            # inferring them from the live HEAD would be exactly the failure
+            # this replaces -- so the caller must supply trusted context or
+            # handle this diagnostic.
+            raise DailyOrchestratorError(
+                "UNREPLAYABLE_FLOW_HISTORY_SOURCE_COMMIT_REQUIRED: "
+                "this packet carries no flow_replay_version marker; replaying "
+                "it requires an externally trusted original Flow source commit"
+            )
+
+    # --- Crypto derivation-identity axis, independent of both axes above ----
+    #
+    # Same absence rule, for the same reason: an explicitly persisted null is a
+    # value, not absence. No build ever emits it (build_packet omits the marker
+    # for None), so it must fail rather than resolve to the legacy form. The
+    # marker is read from the packet's OWN bytes rather than inferred from
+    # whether a component row happens to carry a derivation field, so stripping
+    # that field from a row cannot excuse itself into a legacy rebuild. This
+    # axis needs no frozen envelope: the identity it replays is the executed
+    # code's own, which the rebuild re-establishes independently.
+    if (
+        "crypto_derivation_version" in packet
+        and packet["crypto_derivation_version"] is None
+    ):
+        fail("CRYPTO_DERIVATION_VERSION_INVALID", "explicit null")
+    crypto_derivation_version = _checked_crypto_derivation_version(
+        packet.get("crypto_derivation_version")
+    )
+
+    # A legacy packet is ambiguous about exactly one field -- the summary
+    # component row's as_of_date -- and nothing inside it records which of the
+    # two historical bases produced it. Rebuild it fully under each enumerated
+    # basis in turn and accept only complete equality with one ENTIRE
+    # reconstruction. The stored row's own as_of_date is never read as an
+    # input and never copied into a rebuild to force a match, so a semantic
+    # tamper of that row (or of anything else) still fails closed: the only
+    # two values it can legitimately hold are the two this rebuilds
+    # independently from decision_date and generated_at. For same-KST-day
+    # geometry both reconstructions are byte-identical, so this collapses to
+    # the single historical result. Version 2 has one derivation and never
+    # reaches the archival basis.
+    bases = (
+        LEGACY_SUMMARY_ROW_DATE_BASES
+        if version in LEGACY_RUNTIME_REGIME_READINESS_VERSIONS
+        else (SUMMARY_ROW_DATE_BASIS_PACKET_DECISION_DATE,)
+    )
+    for basis in bases:
+        rebuilt = build_packet(
+            packet["slot"], packet["decision_date"], packet["generated_at"], contract,
+            frozen_sources=frozen_sources,
+            runtime_regime_readiness_version=version,
+            summary_row_date_basis=basis,
+            flow_replay_version=flow_version,
+            crypto_derivation_version=crypto_derivation_version,
+            historical_flow_source_commit=historical_source_commit,
+            trusted_repository_root=trusted_repository_root,
+            trusted_validation_head=trusted_validation_head,
+        )
+        if rebuilt == packet:
+            return packet
+    fail("OUTPUT_MISMATCH", "rebuilt packet does not match persisted packet")
 
 
 # ---------------------------------------------------------------------------
@@ -3409,25 +5358,37 @@ def _format_component_detail(
                 f"available_at={packet.get('available_at')}"
             )
         elif cid == "US_BREADTH_MEMBERSHIP":
+            # B5-3 SENSOR_ROWS: the members= row carries its own
+            # snapshot_date= token; an absent source date is stated as
+            # UNKNOWN, never rendered as a bare None.
             lines.append(
-                f"    - snapshot_date={packet.get('snapshot_date')} "
+                f"    - snapshot_date={packet.get('snapshot_date') or 'UNKNOWN'} "
                 f"members={packet.get('member_count')}"
             )
         elif cid == "FREE_MARKET_DATA":
             vix = packet.get("vixcls", {})
             bars = packet.get("alpaca_iex_bars", [])
-            if decision_date and row.get("as_of_date") != decision_date:
+            market_reference = packet.get("us_market_reference") or {}
+            us_session_date = (
+                market_reference.get("as_of_session_date")
+                or row.get("as_of_date")
+                or "UNKNOWN"
+            )
+            lines.append(
+                "    - clocks: "
+                f"market_session={us_session_date} "
+                f"VIXCLS_observation={vix.get('date') or 'UNKNOWN'}"
+            )
+            if decision_date and us_session_date != decision_date:
                 # US evidence is never a substitute for the KRX briefing
                 # date.  Keep its own date visible, but do not present an
                 # older close as if it described the current KST session.
                 lines.append(
-                    "    - US close values withheld: independent session evidence "
-                    f"is dated {row.get('as_of_date') or 'UNKNOWN'}, not {decision_date}"
+                    f"    - US close values withheld as {decision_date} closes: "
+                    f"independent session evidence is dated {us_session_date}, "
+                    f"not {decision_date}"
                 )
             else:
-                lines.append(
-                    f"    - VIXCLS={vix.get('value')} as_of={vix.get('date')}"
-                )
                 lines.append(
                     "    - Alpaca IEX partial: "
                     + (
@@ -3435,6 +5396,14 @@ def _format_component_detail(
                         if bars else f"{packet.get('alpaca_status')}"
                     )
                 )
+            # B5-5 US_ETF_CLOSES: each trend ETF close is shown with its own
+            # session date (close= is the retained source value verbatim), so
+            # a dated close is never omitted and never read as a
+            # decision_date close.
+            lines.extend(_us_trend_etf_close_lines(market_reference, decision_date))
+            lines.append(
+                f"    - VIXCLS={vix.get('value')} as_of={vix.get('date') or 'UNKNOWN'}"
+            )
             lines.append(f"    - scope: {packet.get('scope_warning')}")
         elif cid == "BTC_TREND":
             lines.append(
@@ -3538,6 +5507,13 @@ def _format_component_detail(
                 )
         elif cid == "ROTATION_DISCOVERY":
             summary = packet.get("summary", {})
+            authority = packet.get("authority") or {}
+            promotion_authorized = authority.get("stage_promotion_authorized") is True
+            promoted_count = (
+                "UNKNOWN"
+                if promotion_authorized
+                else 0
+            )
             lines.append(
                 f"    - rotation_changes={summary.get('rotation_change_count')} "
                 f"discovery_cases={summary.get('discovery_case_count')} "
@@ -3546,6 +5522,12 @@ def _format_component_detail(
                 f"signal_observations={summary.get('signal_observation_count')} "
                 f"dart_observations={summary.get('dart_observation_count')} "
                 f"ready={summary.get('ready_count')} entry={summary.get('entry_trigger_count')}"
+            )
+            lines.append(
+                "    - formal_candidate_changes: "
+                f"new={summary.get('new_candidate_count')} "
+                f"promoted={promoted_count} dropped=UNKNOWN maintained=UNKNOWN "
+                "blocker=CANONICAL_DROPPED_MAINTAINED_TRANSITION_EVIDENCE_NOT_AVAILABLE"
             )
             dart = packet.get("dart_observations", {})
             if (
@@ -3567,6 +5549,8 @@ def _format_component_detail(
                         f"    - DART {observation.get('subject_id')} "
                         f"{observation.get('subject_name')}: "
                         f"{observation.get('filing_title')} "
+                        f"기준일(filing_date)={_date8_to_iso(observation.get('filing_date'))} "
+                        f"filing_date={_date8_to_iso(observation.get('filing_date'))} "
                         f"evidence={observation.get('evidence_status')} "
                         "action=null"
                     )
@@ -3595,10 +5579,18 @@ def _format_component_detail(
             )
             radar = packet.get("radar_packet") or {}
             for result in radar.get("series_results", []):
+                evidence_rows = [
+                    item for item in result.get("evidence_source", [])
+                    if isinstance(item, dict)
+                ]
+                latest_evidence = evidence_rows[-1] if evidence_rows else {}
+                latest_identity = latest_evidence.get("source_identity") or {}
                 lines.append(
                     f"    - {result.get('subject')} {result.get('series_id')}: "
                     f"pattern={result.get('pattern')} values_pct={result.get('values_pct')} "
-                    f"candidate_eligible={result.get('candidate_eligible')}"
+                    f"candidate_eligible={result.get('candidate_eligible')} "
+                    f"기준일(latest_period_end)={latest_evidence.get('economic_period_end') or 'UNKNOWN'} "
+                    f"available_at={latest_identity.get('available_at') or 'UNKNOWN'}"
                 )
         elif cid == "OFFICIAL_RELEASE_SUMMARY":
             lines.append(
@@ -3608,10 +5600,13 @@ def _format_component_detail(
                 "interpretation=UNDETERMINED ranking=UNRATIFIED"
             )
             for observation in packet.get("observations", []):
+                lineage = observation.get("lineage") or {}
                 lines.append(
                     f"    - {observation.get('subject')}: "
                     f"{observation.get('release_title')} "
-                    f"published_at={observation.get('published_at')}"
+                    f"published_at={observation.get('published_at') or 'UNKNOWN'} "
+                    f"기준일(retrieved)={str(lineage.get('retrieved_at_utc') or packet.get('evidence_as_of') or 'UNKNOWN')[:10]} "
+                    f"evidence_as_of={_row_date_token(packet.get('evidence_as_of'))}"
                 )
                 for item in observation.get("summary_items", []):
                     lines.append(
@@ -3707,18 +5702,53 @@ def _format_component_detail(
             )
         elif cid == "FORWARD_ALPHA_REVIEW":
             subjects = packet.get("pilot_subjects", {})
-            lines.append(f"    - pilot_subjects={sorted(subjects)}")
-            for subject, row in sorted(subjects.items()):
+            pilot_date = packet.get("pilot_evidence_decision_date") or "UNKNOWN"
+            lines.append(
+                f"    - pilot_subjects={sorted(subjects)} "
+                f"기준일(pilot_evidence_decision_date)={pilot_date}"
+            )
+            for subject, subject_row in sorted(subjects.items()):
                 lines.append(
-                    f"    - {subject}: opportunity_state={row.get('opportunity_state')} "
-                    f"shadow_action={row.get('shadow_action')} "
-                    f"comparison_label={row.get('comparison_label')}"
+                    f"    - {subject}: opportunity_state={subject_row.get('opportunity_state')} "
+                    f"shadow_action={subject_row.get('shadow_action')} "
+                    f"comparison_label={subject_row.get('comparison_label')} "
+                    f"기준일={pilot_date} pilot_decision_date={pilot_date} "
+                    f"next_review_date={subject_row.get('next_review_date')}"
                 )
         elif cid == "DYNAMIC_CLOCK":
             lines.append(f"    - policy_approval_status={packet.get('policy_approval_status')}")
             markets = packet.get("markets", {})
+            dynamic_decision_date = packet.get("decision_date") or decision_date
+
+            def rendered_due_status(candidate: dict) -> str:
+                retained = candidate.get("review_due_status")
+                if retained in {
+                    "REVIEW_OVERDUE", "REVIEW_DUE_TODAY",
+                    "REVIEW_UPCOMING", "UNKNOWN",
+                }:
+                    return retained
+                try:
+                    return _review_due_status(
+                        candidate.get("next_review_at"), dynamic_decision_date
+                    )
+                except (DailyOrchestratorError, TypeError, ValueError):
+                    return "UNKNOWN"
+
             for market, m in sorted(markets.items()):
                 tier_counts = m.get("tier_counts", {})
+                due_counts = m.get("review_due_counts")
+                if not isinstance(due_counts, dict):
+                    due_counts = {
+                        "REVIEW_OVERDUE": 0,
+                        "REVIEW_DUE_TODAY": 0,
+                        "REVIEW_UPCOMING": 0,
+                        "UNKNOWN": 0,
+                    }
+                    for candidate in (
+                        list(m.get("immediate_review", []))
+                        + list(m.get("watch_review", []))
+                    ):
+                        due_counts[rendered_due_status(candidate)] += 1
                 lines.append(
                     f"    - {market}: raw_triggers(audit only)={m.get('raw_trigger_count_audit_only')} "
                     f"immediate_review={tier_counts.get('IMMEDIATE_REVIEW')} "
@@ -3726,12 +5756,16 @@ def _format_component_detail(
                     f"observation_only={tier_counts.get('OBSERVATION_ONLY')} "
                     f"expired={len(m.get('expired_triggers', []))} "
                     f"calendar_confidence={m.get('calendar_confidence')} "
-                    f"not_computable={m.get('not_computable_trigger_types')}"
+                    f"not_computable={m.get('not_computable_trigger_types')} "
+                    f"review_overdue={due_counts.get('REVIEW_OVERDUE', 0)} "
+                    f"review_due_today={due_counts.get('REVIEW_DUE_TODAY', 0)} "
+                    f"review_upcoming={due_counts.get('REVIEW_UPCOMING', 0)}"
                 )
                 # NOTE: every field rendered per candidate below (subject,
                 # tier, trigger_types+confirmation_count, price_state,
                 # reflection_status, data_state, threshold_basis,
-                # price_as_of, reason, authority, money_action) is the
+                # price observation/capture clocks, review due state,
+                # reason, authority, money_action) is the
                 # EXACT allowlist the integration spec's section 7
                 # requires -- `reason` is always template-derived, never a
                 # forward-return/MFE/post-hoc-audit figure (section 8).
@@ -3755,6 +5789,14 @@ def _format_component_detail(
                 for tier_key, tier_label in (("immediate_review", "IMMEDIATE_REVIEW"), ("watch_review", "WATCH_REVIEW")):
                     candidates = m.get(tier_key, [])
                     for c in candidates[:_RENDER_CAP]:
+                        price_observation_date = (
+                            c.get("price_observation_date") or "UNKNOWN"
+                        )
+                        price_captured_at = (
+                            c.get("price_captured_at")
+                            or c.get("price_as_of")
+                            or "UNKNOWN"
+                        )
                         lines.append(
                             f"      - {tier_label} {c.get('subject')} "
                             f"trigger_types={c.get('trigger_types')} "
@@ -3762,7 +5804,9 @@ def _format_component_detail(
                             f"reflection_status={c.get('reflection_status')} "
                             f"data_state={c.get('data_state')} "
                             f"threshold_basis={c.get('threshold_basis')} "
-                            f"price_as_of={c.get('price_as_of')} "
+                            f"price_observation_date={price_observation_date} "
+                            f"price_captured_at={price_captured_at} "
+                            f"review_due={rendered_due_status(c)} "
                             f"next_review_at={c.get('next_review_at')} "
                             f"authority={c.get('authority')} money_action={c.get('money_action')} "
                             f"reason={c.get('reason')}"
@@ -3770,7 +5814,14 @@ def _format_component_detail(
                     if len(candidates) > _RENDER_CAP:
                         lines.append(
                             f"      - ... +{len(candidates) - _RENDER_CAP} more {tier_label} candidates "
-                            "(full list: evidence/operational/dynamic_clock/briefing_section.json)"
+                            f"(full list: this revision's packet.json, DYNAMIC_CLOCK "
+                            f"markets.{market}.{tier_key}; 기준일={dynamic_decision_date}"
+                            + (
+                                f"; 상세 목록 미갱신(기준일 {dynamic_decision_date})"
+                                if decision_date and dynamic_decision_date != decision_date
+                                else ""
+                            )
+                            + ")"
                         )
         elif cid == "SHADOW_ENTRY_REVIEW":
             summary = packet.get("summary", {})
@@ -3788,6 +5839,7 @@ def _format_component_detail(
                     f"price_state={item.get('price_state')} "
                     f"review_due={item.get('review_due_status')} "
                     f"next_review_at={item.get('next_review_at')} "
+                    f"기준일={row.get('as_of_date') or 'UNKNOWN'} "
                     f"reason={item.get('review_reason')} capital=0 trade_proposal=null"
                 )
             lines.append(
@@ -3799,6 +5851,109 @@ def _format_component_detail(
         # the whole briefing render -- fall back to no detail line rather
         # than raising, the status/reason line above still stands.
         return []
+    return lines
+
+
+def _row_date_token(value) -> str:
+    """YYYY-MM-DD of a date or timestamp source value, else UNKNOWN."""
+    text = str(value or "")
+    return _canonical_iso_date(text[:10]) or "UNKNOWN"
+
+
+# B5-5 (atlas_b5_semantic_checklist/1): the PAPER reference label a candidate
+# regime line must carry together with its market and regime value.
+PAPER_REFERENCE_RUNTIME_LABEL = "런타임 미승인"
+
+
+def _us_trend_etf_close_lines(market_reference, decision_date: str | None) -> list[str]:
+    rows = market_reference.get("trend_etfs") if isinstance(market_reference, dict) else None
+    lines = []
+    for etf in rows if isinstance(rows, list) else []:
+        if not isinstance(etf, dict) or not etf.get("symbol"):
+            continue
+        close = etf.get("close")
+        session = etf.get("as_of_session_date") or "UNKNOWN"
+        lines.append(
+            f"    - US trend ETF {etf['symbol']}: "
+            f"close={'UNKNOWN' if close in (None, '') else close} "
+            f"as_of_session_date={session}"
+            + (
+                f" (세션 {session} 종가 · {decision_date} 종가로 재표기하지 않음)"
+                if decision_date and session != decision_date
+                else ""
+            )
+        )
+    return lines
+
+
+def _date8_to_iso(value) -> str:
+    text = str(value or "")
+    if re.fullmatch(r"[0-9]{8}", text):
+        return f"{text[:4]}-{text[4:6]}-{text[6:]}"
+    return _canonical_iso_date(text) or "UNKNOWN"
+
+
+def _crypto_prior_confirmed_reference_lines(
+    packet: dict, component_ids: tuple[str, ...], decision_date: str
+) -> list[str]:
+    """The distinct prior-confirmed-reference lines for the Crypto board, or
+    no lines at all.
+
+    Reads only the packet's OWN frozen presentation metadata (see
+    _prior_confirmed_reference_snapshot) -- never a live archive, and never a
+    component row -- so a rendered briefing says exactly what its packet was
+    built and validated with. Only components whose exact-date capture was
+    genuinely absent carry the field, so a component that has current
+    evidence is simply not listed rather than being labelled stale, and
+    CRYPTO_BREADTH never appears at all: it keeps its own
+    POLICY_BLOCKED/TAXONOMY_COVERAGE_UNKNOWN blocker, which a "confirmed
+    reference date" would misrepresent as a complete observation.
+
+    The reason line reuses the components' own existing
+    NO_CAPTURE_FOR_DECISION_DATE blocker rather than introducing a second
+    vocabulary for the same fact, and states plainly that these dates are
+    older measurements shown for reference only.
+    """
+    frozen_sources = packet.get("frozen_sources")
+    if not isinstance(frozen_sources, dict):
+        return []
+    references = {}
+    for component_id in component_ids:
+        snapshot = frozen_sources.get(component_id)
+        reference = (
+            snapshot.get(PRIOR_CONFIRMED_REFERENCE)
+            if isinstance(snapshot, dict)
+            else None
+        )
+        if isinstance(reference, dict):
+            references[component_id] = reference
+    if not references:
+        return []
+    dates = []
+    for component_id, reference in references.items():
+        measurement_date = reference.get("measurement_date") or "UNKNOWN"
+        capture = reference.get("selected_capture")
+        capture_date = capture.get("capture_date") if isinstance(capture, dict) else None
+        dates.append(
+            f"{component_id}={measurement_date}"
+            + (f"(capture={capture_date})" if capture_date else "")
+        )
+    lines = [
+        "- latest_prior_confirmed_reference_dates: " + ",".join(dates),
+        "- prior_confirmed_reference_reason: NO_CAPTURE_FOR_DECISION_DATE; the "
+        "dates above are frozen prior confirmed measurements shown for "
+        f"reference only, never relabelled as {decision_date} evidence and "
+        "never used for this decision.",
+    ]
+    unknown = [
+        f"{component_id}={reference['unknown_reason']}"
+        for component_id, reference in references.items()
+        if reference.get("unknown_reason")
+    ]
+    if unknown:
+        lines.append(
+            "- prior_confirmed_reference_unknown: " + ",".join(unknown)
+        )
     return lines
 
 
@@ -3817,22 +5972,104 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         row = by_id.get(component_id) or {}
         return row.get("as_of_date") or "UNKNOWN"
 
+    def measurement_date(component_id: str) -> str:
+        row = by_id.get(component_id) or {}
+        component_packet = row.get("packet") or {}
+        if component_id == "FREE_MARKET_DATA":
+            return (
+                (component_packet.get("us_market_reference") or {}).get(
+                    "as_of_session_date"
+                )
+                or source_date(component_id)
+            )
+        if component_id == "BTC_TREND":
+            return component_packet.get("latest_finalized_day") or "UNKNOWN"
+        if component_id == "BTC_RISK":
+            return (
+                component_packet.get("latest_finalized_day")
+                or (component_packet.get("risk_point") or {}).get("as_of_date")
+                or "UNKNOWN"
+            )
+        return source_date(component_id)
+
     krx = by_id.get("KOREA_MARKET_SIGNALS") or {}
+    krx_post_close = by_id.get("KRX_POST_CLOSE") or {}
+    krx_post_close_packet = krx_post_close.get("packet") or {}
+    krx_post_close_summary = krx_post_close_packet.get("summary") or {}
+    observed_symbol_count = krx_post_close_summary.get("observed_symbol_count")
+    krx_observed_unconfirmed = (
+        krx_post_close.get("as_of_date")
+        if isinstance(observed_symbol_count, int) and observed_symbol_count > 0
+        else "UNKNOWN"
+    )
     krx_fresh = krx.get("status") == "READY" and krx.get("as_of_date") == decision_date
+    # Market-scoped KRX session dates (presentation references). A legacy
+    # packet without frozen references keeps its historical rendering.
+    krx_session = krx_session_context(packet)
     us = by_id.get("FREE_MARKET_DATA") or {}
-    us_fresh = us.get("status") == "READY" and us.get("as_of_date") == decision_date
+    us_session_date = measurement_date("FREE_MARKET_DATA")
+    us_fresh = us.get("status") == "READY" and us_session_date == decision_date
     crypto_ids = ("BTC_TREND", "BTC_RISK", "STABLECOIN_NET_ISSUANCE")
-    crypto_dates = [source_date(component_id) for component_id in crypto_ids]
+    crypto_dates = [measurement_date(component_id) for component_id in crypto_ids]
     crypto_fresh = all(date == decision_date for date in crypto_dates)
 
     lines = ["## 3-market session board"]
 
-    lines.extend([
-        "### KRX · 한국",
-        ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
-        + f"; evidence_date={source_date('KOREA_MARKET_SIGNALS')}",
-        "- latest_completed_close_date: " + source_date("KOREA_MARKET_SIGNALS"),
-    ])
+    if krx_session is None:
+        lines.extend([
+            "### KRX · 한국",
+            ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
+            + f"; evidence_date={source_date('KOREA_MARKET_SIGNALS')}",
+            "- latest_confirmed_close_date: " + source_date("KOREA_MARKET_SIGNALS"),
+            "- latest_observed_unconfirmed_date: " + krx_observed_unconfirmed,
+            "- pending_reason: same-day post-close observations remain decision-ineligible "
+            "until canonical confirmation."
+            if krx_observed_unconfirmed != "UNKNOWN"
+            else "- pending_reason: no same-day post-close observation is available.",
+        ])
+    else:
+        confirmed_close = krx_session["latest_confirmed_close_date"] or "UNKNOWN"
+        if krx_observed_unconfirmed == "UNKNOWN" and krx_session["latest_observed_unconfirmed_date"]:
+            krx_observed_unconfirmed = krx_session["latest_observed_unconfirmed_date"]
+        completed = krx_session["latest_completed_session_date"] or "UNKNOWN"
+        index_move_date = source_date("KOREA_MARKET_SIGNALS")
+        lines.extend([
+            "### KRX · 한국",
+            ("- session: FRESH_CLOSE" if krx_fresh else "- session: FRESH_CLOSE_PENDING")
+            + f"; evidence_date={confirmed_close}",
+            "- latest_confirmed_close_date: " + confirmed_close
+            + ("; 거래소 확정 종가" if confirmed_close != "UNKNOWN" else ""),
+            "- latest_confirmed_close_basis: data/latest_krx.json "
+            "decision_readiness.confirmed_through (collector next-day confirmation)"
+            + (
+                f"; unknown_reason={krx_session['latest_confirmed_close_unknown_reason']}"
+                if krx_session["latest_confirmed_close_unknown_reason"]
+                else ""
+            ),
+            "- latest_observed_unconfirmed_date: " + krx_observed_unconfirmed
+            + ("; 관측·미확정(거래소 확정 전)" if krx_observed_unconfirmed != "UNKNOWN" else ""),
+            "- latest_completed_session_date: " + completed
+            + f" ({krx_session['latest_completed_session_status']}); 최근 완료 거래일"
+            + _KRX_SESSION_STATUS_GLOSS.get(krx_session["latest_completed_session_status"], ""),
+            "- index_move_observation_date: " + index_move_date
+            + (
+                f"; freshness={KR_SESSION_NOT_ADVANCED_REASON} "
+                f"(KOSPI/KOSDAQ one-session moves after {index_move_date} through "
+                f"{completed} are not yet observed; {KR_SESSION_FRESHNESS_POLICY_REF})"
+                if index_move_date != "UNKNOWN" and completed != "UNKNOWN"
+                and index_move_date < completed
+                else ""
+            ),
+            (
+                "- pending_reason: same-day post-close observations remain decision-ineligible "
+                "until canonical confirmation."
+                if krx_observed_unconfirmed == decision_date
+                else "- pending_reason: post-close observations remain decision-ineligible "
+                "until canonical confirmation."
+            )
+            if krx_observed_unconfirmed != "UNKNOWN"
+            else "- pending_reason: no post-close observation newer than the confirmed close is available.",
+        ])
     if krx_fresh:
         lines.extend(_format_component_detail(krx, decision_date))
     else:
@@ -3847,8 +6084,10 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
     lines.extend([
         "### US · 미국",
         ("- session: CURRENT_SESSION_EVIDENCE" if us_fresh else "- session: INDEPENDENT_SESSION_PENDING")
-        + f"; evidence_date={source_date('FREE_MARKET_DATA')}",
-        "- latest_verified_us_evidence_date: " + source_date("FREE_MARKET_DATA"),
+        + f"; evidence_date={us_session_date}",
+        "- latest_verified_us_session_date: " + us_session_date,
+        "- latest_verified_vix_observation_date: "
+        + str(((us.get("packet") or {}).get("vixcls") or {}).get("date") or "UNKNOWN"),
     ])
     if us_fresh:
         lines.extend(_format_component_detail(us, decision_date))
@@ -3863,9 +6102,22 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         (
             "- session: CONTINUOUS_CURRENT_EVIDENCE"
             if crypto_fresh else "- session: CONTINUOUS_EVIDENCE_PENDING"
-        ) + f"; evidence_dates={','.join(crypto_dates)}",
+        ) + "; evidence_dates=" + ",".join(
+            f"{component_id}={measurement_date(component_id)}"
+            for component_id in crypto_ids
+        ),
         "- continuous_observation_date: " + (decision_date if crypto_fresh else "PENDING"),
+        "- pending_reason: component measurement dates are not all current/equal."
+        if not crypto_fresh
+        else "- pending_reason: NONE",
     ])
+    # Additive and strictly separate from the evidence_dates line above: the
+    # current evidence dates stay exactly as derived (UNKNOWN when there is no
+    # capture for this decision date), and these lines report the older
+    # confirmed measurements alongside them.
+    lines.extend(
+        _crypto_prior_confirmed_reference_lines(packet, crypto_ids, decision_date)
+    )
     if crypto_fresh:
         for component_id in crypto_ids:
             component = by_id.get(component_id) or {}
@@ -3877,6 +6129,59 @@ def _market_session_freshness_lines(packet: dict, by_id: dict[str, dict]) -> lis
         )
 
     lines.append("")
+    return lines
+
+
+_KRX_SESSION_STATUS_GLOSS = {
+    "OBSERVED_UNCONFIRMED": " · 관측·미확정(거래소 확정 전)",
+    "CONFIRMED": " · 거래소 확정 종가",
+    "UNKNOWN": " · 확인 불가",
+}
+
+
+def _paper_regime_reference_lines(packet: dict) -> list[str]:
+    """Show the PAPER regime reference with its dates and a non-authority label.
+
+    Runtime regime stays UNKNOWN everywhere; this is the dated PAPER reference
+    PAPER posture reads, rendered so an existing decision-relevant state is not
+    silently omitted. Legacy packets without frozen references render nothing.
+    """
+    reference = paper_regime_context(packet)
+    if reference is None:
+        return []
+    label = "- PAPER 참고 판정 (런타임 판정 아님 · 매매/주문 권한 없음)"
+    if reference.get("unknown_reason"):
+        return [f"{label}: UNKNOWN ({reference['unknown_reason']})"]
+    lines = [
+        f"{label}: reference_generated_at={reference.get('generated_at')}",
+    ]
+    krx_session = krx_session_context(packet) or {}
+    krx_completed = krx_session.get("latest_completed_session_date")
+    for market in reference.get("markets", []):
+        as_of = market.get("as_of_date")
+        freshness = ""
+        if (
+            market.get("market") == "KR"
+            and isinstance(as_of, str)
+            and isinstance(krx_completed, str)
+            and as_of < krx_completed
+        ):
+            freshness = (
+                f" freshness={KR_SESSION_NOT_ADVANCED_REASON}"
+                f"(latest_completed_session={krx_completed})"
+            )
+        lines.append(
+            f"  - {market.get('market')}: PAPER 참고 판정={market.get('candidate_regime')} "
+            f"score={market.get('score')} confidence={market.get('confidence')} "
+            f"기준일={as_of or 'UNKNOWN'}{freshness} "
+            f"coverage={market.get('coverage_ratio')} "
+            f"runtime_regime={market.get('runtime_regime')}; "
+            f"{PAPER_REFERENCE_RUNTIME_LABEL}"
+        )
+    lines.append(
+        f"  - source: `{reference.get('evidence_path')}` "
+        f"sha256=`{reference.get('evidence_sha256')}`"
+    )
     return lines
 
 
@@ -3896,22 +6201,35 @@ def render_markdown(packet: dict) -> str:
     lines.extend(_market_session_freshness_lines(packet, by_id))
     decision_day = dt.date.fromisoformat(packet["decision_date"])
     if packet["slot"] == "morning" and decision_day.weekday() >= 5:
-        step0 = by_id.get("STEP0_READ_MODEL_HEALTH") or {}
-        sources = ((step0.get("packet") or {}).get("sources") or {})
-        observed_dates = {
-            value.get("collected_for_kst_date")
-            for value in sources.values()
-            if isinstance(value, dict) and isinstance(value.get("collected_for_kst_date"), str)
-        }
-        latest_confirmed = observed_dates.pop() if len(observed_dates) == 1 else "UNKNOWN"
+        dates = weekend_session_context_dates(packet)
+        # scheduled_briefing_retrieval_authority/4 weekend contract lines.
+        # Each date is named for exactly what it is; the single ambiguous
+        # latest_confirmed_evidence_date line (v3) is no longer rendered.
         lines.extend([
             "## Weekend market session context",
             "- market_session: MARKET_CLOSED",
             "- new_session: NONE",
-            f"- latest_confirmed_evidence_date: {latest_confirmed}",
+            f"- source_evidence_kst_date: {dates['source_evidence_kst_date']}",
+            f"- krx_latest_confirmed_close_date: {dates['krx_latest_confirmed_close_date']}",
+            f"- us_latest_verified_session_date: {dates['us_latest_verified_session_date']}",
             "- latest_confirmed_evidence_relabelled_as_today: false",
-            "",
+            "- source_evidence_kst_date_scope: STEP0 read-model collector run KST date, "
+            "not a market session date",
         ])
+        krx_session = krx_session_context(packet)
+        if krx_session is not None:
+            lines.extend([
+                "- krx_latest_completed_session_date: "
+                + (krx_session["latest_completed_session_date"] or "UNKNOWN")
+                + f" ({krx_session['latest_completed_session_status']}; "
+                + "confirmed close "
+                + (krx_session["latest_confirmed_close_date"] or "UNKNOWN")
+                + ") · 최근 완료 거래일"
+                + _KRX_SESSION_STATUS_GLOSS.get(krx_session["latest_completed_session_status"], "")
+                + " · 거래소 확정 종가 "
+                + (krx_session["latest_confirmed_close_date"] or "UNKNOWN"),
+            ])
+        lines.append("")
     for index, section in enumerate(flow_first["sections"], start=1):
         lines.append(f"## {index}. {section['title']}")
         lines.append(f"- status: {section['status']}")
@@ -3934,6 +6252,8 @@ def render_markdown(packet: dict) -> str:
                     for source in section["source_components"]
                 )
             )
+        if section["section_id"] == "REGIME":
+            lines.extend(_paper_regime_reference_lines(packet))
         if section["section_id"] == "CROSS_MARKET_FLOW":
             evidence = section["cross_asset_flow_evidence"]
             lines.append(
@@ -3963,7 +6283,8 @@ def render_markdown(packet: dict) -> str:
         for row in rows:
             mark = _STATUS_MARK.get(row["status"], row["status"])
             reason = f" — {row['reason']}" if row["reason"] else ""
-            lines.append(f"- **{row['component_id']}**: {mark}{reason}")
+            as_of = f" · 기준일={row['as_of_date']}" if row.get("as_of_date") else ""
+            lines.append(f"- **{row['component_id']}**: {mark}{reason}{as_of}")
             lines.extend(_format_component_detail(row, packet["decision_date"]))
             if row["source_packet_path"]:
                 lines.append(f"  - source: `{row['source_packet_path']}`")
@@ -4264,6 +6585,23 @@ def run(argv=None) -> int:
 
     validate = sub.add_parser("validate")
     validate.add_argument("packet_path", type=Path)
+    # External operator context for replaying a packet. All three are
+    # optional: a current (Flow version 1) packet carries its own envelope and
+    # needs none of them. They exist so a trusted caller can replay a LEGACY
+    # packet, and they are never defaulted from the packet or from live HEAD.
+    validate.add_argument(
+        "--historical-source-commit",
+        help="externally trusted ORIGINAL Flow source commit for a legacy "
+             "packet (one with no flow_replay_version marker)",
+    )
+    validate.add_argument(
+        "--trusted-repository-root", type=Path,
+        help="trusted Git repository root used to authenticate frozen inputs",
+    )
+    validate.add_argument(
+        "--trusted-validation-head",
+        help="trusted validation HEAD the source commit must be an ancestor of",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "build":
@@ -4282,7 +6620,15 @@ def run(argv=None) -> int:
         print(f"created={'true' if result['created'] else 'false'}")
         return 0
     packet = _read_json(args.packet_path)
-    validate_packet(packet)
+    validate_packet(
+        packet,
+        trusted_repository_root=(
+            ROOT if args.trusted_repository_root is None
+            else args.trusted_repository_root
+        ),
+        trusted_validation_head=args.trusted_validation_head,
+        historical_source_commit=args.historical_source_commit,
+    )
     print(
         "Atlas daily briefing PASS"
         f" slot={packet['slot']} decision_date={packet['decision_date']}"

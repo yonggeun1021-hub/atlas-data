@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -21,14 +22,39 @@ from identity.candidate_identity_authority_review_inventory import (
     build_inventory,
     validate_inventory,
 )
+from identity import canonical_identity as ci
+from identity.candidate_identity_authority_proposal import build_packet
+from identity.candidate_identity_gap_inventory import (
+    _load_taxonomy,
+    build_inventory as build_gap_inventory,
+)
+from identity.candidate_identity_observation import DEFAULT_OUTPUT, DEFAULT_REPORT
 
 
 class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.path = ROOT / "evidence/identity/proposals/candidate_identity_authority_proposal.json"
-        cls.proposal = json.loads(cls.path.read_text())
-        cls.inventory = build_inventory(cls.proposal, proposal_path=cls.path)
+        # Historical proposal/gap packets pin their generation-time taxonomy.
+        # Rebuild this live-input fixture through the real producers without
+        # rewriting those committed audit records or bypassing validation.
+        taxonomy_path = ROOT / "config/crypto_breadth_exclusion_taxonomy.json"
+        taxonomy, records = _load_taxonomy(taxonomy_path)
+        gaps = build_gap_inventory(
+            json.loads(DEFAULT_OUTPUT.read_text()),
+            json.loads(DEFAULT_REPORT.read_text()),
+            ci.load_authority(), ci.load_scope_authority(), taxonomy, records,
+            taxonomy_bytes_sha256=hashlib.sha256(taxonomy_path.read_bytes()).hexdigest(),
+        )
+        cls.proposal = build_packet(gaps, taxonomy_path, ROOT / "evidence/crypto/breadth/raw")
+        fixture = tempfile.TemporaryDirectory(dir=ROOT)
+        cls.addClassCleanup(fixture.cleanup)
+        cls.path = Path(fixture.name) / "proposal.json"
+        cls.gaps_path = Path(fixture.name) / "gaps.json"
+        cls.path.write_text(json.dumps(cls.proposal, sort_keys=True))
+        cls.gaps_path.write_text(json.dumps(gaps, sort_keys=True))
+        cls.inventory = build_inventory(
+            cls.proposal, proposal_path=cls.path, gaps_path=cls.gaps_path,
+        )
 
     def _build_synthetic_stale_inventory(self):
         proposal = copy.deepcopy(self.proposal)
@@ -40,7 +66,7 @@ class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT) as td:
             path = Path(td) / "proposal.json"
             path.write_text(json.dumps(proposal, sort_keys=True))
-            return build_inventory(proposal, proposal_path=path), proposal
+            return build_inventory(proposal, proposal_path=path, gaps_path=self.gaps_path), proposal
 
     def test_real_proposal_is_current_and_coherent_without_creating_authority(self):
         population = len(self.proposal["proposals"])
@@ -106,16 +132,16 @@ class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
         from identity.candidate_identity_authority_review_inventory import _sha
         tampered["packet_sha256"] = _sha(unsigned)
         with self.assertRaisesRegex(CandidateIdentityAuthorityReviewInventoryError, "REVIEW_INVENTORY_MISMATCH"):
-            validate_inventory(tampered, self.proposal, proposal_path=self.path)
+            validate_inventory(tampered, self.proposal, proposal_path=self.path, gaps_path=self.gaps_path)
 
     def test_resigned_source_proposal_substitution_is_rejected_before_audit(self):
         proposal = copy.deepcopy(self.proposal)
         proposal["proposals"][0]["subject"] = "TAMPERED"
         with self.assertRaisesRegex(CandidateIdentityAuthorityReviewInventoryError, "SOURCE_PROPOSAL_BYTES_MISMATCH"):
-            build_inventory(proposal, proposal_path=self.path)
+            build_inventory(proposal, proposal_path=self.path, gaps_path=self.gaps_path)
 
     def test_source_proposal_byte_substitution_is_visible(self):
-        self.assertEqual(self.inventory["source_proposal"]["path"], "evidence/identity/proposals/candidate_identity_authority_proposal.json")
+        self.assertEqual(self.inventory["source_proposal"]["path"], str(self.path.relative_to(ROOT)))
         self.assertEqual(len(self.inventory["source_proposal"]["bytes_sha256"]), 64)
         self.assertEqual(self.inventory["source_proposal"]["packet_sha256"], self.proposal["packet_sha256"])
 
@@ -127,10 +153,10 @@ class CandidateIdentityAuthorityReviewInventoryTests(unittest.TestCase):
         from identity.candidate_identity_authority_review_inventory import _sha
         proposal["packet_sha256"] = _sha(unsigned)
         with self.assertRaisesRegex(CandidateIdentityAuthorityReviewInventoryError, "SOURCE_PROPOSAL_BYTES_MISMATCH"):
-            build_inventory(proposal, proposal_path=self.path)
+            build_inventory(proposal, proposal_path=self.path, gaps_path=self.gaps_path)
 
     def test_output_is_deterministic_and_registered(self):
-        self.assertEqual(self.inventory, build_inventory(copy.deepcopy(self.proposal), proposal_path=self.path))
+        self.assertEqual(self.inventory, build_inventory(copy.deepcopy(self.proposal), proposal_path=self.path, gaps_path=self.gaps_path))
         self.assertIn('"test/test_candidate_identity_authority_review_inventory.py"', (ROOT / "run_all.py").read_text())
 
 

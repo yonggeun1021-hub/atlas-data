@@ -1,0 +1,210 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "final_regime_authorized": false,
+    "order_authorized": false,
+    "paper_reference_display_authorized": true,
+    "paper_symbol_context_authorized": true,
+    "production_authorized": false,
+    "runtime_regime_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "trading_authorized": false
+  },
+  "contract_version": "paper_regime_reference_policy/v1",
+  "generated_at": "2026-09-09T07:30:14Z",
+  "generation_id": "e068f6b7c1a5ed47d1784141d0a0e5f9a9fc4f3c0113b800bb773f15f1f24c7b",
+  "markets": [
+    {
+      "as_of_date": "2026-09-08",
+      "axes": [
+        {
+          "axis": "TREND",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "positive": 0,
+            "total": 3
+          },
+          "score": -1,
+          "summary_ko": "대표지수 3개 중 0개가 20거래일 기준 상승입니다."
+        },
+        {
+          "axis": "BREADTH",
+          "direction": "NEGATIVE",
+          "observed_value": {
+            "advance_fraction": "0.214286"
+          },
+          "score": -1,
+          "summary_ko": "대표 ETF 중 상승 비중은 21.4%입니다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "vix": "15.3"
+          },
+          "score": 0,
+          "summary_ko": "VIX는 15.3로 보통 구간입니다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "TOTBKCR": "2016.6",
+            "WRESBAL": "-30405"
+          },
+          "score": 0,
+          "summary_ko": "연준 준비금과 은행 신용 변화 방향이 서로 엇갈립니다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "positive_groups": 4,
+            "total": 12
+          },
+          "score": 0,
+          "summary_ko": "대표 업종 12개 중 4개가 20거래일 기준 상승입니다."
+        }
+      ],
+      "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+      "coverage": {
+        "defined_count": 5,
+        "missing_axes": [],
+        "ratio": "5/5",
+        "required_count": 5
+      },
+      "market": "US",
+      "paper_reference": {
+        "candidate_regime": "NEUTRAL",
+        "confidence": "0.6",
+        "explanation_ko": "좋은 신호와 약한 신호가 섞여 있습니다.",
+        "score": -2
+      },
+      "runtime_regime": "UNKNOWN"
+    },
+    {
+      "as_of_date": "2026-09-07",
+      "axes": [
+        {
+          "axis": "TREND",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "KOSDAQ": "1.068224",
+            "KOSPI": "4.608499"
+          },
+          "score": 1,
+          "summary_ko": "코스피 +4.61%, 코스닥 +1.07%로 두 지수가 모두 상승했습니다."
+        },
+        {
+          "axis": "BREADTH",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "advance_fraction": "0.475949"
+          },
+          "score": 0,
+          "summary_ko": "전체 종목 중 상승 비중은 47.6%입니다."
+        },
+        {
+          "axis": "RISK_VOL",
+          "direction": "NEUTRAL",
+          "observed_value": {
+            "mean_absolute_move_pct": "1.893986"
+          },
+          "score": 0,
+          "summary_ko": "종목 평균 절대 등락폭은 1.89%로 보통 구간입니다."
+        },
+        {
+          "axis": "LIQUIDITY",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "trading_value_change_pct": "15.023575"
+          },
+          "score": 1,
+          "summary_ko": "거래대금은 이전 거래일보다 +15.0% 변했습니다."
+        },
+        {
+          "axis": "LEADERSHIP",
+          "direction": "POSITIVE",
+          "observed_value": {
+            "positive_sectors": 37,
+            "total": 46
+          },
+          "score": 1,
+          "summary_ko": "업종 46개 중 37개가 상승했습니다."
+        }
+      ],
+      "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+      "coverage": {
+        "defined_count": 5,
+        "missing_axes": [],
+        "ratio": "5/5",
+        "required_count": 5
+      },
+      "market": "KR",
+      "paper_reference": {
+        "candidate_regime": "RISK_ON",
+        "confidence": "0.6",
+        "explanation_ko": "상승·확산·안정 신호가 우세합니다.",
+        "score": 3
+      },
+      "runtime_regime": "UNKNOWN"
+    },
+    {
+      "as_of_date": "2026-09-09",
+      "axes": [],
+      "classification_status": "WAIT_OFFICIAL_INPUT_COVERAGE",
+      "coverage": {
+        "defined_axes": [
+          "TREND",
+          "BREADTH",
+          "RISK_VOL",
+          "LIQUIDITY"
+        ],
+        "defined_count": 4,
+        "missing_axes": [
+          "LEADERSHIP"
+        ],
+        "ratio": "4/5",
+        "required_count": 5
+      },
+      "market": "CRYPTO",
+      "paper_reference": {
+        "candidate_regime": "UNKNOWN",
+        "confidence": null,
+        "explanation_ko": "오늘 참고 신호는 5개 모두 확인됐지만, 자동 판정용 주도 코인 이력은 아직 검증 중입니다.",
+        "score": null
+      },
+      "runtime_regime": "UNKNOWN"
+    }
+  ],
+  "mode": "PAPER_DIAGNOSTIC_NOT_RUNTIME",
+  "payload_sha256": "7baf50ee0b597c17982f5d81c26be411f031f23627753a660d52021c4f2fb85f",
+  "policy": {
+    "path": "config/paper_regime_reference_policy_v1.json",
+    "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
+    "status": "PM_BASELINE_CANDIDATE_NOT_CIO_RATIFIED_SENSOR_POLICY"
+  },
+  "render_version": "kr_trend_direction/v1",
+  "schema_version": "paper_regime_reference/v2",
+  "sources": [
+    {
+      "market": "US",
+      "path": "data/latest_free_market_data.json",
+      "sha256": "ed65b58d5188d58ad356ec6e9583bc4d6face2bb296580dcb231cfd257fcb6a5"
+    },
+    {
+      "market": "KR",
+      "path": "data/latest_korea_market_signals.json",
+      "sha256": "3cf742b9e5fa369fdde6e5fe19d0dc7fba0cf3fab2b3b5670f56e12b04403cc1"
+    },
+    {
+      "market": "CRYPTO",
+      "path": "data/latest_crypto_regime_refresh_status.json",
+      "sha256": "3bc95def0359259adb9d392fb2dbc32f8411a95f1797fa9a1cb77809d5e262a6"
+    }
+  ],
+  "status": "PARTIAL_REFERENCE_AVAILABLE"
+}

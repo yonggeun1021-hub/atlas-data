@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "contract_version": "kis_realtime_trade_observation/1",
+  "market": "KOREA",
+  "venue_scope": "KRX_ONLY",
+  "environment": "PAPER",
+  "timezone": "Asia/Seoul",
+  "evidence_classes": [
+    "LIVE_NATURAL",
+    "SYNTHETIC_OFFLINE_FIXTURE"
+  ],
+  "official_source": {
+    "provider_id": "KIS_OPEN_API",
+    "transport": "WEBSOCKET",
+    "tr_id": "H0STCNT0",
+    "purpose": "KRX_REALTIME_TRADE_OBSERVATION_READ_ONLY",
+    "repository": "koreainvestment/open-trading-api",
+    "commit": "b4e6249714418aa57833d1cbbbced39cbcc5b125",
+    "path": "examples_user/domestic_stock/domestic_stock_functions_ws.py",
+    "git_blob_sha1": "644e117d95df9995f3835a0ff34d4bf7e09cde4a",
+    "field_count": 46,
+    "field_positions_zero_based": {
+      "symbol": 0,
+      "stock_execution_time": 1,
+      "price": 2,
+      "execution_volume": 12,
+      "business_date": 33
+    }
+  },
+  "deployed_source_pins": {
+    "collector_sha256": "7ff6d95c56119f604e251f07116277127029f21ebd9413b79a09226e74df66ac",
+    "observation_retention_sha256": "199965b14e7b9d48683648ab134da3ebc7a48df93871c5d0c1ed52b809ff11e0"
+  },
+  "retained_row": {
+    "schema_version": "kis_quote_observation_record/1",
+    "source_kind": "DECODED_TRADE_RECORD",
+    "provider_tr_id": "H0STCNT0",
+    "required_fields": [
+      "record_id",
+      "schema_version",
+      "source_kind",
+      "provider_tr_id",
+      "source_record_json",
+      "source_record_sha256",
+      "parsed_quote_json",
+      "parsed_quote_sha256",
+      "observed_at",
+      "record_attempted_at"
+    ],
+    "raw_and_parsed_hash_revalidation_required": true,
+    "raw_to_parsed_field_equality_required": true
+  },
+  "approved_symbols": [
+    "000660",
+    "005930",
+    "071050"
+  ],
+  "calendar": {
+    "schema_version": "krx_date_specific_session_source/1",
+    "required_status": "OPEN_REGULAR",
+    "validator_path": "market_data/krx_session_calendar_v2.py",
+    "validator_sha256": "6660af3f9d12cc1ca8f0d417186fad0c6919ef16ad6d05973ae3ab8104f117ca",
+    "contract_path": "config/krx_session_calendar_sources_v2.json",
+    "contract_sha256": "58698d8d8045c9e084f250bb37becc667cfb3161073b6789af22cacc9456e813"
+  },
+  "timestamp_semantics": {
+    "trade_instant": "BSOP_DATE_PLUS_STCK_CNTG_HOUR_ASIA_SEOUL",
+    "minute_floor_use": "OBSERVATION_GROUPING_ONLY",
+    "availability": "OWNER_EXPORT_AVAILABLE_AT_CONSERVATIVE_BOUND",
+    "required_order": "TRADE_AT_LE_OBSERVED_AT_LE_RECORD_ATTEMPTED_AT_LE_EXPORT_STARTED_AT_LE_EXPORT_AVAILABLE_AT_LE_EVALUATION_AT"
+  },
+  "qualification_scope": {
+    "qualified": "LIVE_NATURAL_RAW_TRADE_OBSERVATION",
+    "completed_minute_ohlcv_qualified": false,
+    "all_trades_exhaustiveness_qualified": false,
+    "provider_sequence_available": false,
+    "connection_gap_ledger_available": false,
+    "original_provider_message_bytes_retained": false,
+    "completed_bar_provider_allowlist_changed": false,
+    "decision_eligibility_authorized": false
+  },
+  "authority": {
+    "market_data_observation_only": true,
+    "candidate_eligibility_authorized": false,
+    "entry_authorized": false,
+    "internal_virtual_fill_authorized": false,
+    "kis_mock_order_authorized": false,
+    "real_capital_authorized": false,
+    "production_authorized": false,
+    "order_authorized": false,
+    "trading_authorized": false
+  }
+}

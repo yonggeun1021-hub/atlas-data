@@ -269,6 +269,42 @@ class LineageAndLookaheadTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.CryptoPaperValidationError, "MARK_SERIES_LOOKAHEAD"):
             MODULE.build_daily_report(batch)
 
+    def test_per_market_account_with_unknown_nav_fails_closed_by_name(self):
+        ledger = SIM.create_ledger(
+            ledger_id="PAPER.LEDGER.P1012.PER.MARKET", initial_cash="1000",
+            opened_at="2026-08-30T00:00:00Z", idempotency_key="PAPER.ACCOUNT.P1012.PER.MARKET.OPEN",
+        )
+        buy = _intent(
+            order_id="PAPER.BUY.P1012.PM", key="PAPER.BUY.P1012.PM.SUBMIT", side="BUY",
+            submitted_at="2026-08-30T00:10:00Z", expires_at="2026-08-30T01:10:00Z",
+        )
+        ledger = SIM.submit_order(ledger, buy)
+        ledger = SIM.match_order(
+            ledger, order_id=buy["order_id"],
+            snapshot=_snapshot(snapshot_id="BOOK.BUY.PM", captured_at="2026-08-30T00:11:00Z"),
+            event_at="2026-08-30T00:11:01Z", idempotency_key="PAPER.BUY.P1012.PM.MATCH.1",
+        )
+        account = SIM.build_account_state_per_market(
+            ledger, observed_at="2026-08-30T01:10:00Z", mark_prices={},
+            mark_status={"KRW-BTC": "UNKNOWN"}, mark_source_ref="fixture://marks/final",
+            mark_source_sha256="d" * 64,
+        )
+        self.assertEqual(account["schema_version"], "crypto_paper_account_state/2")
+        self.assertIsNone(account["total_nav"])
+        batch = _batch()
+        for artifact in batch["source_artifacts"]:
+            if artifact["role"] in {"LEDGER", "ACCOUNT_STATE"}:
+                artifact["payload"] = copy.deepcopy(ledger if artifact["role"] == "LEDGER" else account)
+                artifact["payload_sha256"] = MODULE.payload_sha256(artifact["payload"])
+        batch["packet_sha256"] = MODULE.payload_sha256({k: v for k, v in batch.items() if k != "packet_sha256"})
+        with self.assertRaisesRegex(MODULE.CryptoPaperValidationError, "ACCOUNT_STATE_NAV_UNKNOWN"):
+            MODULE.build_daily_report(batch)
+        # The metric helpers never turn a null NAV into a raw TypeError.
+        with self.assertRaisesRegex(MODULE.CryptoPaperValidationError, "ACCOUNT_STATE_NAV_UNKNOWN"):
+            MODULE._pnl_metrics(ledger, account)
+        with self.assertRaisesRegex(MODULE.CryptoPaperValidationError, "NAV_SERIES_VALUE_UNKNOWN"):
+            MODULE._drawdown_metrics([{"observed_at": "2026-08-30T01:10:00Z", "total_nav": None}])
+
     def test_rehashed_report_metric_tamper_is_rederived_and_rejected(self):
         report = MODULE.build_daily_report(_batch())
         report["metrics"]["pnl_and_no_trade"]["no_trade_benchmark_pnl"] = "999"

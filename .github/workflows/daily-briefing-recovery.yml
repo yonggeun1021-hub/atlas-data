@@ -23,6 +23,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Final handoff validation verifies historical envelope/source commits.
+          fetch-depth: 0
       - name: Verify the scheduled briefing and request a bounded retry when needed
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

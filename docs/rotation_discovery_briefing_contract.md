@@ -60,6 +60,56 @@ policy, record-chain, and digest validation. Future-dated Rotation observations
 or Discovery evidence are rejected. Output is deterministic, digest-bound, and
 may be written only outside the repository.
 
+## Daily US rotation ledger wiring
+
+The daily orchestrator previously handed this read model an unconditional empty
+ledger, so the `rotation` section could never show a real state history no
+matter what P2-05 had already recorded. `briefing/daily_orchestrator.py` now
+accepts one optional, caller-explicit rotation source
+(`frozen_sources["US_ROTATION_LEDGER"]`, exactly the three keys
+`rotation_packet`, `state_policy`, `previous_ledger`) and passes it through the
+unchanged `rotation_state_ledger.apply_rotation()` before building this packet.
+This read model's own contract, schema, output bytes, and authority flags are
+unchanged; only the ledger it is given can now be non-empty.
+
+The wiring adds no authority of its own. It ratifies no state policy, supplies
+no default bucket-transition mapping, populates no registry, discovers no file,
+and never writes. The applied state vocabulary is whatever the caller's already
+ratified external policy declares, and the packet, policy, previous ledger, gap,
+forward-only, append-only chain, and digest checks are the producer's and the
+ledger's existing ones, unmodified. Duplicate application of the same source
+packet stays idempotent through the ledger's own `SOURCE_PACKET_POLICY_CONFLICT`
+and duplicate-source handling, and any non-US history already inside the
+supplied previous ledger is appended to, never replaced.
+
+Rules that hold at this boundary:
+
+- Absent input keeps the legacy empty-ledger output byte-for-byte, and adds no
+  key to the daily packet. Absent means the `US_ROTATION_LEDGER` key is not in
+  `frozen_sources` at all (and, at the function boundary, that the argument was
+  not passed). A key that is present and holds `null` is a supplied input, not
+  an absent one: it is frozen exactly as supplied and fails the row closed, so
+  an explicitly broken build can never produce the same bytes as a build that
+  had no rotation source.
+- Only a `US` rotation packet with a matching `US` state policy is accepted.
+- The raw packet/policy/previous ledger, not the derived ledger, are frozen
+  into the daily packet, so standalone validation independently re-runs
+  `apply_rotation()` over the original inputs instead of trusting a ledger that
+  merely rehashes itself. A frozen input is deep-copied, so a later mutation of
+  the caller's own object cannot change what the packet was built from. A
+  supplied input that is rejected is frozen too, exactly as it was supplied, so
+  the fail-closed verdict replays deterministically from the same input instead
+  of from a key that was quietly dropped.
+- A supplied input the ledger rejects -- wrong market, unratified or mismatched
+  policy, future-dated observation, rehashed semantic forgery, broken record
+  chain -- fails the whole `ROTATION_DISCOVERY` row closed with an explicit
+  reason, as does a supplied value that is null or structurally unusable before
+  the ledger is ever reached. It is never repaired and never degraded into the
+  empty ledger, so "an invalid rotation observation was supplied" cannot render
+  identically to "no rotation was observed today".
+- A rotation observation's `as_of_date` is exposed to the orchestrator's common
+  temporal boundary like every other dated source.
+
 Cross-market Discovery sources beyond current SEC and evidence-only DART
 coverage, DART item/event interpretation, candidate importance/ranking/promotion
 policy, and capital authority remain unresolved.

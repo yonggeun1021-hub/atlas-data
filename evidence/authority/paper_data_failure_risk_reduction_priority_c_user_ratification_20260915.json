@@ -1,0 +1,41 @@
+{
+ "schema": "user_ratification/1",
+ "id": "USER_RATIFICATION_PAPER_DATA_FAILURE_RISK_REDUCTION_PRIORITY_C_20260915",
+ "recorded_by": "CLAUDE_CIO",
+ "recorded_at_kst": "2026-09-15T07:52+09:00",
+ "user_sentence_verbatim": "데이터 장애 우선순위 C안 결정할게",
+ "source_document": {
+  "path": "outputs/CLAUDE_CIO_PAPER_EXECUTION_CONTRACT_CANON_20260915.md",
+  "section": "4 (D4)",
+  "sha256": "7a26907f9c05935278ae9232e4de90bb0d23e39447a57c22f66484642a35127c"
+ },
+ "amends": {
+  "record": "outputs/USER_RATIFICATION_CRYPTO_REALTIME_FRESHNESS_PER_MARKET_20260914.json",
+  "record_sha256": "043932a4ff13e9bd683c8ff233bad3b5c8e8e2cb62045a1e756e27c7deba5ac4",
+  "scope_change": "the stale-hold 'no exit execution while STALE' remains for ordinary exits but no longer blocks risk reductions that pass alternative independent price verification"
+ },
+ "decision": {
+  "rule_id": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1",
+  "option": "C",
+  "principles_all_options": [
+   "no PAPER fill of any kind from an unverified price",
+   "if a required risk reduction cannot execute, status = '위험 평가·집행 불확실' shown on portal chapter 04 with symbol, reason, start time, elapsed",
+   "P&L during the gap recorded from the first fresh price, never interpolated",
+   "market-blocked execution (limit-down lock, halt, VI single-price) labelled '집행 불가(시장)' separately"
+  ],
+  "ordinary_exits": "strength release, time exit, drift: hold while STALE (option A behavior)",
+  "risk_reductions": "STRESS, disaster stop, drawdown override, regime downgrade reduction: first try alternative independent price verification (crypto: path independent of the public WebSocket passing provider age <=20s, transport <=3s and content checks; KR/US: KIS quote or another path passing section 3 quote-age limits; other-exchange prices only for outlier checks, never as fill price)",
+  "if_no_alternative_price": "mark '위험 평가·집행 불확실' and execute immediately at the symbol's first FRESH price without waiting for the next decision slot",
+  "record": "delay loss (decision-time vs fill price) recorded separately for the scorecard"
+ },
+ "implementation_notes": [
+  "alternative price path must be implemented and verified before it can be used; until then behavior is effectively A + immediate first-fresh execution",
+  "Ubuntu collector crypto cadence unverified"
+ ],
+ "not_changed": [
+  "allocation v2",
+  "hedge rules",
+  "REAL/order/payment/secret authority"
+ ],
+ "correction_note": "recorded_at_kst corrected by CIO on 2026-09-15 08:1x KST from '2026-09-15T09:15+09:00' (CIO clock-estimation error) to the file creation time; previous file sha256 c24845e13e726fc96ae6141f9df578498229f61e4e368ca9c2efc2b1f361e64e; decision content unchanged."
+}

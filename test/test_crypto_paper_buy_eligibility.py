@@ -43,7 +43,18 @@ def universe_row(
         "market_event_warning": False,
         "market_event_caution_any": caution_any,
         "observed_daily_candle_count": 120,
-        "trailing_30d_krw_turnover": "10000000000",
+        # 180B over the finalized 30-day window = a 6B/day mean, i.e. a market
+        # that actually clears P3-12's ratified `min_30d_avg_krw_turnover`
+        # (5B/day). The previous 10B fixture was a 333M/day market -- below the
+        # ratified liquidity floor, so it could never have been a genuine
+        # PAPER_ELIGIBLE row. Same value the other in-scope fixtures use
+        # (test_upbit_bounded_identity_registry, test_upbit_taxonomy_schema_
+        # eligible_candidate). With 30 finalized days this makes the ratified
+        # 1%-of-ADV30 liquidity term 60,000,000 KRW, so the NAV 5% term binds
+        # first for the default 100,000,000 KRW PAPER NAV -- which is what the
+        # ratified `min(NAV x 5%, 1% x ADV30)` is supposed to do for a liquid
+        # name. `adv30_bound_universe_row()` below exercises the other side.
+        "trailing_30d_krw_turnover": "180000000000",
         "kraken_cross_exchange_reference": False,
         "authority": dict(UNI._ROW_AUTHORITY),
     }
@@ -202,6 +213,59 @@ def market_evidence_packet(
 
 def paper_account_state(*, total_nav_krw="100000000", open_positions=None) -> dict:
     return {"total_nav_krw": total_nav_krw, "open_positions": open_positions or []}
+
+
+def adv30_bound_universe_row(*, turnover="6000000000", **kwargs) -> dict:
+    """A thin but fully-historied market: 30 finalized days, so ADV30 is
+    defined, but small enough that the ratified 1%-of-ADV30 term is the
+    binding per-name cap instead of NAV 5%."""
+    row = universe_row(**kwargs)
+    row["trailing_30d_krw_turnover"] = turnover
+    return row
+
+
+def short_history_universe_row(*, observed=20, **kwargs) -> dict:
+    """Fewer committed finalized days than the ratified window -- must fail
+    closed rather than average a shorter window."""
+    row = universe_row(**kwargs)
+    row["observed_daily_candle_count"] = observed
+    return row
+
+
+def crypto_runtime_gate(regime: str, *, decision_date="2026-08-28", expected_date=None):
+    """Stubs only the upstream P5-08 runtime-decision gate (which has its own
+    regression in test_crypto_candidate_promotion_v3.py), exactly as
+    test_crypto_paper_wiring_v2.lifted_regime_and_rotation does. Everything
+    under test here -- the registry parameter resolution, the state ->
+    multiplier mapping, the aggregate cap and the no-new-buys flag -- still
+    runs for real."""
+    expected = decision_date if expected_date is None else expected_date
+
+    def gate(runtime_decision, *, reference_at):
+        new_buys = PROMO.REGIME_GATE_V3[regime][1]
+        return PROMO._regime_gate_criterion(
+            regime, f"CRYPTO_RUNTIME_REGIME:{regime}:NEW_BUYS_{new_buys}",
+            source_runtime_regime=regime, runtime_decision_id="TEST_ONLY",
+            runtime_decision_date=decision_date, expected_decision_date=expected,
+            runtime_reasons=[],
+        )
+
+    return mock.patch.object(PROMO, "evaluate_crypto_runtime_regime", gate)
+
+
+def crypto_state(regime="RISK_ON", **kwargs) -> dict:
+    """Genuine `resolve_crypto_allocation_state` output for `regime`."""
+    with crypto_runtime_gate(regime, **kwargs):
+        return P59.resolve_crypto_allocation_state({"stub": True}, reference_at=GENERATED_AT)
+
+
+def risk_inputs(regime="RISK_ON", *, row=None, **kwargs) -> dict:
+    """The three ratified sizing inputs `_paper_risk` now requires."""
+    return {
+        "crypto_state": crypto_state(regime, **kwargs),
+        "universe_row": universe_row() if row is None else row,
+        "universe_policy": UNI.load_policy(),
+    }
 
 
 ALL_PASS_CRITERIA = {name: {"status": "PASS", "reason": "TEST"} for name in P59.CRITERIA}
@@ -440,6 +504,21 @@ class OrderDraftTests(unittest.TestCase):
         self.assertIsNotNone(draft["quantity"])
         self.assertIsNotNone(draft["duplicate_guard_key"])
 
+    def test_nonpositive_computed_quantity_is_incomplete(self):
+        packet = market_evidence_packet(breakout=True)
+        draft = P59.build_order_draft(
+            "KRW-ETH", packet, self.policy, self.universe_policy,
+            evaluation_as_of=EVAL_AS_OF,
+            paper_account_state=paper_account_state(total_nav_krw="0.000000000000000000000001"),
+            fee_rate="0.0005",
+        )
+        self.assertIsNone(draft["quantity"])
+        self.assertIsNone(draft["fee_amount_krw"])
+        self.assertEqual(draft["fee_rate"], "0.0005")
+        result = P59.evaluate_order_draft_complete(draft)
+        self.assertEqual(result["status"], "UNKNOWN")
+        self.assertEqual(result["missing_fields"], ["quantity", "fee_amount_krw"])
+
     def test_incomplete_draft_without_paper_account_state(self):
         packet = market_evidence_packet(breakout=True)
         draft = P59.build_order_draft(
@@ -514,44 +593,281 @@ class PaperRiskBudgetTests(unittest.TestCase):
     def test_pass_within_budget(self):
         result = P59.evaluate_paper_risk_budget(
             self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            **risk_inputs("RISK_ON"),
         )
         self.assertEqual(result["status"], "PASS")
+        # RISK_ON: aggregate cap = base(0.15) x 1.00; per-name bound by NAV 5%.
+        self.assertEqual(result["crypto_market_state"], "RISK_ON")
+        self.assertEqual(result["crypto_state_multiplier_of_base"], "1")
+        self.assertEqual(result["crypto_aggregate_cap_nav_fraction"], "0.15")
+        self.assertEqual(result["per_name_cap_bound_by"], "NAV_FRACTION")
+        self.assertEqual(result["per_name_cap_nav_fraction_term_krw"], "5000000")
+        self.assertEqual(result["per_name_cap_liquidity_term_krw"], "60000000")
+        self.assertEqual(result["per_name_effective_cap_krw"], "5000000")
+        self.assertEqual(result["adv30_status"], "OBSERVED")
+        self.assertEqual(result["adv30_krw"], "6000000000")
+        self.assertEqual(result["adv30_finalized_day_count"], 30)
 
     def test_fail_when_single_asset_cap_breached(self):
         from decimal import Decimal
         tight_entry_invalidation = {"entry_price": Decimal("105"), "planned_stop_price": Decimal("104")}
         result = P59.evaluate_paper_risk_budget(
             tight_entry_invalidation, self.policy, paper_account_state(), 18,
+            **risk_inputs("RISK_ON"),
         )
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("SINGLE_ASSET_PAPER_EXPOSURE_CAP", result["reason"])
 
-    def test_fail_when_max_concurrent_positions_breached(self):
+    # -- GAP A: crypto market state -> ratified aggregate cap ----------------
+
+    def test_stress_state_zeroes_the_aggregate_cap_and_denies_every_buy(self):
+        """RULE.ALLOCATION.V2 STRESS multiplier is 0.00: the crypto aggregate
+        cap is zero, so no buy of any size can pass."""
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            **risk_inputs("STRESS"),
+        )
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["crypto_aggregate_cap_nav_fraction"], "0")
+        self.assertIn("CRYPTO_STATE_AGGREGATE_CAP_ZERO:STRESS", result["reason"])
+        self.assertIn("CRYPTO_STATE_NO_NEW_BUYS:STRESS:DENY", result["reason"])
+
+    def test_unknown_state_caps_at_half_of_base_and_hard_blocks_new_buys(self):
+        """UNKNOWN is "hold_current_up_to_0.50_no_new_buys": the cap falls to
+        half of base AND new buys are denied outright -- not merely sized
+        smaller."""
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            **risk_inputs("UNKNOWN"),
+        )
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["crypto_state_multiplier_of_base"], "0.5")
+        self.assertEqual(result["crypto_aggregate_cap_nav_fraction"], "0.075")
+        self.assertEqual(result["crypto_new_buys"], "DENY")
+        self.assertIn("CRYPTO_STATE_NO_NEW_BUYS:UNKNOWN:DENY", result["reason"])
+        # The cap alone would have allowed this position (weight 0.0175 <
+        # 0.075); only the hard no-new-buys flag stops it.
+        self.assertNotIn("TOTAL_CRYPTO_PAPER_EXPOSURE_CAP", result["reason"])
+
+    def test_missing_state_fails_closed_and_never_becomes_risk_on(self):
+        """No state supplied at all -- must land on UNKNOWN + no new buys, and
+        must never fall back to RISK_ON or to the old flat 0.05 aggregate."""
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            universe_row=universe_row(), universe_policy=UNI.load_policy(),
+        )
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["crypto_market_state"], "UNKNOWN")
+        self.assertEqual(result["crypto_market_state_reason"], "CRYPTO_RUNTIME_DECISION_NOT_SUPPLIED")
+        self.assertEqual(result["crypto_new_buys"], "DENY")
+        self.assertNotEqual(result["crypto_aggregate_cap_nav_fraction"], "0.05")
+
+    def test_state_staler_than_ratified_gap_degrades_to_unknown_no_new_buys(self):
+        """A RISK_ON decision older than CRYPTO's ratified
+        maximum_observation_gap_days (2) must not keep sizing at RISK_ON."""
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            **risk_inputs("RISK_ON", decision_date="2026-08-20", expected_date="2026-08-28"),
+        )
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["crypto_market_state"], "UNKNOWN")
+        self.assertEqual(result["crypto_observation_gap_days"], 8)
+        self.assertEqual(result["crypto_maximum_observation_gap_days"], 2)
+        self.assertEqual(
+            result["crypto_market_state_reason"],
+            "CRYPTO_RUNTIME_DECISION_STALE_BEYOND_RATIFIED_GAP:8>2",
+        )
+        self.assertIn("CRYPTO_STATE_NO_NEW_BUYS:UNKNOWN:DENY", result["reason"])
+
+    def test_state_within_ratified_gap_keeps_its_own_multiplier(self):
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            **risk_inputs("NEUTRAL", decision_date="2026-08-26", expected_date="2026-08-28"),
+        )
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["crypto_market_state"], "NEUTRAL")
+        self.assertEqual(result["crypto_observation_gap_days"], 2)
+        self.assertEqual(result["crypto_aggregate_cap_nav_fraction"], "0.105")
+
+    def test_multiplier_table_is_bound_to_the_ratification_record(self):
+        """The table is resolved from RULE.ALLOCATION.V2 in the rule registry
+        and cross-checked against contract/3's gate -- drift raises."""
+        state = crypto_state("RISK_ON")
+        self.assertEqual(state["gate_source_ratification_id"], "PAPER-MARKET-ALLOCATION-V2-20260913")
+        self.assertEqual(
+            state["gate_source_record_sha256"],
+            "345801ab907f75c4761097670430fb097e5e8d3b1e595217850fe20fd240a4c8",
+        )
+        drifted = dict(PROMO.REGIME_GATE_V3, NEUTRAL=("PASS", "PERMIT_SELECTIVE", "0.99", None))
+        P59._ALLOCATION_PARAMS.clear()
+        try:
+            with mock.patch.object(PROMO, "REGIME_GATE_V3", drifted):
+                with self.assertRaisesRegex(
+                    P59.CryptoPaperBuyEligibilityError, "ALLOCATION_MULTIPLIER_MISMATCH:NEUTRAL",
+                ):
+                    P59._allocation_params()
+        finally:
+            P59._ALLOCATION_PARAMS.clear()
+
+    # -- GAP B: 1%-of-ADV30 per-name liquidity cap --------------------------
+
+    def test_adv30_bound_name_is_capped_below_the_nav_fraction(self):
+        """A thin market's ratified 1%-of-ADV30 room binds before NAV 5%, and
+        the record says which term bound."""
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            **risk_inputs("RISK_ON", row=adv30_bound_universe_row()),
+        )
+        # 6,000,000,000 / 30 = 200,000,000 ADV30; 1% = 2,000,000 < NAV 5% of
+        # 5,000,000, so the liquidity term is the effective cap.
+        self.assertEqual(result["adv30_krw"], "200000000")
+        self.assertEqual(result["per_name_cap_nav_fraction_term_krw"], "5000000")
+        self.assertEqual(result["per_name_cap_liquidity_term_krw"], "2000000")
+        self.assertEqual(result["per_name_effective_cap_krw"], "2000000")
+        self.assertEqual(result["per_name_cap_bound_by"], "LIQUIDITY_ADV30_FRACTION")
+        # The 1,750,000 KRW position still fits under 2,000,000.
+        self.assertEqual(result["status"], "PASS")
+
+    def test_adv30_bound_name_breaches_on_a_position_the_nav_cap_would_allow(self):
+        from decimal import Decimal
+        result = P59.evaluate_paper_risk_budget(
+            {"entry_price": Decimal("105"), "planned_stop_price": Decimal("98")},
+            self.policy, paper_account_state(), 18,
+            **risk_inputs("RISK_ON", row=adv30_bound_universe_row()),
+        )
+        # quantity 35,714.285714...; notional ~3,750,000 -- under NAV 5%
+        # (5,000,000) but over the 1%-of-ADV30 room (2,000,000).
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("SINGLE_ASSET_PAPER_EXPOSURE_CAP:LIQUIDITY_ADV30_FRACTION", result["reason"])
+        self.assertLess(
+            Decimal(result["per_name_effective_cap_krw"]),
+            Decimal(result["per_name_cap_nav_fraction_term_krw"]),
+        )
+
+    def test_short_adv_history_fails_closed_instead_of_shortening_the_window(self):
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            **risk_inputs("RISK_ON", row=short_history_universe_row(observed=20)),
+        )
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["adv30_status"], "UNAVAILABLE")
+        self.assertIsNone(result["adv30_krw"])
+        self.assertIsNone(result["per_name_effective_cap_krw"])
+        self.assertEqual(result["adv30_finalized_day_count"], 19)
+        self.assertEqual(result["adv30_required_finalized_day_count"], 30)
+        self.assertIn("ADV30_FINALIZED_HISTORY_INCOMPLETE:19/30", result["reason"])
+        self.assertEqual(result["per_name_cap_bound_by"], "FAIL_CLOSED_LIQUIDITY_ADV30_UNAVAILABLE")
+
+    def test_missing_turnover_fails_closed(self):
+        row = universe_row()
+        row["trailing_30d_krw_turnover"] = None
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            **risk_inputs("RISK_ON", row=row),
+        )
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("ADV30_TRAILING_TURNOVER_MISSING", result["reason"])
+
+    def test_exactly_thirty_finalized_days_is_sufficient(self):
+        """31 observed candles -> 30 finalized (index 0, today, excluded),
+        which is exactly the ratified window."""
+        result = P59.evaluate_paper_risk_budget(
+            self._entry_invalidation(), self.policy, paper_account_state(), 18,
+            **risk_inputs("RISK_ON", row=short_history_universe_row(observed=31)),
+        )
+        self.assertEqual(result["adv30_status"], "OBSERVED")
+        self.assertEqual(result["adv30_finalized_day_count"], 30)
+        self.assertEqual(result["status"], "PASS")
+
+    # -- the regression #789-as-was would have shipped ----------------------
+
+    def test_per_name_cap_can_never_equal_the_aggregate_cap(self):
+        """#789 as it stood set the per-name cap (0.05) equal to the aggregate
+        cap (0.05), so ONE coin could consume the entire crypto budget and
+        nothing forced diversification. Under every ratified state either new
+        buys are denied outright, or the per-name cap is strictly below the
+        aggregate cap."""
+        from decimal import Decimal
+        nav = Decimal(paper_account_state()["total_nav_krw"])
+        single = Decimal(self.policy["risk"]["single_asset_paper_exposure_nav_fraction"])
+        checked = 0
+        for regime in PROMO.REGIME_GATE_V3:
+            state = crypto_state(regime)
+            aggregate = state["aggregate_cap_nav_fraction"]
+            result = P59.evaluate_paper_risk_budget(
+                self._entry_invalidation(), self.policy, paper_account_state(), 18,
+                **risk_inputs(regime),
+            )
+            per_name_fraction = Decimal(result["per_name_effective_cap_krw"]) / nav
+            with self.subTest(regime=regime):
+                self.assertNotEqual(per_name_fraction, aggregate)
+                if not state["no_new_buys"]:
+                    self.assertLess(per_name_fraction, aggregate)
+                    self.assertEqual(result["status"], "PASS")
+                else:
+                    self.assertEqual(result["status"], "FAIL")
+            checked += 1
+        self.assertEqual(checked, 5)
+        # And the flat aggregate field that made the collision possible is gone.
+        self.assertNotIn("total_crypto_paper_exposure_nav_fraction", self.policy["risk"])
+        self.assertEqual(single, Decimal("0.05"))
+
+    def test_old_max_concurrent_positions_cap_is_superseded_and_not_enforced(self):
+        """RATIFIED (build plan row C4, 2026-09-18): the old fixed
+        max_concurrent_paper_positions=3 cap is superseded ("옛 코인 3종목
+        한도 대체") -- NameRoom/aggregate-room bind instead. A 4th position
+        that would have tripped the old count-based cap must now PASS as
+        long as it stays within the (still-enforced) single-asset and
+        aggregate NAV caps.
+        """
         existing = [
             {"asset_id": f"X{i}", "planned_loss_nav_fraction": "0.0001", "portfolio_weight_nav_fraction": "0.01"}
             for i in range(3)
         ]
         result = P59.evaluate_paper_risk_budget(
             self._entry_invalidation(), self.policy, paper_account_state(open_positions=existing), 18,
+            **risk_inputs("RISK_ON"),
         )
-        self.assertEqual(result["status"], "FAIL")
-        self.assertIn("MAX_CONCURRENT_PAPER_POSITIONS", result["reason"])
+        self.assertEqual(result["status"], "PASS")
+        self.assertNotIn("MAX_CONCURRENT_PAPER_POSITIONS", str(result))
+        self.assertEqual(result["projected_open_position_count"], 4)
+
+    def test_max_concurrent_paper_positions_field_removed_from_policy(self):
+        """Pins the ratified removal: the field must not silently reappear
+        without a matching ratification amending build plan row C4."""
+        self.assertNotIn("max_concurrent_paper_positions", self.policy["risk"])
 
     def test_total_crypto_cap_uses_exposure_not_planned_loss(self):
+        # Seven 2%-weight positions = 0.14 existing exposure, against a tiny
+        # 0.0007 aggregate planned loss. Only the exposure sum can breach the
+        # ratified RISK_ON aggregate cap of 0.15 (0.14 + 0.0175 = 0.1575).
         existing = [
             {
                 "asset_id": f"X{i}",
                 "planned_loss_nav_fraction": "0.0001",
                 "portfolio_weight_nav_fraction": "0.02",
             }
-            for i in range(2)
+            for i in range(7)
         ]
         result = P59.evaluate_paper_risk_budget(
             self._entry_invalidation(), self.policy,
             paper_account_state(open_positions=existing), 18,
+            **risk_inputs("RISK_ON"),
         )
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("TOTAL_CRYPTO_PAPER_EXPOSURE_CAP", result["reason"])
+        from decimal import Decimal
+        self.assertEqual(result["projected_total_planned_loss_nav_fraction"], "0.0032")
+        # Exposure (~0.1575) is what breaches the ratified 0.15 RISK_ON cap;
+        # the aggregate planned loss (0.0032) is nowhere near it.
+        self.assertGreater(
+            Decimal(result["projected_total_crypto_exposure_nav_fraction"]),
+            Decimal(result["crypto_aggregate_cap_nav_fraction"]),
+        )
+        self.assertLess(
+            Decimal(result["projected_total_planned_loss_nav_fraction"]),
+            Decimal(result["crypto_aggregate_cap_nav_fraction"]),
+        )
 
 
 class ZeroOrderEndpointCallsTests(unittest.TestCase):
@@ -607,6 +923,7 @@ class EndToEndReachabilityTests(unittest.TestCase):
             mock.patch.object(PROMO, "evaluate_material_blocker", return_value={
                 "status": "PASS", "reason": "TEST_ONLY_FORCED_NO_COVERAGE_EXISTS",
             }),
+            crypto_runtime_gate("RISK_ON"),
         ):
             result = P59.evaluate_candidate(
                 self._candidate_row(),
@@ -619,6 +936,8 @@ class EndToEndReachabilityTests(unittest.TestCase):
                 paper_account_state=paper_account_state(),
                 fee_rate="0.0005",
                 known_idempotency_keys=set(),
+                crypto_runtime_decision={"stub": True},
+                regime_reference_at=GENERATED_AT,
             )
         self.assertEqual(result["eligibility_state"], P59.STATE_PAPER_BUY_ELIGIBLE)
         for name in P59.CRITERIA:
@@ -627,10 +946,51 @@ class EndToEndReachabilityTests(unittest.TestCase):
         self.assertIsNotNone(result["order_draft"]["duplicate_guard_key"])
         self.assertTrue(all(v is False for v in result["authority"].values()))
 
-    def test_without_mocks_real_evaluation_never_exceeds_watch(self):
-        """The unmocked, real end-to-end path -- proving today's genuine
-        ceiling is WATCH, never PAPER_BUY_ELIGIBLE, even with every
-        mechanically-computable criterion satisfied."""
+    def test_zero_quantity_candidate_waits_with_null_draft(self):
+        packet = market_evidence_packet(breakout=True, four_hour_direction="UP", daily_direction="UP")
+        row = universe_row(caution_any=False)
+        with (
+            mock.patch.object(PROMO, "evaluate_regime", return_value={
+                "status": "PASS", "reason": "TEST_ONLY_QUANTITY_BOUNDARY_ISOLATION",
+            }),
+            mock.patch.object(PROMO, "evaluate_overextension", return_value={
+                "status": "PASS", "reason": "TEST_ONLY_QUANTITY_BOUNDARY_ISOLATION",
+            }),
+            mock.patch.object(PROMO, "evaluate_material_blocker", return_value={
+                "status": "PASS", "reason": "TEST_ONLY_QUANTITY_BOUNDARY_ISOLATION",
+            }),
+            crypto_runtime_gate("RISK_ON"),
+        ):
+            result = P59.evaluate_candidate(
+                self._candidate_row(),
+                regime_payload=unknown_regime_payload(),
+                market_evidence_packet=packet,
+                universe_row=row,
+                policy=P59.load_policy(),
+                universe_policy=UNI.load_policy(),
+                evaluation_as_of=EVAL_AS_OF,
+                paper_account_state=paper_account_state(total_nav_krw="0.000000000000000000000001"),
+                fee_rate="0.0005",
+                known_idempotency_keys=set(),
+                crypto_runtime_decision={"stub": True},
+                regime_reference_at=GENERATED_AT,
+            )
+        self.assertEqual(result["eligibility_state"], P59.STATE_WAIT)
+        completeness = result["criteria"]["ORDER_DRAFT_COMPLETE"]
+        self.assertEqual(completeness["status"], "UNKNOWN")
+        self.assertEqual(completeness["missing_fields"], ["quantity", "fee_amount_krw"])
+        self.assertTrue(all(value is None for value in result["order_draft"].values()))
+
+    def test_without_mocks_real_evaluation_is_blocked_by_the_ratified_state_gate(self):
+        """The unmocked, real end-to-end path. With no crypto runtime decision
+        supplied the ratified state resolves to UNKNOWN, which DENIES new buys
+        -- so today's genuine outcome is BLOCKED, not PAPER_BUY_ELIGIBLE.
+
+        Before this change the same path returned WATCH: the aggregate cap was
+        a flat 0.05 read from config and the crypto market state was not
+        consulted at all, so an absent state silently permitted sizing. That is
+        the fail-open this commit closes.
+        """
         packet = market_evidence_packet(breakout=True, four_hour_direction="UP", daily_direction="UP")
         row = universe_row(caution_any=False)
         result = P59.evaluate_candidate(
@@ -645,10 +1005,14 @@ class EndToEndReachabilityTests(unittest.TestCase):
             fee_rate="0.0005",
             known_idempotency_keys=set(),
         )
-        self.assertEqual(result["eligibility_state"], P59.STATE_WATCH)
+        self.assertEqual(result["eligibility_state"], P59.STATE_BLOCKED)
         self.assertEqual(result["criteria"]["REGIME_PERMITS_ENTRY"]["status"], "UNKNOWN")
         self.assertEqual(result["criteria"]["BREAKOUT_OR_PULLBACK"]["status"], "PASS")
         self.assertEqual(result["criteria"]["TRIGGER_TIMEFRAME_ALIGNMENT"]["status"], "PASS")
+        risk = result["criteria"]["PAPER_RISK_BUDGET"]
+        self.assertEqual(risk["status"], "FAIL")
+        self.assertEqual(risk["crypto_market_state"], "UNKNOWN")
+        self.assertIn("CRYPTO_STATE_NO_NEW_BUYS:UNKNOWN:DENY", risk["reason"])
 
 
 # ---------------------------------------------------------------------------
@@ -873,6 +1237,93 @@ class ContractAndPolicyTests(unittest.TestCase):
         self.assertEqual(policy["baseline_label"], "PROPOSED_PAPER_BASELINE")
         self.assertTrue(policy["not_a_live_capital_limit"])
         self.assertNotEqual(policy["approval_status"], "RATIFIED")
+        self.assertEqual(policy["approval_status"], "PAPER_BASELINE_RATIFIED_MARKET_ALLOCATION_V2")
+
+    def test_ratified_risk_values_pinned(self):
+        """RATIFIED 2026-09-18 (build plan row C4 /
+        USER_RATIFICATION_PAPER_MARKET_ALLOCATION_V2_20260913.json): the
+        per-name NAV cap is 5%; the old fixed 3-position cap is gone; and the
+        flat aggregate fraction is gone too, because the ratified aggregate cap
+        is NAV0 x base(CRYPTO) x the crypto state multiplier, resolved from
+        RULE.ALLOCATION.V2 rather than restated as a literal here.
+        """
+        policy = P59.load_policy()
+        self.assertEqual(policy["risk"]["single_asset_paper_exposure_nav_fraction"], "0.05")
+        self.assertNotIn("max_concurrent_paper_positions", policy["risk"])
+        self.assertNotIn("total_crypto_paper_exposure_nav_fraction", policy["risk"])
+        self.assertEqual(
+            set(policy["risk"]),
+            {"per_trade_planned_loss_nav_fraction", "single_asset_paper_exposure_nav_fraction"},
+        )
+
+    def test_policy_risk_schema_rejects_reintroduced_flat_aggregate_field(self):
+        """A flat aggregate fraction is exactly what let the per-name cap equal
+        the aggregate cap. Re-adding it without a matching ratification must
+        fail closed rather than silently re-enable single-name concentration."""
+        path = P59.POLICY_PATH
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["risk"]["total_crypto_paper_exposure_nav_fraction"] = "0.05"
+        tmp_path = path.parent / "_tmp_test_crypto_paper_flat_aggregate_policy.json"
+        tmp_path.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            with self.assertRaisesRegex(
+                P59.CryptoPaperBuyEligibilityError, "POLICY_RISK_FIELDS_INVALID",
+            ):
+                P59.load_policy(tmp_path)
+        finally:
+            tmp_path.unlink()
+
+    def test_paper_risk_reads_single_asset_cap_from_config_not_hardcoded(self):
+        """Proves `_paper_risk` enforces whatever the policy file says, not
+        a duplicated literal -- a config edit alone must move the gate.
+        Guards against the ratified 0.05 and the config drifting apart
+        again the way the old 0.02 baseline drifted from build plan C4.
+        """
+        from decimal import Decimal
+
+        policy = copy.deepcopy(P59.load_policy())
+        entry_price, stop_price = Decimal("105"), Decimal("100")
+        account = paper_account_state()
+
+        inputs = risk_inputs("RISK_ON")
+
+        def breaches(risk_policy):
+            return P59._paper_risk(entry_price, stop_price, risk_policy, account, 18, **inputs)["breaches"]
+
+        # At the shipped 5% cap, a ~5.25% position breaches the NAV term.
+        self.assertIn("SINGLE_ASSET_PAPER_EXPOSURE_CAP:NAV_FRACTION", breaches(policy))
+
+        # Widening the config's single-asset cap alone (no code change)
+        # must make the same position pass -- proving the value is read
+        # from the policy dict, not hardcoded inside `_paper_risk`.
+        widened = copy.deepcopy(policy)
+        widened["risk"]["single_asset_paper_exposure_nav_fraction"] = "0.50"
+        self.assertNotIn(
+            "SINGLE_ASSET_PAPER_EXPOSURE_CAP:NAV_FRACTION", breaches(widened),
+        )
+
+        # Narrowing it below the same position's weight must (re)breach it.
+        narrowed = copy.deepcopy(policy)
+        narrowed["risk"]["single_asset_paper_exposure_nav_fraction"] = "0.001"
+        self.assertIn("SINGLE_ASSET_PAPER_EXPOSURE_CAP:NAV_FRACTION", breaches(narrowed))
+
+    def test_policy_risk_schema_rejects_reintroduced_max_concurrent_field(self):
+        """If a future edit re-adds `max_concurrent_paper_positions` to the
+        config without also updating `load_policy`'s schema (and thereby
+        without a matching ratification), loading must fail closed rather
+        than silently enforcing an unratified cap again."""
+        path = P59.POLICY_PATH
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["risk"]["max_concurrent_paper_positions"] = 3
+        tmp_path = path.parent / "_tmp_test_crypto_paper_buy_eligibility_policy.json"
+        tmp_path.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            with self.assertRaisesRegex(
+                P59.CryptoPaperBuyEligibilityError, "POLICY_RISK_FIELDS_INVALID",
+            ):
+                P59.load_policy(tmp_path)
+        finally:
+            tmp_path.unlink()
 
 
 if __name__ == "__main__":

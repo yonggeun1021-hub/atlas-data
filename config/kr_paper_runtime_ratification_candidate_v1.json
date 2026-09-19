@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "candidate_version": "kr_paper_runtime_ratification_candidate/v1",
+  "status": "DRAFT_NOT_RATIFIED",
+  "scope": "KR_PAPER_READ_ONLY_MARKET_REGIME_ONLY",
+  "decision_identity_candidate": "CIO-P1-COM-05-KR-PAPER-RUNTIME-ADOPTION-V1-2026-09-13-CANDIDATE",
+  "current_main_sha": "bf9ab6afcdce9391f961500595b00b11cc06b84c",
+  "historical_evidence": {
+    "range": {
+      "start": "2026-08-03",
+      "end": "2026-09-10"
+    },
+    "requested_sessions": 28,
+    "observed_sessions": 28,
+    "complete_five_axis_sessions": 28,
+    "blocked_sessions": 0,
+    "missing_rate": "0.000000",
+    "pit_status": "PIT_ACCEPTED",
+    "required_regimes_observed": [
+      "NEUTRAL",
+      "RISK_OFF",
+      "RISK_ON",
+      "STRESS"
+    ],
+    "population_payload_sha256": "eefc87c8588f86304d2a64c0a2b678a28916222b69844f8b54e113da35aba1fb",
+    "replay_report_sha256": "ecbf0ea96c5f85771d26e24f6b1e2afb18160f520d09080a1162f492f92185b7",
+    "final_receipt_file_sha256": "dee1abd11316f37ebda6717548cda686767167e2d020bee01d15504a458ce5ae",
+    "source_execution_run": 34715021178,
+    "source_execution_head": "7f0ae1e60f0cd77ea7e2a3fa8d01ecc205257807",
+    "source_artifact_digest": "sha256:54e30144e1bd1e5b8c3051db032f4edf496d294a355e689d7dcfcc25a6ac1482",
+    "implementation_pr": 689,
+    "implementation_head": "2b1e8204ecb35e3a5c9b08963c7bd76021e9325a",
+    "implementation_ci_run": 34715669049
+  },
+  "existing_policy_bindings": {
+    "normalization_path": "config/paper_runtime_normalization_v1.json",
+    "normalization_sha256": "cb6945225cd4f972825aaa3a6fb300ab440bd9b0d247bd0edb216e8513335385",
+    "freshness_path": "config/regime_semantic_freshness_policy_v1.json",
+    "freshness_sha256": "0194dd4647b9a42b5183977c822eb8125320d32e93ef4e7f4efda364db6ff193",
+    "pit_contract_path": "config/market_scoped_pit_acceptance_contract_v1.json",
+    "pit_contract_sha256": "c13006da3da69df4a94ab494942045c988bd6e7d6c51c0fe57c12c889ab45712",
+    "common_registry_path": "config/regime_source_owner_registry_v2.json",
+    "common_registry_sha256": "8dd2ad50f66e144aaca78ffc6a82615d814dee2b8f23f736cdbc85a56dba68bb",
+    "prior_decision_path": "docs/p1_com_05_cio_final_verdict_20260912.md",
+    "prior_decision_sha256": "afcc7d2a3f28f7149ff7c11fe0fb4da63b9390b987a6736b05a332e9c00a0e15",
+    "official_calendar_path": "evidence/market_calendar/krx_global_holiday/2026-09-09/capture-2026.json",
+    "official_calendar_sha256": "dac31a1006134c6c715f389e70f7966d1a0c0a9de2b66e8a8b322e774a144f9c"
+  },
+  "current_live_input": {
+    "path": "evidence/regime/kr_information_system/2026-09-11/KR_PAPER_REFERENCE_CANDIDATE.json",
+    "observed_session": "2026-09-11",
+    "latest_officially_completed_session_at_review": "2026-09-11",
+    "freshness_status": "EXACT_LATEST_COMPLETED_SESSION_WITH_RETAINED_ORIGINAL_BYTES",
+    "historical_source_availability_probe": "AVAILABLE",
+    "runtime_admission": "SOURCE_VALIDATED_PENDING_CIO_RUNTIME_BINDING_RATIFICATION"
+  },
+  "satisfied_preconditions": [
+    "KR_SIGNED_AXIS_NORMALIZATION_RATIFIED",
+    "KR_SEMANTIC_FRESHNESS_RATIFIED",
+    "COMMON_V1_CLASSIFICATION_DIRECTION_HYSTERESIS_RATIFIED",
+    "REAL_HISTORICAL_SEQUENCE_COMPLETE_28_OF_28",
+    "REQUIRED_AXES_COMPLETE_5_OF_5_FOR_ALL_SESSIONS",
+    "NO_LOOKAHEAD_VALIDATION_PASS",
+    "DETERMINISTIC_RERUN_BYTE_IDENTICAL",
+    "ALL_FOUR_REQUIRED_REGIMES_OBSERVED",
+    "MARKET_SCOPED_PIT_VALIDATOR_RESULT_ACCEPTED"
+  ],
+  "remaining_preconditions": [
+    "SOURCE_AWARE_RUNTIME_BRIDGE_INDEPENDENT_REVIEW",
+    "CIO_RATIFICATION_OF_KR_RUNTIME_BINDING",
+    "CIO_RATIFICATION_OF_KR_REGIME_RESULT_AUTHORITY",
+    "EXACT_HEAD_CI_AND_POST_MERGE_MAIN_REVALIDATION"
+  ],
+  "proposed_effect_after_separate_ratification": {
+    "kr_paper_runtime_classification": "PROPOSED_TRUE_NOT_EFFECTIVE",
+    "kr_paper_runtime_binding": "PROPOSED_TRUE_NOT_EFFECTIVE",
+    "kr_paper_regime_result": "PROPOSED_TRUE_NOT_EFFECTIVE",
+    "us_runtime": "UNCHANGED_UNKNOWN",
+    "crypto_runtime": "UNCHANGED_UNKNOWN",
+    "strategy_eligibility": "UNCHANGED_FALSE",
+    "stage": "UNCHANGED_FALSE",
+    "buy": "UNCHANGED_FALSE",
+    "action": "UNCHANGED_FALSE",
+    "capital": "UNCHANGED_FALSE",
+    "order": "UNCHANGED_FALSE",
+    "production": "UNCHANGED_FALSE",
+    "trading": "UNCHANGED_FALSE",
+    "real": "UNCHANGED_FALSE"
+  },
+  "current_authority": {
+    "evidence_accepted": false,
+    "runtime_classification_authorized": false,
+    "runtime_binding_authorized": false,
+    "regime_result_ratification_authorized": false,
+    "strategy_eligibility_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_authorized": false
+  }
+}

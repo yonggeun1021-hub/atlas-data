@@ -31,6 +31,34 @@ corresponding parameter anywhere in `build_record()`'s signature — see
 `test_alpha_shadow_ledger.py`'s regression, which inspects the live function
 signature in addition to asserting the values.
 
+## Exact JSON types
+
+Contract identity (`schema_version`, `authority`), record identity
+(`authority`) and `shadow_proposal.capital` are compared by **exact JSON
+value**: the same JSON type as well as the same value. Python's `==` treats
+`True == 1`, `False == 0` and `0 == 0.0` as equal, so a value-only check
+would admit a contract or record whose `schema_version` is `true`/`1.0`,
+whose authority flags are `0`/`1`/`0.0`, or whose `capital` is `false`/`0.0`
+— each of which serialises to different canonical JSON bytes (`true` vs `1`,
+`0` vs `false`, `0.0` vs `0`).
+
+The contract and the record carry those bytes differently:
+
+- **Contract.** A contract has no `entry_hash`, and its own `schema_version`
+  is never copied into a record (a record's `schema_version` comes from the
+  contract's `output_schema_version`). An aliased contract scalar changes the
+  contract's canonical bytes and is rejected as
+  `CONTRACT_IDENTITY_INVALID` — no hash is retained or recomputed.
+- **Record.** An aliased record `authority` flag or `shadow_proposal.capital`
+  changes the unsigned record payload's canonical bytes, so an `entry_hash`
+  recalculated over them differs from the original digest. Such a record is
+  rejected (`RECORD_IDENTITY_INVALID`,
+  `SHADOW_PROPOSAL_CAPITAL_MUST_BE_ZERO`) whether it retains the original
+  `entry_hash` or carries the recalculated one.
+
+Valid records are unaffected: their canonical bytes and `entry_hash` are
+unchanged.
+
 ## `opportunity_state` → `action` mapping (exhaustive, P5-gated)
 
 **CIO Gate Hardening (contract_version `alpha_shadow_ledger/2`).** The table

@@ -1,0 +1,58 @@
+{
+  "schema_version": 3,
+  "contract_version": "crypto_paper_buy_eligibility_contract/3",
+  "input_promotion_contract": "crypto_candidate_promotion_contract/3",
+  "input_promotion_state": "FOCUSED_REVIEW",
+  "requires_promotion_sources": ["crypto_runtime_decision", "rotation_confirmation"],
+  "criteria": [
+    "FOCUSED_REVIEW_UPSTREAM",
+    "REGIME_PERMITS_ENTRY",
+    "ROTATION_MEMBERSHIP",
+    "REENTRY_PERMITTED",
+    "DUPLICATE_GUARD",
+    "ORDER_DRAFT_COMPLETE",
+    "ZERO_ORDER_ENDPOINT_CALLS"
+  ],
+  "record_only_features": [
+    "TRIGGER_TIMEFRAME_ALIGNMENT",
+    "BREAKOUT_OR_PULLBACK",
+    "INDEPENDENT_PRICE_VOLUME_EVIDENCE",
+    "CURRENT_EVIDENCE_FRESHNESS",
+    "MATERIAL_BLOCKER",
+    "OVEREXTENSION"
+  ],
+  "criterion_statuses": ["PASS", "FAIL", "UNKNOWN"],
+  "eligibility_states": ["WATCH", "WAIT", "BLOCKED", "PAPER_BUY_ELIGIBLE"],
+  "order_draft_fields": [
+    "session_id",
+    "session_budget_record_sha256",
+    "allocated_krw",
+    "planning_price_krw",
+    "quantity",
+    "fee_rate",
+    "submitted_amount_krw",
+    "expires_at",
+    "next_review_at",
+    "duplicate_guard_key",
+    "reentry_key",
+    "planned_loss"
+  ],
+  "rules": {
+    "entry": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+    "size": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2",
+    "reentry": "RULE.EXEC.REENTRY.V1",
+    "order_validity": "RULE.EXEC.TIME_CONTRACT.V1",
+    "planned_loss": "RULE.RISK.PLANNED_LOSS_RECORD_ONLY.V1"
+  },
+  "authority": {
+    "investable_eligible": false,
+    "paper_eligible": false,
+    "paper_buy_eligible_authorized": false,
+    "entry_authorized": false,
+    "stage_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "order_authorized": false,
+    "exchange_order_authorized": false
+  }
+}

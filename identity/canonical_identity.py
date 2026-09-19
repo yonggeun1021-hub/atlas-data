@@ -617,13 +617,52 @@ def _parse_git_committer_iso(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
+# ---------------------------------------------------------------------------
+# CIO-A4 step 2 (2026-09-13): exact-key memoization for the three git
+# subprocess helpers below. Each identity row a review candidate carries
+# re-derives its own `verified_row_first_seen_at`/`verified_evidence_
+# first_seen_at` by walking real git history, so a review queue of N
+# candidates previously re-ran the SAME `git rev-parse --show-toplevel`,
+# `git log --follow`, and `git show` calls for the SAME repo/path/commit N
+# times. None of these three caches ever holds a `git status` (dirty-tree)
+# result -- that check lives inline in verify_document_matches_source and
+# is intentionally never memoized, since a dirty working tree can appear
+# between two calls within the same process.
+#
+# Keys are deliberately narrower than "just enough to be correct": beyond
+# the CIO-directed (HEAD, path) / (commit, path) dimensions, the history
+# and show caches also key on repo_root. This never causes an incorrect
+# hit (it can only turn a would-be hit into an extra, harmless miss) and
+# specifically protects a test suite that builds many short-lived
+# synthetic git repos, where two different repos could otherwise
+# coincidentally share both a commit hash and a relative path.
+_GIT_REPO_ROOT_CACHE: dict[Path, Path | None] = {}
+_GIT_HISTORY_COMMITS_CACHE: dict[tuple[Path, str, str], list[tuple[str, str, str]]] = {}
+_GIT_SHOW_BYTES_CACHE: dict[tuple[Path, str, str], bytes | None] = {}
+
+
 def _git_repo_root(path: Path) -> Path | None:
+    key = path.parent
+    if key in _GIT_REPO_ROOT_CACHE:
+        return _GIT_REPO_ROOT_CACHE[key]
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             cwd=path.parent, capture_output=True, text=True, check=True,
         ).stdout.strip()
-        return Path(out).resolve()
+        result = Path(out).resolve()
+    except Exception:
+        result = None
+    _GIT_REPO_ROOT_CACHE[key] = result
+    return result
+
+
+def _git_head_commit(repo_root: Path) -> str | None:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root, capture_output=True, text=True, check=True,
+        ).stdout.strip()
     except Exception:
         return None
 
@@ -632,7 +671,12 @@ def _git_history_commits(path: Path) -> list[tuple[str, str, str]]:
     """Returns [(commit_hash, committer_iso, repo_relative_posix_path), ...]
     oldest-first, using `--follow` on the REAL repo-root-relative path
     (rev 3 fix -- previously only the basename was used, which breaks for
-    any real file nested under a directory like `config/`)."""
+    any real file nested under a directory like `config/`).
+
+    Memoized by (repo_root, HEAD commit, repo-relative path): a fresh
+    `git rev-parse HEAD` is always read before the cache is consulted, so
+    a commit made to the repo between two calls is a guaranteed miss --
+    the cache can never observe a stale HEAD as fresh."""
     repo_root = _git_repo_root(path)
     if repo_root is None:
         return []
@@ -641,33 +685,50 @@ def _git_history_commits(path: Path) -> list[tuple[str, str, str]]:
     except ValueError:
         return []
     rel_posix = rel.as_posix()
+    head = _git_head_commit(repo_root)
+    if head is None:
+        return []
+    key = (repo_root, head, rel_posix)
+    if key in _GIT_HISTORY_COMMITS_CACHE:
+        return _GIT_HISTORY_COMMITS_CACHE[key]
     try:
         log = subprocess.run(
             ["git", "log", "--follow", "--format=%H|%cI", "--", rel_posix],
             cwd=repo_root, capture_output=True, text=True, check=True,
         ).stdout.strip()
     except Exception:
-        return []
-    if not log:
+        _GIT_HISTORY_COMMITS_CACHE[key] = []
         return []
     commits = []
-    for line in log.splitlines():
-        if "|" not in line:
-            continue
-        h, iso = line.split("|", 1)
-        commits.append((h, iso, rel_posix))
-    return list(reversed(commits))  # oldest first
+    if log:
+        for line in log.splitlines():
+            if "|" not in line:
+                continue
+            h, iso = line.split("|", 1)
+            commits.append((h, iso, rel_posix))
+    result = list(reversed(commits))  # oldest first
+    _GIT_HISTORY_COMMITS_CACHE[key] = result
+    return result
 
 
 def _git_show_bytes(repo_root: Path, commit_hash: str, rel_posix_path: str) -> bytes | None:
+    """Memoized by (repo_root, commit_hash, rel_posix_path). `commit_hash`
+    is always a resolved commit object id at every call site in this
+    module (never a mutable ref like a branch name or HEAD), so the same
+    key can never legitimately resolve to different bytes."""
+    key = (repo_root, commit_hash, rel_posix_path)
+    if key in _GIT_SHOW_BYTES_CACHE:
+        return _GIT_SHOW_BYTES_CACHE[key]
     try:
         r = subprocess.run(
             ["git", "show", f"{commit_hash}:{rel_posix_path}"],
             cwd=repo_root, capture_output=True, check=True,
         )
-        return r.stdout
+        result = r.stdout
     except Exception:
-        return None
+        result = None
+    _GIT_SHOW_BYTES_CACHE[key] = result
+    return result
 
 
 def _git_first_commit_time_for_json_match(path: Path, matches) -> str | None:

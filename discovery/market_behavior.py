@@ -222,6 +222,46 @@ def _median(values: list[Decimal]) -> Decimal:
         return (ordered[middle - 1] + ordered[middle]) / Decimal(2)
 
 
+def volume_baseline_features(prior_volumes: list, latest_volume: Decimal) -> dict:
+    """Source-independent latest-vs-prior-window volume arithmetic.
+
+    This is the single implementation of the two published volume features
+    (``LATEST_VS_PRIOR_MEAN`` / ``LATEST_VS_PRIOR_MEDIAN``): latest volume
+    divided by the arithmetic mean, and by the median, of every prior window
+    value, under this module's existing 50-digit Decimal context.
+
+    It deliberately carries no market, source, policy, threshold, window
+    selection or rendering choice, so a second caller reuses this exact
+    arithmetic instead of restating it.  A zero mean or median denominator
+    yields ``None`` (never ``0`` and never infinity) with a
+    ``ZERO_BASELINE_UNKNOWN`` baseline status -- the observation is unknown,
+    not neutral.  Returned values are unrendered ``Decimal``; each caller
+    applies its own already-existing serialization.
+    """
+    if not isinstance(prior_volumes, list) or not prior_volumes:
+        raise MarketBehaviorError("VOLUME_PRIOR_WINDOW_EMPTY")
+    for value in [*prior_volumes, latest_volume]:
+        if not isinstance(value, Decimal) or not value.is_finite():
+            raise MarketBehaviorError("VOLUME_VALUE_NOT_FINITE_DECIMAL")
+    with localcontext() as context:
+        context.prec = 50
+        mean = sum(prior_volumes, Decimal(0)) / Decimal(len(prior_volumes))
+        median = _median(prior_volumes)
+        mean_ratio = latest_volume / mean if mean > 0 else None
+        median_ratio = latest_volume / median if median > 0 else None
+    return {
+        "prior_count": len(prior_volumes),
+        "latest": latest_volume,
+        "prior_mean": mean,
+        "prior_median": median,
+        "latest_vs_prior_mean": mean_ratio,
+        "latest_vs_prior_median": median_ratio,
+        "baseline_status": (
+            "OBSERVED" if mean > 0 and median > 0 else "ZERO_BASELINE_UNKNOWN"
+        ),
+    }
+
+
 def _validate_policy(value: dict | None, contract: dict) -> dict | None:
     if value is None:
         return None
@@ -397,10 +437,9 @@ def _window_features(window: dict, as_of: dt.datetime, contract: dict) -> dict:
             context.prec = 50
             gross = values["closes"][-1] / values["closes"][0]
             relative_strength = gross / benchmark_gross - Decimal(1)
-            mean = sum(prior, Decimal(0)) / Decimal(len(prior))
-            median = _median(prior)
-            mean_ratio = latest / mean if mean > 0 else None
-            median_ratio = latest / median if median > 0 else None
+        volume = volume_baseline_features(prior, latest)
+        mean_ratio = volume["latest_vs_prior_mean"]
+        median_ratio = volume["latest_vs_prior_median"]
         features.append(
             {
                 "asset_id": asset_id,
@@ -415,9 +454,7 @@ def _window_features(window: dict, as_of: dt.datetime, contract: dict) -> dict:
                     if median_ratio is not None
                     else None
                 ),
-                "volume_baseline_status": (
-                    "OBSERVED" if mean > 0 and median > 0 else "ZERO_BASELINE_UNKNOWN"
-                ),
+                "volume_baseline_status": volume["baseline_status"],
                 "source_identity": copy.deepcopy(values["source"]),
                 "benchmark_source_identity": copy.deepcopy(
                     benchmark_values["source"]

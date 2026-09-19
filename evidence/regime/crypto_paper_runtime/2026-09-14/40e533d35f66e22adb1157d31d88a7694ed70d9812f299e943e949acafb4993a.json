@@ -1,0 +1,274 @@
+{
+  "acceptance": {
+    "accepted_run": null,
+    "conditions": {
+      "1_REAL_EVIDENCE_ONLY": true,
+      "2_REQUIRED_5_OF_5_AXES": false,
+      "3_NO_LOOKAHEAD": false,
+      "4_DETERMINISTIC_RERUN_BYTE_IDENTICAL": true,
+      "5_EXACT_COMMON_V1_REPLAY": false,
+      "6_REPLACED_KRAKEN_BULK_BTC_REPLAY_DIAGNOSTIC": true
+    },
+    "kraken_receipt_sha256": "3ddeca49e8f8fa93c414ce41f76e09e5ae075cc4412933c0373c16f339109a84",
+    "label": "PROVISIONAL_FORWARD_ACCEPTANCE",
+    "re_review": "when natural history contains all four confirmed regimes",
+    "reasons": [
+      "ACCEPTANCE_CONDITION_FAILED:2_MINIMUM_CONSECUTIVE_COMPLETE_DAYS",
+      "ACCEPTANCE_CONDITION_FAILED:3_NO_LOOKAHEAD",
+      "ACCEPTANCE_CONDITION_FAILED:5_EXACT_COMMON_V1_REPLAY"
+    ],
+    "replay_report_sha256": null,
+    "status": "NOT_ACCEPTED"
+  },
+  "aggregation": {
+    "authority": {
+      "action_authorized": false,
+      "buy_authorized": false,
+      "capital_authorized": false,
+      "common_aggregation_replay_authorized": true,
+      "freshness_policy_authorized": false,
+      "hysteresis_runtime_authorized": false,
+      "market_signed_normalization_authorized": false,
+      "order_authorized": false,
+      "pit_replay_acceptance_authorized": false,
+      "production_authorized": false,
+      "regime_result_ratification_authorized": false,
+      "runtime_binding_authorized": false,
+      "runtime_classification_authorized": false,
+      "stage_authorized": false,
+      "strategy_eligibility_authorized": false,
+      "threshold_override_authorized": false,
+      "trading_authorized": false
+    },
+    "case_id": "crypto-paper-runtime",
+    "contract_mode": "SHADOW_PIT_REPLAY_ONLY_RUNTIME_NOT_WIRED",
+    "contract_version": "regime_common_aggregation_replay/v1",
+    "determinism_status": "DETERMINISM_VERIFIED_COMMON_AGGREGATION_V1",
+    "final_confidence": null,
+    "final_direction": "UNKNOWN",
+    "final_regime": "UNKNOWN",
+    "hysteresis_policy": {
+      "ordinary_transition_finalized_packets": 2,
+      "stress_entry": "IMMEDIATE",
+      "stress_exit": "TWO_CONSECUTIVE_NON_STRESS_AND_S_GREATER_THAN_NEGATIVE_3",
+      "unknown_on_coverage_freshness_invalidation_failure": "IMMEDIATE"
+    },
+    "market": "CRYPTO",
+    "market_kill_stress_condition_status": "UNRATIFIED_NOT_IMPLEMENTED",
+    "market_specific_signed_normalization_inherited": false,
+    "neutral_unknown_invariant": "NEUTRAL_IS_OBSERVED_STATE_UNKNOWN_IS_INSUFFICIENT_OR_UNAUTHORIZED_EVIDENCE",
+    "pit_replay_acceptance": "NOT_ACCEPTED",
+    "policy_binding": {
+      "common_v1_alignment_sha256": "7d0432143ea82acd04d7f2519096cad1a35a0252911cd5e6f9a0bf9a292ee8d1",
+      "decision_identity": "CIO-GATE2-3MARKET-REGIME-SOURCE-FIRST-B-2026-09-01",
+      "decision_packet_sha256": "bdeb9b9970c71d38a9650f2374b9078e1f76ef4eeddf5acb34c6a890e9b7591c",
+      "legacy_runtime_contract_path": "config/regime_decision_authority_contract.json",
+      "legacy_runtime_contract_sha256": "de5e9d6bd36766af914c4491f12938fce7c89aa7882f3c9f1dc39b7029ae29f3",
+      "paper_baseline_policy_path": "config/paper_regime_reference_policy_v1.json",
+      "paper_baseline_policy_sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
+      "paper_baseline_policy_status": "PM_BASELINE_CANDIDATE_NOT_CIO_RATIFIED_SENSOR_POLICY",
+      "registry_path": "config/regime_source_owner_registry_v2.json",
+      "registry_version": "regime_source_owner_registry/v2"
+    },
+    "policy_status": "RATIFIED_PAPER_BASELINE_V1",
+    "required_axes": [
+      "TREND",
+      "BREADTH",
+      "RISK_VOL",
+      "LIQUIDITY",
+      "LEADERSHIP"
+    ],
+    "schema_version": 1,
+    "source_sequence_sha256": "48b7464d863c1c638e19fd46c5b5436ecc5d797892b15c007566a39f0abe72ae",
+    "step_count": 1,
+    "steps": [
+      {
+        "as_of_date": "2026-09-14",
+        "axis_directions": {
+          "BREADTH": "NEGATIVE",
+          "LEADERSHIP": null,
+          "LIQUIDITY": null,
+          "RISK_VOL": "NEUTRAL",
+          "TREND": "POSITIVE"
+        },
+        "confidence": null,
+        "confirmed_regime": "UNKNOWN",
+        "coverage": {
+          "defined_axes": [
+            "TREND",
+            "BREADTH",
+            "RISK_VOL"
+          ],
+          "defined_count": 3,
+          "minimum_coverage_met": false,
+          "missing_axes": [
+            "LIQUIDITY",
+            "LEADERSHIP"
+          ],
+          "policy_name": "ALL_REQUIRED_AXES_5_OF_5",
+          "ratio": "3/5",
+          "required_axes": [
+            "TREND",
+            "BREADTH",
+            "RISK_VOL",
+            "LIQUIDITY",
+            "LEADERSHIP"
+          ],
+          "required_count": 5
+        },
+        "delta_score": null,
+        "direction": "UNKNOWN",
+        "hysteresis": {
+          "confirmation_count": 0,
+          "confirmation_required": 2,
+          "pending_regime": null,
+          "rule": "UNKNOWN_IMMEDIATE",
+          "stress_exit_qualified_streak": 0
+        },
+        "packet_id": "crypto-2026-09-14",
+        "previous_confirmed_regime": "UNKNOWN",
+        "raw_classification": "UNKNOWN",
+        "reasons": [
+          "MINIMUM_COVERAGE_NOT_MET",
+          "LIQUIDITY_UNDEFINED",
+          "LEADERSHIP_UNDEFINED"
+        ],
+        "regime_changed": false,
+        "score": null,
+        "signed_axis_counts": {
+          "NEGATIVE": 0,
+          "NEUTRAL": 0,
+          "POSITIVE": 0
+        },
+        "stress_override": false
+      }
+    ],
+    "thresholds": {
+      "confidence_denominator": 5,
+      "deteriorating_max_delta": -2,
+      "improving_min_delta": 2,
+      "neutral_max_score": 2,
+      "neutral_min_score": -2,
+      "ordinary_transition_finalized_packets": 2,
+      "risk_off_max_score": -3,
+      "risk_on_min_score": 3,
+      "stable_max_delta": 1,
+      "stable_min_delta": -1,
+      "stress_exit_min_exclusive_score": -3
+    },
+    "weights": {
+      "BREADTH": 1,
+      "LEADERSHIP": 1,
+      "LIQUIDITY": 1,
+      "RISK_VOL": 1,
+      "TREND": 1
+    }
+  },
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "paper_runtime_display_authorized": false,
+    "production_authorized": false,
+    "real_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "trading_authorized": false
+  },
+  "caveats": [
+    "PROVISIONAL_FORWARD_ACCEPTANCE_CONDITION_6_REPLACED_CRYPTO_ONLY",
+    "RISK_VOL_INITIAL_PAPER_DEFAULTS",
+    "LIQUIDITY_STABLECOIN_ISSUANCE_PROXY_NOT_EXCHANGE_BUYING_POWER",
+    "CONFIDENCE_MATCHING_AXIS_FRACTION_NOT_PROBABILITY"
+  ],
+  "chain": [
+    {
+      "axis_directions": {
+        "BREADTH": "NEGATIVE",
+        "LEADERSHIP": null,
+        "LIQUIDITY": null,
+        "RISK_VOL": "NEUTRAL",
+        "TREND": "POSITIVE"
+      },
+      "complete": false,
+      "decision_date": "2026-09-14",
+      "reasons": [
+        "LEADERSHIP_TAXONOMY_COVERAGE_UNKNOWN",
+        "LIQUIDITY_LOOKAHEAD"
+      ]
+    }
+  ],
+  "code_revision": "46d649354f76a50d29b0a03956aea419c506ad4a",
+  "confidence": null,
+  "current_decision_date": "2026-09-14",
+  "current_observation": {
+    "axis_observations": {
+      "BREADTH": {
+        "advance_fraction": "0.151515151515",
+        "available_at": "2026-09-14T02:36:59Z",
+        "manifest_sha256": "bdbbdbdf9d98273ab7ace01b0c380edb2bbe32b605febdc0cf15fcfdfdc088f7",
+        "observation_date": "2026-09-13"
+      },
+      "LEADERSHIP": {
+        "missing_reason": "LEADERSHIP_TAXONOMY_COVERAGE_UNKNOWN"
+      },
+      "LIQUIDITY": {
+        "missing_reason": "LIQUIDITY_LOOKAHEAD"
+      },
+      "RISK_VOL": {
+        "available_at": "2026-09-14T05:04:57Z",
+        "dd": "-0.055070309722",
+        "observation_date": "2026-09-13",
+        "rule": "CRYPTO_PAPER_RUNTIME_V1_ABSOLUTE",
+        "source_sha256": "b3c55345f2cf518b1edea01d3af913342f5285abf058af6e36b9b9156ca28c67",
+        "vol": "0.495969507692"
+      },
+      "TREND": {
+        "available_at": "2026-09-14T05:04:57Z",
+        "category": "ABOVE_200DMA",
+        "observation_date": "2026-09-13",
+        "source_sha256": "b3c55345f2cf518b1edea01d3af913342f5285abf058af6e36b9b9156ca28c67"
+      }
+    },
+    "candidate_regime": "UNKNOWN",
+    "complete": false,
+    "confirmed_regime": "UNKNOWN",
+    "decision_date": "2026-09-14",
+    "hysteresis": {
+      "confirmation_count": 0,
+      "confirmation_required": 2,
+      "pending_regime": null,
+      "rule": "UNKNOWN_IMMEDIATE",
+      "stress_exit_qualified_streak": 0
+    },
+    "reasons": [
+      "LEADERSHIP_TAXONOMY_COVERAGE_UNKNOWN",
+      "LIQUIDITY_LOOKAHEAD"
+    ],
+    "score": null
+  },
+  "decision_at": "2026-09-14T07:00:00Z",
+  "decision_id": "crypto-paper-regime:3d0d9bfea10da101752c543a5df3738df3206769972edd29bff047a3a843945d",
+  "decision_status": "BLOCKED",
+  "direction": "UNKNOWN",
+  "evaluation_at": "2026-09-14T14:02:19Z",
+  "evidence_class": "LIVE_NATURAL",
+  "market": "CRYPTO",
+  "paper_regime": "UNKNOWN",
+  "policy_identity": "CRYPTO-PAPER-RUNTIME-V1-20260914",
+  "policy_sha256": "6a4f643d66bde2b418f951b47aed2dbd75b89938a171d812f9c3925d1c0935f9",
+  "reasons": [
+    "PROVISIONAL_FORWARD_ACCEPTANCE_NOT_PASSED",
+    "ACCEPTANCE_CONDITION_FAILED:2_MINIMUM_CONSECUTIVE_COMPLETE_DAYS",
+    "ACCEPTANCE_CONDITION_FAILED:3_NO_LOOKAHEAD",
+    "ACCEPTANCE_CONDITION_FAILED:5_EXACT_COMMON_V1_REPLAY",
+    "CURRENT_FINALIZED_PACKET_INCOMPLETE",
+    "LEADERSHIP_TAXONOMY_COVERAGE_UNKNOWN",
+    "LIQUIDITY_LOOKAHEAD"
+  ],
+  "runtime_decision_available": false,
+  "runtime_regime": "UNKNOWN",
+  "schema_version": "crypto_paper_runtime_decision/1",
+  "scope": "CRYPTO_INTERNAL_VIRTUAL_PAPER_ONLY"
+}

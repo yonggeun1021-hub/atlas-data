@@ -3,11 +3,11 @@
 
 CIO decision (2026-09-04): HNT -> eligible_crypto, SKR -> eligible_crypto,
 both bound to their retained Kraken online USD pair plus the project's own
-official documentation (Helium for HNT, Solana Mobile for SKR). SN8 is
-explicitly NOT classified and must remain absent from the taxonomy so the
-existing fail_closed_unknown policy keeps returning UNKNOWN for it -- no
-unverified_identity workaround, no new category, no retroactive credit
-before the real ratification date.
+official documentation (Helium for HNT, Solana Mobile for SKR). SN8 was
+unresolved at that decision date. Its separately retained September 6
+official identity must not retroactively change the September 4 outcome.
+The existing fail_closed_unknown policy remains in force for dates before
+each source identity became effective and for still-unresolved assets.
 
 This test proves the four required facts without writing any new NATURAL
 evidence: it only reads the taxonomy config and the already-committed
@@ -78,22 +78,28 @@ class CryptoBreadthHntSkrTaxonomyRatificationTest(unittest.TestCase):
             "eligible_crypto",
         )
 
-    def test_sn8_remains_unknown_fail_closed_not_classified(self):
-        # No record at all -- CIO explicitly withheld SN8. Confirm it is
-        # genuinely absent (not classified under any category, including
-        # unverified_identity) and that the general fail_closed_unknown
-        # mechanism -- not a hardcoded SN8 rule -- is what returns None.
-        self.assertNotIn(
-            "SN8",
-            {row["canonical_asset_id"] for row in self.policy["records"]},
-        )
+    def test_sn8_stays_unknown_before_separate_identity_effective_date(self):
         self.assertEqual(self.policy["unknown_asset_policy"], "fail_closed_unknown")
-        self.assertIsNone(
-            CB.taxonomy_category("SN8", EFFECTIVE_FROM, self.policy)
+        for day in (EFFECTIVE_FROM, dt.date(2026, 9, 5)):
+            self.assertIsNone(CB.taxonomy_category("SN8", day, self.policy))
+        self.assertEqual(
+            CB.taxonomy_category("SN8", dt.date(2026, 9, 6), self.policy),
+            "eligible_crypto",
         )
         self.assertIsNone(
-            CB.taxonomy_category("SN8", dt.date(2099, 1, 1), self.policy)
+            CB.taxonomy_category("UNRESOLVED_TEST_ASSET", dt.date(2099, 1, 1), self.policy)
         )
+
+    def test_current_source_additions_do_not_backfill_earlier_dates(self):
+        effective_dates = {
+            "QUID": dt.date(2026, 9, 6), "CHIP": dt.date(2026, 9, 6),
+            "SN8": dt.date(2026, 9, 6), "NPC": dt.date(2026, 9, 6),
+            "RAY": dt.date(2026, 9, 8), "DRV": dt.date(2026, 9, 8),
+        }
+        for asset_id, day in effective_dates.items():
+            with self.subTest(asset_id=asset_id):
+                self.assertIsNone(CB.taxonomy_category(asset_id, day - dt.timedelta(days=1), self.policy))
+                self.assertEqual(CB.taxonomy_category(asset_id, day, self.policy), "eligible_crypto")
 
     def test_no_retroactive_natural_credit_before_effective_date(self):
         for asset_id in ("HNT", "SKR"):

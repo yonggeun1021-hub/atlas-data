@@ -6,8 +6,11 @@ import datetime
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import re
 import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -18,6 +21,30 @@ SPEC = importlib.util.spec_from_file_location("capital_flow_posture_reference_te
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
+
+
+def _tree_with_one_path_missing(source: Path, dest: Path, missing_relative: str) -> None:
+    """Recreate ``source`` under ``dest`` via symlinks, omitting exactly one
+    relative path -- the same "full tree minus one directory" shape a sparse
+    checkout (``actions/checkout`` with ``sparse-checkout`` silently implies
+    ``blob:none``) can produce. Only directories that are ancestors of the
+    omitted path are ever materialized as real directories of symlinks;
+    every sibling is a single symlink to the real repository, so this does
+    not copy this repository's mostly-evidence multi-GB tree.
+    """
+    parts = Path(missing_relative).parts
+
+    def _walk(src: Path, remaining: tuple[str, ...], dst: Path) -> None:
+        dst.mkdir(parents=True, exist_ok=True)
+        for child in sorted(src.iterdir()):
+            if remaining and child.name == remaining[0]:
+                if len(remaining) > 1:
+                    _walk(child, remaining[1:], dst / child.name)
+                # len(remaining) == 1: exactly the path being omitted
+            else:
+                (dst / child.name).symlink_to(child, target_is_directory=child.is_dir())
+
+    _walk(source, parts, dest)
 
 
 class CapitalFlowPostureReferenceTest(unittest.TestCase):
@@ -144,8 +171,84 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
         unsigned_source.pop("payload_sha256")
         source["payload_sha256"] = MODULE.payload_sha256(unsigned_source)
         (self.root / "data/latest_paper_regime_reference.json").write_text(json.dumps(source), encoding="utf-8")
-        with self.assertRaisesRegex(MODULE.CapitalFlowPostureReferenceError, "SOURCE_REVALIDATION_FAILED"):
+        with self.assertRaises(MODULE.CapitalFlowPostureReferenceError) as ctx:
             MODULE.build_reference(self.root)
+        message = str(ctx.exception)
+        self.assertIn("SOURCE_REVALIDATION_FAILED", message)
+        self.assertIn("REFERENCE_REDERIVATION_MISMATCH", message)
+        # A genuine mismatch -- the PAPER source's own declared inputs are
+        # unmoved and present -- must get no extra diagnosis appended: only
+        # a moved or absent input earns one.
+        self.assertNotIn("diagnosis=", message)
+
+    def test_stale_paper_reference_gets_a_diagnosis_naming_the_moved_input(self):
+        # Reproduces the 2026-09-18 shape: the committed PAPER regime
+        # reference this producer reads as its own source was correct when
+        # written, then a primary input (here, KR) moved underneath it.
+        # SOURCE_REVALIDATION_FAILED:REFERENCE_REDERIVATION_MISMATCH alone
+        # does not say that; this module's diagnosis must.
+        kr_path = self.root / "data/latest_korea_market_signals.json"
+        kr_source = json.loads(kr_path.read_text(encoding="utf-8"))
+        committed_kr_as_of = kr_source["as_of_date"]
+        backfilled_kr_as_of = "2099-01-02" if committed_kr_as_of != "2099-01-02" else "2099-01-03"
+        kr_source["as_of_date"] = backfilled_kr_as_of
+        kr_path.write_text(json.dumps(kr_source), encoding="utf-8")
+
+        with self.assertRaises(MODULE.CapitalFlowPostureReferenceError) as ctx:
+            MODULE.build_reference(self.root)
+        message = str(ctx.exception)
+        self.assertIn("SOURCE_REVALIDATION_FAILED", message)
+        self.assertIn("REFERENCE_REDERIVATION_MISMATCH", message)
+        self.assertIn("diagnosis=", message)
+        self.assertIn("was not wrong when generated", message)
+        self.assertIn("data/latest_korea_market_signals.json", message)
+        self.assertIn(MODULE.STALE_PRODUCER_WORKFLOW, message)
+        self.assertIn(
+            f"KR as_of_date {committed_kr_as_of!r}->{backfilled_kr_as_of!r}", message
+        )
+        # Never an incomplete-checkout diagnosis for a moved-but-present input.
+        self.assertNotIn("absent from this checkout", message)
+
+    def test_incomplete_checkout_gets_a_diagnosis_naming_the_absent_input(self):
+        # A third way to reach the same failure, proven in isolation
+        # elsewhere: a completely correct, completely unmoved repository
+        # whose checkout is missing one directory (a sparse checkout can
+        # silently omit evidence/crypto/btc/raw/<date>/, since
+        # actions/checkout's sparse-checkout implies blob:none). That must
+        # never be reported as staleness -- it would send a reader to
+        # dispatch the producer to regenerate a reference that was never
+        # stale, which is the expensive kind of wrong for a committed
+        # append-only evidence packet. Uses the real repository root
+        # (skipping itself if today's live data has no normalization
+        # closure to omit), not the synthetic self.root fixture, because
+        # only the real committed reference actually has one.
+        committed = MODULE.PAPER_REGIME.build_reference(ROOT)
+        normalization_sources = committed.get("crypto_descriptive_normalization_sources")
+        if not normalization_sources:
+            self.skipTest(
+                "today's real repository has no Crypto normalization closure "
+                "to omit (CRYPTO is already WAIT_MARKET_NORMALIZATION_INPUT)"
+            )
+        crypto_row = next(row for row in committed["markets"] if row["market"] == "CRYPTO")
+        raw_manifest = f"evidence/crypto/btc/raw/{crypto_row['as_of_date']}/_manifest.json"
+        self.assertIn(raw_manifest, {row["path"] for row in normalization_sources})
+        missing_dir = str(Path(raw_manifest).parent)
+
+        with tempfile.TemporaryDirectory() as raw:
+            tmp_root = Path(raw)
+            _tree_with_one_path_missing(ROOT, tmp_root, missing_dir)
+            self.assertFalse((tmp_root / raw_manifest).exists())
+
+            with self.assertRaises(MODULE.CapitalFlowPostureReferenceError) as ctx:
+                MODULE.build_reference(tmp_root)
+            message = str(ctx.exception)
+            self.assertIn("SOURCE_REVALIDATION_FAILED", message)
+            self.assertIn("diagnosis=", message)
+            self.assertIn("absent from this checkout", message)
+            self.assertIn(raw_manifest, message)
+            # Never the staleness wording for an input that simply is not
+            # there in this checkout.
+            self.assertNotIn("was not wrong when generated", message)
 
     def test_policy_identity_and_boolean_types_fail_closed(self):
         path = self.root / "config/capital_flow_posture_reference_policy_v1.json"
@@ -340,11 +443,46 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
     # ---- consumption ------------------------------------------------------
 
     def test_recorded_transition_and_persistence_are_consumed_not_discarded(self):
-        packet = MODULE.build_reference(self.root)
+        """A consumed observation is proved by causing it, not by assuming it.
+
+        The canonical KR source moves, so the semantic state a fresh packet
+        describes is *not* guaranteed to be one the ratified chain has already
+        recorded -- and a fixture that assumed it was would fail the moment the
+        market genuinely changed.  This test therefore establishes the exact
+        state it asserts on: one real NATURAL observation of that state is
+        appended through P2-COM-03 itself, the fixture clock steps past it so
+        it becomes prior history rather than this packet's own self
+        observation, and every count is then grounded in the entries actually
+        retained plus the verified predecessor projection -- never read back
+        out of the producer's own output.
+        """
+        # cause: exactly one NATURAL observation of this packet's own state.
+        # `appended` was built from the chain as it stood *before* that append,
+        # so its persistence is the honest "before" measurement.
+        appended, ledger = self._append("NATURAL")
+        before = appended["flow_candidates"]["persistence"]
+        semantic_sha = appended["flow_candidates"]["transition"][
+            "current_semantic_state_sha256"
+        ]
+        entry = ledger["entries"][-1]
+        self.assertEqual(entry["observation_mode"], "NATURAL")
+        self.assertIs(entry["counts_toward_persistence"], True)
+        self.assertEqual(entry["current_semantic_state_sha256"], semantic_sha)
+        self.assertEqual(entry["observed_at"], appended["generated_at"])
+        self.assertIsInstance(before["observation_count"], int)
+
+        # effect: step past that entry so it is prior history, then read it back
+        packet = self._advance_past_ledger()
         recorded, head = self._assert_self_observation_excluded(packet)
-        self.assertTrue(recorded, "fixture must retain consumable prior history")
+        self.assertTrue(recorded, "the appended observation must be retained")
+        self.assertEqual(head["entry_sha256"], entry["entry_sha256"])
         transition = packet["flow_candidates"]["transition"]
         persistence = packet["flow_candidates"]["persistence"]
+        self.assertEqual(
+            transition["current_semantic_state_sha256"],
+            semantic_sha,
+            "fixture must hold the semantic state while the clock moves",
+        )
 
         self.assertEqual(transition["status"], "RECORDED_HISTORY_OBSERVED")
         self.assertEqual(transition["evidence_status"], "LEDGER_CONSUMED")
@@ -369,13 +507,158 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
             transition["pending_type"],
             LEDGER._transition_type(head["current_state"], state),
         )
-        # the canonical chain has already observed this exact UNKNOWN state, so
-        # the count that used to be null is now a real observed number
-        self.assertIsInstance(persistence["observation_count"], int)
+        # the observation we caused is of this same state, so the head is it
+        self.assertIs(transition["state_matches_recorded_head"], True)
+        self.assertEqual(transition["pending_type"], "UNCHANGED")
+
+        # the count is exactly the retained history for this state: the
+        # verified predecessor tally plus the entries that actually carry it,
+        # one of which is the observation this test caused
+        matching = [
+            item for item in recorded
+            if item["current_semantic_state_sha256"] == semantic_sha
+        ]
+        self.assertIn(
+            entry["entry_sha256"], [item["entry_sha256"] for item in matching]
+        )
+        prior = self.predecessor["state_tally"].get(semantic_sha)
+        prior_total = 0 if prior is None else prior["observation_count_total"]
+        prior_natural = 0 if prior is None else prior["natural_count_total"]
+        self.assertEqual(
+            persistence["observation_count"], prior_total + len(matching)
+        )
+        self.assertEqual(
+            persistence["natural_observation_count"],
+            prior_natural
+            + sum(item["observation_mode"] == "NATURAL" for item in matching),
+        )
+        # and it moved by exactly the one observation that was appended
+        self.assertEqual(
+            persistence["observation_count"], before["observation_count"] + 1
+        )
+        self.assertEqual(
+            persistence["natural_observation_count"],
+            before["natural_observation_count"] + 1,
+        )
         self.assertGreaterEqual(persistence["observation_count"], 1)
+
+        # first_seen is a real recorded instant, and never this packet's own
+        self.assertEqual(
+            persistence["first_seen"],
+            prior["first_seen"] if prior is not None else matching[0]["observed_at"],
+        )
         self.assertIsNotNone(persistence["first_seen"])
+        self.assertNotEqual(persistence["first_seen"], packet["generated_at"])
+        # the streak is the head's, continued rather than recomputed here
+        self.assertEqual(
+            persistence["current_streak_observation_count"],
+            head["persistence"]["current_streak_observation_count"],
+        )
+        self.assertEqual(
+            persistence["current_streak_natural_count"],
+            head["persistence"]["current_streak_natural_count"],
+        )
+        self.assertIs(persistence["counts_current_packet"], False)
         self.assertEqual(persistence["status"],
                          "RECORDED_OBSERVATION_COUNT_CONFIRMATION_UNRATIFIED")
+
+    def test_a_new_semantic_state_is_zero_observations_over_consumed_history(self):
+        """The counterexample: an unobserved state is honestly zero.
+
+        Same consumed prior history as the test above, but the packet now
+        describes a state no entry has ever recorded.  Zero observations and a
+        null ``first_seen`` are the correct answer, and the recorded head must
+        still be consumed and still bind the transition.  This is what stops
+        the positive test from being satisfiable by a producer that simply
+        never reports zero -- and what makes ``>= 1`` there a statement about
+        caused history rather than a floor the producer must always clear.
+        """
+        # SYNTHETIC branch from the exact verified predecessor: isolate this
+        # counterexample from later rolling-ledger states, while retaining the
+        # immutable predecessor and constructing its own real forward append.
+        self._write_pointer(LEDGER.empty_ledger(
+            self.contract, self.predecessor,
+            root=self.root, contract_path=self.contract_path,
+        ))
+        appended, ledger = self._append("NATURAL")
+        entry = ledger["entries"][-1]
+        self.assertEqual(entry["observed_at"], appended["generated_at"])
+        # step past the appended entry first: only then is it prior history
+        # rather than a self observation, and only then can the synthetic
+        # state change below sit on top of genuinely consumed evidence
+        held = self._advance_past_ledger()
+        observed_before = self._observed_semantic_states(held)
+        self.assertIn(entry["current_semantic_state_sha256"], observed_before)
+
+        packet = self._synthetic_new_semantic_state(observed_before)
+        recorded, head = self._assert_self_observation_excluded(packet)
+        self.assertTrue(recorded, "prior history must still be consumable")
+        transition = packet["flow_candidates"]["transition"]
+        persistence = packet["flow_candidates"]["persistence"]
+        semantic_sha = transition["current_semantic_state_sha256"]
+
+        # genuinely unobserved: neither the predecessor projection nor any
+        # retained entry carries this state
+        self.assertNotIn(semantic_sha, observed_before)
+        self.assertNotIn(semantic_sha, self.predecessor["state_tally"])
+        self.assertEqual(
+            [item for item in recorded
+             if item["current_semantic_state_sha256"] == semantic_sha],
+            [],
+        )
+        state = LEDGER._current_state({
+            "status": packet["status"],
+            "cross_market_flow": packet["cross_market_flow"],
+        })
+        self.assertNotEqual(
+            LEDGER._semantic_state(state),
+            LEDGER._semantic_state(head["current_state"]),
+            "the counterexample must be a real state change, not a re-hash",
+        )
+
+        # zero, stated as a real count with a truthful null first_seen
+        self.assertEqual(persistence["observation_count"], 0)
+        self.assertEqual(persistence["natural_observation_count"], 0)
+        self.assertIsNone(persistence["first_seen"])
+        self.assertIsNone(persistence["confirmed_at"])
+        self.assertEqual(persistence["current_streak_observation_count"], 0)
+        self.assertEqual(persistence["current_streak_natural_count"], 0)
+        self.assertIs(persistence["counts_current_packet"], False)
+        self.assertEqual(persistence["status"],
+                         "RECORDED_OBSERVATION_COUNT_CONFIRMATION_UNRATIFIED")
+        self.assertEqual(
+            persistence["confirmation_status"], "NOT_COMPUTABLE_POLICY_UNRATIFIED"
+        )
+
+        # ...while the recorded history is still consumed, not discarded
+        self.assertEqual(head["entry_sha256"], entry["entry_sha256"])
+        self.assertEqual(transition["status"], "RECORDED_HISTORY_OBSERVED")
+        self.assertEqual(transition["evidence_status"], "LEDGER_CONSUMED")
+        self.assertEqual(
+            transition["recorded_type"], recorded[-1]["transition"]["type"]
+        )
+        self.assertEqual(
+            transition["previous_semantic_state_sha256"],
+            head["current_semantic_state_sha256"],
+        )
+        self.assertEqual(
+            transition["previous_semantic_state"],
+            LEDGER._semantic_state(head["current_state"]),
+        )
+        self.assertIs(transition["state_matches_recorded_head"], False)
+        self.assertEqual(
+            transition["pending_type"],
+            LEDGER._transition_type(head["current_state"], state),
+        )
+        self.assertNotEqual(transition["pending_type"], "UNCHANGED")
+        source = {
+            row["source_type"]: row for row in packet["sources"]
+        }["P2_COM_03_TRANSITION_LEDGER"]
+        self.assertEqual(source["chain_status"], "LEDGER_CONSUMED")
+        self.assertEqual(source["consumed_head_entry_sha256"], entry["entry_sha256"])
+        self.assertEqual(
+            source["consumed_head_ledger_revision"], entry["ledger_revision"]
+        )
 
     def test_consumed_ledger_identity_is_hash_bound_into_generation_id(self):
         packet = MODULE.build_reference(self.root)
@@ -511,6 +794,85 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
         )
         paper = MODULE.PAPER_REGIME.build_reference(self.root)
         MODULE.PAPER_REGIME.write_packet(paper, self.root)
+
+    # ---- synthetic state change (temp fixture only) -----------------------
+    #
+    # SYNTHETIC. These helpers rewrite only the temporary copy of the KR
+    # signals under `self.root`, and only the exact measurement fields
+    # `build_kr` reads. The real P1 producer is then re-run over them, so the
+    # resulting axis directions, score, relative-strength position and semantic
+    # state are all genuinely derived by the shipped code. Nothing is pasted
+    # into an output packet, no validator is bypassed, and the repository's own
+    # `data/latest_korea_market_signals.json` is never written.
+
+    # (TREND return, BREADTH fraction, LIQUIDITY change, sector return, RISK move)
+    # Two opposite directions, because which one is *new* depends on where the
+    # real KR score currently sits against the other comparable market -- a
+    # fixture may not assume that either.
+    SYNTHETIC_KR_DIRECTIONS = (
+        ("-9.500000", "0.000000", "-99.000000", "-5.000000", "3.000000"),
+        ("9.500000", "1.000000", "500.000000", "5.000000", "0.500000"),
+    )
+
+    def _observed_semantic_states(self, packet: dict) -> set:
+        """Every semantic state the consumable chain has actually recorded."""
+        recorded, _head = self._consumable(packet)
+        return set(self.predecessor["state_tally"]) | {
+            item["current_semantic_state_sha256"] for item in recorded
+        }
+
+    def _push_synthetic_kr_axes(self, original: bytes, direction: tuple) -> dict:
+        """SYNTHETIC: push every KR axis one way and re-derive P1, then P2."""
+        trend, breadth, liquidity, sector, risk_move = direction
+        path = self.root / "data" / "latest_korea_market_signals.json"
+        value = json.loads(original.decode("utf-8"))
+        # SYNTHETIC comparison date alignment only in this temp fixture;
+        # real source dates and all production PIT rules remain untouched.
+        paper_before = MODULE.PAPER_REGIME.build_reference(self.root)
+        value["as_of_date"] = next(
+            row["as_of_date"] for row in paper_before["markets"]
+            if row["market"] == "US"
+        )
+        axes = value["axes"]
+        axes["RISK_VOL"]["measurement"][
+            "combined_mean_absolute_stock_move_pct"
+        ] = risk_move
+        for name in ("KOSPI", "KOSDAQ"):
+            axes["TREND"]["measurement"]["benchmarks"][name][
+                "one_session_return_pct"
+            ] = trend
+        axes["BREADTH"]["measurement"]["combined"]["advance_fraction"] = breadth
+        axes["LIQUIDITY"]["measurement"]["combined"][
+            "trading_value_change_pct"
+        ] = liquidity
+        for row in axes["LEADERSHIP"]["measurement"]["observations"]:
+            row["sector_return_pct"] = sector
+        path.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        # acquisition `generated_at` is untouched, so the
+        # fixture clock stays where it was and the prior entry stays prior
+        paper = MODULE.PAPER_REGIME.build_reference(self.root)
+        MODULE.PAPER_REGIME.write_packet(paper, self.root)
+        return MODULE.build_reference(self.root)
+
+    def _synthetic_new_semantic_state(self, observed: set) -> dict:
+        """SYNTHETIC: a packet whose state the chain has genuinely never seen."""
+        path = self.root / "data" / "latest_korea_market_signals.json"
+        original = path.read_bytes()
+        for direction in self.SYNTHETIC_KR_DIRECTIONS:
+            packet = self._push_synthetic_kr_axes(original, direction)
+            sha = packet["flow_candidates"]["transition"][
+                "current_semantic_state_sha256"
+            ]
+            if sha not in observed:
+                return packet
+        path.write_bytes(original)
+        self.fail(
+            "every reachable synthetic KR state is already on the chain, so no "
+            "unobserved-state counterexample can be built from this fixture"
+        )
 
     # ---- determinism ------------------------------------------------------
 
@@ -703,6 +1065,736 @@ class CapitalFlowLedgerConsumptionTest(unittest.TestCase):
                 self.assertIs(value, True, key)
             else:
                 self.assertIs(value, False, key)
+
+
+# ---------------------------------------------------------------------------
+# Frozen Flow replay inputs -- proved against a REAL Git repository
+# ---------------------------------------------------------------------------
+#
+# Every test below builds an actual repository with `git init` and real
+# commits, then exercises the production capture/verify/materialize path
+# against those objects. Nothing about provenance is mocked: the tree lookups,
+# blob ids, raw bytes and ancestry checks are the real ones, so a counterexample
+# here is a counterexample against the shipped code rather than against a stub.
+#
+# The fixture repository is built from THIS repository's own ten committed
+# closure inputs, so the positive replay below is a real production closure
+# rather than a synthetic one. It is a fixture repository all the same, and
+# nothing here claims its synthetic commit is any packet's original issuing
+# commit.
+# ---------------------------------------------------------------------------
+
+
+_GIT_ENV = {
+    **os.environ,
+    # Isolate from developer/CI global config: a global commit.gpgsign, hook
+    # path or template would otherwise leak into the fixture.
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_SYSTEM": os.devnull,
+    "GIT_AUTHOR_NAME": "Atlas Flow Replay Fixture",
+    "GIT_AUTHOR_EMAIL": "fixture@atlas.invalid",
+    "GIT_COMMITTER_NAME": "Atlas Flow Replay Fixture",
+    "GIT_COMMITTER_EMAIL": "fixture@atlas.invalid",
+    "GIT_AUTHOR_DATE": "2026-09-01T00:00:00+00:00",
+    "GIT_COMMITTER_DATE": "2026-09-01T00:00:00+00:00",
+}
+
+
+def git(cwd: Path, *args: str) -> str:
+    result = subprocess.run(
+        [
+            "git",
+            "-c", "user.name=Atlas Flow Replay Fixture",
+            "-c", "user.email=fixture@atlas.invalid",
+            "-c", "commit.gpgsign=false",
+            "-c", "core.hooksPath=/dev/null",
+            *args,
+        ],
+        cwd=cwd, env=_GIT_ENV, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"git {' '.join(args)} failed in {cwd}: "
+            f"{result.stderr.decode('utf-8', 'replace')}"
+        )
+    return result.stdout.decode("utf-8")
+
+
+class FlowFrozenReplayGitProvenanceTests(unittest.TestCase):
+    """The ten Flow inputs are frozen as Git identities and replayed from them.
+
+    The property under test is that the Flow section of an archived briefing
+    stops depending on when it is validated: after capture, the market
+    pointers, the P2-COM-03 ledger and HEAD itself may all move and the same
+    envelope must still rebuild the same packet.
+    """
+
+    PATHS = MODULE.FLOW_REPLAY_INPUT_PATHS
+    REQUIRED = MODULE.FLOW_REPLAY_REQUIRED_INPUT_PATHS
+    CONTRACT = MODULE.TRANSITION_LEDGER_CONTRACT_REL
+    PREDECESSOR = MODULE.TRANSITION_LEDGER_PREDECESSOR_REL
+    POINTER = MODULE.TRANSITION_LEDGER_POINTER_REL
+    CROSS_ASSET = MODULE.CROSS_ASSET_CONTRACT_REL
+
+    # -- fixture -----------------------------------------------------------
+
+    def make_repo(self, omit=(), mutate=None) -> tuple[Path, str]:
+        """A real Git repository holding the ten closure inputs, committed.
+
+        ``omit`` drops paths entirely (so the commit tree genuinely does not
+        contain them -- a real absence, not a claimed one); ``mutate`` may
+        rewrite the working tree before the commit.
+        """
+        root = Path(tempfile.mkdtemp(prefix="flow-replay-repo-")).resolve()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        for relative in self.PATHS:
+            if relative in omit:
+                continue
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, target)
+        if mutate is not None:
+            mutate(root)
+        git(root, "init", "--quiet")
+        git(root, "add", "-A")
+        git(root, "commit", "--quiet", "-m", "flow replay closure")
+        return root, git(root, "rev-parse", "HEAD").strip()
+
+    def capture(self, root: Path) -> dict:
+        return MODULE.capture_flow_replay_inputs(root)
+
+    def replay(self, envelope, root: Path) -> dict:
+        return MODULE.build_reference_from_frozen_inputs(
+            envelope, trusted_repository_root=root
+        )
+
+    @staticmethod
+    def _rewrite_json(path: Path, mutate) -> None:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        mutate(value)
+        path.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    # -- the envelope ------------------------------------------------------
+
+    def test_capture_freezes_exactly_ten_real_object_identities_no_content(self):
+        root, head = self.make_repo()
+        envelope = self.capture(root)
+
+        self.assertEqual(
+            set(envelope), {"schema_version", "source_commit", "files"}
+        )
+        self.assertEqual(envelope["schema_version"], "capital_flow_replay_inputs/1")
+        self.assertEqual(envelope["source_commit"], head)
+        self.assertEqual(set(envelope["files"]), set(self.PATHS))
+        self.assertEqual(len(self.PATHS), 10)
+
+        for relative, entry in envelope["files"].items():
+            with self.subTest(path=relative):
+                self.assertEqual(set(entry), {"state", "blob_oid", "sha256"})
+                self.assertEqual(entry["state"], "PRESENT")
+                # The oid is the repository's real one for that path...
+                actual = git(
+                    root, "rev-parse", f"{head}:{relative}"
+                ).strip()
+                self.assertEqual(entry["blob_oid"], actual)
+                # ...and the digest is over the real committed bytes.
+                self.assertEqual(
+                    entry["sha256"],
+                    hashlib.sha256((root / relative).read_bytes()).hexdigest(),
+                )
+        # Digests and a commit, never content: an envelope cannot hand the
+        # validator the bytes it wants validated.
+        self.assertNotIn("content_base64", json.dumps(envelope))
+
+    def test_envelope_cannot_name_an_extra_missing_or_foreign_path(self):
+        root, _head = self.make_repo()
+        envelope = self.capture(root)
+
+        for label, mutate in (
+            ("extra", lambda e: e["files"].__setitem__(
+                "config/somewhere_else.json",
+                {"state": "ABSENT", "blob_oid": None, "sha256": None})),
+            ("missing", lambda e: e["files"].pop(self.POINTER)),
+            ("absolute", lambda e: e["files"].__setitem__(
+                "/etc/passwd",
+                {"state": "ABSENT", "blob_oid": None, "sha256": None})),
+            ("traversal", lambda e: e["files"].__setitem__(
+                "../outside.json",
+                {"state": "ABSENT", "blob_oid": None, "sha256": None})),
+        ):
+            with self.subTest(case=label):
+                broken = copy.deepcopy(envelope)
+                mutate(broken)
+                with self.assertRaisesRegex(
+                    MODULE.FlowReplayProvenanceError,
+                    "FLOW_REPLAY_FILE_KEYS_MISMATCH",
+                ):
+                    self.replay(broken, root)
+
+        for label, mutate in (
+            ("repository", lambda e: e.__setitem__("repository", "https://x/y")),
+            ("ref", lambda e: e.__setitem__("ref", "refs/heads/main")),
+            ("validation_head", lambda e: e.__setitem__("head", "a" * 40)),
+            ("dropped_commit", lambda e: e.pop("source_commit")),
+        ):
+            with self.subTest(case=label):
+                broken = copy.deepcopy(envelope)
+                mutate(broken)
+                with self.assertRaisesRegex(
+                    MODULE.FlowReplayProvenanceError,
+                    "FLOW_REPLAY_ENVELOPE_FIELDS_MISMATCH",
+                ):
+                    self.replay(broken, root)
+
+    def test_malformed_envelope_forms_fail_closed(self):
+        root, _head = self.make_repo()
+        envelope = self.capture(root)
+        for label, value, code in (
+            ("none", None, "FLOW_REPLAY_ENVELOPE_INVALID"),
+            ("list", [], "FLOW_REPLAY_ENVELOPE_INVALID"),
+            ("string", "x", "FLOW_REPLAY_ENVELOPE_INVALID"),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaisesRegex(MODULE.FlowReplayProvenanceError, code):
+                    self.replay(value, root)
+
+        for label, mutate, code in (
+            ("schema", lambda e: e.__setitem__("schema_version", "other/1"),
+             "FLOW_REPLAY_SCHEMA_VERSION_INVALID"),
+            ("abbreviated_commit",
+             lambda e: e.__setitem__("source_commit", e["source_commit"][:8]),
+             "FLOW_REPLAY_SOURCE_COMMIT_INVALID"),
+            ("uppercase_commit",
+             lambda e: e.__setitem__("source_commit", e["source_commit"].upper()),
+             "FLOW_REPLAY_SOURCE_COMMIT_INVALID"),
+            ("null_commit", lambda e: e.__setitem__("source_commit", None),
+             "FLOW_REPLAY_SOURCE_COMMIT_INVALID"),
+            ("files_list", lambda e: e.__setitem__("files", []),
+             "FLOW_REPLAY_FILE_KEYS_MISMATCH"),
+            ("entry_extra_key",
+             lambda e: e["files"][self.POINTER].__setitem__("content_base64", "AA=="),
+             "FLOW_REPLAY_FILE_FIELDS_MISMATCH"),
+            ("entry_state",
+             lambda e: e["files"][self.POINTER].__setitem__("state", "MAYBE"),
+             "FLOW_REPLAY_STATE_INVALID"),
+        ):
+            with self.subTest(case=label):
+                broken = copy.deepcopy(envelope)
+                mutate(broken)
+                with self.assertRaisesRegex(MODULE.FlowReplayProvenanceError, code):
+                    self.replay(broken, root)
+
+    # -- the positive replay ------------------------------------------------
+
+    def test_frozen_replay_reproduces_the_producer_exactly(self):
+        root, _head = self.make_repo()
+        envelope = self.capture(root)
+        direct = MODULE.build_reference(
+            root, frozen_paper_reference_authenticated=True
+        )
+        replayed = self.replay(envelope, root)
+        self.assertEqual(replayed, direct)
+        # A real packet, not an empty shell, and the producer's own semantic
+        # hashing and authority are untouched by the replay path.
+        self.assertEqual(replayed["schema_version"], MODULE.SCHEMA_VERSION)
+        unsigned = copy.deepcopy(replayed)
+        claimed = unsigned.pop("payload_sha256")
+        self.assertEqual(MODULE.payload_sha256(unsigned), claimed)
+        self.assertIs(replayed["authority"]["trading_authorized"], False)
+        self.assertIs(replayed["authority"]["production_authorized"], False)
+        self.assertEqual(replayed["cross_market_flow"]["actual_money_flow"], "UNKNOWN")
+
+    def test_replay_is_invariant_to_later_input_and_head_movement(self):
+        """The whole point: an archived Flow section stops moving under us."""
+        root, head = self.make_repo()
+        envelope = self.capture(root)
+        before = self.replay(envelope, root)
+
+        # Move every mutable thing the live path used to re-read: the three
+        # market pointers, the ledger pointer, and HEAD itself. A trailing
+        # newline keeps each file valid JSON while giving it a new blob id and
+        # a new SHA256 -- the smallest change that is genuinely a new object.
+        for relative in (
+            MODULE.FREE_MARKET_DATA_REL,
+            MODULE.KOREA_MARKET_SIGNALS_REL,
+            MODULE.CRYPTO_REFRESH_STATUS_REL,
+            self.POINTER,
+        ):
+            path = root / relative
+            path.write_bytes(path.read_bytes() + b"\n")
+        git(root, "add", "-A")
+        git(root, "commit", "--quiet", "-m", "inputs move after capture")
+        moved_head = git(root, "rev-parse", "HEAD").strip()
+        self.assertNotEqual(moved_head, head)
+
+        after = self.replay(envelope, root)
+        self.assertEqual(after, before)
+        self.assertEqual(envelope["source_commit"], head)
+        # A live build from the same tree now genuinely differs, so the
+        # equality above is invariance rather than a vacuous no-op.
+        with self.assertRaises(MODULE.CapitalFlowPostureReferenceError):
+            MODULE.build_reference(root)
+
+    def test_historical_closure_is_read_from_the_commit_tree_not_a_claim(self):
+        root, head = self.make_repo()
+        expected = self.replay(self.capture(root), root)
+        # Move on, then replay the ORIGINAL commit purely from external
+        # operator context: a commit id, and nothing else.
+        pointer = root / self.POINTER
+        pointer.write_bytes(pointer.read_bytes() + b"\n")
+        git(root, "add", "-A")
+        git(root, "commit", "--quiet", "-m", "later")
+        rebuilt = MODULE.build_reference_from_source_commit(
+            head, trusted_repository_root=root
+        )
+        self.assertEqual(rebuilt, expected)
+
+        closure = MODULE.flow_replay_inputs_at_commit(head, trusted_repository_root=root)
+        self.assertEqual(closure["source_commit"], head)
+        self.assertEqual(set(closure["files"]), set(self.PATHS))
+
+    # -- Git counterexamples ------------------------------------------------
+
+    def test_historical_context_requires_the_exact_lowercase_commit_hash(self):
+        root, head = self.make_repo()
+        git(root, "branch", "historical-source", head)
+        git(root, "tag", "historical-tag", head)
+        git(root, "tag", "-a", "annotated-source", "-m", "not a commit object", head)
+        tag_oid = git(root, "rev-parse", "annotated-source").strip()
+        aliases = ["HEAD", "historical-source", "historical-tag", head[:12],
+                   head.upper(), head + "^{commit}", head + "~0", head + "\n", tag_oid, None, 42]
+        for source in aliases:
+            with self.subTest(source=source), self.assertRaisesRegex(
+                MODULE.FlowReplayProvenanceError, "FLOW_REPLAY_SOURCE_COMMIT_INVALID"
+            ):
+                MODULE.flow_replay_inputs_at_commit(source, trusted_repository_root=root)
+        self.assertEqual(
+            MODULE.flow_replay_inputs_at_commit(head, trusted_repository_root=root),
+            self.capture(root),
+        )
+        forged = self.capture(root)
+        forged["source_commit"] = tag_oid
+        with self.assertRaisesRegex(MODULE.FlowReplayProvenanceError,
+                                    "FLOW_REPLAY_SOURCE_COMMIT_INVALID"):
+            MODULE.verify_flow_replay_inputs(forged, trusted_repository_root=root)
+
+    def test_replacement_commit_cannot_hide_real_tree_or_present_path(self):
+        root, head = self.make_repo()
+        original = self.capture(root)
+        git(root, "rm", "--quiet", self.POINTER)
+        replacement = git(root, "commit-tree", git(root, "write-tree").strip(),
+                          "-m", "replacement without pointer").strip()
+        git(root, "replace", head, replacement)
+        self.assertEqual(git(root, "ls-tree", head, "--", self.POINTER), "")
+        self.assertEqual(MODULE.flow_replay_inputs_at_commit(
+            head, trusted_repository_root=root), original)
+        forged = copy.deepcopy(original)
+        forged["files"][self.POINTER] = {"state": "ABSENT", "blob_oid": None, "sha256": None}
+        with self.assertRaisesRegex(MODULE.FlowReplayProvenanceError,
+                                    "FLOW_REPLAY_ABSENT_HIDES_COMMITTED_ENTRY"):
+            MODULE.verify_flow_replay_inputs(forged, trusted_repository_root=root)
+
+    def test_replacement_commit_cannot_invent_an_absent_path(self):
+        root, head = self.make_repo(omit=(self.POINTER,))
+        original = self.capture(root)
+        target = root / self.POINTER
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / self.POINTER, target)
+        git(root, "add", self.POINTER)
+        oid = git(root, "rev-parse", ":" + self.POINTER).strip()
+        replacement = git(root, "commit-tree", git(root, "write-tree").strip(),
+                          "-m", "replacement invents pointer").strip()
+        git(root, "replace", head, replacement)
+        self.assertIn(oid, git(root, "ls-tree", head, "--", self.POINTER))
+        self.assertEqual(MODULE.flow_replay_inputs_at_commit(
+            head, trusted_repository_root=root), original)
+        forged = copy.deepcopy(original)
+        forged["files"][self.POINTER] = {
+            "state": "PRESENT", "blob_oid": oid,
+            "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+        }
+        with self.assertRaisesRegex(MODULE.FlowReplayProvenanceError,
+                                    "FLOW_REPLAY_PRESENT_NOT_IN_COMMIT_TREE"):
+            MODULE.verify_flow_replay_inputs(forged, trusted_repository_root=root)
+
+    def test_replacement_commit_cannot_forge_trusted_ancestry(self):
+        root, head = self.make_repo()
+        envelope = self.capture(root)
+        tree = git(root, "rev-parse", head + "^{tree}").strip()
+        unrelated = git(root, "commit-tree", tree, "-m", "unrelated root").strip()
+        replacement = git(root, "commit-tree", tree, "-p", unrelated,
+                          "-m", "forged ancestry").strip()
+        git(root, "replace", head, replacement)
+        # Ordinary Git now accepts this false ancestry; provenance Git must not.
+        git(root, "merge-base", "--is-ancestor", unrelated, head)
+        forged = copy.deepcopy(envelope)
+        forged["source_commit"] = unrelated
+        with self.assertRaisesRegex(MODULE.FlowReplayProvenanceError,
+                                    "FLOW_REPLAY_SOURCE_COMMIT_NOT_TRUSTED_ANCESTOR"):
+            MODULE.verify_flow_replay_inputs(forged, trusted_repository_root=root)
+        MODULE.verify_flow_replay_inputs(envelope, trusted_repository_root=root)
+
+    def test_replacement_blob_cannot_change_authenticated_original_bytes(self):
+        root, head = self.make_repo()
+        envelope = self.capture(root)
+        relative = self.POINTER
+        original_bytes = (root / relative).read_bytes()
+        original_oid = envelope["files"][relative]["blob_oid"]
+        (root / relative).write_bytes(original_bytes + b"\n")
+        replacement_oid = git(root, "hash-object", "-w", relative).strip()
+        git(root, "replace", original_oid, replacement_oid)
+        self.assertNotEqual(git(root, "cat-file", "blob", original_oid).encode(), original_bytes)
+        checked = MODULE.verify_flow_replay_inputs(envelope, trusted_repository_root=root)
+        self.assertEqual(checked[relative], original_bytes)
+        self.assertEqual(MODULE.flow_replay_inputs_at_commit(
+            head, trusted_repository_root=root), envelope)
+
+    def test_an_absent_claim_cannot_hide_a_committed_entry(self):
+        root, _head = self.make_repo()
+        envelope = self.capture(root)
+        broken = copy.deepcopy(envelope)
+        broken["files"][self.POINTER] = {
+            "state": "ABSENT", "blob_oid": None, "sha256": None,
+        }
+        with self.assertRaisesRegex(
+            MODULE.FlowReplayProvenanceError,
+            "FLOW_REPLAY_ABSENT_HIDES_COMMITTED_ENTRY",
+        ):
+            self.replay(broken, root)
+
+    def test_a_present_claim_cannot_invent_an_uncommitted_path(self):
+        root, _head = self.make_repo(omit=(self.POINTER,))
+        envelope = self.capture(root)
+        self.assertEqual(envelope["files"][self.POINTER]["state"], "ABSENT")
+        broken = copy.deepcopy(envelope)
+        broken["files"][self.POINTER] = {
+            "state": "PRESENT",
+            "blob_oid": "0" * 40,
+            "sha256": "0" * 64,
+        }
+        with self.assertRaisesRegex(
+            MODULE.FlowReplayProvenanceError,
+            "FLOW_REPLAY_PRESENT_NOT_IN_COMMIT_TREE",
+        ):
+            self.replay(broken, root)
+
+    def test_blob_oid_and_sha256_tamper_fail_closed(self):
+        root, _head = self.make_repo()
+        envelope = self.capture(root)
+        other = envelope["files"][MODULE.FLOW_POLICY_REL]["blob_oid"]
+
+        broken = copy.deepcopy(envelope)
+        broken["files"][self.POINTER]["blob_oid"] = other
+        with self.assertRaisesRegex(
+            MODULE.FlowReplayProvenanceError, "FLOW_REPLAY_BLOB_OID_MISMATCH"
+        ):
+            self.replay(broken, root)
+
+        broken = copy.deepcopy(envelope)
+        broken["files"][self.POINTER]["sha256"] = "f" * 64
+        with self.assertRaisesRegex(
+            MODULE.FlowReplayProvenanceError, "FLOW_REPLAY_SHA256_MISMATCH"
+        ):
+            self.replay(broken, root)
+
+        broken = copy.deepcopy(envelope)
+        broken["files"][self.POINTER]["blob_oid"] = "not-an-oid"
+        with self.assertRaisesRegex(
+            MODULE.FlowReplayProvenanceError, "FLOW_REPLAY_BLOB_OID_INVALID"
+        ):
+            self.replay(broken, root)
+
+    def test_whitespace_only_retamper_of_a_committed_input_is_a_different_object(self):
+        """A re-signed blob is not the frozen one, even if it 'means' the same."""
+        root, _head = self.make_repo()
+        envelope = self.capture(root)
+        original = envelope["files"][self.POINTER]["blob_oid"]
+        path = root / self.POINTER
+        path.write_bytes(path.read_bytes() + b"\n")
+        git(root, "add", "-A")
+        git(root, "commit", "--quiet", "-m", "whitespace")
+        retampered = self.capture(root)
+        self.assertNotEqual(
+            retampered["files"][self.POINTER]["blob_oid"], original
+        )
+        # The ORIGINAL envelope still resolves to the original object, so the
+        # replay is unaffected by the newer commit.
+        self.assertEqual(
+            MODULE.verify_flow_replay_inputs(
+                envelope, trusted_repository_root=root
+            )[self.POINTER],
+            MODULE._git(root, "cat-file", "blob", original, binary=True),
+        )
+
+    def test_symlink_and_tree_entries_are_refused_not_dereferenced(self):
+        def link(root: Path) -> None:
+            target = root / self.POINTER
+            target.unlink()
+            target.symlink_to(Path("..") / MODULE.FREE_MARKET_DATA_REL)
+
+        root, _head = self.make_repo(mutate=link)
+        mode = git(root, "ls-tree", "HEAD", "--", self.POINTER).split()[0]
+        self.assertEqual(mode, "120000")
+        with self.assertRaisesRegex(
+            MODULE.FlowReplayProvenanceError, "FLOW_REPLAY_BLOB_MODE_INVALID"
+        ):
+            self.capture(root)
+
+    def test_source_commit_must_exist_and_be_a_trusted_ancestor(self):
+        root, _head = self.make_repo()
+        envelope = self.capture(root)
+
+        broken = copy.deepcopy(envelope)
+        broken["source_commit"] = "0" * 40
+        with self.assertRaisesRegex(
+            MODULE.FlowReplayProvenanceError,
+            "FLOW_REPLAY_SOURCE_COMMIT_OBJECT_MISSING",
+        ):
+            self.replay(broken, root)
+
+        # A real commit in the same repository that is NOT an ancestor of the
+        # trusted validation HEAD.
+        git(root, "checkout", "--quiet", "-b", "sidetrack")
+        (root / "unrelated.txt").write_text("sidetrack\n", encoding="utf-8")
+        git(root, "add", "-A")
+        git(root, "commit", "--quiet", "-m", "sidetrack")
+        sidetrack = git(root, "rev-parse", "HEAD").strip()
+        git(root, "checkout", "--quiet", "-")
+        broken = copy.deepcopy(envelope)
+        broken["source_commit"] = sidetrack
+        with self.assertRaisesRegex(
+            MODULE.FlowReplayProvenanceError,
+            "FLOW_REPLAY_SOURCE_COMMIT_NOT_TRUSTED_ANCESTOR",
+        ):
+            self.replay(broken, root)
+
+    def test_a_non_repository_trusted_root_is_refused_and_never_fetched(self):
+        root, _head = self.make_repo()
+        envelope = self.capture(root)
+        outside = Path(tempfile.mkdtemp(prefix="flow-replay-not-a-repo-")).resolve()
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        with self.assertRaises(MODULE.FlowReplayProvenanceError):
+            self.replay(envelope, outside)
+
+    def test_a_trusted_root_supplied_by_the_envelope_is_impossible(self):
+        """The envelope has no field that could name a root; assert the shape."""
+        root, _head = self.make_repo()
+        envelope = self.capture(root)
+        self.assertEqual(
+            set(envelope), {"schema_version", "source_commit", "files"}
+        )
+        for entry in envelope["files"].values():
+            self.assertEqual(set(entry), {"state", "blob_oid", "sha256"})
+
+    # -- closure semantics ---------------------------------------------------
+
+    def test_a_genuinely_absent_required_input_is_unreplayable_not_empty(self):
+        for relative in self.REQUIRED:
+            with self.subTest(path=relative):
+                root, _head = self.make_repo(omit=(relative,))
+                envelope = self.capture(root)
+                self.assertEqual(envelope["files"][relative]["state"], "ABSENT")
+                with self.assertRaisesRegex(
+                    MODULE.UnreplayableFlowHistoryError,
+                    f"FLOW_REPLAY_REQUIRED_INPUT_ABSENT:{re.escape(relative)}",
+                ):
+                    self.replay(envelope, root)
+
+    def test_c5_uses_the_frozen_cross_asset_contract_with_no_root_fallback(self):
+        """The producer's `root != ROOT` fixture fallback must be unreachable.
+
+        The real repository ROOT holds a valid P2-COM-01 contract, so a replay
+        that fell back to it would quietly succeed here. It must not: the
+        frozen bytes are the only ones that count.
+        """
+        def break_identity(root: Path) -> None:
+            self._rewrite_json(
+                root / self.CROSS_ASSET,
+                lambda value: value.__setitem__(
+                    "contract_version", "cross_asset_flow_evidence/999"
+                ),
+            )
+
+        root, _head = self.make_repo(mutate=break_identity)
+        envelope = self.capture(root)
+        self.assertTrue((ROOT / self.CROSS_ASSET).is_file())
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError, "CROSS_ASSET_FLOW_CONTRACT_"
+        ):
+            self.replay(envelope, root)
+
+        # And a genuinely absent one is a hard closure failure, not a fallback.
+        root, _head = self.make_repo(omit=(self.CROSS_ASSET,))
+        with self.assertRaisesRegex(
+            MODULE.UnreplayableFlowHistoryError,
+            "FLOW_REPLAY_REQUIRED_INPUT_ABSENT",
+        ):
+            self.replay(self.capture(root), root)
+
+    def test_c4_revalidates_the_production_predecessor_in_the_isolated_root(self):
+        """`load_contract(temp_path)` would validate in NON-production mode.
+
+        That is precisely the check that must not be skipped: without the
+        explicit `production=True` call, a contract re-pointed at a different
+        predecessor would be accepted inside a temporary root and the replay
+        would silently continue on a foreign chain.
+        """
+        foreign = dict(LEDGER.PRODUCTION_PREDECESSOR)
+        foreign["payload_sha256"] = "a" * 64
+
+        def repoint(root: Path) -> None:
+            self._rewrite_json(
+                root / self.CONTRACT,
+                lambda value: value.__setitem__("predecessor", foreign),
+            )
+
+        root, _head = self.make_repo(mutate=repoint)
+        envelope = self.capture(root)
+        # Non-production validation really would accept it -- so the guard is
+        # load-bearing, not decorative.
+        LEDGER.validate_contract(
+            json.loads((root / self.CONTRACT).read_text(encoding="utf-8")),
+            production=False,
+        )
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError,
+            "CONTRACT_PRODUCTION_PREDECESSOR_MISMATCH",
+        ):
+            self.replay(envelope, root)
+
+    def test_c4_revalidates_the_real_predecessor_file_from_the_frozen_bytes(self):
+        def corrupt(root: Path) -> None:
+            self._rewrite_json(
+                root / self.PREDECESSOR,
+                lambda value: value.__setitem__("ledger_revision", 999),
+            )
+
+        root, _head = self.make_repo(mutate=corrupt)
+        with self.assertRaisesRegex(
+            MODULE.CapitalFlowPostureReferenceError,
+            "TRANSITION_LEDGER_PREDECESSOR_INVALID",
+        ):
+            self.replay(self.capture(root), root)
+
+    def test_optional_transition_ledger_combinations(self):
+        # 8/9/10 all absent -- the honest "no consumable history" record.
+        root, _head = self.make_repo(
+            omit=(self.CONTRACT, self.PREDECESSOR, self.POINTER)
+        )
+        packet = self.replay(self.capture(root), root)
+        ledger_source = packet["sources"][2]
+        self.assertEqual(ledger_source["chain_status"], MODULE.NO_PRIOR_HISTORY)
+        self.assertIsNone(ledger_source["contract_sha256"])
+
+        # 8 absent, 9+10 present: still authenticated, never consumed.
+        root, _head = self.make_repo(omit=(self.CONTRACT,))
+        envelope = self.capture(root)
+        self.assertEqual(envelope["files"][self.POINTER]["state"], "PRESENT")
+        self.assertEqual(envelope["files"][self.PREDECESSOR]["state"], "PRESENT")
+        unconsumed = self.replay(envelope, root)
+        self.assertEqual(
+            unconsumed["sources"][2]["chain_status"], MODULE.NO_PRIOR_HISTORY
+        )
+
+        # 8+9 present, 10 absent -- a ratified chain whose pointer is gone.
+        root, _head = self.make_repo(omit=(self.POINTER,))
+        with self.assertRaisesRegex(
+            MODULE.UnreplayableFlowHistoryError, "TRANSITION_LEDGER_POINTER_MISSING"
+        ):
+            self.replay(self.capture(root), root)
+
+        # 8+10 present, 9 absent -- the pinned predecessor is required.
+        root, _head = self.make_repo(omit=(self.PREDECESSOR,))
+        with self.assertRaisesRegex(
+            MODULE.UnreplayableFlowHistoryError,
+            "TRANSITION_LEDGER_PREDECESSOR_REQUIRED",
+        ):
+            self.replay(self.capture(root), root)
+
+    def test_semantic_violation_never_becomes_a_normal_empty_state(self):
+        """"Absent" and "present but unreadable" must stay different facts.
+
+        The condition under test is semantic, not textual.  Asserting that one
+        error code appears in the message would pass for any future message
+        that happens to contain it, and would report an unrelated earlier
+        defect as this ledger property failing -- which is exactly how the
+        assertion stopped distinguishing the case it was written to protect.
+
+        So all three outcomes of the same producer are pinned, on trees that
+        differ only in the pointer input:
+
+        1. intact  -> replays, and the recorded chain really is consumed;
+        2. absent  -> replays, and the honest empty record is the result;
+        3. present but unparsable -> no packet at all, after provenance held.
+
+        (1) is the anti-masking guard: if anything unrelated breaks the replay,
+        it fails there and says so instead of being read as (3) succeeding.
+        """
+        intact_root, _head = self.make_repo()
+        intact = self.replay(self.capture(intact_root), intact_root)
+        consumed = intact["sources"][2]["chain_status"]
+        self.assertNotEqual(consumed, MODULE.NO_PRIOR_HISTORY)
+
+        # A genuinely absent chain is the one and only way to reach the empty
+        # record, and it is reached by returning a packet -- never by failing.
+        absent_root, _head = self.make_repo(
+            omit=(self.CONTRACT, self.PREDECESSOR, self.POINTER)
+        )
+        absent = self.replay(self.capture(absent_root), absent_root)
+        self.assertEqual(absent["sources"][2]["chain_status"], MODULE.NO_PRIOR_HISTORY)
+        self.assertIsNone(absent["sources"][2]["contract_sha256"])
+
+        def truncate(root: Path) -> None:
+            (root / self.POINTER).write_text("{ not json", encoding="utf-8")
+
+        root, _head = self.make_repo(mutate=truncate)
+        envelope = self.capture(root)
+        # Provenance is not the failing stage: the unparsable bytes are the
+        # committed bytes, so the envelope proves out against real Git objects.
+        self.assertEqual(envelope["files"][self.POINTER]["state"], "PRESENT")
+        MODULE.verify_flow_replay_inputs(envelope, trusted_repository_root=root)
+
+        with self.assertRaises(MODULE.CapitalFlowPostureReferenceError) as caught:
+            self.replay(envelope, root)
+        # Whatever the code says, it must not be a provenance verdict: the
+        # closure was proven and then refused on its own content.
+        self.assertNotIsInstance(caught.exception, MODULE.FlowReplayProvenanceError)
+
+    # -- isolation -----------------------------------------------------------
+
+    def test_materialization_is_isolated_exact_and_removed(self):
+        root, _head = self.make_repo(omit=(self.POINTER,))
+        verified = MODULE.verify_flow_replay_inputs(
+            self.capture(root), trusted_repository_root=root
+        )
+        seen = None
+        with MODULE.materialized_flow_replay_root(verified) as temporary:
+            seen = temporary
+            self.assertNotEqual(temporary.resolve(), ROOT)
+            self.assertNotEqual(temporary.resolve(), root)
+            for relative, data in verified.items():
+                path = temporary / relative
+                if data is None:
+                    # A proven-absent path is not created, so the producer
+                    # sees the tree shape the source commit actually had.
+                    self.assertFalse(path.exists(), relative)
+                    continue
+                self.assertEqual(path.read_bytes(), data, relative)
+        self.assertIsNotNone(seen)
+        self.assertFalse(seen.exists())
+
+    def test_replay_never_writes_into_the_real_repository(self):
+        root, _head = self.make_repo()
+        before = {
+            relative: (ROOT / relative).read_bytes() for relative in self.PATHS
+        }
+        self.replay(self.capture(root), root)
+        for relative, data in before.items():
+            self.assertEqual((ROOT / relative).read_bytes(), data, relative)
+        self.assertEqual(git(root, "status", "--porcelain").strip(), "")
 
 
 if __name__ == "__main__":

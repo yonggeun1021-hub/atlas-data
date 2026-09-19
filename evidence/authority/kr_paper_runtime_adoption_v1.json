@@ -1,0 +1,94 @@
+{
+  "adoption_id": "KR_PAPER_RUNTIME_ADOPTION_V1",
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "paper_runtime_display_authorized": true,
+    "production_authorized": false,
+    "real_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "trading_authorized": false
+  },
+  "bundle_producer": {
+    "capture_modes": {
+      "ARTIFACT_HANDOFF": ".github/workflows/korea-market-signals.yml",
+      "SAME_RUN_CAPTURE": ".github/workflows/kr-paper-runtime-daily-publish.yml"
+    },
+    "manual_edits_authorized": false,
+    "producer_script": ".github/scripts/korea_market_signals_pykrx_candidate.py",
+    "raw_provider_rows_committed": false,
+    "raw_provider_rows_scope": "RUNNER_OR_WORKFLOW_ARTIFACT_ONLY_HASH_BOUND_IN_COMMITTED_MANIFEST",
+    "repository": "yonggeun1021-hub/atlas-data"
+  },
+  "calendar": {
+    "capture_sha256": "dac31a1006134c6c715f389e70f7966d1a0c0a9de2b66e8a8b322e774a144f9c",
+    "deriver": "market_data/krx_official_holiday_calendar.py::build_calendar_packet",
+    "root": "evidence/market_calendar/krx_global_holiday/2026-09-09"
+  },
+  "decision": {
+    "adopted_rule": "An evidence bundle for session D is display-authorized for execution session next-open(D) iff its bytes pass the existing unchanged structural/hash/acceptance validators for the ratified KR schema, the calendar packet for the execution session derives from the committed official KRX calendar capture, and the bundle is produced by the scheduled capture (no manual edits). No thresholds or normalization change; stale/missing inputs remain UNKNOWN.",
+    "decided_at_utc": "2026-09-14T04:40:00Z",
+    "decided_by": "CLAUDE_CIO",
+    "decision_id": "CIO-KR-RUNTIME-DAILY-ADOPTION-20260914",
+    "record_file": "outputs/CLAUDE_CIO_KR_RUNTIME_DAILY_ADOPTION_DECISION_20260914.json",
+    "record_location": "CIO_WORKSPACE_OUTPUTS_NOT_IN_REPOSITORY",
+    "record_sha256": "b2c4c6d724b2d36071c942b608856b9a9b1b41395882df461c007f9dd41386b8"
+  },
+  "effective_at": "2026-09-14T04:40:00Z",
+  "history_root": {
+    "context_session_date": "2026-09-11",
+    "evidence_root": "evidence/regime/kr_information_system/2026-09-11",
+    "historical_acceptance_path": "evidence/regime/kr_information_system/2026-09-11/history/final-receipt.json",
+    "historical_acceptance_sha256": "dee1abd11316f37ebda6717548cda686767167e2d020bee01d15504a458ce5ae",
+    "historical_replay_path": "evidence/regime/kr_information_system/2026-09-11/history/common-v1-replay-through-2026-09-10.json",
+    "historical_replay_sha256": "153e18871cdb064df74a693687bab79406872122ef4747123d9a8e256a0a550a",
+    "observation_validation_path": "evidence/regime/kr_information_system/2026-09-11/decision.json",
+    "observation_validation_sha256": "a5f76eb6b38292185a893bcf9d321da7154777d5cd5e0cb7c2c994a1874aea44",
+    "source_manifest_sha256": "f97c3853527623a37868a40bedb7b2c5dc52ce780400021f232d6d0971127bd9",
+    "source_reference_sha256": "108dc05a9df830cd476978a10a595329e7b5e28d03df2ec16ad2dd1dc34f54a5",
+    "through_date": "2026-09-10"
+  },
+  "pinned_bindings": {
+    "common_policy_binding_sha256": "44e13d9176270a45a8426970726d67ceeb5fda559653dcbe2711811bac37207e",
+    "implementation_sha256": {
+      "market_data/krx_official_holiday_calendar.py": "e5a11cdf0679519444322f5bb54932565d7da1fef3187d2b64632557f1d5bd37",
+      "regime/decision_authority.py": "c4f19cef26b66f1782707553445a6cf43e7059b3fb4d1eb90044c07b1284d3a3",
+      "regime/kr_information_system_runtime_bridge.py": "541bd2d4306c91957973546a0faad08d5ffa26131a52694abeb9a2e8bcbf0c54",
+      "regime/kr_paper_runtime.py": "6874c3be7eb4d6924eae7b5429a9f655466015d7f7b40fb67e45ff61395276c8",
+      "regime/krx_information_system_capture.py": "21eac7e286f5afe977a11a2e7d66b64ea8efefa29097ba7f116b73c8690546ce",
+      "regime/paper_regime_reference.py": "8f8f330ab57eb02705a0a40702fb07a5578a37cd586a06c4a091c8469c930ee1",
+      "rotation/kr_internal_paper_theme_application.py": "b4414785f4257254c0bc63b2d27eb2f4974a149727e6508786784b9959f079e6"
+    },
+    "leadership_policy_sha256": "3b532ad57ba3a6750c83346eb7d832a184fe4f218b91843611eaad37c7510585",
+    "reference_policy_sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
+    "source_contract_sha256": "3ed110327635ae440cfb0b47c1a54af0f4bb1a4e68448d81c697b7c49ba5452c"
+  },
+  "requalification_rule": "Any change to a pinned implementation, policy or contract byte fails closed with ADOPTION_PIN_DRIFT_REQUALIFICATION_REQUIRED until a new adoption record with updated pins is CIO-adopted.",
+  "rolling_history_extension": {
+    "confirmation_class": "USER_RATIFIED",
+    "confirmation_record_path": "evidence/authority/USER_RATIFICATION_KR_PAPER_RUNTIME_ROLLING_28_SESSION_EXTENSION_20260915.json",
+    "confirmation_ref": "7941596678d83bea00411eae2d7ce7b1d320039f58ff64456398d4728845484d",
+    "implementation": "regime/kr_paper_runtime_history_extension.py",
+    "method": "ROLLING_28_SESSION_COMMON_V1_EXTENSION_V1",
+    "status": "CIO_CONFIRMED",
+    "why_confirmation": "The unchanged bridge accepts exactly 28 historical steps accepted by a kr_contiguous_historical_pit_receipt/1. Rolling that window forward mints a derived PIT_ACCEPTED receipt each session; the 2026-09-14 decision adopts per-session evidence bundles but does not name this derivation explicitly."
+  },
+  "schema_version": "kr_paper_runtime_adoption/1",
+  "status": "CIO_ADOPTED_KR_PAPER_DISPLAY_ONLY",
+  "supersedes_date_pinned_qualification": {
+    "effect": "PER_SESSION_QUALIFICATION_DERIVED_MECHANICALLY_FROM_THIS_RECORD_ORIGINAL_BYTES_UNCHANGED",
+    "path": "evidence/authority/kr_information_system_runtime_qualification_candidate_20260913.json",
+    "sha256": "5ac5df219dff45a2c8515733c303a5ec260449b6a4c05c12e9cdd92f7e6296e4"
+  },
+  "unchanged": {
+    "freshness": "BRIDGE_EXPIRY_AT_EXECUTION_SESSION_CLOSE_AND_18_00_KST_DISPLAY_FLOOR",
+    "hysteresis": true,
+    "normalization": true,
+    "stale_or_missing_input": "UNKNOWN",
+    "thresholds": true,
+    "weights": true
+  }
+}

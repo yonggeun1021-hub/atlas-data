@@ -1,0 +1,117 @@
+name: FRED DEXKOUS FX Capture
+
+# RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 evidence capture
+# (collectors/fred_dexkous_fx.py).
+#
+# User approval 2026-09-15: daily schedule activation approved (first live
+# workflow_dispatch run 34926979498 FAILED on a push race with the SPDR
+# workflow -- no retry existed; rerun 34927048776 SUCCEEDED, see the
+# bounded push-retry step below for the fix). Schedule timing:
+#   '40 21 * * 0-5'  # ~06:40 KST Mon-Sat, right after free-market-data.yml's
+#                     # existing 06:35 KST FRED VIX capture, so both FRED
+#                     # captures land in the same established daily window.
+# Re-justified against the source's own publication cadence: the Federal
+# Reserve's H.10 release is a WEEKLY release (published Mondays, ~4:15pm
+# ET, covering the preceding week's daily rates retroactively) -- 21:40 UTC
+# is 17:40 ET, i.e. after that Monday release, so the very next scheduled
+# run already picks up a fresh week's data same day. Running daily anyway
+# (not just Mondays) is deliberate and harmless, not wasteful: most days
+# genuinely have nothing new (the bounded write window in
+# collectors/fred_dexkous_fx.py's compute_write_from_date() makes an
+# unchanged re-observation a no-op), and daily cadence means we are never
+# more than one day late picking up whatever FRED's public API/CSV
+# actually exposes, regardless of the exact intraday time the weekly
+# release itself propagates there.
+#
+# Uses the FRED_API_KEY secret this repo already provisions for
+# collectors/free_market_data.py / collectors/fred_vix_provenance.py -- no
+# new secret is added. If FRED_API_KEY is absent, the collector falls back
+# to the public CSV endpoint (fred.stlouisfed.org), which needs no key.
+
+on:
+  schedule:
+    - cron: '40 21 * * 0-5'
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "One-time historical seed (availability_kind=UNKNOWN_BACKFILL, never used as point-in-time evidence). Leave unchecked for a normal capture."
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-fred-dexkous-fx
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline contract regression (fake HTTP layer, no network, no secrets)
+        run: |
+          python3 test/test_fred_dexkous_fx.py
+          python3 test/test_verify_evidence_staged.py
+      - name: Capture FRED DEXKOUS evidence
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.backfill }}" = "true" ]; then
+            python3 collectors/fred_dexkous_fx.py --backfill | tee /tmp/fred_dexkous_capture_summary.json
+          else
+            python3 collectors/fred_dexkous_fx.py | tee /tmp/fred_dexkous_capture_summary.json
+          fi
+      - name: Commit append-only evidence (bounded push retry, evidence-loss guard)
+        # 2026-09-15 incident: the first live run of this workflow and the
+        # first live run of spdr-sector-holdings.yml raced each other --
+        # SPDR pushed first, this run's plain `git push` then failed with
+        # no retry at all, and the run failed outright even though its
+        # commit was perfectly good locally. `git pull --rebase` replays
+        # this run's one commit on top of whatever landed on main first,
+        # then retries the push; bounded at 3 attempts so a real, non-race
+        # failure (auth, network) still fails the job instead of looping.
+        # This workflow already serializes its own runs via the
+        # `concurrency:` group above, so that race can no longer recur
+        # between two runs of *this* workflow.
+        #
+        # 2026-09-17/18 investigation (see PR body): no evidence was
+        # actually lost that day -- the collector's own summary correctly
+        # reported zero new observations because FRED had not published
+        # past 2026-09-11. But the investigation surfaced a real gap: had
+        # a run's commit genuinely dropped a file the collector reported
+        # writing, this workflow would still have gone green. The step
+        # below (collectors/verify_evidence_staged.py) makes that
+        # impossible: it compares the collector's own
+        # new_observation_paths against what is actually staged and fails
+        # the run if any of them are missing, before the commit is made.
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add evidence/fred_dexkous_fx
+          # Runs before the empty-diff short-circuit below on purpose: if
+          # the collector reported a new path and `git add` still staged
+          # nothing at all, that is the worst version of this bug (the
+          # empty-diff branch would otherwise exit 0 and this run would
+          # report success having staged none of its own evidence).
+          python3 collectors/verify_evidence_staged.py /tmp/fred_dexkous_capture_summary.json
+          if git diff --staged --quiet; then exit 0; fi
+          git commit -m "data: FRED DEXKOUS FX evidence $(date -u +%Y-%m-%d)"
+          attempt=1
+          max_attempts=3
+          until git push; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "push failed after $max_attempts attempts" >&2
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
+            git pull --rebase
+          done

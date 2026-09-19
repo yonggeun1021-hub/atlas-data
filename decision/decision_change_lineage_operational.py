@@ -9,6 +9,7 @@ Decision and has no money, action, order, or trading authority.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import datetime as dt
 import functools
@@ -16,7 +17,7 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
@@ -31,6 +32,11 @@ UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 RAW_DAILY_PREFIX = (
     "https://raw.githubusercontent.com/yonggeun1021-hub/atlas-data/"
 )
+# Exact-source validators execute code and contracts from the source commit;
+# the immutable packet itself is supplied from ``git show`` over stdin.  Do
+# not materialize the repository's multi-gigabyte observation payload trees
+# once per historical lineage record.
+EXACT_VALIDATOR_SPARSE_PATTERNS = ("/*", "!/data/", "!/evidence/")
 
 
 def _load(name: str, relative: str):
@@ -170,7 +176,34 @@ def _repo_relative(path: Path) -> str:
     return relative
 
 
+@functools.lru_cache(maxsize=None)
 def _git_blob(commit: str, relative: str) -> bytes:
+    """Fetch and re-verify one immutable blob at `commit`.
+
+    Memoized in-process by (commit, relative): `validate_record` calls this
+    directly and, for the same record, `_validate_daily_at_commit` and
+    `_validate_snapshot_at_source` each call it again for the identical
+    pair while validating one `load_history()` pass -- previously three
+    `git show` + `git rev-parse --verify` + `git merge-base --is-ancestor`
+    round trips per historical record for no new information. HEAD does not
+    move within one process's lifetime (this module never commits), so the
+    ancestor-of-HEAD and immutable-commit-object checks this function
+    performs cannot go stale between those calls; a cache hit is exactly as
+    strong as a fresh call would be. Exceptions are not cached (Python's
+    lru_cache never caches a raise), so a fail-closed rejection is never
+    memoized into a false pass.
+
+    Two assumptions this relies on, spelled out: (1) `maxsize=None` means
+    this dict grows by one entry per distinct (commit, relative) pair seen
+    in the process's lifetime -- unbounded in principle, but bounded in
+    practice by the record chain's size at the time of one `run()`
+    invocation (a few dozen today, growing by ~2/day) and discarded the
+    moment the process exits; it is never written to disk and never
+    accumulates across runs. (2) it is safe ONLY because this module never
+    commits or otherwise moves HEAD mid-process -- if that ever changed,
+    a call made after such a move could hit a value computed against a
+    now-stale HEAD.
+    """
     if not isinstance(commit, str) or FULL_SHA_RE.fullmatch(commit) is None:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_MUST_BE_FULL_SHA")
     completed = subprocess.run(
@@ -206,13 +239,173 @@ def _git_blob(commit: str, relative: str) -> bytes:
     return completed.stdout
 
 
-def _materialize_exact_commit(commit: str, checkout: Path) -> None:
-    """Create an isolated exact-commit checkout while retaining git history.
+def _exact_validator_sparse_path(value: object, *, directory: bool = False) -> str:
+    if not isinstance(value, str) or not value:
+        raise OperationalDecisionLineageError("EXACT_VALIDATOR_SOURCE_PATH_INVALID")
+    if any(character in value for character in ("\x00", "\n", "\r")):
+        raise OperationalDecisionLineageError("EXACT_VALIDATOR_SOURCE_PATH_INVALID")
+    parsed = PurePosixPath(value)
+    if (
+        parsed.is_absolute()
+        or ".." in parsed.parts
+        or parsed.parts[0] not in {"data", "evidence"}
+    ):
+        raise OperationalDecisionLineageError("EXACT_VALIDATOR_SOURCE_PATH_INVALID")
+    suffix = "/" if directory else ""
+    return f"/{parsed.as_posix()}{suffix}"
 
-    ``git archive`` is insufficient for Atlas validators that independently
-    prove first-seen provenance from commit history. Fetching the immutable
-    commit and its ancestry into a new local repository preserves that
-    evidence without consulting a branch name or the network.
+
+def _literal_sparse_pattern(path: str) -> str:
+    """Encode one validated repo path as a literal non-cone Git pattern."""
+    directory = path.endswith("/")
+    body = path[1:-1] if directory else path[1:]
+    escaped = "".join(
+        f"\\{character}" if character in "\\*?[] " else character
+        for character in body
+    )
+    return f"/{escaped}{'/' if directory else ''}"
+
+
+def _require_exact_validator_payloads(
+    commit: str, payload_paths: tuple[str, ...]
+) -> None:
+    """Fail closed unless every requested literal payload exists at commit."""
+    for path in payload_paths:
+        directory = path.endswith("/")
+        relative = path[1:-1] if directory else path[1:]
+        if _exact_validator_sparse_path(relative, directory=directory) != path:
+            raise OperationalDecisionLineageError(
+                "EXACT_VALIDATOR_SOURCE_PATH_INVALID"
+            )
+        command = (
+            [
+                "git", "--literal-pathspecs", "ls-tree", "-r", "--name-only",
+                commit, "--", relative,
+            ]
+            if directory
+            else ["git", "cat-file", "-e", f"{commit}:{relative}"]
+        )
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if completed.returncode != 0 or (directory and not completed.stdout.strip()):
+            raise OperationalDecisionLineageError(
+                "EXACT_VALIDATOR_REQUIRED_PAYLOAD_MISSING"
+            )
+
+
+def _exact_validator_payload_patterns(unified: dict) -> tuple[str, ...]:
+    """Return the finite external payload paths the Unified validator reads."""
+    if not isinstance(unified, dict) or not isinstance(unified.get("components"), list):
+        raise OperationalDecisionLineageError("UNIFIED_COMPONENTS_INVALID")
+    rotation_rows = [
+        row for row in unified["components"]
+        if isinstance(row, dict) and row.get("component") == "ROTATION_DISCOVERY"
+    ]
+    if len(rotation_rows) != 1:
+        raise OperationalDecisionLineageError("UNIFIED_ROTATION_COMPONENT_INVALID")
+    rotation = rotation_rows[0].get("source_packet")
+    # Valid historical AM packets can carry a fail-closed, unavailable
+    # ROTATION_DISCOVERY component with no external source packet.  The exact
+    # source validator still judges that component; it simply needs no sparse
+    # payload paths for this case.
+    if rotation is None:
+        return ()
+    if not isinstance(rotation, dict):
+        raise OperationalDecisionLineageError("UNIFIED_ROTATION_PACKET_INVALID")
+    patterns: set[str] = set()
+
+    wildcard = rotation.get("wildcard_observations", {})
+    envelopes = wildcard.get("source_envelopes", []) if isinstance(wildcard, dict) else []
+    if not isinstance(envelopes, list):
+        raise OperationalDecisionLineageError("UNIFIED_WILDCARD_ENVELOPES_INVALID")
+    for envelope in envelopes:
+        if not isinstance(envelope, dict):
+            raise OperationalDecisionLineageError("UNIFIED_WILDCARD_ENVELOPE_INVALID")
+        lineage = envelope.get("submission_lineage", [])
+        submissions = envelope.get("packet", {}).get("submissions", [])
+        if not isinstance(lineage, list) or not isinstance(submissions, list):
+            raise OperationalDecisionLineageError("UNIFIED_WILDCARD_ENVELOPE_INVALID")
+        for item in lineage:
+            if not isinstance(item, dict):
+                raise OperationalDecisionLineageError("UNIFIED_WILDCARD_LINEAGE_INVALID")
+            patterns.add(_exact_validator_sparse_path(item.get("path")))
+        for submission in submissions:
+            if not isinstance(submission, dict) or not isinstance(
+                submission.get("evidence", []), list
+            ):
+                raise OperationalDecisionLineageError("UNIFIED_WILDCARD_SUBMISSION_INVALID")
+            for evidence in submission.get("evidence", []):
+                if not isinstance(evidence, dict):
+                    raise OperationalDecisionLineageError("UNIFIED_WILDCARD_EVIDENCE_INVALID")
+                provenance = evidence.get("audit_provenance")
+                if provenance is not None:
+                    if not isinstance(provenance, dict):
+                        raise OperationalDecisionLineageError(
+                            "UNIFIED_WILDCARD_PROVENANCE_INVALID"
+                        )
+                    patterns.add(
+                        _exact_validator_sparse_path(provenance.get("record_locator"))
+                    )
+
+    dart = rotation.get("dart_observations", {})
+    dart_packet = dart.get("source_packet") if isinstance(dart, dict) else None
+    if dart_packet is not None:
+        if not isinstance(dart_packet, dict) or not isinstance(
+            dart_packet.get("lineage"), dict
+        ):
+            raise OperationalDecisionLineageError("UNIFIED_DART_PACKET_INVALID")
+        lineage = dart_packet["lineage"]
+        patterns.add(_exact_validator_sparse_path(lineage.get("source_path")))
+        patterns.add(_exact_validator_sparse_path(lineage.get("content_run_path")))
+        observations = dart_packet.get("observations", [])
+        if not isinstance(observations, list):
+            raise OperationalDecisionLineageError("UNIFIED_DART_OBSERVATIONS_INVALID")
+        for observation in observations:
+            if not isinstance(observation, dict):
+                raise OperationalDecisionLineageError("UNIFIED_DART_OBSERVATION_INVALID")
+            evidence = observation.get("evidence")
+            if (
+                isinstance(evidence, dict)
+                and evidence.get("status")
+                == "RAW_BYTES_VERIFIED_ITEM_EXTRACTION_UNRATIFIED"
+            ):
+                ticker = observation.get("subject_id")
+                receipt = observation.get("rcept_no")
+                patterns.add(
+                    _exact_validator_sparse_path(
+                        f"data/dart_content/{ticker}/{receipt}", directory=True
+                    )
+                )
+    return tuple(sorted(patterns))
+
+
+def _materialize_exact_commit(
+    commit: str, checkout: Path, payload_patterns: tuple[str, ...] = (),
+    *, worktree_exists: bool = False,
+) -> None:
+    """Create a lightweight exact-code checkout with local Git provenance,
+    or -- when `worktree_exists` is True -- repoint an ALREADY-CREATED
+    worktree at `checkout` to a different `commit`/`payload_patterns`
+    without a new `git worktree add`.
+
+    Repointing does exactly the same `sparse-checkout set` +
+    `checkout --detach` + HEAD/clean verification a fresh worktree does; it
+    only skips the (comparatively expensive, and here redundant) worktree
+    creation itself. Every other check in this function runs unconditionally
+    on every call, whether or not the worktree already existed.
+
+    The prior implementation fetched and checked out every ``data/`` and
+    ``evidence/`` blob for every historical record.  A linked worktree keeps
+    the source repository's complete Git graph and, for a partial clone, its
+    promisor configuration while sparse-checking out only code, contracts,
+    and the finite packet-derived payload set.  No branch or mutable payload
+    file becomes validation authority.
     """
     if not isinstance(commit, str) or FULL_SHA_RE.fullmatch(commit) is None:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_MUST_BE_FULL_SHA")
@@ -226,11 +419,21 @@ def _materialize_exact_commit(commit: str, checkout: Path) -> None:
     )
     if resolved.returncode != 0 or resolved.stdout.strip() != commit:
         raise OperationalDecisionLineageError("SOURCE_COMMIT_NOT_IMMUTABLE")
+    _require_exact_validator_payloads(commit, payload_patterns)
+    sparse_patterns = (
+        *EXACT_VALIDATOR_SPARSE_PATTERNS,
+        *(_literal_sparse_pattern(path) for path in payload_patterns),
+    )
+    worktree_add_command = [
+        "git", "worktree", "add", "--quiet", "--detach", "--no-checkout",
+        str(checkout), commit,
+    ]
     commands = (
-        ["git", "init", "--quiet", str(checkout)],
+        (worktree_add_command,) if not worktree_exists else ()
+    ) + (
         [
-            "git", "-C", str(checkout), "fetch", "--quiet", "--no-tags",
-            str(ROOT), commit,
+            "git", "-C", str(checkout), "sparse-checkout", "set", "--no-cone",
+            *sparse_patterns,
         ],
         ["git", "-C", str(checkout), "checkout", "--quiet", "--detach", commit],
     )
@@ -270,6 +473,162 @@ def _materialize_exact_commit(commit: str, checkout: Path) -> None:
         or dirty.stdout.strip()
     ):
         raise OperationalDecisionLineageError("SOURCE_COMMIT_CHECKOUT_INVALID")
+
+
+def _remove_exact_commit(checkout: Path) -> None:
+    completed = subprocess.run(
+        ["git", "worktree", "remove", "--force", str(checkout)],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode != 0:
+        subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        raise OperationalDecisionLineageError("SOURCE_COMMIT_CHECKOUT_CLEANUP_FAILED")
+
+
+def _remove_exact_commit_preserving_original(checkout: Path) -> None:
+    """Best-effort cleanup for a path that is already unwinding a real
+    exception. `finally: _remove_exact_commit(checkout)` looks safe but is
+    not: if cleanup itself raises while an exception is already
+    propagating, Python replaces the original exception with cleanup's,
+    silently hiding the actual failure from every caller. This swallows
+    (after printing, so it is never silent) a cleanup failure that occurs
+    ONLY on that path -- it never runs, and never suppresses anything, on
+    the ordinary success path, where `_remove_exact_commit`'s own
+    exception is exactly what should surface."""
+    try:
+        _remove_exact_commit(checkout)
+    except Exception as exc:  # noqa: BLE001
+        print(
+            "::warning::exact-source-commit worktree cleanup failed while "
+            f"an earlier error was already propagating: {exc}",
+            file=sys.stderr,
+        )
+
+
+# CIO 2026-09-18/19: `load_history()` re-validates the ENTIRE committed
+# record chain on every publish, and each historical record's
+# `_validate_daily_at_commit` call materialized its OWN one-shot
+# `git worktree add` ... `git worktree remove` pair -- 63 of them for one
+# `load_history()` pass over today's 42 records, unbounded as the chain
+# grows by roughly two records a day.
+#
+# An earlier version of this fix cached the *verdict* ("this
+# (commit, relative, blob_sha256) already passed") in a committed,
+# content-addressed file. Independent review correctly rejected that: the
+# cache file authenticated only itself (no MAC, no producing-run id, no
+# reference to what validator ran), so anything able to write that
+# directory -- including, demonstrably, an existing unit test that never
+# patched the cache root -- could mint a fabricated "passed" verdict and
+# have every future publish trust it without ever re-deriving anything. A
+# verdict cache cannot be made safe without re-deriving on every hit
+# exactly what a miss derives, at which point it saves nothing.
+#
+# This module therefore caches no verdict. Instead, `load_history()` opens
+# ONE shared worktree (`_shared_exact_checkout_scope` below) for its entire
+# pass over the record chain; `_exact_commit_checkout` reuses it across
+# every record instead of creating and destroying a new one each time. The
+# same worktree is simply repointed at each record's own commit via
+# `sparse-checkout set` + `checkout --detach`. Every check this module
+# performs -- blob fetch/ancestry, packet self-consistency, and the
+# historical commit's own `unified_decision_contract.py` validator run --
+# still executes in full, for every record, on every run. Nothing is
+# skipped and nothing is trusted from a prior process; only the repeated
+# `git worktree add`/`remove` lifecycle overhead is removed.
+_SHARED_EXACT_CHECKOUT: dict[str, object] = {"path": None, "created": False}
+
+
+@contextlib.contextmanager
+def _exact_commit_checkout(commit: str, payload_patterns: tuple[str, ...]):
+    shared_path = _SHARED_EXACT_CHECKOUT["path"]
+    if shared_path is not None:
+        _materialize_exact_commit(
+            commit, shared_path, payload_patterns,
+            worktree_exists=bool(_SHARED_EXACT_CHECKOUT["created"]),
+        )
+        _SHARED_EXACT_CHECKOUT["created"] = True
+        yield shared_path
+        return
+    with tempfile.TemporaryDirectory(prefix="atlas-exact-source-") as temporary:
+        checkout = Path(temporary) / "repo"
+        try:
+            _materialize_exact_commit(commit, checkout, payload_patterns)
+            yield checkout
+        except BaseException:
+            if checkout.exists():
+                _remove_exact_commit_preserving_original(checkout)
+            raise
+        else:
+            if checkout.exists():
+                _remove_exact_commit(checkout)
+
+
+@contextlib.contextmanager
+def _shared_exact_checkout_scope():
+    """Open ONE shared worktree for every `_exact_commit_checkout` call
+    made anywhere in this process for the duration of this `with` block
+    (used by `load_history()` to cover its whole record-chain pass).
+
+    Exception-safe: whether the loop inside completes, raises partway
+    through, or never requests a single checkout, the worktree this scope
+    created (if any -- checked by `checkout.exists()`, since `git worktree
+    add` can succeed before a later step in the same call raises) is
+    always removed on the way out, and the scope's shared-state flag is
+    always cleared so a later, unrelated call to `_exact_commit_checkout`
+    cannot mistake a torn-down scope for an active one. On the exception
+    path, cleanup failures are swallowed (after printing) rather than
+    raised, so they can never replace the real error that is already
+    propagating. The worktree itself lives under a fresh
+    `tempfile.TemporaryDirectory`, well outside this repository's own
+    working tree, so a failure here can never leave a detached checkout
+    that a later step could mistake for repository state.
+    """
+    if _SHARED_EXACT_CHECKOUT["path"] is not None:
+        raise OperationalDecisionLineageError("SHARED_EXACT_CHECKOUT_ALREADY_ACTIVE")
+    with tempfile.TemporaryDirectory(prefix="atlas-exact-source-shared-") as temporary:
+        checkout = Path(temporary) / "repo"
+        _SHARED_EXACT_CHECKOUT["path"] = checkout
+        _SHARED_EXACT_CHECKOUT["created"] = False
+        try:
+            yield
+        except BaseException:
+            _SHARED_EXACT_CHECKOUT["path"] = None
+            _SHARED_EXACT_CHECKOUT["created"] = False
+            # Gate on `checkout.exists()`, NOT on the `created` flag: `git
+            # worktree add` runs as the FIRST command inside
+            # `_materialize_exact_commit`, so if it succeeds but a LATER
+            # step in that same call (`sparse-checkout set`, `checkout
+            # --detach`, or the HEAD/clean assertion) then raises, the
+            # worktree directory -- and its registration under this
+            # repository's `.git/worktrees/` -- already exists, even
+            # though `created` was never set to True (that happens only
+            # after `_materialize_exact_commit` returns). Gating on the
+            # flag there would skip cleanup and leave that registration
+            # stale forever (the TemporaryDirectory cleanup below only
+            # erases the files, not the `.git/worktrees/` entry `git
+            # worktree remove`/`prune` deregisters). Matches the
+            # non-shared branch of `_exact_commit_checkout` above, which
+            # has always gated the same way. Uses the masking-safe
+            # cleanup helper because an exception is already propagating
+            # here -- a cleanup failure must not replace it.
+            if checkout.exists():
+                _remove_exact_commit_preserving_original(checkout)
+            raise
+        else:
+            _SHARED_EXACT_CHECKOUT["path"] = None
+            _SHARED_EXACT_CHECKOUT["created"] = False
+            if checkout.exists():
+                _remove_exact_commit(checkout)
 
 
 @functools.lru_cache(maxsize=16)
@@ -319,9 +678,9 @@ def _validate_daily_at_commit(commit: str, relative: str, blob_sha256: str) -> d
         raise OperationalDecisionLineageError(
             "DAILY_COMPONENT_NOT_VALIDATED:UNIFIED_DECISION"
         )
-    with tempfile.TemporaryDirectory(prefix="atlas-p10-04-validate-") as temporary:
-        checkout = Path(temporary) / "repo"
-        _materialize_exact_commit(commit, checkout)
+    with _exact_commit_checkout(
+        commit, _exact_validator_payload_patterns(unified)
+    ) as checkout:
         validator = """
 import importlib.util
 import json
@@ -512,7 +871,12 @@ def load_history(root: Path = RECORD_ROOT) -> list[dict]:
     root = Path(root)
     if not root.exists():
         return []
-    rows = [validate_record(_read_json(path)) for path in sorted(root.glob("record-*.json"))]
+    # One shared worktree for this entire pass instead of one per record
+    # (see the comment above `_exact_commit_checkout`) -- every check below
+    # still runs, in full, for every record; only the repeated
+    # `git worktree add`/`remove` lifecycle is amortized across the pass.
+    with _shared_exact_checkout_scope():
+        rows = [validate_record(_read_json(path)) for path in sorted(root.glob("record-*.json"))]
     rows.sort(key=lambda row: row["recorded_at"])
     previous_sha = None
     for index, row in enumerate(rows):

@@ -128,6 +128,7 @@ class ValidationEvidenceTests(unittest.TestCase):
             "message_log": [],
             "latest_public_messages_schema_version": C.LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
             "latest_public_messages": {},
+            "stream_observation_ended_at": dt.datetime.now(tz=UTC),
         }
         with mock.patch.object(C, "_connect_and_stream", new=mock.AsyncMock(return_value=streamed)):
             run = asyncio.run(
@@ -141,6 +142,41 @@ class ValidationEvidenceTests(unittest.TestCase):
         self.assertEqual(run["capture_mode"], C.PUBLIC_VALIDATION_MODE)
         self.assertEqual(run["transport_validation"]["status"], "INCOMPLETE")
         self.assertFalse(run["transport_validation"]["decision_eligible"])
+
+    def test_rest_recovery_delay_cannot_reuse_earlier_fresh_boundary(self):
+        contract = C.GATE.load_contract()
+        observed_at = dt.datetime(2026, 9, 13, 5, 15, 30, tzinfo=UTC)
+        completed_at = observed_at + dt.timedelta(seconds=29)
+        streamed = {
+            "message_log": [],
+            "latest_public_messages_schema_version": C.LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
+            "latest_public_messages": {},
+            "stream_observation_ended_at": observed_at,
+            "public_rest_backfill_receipts": [],
+            "public_rest_backfill_errors": [],
+        }
+        gate = mock.Mock()
+        gate.status_snapshot.return_value = {
+            "pending_gap_windows": [],
+            "finalized_candle_ledger_count": 0,
+            "in_progress_candle_count": 0,
+        }
+        gate.candles.committed = {}
+        with (
+            mock.patch.object(C, "build_gate", return_value=gate),
+            mock.patch.object(C, "_connect_and_stream", new=mock.AsyncMock(return_value=streamed)),
+            mock.patch.object(C, "utc_now", side_effect=[observed_at, completed_at]),
+        ):
+            run = asyncio.run(
+                C.run_capture_async(
+                    ["KRW-BTC"], contract, duration_seconds=240,
+                    capture_mode=C.PUBLIC_VALIDATION_MODE,
+                )
+            )
+        gate.status_snapshot.assert_called_once_with(completed_at)
+        self.assertEqual(run["stream_observation_ended_at"], "2026-09-13T05:15:30.000000Z")
+        self.assertEqual(run["ended_at"], "2026-09-13T05:15:59Z")
+        self.assertEqual(run["post_stream_recovery_seconds"], 29.0)
 
     def test_validation_mode_rejects_empty_anchor_set(self):
         with self.assertRaises(C.RealtimeCaptureError):

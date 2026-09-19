@@ -475,8 +475,13 @@ class BriefingSectionShapeTests(unittest.TestCase):
             m = section["markets"][market]
             for key in ("new_triggers", "immediate_review", "watch_review",
                         "observation_only_count", "expired_triggers",
-                        "not_computable_trigger_types", "tier_counts", "calendar_confidence"):
+                        "not_computable_trigger_types", "tier_counts", "calendar_confidence",
+                        "review_due_counts"):
                 self.assertIn(key, m, (market, key))
+            self.assertEqual(
+                sum(m["review_due_counts"].values()),
+                len(m["immediate_review"]) + len(m["watch_review"]),
+            )
 
     def test_briefing_section_immediate_review_does_not_flood(self):
         report = run()
@@ -516,7 +521,8 @@ class BriefingSectionShapeTests(unittest.TestCase):
         required = {
             "subject", "tier", "trigger_types", "confirmation_count", "price_state",
             "reflection_status", "data_state", "threshold_basis", "price_as_of",
-            "next_review_at", "reason", "authority", "money_action",
+            "price_observation_date", "price_captured_at", "next_review_at",
+            "review_due_status", "reason", "authority", "money_action",
         }
         report = run()
         section = build_briefing_section(report)

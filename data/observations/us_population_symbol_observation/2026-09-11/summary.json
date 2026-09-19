@@ -1,0 +1,153 @@
+{
+  "as_of_session_date": "2026-09-11",
+  "authority": {
+    "action_authorized": false,
+    "candidate_creation_authorized": false,
+    "candidate_ranking_authorized": false,
+    "entry_eligibility_authorized": false,
+    "observation_only": true,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "stage_promotion_authorized": false,
+    "trading_authorized": false
+  },
+  "generated_at": "2026-09-12T01:30:12Z",
+  "generation_id": "ae4c52187738d28002c294536309866812f67d27eb95b3aa9be2bdd347ad5f7f",
+  "market": "US",
+  "payload_sha256": "4e11fddb29ee59aa9156bf67ef26be71508635ce371114471ee3857c470324d1",
+  "policy_undefined": [
+    {
+      "condition": "US_DELISTING_POLICY_RATIFIED",
+      "defined_by": "us_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "US_INVESTABLE_UNIVERSE_POLICY_RATIFIED",
+      "defined_by": "us_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "US_LIQUIDITY_POLICY_RATIFIED",
+      "defined_by": "us_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "US_LISTING_POLICY_RATIFIED",
+      "defined_by": "us_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "US_SECURITY_TYPE_POLICY_RATIFIED",
+      "defined_by": "us_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "US_SOURCE_HIERARCHY_RATIFIED",
+      "defined_by": "us_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "US_TRADABILITY_POLICY_RATIFIED",
+      "defined_by": "us_global_universe.policy_status",
+      "status": "UNMET"
+    },
+    {
+      "condition": "US_LIQUIDITY_POLICY_RATIFIED",
+      "defined_by": "us_investable_registry_contract.liquidity.repository_default_policy=ABSENT",
+      "status": "UNMET"
+    },
+    {
+      "condition": "FINAL_US_REGIME_AVAILABLE",
+      "defined_by": "us_symbol_market_review five_axis.aggregate_regime=UNKNOWN",
+      "status": "UNMET"
+    },
+    {
+      "condition": "CANDIDATE_PASS_RULE",
+      "defined_by": "no ratified population-level candidate rule",
+      "status": "미정"
+    },
+    {
+      "condition": "STAGE_TRANSITION_RULE",
+      "defined_by": "no ratified Discovery/Candidate/Ready transition rule",
+      "status": "미정"
+    }
+  ],
+  "population": {
+    "as_of": "2026-09-11",
+    "as_of_utc": "2026-09-12T01:30:12Z",
+    "count": 13214,
+    "population_id": "US.NASDAQ.DIRECTORY:2026-09-11",
+    "row_count": 13214,
+    "semantics": "exact_source_date_forward_coverage_not_investable",
+    "source": {
+      "file_sha256": "51fa04102a893ae67d5cdd6cdc3ba7e35d1412a58615ee4fc5ec128ac5dc240e",
+      "packet_sha256": "86f5630628e55820b68394b39024cbdbc9f3f25c7299145f81af926975467792",
+      "path": "data/observations/us_global_universe/2026-09-11/packet.json"
+    },
+    "source_counts": {
+      "nasdaq_listed": 5605,
+      "other_listed": 7609
+    }
+  },
+  "reconciliation": {
+    "bounded_review_symbols": [
+      "SNDK",
+      "TSM"
+    ],
+    "bounded_rows_byte_identical_to_review": true,
+    "daily_bar_symbols_not_in_population": [],
+    "duplicate_primary_symbols_across_sources": [],
+    "duplicate_symbols": [],
+    "evaluated_subset_of_evaluable_or_bounded": true,
+    "population_equals_rows": true,
+    "population_equals_status_sum": true,
+    "stage_history_symbols_not_in_population": []
+  },
+  "schema_version": "population_symbol_observation_packet/1#summary",
+  "status_counts": {
+    "data_observation": {
+      "DATA_NOT_OBSERVED": 13196,
+      "DATA_OBSERVED": 18
+    },
+    "evaluability": {
+      "EVALUABLE": 18,
+      "NOT_EVALUABLE": 13196
+    },
+    "evaluation": {
+      "EVALUATED": 17,
+      "EVALUATED_BOUNDED": 2,
+      "NOT_EVALUATED": 13195
+    },
+    "formal_candidate": {
+      "NOT_A_FORMAL_CANDIDATE": 13212,
+      "PIPELINE_SUBJECT": 2
+    },
+    "observation_status": {
+      "EVALUABLE_PRICE": 17,
+      "EVALUATED_BOUNDED": 2,
+      "NOT_EVALUABLE": 13195
+    }
+  },
+  "summary": {
+    "data_observed_count": 18,
+    "entry_state_counts": {
+      "BLOCKED": 1,
+      "WAIT": 18
+    },
+    "evaluable_count": 18,
+    "evaluated_bounded_count": 2,
+    "evaluated_count": 19,
+    "evaluated_semantics": "ROWS_PRODUCED_BY_THE_EXISTING_SYMBOL_EVALUATOR_NOT_A_PASS_JUDGEMENT",
+    "evaluated_without_full_inputs_count": 1,
+    "formal_candidate_count": 2,
+    "not_evaluable_count": 13196,
+    "not_evaluable_reason_counts": {
+      "PRICE_SOURCE_NOT_CONFIGURED": 4,
+      "PRICE_SOURCE_NOT_RETAINED": 13192
+    },
+    "passed_count": 0,
+    "passed_semantics": "NO_RATIFIED_PASS_RULE_ZERO_IS_ABSENCE_OF_RULE",
+    "population_count": 13214
+  }
+}

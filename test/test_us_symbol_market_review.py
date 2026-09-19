@@ -39,19 +39,41 @@ class CurrentEvidenceTests(unittest.TestCase):
         self.assertEqual(result["five_axis"]["missing_axes"], [])
         self.assertEqual(result["five_axis"]["aggregate_regime"], "UNKNOWN")
         by_symbol = {row["symbol"]: row for row in result["symbols"]}
-        self.assertEqual(by_symbol["TSM"]["pipeline_stage"], "Ready")
+        # ``data/stage_history.json`` is the rolling pointer the daily collect
+        # rewrites, so the board tag it carries for TSM/SNDK today is not a
+        # fixed fact -- it moves whenever either symbol is retagged. Derive
+        # the expectation from the same source instead of pinning today's tag.
+        stage_as_of = sorted(stages)[-1]
+        latest_stage = stages[stage_as_of]
+        self.assertEqual(by_symbol["TSM"]["pipeline_stage"], latest_stage["TSM"]["stage"])
         self.assertEqual(by_symbol["TSM"]["price_context"]["status"], "OBSERVED")
         self.assertEqual(by_symbol["TSM"]["entry_review"]["state"], "WAIT")
         self.assertEqual(
             [row["symbol"] for row in by_symbol["TSM"]["market_context"]["leadership_proxies"]],
             ["SMH", "XLK"],
         )
-        self.assertEqual(by_symbol["SNDK"]["pipeline_stage"], "Discovery")
-        self.assertEqual(by_symbol["SNDK"]["price_context"]["status"], "UNAVAILABLE")
-        self.assertEqual(by_symbol["SNDK"]["entry_review"]["state"], "BLOCKED")
+        self.assertEqual(by_symbol["SNDK"]["pipeline_stage"], latest_stage["SNDK"]["stage"])
+        self.assertEqual(by_symbol["SNDK"]["price_context"]["status"], "OBSERVED")
+        self.assertEqual(by_symbol["SNDK"]["entry_review"]["state"], "WAIT")
         self.assertEqual(result["summary"]["automatic_entry_count"], 0)
         self.assertEqual(result["summary"]["automatic_exit_count"], 0)
         self.assertTrue(all(value is False for value in result["authority"].values()))
+
+    def test_missing_symbol_price_remains_blocked(self):
+        market, stages = current_inputs()
+        market = copy.deepcopy(market)
+        market["alpaca"]["daily_bars"] = [
+            row for row in market["alpaca"]["daily_bars"] if row.get("symbol") != "SNDK"
+        ]
+        unsigned = {key: value for key, value in market.items() if key != "packet_sha256"}
+        market["packet_sha256"] = REVIEW.payload_sha256(unsigned)
+
+        result = REVIEW.build_review(market, stages)
+        by_symbol = {row["symbol"]: row for row in result["symbols"]}
+        self.assertEqual(by_symbol["SNDK"]["price_context"]["status"], "UNAVAILABLE")
+        self.assertEqual(by_symbol["SNDK"]["entry_review"]["state"], "BLOCKED")
+        self.assertFalse(by_symbol["SNDK"]["entry_review"]["automatic_entry_generated"])
+        self.assertIsNone(by_symbol["SNDK"]["entry_review"]["order_draft"])
 
     def test_v2_reference_connects_five_axes_and_symbol_leadership_context(self):
         market, stages = current_inputs()

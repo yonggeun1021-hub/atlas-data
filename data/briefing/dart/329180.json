@@ -1,16 +1,16 @@
 {
   "generation": {
-    "generation_basis_at_utc": "2026-09-03T21:00:24+00:00",
+    "generation_basis_at_utc": "2026-09-17T23:10:00+00:00",
     "generation_contract_version": 1,
-    "generation_id": "90590c3cb8470934c4baf44252d38ebb86b9d5f333c24f8ce15d24af5424d9c3"
+    "generation_id": "4a10ba41c738c98e53fb10c9ba233167a2aa7445d5938c20dc28b1f5a1c35de3"
   },
   "market": "DART",
   "schema_version": 2,
   "source": {
-    "collected_at_utc": "2026-09-03T21:00:16+00:00",
-    "collected_for_kst_date": "2026-09-04",
+    "collected_at_utc": "2026-09-17T23:09:53+00:00",
+    "collected_for_kst_date": "2026-09-18",
     "source_file": "data/latest_dart.json",
-    "source_sha256": "10e1bd26f1417669dbd51762ee71fd50356976ecd5bd7388dd0b3ecf0eb68839"
+    "source_sha256": "ebc283eafe3d893a03520eb9f6b444832c2e5f4ff4c6a700fe89d251a371d65e"
   },
   "stock": {
     "atlas_stage": "Discovery",
@@ -19,10 +19,64 @@
     "db_state": null,
     "in_notion": true,
     "name": "HD현대중공업",
-    "relevant": [],
-    "relevant_count": 0,
+    "relevant": [
+      {
+        "body_capture_status": "OK",
+        "body_captured": true,
+        "content": {
+          "action": "NO_CHANGE",
+          "capture_policy": "best_effort",
+          "content_status": "OK",
+          "discovery_status": "OK",
+          "documents": [
+            {
+              "cache_name": "member-001-ee1b31aa9ff43dff.gz",
+              "content_bytes": 21789,
+              "content_sha256": "ee1b31aa9ff43dfff8e25cc63b332ce62de3c7eaee9bf92385379af0eea7c148",
+              "member_name": "20260914800398.xml",
+              "normalized_text_chars": 1981,
+              "normalized_text_sha256": "dff75a2bcdae82b648dd829dfadd853f4d7995ec3518f5bd203175fa9a2d6109",
+              "offset_basis": "normalized_visible_text",
+              "text_status": "OK"
+            }
+          ],
+          "evidence_status": "PENDING",
+          "extracted": [],
+          "extractor_version": "dart_filing_content/1-no-items-ratified",
+          "filing_classification": "MATERIAL_RELEVANT_TITLE",
+          "interpretation_status": "UNDETERMINED",
+          "operation": "skipped",
+          "publication_status": "OK",
+          "raw_cache_policy": "delete_after_90_days_allowed",
+          "reasons": [
+            "ITEM_EXTRACTION_POLICY_UNRATIFIED"
+          ],
+          "retrieved_at_utc": "2026-09-14T23:33:36Z",
+          "rule_impact": "NONE",
+          "skip_reason": "already_captured",
+          "source": {
+            "collected_for_kst_date": "2026-09-18",
+            "observed_at_utc": "2026-09-17T23:10:10Z",
+            "run_status": "OK",
+            "source_file": "data/latest_dart_content.json",
+            "source_sha256": "b00b98d0b1423f6e8681c60d6c644ad743c1d0353f6230687d7e7dbd9714f3f2"
+          },
+          "source_archive": {
+            "content_bytes": 2457,
+            "content_sha256": "d22a568ee26d311652b648a9f2bb7f30f8fc69b0ae479893afae9cfe6ade5d7e",
+            "rcept_no": "20260914800398",
+            "source_uri": "https://opendart.fss.or.kr/api/document.xml?rcept_no=20260914800398"
+          }
+        },
+        "date": "20260914",
+        "rcept_no": "20260914800398",
+        "title": "영업(잠정)실적(공정공시)              ",
+        "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260914800398"
+      }
+    ],
+    "relevant_count": 1,
     "status": "ok",
-    "total_count": 2
+    "total_count": 1
   },
   "symbol": "329180"
 }

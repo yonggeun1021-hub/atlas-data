@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -15,10 +16,17 @@ ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "rotation" / "korea_capital_rotation.py"
 UPSTREAM_PATH = ROOT / ".github" / "scripts" / "korea_leadership.py"
 
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 SPEC = importlib.util.spec_from_file_location("korea_capital_rotation", MODULE_PATH)
 KCR = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(KCR)
+
+# The exact same producer module instance the consumer itself resolves, so a
+# reference packet built here is the real P2-01 output, not a look-alike.
+from rotation import theme_taxonomy as TT  # noqa: E402
 
 UPSTREAM_SPEC = importlib.util.spec_from_file_location("korea_leadership_for_rotation", UPSTREAM_PATH)
 KL = importlib.util.module_from_spec(UPSTREAM_SPEC)
@@ -38,6 +46,112 @@ THEME_IDS = {
     "22::KOSDAQ_바이오": "THEME.KR.KOSDAQ.BIO",
     "23::KOSDAQ_로봇": "THEME.KR.KOSDAQ.ROBOTICS",
 }
+
+
+TAXONOMY_ID = "TAXONOMY.KR.ROTATION.TEST"
+TAXONOMY_DECISION_ID = "DECISION.P2.01.KR.TEST"
+TAXONOMY_GRAPH_DECISION_SHA = "e" * 64
+ROOT_THEME_ID = "THEME.KR.ROTATION.ROOT"
+
+
+def taxonomy_evidence(evidence_id: str, market: str, marker: str) -> dict:
+    host = "www.sec.gov" if market == "US" else "opendart.fss.or.kr"
+    source_id = "sec_edgar" if market == "US" else "dart_open_api"
+    return {
+        "evidence_id": evidence_id,
+        "claim_text": f"Source-linked taxonomy evidence {evidence_id}",
+        "source_identity": {
+            "source_id": source_id,
+            "source_url": f"https://{host}/atlas-test/{evidence_id}.json",
+            "source_sha256": marker * 64,
+            "available_at": "2026-08-18",
+            "retrieved_at_utc": "2026-08-18T12:00:00Z",
+        },
+        "audit_provenance": {
+            "claim_selector": f"section:{evidence_id}",
+            "review_status": "HUMAN_RATIFIED_INPUT",
+        },
+    }
+
+
+def taxonomy_node(theme_id: str) -> dict:
+    return {
+        "theme_id": theme_id,
+        "display_name": theme_id,
+        "description": f"Externally supplied description for {theme_id}",
+        "node_type": "THEME",
+        "valid_from": "2026-01-01",
+        "valid_to": None,
+    }
+
+
+def taxonomy_graph_document(as_of_date: str = "2026-08-20", theme_ids=None) -> dict:
+    """A real ``theme_taxonomy_input/1`` graph document.
+
+    This is a synthetic external graph, exactly like every other P2-01 input:
+    the repository still ships no default taxonomy, and the committed approval
+    authority registry is still empty, so the real producer will resolve this
+    graph as a structurally valid ratification *claim* that is NOT authorized.
+    """
+    theme_ids = sorted(THEME_IDS.values()) if theme_ids is None else sorted(theme_ids)
+    return {
+        "schema_version": "theme_taxonomy_input/1",
+        "taxonomy_id": TAXONOMY_ID,
+        "as_of_date": as_of_date,
+        "approval": {
+            "approval_status": "RATIFIED",
+            "decision_id": TAXONOMY_DECISION_ID,
+            "decision_sha256": TAXONOMY_GRAPH_DECISION_SHA,
+            "ratified_by": "Atlas CIO",
+            "ratified_at_utc": "2026-08-19T12:00:00Z",
+            "effective_from": "2026-08-01",
+            "effective_to": None,
+        },
+        "nodes": [taxonomy_node(ROOT_THEME_ID)] + [
+            taxonomy_node(theme_id) for theme_id in theme_ids
+        ],
+        "edges": [
+            {
+                "edge_id": f"EDGE.ROOT:{theme_id}",
+                "from_theme_id": ROOT_THEME_ID,
+                "to_theme_id": theme_id,
+                "relation_type": "CONTAINS",
+                "rationale": f"External graph places {theme_id} under the root",
+                "valid_from": "2026-01-01",
+                "valid_to": None,
+            }
+            for theme_id in theme_ids
+        ],
+        "memberships": [
+            {
+                "membership_id": "MEMBERSHIP.KR.005930",
+                "asset_id": "KR:XKRX:005930",
+                "market": "KOREA",
+                "theme_id": ROOT_THEME_ID,
+                "role_id": "KR_CONSTITUENT",
+                "valid_from": "2026-08-01",
+                "valid_to": None,
+                "evidence": [taxonomy_evidence("EVIDENCE.KR.005930", "KOREA", "b")],
+            },
+            {
+                "membership_id": "MEMBERSHIP.US.TEST",
+                "asset_id": "US:XNAS:TEST",
+                "market": "US",
+                "theme_id": ROOT_THEME_ID,
+                "role_id": "US_CONSTITUENT",
+                "valid_from": "2026-08-01",
+                "valid_to": None,
+                "evidence": [taxonomy_evidence("EVIDENCE.US.TEST", "US", "c")],
+            },
+        ],
+    }
+
+
+def taxonomy_source_bytes(document: dict) -> bytes:
+    """Exact bytes a caller would hand to the CLI's ``--taxonomy-graph``."""
+    return json.dumps(
+        document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
 
 
 def taxonomy_record(identity: str, role: str, benchmark: str) -> dict:
@@ -153,7 +267,23 @@ def breadth_context(
     }
 
 
-def make_bundle() -> tuple[dict, dict]:
+def make_bundle(taxonomy_document: dict | None = None) -> tuple[dict, dict]:
+    """Legacy opaque `/1` bundle, or -- with a graph document -- a bundle whose
+    binding declares the real `theme_taxonomy/2` identity actually derived by
+    the producer from that exact document."""
+    if taxonomy_document is None:
+        taxonomy_contract_version = "theme_taxonomy/1"
+        taxonomy_id = "TAXONOMY.GLOBAL.2026"
+        decision_id = "DECISION.P2.01"
+        decision_sha = TAXONOMY_DECISION_SHA
+        packet_sha = TAXONOMY_PACKET_SHA
+    else:
+        reference = TT.build_packet(copy.deepcopy(taxonomy_document))
+        taxonomy_contract_version = reference["contract_version"]
+        taxonomy_id = reference["taxonomy_id"]
+        decision_id = reference["approval"]["decision_id"]
+        decision_sha = reference["approval"]["decision_sha256"]
+        packet_sha = reference["payload_sha256"]
     with tempfile.TemporaryDirectory() as raw:
         policy_path = write_upstream_policy(Path(raw) / "leadership-policy.json")
         prior_values = {
@@ -168,11 +298,11 @@ def make_bundle() -> tuple[dict, dict]:
         current = KL.build_transform(upstream_payload("2026-08-20", current_values), policy_path)
         policy_sha = prior["policy"]["policy_sha256"]
     binding = {
-        "taxonomy_contract_version": "theme_taxonomy/1",
-        "taxonomy_id": "TAXONOMY.GLOBAL.2026",
-        "taxonomy_decision_id": "DECISION.P2.01",
-        "taxonomy_decision_sha256": TAXONOMY_DECISION_SHA,
-        "taxonomy_packet_sha256": TAXONOMY_PACKET_SHA,
+        "taxonomy_contract_version": taxonomy_contract_version,
+        "taxonomy_id": taxonomy_id,
+        "taxonomy_decision_id": decision_id,
+        "taxonomy_decision_sha256": decision_sha,
+        "taxonomy_packet_sha256": packet_sha,
         "upstream_leadership_policy_sha256": policy_sha,
     }
     context = {
@@ -213,8 +343,8 @@ def make_bundle() -> tuple[dict, dict]:
         "ratified_at_utc": "2026-08-17T00:00:00Z",
         "effective_from": "2026-08-01",
         "effective_to": None,
-        "taxonomy_decision_sha256": TAXONOMY_DECISION_SHA,
-        "taxonomy_packet_sha256": TAXONOMY_PACKET_SHA,
+        "taxonomy_decision_sha256": decision_sha,
+        "taxonomy_packet_sha256": packet_sha,
         "upstream_leadership_policy_sha256": policy_sha,
         "ranking_metric": "RELATIVE_STRENGTH_VS_OWN_BENCHMARK",
         "ranking_order": "DESCENDING_WITHIN_BENCHMARK_SCOPE",
@@ -799,6 +929,239 @@ class KoreaCapitalRotationTests(unittest.TestCase):
             policy_path.write_text(json.dumps(policy, ensure_ascii=False), encoding="utf-8")
             self.assertEqual(KCR.run(input_path, policy_path, tracked), 1)
         self.assertFalse(tracked.exists())
+
+
+class KoreaRotationThemeTaxonomyV2Tests(unittest.TestCase):
+    """P2-01 `theme_taxonomy/2` producer -> P2-03 Korea rotation consumer.
+
+    Before this slice the Korea consumer only carried four opaque caller
+    strings labelled `theme_taxonomy/1`; nothing in the money path ever ran a
+    real Theme graph or the independent authority resolver. These tests prove
+    the real producer is genuinely invoked, that its verdict is recorded
+    exactly as returned (not authorized, because the committed approval
+    authority registry is empty), and that none of it creates authority.
+    """
+
+    def setUp(self):
+        self.document = taxonomy_graph_document()
+        self.source_bytes = taxonomy_source_bytes(self.document)
+        self.reference = TT.build_packet(copy.deepcopy(self.document))
+
+    def build(self, value, policy, source_bytes=None):
+        return KCR.build_packet(
+            value, policy,
+            taxonomy_source_bytes=(
+                self.source_bytes if source_bytes is None else source_bytes
+            ),
+        )
+
+    def test_real_producer_packet_is_consumed_and_recorded_exactly(self):
+        value, policy = make_bundle(self.document)
+        packet = self.build(value, policy)
+        binding = packet["taxonomy_binding"]
+        self.assertEqual(
+            binding["taxonomy_contract_version"],
+            TT.load_contract()["contract_version"],
+        )
+        self.assertEqual(binding["taxonomy_contract_version"], "theme_taxonomy/2")
+        # Every derived field equals what the real producer itself returned
+        # for these exact bytes -- none of it was supplied by the caller.
+        self.assertEqual(
+            binding["taxonomy_source_sha256"],
+            hashlib.sha256(self.source_bytes).hexdigest(),
+        )
+        self.assertEqual(
+            binding["taxonomy_packet_sha256"], self.reference["payload_sha256"]
+        )
+        self.assertEqual(
+            binding["taxonomy_graph_status"], self.reference["graph_status"]
+        )
+        self.assertEqual(
+            binding["taxonomy_authority_status"],
+            self.reference["authority_resolution"]["status"],
+        )
+        # Empty committed authority registry: a structurally real ratification
+        # claim that is still not authorized. Never upgraded, never fabricated.
+        self.assertEqual(
+            binding["taxonomy_graph_status"],
+            "STRUCTURALLY_VALID_RATIFICATION_CLAIM_NOT_AUTHORIZED",
+        )
+        self.assertNotEqual(binding["taxonomy_authority_status"], "AUTHORIZED")
+        self.assertFalse(binding["theme_membership_authorized"])
+        self.assertEqual(packet["status"], "ROTATION_BUCKETS_OBSERVED")
+        self.assertEqual(packet["schema_version"], "korea_capital_rotation_packet/4")
+
+    def test_legacy_binding_is_unchanged_and_refuses_a_graph(self):
+        value, policy = make_bundle()
+        legacy = KCR.build_packet(value, policy)
+        self.assertEqual(
+            set(legacy["taxonomy_binding"]), set(KCR.TAXONOMY_BINDING_FIELDS)
+        )
+        self.assertEqual(
+            legacy["taxonomy_binding"]["taxonomy_contract_version"],
+            KCR.load_contract()["taxonomy_contract_version"],
+        )
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError,
+            "TAXONOMY_SOURCE_NOT_ALLOWED_FOR_LEGACY_BINDING",
+        ):
+            KCR.build_packet(value, policy, taxonomy_source_bytes=self.source_bytes)
+
+    def test_relabelling_a_legacy_binding_as_v2_never_succeeds(self):
+        # The exact failure mode this slice exists to prevent: editing the
+        # version string on an opaque binding must not buy a real taxonomy.
+        value, policy = make_bundle()
+        value["taxonomy_binding"]["taxonomy_contract_version"] = "theme_taxonomy/2"
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "TAXONOMY_SOURCE_REQUIRED_FOR_V2_BINDING"
+        ):
+            KCR.build_packet(value, policy)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "TAXONOMY_SOURCE_IDENTITY_MISMATCH"
+        ):
+            self.build(value, policy)
+
+    def test_declared_identity_and_digest_cannot_replace_the_derived_ones(self):
+        value, policy = make_bundle(self.document)
+        value["taxonomy_binding"]["taxonomy_packet_sha256"] = "9" * 64
+        policy["taxonomy_packet_sha256"] = "9" * 64
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError,
+            "TAXONOMY_PACKET_SHA_NOT_DERIVED_FROM_SOURCE",
+        ):
+            self.build(value, policy)
+        value, policy = make_bundle(self.document)
+        value["taxonomy_binding"]["taxonomy_decision_id"] = "DECISION.ATTACKER"
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "TAXONOMY_SOURCE_IDENTITY_MISMATCH"
+        ):
+            self.build(value, policy)
+
+    def test_semantic_and_byte_only_source_tamper_are_both_detected(self):
+        # Semantic tamper: the producer derives a different packet digest.
+        value, policy = make_bundle(self.document)
+        tampered = copy.deepcopy(self.document)
+        tampered["nodes"][0]["description"] = "attacker rewrote the graph"
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError,
+            "TAXONOMY_PACKET_SHA_NOT_DERIVED_FROM_SOURCE",
+        ):
+            self.build(value, policy, source_bytes=taxonomy_source_bytes(tampered))
+        # Byte-only tamper: identical parsed graph, different source bytes --
+        # caught because the source digest is bound too, not just the packet.
+        packet = self.build(*make_bundle(self.document))
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "OUTPUT_TAXONOMY_DERIVATION_MISMATCH"
+        ):
+            KCR.validate_packet(
+                copy.deepcopy(packet),
+                taxonomy_source_bytes=self.source_bytes + b" ",
+            )
+
+    def test_as_of_date_of_the_consumed_graph_must_match_the_decision_date(self):
+        other_day = taxonomy_graph_document(as_of_date="2026-08-21")
+        value, policy = make_bundle(other_day)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "TAXONOMY_AS_OF_DATE_MISMATCH"
+        ):
+            KCR.build_packet(
+                value, policy,
+                taxonomy_source_bytes=taxonomy_source_bytes(other_day),
+            )
+
+    def test_policy_theme_ids_must_be_active_nodes_of_the_consumed_graph(self):
+        incomplete = taxonomy_graph_document(theme_ids=sorted(THEME_IDS.values())[:-1])
+        value, policy = make_bundle(incomplete)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError,
+            "TAXONOMY_THEME_NODE_NOT_ACTIVE:THEME.KR.KOSPI.SEMICONDUCTOR",
+        ):
+            KCR.build_packet(
+                value, policy,
+                taxonomy_source_bytes=taxonomy_source_bytes(incomplete),
+            )
+        # A node that exists but has lapsed on this decision date is equally
+        # unusable -- the producer's own interval semantics, reused verbatim.
+        expired = taxonomy_graph_document()
+        target = THEME_IDS["23::KOSDAQ_로봇"]
+        for node in expired["nodes"]:
+            if node["theme_id"] == target:
+                node["valid_to"] = "2026-08-20"
+        for edge in expired["edges"]:
+            if edge["to_theme_id"] == target:
+                edge["valid_to"] = "2026-08-20"
+        value, policy = make_bundle(expired)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, f"TAXONOMY_THEME_NODE_NOT_ACTIVE:{target}"
+        ):
+            KCR.build_packet(
+                value, policy, taxonomy_source_bytes=taxonomy_source_bytes(expired)
+            )
+
+    def test_standalone_validator_reproves_derived_fields_and_grants_nothing(self):
+        packet = self.build(*make_bundle(self.document))
+        # A persisted packet stays standalone-verifiable without the graph.
+        KCR.validate_packet(copy.deepcopy(packet))
+        KCR.validate_packet(
+            copy.deepcopy(packet), taxonomy_source_bytes=self.source_bytes
+        )
+        forged = copy.deepcopy(packet)
+        forged["taxonomy_binding"]["theme_membership_authorized"] = True
+        forged["taxonomy_binding"]["taxonomy_authority_status"] = "AUTHORIZED"
+        rehash_output(forged)
+        # Packet-only consumers must re-prove the embedded source too.
+        for source in (None, self.source_bytes):
+            with self.assertRaisesRegex(
+                KCR.KoreaCapitalRotationError, "OUTPUT_TAXONOMY_DERIVATION_MISMATCH"
+            ):
+                KCR.validate_packet(forged, taxonomy_source_bytes=source)
+        # Re-signing a false source digest cannot make it exact evidence.
+        forged = copy.deepcopy(packet)
+        forged["taxonomy_binding"]["taxonomy_source_sha256"] = "f" * 64
+        rehash_output(forged)
+        with self.assertRaisesRegex(
+            KCR.KoreaCapitalRotationError, "OUTPUT_TAXONOMY_DERIVATION_MISMATCH"
+        ):
+            KCR.validate_packet(forged)
+
+    def test_v2_consumption_adds_no_authority_and_no_ranking_change(self):
+        legacy = KCR.build_packet(*make_bundle())
+        consumed = self.build(*make_bundle(self.document))
+        self.assertEqual(consumed["authority"], legacy["authority"])
+        self.assertEqual(consumed["benchmark_scopes"], legacy["benchmark_scopes"])
+        self.assertEqual(
+            consumed["unresolved_boundaries"], legacy["unresolved_boundaries"]
+        )
+        self.assertEqual(consumed["status"], legacy["status"])
+        self.assertEqual(consumed["ranking_method"], legacy["ranking_method"])
+
+    def test_v2_output_is_deterministic_and_the_cli_consumes_the_graph(self):
+        value, policy = make_bundle(self.document)
+        first = self.build(copy.deepcopy(value), copy.deepcopy(policy))
+        second = self.build(copy.deepcopy(value), copy.deepcopy(policy))
+        self.assertEqual(first, second)
+        with tempfile.TemporaryDirectory() as raw:
+            temp = Path(raw)
+            input_path = temp / "input.json"
+            policy_path = temp / "policy.json"
+            graph_path = temp / "graph.json"
+            output_path = temp / "output.json"
+            input_path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+            policy_path.write_text(json.dumps(policy, ensure_ascii=False), encoding="utf-8")
+            graph_path.write_bytes(self.source_bytes)
+            result = subprocess.run(
+                [
+                    sys.executable, str(MODULE_PATH), str(input_path),
+                    "--policy", str(policy_path), "--out", str(output_path),
+                    "--taxonomy-graph", str(graph_path),
+                ],
+                cwd=ROOT, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(output_path.read_text()), first)
+            # The same CLI invocation without the graph fails closed.
+            self.assertEqual(KCR.run(input_path, policy_path, output_path), 1)
+            self.assertEqual(json.loads(output_path.read_text()), first)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,30 @@
 #!/usr/bin/env python3
 """P7-12 fail-closed Strategic Capital Posture readiness boundary.
 
-This capability inventories and revalidates the upstream P6/P7 risk packets
-needed before a cross-market capital posture can exist.  P1 Regime Decision,
-P2 cross-market Flow/Rotation, and an allocation policy remain unratified, so
-missing inputs stay BLOCKED.  They must never become zero budgets, NO_ACTION,
-an allocation proposal, an order, Production, or trading authority.
+This capability inventories and revalidates the upstream P2/P6/P7 risk packets
+needed before a cross-market capital posture can exist.  P2-COM-02's
+cross-market flow reference is a real, revalidated source; P1 Regime Decision,
+P2 Rotation State, and an allocation policy remain unratified, so missing
+inputs stay BLOCKED.  They must never become zero budgets, NO_ACTION, an
+allocation proposal, an order, Production, or trading authority.  A connected
+flow reference supplies evidence only and unlocks nothing.
+
+``P1_REGIME_DECISION`` is unavailable-only, but its ``unavailable_reasons``
+list may carry either one generic production-contract blocker or the exact,
+independently re-derived ``runtime_regime_readiness/v1`` blockers a caller
+validated first (daily derivation versions 2 and 3 -- see
+``docs/strategic_capital_posture_contract.md``).  Either way the list is
+revalidated here as bounded, sorted, unique reason codes, the slot stays
+UNAVAILABLE with a null source identity, and naming the real gaps promotes
+nothing.
+
+``P2_ROTATION_STATE`` is the same shape (daily derivation version 3): its
+``unavailable_reasons`` may carry either the generic production-contract
+blocker alone, or that blocker plus the exact per-market prerequisites P2-05's
+readiness producer re-derives from immutable, Git-authenticated committed
+inputs.  It remains unavailable-only, wires no production rotation/state
+packet, and authorizes no state vocabulary, freshness policy, availability,
+ranking or money action.
 """
 from __future__ import annotations
 
@@ -19,6 +38,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +46,7 @@ CONTRACT_PATH = ROOT / "config" / "strategic_capital_posture_contract.json"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REASON_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,159}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+KST = ZoneInfo("Asia/Seoul")
 
 
 class StrategicCapitalPostureError(ValueError):
@@ -75,9 +96,45 @@ PLANNED_LOSS = _load_validator(
 CURRENCY = _load_validator(
     "atlas_currency_for_p712", "portfolio/currency_exposure.py"
 )
+CAPITAL_FLOW_ENGINE = _load_validator(
+    "atlas_capital_flow_engine_for_p712",
+    "portfolio/capital_flow_posture_reference.py",
+)
+# P2-05's own repository-evidence-only readiness producer.  Loaded to obtain a
+# producer-validated inventory, never to re-implement rotation state policy,
+# ledger semantics or pointer validation here.
+ROTATION_STATE_READINESS = _load_validator(
+    "atlas_rotation_state_readiness_for_p712",
+    "rotation/rotation_state_ledger_operational_readiness.py",
+)
+
+
+class _CapitalFlowEngineSourceAdapter:
+    """Bind P2-COM-02's own re-derivation validator into the P7-12 source shape.
+
+    Identical in behaviour to the already-ratified P6-06 adapter at
+    ``portfolio/defensive_action_decision.py``.  ``capital_flow_posture_reference.py``
+    calls its packet identity field ``payload_sha256`` and its checker
+    ``validate_reference``; every other P7-12 source calls the same idea
+    ``packet_sha256`` / ``validate_packet``.  This adapter only renames the
+    identity field so the existing generic ``_validate_source`` path can consume
+    it unchanged; it performs no additional check and invents no new semantics.
+    ``validate_reference`` already re-derives the full packet from the real
+    committed evidence and fails closed (``REFERENCE_REDERIVATION_MISMATCH``) on
+    any tamper, which is at least as strict as the generic self-rehash check the
+    other sources rely on.
+    """
+
+    @staticmethod
+    def validate_packet(packet: dict) -> dict:
+        checked = CAPITAL_FLOW_ENGINE.validate_reference(packet)
+        checked = dict(checked)
+        checked["packet_sha256"] = checked.pop("payload_sha256")
+        return checked
 
 
 SOURCE_VALIDATORS = {
+    "P2_CROSS_MARKET_FLOW": _CapitalFlowEngineSourceAdapter,
     "P6_DEFENSIVE_ACTION": DEFENSIVE_ACTION,
     "P7_CONCENTRATION_GUARD": CONCENTRATION,
     "P7_MARKET_THEME_BUDGET": MARKET_THEME,
@@ -111,10 +168,15 @@ def _expected_contract() -> dict:
         "source_order": source_order,
         "unavailable_only_source_slots": [
             "P1_REGIME_DECISION",
-            "P2_CROSS_MARKET_FLOW",
             "P2_ROTATION_STATE",
         ],
         "source_specs": {
+            "P2_CROSS_MARKET_FLOW": {
+                "schema_version": "capital_flow_posture_reference/v1",
+                "contract_version": "capital_flow_posture_reference_policy/v1",
+                "statuses": ["REFERENCE_AVAILABLE", "PARTIAL_REFERENCE_AVAILABLE"],
+                "effective_available_at_path": ["generated_at"],
+            },
             "P6_DEFENSIVE_ACTION": {
                 "schema_version": "defensive_action_decision_readiness_packet/1",
                 "contract_version": "defensive_action_decision_readiness/1",
@@ -233,6 +295,28 @@ def _utc(value, code: str) -> str:
     return value
 
 
+def _kst_business_date(value: str) -> str:
+    """Return the Asia/Seoul business date of an already-validated UTC instant.
+
+    ``generated_at`` stays a UTC instant, while ``as_of_date`` is the KST
+    business date the scheduled briefing keys on (``DECISION_DATE`` is derived
+    with ``TZ=Asia/Seoul``).  The weekday morning run fires at 22:05Z, which is
+    07:05 the *next* KST day, so comparing the first ten characters of the two
+    strings rejects every normal morning packet.  Only this comparison basis is
+    normalized: the source-instant, source-from-future and source-after-as-of
+    guards keep their own bases.
+
+    Same basis as the merged P6-06 mirror
+    ``portfolio/defensive_action_decision.py::_kst_business_date``,
+    ``decision/unified_decision_contract.py::_kst_operating_date`` and
+    ``regime/crypto_live_component_registry.py::_operational_date_kst``.
+    """
+    parsed = dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=dt.timezone.utc
+    )
+    return parsed.astimezone(KST).date().isoformat()
+
+
 def _sha(value, code: str) -> str:
     if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
         raise StrategicCapitalPostureError(code)
@@ -248,6 +332,142 @@ def _reasons(value, code: str) -> list[str]:
     ):
         raise StrategicCapitalPostureError(code)
     return list(value)
+
+
+# ---------------------------------------------------------------------------
+# P2_ROTATION_STATE diagnostic blockers
+#
+# The exact counterpart of the P1 wiring above, applied to the other
+# unavailable-only slot.  P2-05's readiness producer already knows, from real
+# committed repository evidence, which three prerequisites every market is
+# missing; forwarding those finite codes replaces one opaque placeholder with
+# the real gaps.  It wires no production rotation/state packet, authorizes no
+# state vocabulary, freshness/TTL, availability or ranking, and moves no money:
+# the slot stays UNAVAILABLE with a null source identity either way.
+#
+# The generic production-contract blocker is PRESERVED in both the success and
+# the invalid form, so nothing downstream loses the fact that the production
+# contract is still missing.
+# ---------------------------------------------------------------------------
+
+P2_ROTATION_STATE_SLOT = "P2_ROTATION_STATE"
+P2_ROTATION_STATE_GENERIC_REASON = "P2_ROTATION_STATE_PRODUCTION_CONTRACT_UNAVAILABLE"
+# The ONE fixed diagnostic a recomputed semantic failure may produce.  It
+# carries no exception text, path, hash, age or provider detail: an invalid
+# committed input is reported as exactly that, not as a description of it.
+P2_ROTATION_STATE_INVALID_REASONS = (
+    "P2_ROTATION_READINESS_INVALID:VALIDATION_FAILED",
+    P2_ROTATION_STATE_GENERIC_REASON,
+)
+P2_ROTATION_STATE_MARKETS = ("US", "KOREA", "CRYPTO")
+P2_ROTATION_STATE_BLOCKERS = (
+    "FULL_PRODUCTION_ROTATION_PACKET_MISSING",
+    "EXTERNAL_RATIFIED_STATE_POLICY_MISSING",
+    "APPEND_ONLY_OPERATIONAL_LEDGER_EVIDENCE_MISSING",
+)
+
+
+def _p2_rotation_state_reasons_from_inventory(inventory) -> list[str]:
+    """Convert a producer-validated inventory into finite blocker codes.
+
+    Accepts the exact validated markets and the exact validated blocker
+    vocabulary, and nothing else.  An unknown, forged, shortened or reordered
+    inventory raises rather than forwarding an arbitrary string into a reason
+    list that downstream contracts treat as machine-readable.
+    """
+    if (
+        not isinstance(inventory, dict)
+        or inventory.get("schema_version")
+        != ROTATION_STATE_READINESS.INVENTORY_SCHEMA_VERSION
+    ):
+        raise StrategicCapitalPostureError(
+            f"P2_ROTATION_INVENTORY_IDENTITY_INVALID:{P2_ROTATION_STATE_SLOT}"
+        )
+    authority = inventory.get("authority")
+    if not isinstance(authority, dict) or not authority:
+        raise StrategicCapitalPostureError(
+            f"P2_ROTATION_INVENTORY_AUTHORITY_INVALID:{P2_ROTATION_STATE_SLOT}"
+        )
+    for key, value in authority.items():
+        expected = key == "readiness_inventory_only"
+        if value is not expected:
+            raise StrategicCapitalPostureError(
+                f"P2_ROTATION_INVENTORY_AUTHORITY_EXPANDED:{key}"
+            )
+    rows = inventory.get("markets")
+    if not isinstance(rows, list):
+        raise StrategicCapitalPostureError(
+            f"P2_ROTATION_INVENTORY_MARKETS_INVALID:{P2_ROTATION_STATE_SLOT}"
+        )
+    reasons = [P2_ROTATION_STATE_GENERIC_REASON]
+    seen = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"market", "blockers"}:
+            raise StrategicCapitalPostureError(
+                f"P2_ROTATION_INVENTORY_ROW_INVALID:{P2_ROTATION_STATE_SLOT}"
+            )
+        market = row["market"]
+        if market not in P2_ROTATION_STATE_MARKETS or market in seen:
+            raise StrategicCapitalPostureError(
+                f"P2_ROTATION_INVENTORY_MARKET_UNKNOWN:{market!r}"
+            )
+        seen.append(market)
+        blockers = row["blockers"]
+        if not isinstance(blockers, list) or set(blockers) != set(
+            P2_ROTATION_STATE_BLOCKERS
+        ) or len(blockers) != len(P2_ROTATION_STATE_BLOCKERS):
+            raise StrategicCapitalPostureError(
+                f"P2_ROTATION_INVENTORY_BLOCKERS_UNKNOWN:{market}"
+            )
+        reasons.extend(
+            f"{P2_ROTATION_STATE_SLOT}:{market}:{blocker}" for blocker in blockers
+        )
+    if set(seen) != set(P2_ROTATION_STATE_MARKETS):
+        raise StrategicCapitalPostureError(
+            f"P2_ROTATION_INVENTORY_MARKETS_INCOMPLETE:{sorted(seen)}"
+        )
+    return _reasons(
+        sorted(set(reasons)),
+        f"UNAVAILABLE_REASONS_INVALID:{P2_ROTATION_STATE_SLOT}",
+    )
+
+
+def p2_rotation_state_unavailable_reasons(frozen_inputs, root=None) -> list[str]:
+    """Exact ``P2_ROTATION_STATE`` blockers from frozen committed inputs.
+
+    ``frozen_inputs`` is P2-05's immutable frozen-input envelope, and it is the
+    only source of derived values.  There is no caller-supplied inventory,
+    validity flag or stored error code: the inventory is recomputed here from
+    bytes the producer has authenticated against real Git objects, so a caller
+    can assert neither the blockers nor the failure.
+
+    ``root`` names the trusted validation repository and defaults to the
+    producer's own.  It is an API argument, never packet data: the envelope
+    cannot nominate a repository, ref, remote or validation HEAD, and the daily
+    producer never forwards a caller-supplied one.
+
+    Exactly one condition yields the fixed generic + ``VALIDATION_FAILED``
+    diagnostic: an independently recomputed SEMANTIC failure of authenticated
+    committed bytes (missing, malformed or contract-invalid committed input).
+    Provenance, envelope, Git, dirty-capture and missing-object failures are
+    hard failures and propagate untouched -- an input that cannot be proven is
+    never rendered as an input that was proven and found wanting.
+    """
+    evaluate = ROTATION_STATE_READINESS.evaluate_frozen_readiness_inputs
+    try:
+        inventory = (
+            evaluate(frozen_inputs)
+            if root is None
+            else evaluate(frozen_inputs, root)
+        )
+    except ROTATION_STATE_READINESS.RotationStateLedgerReadinessSemanticError:
+        return list(P2_ROTATION_STATE_INVALID_REASONS)
+    try:
+        return _p2_rotation_state_reasons_from_inventory(inventory)
+    except StrategicCapitalPostureError:
+        # Fail closed to the same fixed diagnostic rather than forwarding an
+        # unrecognized market or blocker string.
+        return list(P2_ROTATION_STATE_INVALID_REASONS)
 
 
 def _assert_execution_authority_closed(name: str, authority) -> None:
@@ -384,7 +604,7 @@ def _assemble(
 ) -> dict:
     as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
     generated = _utc(generated_at, "GENERATED_AT_INVALID")
-    if generated[:10] < as_of:
+    if _kst_business_date(generated) < as_of:
         raise StrategicCapitalPostureError("GENERATED_BEFORE_AS_OF_DATE")
     if policy_packet is not None:
         raise StrategicCapitalPostureError("UNRATIFIED_POLICY_PACKET_FORBIDDEN")
@@ -439,9 +659,10 @@ def _assemble(
         "invariants": copy.deepcopy(contract["invariants"]),
         "authority": copy.deepcopy(contract["authority"]),
         "unresolved_boundaries": [
-            "P1_REGIME_DECISION_UNAVAILABLE",
-            "P2_CROSS_MARKET_FLOW_UNAVAILABLE",
-            "P2_ROTATION_STATE_UNAVAILABLE",
+            *(
+                f"{name}_UNAVAILABLE"
+                for name in contract["unavailable_only_source_slots"]
+            ),
             "STRATEGIC_CAPITAL_POSTURE_POLICY_NOT_RATIFIED",
             "BUDGET_SUM_NOT_EVALUATED",
             "OVERLAP_EXPOSURE_NOT_EVALUATED",

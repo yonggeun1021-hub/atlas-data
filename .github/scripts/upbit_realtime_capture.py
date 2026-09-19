@@ -185,9 +185,15 @@ def plan_public_rest_backfill(gaps: list, markets: list, contract: dict) -> list
     max_rows = contract["rest_backfill_max_rows"]
     max_window = contract["rest_backfill_max_window_seconds"]
     max_requests = contract["rest_backfill_max_requests_per_run"]
+    recoverable_sources = set(contract["rest_backfill_gap_sources"])
     planned = {}
     for gap in gaps:
-        if not isinstance(gap, dict) or gap.get("status") != "PENDING" or gap.get("bounded") is not True:
+        if (
+            not isinstance(gap, dict)
+            or gap.get("status") != "PENDING"
+            or gap.get("bounded") is not True
+            or gap.get("source") not in recoverable_sources
+        ):
             continue
         start = GATE._parse_utc(gap.get("from"), "REST_PLAN_GAP_FROM_INVALID")
         end = GATE._parse_utc(gap.get("to"), "REST_PLAN_GAP_TO_INVALID")
@@ -414,6 +420,10 @@ async def _connect_and_stream(
             if stop_event.is_set() or utc_now() >= deadline:
                 break
             await asyncio.sleep(min(attempt["backoff_seconds"], max((deadline - utc_now()).total_seconds(), 0)))
+    # Freeze the WebSocket observation boundary before any bounded REST gap
+    # recovery starts.  Recovery transport time remains visible separately;
+    # actionable freshness is still evaluated at the later completion time.
+    stream_observation_ended_at = utc_now()
     pending = gate.pending_gap_windows()
     requests = plan_public_rest_backfill(pending, markets, contract)
     if requests:
@@ -437,6 +447,7 @@ async def _connect_and_stream(
         "message_log": message_log,
         "latest_public_messages_schema_version": LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
         "latest_public_messages": latest_public_messages,
+        "stream_observation_ended_at": stream_observation_ended_at,
         "public_rest_backfill_receipts": recovery_receipts,
         "public_rest_backfill_errors": recovery_errors,
     }
@@ -477,10 +488,12 @@ async def run_capture_async(
                 gate, markets, contract=contract, deadline=deadline, stop_event=stop_event,
             )
         else:
+            stream_observation_ended_at = utc_now()
             streamed = {
                 "message_log": [],
                 "latest_public_messages_schema_version": LATEST_PUBLIC_MESSAGES_SCHEMA_VERSION,
                 "latest_public_messages": {},
+                "stream_observation_ended_at": stream_observation_ended_at,
                 "public_rest_backfill_receipts": [],
                 "public_rest_backfill_errors": [],
             }
@@ -489,6 +502,16 @@ async def run_capture_async(
             loop.remove_signal_handler(sig)
 
     ended_at = utc_now()
+    stream_observation_ended_at = streamed["stream_observation_ended_at"]
+    if (
+        not isinstance(stream_observation_ended_at, dt.datetime)
+        or stream_observation_ended_at.tzinfo is None
+        or stream_observation_ended_at > ended_at
+    ):
+        raise RealtimeCaptureError("STREAM_OBSERVATION_END_INVALID")
+    # Actionable freshness is evaluated at completion, after recovery.  The
+    # earlier observation boundary is telemetry only; using it here would
+    # make messages that aged out during recovery appear current.
     status = gate.status_snapshot(ended_at)
     quote_rows = []
     for item in streamed["latest_public_messages"].values():
@@ -528,7 +551,13 @@ async def run_capture_async(
         "evidence_class": GATE.NATURAL_AUTOMATED,
         "capture_mode": capture_mode,
         "started_at": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "stream_observation_ended_at": stream_observation_ended_at.strftime(
+            "%Y-%m-%dT%H:%M:%S.%fZ"
+        ),
         "ended_at": ended_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "post_stream_recovery_seconds": round(
+            (ended_at - stream_observation_ended_at).total_seconds(), 6
+        ),
         "requested_duration_seconds": duration_seconds,
         "markets": markets,
         "message_log": streamed["message_log"],
@@ -632,6 +661,10 @@ def main(argv=None) -> int:
         markets = anchor_contract["markets"]
     else:
         capture_mode = ELIGIBLE_UNIVERSE_MODE
+        # Every admitted P3-12 market, independent of the liquidity floor and
+        # of holdings (CIO subscription-scope addendum 2026-09-14): the floor
+        # is applied per market in the decision, and this public repository
+        # takes no holdings input.
         markets = GATE.eligible_markets_from_universe_packet(args.universe_packet)
     validate_evidence_root(capture_mode, args.evidence_root)
     snapshot_date = args.snapshot_date or utc_now().date()

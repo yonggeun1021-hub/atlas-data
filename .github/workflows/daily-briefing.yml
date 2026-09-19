@@ -55,16 +55,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Production publication must not wait behind a multi-minute regression
-  # suite.  Keep the exact same checks on every invocation, but run them in a
-  # parallel job so the 07:05/18:30 retrieval-authority SLA is not consumed by
-  # tests that already ran in CI before merge.
+  # Production publication must run before the multi-minute regression suite.
+  # Both jobs intentionally retain the same self-hosted runner label, so an
+  # unconstrained "parallel" job can occupy the sole runner and consume the
+  # 07:05/18:30 retrieval-authority SLA before briefing starts. Keep the exact
+  # same regression checks on every invocation, but queue them after briefing.
   offline-regression:
+    needs: briefing
+    if: always()
     runs-on: [self-hosted, Linux, X64, atlas-data]
-    # The provenance-heavy identity checks repeatedly walk full git history.
-    # They complete well inside this bound on the isolated runner, but can
-    # exceed the former GitHub-hosted 15-minute budget on a cold checkout.
-    timeout-minutes: 30
+    # The provenance-heavy identity checks repeatedly walk full git history,
+    # and their cost grows with the review queue and history length. The suite
+    # took 18.6-26.6 min on CI through 09-05 and has been cut off at 30 min on
+    # every run since 09-06 (projected ~35 min), which marked every briefing
+    # run "cancelled" even though the briefing job itself succeeded. 60 min
+    # restores the regression signal with headroom; the git-walk cost itself
+    # is a separate follow-up.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -83,7 +90,12 @@ jobs:
 
   briefing:
     runs-on: [self-hosted, Linux, X64, atlas-data]
-    timeout-minutes: 15
+    # The evening round on 2026-09-17 was cut off at 15m46s inside "Run
+    # deterministic validator" (run 35233182670) after the publish steps had
+    # already succeeded; the morning round the same day took 11 minutes end to
+    # end. The work grew (rebase-and-retry pushes, a larger review queue) while
+    # the bound did not. 40 min keeps a real bound with headroom.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -304,10 +316,11 @@ jobs:
             echo "$AUTHORITY_OUTPUT"
             AUTHORITY_PATH=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_path=//p')
             AUTHORITY_CHANGED=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_changed=//p')
+            AUTHORITY_SOURCE_COMMIT=$(echo "$AUTHORITY_OUTPUT" | sed -n 's/^authority_source_commit=//p')
             python3 .github/scripts/publish_scheduled_briefing_authority.py validate \
               --slot "$SLOT" \
               --expected-kst-date "$DECISION_DATE" \
-              --source-commit "$CONSUMER_READY_COMMIT" \
+              --source-commit "$AUTHORITY_SOURCE_COMMIT" \
               --authority-path "$AUTHORITY_PATH"
             if [ "$AUTHORITY_CHANGED" != "true" ]; then
               break
@@ -327,6 +340,11 @@ jobs:
             fi
             echo "main advanced while publishing authority; retrying from latest main" >&2
           done
+
+          # A no-op retry retains the original envelope and its exact source.
+          # publish verified generation/artifact/delivery equivalence before
+          # reusing it. All downstream receipts and sealing use that identity.
+          CONSUMER_READY_COMMIT="$AUTHORITY_SOURCE_COMMIT"
 
           # Phase C records downstream operational sidecars.  These are
           # intentionally isolated from P0-06: a lineage or Shadow semantic
@@ -529,7 +547,7 @@ jobs:
           git add data/briefing/chain_v2
           git diff --cached --quiet || {
             git commit -m "finalization seal ${{ steps.resolve.outputs.decision_date }} ${{ steps.resolve.outputs.slot }}"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           }
 
       # Record any verdict a previous run published but died before ingesting.
@@ -569,7 +587,7 @@ jobs:
           git add data/briefing/finalization
           git diff --cached --quiet || {
             git commit -m "machine validation ${{ steps.resolve.outputs.decision_date }} ${{ steps.resolve.outputs.slot }}"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           }
 
       # Final Notion SSOT projection is drain-only. The natural producer leaves
@@ -638,5 +656,5 @@ jobs:
           fi
           git diff --cached --quiet || {
             git commit -m "finalization ${{ steps.resolve.outputs.decision_date }}"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           }

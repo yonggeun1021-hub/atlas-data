@@ -163,16 +163,53 @@ def _five_axis(source: dict, contract: dict) -> dict:
     }
 
 
-def _symbol_reviews(source: dict, contract: dict) -> list[dict]:
-    rows = []
-    for symbol in contract["supported_pipeline_subjects"]:
-        observed = source["stage_snapshot"]["subjects"][symbol]
-        latest = observed["latest_confirmed_row"]
+def _symbol_row(
+    symbol: str,
+    observed: dict,
+    stage_as_of: str,
+    contract: dict,
+    *,
+    missing_policy: dict | None = None,
+) -> dict:
+    """Build one staged-symbol review row from its observed watchlist record.
+
+    With ``missing_policy=None`` this is the original fail-closed path used by
+    the bounded review: every input (confirmed close, SMA20, investor flows)
+    must be present or the row raises.  A population caller may pass a
+    ``missing_policy`` (``{"missing_input_state": "BLOCKED", ...}``) to get an
+    explicit row instead of an exception when SMA20, flows, or the pipeline
+    stage are absent; missing values are reported as ``None`` with reason
+    codes and are never estimated.
+    """
+    latest = observed["latest_confirmed_row"]
+    metrics = observed.get("confirmed_metrics", {}) or {}
+    if missing_policy is None:
         close = _decimal(latest.get("close"), "PRICE_CLOSE_INVALID")
-        sma20 = _decimal(observed.get("confirmed_metrics", {}).get("sma20"), "SMA20_INVALID")
+        sma20 = _decimal(metrics.get("sma20"), "SMA20_INVALID")
         foreign = _decimal(latest.get("net_value", {}).get("외국인합계"), "FOREIGN_FLOW_INVALID")
         institution = _decimal(latest.get("net_value", {}).get("기관합계"), "INSTITUTION_FLOW_INVALID")
-        facts = ["KOREA_FIVE_MARKET_AXES_CONNECTED", "PRICE_ABOVE_20_DAY_AVERAGE" if close >= sma20 else "PRICE_BELOW_20_DAY_AVERAGE"]
+        individual = _decimal(latest.get("net_value", {}).get("개인"), "INDIVIDUAL_FLOW_INVALID")
+        change_pct = _decimal(latest.get("change_pct"), "CHANGE_PCT_INVALID")
+        volume = _decimal(latest.get("volume"), "VOLUME_INVALID")
+        stage = observed["atlas_stage"]
+    else:
+        if latest.get("close") is None:
+            return _missing_price_row(symbol, observed, stage_as_of, contract, missing_policy)
+        close = _decimal(latest.get("close"), "PRICE_CLOSE_INVALID")
+        sma20 = _decimal(metrics.get("sma20"), "SMA20_INVALID") if metrics.get("sma20") is not None else None
+        net_value = latest.get("net_value") or {}
+        flows_present = all(net_value.get(key) is not None for key in ("외국인합계", "기관합계", "개인"))
+        foreign = _decimal(net_value.get("외국인합계"), "FOREIGN_FLOW_INVALID") if flows_present else None
+        institution = _decimal(net_value.get("기관합계"), "INSTITUTION_FLOW_INVALID") if flows_present else None
+        individual = _decimal(net_value.get("개인"), "INDIVIDUAL_FLOW_INVALID") if flows_present else None
+        change_pct = _decimal(latest.get("change_pct"), "CHANGE_PCT_INVALID") if latest.get("change_pct") is not None else None
+        volume = _decimal(latest.get("volume"), "VOLUME_INVALID") if latest.get("volume") is not None else None
+        stage = observed.get("atlas_stage")
+
+    facts = ["KOREA_FIVE_MARKET_AXES_CONNECTED"]
+    if sma20 is not None:
+        facts.append("PRICE_ABOVE_20_DAY_AVERAGE" if close >= sma20 else "PRICE_BELOW_20_DAY_AVERAGE")
+    if foreign is not None and institution is not None:
         if foreign > 0 and institution > 0:
             facts.append("FOREIGN_AND_INSTITUTION_NET_BUY")
         elif foreign > 0:
@@ -181,44 +218,111 @@ def _symbol_reviews(source: dict, contract: dict) -> list[dict]:
             facts.append("INSTITUTION_NET_BUY_FOREIGN_NET_SELL")
         else:
             facts.append("FOREIGN_AND_INSTITUTION_NET_SELL")
-        rows.append({
-            "symbol": symbol,
-            "name": observed["name"],
-            "pipeline_stage": observed["atlas_stage"],
-            "pipeline_as_of": source["stage_snapshot"]["as_of"],
-            "price_context": {
-                "status": "OBSERVED_CONFIRMED",
-                "as_of_session_date": observed["latest_confirmed_day"],
-                "close_krw": int(close),
-                "one_session_return_pct": _decimal_text(_decimal(latest.get("change_pct"), "CHANGE_PCT_INVALID").quantize(Decimal("0.0001"))),
-                "sma20_krw": _decimal_text(sma20),
-                "distance_from_sma20_pct": _pct(close, sma20),
-                "volume": int(_decimal(latest.get("volume"), "VOLUME_INVALID")),
-            },
-            "flow_context": {
-                "foreign_net_value_krw": int(foreign),
-                "institution_net_value_krw": int(institution),
-                "individual_net_value_krw": int(_decimal(latest.get("net_value", {}).get("개인"), "INDIVIDUAL_FLOW_INVALID")),
-            },
-            "observed_facts": facts,
-            "entry_review": {
-                "state": contract["entry_policy"]["observed_price_state"],
-                "reasons": ["KOREA_FIVE_MARKET_AXES_CONNECTED", "CONFIRMED_PRICE_SMA20_AND_INVESTOR_FLOW_CONNECTED", "FINAL_KOREA_REGIME_POLICY_PENDING", "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY"],
-                "automatic_entry_generated": False,
-                "order_draft": None,
-            },
-            "holding_review": {
-                "state": contract["holding_policy"]["state_without_account_position"],
-                "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
-                "automatic_holding_action_generated": False,
-            },
-            "exit_review": {
-                "state": contract["exit_policy"]["state_without_account_position"],
-                "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
-                "automatic_exit_generated": False,
-            },
-        })
-    return rows
+
+    complete = sma20 is not None and foreign is not None
+    if complete:
+        entry_state = contract["entry_policy"]["observed_price_state"]
+        entry_reasons = ["KOREA_FIVE_MARKET_AXES_CONNECTED", "CONFIRMED_PRICE_SMA20_AND_INVESTOR_FLOW_CONNECTED", "FINAL_KOREA_REGIME_POLICY_PENDING"]
+    else:
+        entry_state = missing_policy["missing_input_state"]
+        entry_reasons = ["KOREA_FIVE_MARKET_AXES_CONNECTED", "CONFIRMED_PRICE_CONNECTED"]
+        if sma20 is None:
+            entry_reasons.append("SMA20_NOT_COMPUTABLE:" + str(metrics.get("reason") or "SMA20_MISSING"))
+        if foreign is None:
+            entry_reasons.append("INVESTOR_FLOW_NOT_AVAILABLE")
+        entry_reasons.append("FINAL_KOREA_REGIME_POLICY_PENDING")
+    entry_reasons.append("PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY" if stage is not None else "PIPELINE_STAGE_NOT_ASSIGNED")
+
+    price_context = {
+        "status": "OBSERVED_CONFIRMED" if sma20 is not None else "OBSERVED_CONFIRMED_NO_SMA20",
+        "as_of_session_date": observed["latest_confirmed_day"],
+        "close_krw": int(close),
+        "one_session_return_pct": _decimal_text(change_pct.quantize(Decimal("0.0001"))) if change_pct is not None else None,
+        "sma20_krw": _decimal_text(sma20) if sma20 is not None else None,
+        "distance_from_sma20_pct": _pct(close, sma20) if sma20 is not None else None,
+        "volume": int(volume) if volume is not None else None,
+    }
+    flow_context = (
+        {
+            "foreign_net_value_krw": int(foreign),
+            "institution_net_value_krw": int(institution),
+            "individual_net_value_krw": int(individual),
+        }
+        if foreign is not None else None
+    )
+    return {
+        "symbol": symbol,
+        "name": observed["name"],
+        "pipeline_stage": stage,
+        "pipeline_as_of": stage_as_of,
+        "price_context": price_context,
+        "flow_context": flow_context,
+        "observed_facts": facts,
+        "entry_review": {
+            "state": entry_state,
+            "reasons": entry_reasons,
+            "automatic_entry_generated": False,
+            "order_draft": None,
+        },
+        "holding_review": {
+            "state": contract["holding_policy"]["state_without_account_position"],
+            "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+            "automatic_holding_action_generated": False,
+        },
+        "exit_review": {
+            "state": contract["exit_policy"]["state_without_account_position"],
+            "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+            "automatic_exit_generated": False,
+        },
+    }
+
+
+def _missing_price_row(symbol: str, observed: dict, stage_as_of: str, contract: dict, missing_policy: dict) -> dict:
+    stage = observed.get("atlas_stage")
+    return {
+        "symbol": symbol,
+        "name": observed["name"],
+        "pipeline_stage": stage,
+        "pipeline_as_of": stage_as_of,
+        "price_context": {
+            "status": "UNAVAILABLE",
+            "as_of_session_date": observed.get("latest_confirmed_day"),
+            "close_krw": None,
+            "one_session_return_pct": None,
+            "sma20_krw": None,
+            "distance_from_sma20_pct": None,
+            "volume": None,
+        },
+        "flow_context": None,
+        "observed_facts": ["KOREA_FIVE_MARKET_AXES_CONNECTED"],
+        "entry_review": {
+            "state": missing_policy["missing_price_state"],
+            "reasons": [
+                "PIPELINE_SYMBOL_PRICE_UNAVAILABLE",
+                "FINAL_KOREA_REGIME_POLICY_PENDING",
+                "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY" if stage is not None else "PIPELINE_STAGE_NOT_ASSIGNED",
+            ],
+            "automatic_entry_generated": False,
+            "order_draft": None,
+        },
+        "holding_review": {
+            "state": contract["holding_policy"]["state_without_account_position"],
+            "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+            "automatic_holding_action_generated": False,
+        },
+        "exit_review": {
+            "state": contract["exit_policy"]["state_without_account_position"],
+            "reason": "ACCOUNT_POSITION_NOT_INCLUDED_IN_PUBLIC_MARKET_EVIDENCE",
+            "automatic_exit_generated": False,
+        },
+    }
+
+
+def _symbol_reviews(source: dict, contract: dict) -> list[dict]:
+    return [
+        _symbol_row(symbol, source["stage_snapshot"]["subjects"][symbol], source["stage_snapshot"]["as_of"], contract)
+        for symbol in contract["supported_pipeline_subjects"]
+    ]
 
 
 def _build_from_source(source: dict) -> dict:

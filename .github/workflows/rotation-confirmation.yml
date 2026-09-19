@@ -1,0 +1,153 @@
+name: Rotation Confirmation and Opportunity Ledger
+
+# User ratification 2026-09-15 (config/rotation_confirmation_policy_v1.json,
+# config/paper_entry_opportunity_ledger_v1.json).
+#
+# No new cron. The source evidence is produced by existing workflows whose
+# files are sha-pinned elsewhere (regime source-owner registry / Stage1 tuple),
+# so this build is chained with workflow_run instead of editing them:
+#   US     <- Atlas Free Market Data Evidence
+#   CRYPTO <- P1-CR-06 Crypto Breadth Daily Capture
+#   KR     <- Korea Leadership Live Proof
+#   market state for the opportunity ledger <- PAPER Market Risk Reference
+# The job is offline (no secret, no network call besides git), replays
+# committed evidence only, and commits append-only packets. A replay that
+# differs from an already committed packet fails closed.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Atlas Free Market Data Evidence
+      - P1-CR-06 Crypto Breadth Daily Capture
+      - Korea Leadership Live Proof
+      - PAPER Market Risk Reference
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-rotation-confirmation
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Build and commit append-only packets
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          # Per-market build: each market is built, written and verified on its
+          # own, so one market's failure (for example an append-only conflict)
+          # never blocks the others. Committed packets are preferred: older
+          # evidence that arrives late is reported by the build, not replayed.
+          failed=""
+          for market in US KR CRYPTO; do
+            lower="$(echo "$market" | tr '[:upper:]' '[:lower:]')"
+            paths="evidence/rotation/confirmation/$market evidence/rotation/opportunity_ledger/$market data/latest_rotation_confirmation_$lower.json data/latest_rotation_opportunity_ledger_$lower.json"
+            if python3 rotation/rotation_confirmation.py build --market "$market" --write --no-portal \
+              && python3 rotation/rotation_confirmation.py verify --market "$market" \
+              && python3 rotation/rotation_opportunity_ledger.py build --market "$market" --write \
+              && python3 rotation/rotation_opportunity_ledger.py verify --market "$market"; then
+              # shellcheck disable=SC2086
+              git add -- $paths
+            else
+              echo "::warning::rotation confirmation build failed for $market; other markets continue"
+              failed="$failed $market"
+              for path in $paths; do
+                git checkout HEAD -- "$path" 2>/dev/null || true
+              done
+              # shellcheck disable=SC2086
+              git clean -fdq -- $paths
+            fi
+          done
+          # Late-older-evidence notices are kept even when that market's build failed.
+          for market in US KR CRYPTO; do
+            lower="$(echo "$market" | tr '[:upper:]' '[:lower:]')"
+            notice="data/rotation_confirmation_late_older_evidence_$lower.json"
+            if [ -f "$notice" ]; then
+              git add -- "$notice"
+            fi
+          done
+          # Crypto-only coverage recalculation notice (RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1).
+          if [ -f data/rotation_confirmation_crypto_coverage_recalc_notice.json ]; then
+            git add -- data/rotation_confirmation_crypto_coverage_recalc_notice.json
+          fi
+          # A portal projection failure must not block committing the markets that succeeded.
+          portal_failed=0
+          if python3 rotation/rotation_confirmation.py portal --write; then
+            git add -- data/latest_rotation_confirmation_portal_ch02.json
+          else
+            portal_failed=1
+            echo "::warning::rotation portal projection failed; market packets are still committed"
+            git checkout HEAD -- data/latest_rotation_confirmation_portal_ch02.json 2>/dev/null || true
+          fi
+          if git diff --staged --quiet; then
+            echo "no rotation confirmation change"
+          else
+            git commit -m "data: rotation confirmation and opportunity ledger $(date -u +%Y-%m-%d)"
+            pushed=0
+            for attempt in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then
+                pushed=1
+                break
+              fi
+              git rebase --abort 2>/dev/null || true
+              echo "push attempt $attempt failed; retrying" >&2
+              sleep $((attempt * 15))
+            done
+            if [ "$pushed" -ne 1 ]; then
+              echo "STOP: push failed after 5 attempts" >&2
+              exit 1
+            fi
+          fi
+          if [ -n "$failed" ]; then
+            echo "STOP: rotation confirmation failed for:$failed (the other markets were committed)" >&2
+            exit 3
+          fi
+          if [ "$portal_failed" -ne 0 ]; then
+            echo "STOP: portal projection failed (market packets were committed)" >&2
+            exit 2
+          fi
+      - name: Rotation regression and producer replay gate
+        # After the build, not before it, for two reasons.
+        #
+        # 1. Isolation. These files assert over the whole repository and every
+        #    market at once. Run before the loop, one market's replay drift
+        #    aborted the job while `for market in US KR CRYPTO` had not run at
+        #    all, so the loop's "other markets continue" warning was dead code
+        #    and a US-only drift left KR and CRYPTO with no packet either. Each
+        #    market's own packets are already gated inside the loop, per market
+        #    and fail-closed: `build --write` refuses to rewrite a committed
+        #    packet (APPEND_ONLY_EVIDENCE_CONFLICT) and `verify --market`
+        #    rebuilds and compares bytes. A tampered policy or ledger config
+        #    still fails closed before anything is written, because every build
+        #    and verify invocation loads them itself (rotation_confirmation.py
+        #    load_policy, rotation_opportunity_ledger.py load_config).
+        #
+        # 2. ATLAS_ROTATION_PRODUCER_GATE turns on the assertion that every
+        #    rebuilt day has a committed packet -- the check that used to run on
+        #    every pull-request shard, where a packet no run had written yet
+        #    reddened branches that touch nothing under rotation/. It can only
+        #    be asked of a build that has already run, and a failure here names
+        #    the packet this run did not write.
+        if: always()
+        env:
+          ATLAS_ROTATION_PRODUCER_GATE: '1'
+        run: |
+          python3 test/test_rotation_confirmation.py
+          python3 test/test_rotation_opportunity_ledger.py
+          python3 test/test_rotation_confirmation_robustness.py

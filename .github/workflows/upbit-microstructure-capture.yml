@@ -21,17 +21,22 @@ jobs:
         id: runner_start
         run: echo "observed_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # Consumers below never read git history (no git log/show/blame/
+      # merge-base); the commit+push steps only need HEAD, so a shallow
+      # checkout is sufficient and avoids re-cloning 3500+ commits daily.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.11'
       - name: Offline P4-07 Upbit microstructure regression
         run: |
           python3 test/test_upbit_candle_finalization.py
+          python3 test/test_upbit_candle_finalization_fetch_time.py
           python3 test/test_upbit_microstructure_capture.py
+          python3 test/test_upbit_microstructure_orderbook_second_precision.py
           python3 test/test_upbit_market_evidence_microstructure.py
           python3 test/test_upbit_p3_p4_exact_hash_consumer.py
           python3 test/test_upbit_p4_expected_wait.py

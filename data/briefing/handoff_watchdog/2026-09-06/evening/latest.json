@@ -1,0 +1,70 @@
+{
+  "alert": false,
+  "authority": {
+    "dispatch_invoked": false,
+    "envelope_created": false,
+    "fact_inference_unknown_decision": false,
+    "manual_recovery_invoked": false,
+    "natural_evidence_changed": false,
+    "notion_written": false,
+    "source_bridge_authored": false
+  },
+  "briefing_id": "2026-09-06-evening",
+  "checked_at_utc": "2026-09-05T22:29:20Z",
+  "checks": {
+    "final_drain": {
+      "exists": false,
+      "path": "data/briefing/finalization/2026-09-06/evening/delivery_receipt.json"
+    },
+    "natural_receipt": {
+      "exists": false,
+      "path": "evidence/daily_briefing/evening/2026-09-06/index.json"
+    },
+    "portal_final_receipt": {
+      "exists": false,
+      "path": null
+    },
+    "semantic_verdict": {
+      "exists": false
+    },
+    "source_bridge": {
+      "discoverable_by_chain_build": false,
+      "exists": false,
+      "path": "evidence/briefing_events/2026-09-06/evening/index.json"
+    },
+    "validated_envelope": {
+      "exists": false,
+      "path": "evidence/validated_briefing_portal/evening/2026-09-06/index.json"
+    }
+  },
+  "decision_date": "2026-09-06",
+  "display_status": "WAITING_SLOT",
+  "grace_deadline_kst": "2026-09-06T18:50:00+0900",
+  "grace_deadline_source": "existing slot observation deadline (natural cron + configured grace); not semantic timeout",
+  "grace_timeout_minutes": 20,
+  "notes": [],
+  "past_grace": false,
+  "reason": "SLOT_NOT_SCHEDULED_TODAY",
+  "recovery": {
+    "action_authority": false,
+    "backfill_promotion_authorized": false,
+    "buy_authority": false,
+    "natural_evidence_mutation_authorized": false,
+    "natural_sample_treatment": "PRESERVE_ORIGINAL_SCHEDULE_EVENT_ONLY",
+    "next_action": "CHECK_OR_RERUN_THE_EXISTING_SCHEDULE_EVENT_ONLY; NEVER_CREATE_A_WORKFLOW_DISPATCH_SAMPLE",
+    "order_authority": false,
+    "owner": ".github/workflows/daily-briefing-recovery.yml",
+    "production_authority": false,
+    "recovery_key": "88bf148ec7a5eb8801e041080c048bff6022044556e178d0afeb63bf96d61313",
+    "requires_semantic_judgment": false,
+    "route": "ORIGINAL_SCHEDULE_RUN_RECOVERY",
+    "safe_to_automate": true,
+    "stage_authority": false,
+    "trading_authority": false
+  },
+  "schema_version": "briefing_handoff_watchdog/2",
+  "slot": "evening",
+  "slot_expected_today": false,
+  "stage": "PRODUCER",
+  "status": "NATURAL_RECEIPT_MISSING"
+}

@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import argparse
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
+import hashlib
 import json
 from pathlib import Path
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -107,7 +108,102 @@ def inspect_request_contract(auth_key, bas_dd, market, contract=None):
     }
 
 
-def _http_fetch(request, opener=urlopen, timeout=30):
+def utc_timestamp():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def new_response_evidence(contract=None):
+    """A caller-owned mapping for pre-validation response evidence.
+
+    It carries only bounded metadata -- capture instant, HTTP status,
+    response SHA-256/byte count and the safe JSON shape. It never holds
+    the response body, a request header, the auth key, or a row value, so
+    it is not a raw store and cannot reconstruct a response.
+    """
+    contract = contract or load_contract()
+    return {
+        "expected_block": contract["response_block"],
+        "captured_at": None,
+        "http_status": None,
+        "response_sha256": None,
+        "response_byte_count": None,
+        "response_shape": None,
+    }
+
+
+def inspect_response_shape(body, expected_block):
+    """Safe pre-validation shape of a response body.
+
+    Reports only whether the contract's expected block is present, its
+    JSON type name, and its row count when it is a list. No field value,
+    identity, price, or decoded text is ever returned.
+    """
+    shape = {
+        "parseable_json": False,
+        "root_type": None,
+        "expected_block": expected_block,
+        "expected_block_present": None,
+        "expected_block_type": None,
+        "expected_block_row_count": None,
+    }
+    if not isinstance(body, (bytes, bytearray)):
+        return shape
+    try:
+        payload = json.loads(bytes(body).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return shape
+    shape["parseable_json"] = True
+    shape["root_type"] = type(payload).__name__
+    if not isinstance(payload, dict):
+        return shape
+    shape["expected_block_present"] = expected_block in payload
+    if shape["expected_block_present"]:
+        block = payload[expected_block]
+        shape["expected_block_type"] = type(block).__name__
+        if isinstance(block, list):
+            shape["expected_block_row_count"] = len(block)
+    return shape
+
+
+def _read_error_body(exc):
+    """The HTTPError body when it is still readable, else None.
+
+    Reading an error body must never change the fail-closed outcome, so
+    every read failure degrades to "no observed body".
+    """
+    try:
+        return exc.read()
+    except Exception:
+        # Evidence reads are best effort, including HTTPException/IncompleteRead.
+        # Preserve the original HTTP status error; never hash a partial body.
+        return None
+
+
+def _record_response_evidence(evidence, status, body):
+    if evidence is None:
+        return
+    evidence["captured_at"] = utc_timestamp()
+    evidence["http_status"] = status if isinstance(status, int) else None
+    if isinstance(body, (bytes, bytearray)):
+        evidence["response_sha256"] = hashlib.sha256(bytes(body)).hexdigest()
+        evidence["response_byte_count"] = len(body)
+        evidence["response_shape"] = inspect_response_shape(
+            body, evidence.get("expected_block")
+        )
+
+
+def _http_fetch(request, opener=urlopen, timeout=30, evidence=None):
+    """Return the raw response bytes for exactly one request.
+
+    ``evidence`` is an optional caller-supplied mapping (see
+    new_response_evidence) that receives the response facts BEFORE any
+    decode or validation, for successes, HTTP errors with a readable
+    body, and network errors where no response exists. It never changes
+    the bytes an existing caller receives and never changes the
+    fail-closed error class or code raised on failure.
+    """
+    status = None
+    body = None
     try:
         with opener(request, timeout=timeout) as response:
             status = getattr(response, "status", None)
@@ -115,9 +211,14 @@ def _http_fetch(request, opener=urlopen, timeout=30):
                 status = response.getcode()
             body = response.read()
     except HTTPError as exc:
+        _record_response_evidence(evidence, exc.code, _read_error_body(exc))
         raise BreadthError("KRX_HTTP_ERROR_%s" % exc.code) from exc
     except URLError as exc:
+        # No response was ever observed: status/digest stay null rather
+        # than being filled with an unobserved stand-in.
+        _record_response_evidence(evidence, None, None)
         raise BreadthError("KRX_NETWORK_ERROR") from exc
+    _record_response_evidence(evidence, status, body)
     if status != 200:
         raise BreadthError("KRX_HTTP_ERROR_%s" % status)
     return body

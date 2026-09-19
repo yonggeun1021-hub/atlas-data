@@ -1,0 +1,73 @@
+{
+  "schema_version": "kr_internal_paper_theme_next_session_contract/3",
+  "decision_id": "KR_INTERNAL_PAPER_PREVIOUS_COMPLETED_SESSION_CONTEXT_V1",
+  "application_scope": "KR_INTERNAL_PAPER_BASELINE_V0_ENTRY_FILTER",
+  "base_profile": {
+    "proposal_id": "KR_INTERNAL_PAPER_TWO_STOCK_THEME_APPLICATION_CONTRACT_V1",
+    "commit": "d14b17a1c33beb1e25bfc5a9921e588ddf8e5971",
+    "contract_path": "config/kr_internal_paper_theme_application_contract.json",
+    "contract_sha256": "77453d7c6637b0a5b1538b8587e557ad3f5998c39e68527d1158121ec24d0472"
+  },
+  "decision_evidence": {
+    "path": "evidence/authority/kr_internal_paper_previous_completed_session_context_adoption_20260908.json",
+    "sha256": "2571be782cb70473aaba49ed6c6a2fc0e67cd6f6a5a1af3d8ec66433aec5022b"
+  },
+  "session_boundary": {
+    "required_proof": "independently verified calendar proves D is the immediately previous OPEN_REGULAR session before E",
+    "calendar_validator": "market_data/krx_session_calendar_v2.py::validate_calendar",
+    "calendar_validator_sha256": "6660af3f9d12cc1ca8f0d417186fad0c6919ef16ad6d05973ae3ab8104f117ca",
+    "calendar_contract": "config/krx_session_calendar_sources_v2.json",
+    "calendar_contract_sha256": "58698d8d8045c9e084f250bb37becc667cfb3161073b6789af22cacc9456e813",
+    "calendar_source_schema_version": "krx_date_specific_session_source/1",
+    "calendar_coverage": "exact committed approved-source snapshot for every calendar date D through E; D and E OPEN_REGULAR; every intervening date CLOSED",
+    "post_close_market_signals_relation_required": false,
+    "calendar_day_subtraction_authorized": false,
+    "d_minus_two_fallback_authorized": false
+  },
+  "context_session": {
+    "label": "PREVIOUS_COMPLETED_SESSION_CONTEXT",
+    "required_same_date_inputs": [
+      "D master",
+      "D leadership"
+    ],
+    "must_be_available_before_evaluation": true,
+    "d_price_as_execution_fill_authorized": false
+  },
+  "execution_session": {
+    "required_same_date_inputs": [
+      "E master",
+      "E candidate identity",
+      "E prospective application membership"
+    ],
+    "market_timezone": "Asia/Seoul",
+    "regular_session_close_local": "15:30:00",
+    "decision_to_forward_execution_max_seconds": 600,
+    "active_predicate": "membership_from <= evaluation_at <= forward_execution_at < E_regular_session_close",
+    "e_plus_one_carry_authorized": false
+  },
+  "membership": {
+    "membership_from_rule": "max(E 00:00:00 KST, source_admission_real_usable_from, D/E_decision_real_usable_from)",
+    "membership_to_rule": "E 15:30:00 KST",
+    "d_master_interval_extension_authorized": false,
+    "backdating_authorized": false
+  },
+  "separate_required_inputs": [
+    "Exact D rotation TOP bucket",
+    "Qualified current E price/spread/impact and causal execution observations",
+    "Actual E tradability evidence",
+    "Any separately required E-day regime state"
+  ],
+  "authority": {
+    "previous_completed_session_context_input_only": true,
+    "baseline_entry_eligibility_authorized": false,
+    "new_entry_authorized": false,
+    "regime_gate_authorized": false,
+    "global_taxonomy_authority_changed": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "real_authority": false,
+    "order_authorized": false,
+    "trading_authorized": false,
+    "profitability_claimed": false
+  }
+}

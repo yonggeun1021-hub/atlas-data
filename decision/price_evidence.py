@@ -332,7 +332,12 @@ def _vs_market_pct(
     return (stock_gross / bench_gross - 1) * 100
 
 
-def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
+def assemble_krx_stock_evidence(
+    code: str,
+    decision_date: str,
+    *,
+    include_temporal_metadata: bool = False,
+) -> dict:
     """Real KRX evidence -> `build_packet()` kwargs for a Korea subject.
     Never fabricates: any figure the real committed window cannot support is
     left `None` -- including `relative_strength.vs_market`, which stays
@@ -353,12 +358,18 @@ def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
 
     latest_snapshot = ei.snapshot_at_or_before(snapshots, decision_date)
     if latest_snapshot is None or not live_dates:
-        return {
+        result = {
             "price_as_of": None,
             "data_source_scope": "KRX_OFFICIAL",
             "recent_return_windows": None,
             "relative_strength": None,
         }
+        if include_temporal_metadata:
+            result["_temporal_metadata"] = {
+                "price_observation_date": None,
+                "price_captured_at": None,
+            }
+        return result
 
     latest_date = live_dates[-1]
     price_as_of = _utc_z(latest_snapshot.collected_at_utc)
@@ -395,12 +406,18 @@ def assemble_krx_stock_evidence(code: str, decision_date: str) -> dict:
             "volume_change_pct": _pct_str(volume_change) if volume_change is not None else None,
         }
 
-    return {
+    result = {
         "price_as_of": price_as_of,
         "data_source_scope": "KRX_OFFICIAL",
         "recent_return_windows": windows,
         "relative_strength": strength,
     }
+    if include_temporal_metadata:
+        result["_temporal_metadata"] = {
+            "price_observation_date": latest_date,
+            "price_captured_at": price_as_of,
+        }
+    return result
 
 
 def _us_price_points(

@@ -30,6 +30,30 @@ CONTRACT_PATH = ROOT / "config/scheduled_briefing_retrieval_contract.json"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 SYMBOL = re.compile(r"^[A-Za-z0-9._-]+$")
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+SCHEMA_V2 = "scheduled_briefing_retrieval_authority/2"
+SCHEMA_V3 = "scheduled_briefing_retrieval_authority/3"
+# v4 replaces the v3 weekend line ``latest_confirmed_evidence_date`` with
+# ``source_evidence_kst_date``, ``krx_latest_confirmed_close_date`` and
+# ``us_latest_verified_session_date``.  Validation dispatches on the
+# envelope's own schema version; a v3 line is never accepted under v4.
+SCHEMA_V4 = "scheduled_briefing_retrieval_authority/4"
+SUPPORTED_SCHEMAS = (SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
+DATE_BINDING_SCHEMAS = (SCHEMA_V3, SCHEMA_V4)
+V3_AMBIGUOUS_WEEKEND_DATE_KEY = "latest_confirmed_evidence_date"
+# Optional daily_orchestrator delivery-packet derivation markers.  These are
+# additive fields the producer may stamp onto a packet; the consumer accepts
+# exactly these names with a plain-int value in the given set, and only when
+# the packet's contract_version is the one that introduced them
+# ("daily_orchestrator/6"). This set is hard-coded rather than imported from
+# the orchestrator so the consumer stays independent of the producer
+# checkout: a new marker or value must be added here deliberately.
+OPTIONAL_DELIVERY_PACKET_DERIVATION_MARKERS = {
+    "runtime_regime_readiness_version": {1, 2, 3},
+    "flow_replay_version": {1},
+    "crypto_derivation_version": {1},
+}
+DELIVERY_PACKET_DERIVATION_MARKER_CONTRACT_VERSION = "daily_orchestrator/6"
 
 
 class ScheduledConsumerError(RuntimeError):
@@ -59,10 +83,7 @@ def _load_contract(path: Path = CONTRACT_PATH) -> dict:
     if not isinstance(value, dict) or set(value) != required:
         fail("ADAPTER_CONTRACT_FIELDS_MISMATCH")
     schema_version = value["schema_version"]
-    if schema_version not in {
-        "scheduled_briefing_retrieval_authority/2",
-        "scheduled_briefing_retrieval_authority/3",
-    }:
+    if schema_version not in SUPPORTED_SCHEMAS:
         fail("ADAPTER_CONTRACT_VERSION_UNSUPPORTED")
     if value["repository"] != "yonggeun1021-hub/atlas-data" or value["branch"] != "main":
         fail("ADAPTER_REPOSITORY_IDENTITY_MISMATCH")
@@ -89,10 +110,9 @@ def _load_contract(path: Path = CONTRACT_PATH) -> dict:
     if value["bootstrap_policy"] != "UNIQUE_DATE_SLOT_APPEND_ONLY_SEQUENTIAL_REVISIONS":
         fail("ADAPTER_BOOTSTRAP_POLICY_MISMATCH")
     expected_stale_policy = {
-        "scheduled_briefing_retrieval_authority/2":
-            "EXPECTED_DATE_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
-        "scheduled_briefing_retrieval_authority/3":
-            "EXACT_DATE_OR_WEEKEND_MORNING_PREVIOUS_FRIDAY_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
+        SCHEMA_V2: "EXPECTED_DATE_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
+        SCHEMA_V3: "EXACT_DATE_OR_WEEKEND_MORNING_PREVIOUS_FRIDAY_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
+        SCHEMA_V4: "EXACT_DATE_OR_WEEKEND_MORNING_PREVIOUS_FRIDAY_AND_GENERATION_MUST_MATCH_OR_FAIL_CLOSED",
     }[schema_version]
     if value["stale_policy"] != expected_stale_policy:
         fail("ADAPTER_STALE_POLICY_MISMATCH")
@@ -209,8 +229,89 @@ def _validate_source_date_binding(binding: dict, expected_date: str, slot: str) 
     return binding["source_evidence_kst_date"]
 
 
+def _canonical_date(value) -> str | None:
+    if not isinstance(value, str) or not ISO_DATE.fullmatch(value):
+        return None
+    try:
+        calendar_date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value
+
+
+def weekend_market_dates(packet: dict, decision_date: str) -> dict[str, str]:
+    """Market-scoped weekend dates re-derived from the hash-bound packet (v4).
+
+    Same derivation as the publisher and as
+    ``briefing/daily_orchestrator.weekend_session_context_dates``: KRX only
+    from the frozen confirmed-close reference bound to the STEP0 krx sha256,
+    US only from a READY FREE_MARKET_DATA ``us_market_reference``; otherwise,
+    or when not a canonical date on or before the decision date, ``UNKNOWN``.
+    The producer additionally re-reads the KRX source blob before publishing.
+    """
+    components = packet.get("components")
+    by_id = {
+        row.get("component_id"): row
+        for row in components if isinstance(row, dict)
+    } if isinstance(components, list) else {}
+
+    def bounded(value) -> str:
+        date = _canonical_date(value)
+        return date if date is not None and date <= decision_date else "UNKNOWN"
+
+    step0_packet = (by_id.get("STEP0_READ_MODEL_HEALTH") or {}).get("packet")
+    sources = step0_packet.get("sources") if isinstance(step0_packet, dict) else None
+    step0_krx = sources.get("krx") if isinstance(sources, dict) else None
+    step0_krx_sha256 = step0_krx.get("source_sha256") if isinstance(step0_krx, dict) else None
+    frozen_sources = packet.get("frozen_sources")
+    frozen_step0 = (
+        frozen_sources.get("STEP0_READ_MODEL_HEALTH")
+        if isinstance(frozen_sources, dict) else None
+    )
+    references = (
+        frozen_step0.get("presentation_references")
+        if isinstance(frozen_step0, dict) else None
+    )
+    confirmed = (
+        references.get("krx_confirmed_close") if isinstance(references, dict) else None
+    )
+    krx = "UNKNOWN"
+    if (
+        isinstance(confirmed, dict)
+        and confirmed.get("unknown_reason") is None
+        and isinstance(step0_krx_sha256, str)
+        and SHA256.fullmatch(step0_krx_sha256)
+        and confirmed.get("source_sha256") == step0_krx_sha256
+    ):
+        krx = bounded(confirmed.get("confirmed_through"))
+
+    us_row = by_id.get("FREE_MARKET_DATA") or {}
+    us_packet = us_row.get("packet") if isinstance(us_row, dict) else None
+    us_reference = us_packet.get("us_market_reference") if isinstance(us_packet, dict) else None
+    us = "UNKNOWN"
+    if us_row.get("status") == "READY" and isinstance(us_reference, dict):
+        us = bounded(us_reference.get("as_of_session_date"))
+    return {"krx_latest_confirmed_close_date": krx, "us_latest_verified_session_date": us}
+
+
+def _require_exact_weekend_lines(briefing: str, expected: dict[str, str]) -> None:
+    """v4: each keyed line appears exactly once, as a whole line, with its value."""
+    lines = briefing.splitlines()
+    if any(line.startswith(f"- {V3_AMBIGUOUS_WEEKEND_DATE_KEY}:") for line in lines):
+        fail("WEEKEND_BRIEFING_AMBIGUOUS_EVIDENCE_DATE_LINE")
+    for key, value in expected.items():
+        keyed = [line for line in lines if line.startswith(f"- {key}:")]
+        if not keyed:
+            fail("WEEKEND_BRIEFING_SESSION_CONTEXT_MISSING", key)
+        if keyed != [f"- {key}: {value}"]:
+            fail("WEEKEND_BRIEFING_SESSION_DATE_MISMATCH", key)
+
+
 def _validate_weekend_delivery_semantics(
-    packet: dict, briefing_raw: bytes, source_date_binding: dict | None
+    packet: dict,
+    briefing_raw: bytes,
+    source_date_binding: dict | None,
+    schema_version: str = SCHEMA_V3,
 ) -> None:
     if not source_date_binding or source_date_binding.get("mode") != "WEEKEND_MORNING_PREVIOUS_FRIDAY":
         return
@@ -252,14 +353,25 @@ def _validate_weekend_delivery_semantics(
         briefing = briefing_raw.decode("utf-8")
     except UnicodeDecodeError:
         fail("WEEKEND_BRIEFING_UTF8_INVALID")
-    required_lines = (
-        "- market_session: MARKET_CLOSED",
-        "- new_session: NONE",
-        f"- latest_confirmed_evidence_date: {source_date_binding['source_evidence_kst_date']}",
-        "- latest_confirmed_evidence_relabelled_as_today: false",
-    )
-    if any(line not in briefing for line in required_lines):
-        fail("WEEKEND_BRIEFING_SESSION_CONTEXT_MISSING")
+    if schema_version == SCHEMA_V3:
+        required_lines = (
+            "- market_session: MARKET_CLOSED",
+            "- new_session: NONE",
+            f"- latest_confirmed_evidence_date: {source_date_binding['source_evidence_kst_date']}",
+            "- latest_confirmed_evidence_relabelled_as_today: false",
+        )
+        if any(line not in briefing for line in required_lines):
+            fail("WEEKEND_BRIEFING_SESSION_CONTEXT_MISSING")
+        return
+    if schema_version != SCHEMA_V4:
+        fail("WEEKEND_SCHEMA_UNSUPPORTED", str(schema_version))
+    _require_exact_weekend_lines(briefing, {
+        "market_session": "MARKET_CLOSED",
+        "new_session": "NONE",
+        "source_evidence_kst_date": source_date_binding["source_evidence_kst_date"],
+        **weekend_market_dates(packet, source_date_binding["decision_date"]),
+        "latest_confirmed_evidence_relabelled_as_today": "false",
+    })
 
 
 def validate_envelope(
@@ -276,15 +388,12 @@ def validate_envelope(
         "delivery_locator", "delivery_artifacts",
         "compact_immutable_url_templates", "consumer_rules", "authority",
     }
-    schema_version = envelope.get("schema_version")
-    if schema_version == "scheduled_briefing_retrieval_authority/3":
+    schema_version = envelope.get("schema_version") if isinstance(envelope, dict) else None
+    if schema_version in DATE_BINDING_SCHEMAS:
         fields.add("source_date_binding")
     if not isinstance(envelope, dict) or set(envelope) != fields:
         fail("ENVELOPE_FIELDS_MISMATCH")
-    if schema_version not in {
-        "scheduled_briefing_retrieval_authority/2",
-        "scheduled_briefing_retrieval_authority/3",
-    }:
+    if schema_version not in SUPPORTED_SCHEMAS:
         fail("ENVELOPE_SCHEMA_UNSUPPORTED")
     if envelope.get("slot") != slot or envelope.get("expected_kst_date") != expected_date:
         fail("ENVELOPE_EXPECTED_IDENTITY_MISMATCH")
@@ -322,7 +431,7 @@ def validate_envelope(
     }
     if envelope.get("consumer_rules") != expected_rules:
         fail("ENVELOPE_CONSUMER_RULES_MISMATCH")
-    if schema_version == "scheduled_briefing_retrieval_authority/3":
+    if schema_version in DATE_BINDING_SCHEMAS:
         _validate_source_date_binding(
             envelope.get("source_date_binding"), expected_date, slot
         )
@@ -527,7 +636,14 @@ def _validate_pinned_delivery_packet(packet: dict, expected_date: str, slot: str
         "component_status_counts", "components", "authority", "frozen_sources",
         "unresolved_boundaries", "packet_sha256",
     }
-    if not isinstance(packet, dict) or set(packet) != required:
+    if not isinstance(packet, dict):
+        fail("DELIVERY_PACKET_FIELDS_MISMATCH")
+    observed_fields = set(packet)
+    extra_fields = observed_fields - required
+    if (
+        not required <= observed_fields
+        or not extra_fields <= set(OPTIONAL_DELIVERY_PACKET_DERIVATION_MARKERS)
+    ):
         fail("DELIVERY_PACKET_FIELDS_MISMATCH")
     if (
         packet.get("schema_version") != 1
@@ -543,6 +659,16 @@ def _validate_pinned_delivery_packet(packet: dict, expected_date: str, slot: str
         fail("DELIVERY_PACKET_SCHEMA_UNSUPPORTED")
     if packet.get("slot") != slot or packet.get("decision_date") != expected_date:
         fail("DELIVERY_PACKET_IDENTITY_MISMATCH")
+    for marker_name in extra_fields:
+        marker_value = packet.get(marker_name)
+        if (
+            packet.get("contract_version")
+            != DELIVERY_PACKET_DERIVATION_MARKER_CONTRACT_VERSION
+            or type(marker_value) is not int
+            or marker_value
+            not in OPTIONAL_DELIVERY_PACKET_DERIVATION_MARKERS[marker_name]
+        ):
+            fail("DELIVERY_PACKET_DERIVATION_VERSION_INVALID", marker_name)
     digest = packet.get("packet_sha256")
     unsigned = dict(packet)
     unsigned.pop("packet_sha256", None)
@@ -666,7 +792,7 @@ def consume(
     step = _json_object(raw_by_path[step_path], "STEP0_JSON_INVALID")
     health = _json_object(raw_by_path[health_path], "HEALTH_JSON_INVALID")
     source_evidence_date = expected_date
-    if envelope["schema_version"] == "scheduled_briefing_retrieval_authority/3":
+    if envelope["schema_version"] in DATE_BINDING_SCHEMAS:
         source_evidence_date = _validate_source_date_binding(
             envelope["source_date_binding"], expected_date, slot
         )
@@ -679,7 +805,7 @@ def consume(
     _validate_pinned_delivery_packet(packet, expected_date, slot)
     _validate_weekend_delivery_semantics(
         packet, raw_by_path[locator["briefing_path"]],
-        envelope.get("source_date_binding"),
+        envelope.get("source_date_binding"), envelope["schema_version"],
     )
     if (
         packet.get("slot") != slot

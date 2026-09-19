@@ -1,0 +1,13 @@
+{
+  "candidate_decision_id": "DECISION.P2_03.KOREA_SECTOR_IDENTITY_BINDING.CANDIDATE.V2",
+  "candidate_status": "UNRATIFIED_CANDIDATE",
+  "candidate_taxonomy_id": "TAXONOMY.P2_03.KOREA_SECTOR_IDENTITY.CANDIDATE.V2",
+  "contract_version": "p2_03_rotation_sector_identity_decision_rationale/1",
+  "payload_sha256": "e320bd24c7d4b3ebbb0f4c2271d1664cc2733be7b67718bc391e857aa1f0cb34",
+  "proposed_effective_from": "2026-09-12",
+  "schema_version": 1,
+  "scope_note": "Fixed, date-independent positional per-benchmark SECTOR series_identity -> theme_id binding candidate, scoped ONLY to korea_capital_rotation.py's own taxonomy_binding/rotation_policy fields via the dedicated korea_sector_identity_binding/1 contract. This is NOT the P2-01 cross-market Theme / Value-Chain taxonomy (config/theme_taxonomy_authority_registry.json, owned separately under PR #576, currently 0 ratified records) and does not modify, populate, or duplicate it, and does not use the P2-01 theme_taxonomy/2 graph producer at all (that graph is evaluated per-as_of_date and cannot be reused unchanged across sessions; this binding intentionally carries no as_of_date). UNRATIFIED: no production, trading, candidate, Stage, briefing, or Regime authority is opened by any document in this lane. Does not reuse the 2026-08-22T07:19:09Z self-declared ratification timestamp, the all-zero taxonomy SHA placeholders previously embedded in .github/scripts/korea_capital_rotation_ledger_proof.py, or the 2026-09-11 date this lane's first, superseded candidate was authored on.",
+  "source_policy_effective_from": "2026-08-01",
+  "source_policy_path": "config/korea_leadership_policy.json",
+  "source_policy_sha256": "3b532ad57ba3a6750c83346eb7d832a184fe4f218b91843611eaad37c7510585"
+}

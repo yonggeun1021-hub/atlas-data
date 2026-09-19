@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "contract_version": "korea_sector_identity_binding/1",
+  "date_independent": true,
+  "required_benchmarks": [
+    "KOSDAQ::코스닥",
+    "KOSPI::코스피"
+  ],
+  "required_counts": {
+    "KOSDAQ::코스닥": 22,
+    "KOSPI::코스피": 24
+  },
+  "authority": {
+    "identity_binding_evidence_only": true,
+    "cross_market_taxonomy_authority": false,
+    "asset_membership_authorized": false,
+    "ranking_input_authorized": false,
+    "candidate_ranking_authorized": false,
+    "stage_promotion_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

@@ -33,6 +33,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,7 @@ CONTRACT_PATH = ROOT / "config" / "defensive_action_decision_contract.json"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REASON_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{2,159}$")
 UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+KST = ZoneInfo("Asia/Seoul")
 
 
 class DefensiveActionDecisionError(ValueError):
@@ -91,6 +93,35 @@ CAPITAL_FLOW_ENGINE = _load_validator(
     "atlas_capital_flow_engine_for_p606",
     "portfolio/capital_flow_posture_reference.py",
 )
+RUNTIME_REGIME_READINESS = _load_validator(
+    "atlas_runtime_regime_readiness_for_p606",
+    "regime/runtime_regime_readiness.py",
+)
+
+def p1_regime_decision_unavailable_reasons(readiness_packet: dict) -> list[str]:
+    """Exact, machine-readable ``P1_REGIME_DECISION`` blockers.
+
+    ``P1_REGIME_DECISION`` stays an unavailable-only slot: this returns the
+    ``unavailable_reasons`` list for it, never a source packet.  The readiness
+    packet is re-derived and byte-compared by its own validator first, so a
+    caller cannot shorten the blocker list, flip
+    ``runtime_decision_available``, or claim a Regime through this path.
+
+    Deliberately excluded: the readiness packet's own ``packet_sha256``.  That
+    hash covers ``regime_output/v1`` envelopes, which embed the caller's
+    invocation ``generated_at`` (and per-axis ``age_seconds``), so carrying it
+    here would inject invocation-time noise into every consumer that
+    fingerprints this packet's semantic content.  The blockers below are
+    derived from real coverage and pinned contract state instead, and are
+    independently recomputable from the same envelopes.
+    """
+    try:
+        reasons = RUNTIME_REGIME_READINESS.unavailable_reasons(readiness_packet)
+    except (ValueError, RuntimeError) as exc:
+        raise DefensiveActionDecisionError(
+            f"P1_REGIME_READINESS_INVALID:{exc}"
+        ) from exc
+    return _reasons(sorted(set(reasons)), "UNAVAILABLE_REASONS_INVALID:P1_REGIME_DECISION")
 
 
 class _CapitalFlowEngineSourceAdapter:
@@ -293,6 +324,26 @@ def _utc(value, code: str) -> str:
     return value
 
 
+def _kst_business_date(value: str) -> str:
+    """Return the Asia/Seoul business date of an already-validated UTC instant.
+
+    ``generated_at`` stays a UTC instant, while ``as_of_date`` is the KST
+    business date the scheduled briefing keys on (``DECISION_DATE`` is derived
+    with ``TZ=Asia/Seoul``).  The weekday morning run fires at 22:05Z, which is
+    07:05 the *next* KST day, so comparing the first ten characters of the two
+    strings rejects every normal morning packet.  Only this comparison basis is
+    normalized: the source-instant, source-from-future and source-after-as-of
+    guards keep their own bases.
+
+    Same basis as ``decision/unified_decision_contract.py::_kst_operating_date``
+    and ``regime/crypto_live_component_registry.py::_operational_date_kst``.
+    """
+    parsed = dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=dt.timezone.utc
+    )
+    return parsed.astimezone(KST).date().isoformat()
+
+
 def _sha(value, code: str) -> str:
     if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
         raise DefensiveActionDecisionError(code)
@@ -469,7 +520,7 @@ def _assemble(
 ) -> dict:
     as_of = _date(as_of_date, "AS_OF_DATE_INVALID")
     generated = _utc(generated_at, "GENERATED_AT_INVALID")
-    if generated[:10] < as_of:
+    if _kst_business_date(generated) < as_of:
         raise DefensiveActionDecisionError("GENERATED_BEFORE_AS_OF_DATE")
     if policy_packet is not None:
         raise DefensiveActionDecisionError("UNRATIFIED_POLICY_PACKET_FORBIDDEN")

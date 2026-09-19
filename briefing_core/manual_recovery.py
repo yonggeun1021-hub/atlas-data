@@ -10,7 +10,11 @@ import os
 from pathlib import Path
 import shutil
 
-from briefing.daily_orchestrator import validate_packet
+from briefing.daily_orchestrator import (
+    FLOW_REPLAY_UNPROVABLE_ERRORS,
+    DailyOrchestratorError,
+    validate_packet,
+)
 from briefing_core import major_events
 
 
@@ -29,6 +33,17 @@ AUTHORITY = {
 
 class ManualRecoveryError(RuntimeError):
     pass
+
+
+# Everything this command may fail with that is a decision rather than a bug.
+# A packet that cannot be validated -- for want of trusted Flow history
+# context, or because its frozen inputs cannot be proven -- is a STOP, and the
+# exact code survives that boundary instead of becoming a traceback.
+STOP_ERRORS = (
+    ManualRecoveryError,
+    major_events.MajorEventError,
+    DailyOrchestratorError,
+) + FLOW_REPLAY_UNPROVABLE_ERRORS
 
 
 def _read_json(path: Path) -> dict:
@@ -78,8 +93,26 @@ def publish(
     decision_date: str,
     generated_at: str,
     registry_path: str,
+    historical_source_commit: str | None = None,
+    trusted_repository_root: Path | None = None,
+    trusted_validation_head: str | None = None,
 ) -> dict:
+    """Append one labelled recovery revision over an already-published one.
+
+    The three history arguments are EXTERNAL trusted operator context, passed
+    straight through to ``validate_packet``.  This module never derives them:
+    it does not read a source commit out of the packet it is recovering, out
+    of a locator, or out of the live HEAD.
+
+    A recovery target that is a legacy packet (no ``flow_replay_version``
+    marker) and is offered no context fails with the approved unreplayable
+    diagnostic.  That failure is preserved deliberately -- recovering a
+    briefing must not be a way to accept a packet whose Flow inputs cannot be
+    proven.
+    """
     repo_root = repo_root.resolve()
+    if trusted_repository_root is None:
+        trusted_repository_root = repo_root
     if slot not in SLOT:
         raise ManualRecoveryError("RECOVERY_SLOT_INVALID")
     date_root = repo_root / "evidence/daily_briefing" / slot / decision_date
@@ -102,7 +135,12 @@ def publish(
     packet_body = (base_root / "packet.json").read_bytes()
     briefing_body = (base_root / "briefing.md").read_bytes()
     packet = json.loads(packet_body)
-    validate_packet(packet)
+    validate_packet(
+        packet,
+        trusted_repository_root=Path(trusted_repository_root),
+        trusted_validation_head=trusted_validation_head,
+        historical_source_commit=historical_source_commit,
+    )
     if packet.get("packet_sha256") != entry.get("packet_sha256"):
         raise ManualRecoveryError("RECOVERY_PACKET_INDEX_SHA_MISMATCH")
     if packet.get("slot") != slot or packet.get("decision_date") != decision_date:
@@ -194,6 +232,16 @@ def main() -> int:
     parser.add_argument("--decision-date", required=True)
     parser.add_argument("--generated-at", required=True)
     parser.add_argument("--registry-path", required=True)
+    # Optional external history context. A current (Flow version 1) packet
+    # carries its own frozen envelope and needs none of these; they exist so a
+    # trusted operator can recover over a legacy packet. Never defaulted from
+    # the packet or from live HEAD.
+    parser.add_argument(
+        "--historical-source-commit",
+        help="externally trusted ORIGINAL Flow source commit for a legacy packet",
+    )
+    parser.add_argument("--trusted-repository-root", type=Path)
+    parser.add_argument("--trusted-validation-head")
     args = parser.parse_args()
     result = publish(
         args.repo_root,
@@ -201,6 +249,9 @@ def main() -> int:
         decision_date=args.decision_date,
         generated_at=args.generated_at,
         registry_path=args.registry_path,
+        historical_source_commit=args.historical_source_commit,
+        trusted_repository_root=args.trusted_repository_root,
+        trusted_validation_head=args.trusted_validation_head,
     )
     for key in ("result", "revision", "path", "duplicate_count"):
         print(f"{key}={result[key]}")
@@ -210,6 +261,9 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (ManualRecoveryError, major_events.MajorEventError) as exc:
+    except STOP_ERRORS as exc:
+        # Printed verbatim, so the exact code -- UNREPLAYABLE_FLOW_HISTORY_
+        # SOURCE_COMMIT_REQUIRED, a FLOW_REPLAY_* provenance code,
+        # OUTPUT_MISMATCH -- survives this boundary intact.
         print(f"STOP:{exc}", file=os.sys.stderr)
         raise SystemExit(2) from None

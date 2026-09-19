@@ -1,0 +1,29 @@
+{
+ "schema": "user_ratification/1",
+ "id": "USER_RATIFICATION_RULE_GOVERNANCE_EVIDENCE_GATED_ADJUSTMENT_20260915",
+ "recorded_by": "CLAUDE_CIO",
+ "recorded_at_kst": "2026-09-15T00:18+09:00",
+ "user_sentence_verbatim": "오키 그렇게 반영해줘",
+ "context": "Reply to CIO message proposing to replace the 2026-08-02 governance line '성과 기반 변경 금지' (Notion 운영 정본 / cloud routine prompts) with evidence-gated adjustment, and to keep a registry + scorecard of all 확정 rules evaluated on PAPER and REAL trades (user request 2026-09-15 ~00:30 KST).",
+ "decision": {
+  "replaces": "성과 기반 변경 금지 (Rule Governance v1.0 / #18, 2026-08-02)",
+  "rules": [
+   "performance-based re-adjustment allowed only when the rule's pre-registered review trigger is met",
+   "add proposal reason #5: 규칙 성적표 기준 미달 (to Bug Fix / Clarification / New Evidence / Conflict Resolution)",
+   "judge only after the rule's minimum sample size",
+   "evaluate only on data after the rule's effective date",
+   "cooling-off period after a rule change before re-adjustment (period to be proposed and 확정)",
+   "process unchanged: CIO proposal with evidence -> user 확정 -> new version; no silent automatic change",
+   "maintain a registry of all 확정 rules and a per-rule scorecard across PAPER and REAL trades with badges 정상/관찰/재조정 검토/되돌림 권고"
+  ],
+  "follow_up": [
+   "apply replacement text to Notion 운영 정본 Rule Governance paragraph and cloud routine prompts (CIO, with change shown to user)",
+   "implement decision lineage + scorecard (priority per CLAUDE_CIO_PAPER_CYCLE_DECISION_BLOCKERS_20260915.md section 6)"
+  ]
+ },
+ "not_changed": [
+  "REAL/order/payment/secret authority",
+  "already 확정 rule values"
+ ],
+ "correction_note": "recorded_at_kst corrected by CIO on 2026-09-15 08:1x KST from '2026-09-15T00:40+09:00' (CIO clock-estimation error) to the file creation time; previous file sha256 c3f1e78ca987760af205807f67e9b56e8e7bd0078cbb87ac566b49767a855f9b; decision content unchanged."
+}

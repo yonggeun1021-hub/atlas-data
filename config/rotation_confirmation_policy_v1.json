@@ -1,0 +1,208 @@
+{
+  "schema_version": "rotation_confirmation_policy/1",
+  "policy_id": "ROTATION_CONFIRMATION.USER_RATIFIED.V1",
+  "ratification_record": {
+    "record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+    "repo_path": "evidence/authority/capital_rotation_rules_v1_user_ratification_20260915.json",
+    "sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+    "superseded_placeholder_sha256": "68ca157398e2396ccc56e24f59dbf74a623147a8f6db4a2a00747b59ca793bdf",
+    "source_document_sha256": "f77f3c43471348d05bde59998f3bcbfc68b1da8f55ac832e553ad8ec8e9fe9b0"
+  },
+  "decisions_effective_from": "2026-09-15",
+  "state_vocabulary": [
+    "STRONG_CONFIRMED",
+    "STRONG_HELD",
+    "STRONG_RELEASED",
+    "EMERGING_WATCH",
+    "NEUTRAL"
+  ],
+  "decision_eligible_states": [
+    "STRONG_CONFIRMED",
+    "STRONG_HELD"
+  ],
+  "display_only_states": [
+    "EMERGING_WATCH"
+  ],
+  "confirmation": {
+    "enter_consecutive_top_observations": 2,
+    "release_consecutive_non_top_observations": 2,
+    "release_on_single_bottom_observation": true,
+    "chain_break": "OBSERVATION_GAP_ABOVE_MAXIMUM_DAYS_RESETS_STREAKS_AND_STRONG_STATUS",
+    "unknown_observation": "TREATED_AS_MISSING_NO_STATE_INFERENCE"
+  },
+  "underlying_observation_mapping": {
+    "contract": "rotation_state_policy_ratification/1",
+    "contract_path": "config/rotation_state_policy_ratification_contract.json",
+    "use": "PER_OBSERVATION_P2_STATE_ANNOTATION_ONLY"
+  },
+  "markets": {
+    "CRYPTO": {
+      "rule_id": "RULE.ROTATION.CRYPTO.V1",
+      "ratification_status": "RATIFIED",
+      "evidence_badge_ko": "경계선 통과",
+      "ledger_market": "CRYPTO",
+      "source": {
+        "kind": "crypto_leadership_packet",
+        "root": "data/observations/crypto_leadership",
+        "contract_version": "crypto_leadership_contract/v2",
+        "window_id": "primary_30d",
+        "window_role": "PRIMARY",
+        "lookback_calendar_days": 30,
+        "strength_field": "group_relative_strength.bucket[].relative_strength_vs_btc"
+      },
+      "scope_id": "BTC_RELATIVE_BUCKETS",
+      "benchmark": "BTC",
+      "entities": [
+        "ALT",
+        "BTC",
+        "ETH"
+      ],
+      "top_rank_max": 1,
+      "bottom_rank_min": 3,
+      "tie_break": "ENTITY_ID_ASC",
+      "maximum_observation_gap_days": 2,
+      "emerging_watch": {
+        "display_only": true,
+        "minimum_rank_improvement": 1,
+        "lookback_observations": 7,
+        "parameter_source": "CLAUDE_CIO_CAPITAL_ROTATION_RULES_PROPOSAL_20260915 R3 (CRYPTO d=1, w=7)"
+      },
+      "lagging_warning": {
+        "display_only": true,
+        "method": "RRG_STYLE_TRANSPARENT_APPROXIMATION",
+        "ratio_sma_days": 30,
+        "momentum_lookback_days": 7,
+        "excluded_entities": [
+          "BTC"
+        ],
+        "source_field": "windows[primary_30d].daily_points[].groups.bucket[].daily_gross_return"
+      },
+      "forward_review": {
+        "trigger_confirmed_events": 10,
+        "metric": "14D_EXCESS_RETURN_AFTER_0_5PCT_COST",
+        "revert_to_display_only_if_below": 0,
+        "status": "RECORDED_NOT_EVALUATED_BY_THIS_LAYER"
+      },
+      "pending_definitions": [
+        "FORWARD_REVIEW_EXCESS_RETURN_BASELINE_CLARIFICATION_PENDING_USER_RATIFICATION"
+      ]
+    },
+    "US": {
+      "rule_id": "RULE.ROTATION.US.V1P",
+      "ratification_status": "PROVISIONAL",
+      "evidence_badge_ko": "증거 부족·잠정",
+      "ledger_market": "US",
+      "source": {
+        "kind": "free_market_data_derived_manifest",
+        "root": "evidence/free_market_data/derived",
+        "strength_field": "us_market_reference.sector_etfs[].relative_to_spy_pct.20_session_pct",
+        "strength_window_sessions": 20,
+        "minimum_available_session_count": 21
+      },
+      "scope_id": "SPY",
+      "benchmark": "SPY",
+      "entities": [
+        "XLB",
+        "XLC",
+        "XLE",
+        "XLF",
+        "XLI",
+        "XLK",
+        "XLP",
+        "XLRE",
+        "XLU",
+        "XLV",
+        "XLY"
+      ],
+      "top_count": 3,
+      "bottom_count": 3,
+      "tie_break": "ENTITY_ID_ASC",
+      "maximum_observation_gap_days": 4,
+      "emerging_watch": {
+        "display_only": true,
+        "minimum_rank_improvement": 3,
+        "lookback_observations": 5,
+        "parameter_source": "CLAUDE_CIO_CAPITAL_ROTATION_RULES_PROPOSAL_20260915 R3 (US d=3, w=5)"
+      },
+      "lagging_warning": null,
+      "pending_definitions": [
+        "EXCESS_RETURN_BENCHMARK_DEFINITION_NOT_RATIFIED",
+        "STOCK_TO_SPDR_SECTOR_MAPPING_NOT_RATIFIED",
+        "RESTUDY_AFTER_ONE_YEAR_BACKFILL"
+      ]
+    },
+    "KR": {
+      "rule_id": "RULE.ROTATION.KR.V1T",
+      "ratification_status": "TEMPORARY",
+      "evidence_badge_ko": "관찰 시작·잠정",
+      "ledger_market": "KOREA",
+      "source": {
+        "kind": "korea_leadership_context_packet",
+        "root": "data/observations/korea_leadership_context",
+        "leadership_status": "OBSERVED_UNCLASSIFIED",
+        "strength_field": "leadership_packet.relative_strength_observations[].relative_strength_vs_benchmark",
+        "sector_policy_path": "config/korea_capital_rotation_policy_ratified.json",
+        "sector_policy_sha256": "1e573bd049990c6856a0c3589791df116567ea01ae90bcae8d273c3d09edda33"
+      },
+      "strength_basis": {
+        "active": "ONE_SESSION_RATIFIED_TEMPORARY",
+        "lookback_sessions": 1,
+        "twenty_session_basis": {
+          "enabled": false,
+          "lookback_sessions": 20,
+          "status": "NOT_ENABLED_PENDING_KRX_SECTOR_HISTORY_AND_REVERIFICATION_RATIFICATION"
+        }
+      },
+      "top_count": 3,
+      "bottom_count": 3,
+      "tie_break": "SERIES_IDENTITY_ASC",
+      "maximum_observation_gap_days": 7,
+      "emerging_watch": {
+        "display_only": true,
+        "minimum_rank_improvement": 3,
+        "lookback_observations": 5,
+        "parameter_source": "rotation/kr_rotation_event_study.py pre-registered WATCH=(3,5), display-only reuse"
+      },
+      "lagging_warning": null,
+      "pending_definitions": [
+        "TWENTY_SESSION_BASIS_MEANING_CLARIFICATION_PENDING_USER_RATIFICATION",
+        "KR_DAILY_LEADERSHIP_CONTEXT_NOT_COMMITTED_BY_SCHEDULED_PAIR_PATH"
+      ]
+    }
+  },
+  "common": {
+    "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+    "ratification_status": "RATIFIED",
+    "t1_selection_states": [
+      "STRONG_CONFIRMED",
+      "STRONG_HELD"
+    ],
+    "t2_c5_pass_states": [
+      "STRONG_CONFIRMED",
+      "STRONG_HELD"
+    ],
+    "new_buy_by_market_state": {
+      "RISK_ON": "STRONG_CONFIRMED_OR_HELD_ONLY",
+      "NEUTRAL": "STRONG_CONFIRMED_OR_HELD_ONLY",
+      "RISK_OFF": "DENY",
+      "STRESS": "DENY",
+      "UNKNOWN": "DENY"
+    },
+    "allocation_v2_numbers_changed": false
+  },
+  "release_handling": {
+    "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
+    "ratification_status": "RATIFIED",
+    "new_buy_stop": true,
+    "forced_exit": false,
+    "held_position_action": "FOLLOW_EXISTING_STOP_LOSS_TAKE_PROFIT_RULES",
+    "held_position_rule_gap": "GENERAL_BUY_EXIT_RULES_NOT_DEFINED_PENDING_EXIT_DESIGN"
+  },
+  "authority": {
+    "order_authorized": false,
+    "real_trading_authorized": false,
+    "allocation_change_authorized": false,
+    "forced_liquidation_authorized": false,
+    "secret_access_authorized": false
+  }
+}

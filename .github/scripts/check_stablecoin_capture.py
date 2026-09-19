@@ -134,9 +134,10 @@ def observe(
         status = "PRESENT"
         if lineage is None:
             classification = "present_unknown_lineage"
-        elif lineage["slot_id"] == "primary_1520_kst":
+        # primary_1520_kst is the retained id of the pre-2026-09-14 primary slot.
+        elif lineage["slot_id"] in {"primary_1450_kst", "primary_1520_kst"}:
             classification = "present_primary"
-        elif lineage["slot_id"] in {"backup_1620_kst", "final_1720_kst"}:
+        elif lineage["slot_id"] in {"backup_1520_kst", "backup_1620_kst", "final_1720_kst"}:
             classification = "present_backup"
         elif lineage["slot_id"] == "manual":
             classification = "present_manual"

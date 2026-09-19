@@ -318,6 +318,32 @@ def verify_existing_observation(prior_date: str, current_date: str) -> dict:
     return packet
 
 
+def usable_seed_ready(packet: dict) -> bool:
+    """True only when the retained packet's own transform attempt is
+    outcome=="populated" with a real (non-null) leadership_packet.
+
+    Never inferred from populate()'s own storage outcome
+    (populated/verified_existing) -- that field only says whether bytes
+    were newly written or reused, and is "populated" even when the
+    retained transform outcome inside those same bytes is "blocked".
+    This checks the packet's OWN outcome/leadership_packet fields, the
+    thing korea_capital_rotation.py's downstream leadership consumption
+    actually needs to be non-null."""
+    return packet.get("outcome") == "populated" and packet.get("leadership_packet") is not None
+
+
+def require_usable_seed(packet: dict) -> None:
+    """Opt-in on top of verify_existing_observation()'s own generic
+    date/hash/tamper checks -- a byte-identical, correctly hashed
+    BLOCKED attempt is real, valid, faithfully preserved evidence and
+    must keep passing verify_existing_observation() unchanged. It is
+    not, by itself, a usable Leadership seed for anything that needs a
+    real ranked packet. Raises with an explicit non-ready reason; never
+    mutates the packet, never refetches, never fabricates evidence."""
+    if not usable_seed_ready(packet):
+        raise LeadershipLiveFetchError(f"SEED_NOT_USABLE:outcome={packet.get('outcome')}")
+
+
 def run(
     auth_key: str, prior_date: str, current_date: str, *, opener=urlopen, policy_path=None
 ) -> dict:
@@ -410,6 +436,18 @@ def main() -> int:
         action="store_true",
         help="validate and reuse a committed same-date packet without KRX access",
     )
+    parser.add_argument(
+        "--require-usable-seed",
+        action="store_true",
+        help=(
+            "opt-in: additionally require the verified/populated packet's own "
+            "transform outcome=populated with a real (non-null) leadership_packet "
+            "before reporting seed readiness. A correctly preserved BLOCKED "
+            "attempt still passes ordinary integrity verification unchanged, but "
+            "is reported not-ready here -- never a hard error of the underlying "
+            "verify/fetch, never a refetch, never fabricated evidence."
+        ),
+    )
     args = parser.parse_args()
     if args.verify_existing_only:
         try:
@@ -421,6 +459,8 @@ def main() -> int:
             "korea leadership existing evidence verified "
             f"path={output_path_for(packet['observation_date'])}"
         )
+        if args.require_usable_seed:
+            return _report_usable_seed(packet)
         return 0
     key = os.getenv(args.auth_env, "")
     if not key:
@@ -432,6 +472,23 @@ def main() -> int:
         print(f"korea leadership live fetch failed reason={exc}")
         return 1
     print(f"korea leadership live fetch outcome={result['outcome']} path={result['path']}")
+    if args.require_usable_seed:
+        packet = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+        return _report_usable_seed(packet)
+    return 0
+
+
+def _report_usable_seed(packet: dict) -> int:
+    """Shared CLI reporting for --require-usable-seed across both the
+    --verify-existing-only path and the fresh-fetch path -- same opt-in
+    check, same exit-code contract, never two different notions of
+    "usable" for the same packet shape."""
+    try:
+        require_usable_seed(packet)
+    except LeadershipLiveFetchError as exc:
+        print(f"korea leadership usable-seed readiness: NOT_READY reason={exc}")
+        return 3
+    print("korea leadership usable-seed readiness: READY")
     return 0
 
 

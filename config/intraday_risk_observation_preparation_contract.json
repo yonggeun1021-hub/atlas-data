@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "contract_version": "intraday_risk_observation_preparation/1",
+  "definition_schema_version": "intraday_risk_observation_definition/1",
+  "current_session_schema_version": "intraday_risk_current_session/1",
+  "prior_session_schema_version": "intraday_risk_prior_comparable_session/1",
+  "output_schema_version": "intraday_risk_observation_preparation_receipt/1",
+  "consumer_observation_schema_version": "intraday_risk_observation_batch/3",
+  "consumer_contract": {
+    "ref": "config/intraday_risk_escalation_contract.json",
+    "sha256": "ded62f9d702329ca4f0626829a33db855b927319908690207e3fc9abfee70bca"
+  },
+  "metric_formula_source": {
+    "ref": "execution/intraday_risk_escalation.py",
+    "sha256": "6f48a69c2b2de876b537c1138c5c2449cfbc5b4ab1f261cb39911bb553fb52ed"
+  },
+  "volume_arithmetic": {
+    "ref": "discovery/market_behavior.py",
+    "sha256": "c29d26ff140990bb85a522a4ca338a36623f3a65914e167b400a168574b4d9f9",
+    "function": "volume_baseline_features"
+  },
+  "elapsed_timeframes": {
+    "15m": {
+      "duration_seconds": 900,
+      "selection": "CALLER_REQUIRED_NO_DEFAULT"
+    }
+  },
+  "baseline_methods": [
+    "PRIOR_MEAN",
+    "PRIOR_MEDIAN"
+  ],
+  "prior_comparable_session_count": "CALLER_REQUIRED_POSITIVE_INTEGER_NO_DEFAULT",
+  "source_profiles": {
+    "US_COMPLETED_15M": {
+      "market": "US",
+      "provider_contract_ref": "config/us_completed_market_data_contract.json",
+      "provider_contract_sha256": "800770f7e9afe93b33d49ea0430c1b6f7bfbc55a872291cc71f69b3958e206b7",
+      "allowed_session_profile_ids": [
+        "US_REGULAR",
+        "US_EARLY_CLOSE"
+      ],
+      "price_basis": "RAW",
+      "completed_bucket_volume_field": "volume"
+    },
+    "KRX_COMPLETED_15M": {
+      "market": "KOREA",
+      "provider_contract_ref": "config/krx_market_data_contract.json",
+      "provider_contract_sha256": "437b07ec2f1c35ee56236a5044e73bc9b566faa2350d7fe9bc14292ce8061649",
+      "allowed_session_profile_ids": [
+        "KOREA_REGULAR"
+      ],
+      "price_basis": "CALLER_SOURCE_CONTRACT",
+      "completed_bucket_volume_field": "volume"
+    },
+    "UPBIT_COMPLETED_15M": {
+      "market": "CRYPTO",
+      "provider_contract_ref": "microstructure/upbit_candle_finalization.py",
+      "provider_contract_sha256": "d865ddd14952d86dee123b7dfe8baf34598280074a3dcef86a54d91143552d22",
+      "allowed_session_profile_ids": [
+        "UPBIT_UTC_DAY"
+      ],
+      "price_basis": "PROVIDER_NATIVE",
+      "completed_bucket_volume_field": "candle_acc_trade_volume"
+    }
+  },
+  "session_profiles": {
+    "US_REGULAR": {
+      "market": "US",
+      "timezone": "America/New_York",
+      "open_local": "09:30:00",
+      "close_local": "16:00:00",
+      "duration_seconds": 23400,
+      "session_kind": "REGULAR",
+      "boundary_authority": "DATE_SPECIFIC_OFFICIAL_CALENDAR_REQUIRED"
+    },
+    "US_EARLY_CLOSE": {
+      "market": "US",
+      "timezone": "America/New_York",
+      "open_local": "09:30:00",
+      "close_local": "13:00:00",
+      "duration_seconds": 12600,
+      "session_kind": "EARLY_CLOSE",
+      "boundary_authority": "DATE_SPECIFIC_OFFICIAL_CALENDAR_REQUIRED"
+    },
+    "KOREA_REGULAR": {
+      "market": "KOREA",
+      "timezone": "Asia/Seoul",
+      "open_local": "09:00:00",
+      "close_local": "15:30:00",
+      "duration_seconds": 23400,
+      "session_kind": "REGULAR",
+      "boundary_authority": "DATE_SPECIFIC_OFFICIAL_CALENDAR_REQUIRED"
+    },
+    "UPBIT_UTC_DAY": {
+      "market": "CRYPTO",
+      "timezone": "UTC",
+      "open_local": "00:00:00",
+      "close_local": "00:00:00",
+      "duration_seconds": 86400,
+      "session_kind": "CONTINUOUS_24H",
+      "boundary_authority": "CALLER_SELECTED_UPBIT_PROVIDER_CONTRACT_NOT_UNIVERSAL_CRYPTO_FACT"
+    }
+  },
+  "metric_semantics": {
+    "DRAWDOWN_FRACTION": {
+      "semantic_id": "REFERENCE_CLOSE_TO_LAST_DECLINE_FRACTION/1",
+      "display_name": "Reference-close decline fraction",
+      "formula": "max(0,(reference_close-last_price)/reference_close)",
+      "true_peak_drawdown": false
+    },
+    "RELATIVE_VOLUME_FRACTION": {
+      "semantic_id": "CUMULATIVE_VOLUME_TO_EXPLICIT_PRIOR_BASELINE/1",
+      "formula": "cumulative_volume/expected_volume_to_time",
+      "zero_denominator": "NOT_AVAILABLE"
+    }
+  },
+  "repository_defaults": {
+    "elapsed_timeframe": "ABSENT",
+    "baseline_method": "ABSENT",
+    "prior_comparable_session_count": "ABSENT",
+    "session_profile": "ABSENT",
+    "thresholds": "ABSENT"
+  },
+  "authority": {
+    "normalized_observation_preparation_only": true,
+    "session_calendar_authorized": false,
+    "provider_selection_authorized": false,
+    "risk_threshold_policy_authorized": false,
+    "risk_evaluation_authorized": false,
+    "strategy_authorized": false,
+    "action_generation_authorized": false,
+    "order_generation_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false
+  }
+}

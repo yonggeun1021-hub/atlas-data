@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import datetime as dt
 import json
 import shutil
@@ -13,18 +14,61 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from identity.candidate_identity_authority_proposal import (
-    AUTHORITY_ALL_FALSE, COMPLETE, INCOMPLETE,
-    CandidateIdentityAuthorityProposalError, _proposal, build_packet, validate_packet,
+    AUTHORITY_ALL_FALSE, COMPLETE, INCOMPLETE, KOREA_EVIDENCE_DATE_BASIS,
+    CandidateIdentityAuthorityProposalError, _korea_evidence_date, _load_korea_evidence,
+    _proposal, build_packet, validate_packet,
 )
+
+
+from identity import canonical_identity as ci
+from identity.candidate_identity_gap_inventory import _load_taxonomy, build_inventory
+from identity.candidate_identity_observation import DEFAULT_OUTPUT, DEFAULT_REPORT, build_observation
+
+
+KRX_SOURCE = "KRX 정보데이터시스템 (pykrx)"
+DART_SOURCE = "OpenDART (금융감독원)"
+
+
+def _write_korea_collection(root: Path, collected_for: str, symbol: str = "005930", *,
+                            collected_at_utc: str | None = None, include=("krx", "dart")) -> Path:
+    """Write a minimal official-collector pair for one KST collection date."""
+    day = root / collected_for
+    day.mkdir(parents=True, exist_ok=True)
+    if collected_at_utc is None:
+        prior = dt.date.fromisoformat(collected_for) - dt.timedelta(days=1)
+        collected_at_utc = f"{prior.isoformat()}T21:00:33+00:00"
+    docs = {
+        "krx": {"source": KRX_SOURCE, "stocks": {symbol: {"status": "ok", "name": "삼성전자"}}},
+        "dart": {"source": DART_SOURCE, "stocks": {symbol: {"status": "ok", "name": "삼성전자", "corp_code": "00126380"}}},
+    }
+    for name in include:
+        doc = dict(docs[name], collected_for_kst_date=collected_for,
+                   collected_at_utc=collected_at_utc, source_tier="Official")
+        (day / f"{name}.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    return day
 
 
 class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.gaps = json.loads((ROOT / "evidence/operational/dynamic_clock/candidate_identity_gap_inventory.json").read_text())
         cls.taxonomy = ROOT / "config/crypto_breadth_exclusion_taxonomy.json"
+        # The rolling inventory pins its generation-time taxonomy bytes. A
+        # legitimate taxonomy change must be tested with an inventory rebuilt
+        # from the same current inputs the production consumer revalidates.
+        # Keep the committed historical inventory untouched.
+        taxonomy, records = _load_taxonomy(cls.taxonomy)
+        cls.gaps = build_inventory(
+            json.loads(DEFAULT_OUTPUT.read_text()),
+            json.loads(DEFAULT_REPORT.read_text()),
+            ci.load_authority(), ci.load_scope_authority(), taxonomy, records,
+            taxonomy_bytes_sha256=hashlib.sha256(cls.taxonomy.read_bytes()).hexdigest(),
+        )
         cls.raw = ROOT / "evidence/crypto/breadth/raw"
         cls.packet = build_packet(cls.gaps, cls.taxonomy, cls.raw)
+        # Korea identity evidence binds to the Korea collection date the
+        # Dynamic Clock admitted, which differs from the calendar
+        # decision_date on weekend/KRX-holiday refreshes.
+        cls.korea_evidence_date = json.loads(DEFAULT_REPORT.read_text())["by_market"]["KOREA"]["evidence_as_of"]
 
     def test_real_gap_population_reconciles(self):
         expected_ids = {
@@ -141,10 +185,10 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
         symbol = korea_gap["subject"]
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            day = root / self.gaps["decision_date"]
+            day = root / self.korea_evidence_date
             day.mkdir()
             for name in ("krx.json", "dart.json"):
-                shutil.copy2(ROOT / "data" / self.gaps["decision_date"] / name, day / name)
+                shutil.copy2(ROOT / "data" / self.korea_evidence_date / name, day / name)
             dart = json.loads((day / "dart.json").read_text())
             dart["stocks"][symbol]["name"] = "다른회사"
             (day / "dart.json").write_text(json.dumps(dart, ensure_ascii=False))
@@ -154,16 +198,146 @@ class CandidateIdentityAuthorityProposalTests(unittest.TestCase):
     def test_korea_future_collector_timestamp_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            day = root / self.gaps["decision_date"]
+            day = root / self.korea_evidence_date
             day.mkdir()
             for name in ("krx.json", "dart.json"):
-                shutil.copy2(ROOT / "data" / self.gaps["decision_date"] / name, day / name)
+                shutil.copy2(ROOT / "data" / self.korea_evidence_date / name, day / name)
             krx = json.loads((day / "krx.json").read_text())
             future_date = dt.date.fromisoformat(self.gaps["decision_date"]) + dt.timedelta(days=1)
             krx["collected_at_utc"] = future_date.isoformat() + "T00:00:00Z"
             (day / "krx.json").write_text(json.dumps(krx, ensure_ascii=False))
             with self.assertRaisesRegex(CandidateIdentityAuthorityProposalError, "KOREA_KRX_EVIDENCE_INVALID"):
                 build_packet(self.gaps, self.taxonomy, self.raw, market_data_root=root)
+
+    # -- Non-trading-day refresh (P8-12 runs 2026-09-12/13 regression) -----
+
+    def _refresh_fixture(self, td: Path, decision_date: str, korea_evidence_as_of: str | None = None):
+        """Rebuild report -> observation -> gap inventory for another refresh date."""
+        report = json.loads(DEFAULT_REPORT.read_text())
+        report["decision_date"] = decision_date
+        if korea_evidence_as_of is not None:
+            report["by_market"]["KOREA"]["evidence_as_of"] = korea_evidence_as_of
+        authority, scope = ci.load_authority(), ci.load_scope_authority()
+        observation = build_observation(report, authority, scope)
+        taxonomy, records = _load_taxonomy(self.taxonomy)
+        gaps = build_inventory(
+            observation, report, authority, scope, taxonomy, records,
+            taxonomy_bytes_sha256=hashlib.sha256(self.taxonomy.read_bytes()).hexdigest(),
+        )
+        report_path, observation_path = td / "report.json", td / "observation.json"
+        report_path.write_text(json.dumps(report, ensure_ascii=False))
+        observation_path.write_text(json.dumps(observation, ensure_ascii=False))
+        return gaps, {"report_path": report_path, "observation_path": observation_path}
+
+    def test_weekend_refresh_binds_korea_identity_to_the_dynamic_clock_korea_evidence_date(self):
+        if not any(x["market"] == "KOREA" for x in self.gaps["identity_gaps"]):
+            self.skipTest("no Korea identity gap in the live population")
+        evidence = dt.date.fromisoformat(self.korea_evidence_date)
+        saturday = evidence + dt.timedelta(days=1)
+        while saturday.weekday() != 5:
+            saturday += dt.timedelta(days=1)
+        with tempfile.TemporaryDirectory() as td:
+            gaps, paths = self._refresh_fixture(Path(td), saturday.isoformat())
+            self.assertEqual(gaps["decision_date"], saturday.isoformat())
+            packet = build_packet(gaps, self.taxonomy, self.raw, **paths)
+            korea = packet["source_korea_identity_evidence"]
+            self.assertTrue(korea)
+            for row in korea.values():
+                self.assertEqual(row["evidence_date"], self.korea_evidence_date)
+                self.assertEqual(row["evidence_date_basis"], KOREA_EVIDENCE_DATE_BASIS)
+                self.assertEqual(row["krx"]["path"], f"data/{self.korea_evidence_date}/krx.json")
+                self.assertEqual(row["dart"]["path"], f"data/{self.korea_evidence_date}/dart.json")
+            self.assertEqual(validate_packet(packet, gaps, self.taxonomy, self.raw, **paths), packet)
+
+            # The same weekend refresh with no Korea collection available
+            # still fails closed; there is no hidden fallback to data/.
+            with tempfile.TemporaryDirectory() as empty:
+                with self.assertRaisesRegex(
+                    CandidateIdentityAuthorityProposalError,
+                    "KOREA_IDENTITY_EVIDENCE_UNAVAILABLE_OR_INVALID",
+                ):
+                    build_packet(gaps, self.taxonomy, self.raw, market_data_root=Path(empty), **paths)
+
+    def test_korea_evidence_date_resolves_saturday_sunday_and_krx_holiday_refreshes(self):
+        # (refresh KST decision_date, Korea collection admitted by the clock)
+        cases = [
+            ("2026-09-12", "2026-09-11"),  # Saturday -> Friday collection
+            ("2026-09-13", "2026-09-11"),  # Sunday -> Friday collection
+            ("2026-09-24", "2026-09-23"),  # KRX Chuseok holiday (Thu) -> Wednesday
+            ("2026-09-27", "2026-09-23"),  # Sunday after Chuseok -> Wednesday
+        ]
+        for decision, evidence in cases:
+            with self.subTest(decision=decision), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                _write_korea_collection(root, evidence)
+                report = {"decision_date": decision, "by_market": {"KOREA": {"evidence_as_of": evidence}}}
+                resolved = _korea_evidence_date(report, decision)
+                self.assertEqual(resolved, evidence)
+                row = _load_korea_evidence(root, decision, "005930", evidence_date=resolved)
+                self.assertEqual(row["evidence_date"], evidence)
+                self.assertEqual(row["evidence_date_basis"], KOREA_EVIDENCE_DATE_BASIS)
+                self.assertEqual(row["krx"]["path"], "external_fixture/krx.json")
+                self.assertEqual(row["corp_code"], "00126380")
+                self.assertFalse((root / decision).exists())
+                # Without the resolved date the calendar refresh date is used
+                # and, having no collection, fails closed exactly as before.
+                with self.assertRaisesRegex(
+                    CandidateIdentityAuthorityProposalError,
+                    "KOREA_IDENTITY_EVIDENCE_UNAVAILABLE_OR_INVALID",
+                ):
+                    _load_korea_evidence(root, decision, "005930")
+
+    def test_korea_evidence_date_is_never_absent_malformed_or_future(self):
+        E = CandidateIdentityAuthorityProposalError
+        cases = [
+            ({"by_market": {}}, "KOREA_IDENTITY_EVIDENCE_UNAVAILABLE_OR_INVALID"),
+            ({"by_market": {"KOREA": {"evidence_as_of": None}}}, "KOREA_IDENTITY_EVIDENCE_UNAVAILABLE_OR_INVALID"),
+            ({"by_market": {"KOREA": {"evidence_as_of": "20260911"}}}, "KOREA_EVIDENCE_DATE_INVALID"),
+            ({"by_market": {"KOREA": {"evidence_as_of": 20260911}}}, "KOREA_EVIDENCE_DATE_INVALID"),
+            ({"by_market": {"KOREA": {"evidence_as_of": "2026-09-14"}}}, "KOREA_EVIDENCE_DATE_FUTURE_DATED"),
+        ]
+        for report, code in cases:
+            with self.subTest(report=report):
+                with self.assertRaisesRegex(E, code):
+                    _korea_evidence_date(report, "2026-09-13")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_korea_collection(root, "2026-09-14")
+            with self.assertRaisesRegex(E, "KOREA_EVIDENCE_DATE_FUTURE_DATED"):
+                _load_korea_evidence(root, "2026-09-13", "005930", evidence_date="2026-09-14")
+
+    def test_missing_korea_evidence_on_a_trading_day_still_fails_closed_without_fallback(self):
+        E = CandidateIdentityAuthorityProposalError
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_korea_collection(root, "2026-09-11")  # prior Friday collection exists
+            report = {"by_market": {"KOREA": {"evidence_as_of": "2026-09-14"}}}
+            resolved = _korea_evidence_date(report, "2026-09-14")  # Monday trading day
+            with self.assertRaisesRegex(E, "KOREA_IDENTITY_EVIDENCE_UNAVAILABLE_OR_INVALID"):
+                _load_korea_evidence(root, "2026-09-14", "005930", evidence_date=resolved)
+            with self.assertRaisesRegex(E, "KOREA_IDENTITY_EVIDENCE_UNAVAILABLE_OR_INVALID"):
+                _load_korea_evidence(root, "2026-09-14", "005930")
+            # One of the two independent official sources missing is still missing.
+            _write_korea_collection(root, "2026-09-14", include=("krx",))
+            with self.assertRaisesRegex(E, "KOREA_IDENTITY_EVIDENCE_UNAVAILABLE_OR_INVALID"):
+                _load_korea_evidence(root, "2026-09-14", "005930", evidence_date=resolved)
+
+    def test_resolved_korea_evidence_must_match_its_date_and_be_available_by_refresh_end(self):
+        E = CandidateIdentityAuthorityProposalError
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            day = _write_korea_collection(root, "2026-09-11")
+            krx = json.loads((day / "krx.json").read_text(encoding="utf-8"))
+            krx["collected_for_kst_date"] = "2026-09-12"
+            (day / "krx.json").write_text(json.dumps(krx, ensure_ascii=False), encoding="utf-8")
+            with self.assertRaisesRegex(E, "KOREA_KRX_EVIDENCE_INVALID"):
+                _load_korea_evidence(root, "2026-09-13", "005930", evidence_date="2026-09-11")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # Collected after the end of the KST refresh date (2026-09-13T15:00Z).
+            _write_korea_collection(root, "2026-09-11", collected_at_utc="2026-09-13T15:00:01+00:00")
+            with self.assertRaisesRegex(E, "KOREA_KRX_EVIDENCE_INVALID"):
+                _load_korea_evidence(root, "2026-09-13", "005930", evidence_date="2026-09-11")
 
     def test_korea_subject_must_equal_the_exact_provider_symbol(self):
         gap = copy.deepcopy(next(x for x in self.gaps["identity_gaps"] if x["market"] == "KOREA"))

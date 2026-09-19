@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "contract_version": "crypto_paper_runtime/v1",
+  "policy_status": "RATIFIED",
+  "mode": "CRYPTO_INTERNAL_VIRTUAL_PAPER_RUNTIME_IDENTITY",
+  "decision": {
+    "identity": "CRYPTO-PAPER-RUNTIME-V1-20260914",
+    "status": "USER_RATIFIED",
+    "ratified_at_utc": "2026-09-13T17:00:00Z",
+    "record_path": "evidence/authority/crypto_paper_runtime_v1_user_ratification_20260914.json",
+    "record_sha256": "e2f9f69461088d52300258ab22f17d7f287bd7c2fd6efd1d49962b44f16fffe1",
+    "basis_sha256": "37964b134c4dea8e058554c4737a4b0605e8f0ee5179748a1fa8214abec421c5",
+    "reverses": "CIO decline of crypto normalization on 2026-09-12, for INTERNAL_VIRTUAL_PAPER scope only"
+  },
+  "scope": "INTERNAL_VIRTUAL_PAPER only. REAL, orders, capital closed. Allocation v2 and hedge consume crypto only as a market state; crypto hedge instrument remains cash.",
+  "note": "Additive crypto-scoped identity. config/paper_runtime_normalization_v1.json (US/KR), config/market_scoped_pit_acceptance_contract_v1.json (G8) and config/regime_output_contract.json (legacy regime_output/v1) stay byte-identical and are bound by hash below; the crypto PAPER path reads its market ratification and runtime-authorized regimes only from this file.",
+  "ratified_markets": [
+    "CRYPTO"
+  ],
+  "runtime_authorized_regimes": [
+    "RISK_ON",
+    "NEUTRAL",
+    "RISK_OFF",
+    "STRESS",
+    "UNKNOWN"
+  ],
+  "runtime_authorized_regimes_scope": "CRYPTO_PAPER_RUNTIME_DECISION_ONLY",
+  "required_axes": [
+    "TREND",
+    "BREADTH",
+    "RISK_VOL",
+    "LIQUIDITY",
+    "LEADERSHIP"
+  ],
+  "normalization": {
+    "source": "regime/crypto_paper_descriptive_normalization.py provisional values verbatim",
+    "TREND": {
+      "ABOVE_200DMA": "POSITIVE",
+      "AT_200DMA": "NEUTRAL",
+      "BELOW_200DMA": "NEGATIVE"
+    },
+    "BREADTH": {
+      "input": "crypto_breadth_observation/v2 alt_participation.advance_fraction",
+      "positive_min": "0.55",
+      "negative_max": "0.45"
+    },
+    "LIQUIDITY": {
+      "input": "stablecoin net issuance (native USD peg) daily and weekly",
+      "positive": "both_positive",
+      "negative": "both_negative",
+      "neutral": "mixed_or_zero"
+    },
+    "LEADERSHIP": {
+      "BROAD_ALT_LEADERSHIP": "POSITIVE",
+      "BTC_LEADERSHIP": "NEUTRAL",
+      "ETH_LEADERSHIP": "NEUTRAL",
+      "MIXED_WINDOW_LEADERSHIP": "NEUTRAL",
+      "NARROW_ALT_LEADERSHIP": "NEUTRAL",
+      "unknown_code": "AXIS_MISSING"
+    }
+  },
+  "RISK_VOL": {
+    "source_transform_version": "btc_risk/v1",
+    "inputs": {
+      "vol": "risk_point.realized_volatility.annualized_fraction (30 simple returns, annualized over 365 days)",
+      "dd": "risk_point.drawdown.current_fraction (drawdown from the 90-close high)"
+    },
+    "evaluation_order": "TOP_TO_BOTTOM_FIRST_MATCH",
+    "rules": [
+      {
+        "result": "STRESS",
+        "rule": "dd <= -0.25 or (vol >= 0.90 and dd <= -0.10)",
+        "dd_lte": "-0.25",
+        "or_vol_gte": "0.90",
+        "and_dd_lte": "-0.10"
+      },
+      {
+        "result": "NEGATIVE",
+        "rule": "dd <= -0.15 or vol >= 0.70",
+        "dd_lte": "-0.15",
+        "or_vol_gte": "0.70"
+      },
+      {
+        "result": "POSITIVE",
+        "rule": "dd > -0.08 and vol < 0.45",
+        "dd_gt": "-0.08",
+        "and_vol_lt": "0.45"
+      },
+      {
+        "result": "NEUTRAL",
+        "rule": "otherwise"
+      }
+    ],
+    "status": "INITIAL_PAPER_DEFAULTS_ONE_CONTROLLED_REVISION_ALLOWED_AFTER_KRAKEN_BULK_REPLAY_EVENT_STUDY"
+  },
+  "aggregation": {
+    "rule": "common-v1 unchanged: RISK_ON >= +3; RISK_OFF <= -3; STRESS overrides; ordinary transition 2 finalized packets; STRESS entry immediate; STRESS exit 2 non-stress readings and S > -3",
+    "consumed_via": "regime.decision_authority.replay_common_v1 (unmodified)"
+  },
+  "finalized_packet": {
+    "cadence": "ONE_PER_UTC_DAY",
+    "decision_time_utc": "07:00:00",
+    "runtime_chain_start_date": "2026-09-14",
+    "runtime_chain_start_rule": "first 07:00Z finalized packet at or after ratified_at_utc",
+    "btc_observation": "snapshot vintage == decision date; latest finalized day == previous completed UTC day",
+    "breadth_observation": "snapshot vintage == decision date; as_of == previous completed UTC day",
+    "stablecoin_observation": "same-UTC-day capture: snapshot vintage == observation date == decision date",
+    "availability": "every source available_at within [decision date 00:00Z, decision_at]",
+    "missing_invalid_or_stale_axis": "IMMEDIATE_UNKNOWN_NO_CARRY"
+  },
+  "leadership_window": {
+    "pilot_window_id": "pilot_7d",
+    "primary_window_id": "primary_30d",
+    "rule": "pilot 7d official until primary 30d observed, then 30d automatically",
+    "switch": "PERMANENT_ONCE_PRIMARY_OBSERVED_IN_RUNTIME_CHAIN_NO_FALLBACK",
+    "code_method": "crypto_recent_reference leadership_reference state mapping applied to the single official PIT window",
+    "taxonomy_coverage_unknown_day": "AXIS_MISSING"
+  },
+  "acceptance": {
+    "label": "PROVISIONAL_FORWARD_ACCEPTANCE",
+    "kept_conditions": [
+      "1_REAL_EVIDENCE_ONLY",
+      "2_REQUIRED_5_OF_5_AXES",
+      "3_NO_LOOKAHEAD",
+      "4_DETERMINISTIC_RERUN_BYTE_IDENTICAL",
+      "5_EXACT_COMMON_V1_REPLAY"
+    ],
+    "minimum_consecutive_complete_utc_days": 5,
+    "replaced_condition_6": {
+      "scope": "CRYPTO_ONLY",
+      "rule": "diagnostic Kraken bulk OHLCVT replay of BTC-only axes (TREND, RISK_VOL) 2019-01-01..latest must show RISK_VOL producing STRESS, NEGATIVE and POSITIVE at least once, no range selection",
+      "replay_start_date": "2019-01-01",
+      "required_risk_vol_results": [
+        "STRESS",
+        "NEGATIVE",
+        "POSITIVE"
+      ],
+      "range_selection_forbidden": true,
+      "receipt_path": "evidence/crypto/kraken_bulk_btc_replay_diagnostic/receipt.json",
+      "receipt_sha256": "3ddeca49e8f8fa93c414ce41f76e09e5ae075cc4412933c0373c16f339109a84",
+      "receipt_trust_anchor_status": "BOUND_LOCAL_ARCHIVE_REPLAY_2026-09-14_ARCHIVE_OUTSIDE_GIT"
+    },
+    "auto_revert": "UNKNOWN_ON_ANY_VALIDATOR_FAILURE",
+    "re_review": "when natural history contains all four confirmed regimes"
+  },
+  "bindings": {
+    "paper_runtime_normalization_path": "config/paper_runtime_normalization_v1.json",
+    "paper_runtime_normalization_sha256": "cb6945225cd4f972825aaa3a6fb300ab440bd9b0d247bd0edb216e8513335385",
+    "pit_acceptance_contract_path": "config/market_scoped_pit_acceptance_contract_v1.json",
+    "pit_acceptance_contract_sha256": "c13006da3da69df4a94ab494942045c988bd6e7d6c51c0fe57c12c889ab45712",
+    "common_registry_path": "config/regime_source_owner_registry_v2.json",
+    "common_registry_sha256": "8dd2ad50f66e144aaca78ffc6a82615d814dee2b8f23f736cdbc85a56dba68bb",
+    "btc_risk_contract_path": "config/btc_risk_contract.json",
+    "btc_risk_contract_sha256": "7fc88c080c475481f9035c8232de68ba808fdc8404b764577916ea34c48cc703",
+    "crypto_leadership_policy_path": "config/crypto_leadership_policy.json",
+    "crypto_leadership_policy_sha256": "d37a7362440fd6d8dc595e13f19d864fff9db0839a7e3304aeadb6178f24338f"
+  },
+  "authority": {
+    "paper_runtime_display_authorized": true,
+    "strategy_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_authorized": false
+  }
+}

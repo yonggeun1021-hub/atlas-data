@@ -1,0 +1,306 @@
+name: KR PAPER Runtime Daily Publish
+
+# KC3 (build plan 2026-09-15 §3-2): daily KR PAPER display regime under
+# KR_PAPER_RUNTIME_ADOPTION_V1 (CIO-KR-RUNTIME-DAILY-ADOPTION-20260914).
+#
+# SCHEDULED (activated 2026-09-15 on user approval; restarts the 28-session
+# chain after the 09-14 permanent gap). Scheduled runs use capture mode.
+#
+#   - 08:40 KST next morning, not the same evening: at 18:14 KST on 2026-09-14
+#     the current-day rows were still provisional (lateInfoMsgCd ME006,
+#     MKTCAP != close x shares) and the bridge rejected them
+#     (MARKET_CAP_SEMANTICS_INVALID, run 34936414628).
+#   - 09:45 KST recovery slot. The last completed pair stays (P, D) until the
+#     next 15:30 KST close; an existing dated packet is skipped (idempotent,
+#     no overwrite).
+#
+# Alternative chaining for artifact mode (NOT active):
+#   workflow_run: workflows ["Korea Market Five Signals"], types [completed],
+#   with signals_run_id = github.event.workflow_run.id and a success guard.
+#
+# Why the capture retry lives here and korea-market-signals.yml is untouched:
+# that workflow's sha256 is pinned by config/regime_source_owner_registry_v2.json
+# (build plan pin K2). Capture mode runs the same unchanged producer script
+# (.github/scripts/korea_market_signals_pykrx_candidate.py) with bounded
+# retries; artifact mode admits an existing korea-market-signals artifact.
+#
+# Raw KRX provider rows stay on the runner (or in the source run's artifact)
+# and are never committed. Only aggregate reference, manifest hashes,
+# provenance, validation, qualification, history window, decision and the
+# latest pointer are committed. Secrets are passed only as env to the capture
+# step and are never printed. Every capital/order/trading/REAL flag stays false.
+
+on:
+  schedule:
+    - cron: "40 23 * * 0-4"  # 08:40 KST Mon-Fri, capture mode
+    - cron: "45 0 * * 1-5"   # 09:45 KST Mon-Fri, recovery slot (skips existing packet)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "capture = capture the last completed session pair now; artifact = admit an existing korea-market-signals run"
+        type: choice
+        options: [capture, artifact]
+        default: capture
+      signals_run_id:
+        description: "artifact mode only: successful Korea Market Five Signals run id"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: kr-paper-runtime-daily-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          # Calendar packets and the session-boundary contract are checked as
+          # exact committed bytes with git first-seen times.
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline adoption regressions
+        run: |
+          python3 test/test_kr_paper_runtime_daily_evidence.py
+          python3 test/test_kr_paper_runtime_adoption_v1.py
+      - name: Resolve last completed KRX session pair (capture mode)
+        id: pair
+        if: (inputs.mode || 'capture') == 'capture'
+        run: |
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 -m regime.kr_paper_runtime_adoption_v1 resolve-pair --now "$NOW" > "$RUNNER_TEMP/pair.json"
+          cat "$RUNNER_TEMP/pair.json"
+          python3 - "$RUNNER_TEMP/pair.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          pair = json.load(open(sys.argv[1]))
+          print(f"previous_date={pair['previous_date']}")
+          print(f"current_date={pair['current_date']}")
+          print(f"skip={'true' if pair['dated_packet_exists'] else 'false'}")
+          print(f"floor={'true' if pair['display_floor_reached'] else 'false'}")
+          PY
+      - name: Stop before the 18:00 KST display floor (capture mode)
+        if: (inputs.mode || 'capture') == 'capture' && steps.pair.outputs.skip != 'true' && steps.pair.outputs.floor != 'true'
+        run: |
+          echo "STOP: display floor not reached for ${{ steps.pair.outputs.current_date }}; nothing captured"
+          exit 2
+      - name: Install hash-locked KRX source dependency (capture mode)
+        if: (inputs.mode || 'capture') == 'capture' && steps.pair.outputs.skip != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/dependency-wheels"
+          python3 -m pip download --only-binary=:all: --require-hashes \
+            -r requirements-korea-paper-source.lock -d "$RUNNER_TEMP/dependency-wheels"
+          python3 .github/scripts/verify_kr_paper_source_dependencies.py \
+            --contract config/krx_information_system_source_candidate_v1.json \
+            --wheel-dir "$RUNNER_TEMP/dependency-wheels" --skip-installed \
+            --out "$RUNNER_TEMP/dependency-wheel-verification.json"
+          python3 -m pip install --no-index --find-links "$RUNNER_TEMP/dependency-wheels" \
+            --only-binary=:all: --require-hashes -r requirements-korea-paper-source.lock
+          # --out must stay under RUNNER_TEMP: the script defaults to
+          # artifact/dependency-verification.json inside the checkout, which the
+          # commit-boundary step then refuses (run 35037411780, the first real
+          # capture-mode run).
+          python3 .github/scripts/verify_kr_paper_source_dependencies.py \
+            --contract config/krx_information_system_source_candidate_v1.json \
+            --wheel-dir "$RUNNER_TEMP/dependency-wheels" \
+            --out "$RUNNER_TEMP/dependency-verification.json"
+      - name: Capture with bounded retry (capture mode)
+        if: (inputs.mode || 'capture') == 'capture' && steps.pair.outputs.skip != 'true'
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+          PREVIOUS_DATE: ${{ steps.pair.outputs.previous_date }}
+          CURRENT_DATE: ${{ steps.pair.outputs.current_date }}
+          MAX_ATTEMPTS: "3"
+        run: |
+          test -n "$KRX_ID" && test -n "$KRX_PW" || { echo "STOP: KRX_ID/KRX_PW secret missing"; exit 2; }
+          attempt=1
+          while true; do
+            rm -rf "$RUNNER_TEMP/bundle" && mkdir -p "$RUNNER_TEMP/bundle"
+            FETCHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            set +e
+            python3 .github/scripts/korea_market_signals_pykrx_candidate.py \
+              --previous-date "$PREVIOUS_DATE" --current-date "$CURRENT_DATE" \
+              --fetched-at "$FETCHED_AT" \
+              --capture-dir "$RUNNER_TEMP/bundle/source-capture" \
+              --out "$RUNNER_TEMP/bundle/KR_PAPER_REFERENCE_CANDIDATE.json" \
+              > "$RUNNER_TEMP/capture-$attempt.log" 2>&1
+            code=$?
+            set -e
+            # Print only the producer's own status lines (no request bodies).
+            grep -E "^(PASS|STOP)_KR_PAPER_INFORMATION_SYSTEM_REFERENCE_CANDIDATE|Error occurred in" "$RUNNER_TEMP/capture-$attempt.log" || true
+            if test "$code" = 0; then break; fi
+            if ! grep -Eq "RESPONSE_ROW_SCHEMA_INVALID|RESPONSE_CONTENT_TYPE_INVALID|SOURCE_SESSION_INITIALIZATION_FAILED|Error occurred in get_market" "$RUNNER_TEMP/capture-$attempt.log"; then
+              echo "STOP: non-transient capture failure (attempt $attempt); no retry"
+              exit "$code"
+            fi
+            if test "$attempt" -ge "$MAX_ATTEMPTS"; then
+              echo "STOP: transient provider failure persisted after $attempt attempts"
+              exit "$code"
+            fi
+            attempt=$((attempt + 1))
+            sleep 90
+          done
+          echo "SOURCE_RUN_ATTEMPTS=$attempt" >> "$GITHUB_ENV"
+      - name: Verify source run (artifact mode)
+        id: source
+        if: (inputs.mode || 'capture') == 'artifact'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNALS_RUN_ID: ${{ inputs.signals_run_id }}
+        run: |
+          echo "$SIGNALS_RUN_ID" | grep -Eq '^[0-9]+$' || { echo "STOP: signals_run_id required"; exit 2; }
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SIGNALS_RUN_ID}" > "$RUNNER_TEMP/source-run.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SIGNALS_RUN_ID}/artifacts" > "$RUNNER_TEMP/source-artifacts.json"
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import json, os
+          temp = os.environ["RUNNER_TEMP"]
+          run = json.load(open(f"{temp}/source-run.json"))
+          assert run["path"] == ".github/workflows/korea-market-signals.yml", run["path"]
+          assert run["conclusion"] == "success", run["conclusion"]
+          assert run["repository"]["full_name"] == os.environ["GITHUB_REPOSITORY"]
+          names = [a for a in json.load(open(f"{temp}/source-artifacts.json"))["artifacts"]
+                   if a["name"].startswith("korea-market-signals-") and not a["expired"]]
+          assert len(names) == 1, [a["name"] for a in names]
+          print(f"artifact_name={names[0]['name']}")
+          print(f"artifact_digest={names[0].get('digest') or ''}")
+          PY
+      - name: Download source artifact (artifact mode)
+        if: (inputs.mode || 'capture') == 'artifact'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ steps.source.outputs.artifact_name }}
+          run-id: ${{ inputs.signals_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/bundle
+      - name: Write bundle provenance
+        if: (inputs.mode || 'capture') == 'artifact' || steps.pair.outputs.skip != 'true'
+        env:
+          MODE: ${{ inputs.mode || 'capture' }}
+          ARTIFACT_NAME: ${{ steps.source.outputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact_digest }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          temp = os.environ["RUNNER_TEMP"]
+          artifact = os.environ["MODE"] == "artifact"
+          if artifact:
+              run = json.load(open(f"{temp}/source-run.json"))
+              value = {
+                  "capture_mode": "ARTIFACT_HANDOFF",
+                  "workflow_path": run["path"], "run_id": run["id"],
+                  "run_attempt": run["run_attempt"], "head_sha": run["head_sha"],
+                  "event": run["event"], "conclusion": run["conclusion"],
+                  "artifact_name": os.environ["ARTIFACT_NAME"],
+                  "artifact_digest": os.environ["ARTIFACT_DIGEST"] or None,
+              }
+          else:
+              value = {
+                  "capture_mode": "SAME_RUN_CAPTURE",
+                  "workflow_path": ".github/workflows/kr-paper-runtime-daily-publish.yml",
+                  "run_id": int(os.environ["GITHUB_RUN_ID"]),
+                  "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                  "head_sha": os.environ["GITHUB_SHA"],
+                  "event": os.environ["GITHUB_EVENT_NAME"],
+                  "source_attempts": int(os.environ.get("SOURCE_RUN_ATTEMPTS", "1")),
+              }
+          value.update({
+              "schema_version": "kr_paper_runtime_bundle_provenance/1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "producer_script": ".github/scripts/korea_market_signals_pykrx_candidate.py",
+              "publisher_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "manual_edits": False,
+          })
+          with open(f"{temp}/provenance.json", "w") as handle:
+              handle.write(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+          PY
+      - name: Publish dated packet and latest pointer
+        if: (inputs.mode || 'capture') == 'artifact' || steps.pair.outputs.skip != 'true'
+        run: |
+          # Without pipefail a publisher exception piped into tee exits 0 and
+          # the run concludes success (run 34936414628).
+          set -o pipefail
+          EVALUATION_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 -m regime.kr_paper_runtime_adoption_v1 publish \
+            --bundle-dir "$RUNNER_TEMP/bundle" \
+            --provenance "$RUNNER_TEMP/provenance.json" \
+            --evaluation-at "$EVALUATION_AT" \
+            --code-revision "$(git rev-parse HEAD)" \
+            --require-bot-chain | tee "$RUNNER_TEMP/publication.json"
+      - name: Verify commit boundary (aggregates only)
+        if: (inputs.mode || 'capture') == 'artifact' || steps.pair.outputs.skip != 'true'
+        run: |
+          git status --porcelain --untracked-files=all > "$RUNNER_TEMP/changes.txt"
+          cat "$RUNNER_TEMP/changes.txt"
+          python3 - <<'PY'
+          import os, re
+          allowed = re.compile(
+              r"^(evidence/regime/kr_information_system/\d{4}-\d{2}-\d{2}/"
+              r"(KR_PAPER_REFERENCE_CANDIDATE|source-manifest|provenance|validation|qualification|decision|publication)\.json"
+              r"|evidence/regime/kr_information_system/\d{4}-\d{2}-\d{2}/history/[a-z0-9.-]+\.json"
+              r"|data/latest_kr_paper_runtime_decision\.json)$"
+          )
+          for line in open(os.path.join(os.environ["RUNNER_TEMP"], "changes.txt")):
+              path = line[3:].strip()
+              assert "/responses/" not in path and "/source-capture/" not in path, path
+              assert allowed.match(path), path
+          PY
+          if git status --porcelain | grep -q .; then
+            python3 -m regime.kr_paper_runtime_adoption_v1 check-latest
+          fi
+      - name: Record capture failure (hashes only, no raw rows)
+        # KRX raw rows are private-only (redistribution rights not established)
+        # and public-repo artifacts are readable by any reader, so the raw
+        # bundle is NOT uploaded. Only response hashes, manifest identity and
+        # the failure reason go to the job summary. Re-capture must happen
+        # before the next session close (15:30 KST) or the session is lost.
+        if: failure() && (inputs.mode || 'capture') == 'capture' && steps.pair.outputs.skip != 'true'
+        run: |
+          python3 - >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          bundle = Path(os.environ["RUNNER_TEMP"]) / "bundle"
+          lines = ["### KR PAPER capture failure (raw rows not retained)"]
+          manifest = bundle / "source-capture/manifest.json"
+          if manifest.is_file():
+              value = json.loads(manifest.read_bytes())
+              lines.append(f"- manifest sha256 `{hashlib.sha256(manifest.read_bytes()).hexdigest()}` dates {value.get('dates')} payload `{value.get('payload_sha256')}`")
+          for path in sorted((bundle / "source-capture/responses").glob("*.json")):
+              lines.append(f"- {path.name} sha256 `{hashlib.sha256(path.read_bytes()).hexdigest()}`")
+          publication = Path(os.environ["RUNNER_TEMP"]) / "publication.json"
+          if publication.is_file() and publication.stat().st_size:
+              lines.append(f"- publication: `{publication.read_text().strip()[:500]}`")
+          lines.append("- Re-capture before the next 15:30 KST close or this session is lost.")
+          print("\n".join(lines))
+          PY
+      - name: Commit and push
+        if: (inputs.mode || 'capture') == 'artifact' || steps.pair.outputs.skip != 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add evidence/regime/kr_information_system data/latest_kr_paper_runtime_decision.json
+          if git diff --cached --quiet; then
+            echo "no change"
+            exit 0
+          fi
+          CONTEXT=$(python3 -c "import json,os;print(json.load(open(os.environ['RUNNER_TEMP']+'/publication.json'))['context_session_date'])")
+          git commit -m "KR PAPER runtime daily publish ${CONTEXT} [${GITHUB_EVENT_NAME}]"
+          for attempt in 1 2 3; do
+            if git pull --rebase origin "$DEFAULT_BRANCH" && git push origin "HEAD:$DEFAULT_BRANCH"; then
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+          echo "STOP: push failed after 3 attempts"
+          exit 1

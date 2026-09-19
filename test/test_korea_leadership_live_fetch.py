@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+from unittest import mock
 from urllib.parse import urlparse, parse_qs
 
 
@@ -100,6 +103,42 @@ def row(day: str, name: str, close) -> dict:
 
 def fetched(bas_dd: str, fetched_at_utc: str, names_to_close: dict) -> dict:
     return {"bas_dd": bas_dd, "fetched_at_utc": fetched_at_utc, "index_names_to_close": names_to_close}
+
+
+def two_market_two_date_opener() -> "FakeOpener":
+    """Same real two-market/two-date fixture PopulateTest already fetches
+    against -- shared here so usable-seed tests populate a genuine
+    on-disk packet via the real populate()/build_transform() path rather
+    than hand-constructing packet shapes that could silently drift from
+    what production actually writes."""
+    data = {
+        ("kospi", "20260818"): [row("20260818", "코스피", "3000"), row("20260818", "화학", "50")],
+        ("kospi", "20260820"): [row("20260820", "코스피", "3050"), row("20260820", "화학", "55")],
+        ("kosdaq", "20260818"): [row("20260818", "코스닥", "900")],
+        ("kosdaq", "20260820"): [row("20260820", "코스닥", "920")],
+    }
+    return FakeOpener(data)
+
+
+class _RedirectedContext:
+    """Points MODULE at a temp-directory observation root for the
+    lifetime of a `with` block, restoring the real module globals
+    afterward -- shared setup for usable-seed tests below."""
+
+    def __init__(self, tmp: Path):
+        self._tmp = tmp
+        self._original = None
+
+    def __enter__(self):
+        self._original = (MODULE.ROOT, MODULE.CONTEXT_ROOT, MODULE.output_path_for)
+        MODULE.ROOT = self._tmp
+        MODULE.CONTEXT_ROOT = self._tmp / "data" / "observations" / "korea_leadership_context"
+        MODULE.output_path_for = lambda d: MODULE.CONTEXT_ROOT / d / "packet.json"
+        return self
+
+    def __exit__(self, *exc):
+        MODULE.ROOT, MODULE.CONTEXT_ROOT, MODULE.output_path_for = self._original
+        return False
 
 
 class FetchIndexFamilyTest(unittest.TestCase):
@@ -409,6 +448,107 @@ class PopulateTest(unittest.TestCase):
             finally:
                 MODULE._now_utc_iso = original_now
                 MODULE.CONTEXT_ROOT, MODULE.output_path_for = original_context_root, original_path_fn
+
+
+class UsableSeedReadyTest(unittest.TestCase):
+    """Opt-in usable-seed distinction: a populated transform outcome with
+    a real leadership_packet is a usable seed; a faithfully preserved
+    blocked (or otherwise non-populated) attempt is not -- regardless of
+    populate()'s own separate storage outcome (populated/verified_existing),
+    which only describes whether bytes were newly written or reused."""
+
+    def test_populated_outcome_with_real_packet_is_usable(self):
+        packet = {"outcome": "populated", "leadership_packet": {"payload_sha256": "x"}}
+        self.assertTrue(MODULE.usable_seed_ready(packet))
+        MODULE.require_usable_seed(packet)  # must not raise
+
+    def test_blocked_outcome_is_not_usable(self):
+        packet = {"outcome": "blocked", "leadership_packet": None}
+        self.assertFalse(MODULE.usable_seed_ready(packet))
+        with self.assertRaisesRegex(MODULE.LeadershipLiveFetchError, "SEED_NOT_USABLE"):
+            MODULE.require_usable_seed(packet)
+
+    def test_populated_outcome_with_null_packet_is_not_usable(self):
+        # Defensive: an inconsistent/hand-built shape must still fail
+        # closed on the packet's OWN fields, never assume "populated"
+        # implies a non-null packet.
+        packet = {"outcome": "populated", "leadership_packet": None}
+        self.assertFalse(MODULE.usable_seed_ready(packet))
+        with self.assertRaisesRegex(MODULE.LeadershipLiveFetchError, "SEED_NOT_USABLE"):
+            MODULE.require_usable_seed(packet)
+
+
+class RequireUsableSeedCLITest(unittest.TestCase):
+    """CLI wiring for --verify-existing-only --require-usable-seed -- the
+    exact combination the seed workflow's final readiness step uses,
+    reading already-committed bytes, never touching the provider."""
+
+    def test_cli_reports_ready_for_a_real_populated_packet(self):
+        opener = two_market_two_date_opener()
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = write_policy(Path(tmp), test_policy_dict())
+            with _RedirectedContext(Path(tmp)):
+                populated = MODULE.populate(
+                    "KEY", "20260818", "20260820", opener=opener, policy_path=policy_path
+                )
+                on_disk = json.loads(Path(populated["path"]).read_text(encoding="utf-8"))
+                # Sanity: the real, unmodified build_transform() actually
+                # populated a packet for this fixture -- otherwise this
+                # test would trivially pass for the wrong reason.
+                self.assertEqual(on_disk["outcome"], "populated")
+                self.assertIsNotNone(on_disk["leadership_packet"])
+
+                argv = [
+                    "korea_leadership_live_fetch.py",
+                    "--prior-date", "20260818",
+                    "--current-date", "20260820",
+                    "--verify-existing-only",
+                    "--require-usable-seed",
+                ]
+                with mock.patch.object(sys, "argv", argv):
+                    exit_code = MODULE.main()
+                self.assertEqual(exit_code, 0)
+
+    def test_cli_reports_not_ready_for_a_preserved_blocked_attempt_without_a_second_provider_call(self):
+        unratified = test_policy_dict() | {"approval_status": "UNRATIFIED"}
+        opener = two_market_two_date_opener()
+
+        def _forbidden_provider_call(*_args, **_kwargs):
+            raise AssertionError(
+                "--verify-existing-only --require-usable-seed must never call the provider"
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = write_policy(Path(tmp), unratified)
+            with _RedirectedContext(Path(tmp)):
+                populated = MODULE.populate(
+                    "KEY", "20260818", "20260820", opener=opener, policy_path=policy_path
+                )
+                on_disk = json.loads(Path(populated["path"]).read_text(encoding="utf-8"))
+                # Sanity: this fixture is genuinely blocked (UNRATIFIED
+                # policy), byte-identical and faithfully preserved --
+                # never fabricated as "blocked" just to pass this test.
+                self.assertEqual(on_disk["outcome"], "blocked")
+                self.assertIsNone(on_disk["leadership_packet"])
+
+                argv = [
+                    "korea_leadership_live_fetch.py",
+                    "--prior-date", "20260818",
+                    "--current-date", "20260820",
+                    "--verify-existing-only",
+                    "--require-usable-seed",
+                ]
+                with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                    MODULE, "urlopen", _forbidden_provider_call
+                ):
+                    exit_code = MODULE.main()
+                self.assertEqual(exit_code, 3)
+
+                # The blocked bytes remain untouched by the readiness
+                # check -- plain generic integrity verification (no seed
+                # flag) still passes against the exact same evidence.
+                still_valid = MODULE.verify_existing_observation("20260818", "20260820")
+                self.assertEqual(still_valid, on_disk)
 
 
 if __name__ == "__main__":

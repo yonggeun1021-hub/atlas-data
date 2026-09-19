@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Unbound AI external analysis Shadow aggregate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "observation_count",
+    "sufficiency_status",
+    "incremental_metrics",
+    "market_segmentation",
+    "regime_segmentation",
+    "last_evaluated_at",
+    "notUsedInScore"
+  ],
+  "properties": {
+    "observation_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sufficiency_status": {
+      "enum": [
+        "NOT_ENOUGH_OBSERVATIONS",
+        "BOUND_SAMPLE_REQUIRED"
+      ]
+    },
+    "incremental_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hit_rate",
+        "incremental_rank_ic",
+        "net_return_after_cost",
+        "maximum_drawdown",
+        "false_positive",
+        "omission",
+        "turnover",
+        "by_regime",
+        "by_market"
+      ],
+      "properties": {
+        "hit_rate": {
+          "type": "null"
+        },
+        "incremental_rank_ic": {
+          "type": "null"
+        },
+        "net_return_after_cost": {
+          "type": "null"
+        },
+        "maximum_drawdown": {
+          "type": "null"
+        },
+        "false_positive": {
+          "type": "null"
+        },
+        "omission": {
+          "type": "null"
+        },
+        "turnover": {
+          "type": "null"
+        },
+        "by_regime": {
+          "type": "null"
+        },
+        "by_market": {
+          "type": "null"
+        }
+      }
+    },
+    "market_segmentation": {
+      "type": "null"
+    },
+    "regime_segmentation": {
+      "type": "null"
+    },
+    "last_evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notUsedInScore": {
+      "const": true
+    }
+  }
+}

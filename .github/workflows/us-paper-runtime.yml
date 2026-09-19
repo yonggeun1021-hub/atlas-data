@@ -1,0 +1,97 @@
+name: US PAPER Runtime Decision
+
+# U4 US PAPER runtime producer.  It rederives the US decision from already
+# committed free-market-data captures (collector cron 21:35Z Sun-Fri, commit
+# normally ~21:42Z), verifies it byte-for-byte with --check, and commits the
+# display-only pointer plus an append-only evidence copy.  Until an active
+# US_PAPER_RUNTIME_ADOPTION_V1 identity binds a US PIT_ACCEPTED record and an
+# official session calendar, every decision is UNKNOWN with explicit reasons.
+#
+# Trigger choice: cron slots after the collector, the same pattern as
+# crypto-paper-runtime.yml, not workflow_run.  The runtime itself refuses any
+# capture that is not for the expected session (SOURCE_NOT_ADVANCED) or was
+# observed after evaluation_at, so an early or dropped slot is fail-closed;
+# the later retry slot republishes only when the decision basis changed.
+# workflow_run would add a trigger that fires on every collector conclusion
+# and must be re-gated on conclusion/head anyway.
+#
+# No provider call, no secret beyond the default GITHUB_TOKEN, no force push,
+# and no strategy, capital, order, production, trading or REAL authority.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "55 21 * * 0-5"   # 21:55Z primary, after the 21:35Z collector
+    - cron: "40 23 * * 0-5"   # 23:40Z retry if the collector or primary slot was late
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-us-paper-runtime
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Build, verify and commit US PAPER runtime decision
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          EVALUATION_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LATEST="data/latest_us_paper_runtime_decision.json"
+          for attempt in 1 2 3; do
+            git fetch origin "$DEFAULT_BRANCH"
+            git reset --hard "origin/$DEFAULT_BRANCH"
+            # Contract tests run on every head that could publish, including a
+            # head reached after a push race.
+            python3 test/test_us_paper_runtime.py
+            CODE_REVISION="$(git rev-parse HEAD)"
+            # A retry slot never republishes an unchanged decision for the same session.
+            if python3 -m regime.us_paper_runtime_publication \
+              --evaluation-at "$EVALUATION_AT" --code-revision "$CODE_REVISION" --output "$LATEST" \
+              --published-for-current-session; then
+              echo "decision for this session already published, verified and unchanged; nothing to do"
+              exit 0
+            fi
+            python3 -m regime.us_paper_runtime_publication \
+              --evaluation-at "$EVALUATION_AT" --code-revision "$CODE_REVISION" --output "$LATEST"
+            python3 -m regime.us_paper_runtime_publication \
+              --evaluation-at "$EVALUATION_AT" --code-revision "$CODE_REVISION" --output "$LATEST" --check
+            KEY="$(python3 -m regime.us_paper_runtime_publication \
+              --evaluation-at "$EVALUATION_AT" --code-revision "$CODE_REVISION" --output "$LATEST" --publication-key)"
+            if [ -z "$KEY" ]; then
+              echo "STOP: publication has no key" >&2
+              exit 1
+            fi
+            DIGEST="$(sha256sum "$LATEST" | cut -c1-64)"
+            EVIDENCE="evidence/regime/us_paper_runtime/$KEY/$DIGEST.json"
+            if [ -e "$EVIDENCE" ] && ! cmp -s "$LATEST" "$EVIDENCE"; then
+              echo "STOP: append-only evidence conflict $EVIDENCE" >&2
+              exit 1
+            fi
+            mkdir -p "$(dirname "$EVIDENCE")"
+            cp "$LATEST" "$EVIDENCE"
+            git add "$LATEST" "$EVIDENCE"
+            if git diff --cached --quiet; then
+              echo "no change"
+              exit 0
+            fi
+            git commit -m "data: US PAPER runtime decision $KEY"
+            if git push origin "HEAD:$DEFAULT_BRANCH"; then
+              exit 0
+            fi
+            echo "default branch moved; rebuilding from the new head (attempt $attempt)"
+          done
+          echo "STOP: could not publish after 3 attempts" >&2
+          exit 1
