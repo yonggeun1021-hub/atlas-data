@@ -224,8 +224,34 @@ class PaperRegimeReferenceTest(unittest.TestCase):
             markets["CRYPTO"]["official_validation"]["coverage"],
             source["official_decision"]["coverage"],
         )
-        if expected_coverage["ratio"] == "5/5":
+        # 5/5 signal coverage and a retained raw Crypto closure are two
+        # different facts.  On a day whose raw bytes for the current as-of date
+        # have not landed yet (``evidence/crypto/btc/raw/<as-of-date>/``), the
+        # producer reports 5/5 coverage and still withholds the Crypto regime
+        # through its own ``WAIT_MARKET_NORMALIZATION_INPUT`` state.  Asserting
+        # the classified shape for every 5/5 day turned that normal state into
+        # a red contract step, so the third outcome is asserted as itself.
+        if (
+            expected_coverage["ratio"] == "5/5"
+            and markets["CRYPTO"]["classification_status"]
+            == "WAIT_MARKET_NORMALIZATION_INPUT"
+        ):
+            self.assertEqual(packet["status"], "PARTIAL_REFERENCE_AVAILABLE")
+            self.assertEqual(
+                markets["CRYPTO"]["paper_reference"]["candidate_regime"], "UNKNOWN"
+            )
+            self.assertIsNone(markets["CRYPTO"]["paper_reference"]["score"])
+            self.assertIsNone(markets["CRYPTO"]["paper_reference"]["confidence"])
+            self.assertEqual(markets["CRYPTO"]["axes"], [])
+            # Withheld means withheld: no normalization binding is published
+            # for a day the normalization did not run.
+            self.assertNotIn("crypto_descriptive_normalization_sources", packet)
+            self.assertRegex(
+                markets["CRYPTO"]["normalization_error"], r"^CRYPTO_[A-Z_]+$"
+            )
+        elif expected_coverage["ratio"] == "5/5":
             self.assertEqual(packet["status"], "REFERENCE_AVAILABLE")
+            self.assertIn("crypto_descriptive_normalization_sources", packet)
             self.assertIn(
                 markets["CRYPTO"]["paper_reference"]["candidate_regime"],
                 {"RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS"},

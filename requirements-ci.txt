@@ -14,3 +14,9 @@
 #   ※ actions/setup-python 이 깔아주는 인터프리터에는 PyYAML 이 없다.
 #     버전을 고정한다 — 회귀 결과가 러너의 우연한 사전설치에 의존하면 안 된다.
 PyYAML==6.0.3
+
+# openpyxl -- `test/test_spdr_sector_holdings.py` builds a small in-memory
+# fixture .xlsx workbook and parses it through the real
+# collectors/spdr_sector_holdings.py xlsx parser (no hand-rolled xlsx
+# reader, no network). Version pinned for the same reason as PyYAML above.
+openpyxl==3.1.5

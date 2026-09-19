@@ -109,6 +109,13 @@ REVIEW_REASON_CLASS = {
     "PIPELINE_STAGE_IS_NOT_BUY_AUTHORITY": "BOUNDARY_NOT_A_GAP",
     "PIPELINE_SYMBOL_PRICE_HISTORY_UNAVAILABLE": "COLLECTION_FAILED",
 }
+# Per-criterion outcome -> gap class. UNKNOWN is a policy gap; FAIL is an
+# evaluated exclusion by a ratified rule. A status outside this table is
+# reported as UNCLASSIFIED (미정), never guessed.
+CRITERION_STATUS_CLASS = {
+    "UNKNOWN": "POLICY_UNDEFINED",
+    "FAIL": "EVALUATED_EXCLUDED_BY_RATIFIED_RULE",
+}
 DEFAULT_KR_REGISTRY_COVERAGE_ROOT = ROOT / "data" / "observations" / "krx_registry_evaluation_coverage"
 DEFAULT_VALIDITY_ASSESSMENT = (
     ROOT / "evidence" / "operational" / "dynamic_clock" / "candidate_validity_window_assessment.json"
@@ -1737,7 +1744,13 @@ def _crypto_market_status(ctx: dict, inputs: dict, coverage_row: dict | None, ge
         })
     for (name, status, reason), count in sorted(criteria_reason_counts.items(), key=lambda item: (item[0][0], str(item[0][1]), str(item[0][2]))):
         gaps.append({
-            "class": "POLICY_UNDEFINED" if status == "UNKNOWN" else f"UNCLASSIFIED_EXISTING_REASON:{UNDEFINED}",
+            # UNKNOWN means the criterion could not be decided (a policy gap);
+            # FAIL means it WAS decided and the candidate is excluded by a
+            # ratified rule -- e.g. MATERIAL_BLOCKER:UPBIT_MARKET_EVENT_CAUTION_ACTIVE,
+            # the exchange caution flag that blocked one candidate on 2026-09-16
+            # and left every CI run on this repo red. Any other status stays
+            # unclassified rather than guessed.
+            "class": CRITERION_STATUS_CLASS.get(status, f"UNCLASSIFIED_EXISTING_REASON:{UNDEFINED}"),
             "code": f"{name}:{reason}",
             "affected_count": count,
             "affected_population": "crypto_paper_decision candidates",

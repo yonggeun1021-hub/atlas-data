@@ -1,0 +1,47 @@
+{
+ "schema": "user_ratification/1",
+ "id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+ "recorded_by": "CLAUDE_CIO",
+ "recorded_at_kst": "2026-09-15T00:05+09:00",
+ "user_sentences_verbatim": [
+  "자금 이동 판정 규칙 확정안(2026-09-15) D-3 표대로 코인은 확정, 미국은 잠정 확정, 한국은 KRX 업종지수 과거 이력 확보 후 20거래일 기준으로 재검증할 때까지 임시 적용하고, D-2의 T1/T2/NEUTRAL 연결도 확정한다. 강세 해제 시 신규 매수만 중단하고 보유분은 기존 손절·익절 규칙을 따른다.",
+  "미국 승인 22개 종목 1년치 Alpaca 무료 이력 백필 실행 승인."
+ ],
+ "source_document": {
+  "path": "outputs/CLAUDE_CIO_CAPITAL_ROTATION_RULES_PROPOSAL_20260915.md",
+  "sha256": "f77f3c43471348d05bde59998f3bcbfc68b1da8f55ac832e553ad8ec8e9fe9b0"
+ },
+ "decisions": {
+  "CRYPTO": {
+   "status": "RATIFIED",
+   "rules": "D-3 crypto column: BTC/ETH/ALT vs BTC 30d strength; strong confirmed = rank 1 for 2 consecutive days; released = outside rank 1 for 2 consecutive days or rank 3 once; rising rank display-only; RRG-style lagging warning (N30/M7) display; forward review after 10 confirmed events, revert to display-only if 14d excess after 0.5% cost < 0"
+  },
+  "US": {
+   "status": "PROVISIONAL",
+   "rules": "D-3 US column: SPDR 11 sector ETFs vs SPY 20-session strength, top3/bottom3, confirm 2 consecutive top3, release 2 consecutive outside top3 or bottom3 once, rising display-only, evidence-insufficient label; re-study after 1y backfill"
+  },
+  "KR": {
+   "status": "TEMPORARY",
+   "rules": "D-3 KR column applied temporarily (ratified 46 sectors, top3/bottom3, 2-consecutive confirmation, release rule, rising display-only) UNTIL KRX sector index history is obtained and rules are re-verified on a 20-session strength basis; KRX history collection requires separate approval"
+  },
+  "COMMON": {
+   "status": "RATIFIED",
+   "rules": "D-2: only strong confirmed/held sectors feed T1 selection and T2 rotation condition (C5); in NEUTRAL market only strong confirmed/held sectors eligible for new buys; allocation v2 unchanged"
+  },
+  "RELEASE_HANDLING": {
+   "status": "RATIFIED",
+   "rules": "on strength release: stop new buys only; held positions follow existing stop-loss/take-profit rules (no forced liquidation)"
+  },
+  "US_BACKFILL": {
+   "status": "APPROVED_EXECUTION",
+   "scope": "approved 22 US symbols, 1 year Alpaca free daily history, ~66 requests",
+   "constraints": "vendor rows must not be committed to the public repo; resumable idempotent write; no secrets echoed"
+  }
+ },
+ "not_changed": [
+  "market allocation v2 numbers",
+  "active inverse hedge rules",
+  "REAL/order/payment/secret authority"
+ ],
+ "correction_note": "recorded_at_kst placeholder '00:0x' replaced by CIO on 2026-09-15 ~01:20 KST (audit finding); previous file sha256 68ca157398e2396ccc56e24f59dbf74a623147a8f6db4a2a00747b59ca793bdf; decision content unchanged."
+}

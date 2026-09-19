@@ -1,0 +1,93 @@
+name: Macro Event Calendar Capture
+
+# Evidence capture only -- CIO decision 2026-09-16 (collectors/
+# macro_event_calendar.py). Records scheduled US FOMC decision dates, US
+# CPI releases, US nonfarm payrolls (Employment Situation), and Bank of
+# Korea rate decisions from each source's own official calendar page. This
+# module makes no trading judgement and is not imported by any briefing,
+# decision, rule, or execution path yet -- see the collector's module
+# docstring for the authority boundary and the per-source parsing notes.
+#
+# DISPATCH-ONLY. No schedule is enabled by this PR. Proposed cron (NOT
+# active -- activation needs explicit user approval, the same way
+# kr-paper-runtime-daily-publish.yml's schedule stayed workflow_dispatch-
+# only until the user approved it on 2026-09-15):
+#
+#   '15 22 * * *'  # ~07:15 KST daily. None of the four sources publishes
+#                   # intraday; a single daily pass is enough to notice a
+#                   # newly-posted FOMC statement link or a schedule
+#                   # update on any of the four pages the same day it
+#                   # appears, without re-fetching more often than that.
+#
+# No secret: none of the four sources needs a credential. BLS's own bot
+# manager blocks this repo's development sandbox outright (confirmed
+# 2026-09-18 -- even bls.gov/robots.txt returns HTTP 403 from there); real
+# reachability from a GitHub Actions runner's IP is UNVERIFIED until this
+# workflow's first live workflow_dispatch run, exactly like
+# spdr-sector-holdings.yml's URL template was before its first live run.
+# A source that fails to fetch/parse is skipped (WARN only) -- see
+# collectors/macro_event_calendar.py main(); it never aborts the other
+# three sources' capture for that run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "Space-separated subset of FOMC CPI NFP BOK (default: all four)"
+        type: string
+        default: ""
+      all_years:
+        description: "One-time wide capture: parse every panel/year the FOMC and BOK pages carry, not just the bounded window"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-macro-event-calendar
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline contract regression (fixtures only, no network, no secrets)
+        run: |
+          python3 test/test_macro_event_calendar.py
+      - name: Capture macro event calendar evidence
+        env:
+          SOURCES_INPUT: ${{ inputs.sources }}
+          ALL_YEARS_INPUT: ${{ inputs.all_years }}
+        run: |
+          args=()
+          if [ -n "$SOURCES_INPUT" ]; then
+            args+=(--sources "$SOURCES_INPUT")
+          fi
+          if [ "$ALL_YEARS_INPUT" = "true" ]; then
+            args+=(--all-years)
+          fi
+          python3 collectors/macro_event_calendar.py "${args[@]}"
+      - name: Commit append-only evidence (bounded push retry)
+        run: |
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add evidence/macro_event_calendar data/latest_macro_event_calendar.json
+          if git diff --staged --quiet; then exit 0; fi
+          git commit -m "data: macro event calendar evidence $(date -u +%Y-%m-%d)"
+          attempt=1
+          max_attempts=3
+          until git push; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "push failed after $max_attempts attempts" >&2
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
+            git pull --rebase
+          done

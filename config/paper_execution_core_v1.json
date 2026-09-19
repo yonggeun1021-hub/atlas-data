@@ -1,0 +1,341 @@
+{
+  "schema_version": "paper_execution_core/1",
+  "policy_id": "PAPER_EXECUTION_CORE.V1",
+  "description": "Pure PAPER execution core (build plan PR1): session budget, allocation envelope, position episodes, execution status vocabulary, mechanical checklist and scorecard contract. Every ratified number is read from config/rule_registry_v1.json (registry_parameters); CIO interpretations cite the build plan section 9 or the execution contract canon (the source document of the D1-D11 ratification). Items no record decides are listed in not_defined and are emitted as NOT_DEFINED, never guessed.",
+  "registry": {"path": "config/rule_registry_v1.json"},
+  "source_documents": {
+    "execution_contract_canon": {
+      "document": "CLAUDE_CIO_PAPER_EXECUTION_CONTRACT_CANON_20260915.md",
+      "sha256": "7a26907f9c05935278ae9232e4de90bb0d23e39447a57c22f66484642a35127c",
+      "ratified_as_source_document_of_record_sha256": "10de02bf98fd4e5776ed77c09daad36de914e03942675cbe960c121e5dbd668c"
+    },
+    "build_plan": {"document": "CLAUDE_CIO_PAPER_EXECUTION_V1_BUILD_PLAN_20260915.md", "sha256": "11f3d3422378cc152ae2af555cfb62926e3fe6779f2de0125c1bd811ebf6412a"}
+  },
+  "registry_parameters": {
+    "base_allocation": {"rule_id": "RULE.ALLOCATION.V2", "key_parameter": "base_allocation_all_markets_risk_on"},
+    "market_max_allocation": {"rule_id": "RULE.ALLOCATION.V2", "key_parameter": "market_max_allocation"},
+    "state_multipliers": {"rule_id": "RULE.ALLOCATION.V2", "key_parameter": "per_market_state_multiplier_of_base"},
+    "new_buys_by_state": {"rule_id": "RULE.ALLOCATION.V2", "key_parameter": "new_buys_by_market_state"},
+    "flow_priority_minimum_observations": {"rule_id": "RULE.ALLOCATION.V2", "key_parameter": "flow_priority_minimum_observations"},
+    "drawdown_overrides": {"rule_id": "RULE.ALLOCATION.V2", "key_parameter": "drawdown_overrides"},
+    "session_room_fraction": {"rule_id": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2", "key_parameter": "market_session_total_room_fraction"},
+    "per_name_nav_cap": {"rule_id": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2", "key_parameter": "per_name_cumulative_nav_cap"},
+    "per_name_liquidity_cap": {"rule_id": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2", "key_parameter": "per_name_cumulative_avg_traded_value_cap"},
+    "size_allowances": {"rule_id": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2", "key_parameter": "allowances_from_v1_record"},
+    "btc_eth_cap": {"rule_id": "RULE.SIZE.BTC_ETH_PER_NAME_CAP.V1", "key_parameter": "cap"},
+    "price_drift_over_cap": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "price_drift_over_cap"},
+    "downgrade_reduction": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "downgrade_reduction"},
+    "unknown_drawdown_reduction_pace": {"rule_id": "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1", "key_parameter": "pace"},
+    "unknown_drawdown_reduction_triggers": {"rule_id": "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1", "key_parameter": "triggers"},
+    "unknown_drawdown_reduction_same_as": {"rule_id": "RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1", "key_parameter": "same_as"},
+    "stress_reduction": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "stress_reduction"},
+    "reduction_order": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "reduction_order"},
+    "unknown_cap_start": {"rule_id": "RULE.EXEC.ALLOCATION_REDUCTION.V1", "key_parameter": "unknown_cap_start"},
+    "multi_market_split": {"rule_id": "RULE.EXEC.MULTI_MARKET_REALLOCATION.V1", "key_parameter": "split"},
+    "reentry_same_packet": {"rule_id": "RULE.EXEC.REENTRY.V1", "key_parameter": "same_packet"},
+    "reentry_after_release_or_time_stop": {"rule_id": "RULE.EXEC.REENTRY.V1", "key_parameter": "after_release_or_time_stop"},
+    "reentry_after_allocation_reduction": {"rule_id": "RULE.EXEC.REENTRY.V1", "key_parameter": "after_allocation_reduction"},
+    "topup_unit": {"rule_id": "RULE.EXEC.TOPUP_POSITION_LEVEL.V1", "key_parameter": "topup_unit"},
+    "holding_period_start": {"rule_id": "RULE.EXEC.TOPUP_POSITION_LEVEL.V1", "key_parameter": "holding_period_start"},
+    "drawdown_nav_basis": {"rule_id": "RULE.RISK.NAV_DRAWDOWN_LIFT.V1", "key_parameter": "nav_basis"},
+    "drawdown_minus_5_stage": {"rule_id": "RULE.RISK.NAV_DRAWDOWN_LIFT.V1", "key_parameter": "minus_5pct_stage_lift"},
+    "drawdown_minus_10_stage": {"rule_id": "RULE.RISK.NAV_DRAWDOWN_LIFT.V1", "key_parameter": "minus_10pct_stage_lift"},
+    "risk_reduction_kinds": {"rule_id": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1", "key_parameter": "risk_reduction_kinds"},
+    "ordinary_exits_behavior": {"rule_id": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1", "key_parameter": "ordinary_exits_behavior"},
+    "data_failure_principles": {"rule_id": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1", "key_parameter": "principles_all_options"},
+    "alternative_price_path_status": {"rule_id": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1", "key_parameter": "implementation_status"},
+    "if_no_alternative_price": {"rule_id": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1", "key_parameter": "if_no_alternative_price"},
+    "delay_loss_record": {"rule_id": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1", "key_parameter": "delay_loss_record"},
+    "monitor_gaps": {"rule_id": "RULE.EXEC.MONITORED_STOP_FILL_MODEL.V1", "key_parameter": "monitor_gaps"},
+    "judgment_gap_handling": {"rule_id": "RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1", "key_parameter": "gap_lapse_handling"},
+    "crypto_decision_cycle": {"rule_id": "RULE.EXEC.TIME_CONTRACT.V1", "key_parameter": "crypto_decision_cycle"},
+    "kr_fill_window": {"rule_id": "RULE.EXEC.TIME_CONTRACT.V1", "key_parameter": "kr_fill_window"},
+    "us_fill_window": {"rule_id": "RULE.EXEC.TIME_CONTRACT.V1", "key_parameter": "us_fill_window"},
+    "paper_validated_meaning": {"rule_id": "RULE.VALIDATION.MECHANICAL_ONLY.V1", "key_parameter": "paper_validated_meaning"},
+    "krx_9_8_performance_criteria": {"rule_id": "RULE.VALIDATION.MECHANICAL_ONLY.V1", "key_parameter": "krx_9_8_performance_criteria"},
+    "scorecard_single_contract": {"rule_id": "RULE.SCORECARD.SINGLE_CONTRACT.V1", "key_parameter": "single_contract"},
+    "scorecard_evaluation_unit": {"rule_id": "RULE.SCORECARD.SINGLE_CONTRACT.V1", "key_parameter": "evaluation_unit"},
+    "scorecard_judgement_timing": {"rule_id": "RULE.SCORECARD.SINGLE_CONTRACT.V1", "key_parameter": "judgement_timing"},
+    "scorecard_minimum_sample_role": {"rule_id": "RULE.SCORECARD.SINGLE_CONTRACT.V1", "key_parameter": "minimum_sample_role"},
+    "fx_rate_source": {"rule_id": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1", "key_parameter": "rate_source"},
+    "fx_availability": {"rule_id": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1", "key_parameter": "availability"},
+    "fx_staleness": {"rule_id": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1", "key_parameter": "staleness"},
+    "kr_inverse_hedge_interim": {"rule_id": "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1", "key_parameter": "kr_inverse_hedge"},
+    "kr_stress_reduction_validation": {"rule_id": "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1", "key_parameter": "kr_stress_reduction_validation"},
+    "cooling_off_applies_to": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "applies_to"},
+    "cooling_off_calendar_minimum": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "calendar_minimum"},
+    "cooling_off_sample_condition": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "sample_condition"},
+    "cooling_off_combine": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "combine"},
+    "cooling_off_not_blocked": {"rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "key_parameter": "not_blocked"},
+    "recalculated_mark": {"rule_id": "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1", "key_parameter": "mark"}
+  },
+  "cio_interpretations": {
+    "unknown_hold_cap_multiplier": {
+      "parse_from_registry_parameter": "state_multipliers",
+      "state": "UNKNOWN",
+      "pattern": "^hold_current_up_to_(?P<multiplier>[0-9]+\\.[0-9]+)_no_new_buys$",
+      "source": "RULE.ALLOCATION.V2 per_market_state_multiplier_of_base.UNKNOWN; applied from the 2nd consecutive UNKNOWN cycle (RULE.EXEC.ALLOCATION_REDUCTION.V1 unknown_cap_start)"
+    },
+    "downgrade_split": {
+      "session_1": "HALF_OF_EXCESS_AT_TRIGGER",
+      "session_2": "REMAINING_EXCESS_AT_TRIGGER_BOUNDED_BY_CURRENT_EXCESS",
+      "fraction_session_1": "1/2",
+      "source": "build plan section 9 CIO note 1 (D5-b = half of the excess in session 1, all of the rest in session 2), canon 5-3 D5-b row; the session-2 bound by current excess keeps D5-a (no sell for price-driven excess)"
+    },
+    "session_definition": {
+      "CRYPTO": "DECISION_CYCLE_FROM_0700Z_TO_NEXT_0700Z",
+      "KR": "OFFICIAL_TRADING_DATE_FROM_CALENDAR_INPUT",
+      "US": "OFFICIAL_TRADING_DATE_FROM_CALENDAR_INPUT",
+      "source": "canon 1-3 (crypto session = one 07:00Z decision cycle), RULE.EXEC.TIME_CONTRACT.V1 crypto_decision_cycle"
+    },
+    "order_validity": {
+      "CRYPTO": "BEFORE_NEXT_DECISION_CYCLE_START",
+      "KR": "END_OF_SESSION_FILL_WINDOW",
+      "US": "END_OF_SESSION_FILL_WINDOW",
+      "source": "canon 2-3 (order validity table row)"
+    },
+    "nav0": {
+      "formula": "VIRTUAL_CASH_PLUS_SUM_VERIFIED_VALUATIONS_ALL_MARKETS_AT_SESSION_START",
+      "first_crypto_cycle_equivalence": "KRW 200,000,000 virtual capital + crypto ledger realized P&L + crypto unrealized P&L while KR/US hold nothing",
+      "unverified_holding": "ANY_UNVERIFIED_HOLDING_VALUATION_DENIES_NEW_BUYS_IN_ALL_MARKETS_NAV_STILL_USES_LAST_VERIFIED_VALUE_AND_FLAG",
+      "source": "canon 2-2 (NAV0), canon 2-4 (NAV unknown), build plan 2-3 principle 4 and section 9 CIO note 3; unverified_holding ratified by the user 2026-09-18 23:10 KST ('보유분 평가가 확인되지 않으면 해당 시장뿐 아니라 모든 시장의 신규 매수를 금지한다'): new buys only; valuation, exits and releases unchanged"
+    },
+    "available_cash": {
+      "formula": "VIRTUAL_CASH_MINUS_ALL_OPEN_BUY_RESERVATIONS",
+      "source": "canon 2-2 B_m = min(Room/3, available cash - other markets' reservations); own-market reservations are also not available cash. The two readings coincide whenever the market carries no reservation into a new session, which canon 2-3 guarantees (orders expire at the session end)."
+    },
+    "water_filling": {
+      "steps": ["EQUAL_SHARE_OF_BUDGET", "CAP_AT_MIN_NAME_ROOM_LIQUIDITY_ROOM", "REDISTRIBUTE_EQUALLY_TO_UNCAPPED_UNTIL_NONE"],
+      "quantity": "FLOOR_TO_INSTRUMENT_QUANTITY_STEP_ZERO_SKIPPED_WITH_REASON",
+      "order": "INSTRUMENT_CODE_ASCENDING",
+      "carry_over": false,
+      "source": "canon 2-2 allocation steps 1-6"
+    },
+    "budget_consumption": {
+      "consumed_by": "SUBMITTED_AMOUNT_LIMIT_PRICE_TIMES_QUANTITY_PLUS_FEE",
+      "cancel_or_expiry_restores_budget": false,
+      "allocations_per_session": 1,
+      "restart": "REUSE_RECORDED_SESSION_BUDGET_NEVER_RECOMPUTE",
+      "record_key": ["market", "session_id", "rule_version"],
+      "source": "canon 2-3 and 2-4"
+    },
+    "liquidity_room_scope": {"value": "CUMULATIVE_HOLDING", "source": "RULE.SIZE.SESSION_BUDGET_ASSEMBLY.V2 per_name_cumulative_holding (user wording correction)"},
+    "inverse_hedge_excluded_from_long": {"value": true, "source": "canon 5-4 item 1 (logical necessity), build plan K13/U9, D1-D11 record cio_follow_up_no_decision"},
+    "reduction": {
+      "excess": "MAX_ZERO_LONG_VERIFIED_VALUE_MINUS_CAP",
+      "cancel_open_buys_first": true,
+      "within_tier_split": "PRO_RATA",
+      "lower_rank_tiering": "WORST_RANK_FIRST_TIES_PRO_RATA_UNRANKED_IN_FINAL_PRO_RATA_TIER",
+      "unknown_cap_reduction_requires_verified_price": true,
+      "source": "canon 5-1, 5-2 (D5-e row), 5-3 D5-d row; RULE.EXEC.ALLOCATION_REDUCTION.V1 reduction_order; tier_order must equal registry reduction_order (checked at core load)",
+      "tier_order": ["STRENGTH_RELEASED", "LOWER_RANK", "PRO_RATA"]
+    },
+    "reallocation": {
+      "released_capital": "BASE_TIMES_ONE_MINUS_MULTIPLIER_FOR_KNOWN_STATES_BELOW_RISK_ON",
+      "receivers": "EFFECTIVE_RISK_ON_MARKETS",
+      "split": "CAPPED_PROPORTIONAL_TO_BASE_REDISTRIBUTING_OVERFLOW_REMAINDER_CASH",
+      "source": "RULE.ALLOCATION.V2 reallocation_rule and examples_nav, RULE.EXEC.MULTI_MARKET_REALLOCATION.V1 split, canon 5-5"
+    },
+    "drawdown": {
+      "peak": "RUNNING_MAX_OF_VERIFIED_COMBINED_NAV_SINCE_PAPER_START",
+      "peak_reset": false,
+      "stage_latches": "INDEPENDENT_TRIGGER_AT_OR_BELOW_STAGE_LIFT_AT_OR_ABOVE_LIFT_LEVEL",
+      "unverified_observation": "NOT_USED_FOR_PEAK_OR_TRANSITIONS_FLAGGED",
+      "minus_10_effect": "CAP_MULTIPLIER_AT_MOST_RISK_OFF_NEW_BUYS_DENIED_ALL_MARKETS",
+      "minus_5_effect_ladder": ["RISK_ON", "NEUTRAL", "RISK_OFF"],
+      "source": "RULE.RISK.NAV_DRAWDOWN_LIFT.V1 (combined NAV, lift levels), RULE.ALLOCATION.V2 drawdown_overrides; build plan C19 and section 9 CIO note 5 (no peak reset: the ratified lift rule prevails over canon 5-2 'reset after CIO review'); 'within' read inclusively",
+      "unverified_observation_kind": "CIO_INTERPRETATION_NOT_USER_RATIFIED",
+      "unknown_stage": "DENY_ALL_NEW_BUYS",
+      "unknown_stage_source": "canon 2-4 (no allocation without a verified NAV); ratified by the user 2026-09-18, behavior unchanged from PR #758 review L2"
+    },
+    "reentry": {
+      "same_packet_key": ["market", "decision_packet_id", "instrument"],
+      "strength_episode_key": ["market", "bucket_id", "confirmed_on"],
+      "new_confirmation": "STRENGTH_EPISODE_DIFFERENT_FROM_EXITED_AND_CONFIRMATION_AVAILABLE_AFTER_EXIT_FILL",
+      "source": "canon 6-1 R1, R2, R4, R5; RULE.EXEC.REENTRY.V1 (D7 adapted to ratified exits)"
+    },
+    "position_episode": {
+      "opens": "FIRST_BUY_FILL_FROM_ZERO_QUANTITY",
+      "closes": "QUANTITY_RETURNS_TO_ZERO",
+      "top_ups_and_partial_fills": "SAME_EPISODE",
+      "clock_start": "FIRST_FILL",
+      "realized_pnl": "AVERAGE_COST",
+      "source": "canon 6-2 (A, partial fills paragraph, average-cost realized P&L); RULE.EXEC.TOPUP_POSITION_LEVEL.V1"
+    },
+    "monitoring_gap": {
+      "interval_multiple": "2",
+      "source": "canon 7-3 item 4 (gap = no expected observation for more than 2x the monitoring interval); RULE.EXEC.MONITORED_STOP_FILL_MODEL.V1 monitor_gaps RECORD_SEPARATELY"
+    },
+    "status_display_ko": {
+      "RISK_EXECUTION_UNCERTAIN": "위험 평가·집행 불확실",
+      "MARKET_EXECUTION_BLOCKED": "집행 불가(시장)",
+      "MONITORING_GAP": "감시 공백",
+      "JUDGMENT_GAP": "판정 공백",
+      "source": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1 principles_all_options; D1-D11 record cio_follow_up_no_decision; RULE.ROTATION.INTERPRETATION_OBSERVATION_GAP.V1 gap_lapse_handling.display"
+    },
+    "market_blocked_conditions": {
+      "KR": ["LIMIT_DOWN_LOCK", "TRADING_HALT", "VI_SINGLE_PRICE"],
+      "source": "RULE.EXEC.DATA_FAILURE_PRIORITY.V1 principles_all_options (limit-down lock, halt, VI single-price); canon 4-1 item 4"
+    },
+    "mechanical_checklist": {
+      "paths": {
+        "P1": {"evidence": "N", "path": "ENTRY_HOLD_EXIT_COMPLETED"},
+        "P2": {"evidence": "N/F", "path": "ENTRY_PARTIAL_FILL_REMAINDER_EXPIRY"},
+        "P3": {"evidence": "N/F", "path": "NEXT_SESSION_TOP_UP"},
+        "P4": {"evidence": "N/F", "path": "MULTI_CANDIDATE_EQUAL_SPLIT_WATER_FILLING"},
+        "P5": {"evidence": "N/F", "path": "EXIT_PARTIAL_FILL_NEXT_BAR_REMAINDER"},
+        "P6": {"evidence": "N/F", "path": "ORDER_CANCEL_OR_EXPIRY"},
+        "P7": {"evidence": "N+F", "path": "SAME_SLOT_DUPLICATE_RUN"},
+        "P8": {"evidence": "F+N", "path": "MID_SESSION_RESTART"},
+        "P9": {"evidence": "N/F", "path": "PRICE_MISSING_OR_STALE"},
+        "P10": {"evidence": "N/F", "path": "MARKET_STATE_TRANSITIONS_STRESS_UNKNOWN"},
+        "P11": {"evidence": "N/F", "path": "STRENGTH_RELEASE_EXIT"},
+        "P12": {"evidence": "F", "path": "STOP_TRIGGER_GAP_THROUGH_MONITORING_GAP"},
+        "P13": {"evidence": "F", "path": "SAME_PACKET_REBUY_BLOCK"},
+        "P14": {"evidence": "N/F", "path": "LIMIT_BINDING_NAME_LIQUIDITY_CASH"},
+        "P15": {"evidence": "F", "path": "KR_LIMIT_DOWN_OR_HALT_CARRY"},
+        "P16": {"evidence": "N/F", "path": "CALENDAR_UNKNOWN_OR_HOLIDAY"},
+        "P17": {"evidence": "F", "path": "KILL_SWITCH"},
+        "P18": {"evidence": "N", "path": "LEDGER_RECONCILIATION"}
+      },
+      "status_display_ko": {"validated": "기계 검증 완료", "in_progress": "기계 검증 진행", "natural_not_observed": "자연 미관찰", "performance_insufficient": "투자 성과 표본 부족"},
+      "source": "canon 8-1, 8-2 (P1-P18 evidence kinds), build plan section 10 G5/G6 (P1 natural only, no fixture substitution); RULE.VALIDATION.MECHANICAL_ONLY.V1",
+      "performance_state_display_ko": {"INSUFFICIENT": "투자 성과 표본 부족", "CHECKPOINT_JUDGEMENT_AVAILABLE": "투자 성과는 성적표 점검 시점 판정 참조"}
+    },
+    "operational_safety": {
+      "min_observed_sessions": 30,
+      "min_scheduled_run_coverage": "0.95",
+      "max_duplicate_ledger_mutations": 0,
+      "max_reconciliation_mismatches": 0,
+      "max_silent_errors": 0,
+      "min_restart_recovery_success_rate": "1",
+      "min_restart_recovery_attempts": 1,
+      "max_stale_data_orders": 0,
+      "operational_failure_overrides_sample_status": true,
+      "system_canary_excluded": true,
+      "source": "canon 8-3 (E2: KRX 9-8 CIO operational-safety thresholds extended to the three markets), ratified with D10"
+    },
+    "scorecard": {
+      "unit": "POSITION_EPISODE",
+      "clusters": ["STRENGTH_EPISODE", "ENTRY_DATE"],
+      "cluster_choice": "WIDER_CLUSTER_ROBUST_INTERVAL",
+      "checkpoints_n_eff": [30, 80, 160],
+      "checkpoint_step_after_last": 80,
+      "observation_minimum_n_eff": 30,
+      "display_insufficient_ko": "표본 부족",
+      "display_reference_ko": "참고, 판정 아님",
+      "source": "canon 9-2 items 1, 2 and 4; build plan C24 and section 10 G4"
+    },
+    "fx_conversion": {
+      "staleness_clock": "WEEKDAYS_MON_FRI_AFTER_LATEST_PUBLICATION_UTC_DATE_UP_TO_DECISION_UTC_DATE",
+      "staleness_clock_kind": "CIO_INTERPRETATION_NOT_USER_RATIFIED",
+      "input": "CALLER_SUPPLIED_LATEST_DEXKOUS_VALUE_PUBLISHED_BEFORE_DECISION_WITH_OBSERVATION_DATE_AND_PUBLISHED_AT",
+      "stale_consequence": "NAV_STATUS_UNVERIFIED_ON_RECORDS_AND_SCORECARD_ALLOCATION_UNAFFECTED",
+      "source": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1 (P2 sentence only says display 'NAV 일부 미검증'); CIO decisions 2026-09-15 on PR #758 review items 2a (no allocation block) and 2b (count from publication/availability date); no FX collector in PR1"
+    },
+    "kr_stress_interim": {
+      "kr_inverse_hedge": "OFF_UNTIL_KR_STRESS_CONDITION_CONFIRMED",
+      "kr_stress_inputs_allowed_only_in": "FIXED_INPUT_REPLAY",
+      "source": "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1 (P5); CIO decision 2026-09-15 PR #758 review item 2d",
+      "natural_kr_stress_input": "FAIL_CLOSED_KR_ONLY_US_AND_CRYPTO_PROCEED"
+    },
+    "cooling_off": {
+      "rule_minimum_sample": "REGISTRY_ROW_MINIMUM_SAMPLE_NULL_IS_NOT_DEFINED_PROPOSAL_BLOCKED",
+      "kr_us_trading_days": "CALLER_SUPPLIED_TRADING_DAYS_SINCE_EFFECTIVE_FROM_OFFICIAL_CALENDAR",
+      "source": "RULE.GOVERNANCE.COOLING_OFF.V1 (P6), config/rule_registry_v1.json minimum_sample"
+    },
+    "replay": {
+      "registry": "APPEND_ONLY_CONTENT_ADDRESSED_SNAPSHOT_STORE",
+      "path": "evidence/rule_registry_snapshots/rule_registry_v1-<registry_sha256>.json.gz",
+      "missing_snapshot": "REGISTRY_SNAPSHOT_UNAVAILABLE",
+      "config_version_changed": "CONFIG_VERSION_UNAVAILABLE",
+      "why_not_git_history": "shallow CI checkouts do not carry the commits that held older registry bytes",
+      "source": "CIO decision 2026-09-15 PR #758 review M2"
+    }
+  },
+  "not_defined": [
+    {
+      "id": "KR_STRESS_CONDITION",
+      "item": "the KR STRESS condition itself",
+      "handling": "KR inverse hedge OFF; KR STRESS state accepted only in FIXED_INPUT_REPLAY evidence mode (RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1)",
+      "pending": "user confirmation of a KR STRESS condition"
+    },
+    {
+      "id": "UNKNOWN_CAP_REDUCTION_PACE",
+      "item": "speed of reductions to the UNKNOWN 0.5 cap",
+      "handling": "CRYPTO: RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1 (USER_RATIFICATION_CRYPTO_PAPER_V2_OPERATION_20260915, sha256 ccc846a32565b0e837a30606e9aa81e894529fbed4be1917d70269ac315b5e56): same pace as D5-b, half of the excess in the first session and the remainder in the next; KR/US: excess computed, reduction amount NOT_DEFINED",
+      "pending": "KR/US pace only (the crypto PAPER v2 operation record is scoped to crypto)"
+    },
+    {
+      "id": "DRAWDOWN_OVERRIDE_REDUCTION_PACE",
+      "item": "speed of reductions caused by the -5%/-10% NAV drawdown overrides",
+      "handling": "CRYPTO: RULE.EXEC.REDUCTION_PACE_UNKNOWN_CAP_AND_DRAWDOWN.V1 (same record): same pace as D5-b; KR/US: caps applied to new buys, reduction amount NOT_DEFINED",
+      "pending": "KR/US pace only (the crypto PAPER v2 operation record is scoped to crypto)"
+    },
+    {
+      "id": "DRAWDOWN_STEP_BEYOND_RISK_OFF_OR_UNKNOWN",
+      "item": "'one step more defensive' (-5% stage) for a RISK_OFF or UNKNOWN market",
+      "handling": "state kept, flagged NOT_DEFINED (RISK_OFF -> STRESS would exceed the -10% stage's RISK_OFF limits)",
+      "pending": "allocation v2 drawdown_overrides wording"
+    },
+    {
+      "id": "UNKNOWN_MARKET_RELEASED_CAPITAL",
+      "item": "capital released by an UNKNOWN market for reallocation",
+      "handling": "excluded from the reallocation pool and flagged",
+      "pending": "allocation v2 names released capital from known states below RISK_ON only by example"
+    },
+    {
+      "id": "FLOW_PRIORITY_METHOD",
+      "item": "receiver priority after Cross-Market Flow validation (>=40 observations)",
+      "handling": "reallocation NOT_DEFINED when flow validation is reported",
+      "pending": "allocation v2 reallocation_rule"
+    },
+    {
+      "id": "NEUTRAL_SELECTIVE_MEANING",
+      "item": "PERMIT_SELECTIVE beyond entry baseline B",
+      "handling": "recorded as-is; selection is the entry rule's (PR3) responsibility",
+      "pending": "allocation v2 new_buys_by_market_state"
+    },
+    {
+      "id": "SCORECARD_BADGE_THRESHOLDS",
+      "item": "t-thresholds and risk-policy premium / CVaR10 thresholds",
+      "handling": "not computed in PR1; judgement readiness only",
+      "pending": "canon 9-2 items 5-6 (CVaR10 < 10% is not in the D1-D11 record new_numbers)"
+    },
+    {
+      "id": "ALTERNATIVE_INDEPENDENT_PRICE_PATH",
+      "item": "D4 alternative independent price verification",
+      "handling": "never accepted: RULE.EXEC.DATA_FAILURE_PRIORITY.V1 implementation_status ALTERNATIVE_PATH_NOT_YET_VERIFIED",
+      "pending": "implementation and verification (PR4/PR5)"
+    },
+    {
+      "id": "RULE_MINIMUM_SAMPLE",
+      "item": "minimum sample for rules whose registry row has none",
+      "handling": "no fallback: the D11 record states no numeric minimum sample; the cooling-off gate reports MIN_SAMPLE_NOT_DEFINED and blocks performance-reason proposals",
+      "pending": "per-rule minimum sample confirmation"
+    },
+    {
+      "id": "FX_COLLECTOR",
+      "item": "DEXKOUS collection path",
+      "handling": "FX observation is a caller input; no collector in PR1",
+      "pending": "separate collector PR"
+    }
+  ],
+  "authority": {
+    "order_authorized": false,
+    "real_trading_authorized": false,
+    "exchange_order_authorized": false,
+    "secret_access_authorized": false,
+    "runtime_wiring": false,
+    "allocation_numbers_changed": false
+  },
+  "resolved_since_plan": [
+    {"plan_item": "P1", "rule_id": "RULE.ROTATION.CRYPTO_30D_COVERAGE_RECALC_ONCE.V1", "used_here": false},
+    {"plan_item": "P2", "rule_id": "RULE.NAV.KRW_USD_CONVERSION_FRED_DEXKOUS.V1", "used_here": true},
+    {"plan_item": "P3", "rule_id": "RULE.EXIT.SHADOW_CONTROLS_KR_US_UNITS.V1", "used_here": false},
+    {"plan_item": "P4", "rule_id": "RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1", "used_here": false},
+    {"plan_item": "P5", "rule_id": "RULE.HEDGE.KR_STRESS_UNRATIFIED_INTERIM.V1", "used_here": true},
+    {"plan_item": "P6", "rule_id": "RULE.GOVERNANCE.COOLING_OFF.V1", "used_here": true},
+    {"plan_item": "MAX_GAP", "rule_id": "RULE.ROTATION.MAX_OBSERVATION_GAP.V1", "used_here": false}
+  ]
+}

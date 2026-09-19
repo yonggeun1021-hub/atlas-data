@@ -50,6 +50,29 @@ contract for the list of facts a directory row still lacks (the registry
 evaluator is not run with fabricated facts: `registry_evaluation =
 NOT_RUN:REQUIRED_FACTS_MISSING`).
 
+### Session ↔ market-data coupling
+
+Both markets refuse a session their market data does not actually describe, but
+the test differs because the available field differs.
+
+KR's `operational_date_kst` **is** the session
+(`korea_symbol_market_review` sets it from `market.as_of_date`), so KR asserts
+exact equality on it (`KR_BOUNDED_REVIEW_SESSION_MISMATCH`).
+
+US has no such field — `us_symbol_market_review` derives `operational_date_kst`
+from the observation instant in `Asia/Seoul` — and the capture's *calendar
+distance* from the session is not a defect signal at all: over a weekend it is
+legitimately 2–3 days. `test/fixtures/rolling_pointer_snapshot_20260913` is
+exactly that shape: a Sunday 2026-09-13 capture of the Friday 2026-09-11
+session, and it is correct. So US asserts **coverage, not elapsed days**: the
+newest session present in the capture's `alpaca.daily_bars` must *be* the
+session the packet claims. A capture already holding a later session would
+evaluate an older session using data that includes later trading (on 2026-09-18
+a session-2026-09-16 packet would be built from a capture whose newest bar is
+2026-09-17); a capture that stops earlier does not reach the session at all.
+Both are refused with `US_BOUNDED_REVIEW_SESSION_MISMATCH`, and a capture with
+no bars at all with `US_MARKET_DATA_NO_SESSION_BARS`.
+
 ## Idempotency, chunks, resume
 
 `generation_id = sha256(market, session_date, sorted input file hashes)`.
@@ -58,8 +81,15 @@ Rows are built in chunks (`chunk_size`: KR 500, US 2000) under
 chunks per generation. A rerun with unchanged inputs reuses every chunk and
 returns `verified_existing`; an interrupted run (`--max-chunks` in tests)
 resumes and yields byte-identical `packet.json`. Changed inputs → new
-generation (`superseded_generation`; old chunks ignored, never reused);
-an existing packet of the same generation with different bytes →
+generation (old chunks ignored, never reused). What happens to an already
+persisted packet of that session then depends on **where** it is: in a scratch
+or rebuild output directory it is replaced (`superseded_generation`), while
+inside this repository the supersede is **refused**
+(`COMMITTED_PACKET_SUPERSEDE_REFUSED`) — committed evidence is append-only,
+scratch space is not. The generation hashes rolling inputs (stage history, the
+bounded review pointer, the KRX watchlist), so without that scope distinction a
+scheduled rerun would rewrite a committed packet the first time any pointer
+moved. An existing packet of the same generation with different bytes →
 `EXISTING_PACKET_DRIFT_OR_TAMPER`. The packet's `generated_at` is the newest
 source timestamp (never the wall clock); the lookup time is kept in
 `<work_dir>/run_receipt.json`.

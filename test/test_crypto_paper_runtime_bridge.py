@@ -969,7 +969,8 @@ class LeadershipObservationRootTests(unittest.TestCase):
     def test_observation_manifest_root_and_tamper_rejection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            manifest = root / 'evidence/crypto/breadth/raw/2000-01-01/_manifest.json'
+            # as_of 2000-01-01 is backed by capture-vintage folder raw/2000-01-02.
+            manifest = root / 'evidence/crypto/breadth/raw/2000-01-02/_manifest.json'
             manifest.parent.mkdir(parents=True)
             manifest.write_text('{"fixture":"observation-only"}')
             validator = BRIDGE._decision_validator(root)
@@ -989,7 +990,7 @@ class LeadershipObservationRootTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             raw_root = root / 'evidence/crypto/breadth/raw'
-            manifest = raw_root / '2026-08-28/_manifest.json'
+            manifest = raw_root / '2026-08-29/_manifest.json'  # vintage for as_of 2026-08-28
             manifest.parent.mkdir(parents=True)
             manifest.write_text('{"fixture":"no-order"}')
             record = {'schema_version':2, 'market':'CRYPTO',

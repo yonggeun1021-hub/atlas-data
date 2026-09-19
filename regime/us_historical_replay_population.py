@@ -189,23 +189,42 @@ REPLAYED_AXES = ["TREND", "RISK_VOL", "LIQUIDITY"]
 EXCLUDED_AXES = ["BREADTH", "LEADERSHIP"]
 
 # CIO US-DATA-1/U1 (2026-09-14): ``breadth_axis_row``/``leadership_axis_row``
-# and their fetch ``replay_breadth_leadership_source`` below add BREADTH/
-# LEADERSHIP arithmetic to this module, byte-identical to
-# ``regime/paper_regime_reference.py::build_us`` and bounded by the same
-# per-date no-lookahead check every other fetch in this module carries. They
-# are exercised directly by ``test_us_historical_replay_population.py``'s
-# parity tests. They are **prepared, not yet wired**: ``REPLAYED_AXES``,
-# ``EXCLUDED_AXES``, ``exclusion_basis``, and ``replay_one_requested_date``
-# below are all unchanged, so every existing guarantee (BREADTH/LEADERSHIP
-# always UNKNOWN, 3/3 replay, 3/5 coverage) is unaffected. Moving them from
-# excluded to replayed requires the source contract's own ratification scope
-# (``config/free_market_data_contract.json``
-# ``alpaca.current_proxy_axes.approval_status``) to move past
-# ``RATIFIED_CURRENT_REFERENCE_ONLY`` -- the CIO plan's U2, a ratification
-# this module has no authority to make on its own. Wiring these functions
-# into the replay/validation pipeline is therefore a separate, later change
-# gated on that ratification landing, not a code gap in this one.
+# and their fetch ``replay_breadth_leadership_source`` add BREADTH/LEADERSHIP
+# arithmetic to this module, byte-identical to
+# ``regime/paper_regime_reference.py::build_us``. ``REPLAYED_AXES`` and
+# ``EXCLUDED_AXES`` above are kept exactly as they were before this wiring --
+# they now name the ``RATIFIED_CURRENT_REFERENCE_ONLY`` *default* rather than
+# runtime truth. ``PREPARED_NOT_WIRED_AXES`` is kept for the module's own
+# history/tests; it no longer describes the code path (see
+# ``authorized_axes`` below), which now actually attempts BREADTH/LEADERSHIP
+# once ``HISTORICAL_PIT_REPLAY_IDENTITY_PATH`` says so.
 PREPARED_NOT_WIRED_AXES = ["BREADTH", "LEADERSHIP"]
+
+# CIO plan U2 (2026-09-13/14): the ratified identity that widens the source
+# scope from current-reference-only to PAPER PIT replay. Landing this
+# identity is a CIO technical decision
+# (``CIO-REGIME-PATH-AND-REDESIGN-START-20260914``, ``US`` -> ``U2_identity``)
+# this module never makes on its own -- it only recognizes the identity once
+# ``config/us_historical_pit_replay_identity_v1.json`` (a dedicated file, not
+# a field inside ``config/free_market_data_contract.json`` -- see
+# ``_load_historical_pit_replay_identity``'s docstring for why) carries it,
+# hash-bound to that decision record so a re-signed file cannot claim the
+# identity by merely restating the status string. ``authority.
+# us_breadth_authorized`` is deliberately NOT the gate: it stays ``false``
+# permanently because other contract consumers depend on it staying false, so
+# authorization here is keyed entirely off that dedicated identity file
+# instead.
+RATIFIED_HISTORICAL_PIT_REPLAY_STATUS = "US_ETF_PROXY_HISTORICAL_PIT_SCOPE_V1"
+RATIFIED_HISTORICAL_PIT_REPLAY_DECISION_ID = (
+    "CIO-REGIME-PATH-AND-REDESIGN-START-20260914"
+)
+# sha256 of the external CIO decision record that adopted the identity above
+# (outside this repository checkout, so it is a compile-time anchor here
+# rather than a runtime file read -- this module's own tests, and CI, never
+# depend on that external file existing).
+RATIFIED_HISTORICAL_PIT_REPLAY_DECISION_SHA256 = (
+    "47819e1078f3ec8450e6c4aadfa31233ee5784ebe102904034f2c22fc1cdbaa6"
+)
 
 # The exact provenance a record must carry, one entry per replayed axis, and the
 # exact per-series shape the FRED liquidity capture emits. Required key for key
@@ -218,6 +237,12 @@ SOURCE_HASH_KEYS = (
     "risk_vol_response_sha256",
     "trend_response_sha256",
 )
+# The one additional key a record carries once BREADTH/LEADERSHIP are
+# authorized: both axes are measured from the same combined Alpaca fetch (see
+# ``replay_breadth_leadership_source``), so they share one response hash
+# rather than each carrying its own. Absent under the current 3-axis
+# authorization, so ``SOURCE_HASH_KEYS``-shaped records stay byte-identical.
+BREADTH_LEADERSHIP_RESPONSE_HASH_KEY = "breadth_leadership_response_sha256"
 LIQUIDITY_RESPONSE_HASH_KEYS = (
     "metadata_response_sha256", "observations_response_sha256",
 )
@@ -225,7 +250,17 @@ AXIS_RESPONSE_HASH_KEY = {
     "TREND": "trend_response_sha256",
     "RISK_VOL": "risk_vol_response_sha256",
     "LIQUIDITY": "liquidity_response_hashes",
+    "BREADTH": BREADTH_LEADERSHIP_RESPONSE_HASH_KEY,
+    "LEADERSHIP": BREADTH_LEADERSHIP_RESPONSE_HASH_KEY,
 }
+
+
+def _source_hash_keys(replayed: list[str]) -> tuple[str, ...]:
+    """The exact source-hash keys a record carries for this replay's scope."""
+    keys = list(SOURCE_HASH_KEYS)
+    if "BREADTH" in replayed:
+        keys.append(BREADTH_LEADERSHIP_RESPONSE_HASH_KEY)
+    return tuple(keys)
 
 STATUS_OBSERVED = "FREE_AXES_OBSERVED"
 STATUS_PARTIAL = "FREE_AXES_PARTIAL"
@@ -258,10 +293,15 @@ ALL_AXES_NOT_COMPUTABLE_REASON = "ALL_FREE_AXES_NOT_COMPUTABLE"
 # ``attempted_count``, which is how ``_validate_record`` re-derives that count.
 LOOKAHEAD_BLOCKED_REASON = "US_REPLAY_LOOKAHEAD_VIOLATION"
 
-# The candidate rule can only classify a full 5/5 axis set; with BREADTH and
-# LEADERSHIP excluded by ratification scope, the honest normalization outcome
-# is "not computable", never a NEUTRAL stand-in.
+# The candidate rule can only classify a full 5/5 axis set. Whenever coverage
+# is partial -- BREADTH/LEADERSHIP excluded by ratification scope, or simply
+# not observed on a given date even when authorized -- the honest
+# normalization outcome is "not computable", never a NEUTRAL stand-in.
 CLASSIFICATION_STATUS = "NOT_COMPUTABLE_PARTIAL_AXIS_COVERAGE"
+# The live rule's own status (``PRR.market_packet``) for a genuine 5/5
+# classification -- reused verbatim rather than invented, exactly like every
+# other threshold/label this module mirrors from ``paper_regime_reference.py``.
+CLASSIFICATION_STATUS_CLASSIFIED = "PAPER_REFERENCE_CLASSIFIED"
 
 # The exact authority boundary of this population, declared once and required
 # key-for-key by ``validate_population``. A payload that drops a flag must not
@@ -678,22 +718,15 @@ def _assert_vintage_covers(
     return start.isoformat(), end.isoformat()
 
 
-def replay_trend_source(
-    alpaca_key: str, alpaca_secret: str, anchor: dt.date, *, getter, contract: dict,
-) -> dict:
-    """Rebuild the trend-ETF observations available as of ``anchor``."""
-    if not alpaca_key and not alpaca_secret:
-        fail("BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL")
-    if not alpaca_key or not alpaca_secret:
-        fail("BLOCKED_BY_INCOMPLETE_DEDICATED_MARKET_DATA_CREDENTIAL")
-    symbols = list(contract["alpaca"]["trend_symbols"])
-    windows = list(contract["alpaca"]["return_windows_sessions"])
-    # `end` is the requested date's last instant, so the provider is never
-    # asked for a session after it.
-    anchor_end = dt.datetime.combine(anchor, dt.time(23, 59, 59), tzinfo=UTC)
-    raw, normalized = FMD.fetch_alpaca_daily_bars(
-        alpaca_key, alpaca_secret, symbols, anchor_end, getter=getter,
-    )
+def _grouped_sessions(
+    normalized: list[dict], anchor: dt.date, *, invalid_code: str, lookahead_label: str,
+) -> dict[str, list[dict]]:
+    """Group normalized Alpaca bars by symbol, failing closed on any lookahead.
+
+    Shared by ``replay_trend_source`` and ``replay_breadth_leadership_source``
+    so the exact same session-date parsing and no-lookahead check governs
+    every bar this module ever consumes, whichever fetch it came from.
+    """
     grouped: dict[str, list[dict]] = {}
     for row in normalized:
         # Parsed, not shape-matched: a bar timestamped ``2026-02-31`` is not a
@@ -701,15 +734,27 @@ def replay_trend_source(
         # as an ordinary earlier one.
         session = _calendar_date(str(row.get("opened_at", ""))[:10])
         if session is None:
-            fail("US_TREND_SESSION_DATE_INVALID")
+            fail(invalid_code)
         # A provider that answers with a later bar than requested must fail
         # this date closed rather than have the bar silently trimmed.
         if session > anchor:
-            fail("US_REPLAY_LOOKAHEAD_VIOLATION", "ALPACA_BAR")
+            fail("US_REPLAY_LOOKAHEAD_VIOLATION", lookahead_label)
         grouped.setdefault(row["symbol"], []).append(
             {**row, "session_date": session.isoformat()}
         )
+    return grouped
 
+
+def _derive_trend_etfs(
+    grouped: dict[str, list[dict]], symbols: list[str], windows: list[int],
+) -> list[dict]:
+    """The per-symbol trend-ETF rows ``trend_axis_row`` consumes.
+
+    Shared by ``replay_trend_source`` (its own narrower 3-symbol fetch) and
+    ``replay_breadth_leadership_source`` (the wider union fetch, restricted to
+    the trend symbols) so both ever compute this the same way from whichever
+    bars they were given.
+    """
     trend_etfs = []
     for symbol in symbols:
         bars = sorted(grouped.get(symbol, []), key=lambda row: row["session_date"])
@@ -734,6 +779,38 @@ def replay_trend_source(
             "available_session_count": len(bars),
             "returns": returns,
         })
+    return trend_etfs
+
+
+def replay_trend_source(
+    alpaca_key: str, alpaca_secret: str, anchor: dt.date, *, getter, contract: dict,
+) -> dict:
+    """Rebuild the trend-ETF observations available as of ``anchor``.
+
+    Its own narrow 3-symbol fetch: used only when BREADTH/LEADERSHIP are not
+    authorized for this replay. Once they are, TREND is derived from
+    ``replay_breadth_leadership_source``'s wider union fetch instead (see
+    ``replay_one_requested_date``), so a leadership/breadth session ending on
+    a different day than the trend ETFs' is structurally impossible rather
+    than merely checked after the fact.
+    """
+    if not alpaca_key and not alpaca_secret:
+        fail("BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL")
+    if not alpaca_key or not alpaca_secret:
+        fail("BLOCKED_BY_INCOMPLETE_DEDICATED_MARKET_DATA_CREDENTIAL")
+    symbols = list(contract["alpaca"]["trend_symbols"])
+    windows = list(contract["alpaca"]["return_windows_sessions"])
+    # `end` is the requested date's last instant, so the provider is never
+    # asked for a session after it.
+    anchor_end = dt.datetime.combine(anchor, dt.time(23, 59, 59), tzinfo=UTC)
+    raw, normalized = FMD.fetch_alpaca_daily_bars(
+        alpaca_key, alpaca_secret, symbols, anchor_end, getter=getter,
+    )
+    grouped = _grouped_sessions(
+        normalized, anchor, invalid_code="US_TREND_SESSION_DATE_INVALID",
+        lookahead_label="ALPACA_BAR",
+    )
+    trend_etfs = _derive_trend_etfs(grouped, symbols, windows)
 
     session_dates = {row["as_of_session_date"] for row in trend_etfs}
     if len(session_dates) != 1:
@@ -755,21 +832,70 @@ def replay_trend_source(
     }
 
 
+PROXY_MIXED_SESSION_GENERATION = "US_PROXY_MIXED_SESSION_GENERATION"
+
+
+def _assert_proxy_session_alignment(measurement: object, label: str) -> None:
+    """Every session date a combined TREND/BREADTH/LEADERSHIP measurement names
+    must be the one effective session it claims.
+
+    The union fetch makes the *trend* session single by construction, but not
+    the proxy groups: ``FMD.derive_us_market_reference`` stamps LEADERSHIP's
+    top-level ``as_of_session_date`` from the trend ETFs alone, while each
+    ``ordered_groups`` row carries its own symbol's last bar. A sector ETF that
+    is in LEADERSHIP but not in BREADTH (SMH) whose latest bar is missing
+    therefore still produced an ``OBSERVED`` LEADERSHIP axis mixing that
+    symbol's previous session into the effective one. Mirrors
+    ``regime/us_paper_runtime.py::_session_axis``'s ``_MIXED_SESSION_GENERATION``
+    check: the builder applies it right after the combined fetch and the
+    record validator re-applies it to the stored measurement, so neither a
+    replay nor a re-signed record can carry a mixed session generation.
+    """
+    if not isinstance(measurement, dict):
+        fail(PROXY_MIXED_SESSION_GENERATION, label)
+    effective = measurement.get("as_of_session_date")
+    if _calendar_date(effective) is None:
+        fail(PROXY_MIXED_SESSION_GENERATION, label)
+    breadth = measurement.get("breadth_measurement")
+    leadership = measurement.get("leadership_measurement")
+    trend_rows = measurement.get("trend_etfs")
+    if not isinstance(breadth, dict) or not isinstance(leadership, dict):
+        fail(PROXY_MIXED_SESSION_GENERATION, label)
+    breadth_rows = breadth.get("observations")
+    leadership_rows = leadership.get("ordered_groups")
+    for rows in (trend_rows, breadth_rows, leadership_rows):
+        if not isinstance(rows, list) or not rows or not all(
+            isinstance(row, dict) for row in rows
+        ):
+            fail(PROXY_MIXED_SESSION_GENERATION, label)
+    dates = {
+        measurement.get("reference_as_of_session_date"),
+        breadth.get("as_of_session_date"),
+        leadership.get("as_of_session_date"),
+    }
+    for rows in (trend_rows, breadth_rows, leadership_rows):
+        dates |= {row.get("as_of_session_date") for row in rows}
+    if dates != {effective}:
+        fail(PROXY_MIXED_SESSION_GENERATION, label)
+
+
 def replay_breadth_leadership_source(
     alpaca_key: str, alpaca_secret: str, anchor: dt.date, *, getter, contract: dict,
 ) -> dict:
-    """Rebuild the BREADTH/LEADERSHIP proxy-axis measurements available as of
-    ``anchor``. Prepared, not yet wired -- see ``PREPARED_NOT_WIRED_AXES``.
+    """Rebuild the TREND/BREADTH/LEADERSHIP observations available as of
+    ``anchor`` from one combined union fetch.
 
-    Reuses ``FMD.derive_us_market_reference`` unmodified: no BREADTH/
-    LEADERSHIP arithmetic is reimplemented here. That function needs bars for
-    the trend symbols *and* the sector-reference symbols to compute both
+    Reuses ``FMD.derive_us_market_reference`` unmodified for BREADTH/
+    LEADERSHIP: no arithmetic is reimplemented here. That function needs bars
+    for the trend symbols *and* the sector-reference symbols to compute both
     proxy axes (SPY is the LEADERSHIP benchmark, and BREADTH's 14 symbols
     overlap both sets), so this fetches their union in one
-    ``fetch_alpaca_daily_bars`` call -- independent of, and not a
-    replacement for, ``replay_trend_source``'s own narrower 3-symbol fetch,
-    since wiring either into ``replay_one_requested_date`` is a separate,
-    later change.
+    ``fetch_alpaca_daily_bars`` call. Once BREADTH/LEADERSHIP are authorized,
+    ``replay_one_requested_date`` derives TREND's own row from this same
+    fetch too (via ``_derive_trend_etfs`` on the trend-symbol subset of the
+    same bars), rather than issuing ``replay_trend_source``'s own narrower
+    request -- so a leadership/breadth session ending on a different day than
+    the trend ETFs' is structurally impossible, not merely checked.
 
     Anchored and lookahead-checked exactly like ``replay_trend_source``:
     ``end`` is pinned to the requested date's last instant, and any returned
@@ -779,20 +905,25 @@ def replay_breadth_leadership_source(
         fail("BLOCKED_BY_DEDICATED_MARKET_DATA_CREDENTIAL")
     if not alpaca_key or not alpaca_secret:
         fail("BLOCKED_BY_INCOMPLETE_DEDICATED_MARKET_DATA_CREDENTIAL")
+    trend_symbols = list(contract["alpaca"]["trend_symbols"])
+    windows = list(contract["alpaca"]["return_windows_sessions"])
     symbols = sorted(
-        set(contract["alpaca"]["trend_symbols"])
-        | set(contract["alpaca"]["sector_reference_symbols"])
+        set(trend_symbols) | set(contract["alpaca"]["sector_reference_symbols"])
     )
     anchor_end = dt.datetime.combine(anchor, dt.time(23, 59, 59), tzinfo=UTC)
     raw, normalized = FMD.fetch_alpaca_daily_bars(
         alpaca_key, alpaca_secret, symbols, anchor_end, getter=getter,
     )
-    for row in normalized:
-        session = _calendar_date(str(row.get("opened_at", ""))[:10])
-        if session is None:
-            fail("US_PROXY_SESSION_DATE_INVALID")
-        if session > anchor:
-            fail("US_REPLAY_LOOKAHEAD_VIOLATION", "ALPACA_BAR")
+    grouped = _grouped_sessions(
+        normalized, anchor, invalid_code="US_PROXY_SESSION_DATE_INVALID",
+        lookahead_label="ALPACA_BAR",
+    )
+    trend_etfs = _derive_trend_etfs(grouped, trend_symbols, windows)
+    session_dates = {row["as_of_session_date"] for row in trend_etfs}
+    if len(session_dates) != 1:
+        fail("US_TREND_SESSION_DATE_MISMATCH")
+    effective = session_dates.pop()
+
     reference = FMD.derive_us_market_reference(normalized, contract)
     breadth = reference.get("proxy_axes", {}).get("BREADTH", {})
     leadership = reference.get("proxy_axes", {}).get("LEADERSHIP", {})
@@ -800,10 +931,17 @@ def replay_breadth_leadership_source(
         fail("US_BREADTH_NOT_OBSERVED")
     if leadership.get("status") != "OBSERVED":
         fail("US_LEADERSHIP_NOT_OBSERVED")
-    return {
+    measurement = {
         "source_scope": contract["alpaca"]["source_scope"],
         "feed": contract["alpaca"]["feed"],
+        "timeframe": "1Day",
+        "adjustment": "raw",
         "requested_end_date": anchor.isoformat(),
+        "as_of_session_date": effective,
+        "earliest_session_date": min(row["earliest_session_date"] for row in trend_etfs),
+        "axis_window_sessions": 20,
+        "return_windows_sessions": windows,
+        "trend_etfs": trend_etfs,
         "reference_as_of_session_date": reference.get("as_of_session_date"),
         "symbols": symbols,
         "breadth_measurement": breadth["measurement"],
@@ -811,6 +949,11 @@ def replay_breadth_leadership_source(
         "raw_retention": RAW_RETENTION,
         "response_sha256": FMD.sha256_bytes(raw),
     }
+    # Fail closed before any axis row is built: the breadth session, the
+    # reference session, and every leadership group's own session must all be
+    # the effective session, not merely the trend ETFs'.
+    _assert_proxy_session_alignment(measurement, "BREADTH_LEADERSHIP")
+    return measurement
 
 
 def replay_risk_vol_source(
@@ -961,12 +1104,64 @@ def replay_liquidity_source(
 # ---------------------------------------------------------------------------
 
 
-def exclusion_basis(contract: dict) -> dict:
-    """Why BREADTH/LEADERSHIP stay UNKNOWN — read from the contract, not asserted.
+HISTORICAL_PIT_REPLAY_IDENTITY_PATH = (
+    ROOT / "config" / "us_historical_pit_replay_identity_v1.json"
+)
 
-    If the ratification scope of the ETF proxies ever changes, this module must
-    be re-decided by a human rather than keep quietly excluding (or quietly
-    start including) the two axes, so a changed basis fails closed.
+
+def _load_historical_pit_replay_identity() -> dict | None:
+    """The dedicated identity file, or ``None`` if it is absent/unreadable.
+
+    Deliberately its own file rather than a field inside
+    ``config/free_market_data_contract.json``: that contract's exact bytes
+    are pinned elsewhere (``config/regime_source_owner_registry_v2.json``,
+    read by ``regime/decision_authority.py``) as an unrelated governance
+    anchor, so editing the contract at all -- even an additive key -- would
+    change its sha256 and break that pin. A missing or unreadable file is
+    treated exactly like an absent identity always was: the pre-U1 narrow
+    default, never an error that could abort an otherwise-unrelated replay.
+
+    Only a genuinely *absent* file is that default. A file that is present but
+    unreadable, not UTF-8, not JSON, or not a JSON object is a corrupted claim,
+    not an absence, and fails closed exactly like a present-but-mis-hashed one:
+    treating it as absent would let a truncated or garbled identity silently
+    re-narrow scope instead of surfacing.
+    """
+    path = HISTORICAL_PIT_REPLAY_IDENTITY_PATH
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ReplayPopulationError(
+            f"HISTORICAL_PIT_REPLAY_IDENTITY_INVALID:{path}:UNREADABLE"
+        ) from exc
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReplayPopulationError(
+            f"HISTORICAL_PIT_REPLAY_IDENTITY_INVALID:{path}:MALFORMED_JSON"
+        ) from exc
+    if not isinstance(value, dict):
+        fail("HISTORICAL_PIT_REPLAY_IDENTITY_INVALID", f"{path}:NOT_AN_OBJECT")
+    return value
+
+
+def authorized_axes(contract: dict) -> list[str]:
+    """Which of ``PRR.AXES`` this contract/identity currently authorizes.
+
+    Fails closed on any ``approval_status`` or ``us_breadth_authorized`` this
+    module does not explicitly recognize -- widening scope is a ratification
+    decision (CIO plan U2), never inferred from an unrecognized string.
+    ``us_breadth_authorized`` is deliberately never the gate that *widens*
+    scope (it stays ``false`` permanently; other contract consumers depend on
+    that), only a sanity check that it has not drifted from the value every
+    other state here assumes. Widening is instead keyed entirely off
+    ``HISTORICAL_PIT_REPLAY_IDENTITY_PATH``: absent, it is simply the pre-U1
+    default (3-axis, unauthorized); present but not shaped or hash-bound
+    exactly as the ratified decision record fails closed (a forged or
+    malformed claim); present, correctly hash-bound, and explicitly activated
+    is the only state that authorizes all five axes.
     """
     proxy = contract["alpaca"]["current_proxy_axes"]
     approval_status = proxy.get("approval_status")
@@ -975,6 +1170,66 @@ def exclusion_basis(contract: dict) -> dict:
         fail("EXCLUSION_BASIS_CHANGED", "alpaca.current_proxy_axes.approval_status")
     if breadth_authorized is not False:
         fail("EXCLUSION_BASIS_CHANGED", "authority.us_breadth_authorized")
+    if not _historical_pit_replay_activated():
+        return list(REPLAYED_AXES)
+    return list(PRR.AXES)
+
+
+def _historical_pit_replay_activated() -> bool:
+    """Whether the dedicated identity file actually widens scope.
+
+    Three outcomes, not two: absent entirely (the pre-U1 default, quietly
+    narrow -- every historical population built before this file existed is
+    exactly this case); present but malformed, wrongly shaped, or
+    hash-mismatched against the ratified decision record (a forged or
+    corrupted claim, failed closed rather than silently treated as absent);
+    present, correctly hash-bound, and its own
+    ``replay_population_wiring_activated`` flag explicitly ``True`` or
+    ``False`` (a deliberately staged, reviewable widening switch -- recording
+    the CIO's ratified identity does not by itself flip every historical
+    population from 3-axis to 5-axis replay).
+    """
+    identity = _load_historical_pit_replay_identity()
+    if identity is None:
+        return False
+    decision = identity.get("decision_record")
+    if (
+        identity.get("status") != RATIFIED_HISTORICAL_PIT_REPLAY_STATUS
+        or not isinstance(decision, dict)
+        or decision.get("decision_id") != RATIFIED_HISTORICAL_PIT_REPLAY_DECISION_ID
+        or decision.get("sha256") != RATIFIED_HISTORICAL_PIT_REPLAY_DECISION_SHA256
+    ):
+        fail(
+            "HISTORICAL_PIT_REPLAY_IDENTITY_INVALID",
+            str(HISTORICAL_PIT_REPLAY_IDENTITY_PATH),
+        )
+    activated = identity.get("replay_population_wiring_activated")
+    if activated is not True and activated is not False:
+        fail(
+            "HISTORICAL_PIT_REPLAY_IDENTITY_INVALID",
+            "replay_population_wiring_activated",
+        )
+    return activated
+
+
+def exclusion_basis(contract: dict) -> dict:
+    """Why any of ``PRR.AXES`` stay UNKNOWN — read from the contract, not asserted.
+
+    Derived from ``authorized_axes``: every axis it does not authorize gets
+    the same shape this function has always produced for BREADTH/LEADERSHIP.
+    If the ratification scope of the ETF proxies ever changes, this module
+    must be re-decided by a human rather than keep quietly excluding (or
+    quietly start including) axes, so a changed basis fails closed via
+    ``authorized_axes`` before this function is even reached. Once every axis
+    is authorized this returns ``{}`` -- nothing is excluded.
+    """
+    replayed = authorized_axes(contract)
+    excluded_names = [name for name in PRR.AXES if name not in replayed]
+    if not excluded_names:
+        return {}
+    proxy = contract["alpaca"]["current_proxy_axes"]
+    approval_status = proxy.get("approval_status")
+    breadth_authorized = contract["authority"].get("us_breadth_authorized")
     statement = (
         "US BREADTH and LEADERSHIP are derived today only from"
         " alpaca.current_proxy_axes, which is ratified for current reference"
@@ -994,7 +1249,7 @@ def exclusion_basis(contract: dict) -> dict:
             },
             "statement": statement,
         }
-        for name in EXCLUDED_AXES
+        for name in excluded_names
     }
 
 
@@ -1027,25 +1282,27 @@ def _axis_attempt(fetch, derive, secrets: list[str]) -> dict:
 
 
 def _free_axis_coverage(
-    observed: list[str], not_computable: list[str], attempted: int,
+    observed: list[str], not_computable: list[str], attempted: int, replayed: list[str],
 ) -> dict:
     """The record's own free-axis coverage, derived from the axes themselves."""
     return {
         "attempted_count": attempted,
         "observed_count": len(observed),
-        "ratio": f"{len(observed)}/{len(REPLAYED_AXES)}",
+        "ratio": f"{len(observed)}/{len(replayed)}",
         "observed_axes": list(observed),
         "not_computable_axes": list(not_computable),
     }
 
 
-def _five_axis_block(observed: list[str], not_computable: list[str], axes: dict) -> dict:
+def _five_axis_block(
+    observed: list[str], not_computable: list[str], axes: dict, excluded_names: list[str],
+) -> dict:
     """The five-axis packet, whose status and coverage are derived, not asserted.
 
     The status names what this packet actually holds: never "5/5 observed", and
     never "observed" at all when nothing survived. The coverage counts the same
-    axes the packet carries, and the excluded pair is always missing because this
-    module never populates it.
+    axes the packet carries, and any axis this replay does not authorize is
+    always missing because this module never populates it.
     """
     return {
         "status": FIVE_AXIS_STATUS_OBSERVED if observed else FIVE_AXIS_STATUS_NONE,
@@ -1054,10 +1311,27 @@ def _five_axis_block(observed: list[str], not_computable: list[str], axes: dict)
             "required_count": len(PRR.AXES),
             "ratio": f"{len(observed)}/{len(PRR.AXES)}",
             "defined_axes": list(observed),
-            "missing_axes": sorted(list(not_computable) + EXCLUDED_AXES),
+            "missing_axes": sorted(list(not_computable) + list(excluded_names)),
         },
         "axes": axes,
     }
+
+
+def _breadth_leadership_session_date_range(measurement: dict | None) -> list[str]:
+    """The earliest/latest date named anywhere inside a combined measurement.
+
+    Generic over ``_measurement_dates`` rather than reaching for specific keys,
+    so it stays accurate however the combined BREADTH/LEADERSHIP measurement's
+    shape grows: every date it names -- trend/breadth/leadership session dates
+    included -- is covered by the same walk ``_validate_measurement_source_dates``
+    already applies to it.
+    """
+    if not measurement:
+        return []
+    dates = _measurement_dates(measurement, "BREADTH_LEADERSHIP")
+    if not dates:
+        return []
+    return [min(dates).isoformat(), max(dates).isoformat()]
 
 
 def _no_lookahead_attestation(
@@ -1067,7 +1341,9 @@ def _no_lookahead_attestation(
     liquidity: dict | None,
     liquidity_dates: list[str],
     *,
-    replayed: bool,
+    attempted: bool,
+    breadth_leadership: dict | None = None,
+    breadth_leadership_authorized: bool = False,
 ) -> dict:
     """The dates this record actually consulted, taken from its own measurements.
 
@@ -1076,12 +1352,18 @@ def _no_lookahead_attestation(
     dates that nothing rebuilds can be re-signed into naming fewer sources than
     the record used, which would leave ``_validate_no_lookahead``'s walk with
     nothing to reject.
+
+    ``breadth_leadership_session_date_range`` is added only when this replay
+    authorizes BREADTH/LEADERSHIP at all, so a record built under today's
+    3-axis contract keeps exactly its current shape -- adding an always-empty
+    key for an axis pair this replay never attempts would itself be an
+    unauthorized claim about what was consulted.
     """
-    return {
+    attestation = {
         "anchor_requested_date": requested_date,
         # A date that produced no axis packet at all issued no vintage-pinned
         # request whose vintage could be attested.
-        "fred_realtime_vintage_date": requested_date if replayed else None,
+        "fred_realtime_vintage_date": requested_date if attempted else None,
         # ``get`` rather than ``[]``: the same helper re-derives this block from a
         # payload-supplied measurement at validation time, where a missing key
         # must produce a mismatch that fails the record closed rather than an
@@ -1096,24 +1378,30 @@ def _no_lookahead_attestation(
         "any_source_date_after_requested_date": False,
         "other_requested_dates_consulted": False,
     }
+    if breadth_leadership_authorized:
+        attestation["breadth_leadership_session_date_range"] = (
+            _breadth_leadership_session_date_range(breadth_leadership)
+        )
+    return attestation
 
 
 def _blocked_date_record(
-    requested_date: str, failure_reason: str, *, attempted: int = 0,
+    requested_date: str, failure_reason: str, *, replayed: list[str], attempted: int = 0,
 ) -> dict:
     return {
         "requested_date": requested_date,
         "status": STATUS_BLOCKED,
         "evidence_class": EVIDENCE_CLASS,
         "effective_session_date": None,
-        "free_axis_coverage": _free_axis_coverage([], list(REPLAYED_AXES), attempted),
+        "free_axis_coverage": _free_axis_coverage([], list(replayed), attempted, replayed),
         "five_axis": None,
         "candidate_normalized_result": None,
         "source_hashes": None,
         "failure_reason": failure_reason,
         "warnings": list(RECORD_WARNINGS),
         "no_lookahead_attestation": _no_lookahead_attestation(
-            requested_date, None, None, None, [], replayed=False,
+            requested_date, None, None, None, [], attempted=False,
+            breadth_leadership_authorized="BREADTH" in replayed,
         ),
     }
 
@@ -1121,19 +1409,30 @@ def _blocked_date_record(
 def _candidate_normalized_result(
     rows: list[dict], as_of_date: str | None, policy: dict, excluded: dict,
 ) -> dict:
-    """Apply the existing candidate rule's own classifier to a partial axis set.
+    """Apply the existing candidate rule's own classifier to this axis set.
 
-    ``PRR.classify`` is called unmodified. With fewer than five axes it returns
-    UNKNOWN by its own contract, which is exactly the honest outcome here; the
-    call is kept (rather than hardcoding UNKNOWN) so the result stays tied to
-    the live rule, and a future change that would let a partial set classify
-    fails closed instead of silently publishing a US regime.
+    ``PRR.classify`` is called unmodified in every case, so the outcome always
+    follows the live rule rather than a re-derived copy of it. With fewer than
+    five axes it returns UNKNOWN by its own contract -- the honest outcome
+    whenever coverage is partial, authorized or not. Once this replay is
+    authorized for all five axes (``excluded`` is empty) AND all five were
+    genuinely observed, the same unmodified call is allowed to publish
+    whatever real regime it computes, instead of being forced to UNKNOWN.
+
+    A full five-row result while any axis is still excluded must never occur
+    -- if it somehow did, this fails closed rather than silently upgrading a
+    partial-scope replay into a genuine regime (defense in depth: this is the
+    one guarantee that must never regress in any authorization state).
     """
-    regime, _score, explanation = PRR.classify(rows, policy)
-    if len(rows) >= len(PRR.AXES) or regime != "UNKNOWN":
+    regime, score, explanation = PRR.classify(rows, policy)
+    five_axis_authorized = not excluded
+    full_coverage = len(rows) == len(PRR.AXES)
+    if not five_axis_authorized and (full_coverage or regime != "UNKNOWN"):
         fail("PARTIAL_COVERAGE_MUST_NOT_CLASSIFY")
+    classifies = five_axis_authorized and full_coverage
     defined = [row["axis"] for row in rows]
     missing = [name for name in PRR.AXES if name not in defined]
+    confidence = PRR.confidence(regime, rows) if classifies else None
     return {
         "market": "US",
         "as_of_date": as_of_date,
@@ -1148,25 +1447,79 @@ def _candidate_normalized_result(
         "paper_reference": {
             "candidate_regime": regime,
             # Score and confidence are withheld rather than reported as 0/None
-            # from a partial set: a numeric score over 3 of 5 axes would read
-            # as comparable to a full-coverage score and is not.
-            "score": None,
-            "confidence": None,
+            # from a partial set: a numeric score over fewer than 5 axes would
+            # read as comparable to a full-coverage score and is not. Once
+            # coverage is complete and authorized, they are the live rule's
+            # own genuine values -- not invented here.
+            "score": score if classifies else None,
+            "confidence": None if confidence is None else str(confidence),
             "explanation_ko": explanation,
         },
-        "classification_status": CLASSIFICATION_STATUS,
-        "runtime_regime": "UNKNOWN",
+        "classification_status": (
+            CLASSIFICATION_STATUS_CLASSIFIED if classifies else CLASSIFICATION_STATUS
+        ),
+        "runtime_regime": regime if classifies else "UNKNOWN",
         "axes": rows,
         "candidate_rule_source": (
             "regime/paper_regime_reference.py::build_us"
-            " (TREND/RISK_VOL/LIQUIDITY axes only)"
+            if classifies
+            else (
+                "regime/paper_regime_reference.py::build_us"
+                " (TREND/RISK_VOL/LIQUIDITY axes only)"
+            )
         ),
     }
 
 
+def _unified_trend_breadth_leadership_attempts(
+    alpaca_key: str, alpaca_secret: str, anchor: dt.date, *, getter, contract: dict,
+    secrets: list[str],
+) -> tuple[dict, dict, dict]:
+    """One shared Alpaca fetch backs TREND, BREADTH, and LEADERSHIP together.
+
+    Used only once BREADTH/LEADERSHIP are authorized: TREND's own narrower
+    fetch (``replay_trend_source``) is bypassed entirely so all three axes are
+    derived from the exact same union fetch, making a leadership/breadth
+    session ending on a different day than the trend ETFs' structurally
+    impossible rather than merely checked after the fact. A fetch failure is
+    therefore attributed to all three axes' NOT_COMPUTABLE reason, exactly
+    like the shared measurement that feeds them on success -- never silently
+    failing one while the others report nothing about why they, too, went
+    unobserved.
+    """
+    try:
+        measurement = replay_breadth_leadership_source(
+            alpaca_key, alpaca_secret, anchor, getter=getter, contract=contract,
+        )
+    except (
+        ReplayPopulationError, PRR.PaperRegimeReferenceError, FMD.FreeMarketDataError,
+    ) as exc:
+        reason = redact(str(exc), secrets)
+        failed = {"measurement": None, "row": None, "reason": reason}
+        return dict(failed), dict(failed), dict(failed)
+    except Exception as exc:  # noqa: BLE001 — same containment as _axis_attempt.
+        reason = f"UNSUPPORTED_REPLAY_SHAPE_{type(exc).__name__}"
+        failed = {"measurement": None, "row": None, "reason": reason}
+        return dict(failed), dict(failed), dict(failed)
+    trend_attempt = _axis_attempt(
+        lambda: measurement, lambda m: trend_axis_row(m["trend_etfs"]), secrets,
+    )
+    breadth_attempt = _axis_attempt(
+        lambda: measurement,
+        lambda m: breadth_axis_row(m["breadth_measurement"]["advance_fraction"]),
+        secrets,
+    )
+    leadership_attempt = _axis_attempt(
+        lambda: measurement,
+        lambda m: leadership_axis_row(m["leadership_measurement"]["ordered_groups"]),
+        secrets,
+    )
+    return trend_attempt, breadth_attempt, leadership_attempt
+
+
 def replay_one_requested_date(
     credentials: dict, requested_date: str, *, getter, contract: dict, policy: dict,
-    excluded: dict,
+    excluded: dict, replayed: list[str],
 ) -> dict:
     """Resolve and replay exactly one caller-supplied historical date.
 
@@ -1174,45 +1527,95 @@ def replay_one_requested_date(
     policy. Every source request is anchored to this date and bounded backward,
     so the call is structurally incapable of consuming a session, observation,
     revision, or outcome belonging to any other requested date.
+
+    ``replayed``/``excluded`` are derived once, from the pinned contract, by
+    the caller (``build_population``) and threaded down explicitly rather than
+    read from the bare ``REPLAYED_AXES``/``EXCLUDED_AXES`` module globals, so
+    this call's authorized axis set can never silently diverge from the
+    contract it was actually built against.
     """
     secrets = [value for value in credentials.values() if value]
     try:
         anchor = _parse_requested_date(requested_date)
     except ReplayPopulationError as exc:
-        return _blocked_date_record(requested_date, redact(str(exc), secrets))
+        return _blocked_date_record(
+            requested_date, redact(str(exc), secrets), replayed=replayed,
+        )
 
-    attempts = {
-        "TREND": _axis_attempt(
-            lambda: replay_trend_source(
+    breadth_leadership_authorized = "BREADTH" in replayed
+    if breadth_leadership_authorized:
+        trend_attempt, breadth_attempt, leadership_attempt = (
+            _unified_trend_breadth_leadership_attempts(
                 credentials.get("alpaca_key", ""), credentials.get("alpaca_secret", ""),
-                anchor, getter=getter, contract=contract,
+                anchor, getter=getter, contract=contract, secrets=secrets,
+            )
+        )
+        attempts = {
+            "TREND": trend_attempt,
+            "RISK_VOL": _axis_attempt(
+                lambda: replay_risk_vol_source(
+                    credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+                ),
+                lambda measurement: risk_vol_axis_row(measurement["value"]),
+                secrets,
             ),
-            lambda measurement: trend_axis_row(measurement["trend_etfs"]),
-            secrets,
-        ),
-        "RISK_VOL": _axis_attempt(
-            lambda: replay_risk_vol_source(
-                credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+            "LIQUIDITY": _axis_attempt(
+                lambda: replay_liquidity_source(
+                    credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+                ),
+                lambda measurement: liquidity_axis_row(measurement["series"]),
+                secrets,
             ),
-            lambda measurement: risk_vol_axis_row(measurement["value"]),
-            secrets,
-        ),
-        "LIQUIDITY": _axis_attempt(
-            lambda: replay_liquidity_source(
-                credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+            "BREADTH": breadth_attempt,
+            "LEADERSHIP": leadership_attempt,
+        }
+    else:
+        attempts = {
+            "TREND": _axis_attempt(
+                lambda: replay_trend_source(
+                    credentials.get("alpaca_key", ""), credentials.get("alpaca_secret", ""),
+                    anchor, getter=getter, contract=contract,
+                ),
+                lambda measurement: trend_axis_row(measurement["trend_etfs"]),
+                secrets,
             ),
-            lambda measurement: liquidity_axis_row(measurement["series"]),
-            secrets,
-        ),
-    }
+            "RISK_VOL": _axis_attempt(
+                lambda: replay_risk_vol_source(
+                    credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+                ),
+                lambda measurement: risk_vol_axis_row(measurement["value"]),
+                secrets,
+            ),
+            "LIQUIDITY": _axis_attempt(
+                lambda: replay_liquidity_source(
+                    credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+                ),
+                lambda measurement: liquidity_axis_row(measurement["series"]),
+                secrets,
+            ),
+        }
 
-    observed_axes = [name for name in REPLAYED_AXES if attempts[name]["row"] is not None]
-    not_computable = [name for name in REPLAYED_AXES if attempts[name]["row"] is None]
+    observed_axes = [name for name in replayed if attempts[name]["row"] is not None]
+    not_computable = [name for name in replayed if attempts[name]["row"] is None]
 
     trend = attempts["TREND"]["measurement"]
     risk = attempts["RISK_VOL"]["measurement"]
     liquidity = attempts["LIQUIDITY"]["measurement"]
     effective_session_date = trend["as_of_session_date"] if trend else None
+    # Under the unified fetch, TREND/BREADTH/LEADERSHIP all carry the exact
+    # same combined measurement -- fall back across them rather than reading
+    # only "TREND" so a record where TREND's own derivation independently
+    # failed (while BREADTH/LEADERSHIP's succeeded from the identical fetch)
+    # still uses the shared measurement's dates and hash correctly.
+    breadth_leadership_measurement = (
+        (
+            trend
+            or attempts["BREADTH"]["measurement"]
+            or attempts["LEADERSHIP"]["measurement"]
+        )
+        if breadth_leadership_authorized
+        else None
+    )
 
     source_dates = []
     trend_range: list[str] = []
@@ -1228,12 +1631,22 @@ def replay_one_requested_date(
         for date in (row["previous_observation_date"], row["observation_date"])
     })
     source_dates.extend(liquidity_dates)
+    breadth_leadership_dates: list[str] = []
+    if breadth_leadership_measurement:
+        breadth_leadership_dates = [
+            date.isoformat()
+            for date in _measurement_dates(
+                breadth_leadership_measurement, "BREADTH_LEADERSHIP",
+            )
+        ]
+        source_dates.extend(breadth_leadership_dates)
     # Computed, not asserted: if any consumed source date is later than the
     # requested date the whole date fails closed rather than publishing a
     # "no lookahead" claim it cannot support.
     if any(date > requested_date for date in source_dates):
         return _blocked_date_record(
-            requested_date, LOOKAHEAD_BLOCKED_REASON, attempted=len(REPLAYED_AXES),
+            requested_date, LOOKAHEAD_BLOCKED_REASON, replayed=replayed,
+            attempted=len(replayed),
         )
 
     axes = {
@@ -1250,23 +1663,23 @@ def replay_one_requested_date(
                 "measurement": None,
             }
         )
-        for name in REPLAYED_AXES
+        for name in replayed
     }
-    for name in EXCLUDED_AXES:
+    for name in excluded:
         axes[name] = {
             "status": "UNKNOWN",
             "reason": excluded[name]["reason_code"],
             "measurement": None,
         }
 
-    rows = [attempts[name]["row"] for name in REPLAYED_AXES if attempts[name]["row"] is not None]
+    rows = [attempts[name]["row"] for name in replayed if attempts[name]["row"] is not None]
     candidate = (
         _candidate_normalized_result(rows, effective_session_date, policy, excluded)
         if rows
         else None
     )
 
-    if len(observed_axes) == len(REPLAYED_AXES):
+    if len(observed_axes) == len(replayed):
         status, failure_reason = STATUS_OBSERVED, None
     elif observed_axes:
         status, failure_reason = STATUS_PARTIAL, None
@@ -1275,27 +1688,37 @@ def replay_one_requested_date(
         # states that nothing publishable survived for this date.
         status, failure_reason = STATUS_BLOCKED, ALL_AXES_NOT_COMPUTABLE_REASON
 
+    source_hashes = {
+        "trend_response_sha256": trend["response_sha256"] if trend else None,
+        "risk_vol_response_sha256": risk["response_sha256"] if risk else None,
+        "liquidity_response_hashes": (
+            copy.deepcopy(liquidity["response_hashes"]) if liquidity else None
+        ),
+    }
+    if breadth_leadership_authorized:
+        source_hashes[BREADTH_LEADERSHIP_RESPONSE_HASH_KEY] = (
+            breadth_leadership_measurement["response_sha256"]
+            if breadth_leadership_measurement
+            else None
+        )
+
     return {
         "requested_date": requested_date,
         "status": status,
         "evidence_class": EVIDENCE_CLASS,
         "effective_session_date": effective_session_date,
         "free_axis_coverage": _free_axis_coverage(
-            observed_axes, not_computable, len(REPLAYED_AXES),
+            observed_axes, not_computable, len(replayed), replayed,
         ),
-        "five_axis": _five_axis_block(observed_axes, not_computable, axes),
+        "five_axis": _five_axis_block(observed_axes, not_computable, axes, list(excluded)),
         "candidate_normalized_result": candidate,
-        "source_hashes": {
-            "trend_response_sha256": trend["response_sha256"] if trend else None,
-            "risk_vol_response_sha256": risk["response_sha256"] if risk else None,
-            "liquidity_response_hashes": (
-                copy.deepcopy(liquidity["response_hashes"]) if liquidity else None
-            ),
-        },
+        "source_hashes": source_hashes,
         "failure_reason": failure_reason,
         "warnings": list(RECORD_WARNINGS),
         "no_lookahead_attestation": _no_lookahead_attestation(
-            requested_date, trend, risk, liquidity, liquidity_dates, replayed=True,
+            requested_date, trend, risk, liquidity, liquidity_dates, attempted=True,
+            breadth_leadership=breadth_leadership_measurement,
+            breadth_leadership_authorized=breadth_leadership_authorized,
         ),
     }
 
@@ -1326,6 +1749,12 @@ def build_population(
     getter = FMD._get if getter is None else getter
     contract = FMD.load_contract(FMD.CONTRACT_PATH)
     policy = _load_candidate_policy()
+    # Derived once from the pinned contract and threaded explicitly through
+    # every nested call below, rather than read from the bare
+    # ``REPLAYED_AXES``/``EXCLUDED_AXES`` module globals -- so this build's
+    # authorized axis set can never silently diverge from the contract it was
+    # actually built against.
+    replayed = authorized_axes(contract)
     excluded = exclusion_basis(contract)
     # Deterministic regardless of caller ordering/duplication: sort the
     # distinct requested strings so a shuffled --date list reproduces the
@@ -1336,7 +1765,7 @@ def build_population(
     records = [
         replay_one_requested_date(
             credentials, date, getter=getter, contract=contract, policy=policy,
-            excluded=excluded,
+            excluded=excluded, replayed=replayed,
         )
         for date in unique_dates
     ]
@@ -1347,7 +1776,7 @@ def build_population(
         "market": "US",
         "evidence_class": EVIDENCE_CLASS,
         "requested_dates": unique_dates,
-        "replayed_axes": list(REPLAYED_AXES),
+        "replayed_axes": list(replayed),
         "excluded_axes": excluded,
         "source_contract": {
             "path": SOURCE_CONTRACT_PATH,
@@ -1452,9 +1881,15 @@ def validate_population(value: dict) -> dict:
         fail("POPULATION_SHA_INVALID")
     if value.get("mode") != MODE or value.get("evidence_class") != EVIDENCE_CLASS:
         fail("POPULATION_MODE_INVALID")
-    if value.get("market") != "US" or value.get("replayed_axes") != REPLAYED_AXES:
+    contract = _revalidation_contract(value)
+    # Re-derived from the re-read, sha256-pinned contract rather than compared
+    # against the bare ``REPLAYED_AXES`` module global: a genuinely-ratified
+    # population must not fail validation merely because the module constant
+    # still names the pre-ratification default.
+    replayed = authorized_axes(contract)
+    if value.get("market") != "US" or value.get("replayed_axes") != replayed:
         fail("POPULATION_SCOPE_INVALID")
-    excluded = _validate_excluded_axes(value, _revalidation_contract(value))
+    excluded = _validate_excluded_axes(value, contract)
     requested = value.get("requested_dates")
     if (
         not isinstance(requested, list)
@@ -1463,7 +1898,7 @@ def validate_population(value: dict) -> dict:
         or requested != sorted(set(requested))
     ):
         fail("POPULATION_DATE_ORDER_INVALID")
-    _validate_records(value, requested, _revalidation_policy(value), excluded)
+    _validate_records(value, requested, _revalidation_policy(value), excluded, replayed)
     _validate_pit_replay(value)
     _validate_authority(value)
     return copy.deepcopy(value)
@@ -1554,9 +1989,11 @@ def _validate_excluded_axes(value: dict, contract: dict) -> dict:
     here rather than letting an old population's exclusion claim stand.
     """
     declared = value.get("excluded_axes")
-    if not isinstance(declared, dict) or sorted(declared) != sorted(EXCLUDED_AXES):
+    if not isinstance(declared, dict):
         fail("POPULATION_SCOPE_INVALID", "excluded_axes")
     expected = exclusion_basis(contract)
+    if sorted(declared) != sorted(expected):
+        fail("POPULATION_SCOPE_INVALID", "excluded_axes")
     if declared != expected:
         fail("EXCLUDED_AXIS_BASIS_NOT_DERIVED_FROM_THE_PINNED_CONTRACT")
     return expected
@@ -1583,7 +2020,7 @@ def _revalidation_policy(value: dict) -> dict:
 
 
 def _validate_records(
-    value: dict, requested: list[str], policy: dict, excluded: dict,
+    value: dict, requested: list[str], policy: dict, excluded: dict, replayed: list[str],
 ) -> None:
     """Exactly one record per requested date, in the same order — no omissions.
 
@@ -1603,11 +2040,11 @@ def _validate_records(
     if dates != requested:
         fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
     for record, requested_date in zip(records, requested):
-        _validate_record(record, requested_date, policy, excluded)
+        _validate_record(record, requested_date, policy, excluded, replayed)
 
 
 def _validate_record(
-    record: dict, requested_date: str, policy: dict, excluded: dict,
+    record: dict, requested_date: str, policy: dict, excluded: dict, replayed: list[str],
 ) -> None:
     """One record, re-derived from its own axes rather than read as written.
 
@@ -1645,19 +2082,19 @@ def _validate_record(
 
     axes: dict = {}
     observed: list[str] = []
-    not_computable = list(REPLAYED_AXES)
+    not_computable = list(replayed)
     if five_axis is not None:
         if not isinstance(five_axis, dict) or sorted(five_axis) != sorted(FIVE_AXIS_KEYS):
             fail("RECORD_FIVE_AXIS_INVALID", requested_date)
         axes = five_axis.get("axes")
         if not isinstance(axes, dict) or sorted(axes) != sorted(PRR.AXES):
             fail("RECORD_AXIS_SET_INVALID", requested_date)
-        # The one substantive guarantee of this slice: a US BREADTH or
-        # LEADERSHIP value must never appear in this population, whatever else
-        # a record carries. The per-record reason must also be the population's
-        # own contract-derived exclusion code, so a record cannot keep the
-        # UNKNOWN status while attributing it to some other, unratified cause.
-        for name in EXCLUDED_AXES:
+        # The one substantive guarantee of this slice: an axis this replay does
+        # not authorize must never carry a value, whatever else a record
+        # carries. The per-record reason must also be the population's own
+        # contract-derived exclusion code, so a record cannot keep the UNKNOWN
+        # status while attributing it to some other, unratified cause.
+        for name in excluded:
             entry = axes.get(name)
             if (
                 not isinstance(entry, dict)
@@ -1668,7 +2105,7 @@ def _validate_record(
                 fail("EXCLUDED_AXIS_MUST_STAY_UNKNOWN", name)
             if entry.get("reason") != excluded[name]["reason_code"]:
                 fail("EXCLUDED_AXIS_REASON_NOT_DERIVED_FROM_THE_PINNED_CONTRACT", name)
-        for name in REPLAYED_AXES:
+        for name in replayed:
             entry = axes.get(name)
             if (
                 not isinstance(entry, dict)
@@ -1696,9 +2133,9 @@ def _validate_record(
             elif not (isinstance(entry.get("reason"), str) and entry["reason"]):
                 fail("NOT_COMPUTABLE_AXIS_MUST_BE_ATTRIBUTED", f"{requested_date}:{name}")
         observed = [
-            name for name in REPLAYED_AXES if axes[name].get("status") == "OBSERVED"
+            name for name in replayed if axes[name].get("status") == "OBSERVED"
         ]
-        not_computable = [name for name in REPLAYED_AXES if name not in observed]
+        not_computable = [name for name in replayed if name not in observed]
 
     # Coverage and status are recomputed from the axes themselves, so a payload
     # cannot report a coverage ratio or a record status the axes do not support.
@@ -1707,28 +2144,28 @@ def _validate_record(
         fail("RECORD_COVERAGE_MISSING", requested_date)
     # ``attempted_count`` is checked against the whole block, not on its own:
     # it is the denominator a reader divides ``observed_count`` by, so an
-    # attempted count of 0 beside three observed axes reports a replay that never
+    # attempted count of 0 beside observed axes reports a replay that never
     # ran and still produced evidence. A record that carries an axis packet
     # attempted every replayed axis by construction; one that carries none either
     # never got past its own requested date (0) or attempted them all and then
     # failed the date closed for lookahead.
     expected_attempted = (
-        len(REPLAYED_AXES)
+        len(replayed)
         if five_axis is not None
         or record.get("failure_reason") == LOOKAHEAD_BLOCKED_REASON
         else 0
     )
-    if coverage != _free_axis_coverage(observed, not_computable, expected_attempted):
+    if coverage != _free_axis_coverage(observed, not_computable, expected_attempted, replayed):
         fail("RECORD_COVERAGE_INCONSISTENT", requested_date)
-    if status != _status_for(observed):
+    if status != _status_for(observed, replayed):
         fail("RECORD_STATUS_INCONSISTENT_WITH_COVERAGE", requested_date)
     # The five-axis packet publishes its own status and coverage over the same
     # axes, and both are derived. Checking only the axis *set* above left them
     # free text: a re-signed ``defined_count`` of 999, a ``missing_axes`` list
-    # that omits the excluded pair, or an "observed" status on a packet that
+    # that omits the excluded axes, or an "observed" status on a packet that
     # observed nothing all travelled intact.
     if five_axis is not None and five_axis != _five_axis_block(
-        observed, not_computable, axes,
+        observed, not_computable, axes, list(excluded),
     ):
         fail("RECORD_FIVE_AXIS_NOT_DERIVED_FROM_ITS_AXES", requested_date)
     _validate_failure_reason(record, five_axis, observed, requested_date)
@@ -1737,22 +2174,38 @@ def _validate_record(
         # ``_validate_candidate_is_derived_from_its_evidence`` never reaches it.
         fail("EFFECTIVE_SESSION_DATE_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
 
+    # This is the one guarantee that must never regress in any authorization
+    # state: while coverage is partial (fewer than all of ``PRR.AXES``
+    # observed), the candidate must stay UNKNOWN, unclassified, and honestly
+    # labelled not-computable. Once coverage is complete -- which, by
+    # construction, ``observed`` can only reach when this replay is authorized
+    # for all five axes -- a genuine classification is permitted and required
+    # to be exactly what re-derivation below produces.
+    full_coverage = len(observed) == len(PRR.AXES)
     if candidate is not None:
-        if candidate.get("paper_reference", {}).get("candidate_regime") != "UNKNOWN":
-            fail("PARTIAL_COVERAGE_MUST_NOT_CLASSIFY")
-        if candidate.get("runtime_regime") != "UNKNOWN":
-            fail("RUNTIME_REGIME_MUST_STAY_UNKNOWN")
-        if candidate.get("classification_status") != CLASSIFICATION_STATUS:
-            fail("CLASSIFICATION_STATUS_INVALID")
+        if not full_coverage:
+            if candidate.get("paper_reference", {}).get("candidate_regime") != "UNKNOWN":
+                fail("PARTIAL_COVERAGE_MUST_NOT_CLASSIFY")
+            if candidate.get("runtime_regime") != "UNKNOWN":
+                fail("RUNTIME_REGIME_MUST_STAY_UNKNOWN")
+            if candidate.get("classification_status") != CLASSIFICATION_STATUS:
+                fail("CLASSIFICATION_STATUS_INVALID")
+        else:
+            if candidate.get("classification_status") != CLASSIFICATION_STATUS_CLASSIFIED:
+                fail("CLASSIFICATION_STATUS_INVALID")
+            if candidate.get("runtime_regime") != candidate.get(
+                "paper_reference", {},
+            ).get("candidate_regime"):
+                fail("RUNTIME_REGIME_NOT_DERIVED_FROM_ITS_EVIDENCE")
     _validate_candidate_is_derived_from_its_evidence(
-        record, five_axis, candidate, policy, requested_date,
+        record, five_axis, candidate, policy, requested_date, replayed, excluded,
     )
-    _validate_source_hash_consistency(record, axes, observed, requested_date)
+    _validate_source_hash_consistency(record, axes, observed, replayed, requested_date)
     _validate_fred_vintage_binding(axes, observed, requested_date)
     _validate_measurement_source_dates(axes, observed, requested_date)
     _validate_no_lookahead(record, requested_date)
     _validate_attestation_is_derived_from_its_evidence(
-        record, five_axis, axes, observed, requested_date,
+        record, five_axis, axes, observed, replayed, requested_date,
     )
 
 
@@ -1786,7 +2239,8 @@ def _validate_failure_reason(
 
 
 def _validate_attestation_is_derived_from_its_evidence(
-    record: dict, five_axis: object, axes: dict, observed: list[str], requested_date: str,
+    record: dict, five_axis: object, axes: dict, observed: list[str],
+    replayed: list[str], requested_date: str,
 ) -> None:
     """The attested source dates must be the ones this record's axes carry.
 
@@ -1819,13 +2273,26 @@ def _validate_attestation_is_derived_from_its_evidence(
         raise ReplayPopulationError(
             f"OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT:{requested_date}:LIQUIDITY"
         ) from exc
+    breadth_leadership_authorized = "BREADTH" in replayed
+    # Under the unified fetch, TREND/BREADTH/LEADERSHIP all carry the exact
+    # same combined measurement -- fall back across them rather than reading
+    # only "TREND" so a record where TREND's own derivation independently
+    # failed (while BREADTH/LEADERSHIP's succeeded from the identical fetch)
+    # still attests the shared measurement's dates correctly.
+    breadth_leadership_measurement = (
+        measurement("TREND") or measurement("BREADTH") or measurement("LEADERSHIP")
+        if breadth_leadership_authorized
+        else None
+    )
     expected = _no_lookahead_attestation(
         requested_date,
         measurement("TREND"),
         measurement("RISK_VOL"),
         liquidity,
         liquidity_dates,
-        replayed=five_axis is not None,
+        attempted=five_axis is not None,
+        breadth_leadership=breadth_leadership_measurement,
+        breadth_leadership_authorized=breadth_leadership_authorized,
     )
     if record.get("no_lookahead_attestation") != expected:
         fail("RECORD_ATTESTATION_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
@@ -1933,27 +2400,47 @@ def _validate_measurement_source_dates(
         label = f"{requested_date}:{name}"
         if any(date > anchor for date in _measurement_dates(measurement, label)):
             fail("US_REPLAY_LOOKAHEAD_VIOLATION", label)
+        if name in ("BREADTH", "LEADERSHIP"):
+            # Re-applied, not trusted: the same session-generation check the
+            # builder runs right after the combined fetch.
+            _assert_proxy_session_alignment(measurement, label)
+            trend = axes.get("TREND")
+            trend_measurement = trend.get("measurement") if isinstance(trend, dict) else None
+            if "TREND" in observed and (
+                not isinstance(trend_measurement, dict)
+                or trend_measurement.get("as_of_session_date")
+                != measurement.get("as_of_session_date")
+            ):
+                fail(PROXY_MIXED_SESSION_GENERATION, label)
 
 
 # Each observed axis's row is rebuilt by the *same* helper that produced it, so
 # re-derivation cannot drift from production even if a threshold in one of those
-# helpers is later changed upstream.
+# helpers is later changed upstream. BREADTH/LEADERSHIP read their sub-fields
+# out of the shared combined measurement rather than a dedicated one.
 AXIS_ROW_FROM_MEASUREMENT = {
     "TREND": lambda measurement: trend_axis_row(measurement.get("trend_etfs")),
     "RISK_VOL": lambda measurement: risk_vol_axis_row(measurement.get("value")),
     "LIQUIDITY": lambda measurement: liquidity_axis_row(measurement.get("series")),
+    "BREADTH": lambda measurement: breadth_axis_row(
+        (measurement.get("breadth_measurement") or {}).get("advance_fraction")
+    ),
+    "LEADERSHIP": lambda measurement: leadership_axis_row(
+        (measurement.get("leadership_measurement") or {}).get("ordered_groups")
+    ),
 }
 
 
-def _rederive_axis_rows(axes: dict) -> list[dict]:
+def _rederive_axis_rows(axes: dict, replayed: list[str]) -> list[dict]:
     """Rebuild the candidate rows the record's own observed measurements yield.
 
-    Only axes the record itself calls ``OBSERVED`` contribute, in
-    ``REPLAYED_AXES`` order, which is exactly how ``replay_one_requested_date``
-    assembles them.
+    Only axes the record itself calls ``OBSERVED`` contribute, in ``replayed``
+    order, which is exactly how ``replay_one_requested_date`` assembles them --
+    and, once authorized, exactly ``PRR.AXES`` order, which is what lets
+    ``PRR.classify`` actually classify a genuine 5/5 result.
     """
     rows = []
-    for name in REPLAYED_AXES:
+    for name in replayed:
         entry = axes.get(name)
         if not isinstance(entry, dict) or entry.get("status") != "OBSERVED":
             continue
@@ -1966,6 +2453,7 @@ def _rederive_axis_rows(axes: dict) -> list[dict]:
 
 def _validate_candidate_is_derived_from_its_evidence(
     record: dict, five_axis: object, candidate: object, policy: dict, requested_date: str,
+    replayed: list[str], excluded: dict,
 ) -> None:
     """A stored axis direction must be what the stored measurement yields.
 
@@ -1996,11 +2484,9 @@ def _validate_candidate_is_derived_from_its_evidence(
     if record.get("effective_session_date") != expected_effective:
         fail("EFFECTIVE_SESSION_DATE_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
     try:
-        rows = _rederive_axis_rows(axes)
+        rows = _rederive_axis_rows(axes, replayed)
         expected = (
-            _candidate_normalized_result(
-                rows, expected_effective, policy, {name: {} for name in EXCLUDED_AXES},
-            )
+            _candidate_normalized_result(rows, expected_effective, policy, excluded)
             if rows
             else None
         )
@@ -2047,7 +2533,7 @@ def _expected_liquidity_hashes(measurement: dict, requested_date: str) -> dict:
 
 
 def _validate_source_hash_consistency(
-    record: dict, axes: dict, observed: list[str], requested_date: str,
+    record: dict, axes: dict, observed: list[str], replayed: list[str], requested_date: str,
 ) -> None:
     """The record's source hashes must agree with its own measurements.
 
@@ -2074,8 +2560,9 @@ def _validate_source_hash_consistency(
     A record with no observed axis has no provenance to carry, which is why the
     whole block may be ``null`` only in that case.
     """
-    expected = {key: None for key in SOURCE_HASH_KEYS}
-    for name in REPLAYED_AXES:
+    expected_keys = _source_hash_keys(replayed)
+    expected = {key: None for key in expected_keys}
+    for name in replayed:
         if name not in observed:
             continue
         entry = axes.get(name)
@@ -2087,6 +2574,9 @@ def _validate_source_hash_consistency(
                 measurement, requested_date,
             )
             continue
+        # BREADTH and LEADERSHIP share one combined measurement/response, so
+        # both map to ``BREADTH_LEADERSHIP_RESPONSE_HASH_KEY`` and set it to
+        # the same value -- idempotent, not a conflict.
         expected[AXIS_RESPONSE_HASH_KEY[name]] = _sha256_text(
             measurement.get("response_sha256"),
             "OBSERVED_AXIS_MUST_CARRY_ITS_SOURCE_HASHES",
@@ -2098,7 +2588,7 @@ def _validate_source_hash_consistency(
         if observed:
             fail("OBSERVED_RECORD_MUST_CARRY_ITS_SOURCE_HASHES", requested_date)
         return
-    if not isinstance(hashes, dict) or sorted(hashes) != sorted(SOURCE_HASH_KEYS):
+    if not isinstance(hashes, dict) or sorted(hashes) != sorted(expected_keys):
         fail("RECORD_SOURCE_HASH_SCHEMA_INVALID", requested_date)
     if hashes != expected:
         fail("RECORD_SOURCE_HASHES_INCONSISTENT_WITH_THEIR_MEASUREMENTS", requested_date)
@@ -2159,8 +2649,8 @@ def _dates_in(value: object, label: str) -> list[dt.date]:
     return []
 
 
-def _status_for(observed: list[str]) -> str:
-    if len(observed) == len(REPLAYED_AXES):
+def _status_for(observed: list[str], replayed: list[str]) -> str:
+    if len(observed) == len(replayed):
         return STATUS_OBSERVED
     return STATUS_PARTIAL if observed else STATUS_BLOCKED
 

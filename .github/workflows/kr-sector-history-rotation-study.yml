@@ -1,0 +1,105 @@
+name: KR Sector Index History Rotation Study
+
+# Manual only. Dispatching this workflow makes up to 1,600 official KRX Open
+# API requests with the KRX_API_KEY secret and needs the user's separate
+# approval. Private per-date records stay in runner temp and are never
+# uploaded; the artifact holds aggregates, counts and hashes only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Inclusive range start (YYYY-MM-DD)"
+        required: true
+      end_date:
+        description: "Inclusive range end (YYYY-MM-DD), before today KST"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kr-sector-history-rotation-study
+  cancel-in-progress: false
+
+jobs:
+  backfill-and-study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline regression
+        run: |
+          python3 test/test_kr_sector_index_history_backfill.py
+          python3 test/test_kr_rotation_event_study.py
+      - name: Verify pre-registration hash
+        run: python3 rotation/kr_rotation_event_study.py --verify-preregistration
+      - name: Plan request budget without network
+        env:
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+        run: |
+          python3 collectors/kr_sector_index_history_backfill.py \
+            --start "$START_DATE" --end "$END_DATE" --plan-only
+      - name: Capture official KRX holiday calendars
+        env:
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kr-sector-history/calendar"
+          for year in $(seq "${START_DATE:0:4}" "${END_DATE:0:4}"); do
+            python3 collectors/krx_official_holiday_calendar.py "$year" \
+              "$RUNNER_TEMP/kr-sector-history/calendar/capture-$year.json" \
+              || echo "calendar capture unavailable for $year; that year is response-only"
+          done
+      - name: Backfill KRX sector index history into runner temp
+        id: backfill
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          mkdir -p "$RUNNER_TEMP/kr-sector-history/private" "$RUNNER_TEMP/kr-sector-history/public"
+          set --
+          for capture in "$RUNNER_TEMP"/kr-sector-history/calendar/capture-*.json; do
+            if test -f "$capture"; then
+              set -- "$@" --calendar-capture "$capture"
+            fi
+          done
+          python3 collectors/kr_sector_index_history_backfill.py \
+            --start "$START_DATE" --end "$END_DATE" "$@" \
+            --records-dir "$RUNNER_TEMP/kr-sector-history/private/records" \
+            --receipt-out "$RUNNER_TEMP/kr-sector-history/public/BACKFILL_RECEIPT.json"
+      - name: Run pre-registered KR rotation event study
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/kr-sector-history/public"
+          python3 rotation/kr_rotation_event_study.py \
+            --receipt "$RUNNER_TEMP/kr-sector-history/public/BACKFILL_RECEIPT.json" \
+            --records-dir "$RUNNER_TEMP/kr-sector-history/private/records" \
+            --out "$RUNNER_TEMP/kr-sector-history/public/KR_ROTATION_EVENT_STUDY.json"
+      - name: Validate aggregate-only artifact
+        id: validate
+        if: always()
+        run: |
+          python3 rotation/kr_rotation_event_study.py \
+            --validate-public "$RUNNER_TEMP/kr-sector-history/public"
+      - name: Upload aggregate statistics and input hashes only
+        if: always() && steps.validate.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kr-sector-history-rotation-study-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/kr-sector-history/public
+          if-no-files-found: error
+          retention-days: 30
+      - name: Tracked output prohibition
+        if: always()
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain)"

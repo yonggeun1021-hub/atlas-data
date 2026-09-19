@@ -2,8 +2,8 @@
 """P8-16 Crypto funnel and PAPER-decision briefing read model.
 
 The sole input is one exact, fully revalidated P1/P3/P4/P5/P9
-``crypto_paper_decision_snapshot_packet/1``, ``/2`` or ``/3`` (per-market
-realtime freshness, 2026-09-14) generation.  This module does
+``crypto_paper_decision_snapshot_packet/1``, ``/2``, ``/3`` (per-market
+realtime freshness, 2026-09-14) or ``/4`` (crypto PAPER wiring v2) generation.  This module does
 not capture market data, calculate a factor, promote a candidate, authorize
 a PAPER order, or call any network/private/order endpoint.  It projects the
 already-derived facts into one JSON/API contract and one deterministic Korean
@@ -88,7 +88,8 @@ def _read_json(path: Path):
 
 LEGACY_CONTRACT_VERSION = "crypto_funnel_briefing_contract/1"
 CONTRACT_V2_VERSION = "crypto_funnel_briefing_contract/2"
-CONTRACT_VERSION = "crypto_funnel_briefing_contract/3"
+CONTRACT_V3_VERSION = "crypto_funnel_briefing_contract/3"
+CONTRACT_VERSION = "crypto_funnel_briefing_contract/4"
 
 
 def _expected_legacy_contract() -> dict:
@@ -110,11 +111,21 @@ def _expected_v2_contract() -> dict:
     return contract
 
 
+def _expected_v3_contract() -> dict:
+    """Frozen /3 contract (decision /1-/3), for issued briefings."""
+    contract = _expected_contract()
+    contract["contract_version"] = CONTRACT_V3_VERSION
+    contract["source_schema_versions"] = list(DECISION.OUTPUT_SCHEMA_VERSIONS)
+    return contract
+
+
 def _frozen_contract_for(version) -> dict | None:
     if version == LEGACY_CONTRACT_VERSION:
         return _expected_legacy_contract()
     if version == CONTRACT_V2_VERSION:
         return _expected_v2_contract()
+    if version == CONTRACT_V3_VERSION:
+        return _expected_v3_contract()
     return None
 
 
@@ -123,7 +134,7 @@ def _expected_contract() -> dict:
         "schema_version": 1,
         "contract_version": CONTRACT_VERSION,
         "output_schema_version": "crypto_funnel_briefing/1",
-        "source_schema_versions": list(DECISION.OUTPUT_SCHEMA_VERSIONS),
+        "source_schema_versions": list(DECISION.ALL_OUTPUT_SCHEMA_VERSIONS),
         "status": "READ_MODEL_ONLY",
         "axis_order": ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"],
         "funnel_order": [
@@ -199,9 +210,13 @@ def _require_explicit_time_basis(source: dict) -> None:
 
 def _candidate_rows(source: dict) -> list[dict]:
     rows = []
+    v4 = source["schema_version"] == DECISION.V4_OUTPUT_SCHEMA_VERSION
     for item in source["candidates"]:
         p5_09 = item.get("p5_09")
-        rows.append({
+        # /4 (eligibility contract/3) keeps the breakout trigger as a
+        # record-only feature instead of a gating criterion.
+        trigger_source = (p5_09.get("record_only_features") if v4 else p5_09["criteria"]) if p5_09 else None
+        row = {
             "market": item["market"],
             "canonical_asset_id": item.get("canonical_asset_id"),
             "state": item["state"],
@@ -217,11 +232,16 @@ def _candidate_rows(source: dict) -> list[dict]:
                 item["p5_08"]["criteria"].get("VOLUME_LIQUIDITY")
             ),
             "trigger": copy.deepcopy(
-                p5_09["criteria"].get("BREAKOUT_OR_PULLBACK") if p5_09 else None
+                trigger_source.get("BREAKOUT_OR_PULLBACK") if trigger_source else None
             ),
             "order_draft": copy.deepcopy(p5_09.get("order_draft") if p5_09 else None),
             "authority": copy.deepcopy(item["authority"]),
-        })
+        }
+        if v4:
+            row["promotion_state"] = item["p5_08"]["promotion_state"]
+            row["t2_required_conditions"] = copy.deepcopy(item["p5_08"]["t2_required_conditions"])
+            row["eligibility_state"] = p5_09["eligibility_state"] if p5_09 else None
+        rows.append(row)
     return rows
 
 
@@ -334,6 +354,10 @@ def _assemble(source: dict, source_path: str, source_file_sha256: str, contract:
         "authority": copy.deepcopy(contract["authority"]),
         "rendered_markdown": None,
     }
+    if source["schema_version"] == DECISION.V4_OUTPUT_SCHEMA_VERSION:
+        wiring = source["crypto_paper_wiring"]
+        packet["regime"]["crypto_paper_runtime_decision"] = copy.deepcopy(wiring["crypto_paper_runtime_decision"])
+        packet["regime"]["rotation_confirmation"] = copy.deepcopy(wiring["rotation_confirmation"])
     packet["rendered_markdown"] = _render_markdown(packet)
     packet["packet_sha256"] = payload_sha256(packet)
     return packet

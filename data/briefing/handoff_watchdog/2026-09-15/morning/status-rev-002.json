@@ -1,0 +1,75 @@
+{
+  "alert": true,
+  "authority": {
+    "dispatch_invoked": false,
+    "envelope_created": false,
+    "fact_inference_unknown_decision": false,
+    "manual_recovery_invoked": false,
+    "natural_evidence_changed": false,
+    "notion_written": false,
+    "source_bridge_authored": false
+  },
+  "briefing_id": "2026-09-15-morning",
+  "checked_at_utc": "2026-09-15T10:10:47Z",
+  "checks": {
+    "final_drain": {
+      "exists": false,
+      "path": "data/briefing/finalization/2026-09-15/morning/delivery_receipt.json"
+    },
+    "natural_receipt": {
+      "exists": true,
+      "path": "evidence/daily_briefing/morning/2026-09-15/index.json"
+    },
+    "portal_final_receipt": {
+      "exists": false,
+      "path": null
+    },
+    "semantic_verdict": {
+      "exists": true,
+      "hold_reasons": [],
+      "path": "data/briefing/finalization/2026-09-15/morning/validation-rev-001.json",
+      "readable": true,
+      "status_deliverable": true,
+      "validation_status": "PASS"
+    },
+    "source_bridge": {
+      "discoverable_by_chain_build": false,
+      "exists": false,
+      "path": "evidence/briefing_events/2026-09-15/morning/index.json"
+    },
+    "validated_envelope": {
+      "exists": false,
+      "path": "evidence/validated_briefing_portal/morning/2026-09-15/index.json"
+    }
+  },
+  "decision_date": "2026-09-15",
+  "display_status": "DELAYED",
+  "grace_deadline_kst": "2026-09-15T03:54:05+0000",
+  "grace_deadline_source": "draft.sealed_at_utc + config/atlas_semantic_validator.json:timeout_minutes",
+  "grace_timeout_minutes": 20,
+  "notes": [],
+  "past_grace": true,
+  "reason": "ENVELOPE_MISSING",
+  "recovery": {
+    "action_authority": false,
+    "backfill_promotion_authorized": false,
+    "buy_authority": false,
+    "natural_evidence_mutation_authorized": false,
+    "natural_sample_treatment": "NO_NATURAL_SAMPLE_MUTATION",
+    "next_action": "BUILD_FROM_THE_ALREADY_APPROVED_VERDICT_AND_EXACT_SOURCE_REFS;_DO_NOT_REINTERPRET_CLAIMS",
+    "order_authority": false,
+    "owner": ".github/scripts/validated_briefing_portal_producer.py",
+    "production_authority": false,
+    "recovery_key": "f61e8ab9465ca23b9d9007ac969c08ef09f852de8dfd1310f891f0c8e04a6c01",
+    "requires_semantic_judgment": false,
+    "route": "VALIDATED_PORTAL_ENVELOPE_PRODUCER",
+    "safe_to_automate": true,
+    "stage_authority": false,
+    "trading_authority": false
+  },
+  "schema_version": "briefing_handoff_watchdog/2",
+  "slot": "morning",
+  "slot_expected_today": true,
+  "stage": "ENVELOPE",
+  "status": "ENVELOPE_MISSING"
+}

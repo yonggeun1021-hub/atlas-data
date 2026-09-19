@@ -1,0 +1,78 @@
+{
+  "schema_version": "paper_entry_opportunity_ledger_policy/1",
+  "entry_rule": {
+    "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+    "record_id": "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915",
+    "repo_path": "evidence/authority/paper_entry_baseline_b_user_ratification_20260915.json",
+    "sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+    "status": "RATIFIED_AS_PAPER_BASELINE",
+    "explicit_non_claim": "NOT_A_CONFIRMATION_OF_ENTRY_EDGE"
+  },
+  "confirmation_policy_path": "config/rotation_confirmation_policy_v1.json",
+  "opportunity_unit": "SECTOR_OR_BUCKET_ENTITY_STRONG_CONFIRMED_OR_HELD",
+  "market_state": {
+    "source_root": "evidence/regime/paper_reference",
+    "field": "markets[].paper_reference.candidate_regime",
+    "selection": "EARLIEST_GENERATED_AT_FOR_MARKET_AS_OF_DATE",
+    "finalization": "DAY_FINAL_WHEN_OWN_OR_LATER_MARKET_AS_OF_IS_COMMITTED",
+    "allocation_v2_ratification_id": "PAPER-MARKET-ALLOCATION-V2-20260913",
+    "new_buys_by_market_state": {
+      "RISK_ON": "PERMIT",
+      "NEUTRAL": "PERMIT_SELECTIVE",
+      "RISK_OFF": "DENY",
+      "STRESS": "DENY",
+      "UNKNOWN": "DENY"
+    },
+    "pending_definitions": [
+      "REGIME_CONFIRMATION_SESSIONS_NOT_APPLIED_RAW_CANDIDATE_REGIME_RECORDED",
+      "PAPER_REFERENCE_IS_DIAGNOSTIC_NOT_RUNTIME_REGIME"
+    ]
+  },
+  "t2": {
+    "status": "PENDING",
+    "reason": "T2_CANDIDATE_OUTPUT_NOT_IN_REPOSITORY"
+  },
+  "record_only_features": {
+    "US": {
+      "status": "COMPUTED_FROM_COMMITTED_BARS",
+      "instrument": "SECTOR_SPDR_ETF_PROXY",
+      "source_root": "evidence/free_market_data/raw",
+      "file_name": "alpaca_iex_daily_bars.json.gz",
+      "selection": "EARLIEST_CAPTURE_OBSERVATION_CONTAINING_SESSION_BARS_UP_TO_SESSION_ONLY",
+      "ema_period": 20,
+      "ema_seed": "SMA_OF_FIRST_20_CLOSES_IN_CAPTURE",
+      "breakout_lookback_sessions": 20,
+      "atr_period": 14,
+      "atr_method": "SIMPLE_MEAN_TRUE_RANGE",
+      "feed_caveat": "IEX_PARTIAL_FEED"
+    },
+    "KR": {
+      "status": "UNKNOWN",
+      "reason": "SECTOR_INDEX_CLOSES_NOT_RETAINED_IN_PUBLIC_EVIDENCE"
+    },
+    "CRYPTO": {
+      "status": "UNKNOWN",
+      "reason": "BUCKET_FEATURE_SOURCE_NOT_WIRED"
+    }
+  },
+  "forward_tracking": {
+    "filled_by": "LATER_SCORECARD_JOB",
+    "horizons": {
+      "US": [5, 10, 20],
+      "KR": [5, 10, 20],
+      "CRYPTO": [7, 14, 30]
+    },
+    "horizon_unit": {
+      "US": "SESSIONS",
+      "KR": "SESSIONS",
+      "CRYPTO": "CALENDAR_DAYS"
+    },
+    "excess_return_baseline_status": "PENDING_DEFINITION"
+  },
+  "authority": {
+    "order_authorized": false,
+    "real_trading_authorized": false,
+    "allocation_change_authorized": false,
+    "entry_edge_claimed": false
+  }
+}

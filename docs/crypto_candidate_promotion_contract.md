@@ -96,3 +96,66 @@ packets and `evaluation_as_of` produce byte-identical output. Kraken's
 cross-exchange label is display-only and cannot affect criteria or state.
 The module adds no capture job, network request, private endpoint, order,
 withdrawal, Production, Trading, or REAL path.
+
+## Contract/3 (opt-in): ratified P4-07 reader and Crypto regime wiring
+
+`crypto_candidate_promotion_contract/3`
+(`config/crypto_candidate_promotion_contract_v3.json`, sha256-pinned in
+code) is requested explicitly with
+`build_promotion_packet(..., contract_version=3, crypto_runtime_decision=...)`
+and emits `crypto_candidate_promotion_packet/3`, whose `source_packets` also
+embed the consumed `crypto_paper_runtime_decision/1` packet (or `null`).
+Contract/2 remains the default. Its output is byte-identical to the
+pre-contract/3 code, because published Crypto PAPER decision packets are
+re-derived byte-for-byte by the pinned private runtime. No production caller
+requests contract/3 yet.
+
+Contract/3 changes exactly two criterion evaluators and the state rule. The
+evaluators:
+
+| Criterion | Contract/3 interpretation |
+|---|---|
+| `REGIME` | The user-ratified `CRYPTO_PAPER_RUNTIME_V1` decision in force at the P1-CR-08 envelope's `generated_at` (07:00Z UTC decision boundary). It is mapped through `PAPER-MARKET-ALLOCATION-V2-20260913` (record sha256 `345801ab…`). `RISK_ON` gives PASS with new buys `PERMIT` and multiplier 1.00. `NEUTRAL` gives PASS with `PERMIT_SELECTIVE` and 0.70. `RISK_OFF` gives FAIL with `DENY` and 0.25. `STRESS` gives FAIL with `DENY` and 0.00. `UNKNOWN` gives UNKNOWN with `DENY` and holdings capped at 0.50. A missing decision is UNKNOWN. So is a decision for an earlier UTC decision date (no carry) and a decision whose ratified policy fails local validation. A decision evaluated after the reference instant is rejected as lookahead. A tampered `decision_id`, identity, authority, or a KNOWN regime on a non-accepted decision is rejected. A valid KNOWN value never raises. |
+| `VOLUME_LIQUIDITY` | Reads only `config/upbit_market_evidence_policy_ratified.json`, bound by `packet_sha256` through the P4-07 contract. The proposal file is never read on this path. PASS requires three things. The packet must be bound to the ratified policy and captured inside its effective window. The 1d/4h candle and trade evidence must be PASS. The orderbook must be FRESH with full ratified depth and the ratified slippage notional, and spread/slippage recomputed from the packet numbers must be within `max_spread_bps_normal`/`max_slippage_bps_normal`. Any breach or non-PASS evidence is UNKNOWN with named reasons, following P4-07 `fail_closed_unknown`; it is never FAIL. An absent or invalid ratified policy is UNKNOWN. |
+
+`TREND`, `RELATIVE_STRENGTH`, `OVEREXTENSION` and `MATERIAL_BLOCKER` use the
+same evaluators as contract/2.
+
+### State rule: `RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1`
+
+This rule comes from user ratification B2
+(`evidence/authority/paper_b2_b3_size_assembly_user_ratification_20260915.json`,
+sha256 `0e2691e0…`). The six conditions come from
+`CANDIDATE-PIPELINE-REBUILD-20260913` `t2_minimum_conditions`
+(`evidence/authority/candidate_pipeline_rebuild_user_ratification_20260913.json`,
+sha256 `6870b457…`). Both records are hash-verified when contract/3 loads.
+
+Promotion blocks **only** on these six required conditions, emitted per row under
+`t2_required_conditions`:
+
+| Condition | PASS when | Otherwise |
+|---|---|---|
+| `T2_IDENTITY` | P3-12 ratified identity is resolved | UNKNOWN |
+| `T2_POPULATION_MEMBERSHIP` | The row is in scope in the validated P3-12 population snapshot for the evaluation date | Row is not evaluated |
+| `T2_LIQUIDITY` | The ratified Upbit `min_30d_avg_krw_turnover` (P3-12 policy) was met | UNKNOWN if turnover is missing |
+| `T2_PRICE_DATA` | The finalized 1d candle closing at the reference day 00:00Z is present, with `available_at` ≤ reference | UNKNOWN |
+| `T2_ROTATION_MEMBERSHIP` | The asset's bucket is `STRONG_CONFIRMED`/`STRONG_HELD` (`RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1`) | **UNKNOWN today**: no confirmation source is wired into P5-08 (`unapplied_rules` names it) |
+| `T2_REGIME_PERMITS_NEW_BUYS` | The REGIME criterion above is PASS | FAIL (RISK_OFF/STRESS) or UNKNOWN |
+
+State: any FAIL → `BLOCKED`, otherwise any UNKNOWN → `WATCH`, otherwise
+`FOCUSED_REVIEW`.
+
+The eight named criteria are still emitted for lineage. Five of them never
+change the state and appear in `warnings` when not PASS:
+
+- `TREND` and `OVEREXTENSION` are record-only entry-stage features (`RULE.ENTRY.PAPER_BASELINE_B.V1`).
+- `RELATIVE_STRENGTH` is a score.
+- `VOLUME_LIQUIDITY` (P4-07 spread/slippage) is a quality warning.
+- `MATERIAL_BLOCKER` is a warning. This includes active Upbit caution flags. The Upbit investment warning is still excluded upstream by P3-12.
+
+Each row carries additive `rule_refs` in the shape
+`{rule_id, version, registry_sha256 (null until the rule registry is on main), source_record_sha256, role}`.
+The role is `BLOCKED_BY` when that rule blocked the row.
+
+The multipliers are lineage for later sizing only. Every authority field
+stays false.

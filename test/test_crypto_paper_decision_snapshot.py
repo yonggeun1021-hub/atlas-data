@@ -1017,7 +1017,8 @@ class LeadershipWiringTests(TempDirMixin, unittest.TestCase):
                 },
             ],
             manifest_sha256_by_date=[
-                {"as_of_date": "2026-08-28", "manifest_sha256": real_manifest_sha256("2026-08-28")},
+                # as_of 2026-08-28 is backed by capture-vintage folder raw/2026-08-29.
+                {"as_of_date": "2026-08-28", "manifest_sha256": real_manifest_sha256("2026-08-29")},
             ],
         )
         leadership_entry = write_leadership_entry(self.tmp, record_dict)

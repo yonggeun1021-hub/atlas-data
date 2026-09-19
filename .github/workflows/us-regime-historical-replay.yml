@@ -1,0 +1,129 @@
+name: US Regime Historical Replay
+
+# US-DATA-1 U3 full replay. Manual only; the user approves each run.
+# Reads the committed range declaration (no date inputs exist) after proving it
+# rebuilds byte for byte from the committed probe summary, runs the unmodified
+# US population CLI in resumable chunks of at most 5 dates whose starts are at
+# least 60 seconds apart (no 60-second window can exceed the Alpaca/FRED
+# per-minute limits even if a chunk bursts), then evaluates evaluate_market_pit_acceptance("US", bundle)
+# only when every declared chunk is complete. Outputs live under RUNNER_TEMP
+# and are uploaded as artifacts; nothing is committed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      resume_from_run_id:
+        description: "Optional earlier run id whose chunk artifact to resume from"
+        required: false
+        default: ""
+      time_budget_minutes:
+        description: "Stop starting new chunks after this many minutes (1-320)"
+        required: false
+        default: "320"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: us-regime-historical-replay
+  cancel-in-progress: false
+
+env:
+  DECLARATION: evidence/us_regime_replay/range_declaration_v1.json
+  PROBE_SUMMARY: evidence/us_regime_replay/probe_summary_v1.json
+  CHUNK_SIZE: "5"
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline regression
+        run: |
+          python3 test/test_us_official_session_calendar.py
+          python3 test/test_us_replay_range_declaration.py
+          python3 test/test_us_historical_replay_population.py
+      - name: Require the committed declaration and probe summary
+        run: |
+          test -f "$DECLARATION" || { echo "STOP: $DECLARATION is not committed"; exit 2; }
+          test -f "$PROBE_SUMMARY" || { echo "STOP: $PROBE_SUMMARY is not committed"; exit 2; }
+      - name: Verify the declaration rebuilds from the committed probe summary
+        run: |
+          python3 regime/us_replay_range_declaration.py verify --declaration "$DECLARATION"
+      - name: Plan
+        run: |
+          python3 regime/us_replay_range_driver.py plan --declaration "$DECLARATION" --chunk-size "$CHUNK_SIZE"
+      - name: Download chunks from the resumed run
+        if: inputs.resume_from_run_id != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: us-regime-replay-chunks
+          path: ${{ runner.temp }}/us-replay/chunks
+          run-id: ${{ inputs.resume_from_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run pending chunks (paced, time-bounded)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
+          TIME_BUDGET_MINUTES: ${{ inputs.time_budget_minutes }}
+        run: |
+          python3 regime/us_replay_range_driver.py run \
+            --declaration "$DECLARATION" \
+            --work-dir "$RUNNER_TEMP/us-replay" \
+            --chunk-size "$CHUNK_SIZE" \
+            --time-budget-minutes "$TIME_BUDGET_MINUTES"
+      - name: Upload chunks (resume source)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: us-regime-replay-chunks
+          path: ${{ runner.temp }}/us-replay/chunks
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true
+      - name: Finalize full range and evaluate US PIT acceptance
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/us-replay-public"
+          set +e
+          python3 regime/us_replay_range_driver.py finalize \
+            --declaration "$DECLARATION" \
+            --work-dir "$RUNNER_TEMP/us-replay" \
+            --chunk-size "$CHUNK_SIZE" \
+            --summary-out "$RUNNER_TEMP/us-replay-public/summary.json"
+          status=$?
+          set -e
+          echo "finalize exit code: $status (0 = EVALUATED, 3 = INCOMPLETE_RESUME_REQUIRED)"
+          if [ -f "$RUNNER_TEMP/us-replay-public/summary.json" ]; then
+            python3 -c "import json,sys; s=json.load(open(sys.argv[1])); print('status', s['status'], 'chunks', s['complete_chunks'], '/', s['planned_chunks'], 'acceptance', (s['acceptance'] or {}).get('status'))" "$RUNNER_TEMP/us-replay-public/summary.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $status
+      - name: Upload public-safe summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: us-regime-replay-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/us-replay-public/summary.json
+            ${{ runner.temp }}/us-replay/progress.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload merged population bundle
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: us-regime-replay-population-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/us-replay/merged_population.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Tracked output prohibition
+        if: always()
+        run: git diff --exit-code && test -z "$(git status --porcelain)"

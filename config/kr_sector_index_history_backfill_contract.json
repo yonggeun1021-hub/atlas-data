@@ -1,0 +1,59 @@
+{
+  "schema_version": "kr_sector_index_history_backfill_contract/1",
+  "source_name": "KRX_OPEN_API_INDEX_DAILY",
+  "source_tier": "Official",
+  "endpoint_contract": {
+    "path": "config/korea_market_signals_contract.json",
+    "field": "index_endpoints"
+  },
+  "endpoints": {
+    "KOSPI": "https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd",
+    "KOSDAQ": "https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd"
+  },
+  "request_shape": "GET <endpoint>?basDd=YYYYMMDD with AUTH_KEY header; one request returns every index series of that market for that date in OutBlock_1",
+  "requests_per_requested_date": 2,
+  "minimum_official_date": "2010-01-04",
+  "maximum_range_calendar_days": 1103,
+  "hard_max_planned_requests": 1600,
+  "hard_max_http_attempts": 1700,
+  "documented_rate_or_daily_limit": "NOT_DOCUMENTED_IN_REPOSITORY",
+  "pacing": {
+    "default_min_interval_seconds": 1.0,
+    "min_interval_floor_seconds": 0.5,
+    "transient_retry_backoff_seconds": [10, 30],
+    "max_consecutive_transient_failures": 5,
+    "timeout_seconds": 30
+  },
+  "stop_http_statuses": [401, 403, 429],
+  "stop_response_codes": ["401", "403", "429"],
+  "request_dates": "Every Monday-Friday in the inclusive range. Saturday/Sunday are closed by KRX_EQUITY_MARKET_OPERATION_RULES and are not requested. A weekday is never assumed to be a session; the response decides.",
+  "session_classification": {
+    "SESSION_CONFIRMED": "both markets returned non-empty OutBlock_1 with matching BAS_DD",
+    "NON_SESSION_EMPTY_RESPONSE": "both markets returned an empty OutBlock_1",
+    "DISAGREEMENT": "markets disagree, or an official KRX holiday capture for the year disagrees with the responses"
+  },
+  "storage": {
+    "records": "write-once per (market, basDd) JSON under a caller-supplied directory outside the repository checkout; existing records are validated and reused (resume), never overwritten",
+    "retained_fields_private": ["IDX_NM-matched ratified series CLSPRC_IDX and ACC_TRDVAL as strings", "response SHA-256 and byte length", "row counts"],
+    "raw_response_bytes_retained": false,
+    "public_outputs": "receipt and study aggregates only; no index values"
+  },
+  "data_use_boundary": {
+    "basis": "KRX_OPEN_API_TERMS_RESTRICT_THIRD_PARTY_PROVISION_AND_REDISTRIBUTION_RIGHTS_ARE_NOT_ESTABLISHED",
+    "references": [
+      "docs/krx_execution_measurement_contract.md#distribution-and-usage-rights-boundary",
+      "docs/krx_investable_registry_contract.md#distribution-boundary"
+    ],
+    "derived_closes_committable": false,
+    "artifact_contains_index_values": false
+  },
+  "authority": {
+    "history_backfill_tool_only": true,
+    "execution_authorized_by_this_contract": false,
+    "policy_change_authorized": false,
+    "candidate_authorized": false,
+    "order_authorized": false,
+    "trading_authorized": false,
+    "real_capital_authorized": false
+  }
+}

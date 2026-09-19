@@ -1,0 +1,92 @@
+name: US Sector Rotation Backfill Study
+
+# User approval USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915, decision
+# US_BACKFILL: 22 approved symbols, 1 year of Alpaca free IEX daily bars,
+# ~66 requests. Manual only; CLAUDE_CIO dispatches after independent review.
+#
+# Request bound: one backfill invocation makes at most 66 HTTP requests
+# (22 symbols x 3 anchors, enforced in code). A single in-job resume retry
+# skips every completed unit, so one dispatch makes at most 67 requests
+# (66 units + 1 failed attempt). Pacing: 3s after each request, +15s every 4.
+#
+# Data handling: per-day vendor rows live only under $RUNNER_TEMP/.../private
+# (outside the checkout) and are never uploaded or committed. The only upload
+# is one aggregated statistics JSON that passes the artifact schema check
+# (no price, close, volume, bar or per-day return series). Nothing is pushed.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: us-sector-rotation-backfill-study
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline backfill and study regression
+        run: |
+          python3 test/test_us_price_history_backfill.py
+          python3 test/test_us_sector_rotation_event_study.py
+      - name: Verify pre-registration hash
+        run: python3 study/us_sector_rotation_event_study.py verify-preregistration
+      - name: Bounded Alpaca backfill (22 symbols, 1 year, at most 67 requests)
+        env:
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
+        run: |
+          set -euo pipefail
+          private="$RUNNER_TEMP/us-rotation-study/private"
+          mkdir -p "$private"
+          end_date="$(date -u -d yesterday +%F)"
+          if ! python3 collectors/us_price_history_backfill.py --live --require-live \
+              --end-date "$end_date" --out-dir "$private/backfill" > "$private/receipt.json"; then
+            python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("error", "NO_ERROR_CODE"))' "$private/receipt.json" || true
+            echo "first attempt failed; one resume attempt in 60s (completed units are skipped)"
+            sleep 60
+            python3 collectors/us_price_history_backfill.py --live --require-live \
+              --end-date "$end_date" --out-dir "$private/backfill" > "$private/receipt.json"
+          fi
+          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print({k: r[k] for k in ("start_date","end_date","symbol_count","total_requests","requests_made","units_skipped_existing","total_row_count")})' "$private/receipt.json"
+      - name: Run pre-registered US rotation event study (offline, no secrets)
+        run: |
+          work="$RUNNER_TEMP/us-rotation-study"
+          python3 study/us_sector_rotation_event_study.py run \
+            --backfill-dir "$work/private/backfill" \
+            --receipt "$work/private/receipt.json" \
+            --out "$work/upload/us_sector_rotation_event_study_v1.json"
+      - name: Artifact schema check before upload
+        run: |
+          upload="$RUNNER_TEMP/us-rotation-study/upload"
+          python3 study/us_sector_rotation_event_study.py check-artifact --artifact "$upload/us_sector_rotation_event_study_v1.json"
+          test "$(find "$upload" -type f | wc -l)" -eq 1
+      - name: Upload aggregated statistics only
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: us-sector-rotation-event-study-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/us-rotation-study/upload/us_sector_rotation_event_study_v1.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Tracked output and artifact schema prohibition
+        if: always()
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+          artifact="$RUNNER_TEMP/us-rotation-study/upload/us_sector_rotation_event_study_v1.json"
+          if [ -e "$artifact" ]; then
+            python3 study/us_sector_rotation_event_study.py check-artifact --artifact "$artifact"
+          fi

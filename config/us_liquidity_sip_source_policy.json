@@ -1,0 +1,35 @@
+{
+  "approval_status": "RATIFIED",
+  "evidence_refs": [
+    {
+      "description": "US/KR PAPER T2 C3 liquidity threshold ratification (base record; this policy carries only its US.* values)",
+      "path": "evidence/authority/paper_liquidity_kr_us_user_ratification_20260914.json",
+      "ratification_id": "PAPER-LIQUIDITY-KR-US-V1-20260914",
+      "sha256": "1e068439c4e43050072e38c7450dea38baccf701dab23e784467c9ce48ef40d6"
+    },
+    {
+      "description": "US SIP-vs-IEX data-source-selection ratification (RULE.LIQUIDITY.US_SIP_SOURCE.V1)",
+      "path": "evidence/authority/us_liquidity_sip_source_user_ratification_20260915.json",
+      "ratification_id": "USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_20260915",
+      "sha256": "6631506766c56793087a9f38360050e28148a40b47871a77514417aef61d3ca2"
+    }
+  ],
+  "exclude_conditions": [
+    "OTC_OR_NON_EXCHANGE_LISTED"
+  ],
+  "insufficient_sessions_status": "NOT_EVALUATED",
+  "last_close_usd_min": "5",
+  "min_avg_traded_value_usd": "10000000",
+  "missing_or_stale_data_status": "UNKNOWN",
+  "packet_sha256": "9c7198411547b0de11d76bb54fa954dbe72c544c8ef29e0d8ed244beb9bb6a24",
+  "policy_id": "US-LIQUIDITY-SIP-SOURCE-POLICY-V1",
+  "ratified_at": "2026-09-14T23:06:00Z",
+  "ratified_by": "USER (see evidence_refs; explicit instruction and SIP source ratification 2026-09-15)",
+  "schema_version": "us_liquidity_sip_source_policy/1",
+  "sip_source_rule": {
+    "fallback": "if SIP unavailable: IEX traded value >= threshold -> PASS; below -> UNKNOWN (never FAIL on IEX alone)",
+    "metric": "20-session average traded value (close*volume)",
+    "primary_source": "Alpaca historical SIP daily bars, only data whose regular-session close is at least 15 minutes past",
+    "rule_id": "RULE.LIQUIDITY.US_SIP_SOURCE.V1"
+  }
+}

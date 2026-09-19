@@ -1,0 +1,63 @@
+name: Rule Lineage PAPER Reference Sidecars
+
+# Additive rule-lineage sidecars (config/rule_registry_v1.json ids) for the
+# retained PAPER market risk reference packets. This is a separate workflow on
+# purpose: .github/workflows/paper-regime-reference.yml bytes are pinned in
+# config/regime_source_owner_registry_v2.json, so it is not edited. This job
+# reads committed packets only, writes only evidence/rule_lineage/
+# paper_regime_reference (write-once, verified if present) and never changes a
+# reference packet, a latest pointer or any decision.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - PAPER Market Risk Reference
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-rule-lineage-paper-reference
+  cancel-in-progress: false
+
+jobs:
+  sidecars:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Validate rule registry against byte-exact authority records
+        run: python3 governance/rule_registry.py
+      - name: Emit sidecars for recent retained PAPER reference packets
+        run: |
+          set -euo pipefail
+          MIN_DATE="$(date -u -d '3 days ago' +%F)"
+          python3 governance/rule_lineage_producers.py paper-reference-scan --min-date "$MIN_DATE" \
+            | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["summary"], sort_keys=True))'
+      - name: Commit append-only rule lineage sidecars
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add evidence/rule_lineage/paper_regime_reference 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "no new rule lineage sidecar"
+            exit 0
+          fi
+          git commit -m "data: rule lineage sidecars for PAPER reference $(date -u +%F)"
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          exit 1

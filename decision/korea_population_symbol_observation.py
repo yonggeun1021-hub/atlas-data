@@ -7,7 +7,17 @@ Per-symbol inputs, in priority order:
 1. the watchlist observation file ``data/briefing/krx/<symbol>.json`` (pykrx
    confirmed close, SMA20, investor flows) -- the same file the bounded
    review already consumes;
-2. the retained KRX information-system all-stock response for the session
+2. the ``price_history_session/1`` store (``universe/price_history_store.py``)
+   when a caller configures its root.  The store lives in the private
+   evidence repository, so this input is absent by default and the packet is
+   then byte-identical to the one produced before the store existed.  When it
+   is configured, a symbol holding this session's stored bar reaches the
+   contract's existing ``EVALUABLE_PRICE`` level -- the same level the US
+   adapter already uses for daily bars -- and SMA20 becomes computable from
+   the stored closes.  Investor flows still do not exist in this source, so
+   the row stays explicitly incomplete rather than being completed by
+   estimation;
+3. the retained KRX information-system all-stock response for the session
    (``evidence/regime/kr_information_system/<pub>/source-capture``), verified
    through the runtime bridge's manifest validator and projected with the
    capture module's own ``_raw_projection`` (close, return, trading value,
@@ -22,6 +32,7 @@ Nothing is estimated, no stage is changed, no candidate is promoted.
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 import re
 
@@ -114,6 +125,60 @@ def default_inputs(root: Path = ROOT, *, session_date: str | None = None) -> dic
         "bounded_review_path": root / "data" / "latest_korea_symbol_market_review.json",
         "watchlist_root": root / "data" / "briefing" / "krx",
         "capture_dir": _latest_capture_dir(root, compact),
+        "price_history_root": price_history_root(),
+    }
+
+
+PRIVATE_ONLY_DISTRIBUTION = "PRIVATE_ONLY_KRX_OPENAPI_DERIVED"
+
+
+def price_history_root() -> Path | None:
+    """Root of the private ``price_history_session/1`` store, when configured.
+
+    The store is private evidence, so the public default is "not configured".
+    An absent store is reported as absent; it is never substituted with a
+    partial source.
+    """
+    configured = os.environ.get("ATLAS_PRICE_HISTORY_ROOT") or ""
+    return Path(configured) if configured.strip() else None
+
+
+def _load_price_history(inputs: dict, snapshot_at: str) -> dict:
+    """Session bars from the private price-history store, as of ``snapshot_at``.
+
+    Only sessions whose ``first_available_observed_at_utc`` is at or before
+    the evaluation snapshot are read, so the packet can never see a bar that
+    did not exist yet.  A gap stays a gap: the store never pads a symbol's
+    window, and this loader never fills one.
+    """
+    root = inputs.get("price_history_root")
+    if root is None:
+        return {
+            "status": "NOT_CONFIGURED", "window": [], "by_code": {},
+            "sma_sessions": None, "sma_report": None, "latest_bas_dd": None,
+        }
+    if CORE.inside_public_repository(Path(root)):
+        _fail("KR_PRICE_HISTORY_STORE_INSIDE_PUBLIC_REPOSITORY", str(root))
+    store_module = load_module("population_price_history_store", "universe/price_history_store.py")
+    try:
+        store = store_module.PriceHistoryStore(root)
+        sma_sessions = int(store.contract["sma20_sessions"])
+        window = store.session_window("KR", sma_sessions, snapshot_at)
+        by_code: dict[str, list] = {}
+        for day in window:
+            for code, row in store.session_index("KR", day).items():
+                by_code.setdefault(code, []).append({"bas_dd": day, **row})
+        report = store.sma_readiness("KR", snapshot_at, sessions=sma_sessions)
+    except (store_module.PriceHistoryStoreError, OSError, ValueError) as exc:
+        _fail("KR_PRICE_HISTORY_STORE_INVALID", str(exc))
+    return {
+        "status": "LOADED",
+        "store": store,
+        "window": window,
+        "by_code": by_code,
+        "sma_sessions": sma_sessions,
+        "sma_report": report,
+        "latest_bas_dd": window[-1] if window else None,
     }
 
 
@@ -235,9 +300,49 @@ def load_context(inputs: dict, *, generated_at: str, contract: dict) -> dict:
             *[(entry["record"].get("source") or {}).get("collected_at_utc", "").replace("+00:00", "Z") for entry in watchlist.values()],
         ) if isinstance(value, str) and CORE.UTC_RE.fullmatch(value)
     )
+    price_history = _load_price_history(inputs, snapshot_at)
+    sources = {
+        "universe": source_ref(inputs["universe_path"], universe["payload_sha256"]),
+        "market_signals": {"as_of_date": market.get("as_of_date"), "available_at": market.get("available_at"),
+                           **source_ref(inputs["market_signals_path"], market.get("payload_sha256"))},
+        "bounded_review": {"generated_at": bounded["generated_at"], "operational_date_kst": bounded["operational_date_kst"],
+                           **source_ref(inputs["bounded_review_path"], bounded["packet_sha256"])},
+        "stage_history": {"as_of": stage_as_of, **source_ref(inputs["stage_history_path"], payload_sha256(stages))},
+        "watchlist_files": sorted(watchlist),
+        "information_system_capture": {
+            "status": capture["status"],
+            "retained_sessions": capture["retained_sessions"],
+            "capture_completed_at_utc": capture.get("capture_completed_at_utc"),
+            "directory": relative(inputs["capture_dir"]) if inputs.get("capture_dir") else None,
+            "session_row_count": len(capture["rows"]),
+        },
+    }
+    if price_history["status"] == "LOADED":
+        # Only a configured store adds this block, so the default packet stays
+        # byte-identical to the one produced before the store existed.
+        sources["price_history_store"] = {
+            "status": price_history["status"],
+            "contract_version": "price_history_session/1",
+            "sessions_in_window": len(price_history["window"]),
+            "window_first_bas_dd": price_history["window"][0] if price_history["window"] else None,
+            "window_last_bas_dd": price_history["latest_bas_dd"],
+            "sma_sessions": price_history["sma_sessions"],
+            "sma_computable_symbol_count": (price_history["sma_report"] or {}).get(
+                "sma_computable_symbol_count"
+            ),
+            "sma_readiness_status": (price_history["sma_report"] or {}).get("status"),
+            "distribution": PRIVATE_ONLY_DISTRIBUTION,
+        }
     return {
         "market": "KR",
+        # Per-symbol KRX Open API fields (close, return, traded value, market
+        # cap, SMA) flow into rows only when the private store is loaded; the
+        # core builder refuses to persist such a packet inside this public
+        # repository (KRX Open API terms: no redistribution).
+        "distribution": PRIVATE_ONLY_DISTRIBUTION if price_history["status"] == "LOADED" else "PUBLIC",
         "session_date": session,
+        "session_compact": compact,
+        "price_history": price_history,
         "generated_at": generated_at,
         "snapshot_at": snapshot_at,
         "contract": contract,
@@ -263,22 +368,7 @@ def load_context(inputs: dict, *, generated_at: str, contract: dict) -> dict:
         "capture": capture,
         "input_refs": input_refs,
         "policy_undefined": policy_undefined,
-        "sources": {
-            "universe": source_ref(inputs["universe_path"], universe["payload_sha256"]),
-            "market_signals": {"as_of_date": market.get("as_of_date"), "available_at": market.get("available_at"),
-                               **source_ref(inputs["market_signals_path"], market.get("payload_sha256"))},
-            "bounded_review": {"generated_at": bounded["generated_at"], "operational_date_kst": bounded["operational_date_kst"],
-                               **source_ref(inputs["bounded_review_path"], bounded["packet_sha256"])},
-            "stage_history": {"as_of": stage_as_of, **source_ref(inputs["stage_history_path"], payload_sha256(stages))},
-            "watchlist_files": sorted(watchlist),
-            "information_system_capture": {
-                "status": capture["status"],
-                "retained_sessions": capture["retained_sessions"],
-                "capture_completed_at_utc": capture.get("capture_completed_at_utc"),
-                "directory": relative(inputs["capture_dir"]) if inputs.get("capture_dir") else None,
-                "session_row_count": len(capture["rows"]),
-            },
-        },
+        "sources": sources,
     }
 
 
@@ -384,7 +474,80 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
                           data_observation=data_observation, evaluability=evaluability, evaluation=evaluation, formal=formal,
                           facts=facts, evidence_refs=evidence_refs)
 
-    # 2. information-system session row only
+    # 2. price-history store bars for this session (private store, when configured)
+    history = ctx["price_history"]
+    bars = history["by_code"].get(symbol) or [] if history["status"] == "LOADED" else []
+    if bars and bars[-1]["bas_dd"] == ctx["session_compact"]:
+        store = history["store"]
+        sma_sessions = history["sma_sessions"]
+        sma20 = store.simple_moving_average(bars, sma_sessions)
+        latest = bars[-1]
+        facts.update({
+            "session_close": latest.get("close"),
+            "session_return_pct": latest.get("fluc_rt"),
+            "session_trading_value": latest.get("value"),
+            "session_market_cap": latest.get("mktcap"),
+            "session_source": "price_history_session_store",
+            "price_history_sessions": len(bars),
+        })
+        evidence_refs.append({
+            "role": "price_history_session",
+            "market": "KR",
+            "bas_dd": latest["bas_dd"],
+            "session_count": len(bars),
+            "sma_sessions": sma_sessions,
+        })
+        observed = {
+            "name": (capture_row or {}).get("name") or record.get("display_name"),
+            "atlas_stage": formal["stage"],
+            "latest_confirmed_day": session,
+            "latest_confirmed_row": {
+                "close": latest.get("close"),
+                "change_pct": latest.get("fluc_rt"),
+                "volume": latest.get("vol"),
+                "confirmed": True,
+                "net_value": {},
+            },
+            "confirmed_metrics": (
+                {"sma20": format(sma20, "f"), "status": "COMPUTED",
+                 "reason": f"PRICE_HISTORY_SESSIONS={len(bars)}"}
+                if sma20 is not None else
+                {"sma20": None, "status": "NOT_COMPUTABLE",
+                 "reason": f"PRICE_HISTORY_SESSIONS={len(bars)}"}
+            ),
+        }
+        try:
+            row = KOREA_REVIEW._symbol_row(symbol, observed, ctx["stage_as_of"], ctx["review_contract"],
+                                           missing_policy=ctx["missing_policy"])
+            evaluation = {"status": "EVALUATED", "evaluator_contract": ctx["review_contract"]["contract_version"],
+                          "evaluated_at": ctx["snapshot_at"], "evaluated_at_basis": "INPUT_SNAPSHOT_TIME",
+                          "entry_state": row["entry_review"]["state"],
+                          "reasons": list(row["entry_review"]["reasons"]), "row": row,
+                          "row_source": "price_history_session_store"}
+            # Bars are present, so the contract's existing EVALUABLE_PRICE level
+            # applies -- the same level the US adapter uses for daily bars.
+            # Investor flows are still absent and are never estimated, so the
+            # row itself stays explicitly incomplete.
+            evaluability = {"status": "EVALUABLE", "level": "EVALUABLE_PRICE", "reasons": [],
+                            "session_price_present": True}
+        except (KOREA_REVIEW.KoreaSymbolMarketReviewError, KeyError, TypeError, ValueError) as exc:
+            evaluability = {"status": "NOT_EVALUABLE", "level": None, "reasons": [f"ROW_BUILD_FAILED:{exc}"],
+                            "session_price_present": True}
+            evaluation = {"status": "NOT_EVALUATED", "entry_state": None,
+                          "reasons": [f"ROW_BUILD_FAILED:{exc}"], "row": None}
+        return symbol_row(
+            symbol=symbol, name=observed["name"], membership=_membership(record),
+            data_observation={
+                "status": "DATA_OBSERVED", "session_date": session,
+                "sources": ["price_history_session_store"] + (["information_system_stock_response"] if frame else []),
+                "fields_present": ["daily_bars", "session_close"] + (["sma20"] if sma20 is not None else []),
+                "fields_missing": ([] if sma20 is not None else ["sma20"]) + ["investor_flows"],
+            },
+            evaluability=evaluability, evaluation=evaluation, formal=formal, facts=facts,
+            evidence_refs=evidence_refs,
+        )
+
+    # 3. information-system session row only
     if frame:
         reasons = [f"SMA20_NOT_COMPUTABLE:RETAINED_SESSIONS={ctx['capture']['retained_sessions']}", "INVESTOR_FLOW_NOT_AVAILABLE"]
         observed = {
@@ -409,7 +572,7 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
             formal=formal, facts=facts, evidence_refs=evidence_refs,
         )
 
-    # 3. nothing observed for this session
+    # 4. nothing observed for this session
     reason = "SOURCE_ROW_MISSING" if ctx["capture"]["status"] == "VALIDATED" else "PRICE_SOURCE_NOT_RETAINED"
     return symbol_row(
         symbol=symbol, name=record.get("display_name"), membership=_membership(record),

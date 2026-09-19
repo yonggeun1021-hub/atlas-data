@@ -1,0 +1,51 @@
+{
+  "as_of_date": "2026-09-10",
+  "authority": {
+    "allocation_change_authorized": false,
+    "entry_edge_claimed": false,
+    "order_authorized": false,
+    "real_trading_authorized": false
+  },
+  "confirmation": {
+    "observation_status": "UNKNOWN",
+    "path": "evidence/rotation/confirmation/CRYPTO/2026-09-10/packet.json",
+    "payload_sha256": "e0ebd64bc85f8be2aebd7824e3cc7027c28161eb0cf4ba3f8c36306b8f21288e",
+    "unknown_reason": "WINDOW_INSUFFICIENT_CONTIGUOUS_HISTORY"
+  },
+  "counts": {
+    "blocked_by_market_state": 0,
+    "eligible_pending_t2": 0,
+    "opportunities": 0
+  },
+  "entry_rule": {
+    "explicit_non_claim": "NOT_A_CONFIRMATION_OF_ENTRY_EDGE",
+    "record_id": "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915",
+    "repo_path": "evidence/authority/paper_entry_baseline_b_user_ratification_20260915.json",
+    "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+    "sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+    "status": "RATIFIED_AS_PAPER_BASELINE"
+  },
+  "evidence_phase": "PRE_DECISION_EFFECTIVE_REPLAY",
+  "market": "CRYPTO",
+  "market_state": {
+    "candidate_regime": "UNKNOWN",
+    "classification_status": "WAIT_OFFICIAL_DECISION_REFRESH",
+    "new_buy_verdict": "DENY",
+    "reason": null,
+    "runtime_regime": "UNKNOWN",
+    "source": {
+      "generated_at": "2026-09-10T01:06:33Z",
+      "generation_id": "35c921bb775da8beb7630c5e75f8e292acca629797035e4b83d1f4f2d37c29ae",
+      "path": "evidence/regime/paper_reference/2026-09-10/35c921bb775da8beb7630c5e75f8e292acca629797035e4b83d1f4f2d37c29ae/packet.json",
+      "payload_sha256": "b98dc3d9d32fd2061b54378be3fd87c45587b576181faf94cee50b5b4040e05e"
+    },
+    "status": "OBSERVED"
+  },
+  "market_state_pending_definitions": [
+    "REGIME_CONFIRMATION_SESSIONS_NOT_APPLIED_RAW_CANDIDATE_REGIME_RECORDED",
+    "PAPER_REFERENCE_IS_DIAGNOSTIC_NOT_RUNTIME_REGIME"
+  ],
+  "opportunities": [],
+  "payload_sha256": "65749675ba86a31cd05d6b9a15c7c61d36bbf7fd2946e953e355583782050001",
+  "schema_version": "paper_entry_opportunity_ledger_day/1"
+}

@@ -1,0 +1,74 @@
+{
+  "contract_version": "us_paper_runtime_adoption/v1",
+  "identity": "US_PAPER_RUNTIME_ADOPTION_V1",
+  "status": "TEMPLATE_NOT_ACTIVE",
+  "template_note": "NOT ACTIVE. regime/us_paper_runtime.py reads only config/us_paper_runtime_adoption_v1.json and refuses status TEMPLATE_NOT_ACTIVE. CIO technical adoption (U5) happens only after U3 produces a US PIT_ACCEPTED acceptance record. To adopt: copy to the active path, set status CIO_TECHNICAL_ADOPTED, fill every null from committed bytes (sha256 of the exact files), set effective_at_utc no earlier than the adoption commit, and fill bindings.implementation_sha256 from the implementation paths in config/us_paper_runtime_contract_v1.json. Any placeholder left null keeps the runtime UNKNOWN.",
+  "market": "US",
+  "scope": "US_INTERNAL_VIRTUAL_PAPER_ONLY",
+  "evidence_class": "LIVE_NATURAL",
+  "adopted_by": null,
+  "adopted_at_utc": null,
+  "effective_at_utc": null,
+  "decision_record_path": null,
+  "decision_record_sha256": null,
+  "runtime_authorized_regimes": [
+    "RISK_ON",
+    "NEUTRAL",
+    "RISK_OFF",
+    "STRESS",
+    "UNKNOWN"
+  ],
+  "freshness": {
+    "expected_session": "latest officially completed NYSE session per bindings session_calendar",
+    "usable_after": "free-market-data terminal success (capture observed_at_utc at or after the session close)",
+    "expiry": "close of the next official session",
+    "missing_invalid_or_stale_axis": "IMMEDIATE_UNKNOWN_NO_CARRY"
+  },
+  "bindings": {
+    "contract_sha256": null,
+    "normalization": {
+      "path": "config/paper_runtime_normalization_v1.json",
+      "sha256": "cb6945225cd4f972825aaa3a6fb300ab440bd9b0d247bd0edb216e8513335385",
+      "ratifying_commit": "ba82906a1e438247070cba96a08c9b9469fcfce5",
+      "us_block_payload_sha256": "766ab14531682c133d900299dbb66a71a7c83f0cec73e7e140455c8b57e39419"
+    },
+    "semantic_freshness": {
+      "path": "config/regime_semantic_freshness_policy_v1.json",
+      "sha256": "0194dd4647b9a42b5183977c822eb8125320d32e93ef4e7f4efda364db6ff193"
+    },
+    "pit_acceptance_contract": {
+      "path": "config/market_scoped_pit_acceptance_contract_v1.json",
+      "sha256": "c13006da3da69df4a94ab494942045c988bd6e7d6c51c0fe57c12c889ab45712"
+    },
+    "reference_policy": {
+      "path": "config/paper_regime_reference_policy_v1.json",
+      "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350"
+    },
+    "common_v1_binding_payload_sha256": "44e13d9176270a45a8426970726d67ceeb5fda559653dcbe2711811bac37207e",
+    "implementation_sha256": null
+  },
+  "pit_acceptance": {
+    "bundle_path": null,
+    "bundle_sha256": null,
+    "acceptance_record_path": null,
+    "acceptance_record_sha256": null,
+    "replay_report_sha256": null,
+    "history_last_session_date": null
+  },
+  "session_calendar": {
+    "path": null,
+    "sha256": null
+  },
+  "authority": {
+    "paper_runtime_display_authorized": true,
+    "strategy_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "action_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "trading_authorized": false,
+    "real_authorized": false
+  }
+}

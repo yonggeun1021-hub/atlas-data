@@ -1,0 +1,51 @@
+{
+  "schema_version": "atlas_user_policy_ratification/1",
+  "ratification_id": "CANDIDATE-PIPELINE-REBUILD-20260913",
+  "ratified_at_utc": "2026-09-13T13:20:00Z",
+  "ratified_by": "USER (explicit instruction: '후보 파이프라인 재건 권장안 채택')",
+  "recommended_by": "CLAUDE_CIO",
+  "control_transfer_sha256": "c7a76ec006acfaefda5c2e632bfb6d6fec548ed6dbfdc3a5a105c268ad5f7fb0",
+  "basis": {
+    "funnel_census": {
+      "path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/CLAUDE_CIO_CANDIDATE_FUNNEL_CENSUS_20260913.md",
+      "sha256": "4082945043beec905e8c59b1c4a1093d59b9c3d3428e043a394219f76b83a810",
+      "main": "160844f0"
+    },
+    "finding": "0 candidates in all markets. The funnel collapses between universe and evaluation: KR 2766->3, US 13214->2, Crypto 282->0. Causes: no full-universe price history (KR 1-2 sessions kept, US 18 symbols), no stock-to-sector/theme membership, evaluators bound to fixed tiny symbol sets, identity ratifications KR 3 / US 0 / Crypto 1, and no committed regime-permits-buy rule."
+  },
+  "ratified": {
+    "tier_model": {
+      "T1_DISCOVERY": "Daily per market: universe -> regime (displayed) -> strong rotation sectors/themes -> ranked stocks within them, with reasons. Display/observation only; no authority.",
+      "T2_PAPER_CANDIDATE": "Eligible for internal PAPER trading only when all minimum required conditions hold. The remaining evidence (business translation, expectations gap, invalidation, veto, evidence quality) is scoring and warnings, not hard blockers, at this tier.",
+      "T3_REAL_CANDIDATE": "All 9 Stage3 gates PASS + PAPER performance evidence + explicit user approval. REAL remains prohibited today (P11 unchanged)."
+    },
+    "t2_minimum_conditions": [
+      "resolved security identity via bulk ratification from the official master (KRX / US official listing master / Upbit market registry)",
+      "membership in the latest published population snapshot at evaluation (per ratification KR-NEXT-SESSION-INPUT-POLICY-DBE-20260913 E principle)",
+      "liquidity at or above a ratified market threshold (Upbit threshold already ratified; KR and US thresholds pending separate user decision; until ratified, KR/US T2 liquidity condition = NOT_EVALUATED and T2 is not granted)",
+      "price data present for the latest completed session with availability <= evaluation",
+      "membership in a sector/theme selected by the current rotation output",
+      "market regime permits new buys (regime known; see regime_unknown_handling)"
+    ],
+    "regime_unknown_handling": "CIO safest interpretation, recorded because the recommendation did not specify it: a market with regime UNKNOWN shows T1 discovery normally but grants no T2 PAPER buys. Priority work is assigned to resolve crypto and US regime UNKNOWN.",
+    "pending_user_decisions": [
+      "KR liquidity threshold (evidence document to be provided)",
+      "US liquidity threshold (evidence document to be provided)",
+      "the explicit regime-state-to-new-buy mapping to be committed (e.g., which of RISK_ON / NEUTRAL / RISK_OFF / STRESS permit new PAPER buys) - CIO will propose with evidence"
+    ]
+  },
+  "workstreams": [
+    "W1 full-universe price history accumulation (KR all listings, US defined universe; retention sufficient for trend/relative strength; backfill feasibility)",
+    "W2 stock <-> sector/theme membership (KR official sector index constituents first; US GICS-like source; crypto category)",
+    "W3 bulk identity ratification from official masters",
+    "W4 universe evaluator producing daily T1 discovery lists and the T2 eligibility contract",
+    "W5 crypto fast track: resolve crypto regime UNKNOWN and the evaluator input-date halt"
+  ],
+  "invariants": [
+    "no look-ahead",
+    "fail closed on missing identity/price/membership for T2",
+    "T1 has no trading authority",
+    "REAL/order/capital authority unchanged",
+    "no symbol rows or amounts on hand-maintained portal status"
+  ]
+}

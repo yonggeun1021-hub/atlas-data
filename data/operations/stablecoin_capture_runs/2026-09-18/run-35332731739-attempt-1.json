@@ -1,0 +1,39 @@
+{
+  "authority": "operations_telemetry_only",
+  "capture": {
+    "provider_call_skipped": true,
+    "reason": "snapshot_already_exists",
+    "result": "skipped_existing",
+    "step_outcome": "success"
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "schedule",
+    "event_schedule": "50 5 * * *",
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "run_id": 35332731739,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/35332731739"
+  },
+  "runner": {
+    "observed_started_at_kst": "2026-09-18T19:04:52+09:00",
+    "observed_started_at_utc": "2026-09-18T10:04:52Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": 15292,
+    "expected_start_kst": "2026-09-18T14:50:00+09:00",
+    "expected_start_utc": "2026-09-18T05:50:00Z",
+    "id": "primary_1450_kst",
+    "timing_status": "measured"
+  },
+  "snapshot_date_utc": "2026-09-18",
+  "trigger": {
+    "available_at_supplied_by_trigger": false,
+    "dispatch_guard_mode": null,
+    "final_slot_exemption_applied": false,
+    "kind": "schedule",
+    "pending_current_observation_guard": "ENFORCED"
+  },
+  "workflow": "stablecoin-daily-capture"
+}

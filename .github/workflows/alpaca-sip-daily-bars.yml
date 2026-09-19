@@ -1,0 +1,84 @@
+name: Alpaca SIP Daily Bars (US T2 C3 Liquidity)
+
+# User approval 2026-09-15: USER_RATIFICATION_US_LIQUIDITY_SIP_SOURCE_20260915
+# (RULE.LIQUIDITY.US_SIP_SOURCE.V1: Alpaca historical SIP daily bars, only
+# bars whose regular-session close is >=15 minutes in the past, 20-session
+# average traded value; if SIP is unavailable, IEX >= threshold -> PASS,
+# below -> UNKNOWN, never FAIL on IEX alone) and
+# USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915 (US_BACKFILL: the
+# approved 22 US symbols). Manual dispatch only -- a recurring schedule
+# needs a separate user approval (build plan A3 covers only expanding the
+# symbol universe, not adding a cron here).
+#
+# Fetches per-symbol (never the multi-symbol endpoint -- see
+# collectors/alpaca_sip_daily_bars.py's docstring on why) historical daily
+# bars for exactly the 22 symbols already approved in
+# config/free_market_data_contract.json (alpaca.symbols); this workflow
+# never expands that list. feed=sip is tried first; feed=iex is the
+# fallback only when SIP is denied/empty for a symbol.
+#
+# Commits ONLY the derived per-symbol 20-session average traded value,
+# session count, source feed, and RULE.LIQUIDITY.US_SIP_SOURCE.V1 status --
+# no raw vendor row (open/high/low/close/volume/vwap/trade_count) is ever
+# written or committed. collectors/alpaca_sip_daily_bars.py::
+# assert_no_raw_bar_fields checks this mechanically before anything is
+# written to disk, and this workflow re-checks the committed file the same
+# way before commit.
+#
+# The OTC/exchange-listing sub-check reads the already-committed, this-
+# repo-native Nasdaq Trader Symbol Directory capture
+# (data/observations/us_global_universe/, universe/us_global_universe.py
+# and its own workflow -- untouched by this one) via
+# universe/us_listing_lookup.py, point-in-time (never a later packet than
+# the run's own as-of date).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpaca-sip-daily-bars
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline regression (mocked HTTP, no network, no secrets)
+        run: |
+          python3 test/test_us_liquidity_sip_source.py
+          python3 test/test_us_listing_lookup.py
+          python3 test/test_alpaca_sip_daily_bars.py
+      - name: Collect SIP daily bars and derive T2 C3 liquidity (22 approved symbols only)
+        env:
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
+        run: python3 collectors/alpaca_sip_daily_bars.py
+      - name: Schema re-check before commit (reject any raw vendor field)
+        run: |
+          python3 -c "
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, 'collectors')
+          import alpaca_sip_daily_bars as collector
+          latest = json.loads(Path('data/latest_us_sip_daily_liquidity.json').read_text(encoding='utf-8'))
+          dated = Path(latest['points_to'])
+          summary = json.loads(dated.read_text(encoding='utf-8'))
+          collector.assert_no_raw_bar_fields(summary)
+          print('schema check PASS: no raw vendor field found')
+          "
+      - name: Commit derived liquidity evidence and latest pointer
+        run: |
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add data/us_sip_daily_liquidity data/latest_us_sip_daily_liquidity.json
+          if git diff --staged --quiet; then exit 0; fi
+          git commit -m "data: US SIP daily-bar liquidity $(date -u +%Y-%m-%d)"
+          git push

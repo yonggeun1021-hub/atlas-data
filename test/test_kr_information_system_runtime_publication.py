@@ -96,7 +96,9 @@ class KrInformationSystemRuntimePublicationTest(unittest.TestCase):
                 self.assertEqual(target.read_bytes(), first)
 
     def test_committed_publication_rederives_exactly(self):
-        published = PUBLICATION.OUTPUT_PATH.read_bytes()
+        # The #696 publication is frozen next to its evidence; the rolling
+        # data/latest pointer is advanced by the daily adoption publisher.
+        published = (PUBLICATION.EVIDENCE_ROOT / "decision.json").read_bytes()
         packet = json.loads(published)
         rebuilt = PUBLICATION.build_decision(
             evaluation_at=packet["evaluation_at"],

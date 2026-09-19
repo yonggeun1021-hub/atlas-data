@@ -84,6 +84,21 @@ KR_SCHEMA_VERSION = "regime_kr_historical_replay_population/v1"
 POPULATION_MODE = "SHADOW_HISTORICAL_REPLAY_NOT_NATURAL"
 POPULATION_EVIDENCE_CLASS = "HISTORICAL_BACKFILL_CAUSAL_RESEARCH_ONLY"
 POPULATION_SCHEMA_VERSION = {"US": US_SCHEMA_VERSION, "KR": KR_SCHEMA_VERSION}
+# Each population module's own record-level ``status`` literal for "this
+# date's axes are fully usable" -- mirrored here exactly like
+# ``POPULATION_SCHEMA_VERSION`` above, never assumed to be the same string
+# across markets. KR's ``regime.kr_historical_replay_population`` publishes a
+# plain binary ``OBSERVED``/``BLOCKED``; US's ``regime.
+# us_historical_replay_population`` publishes a three-way
+# ``FREE_AXES_OBSERVED``/``FREE_AXES_PARTIAL``/``BLOCKED`` (only the first of
+# which means every currently-replayed axis was observed for that date).
+# Hardcoding the KR literal for both markets meant a genuinely fully-observed
+# US record could never be recognized here at all.
+US_RECORD_STATUS_OBSERVED = "FREE_AXES_OBSERVED"
+KR_RECORD_STATUS_OBSERVED = "OBSERVED"
+POPULATION_RECORD_STATUS_OBSERVED = {
+    "US": US_RECORD_STATUS_OBSERVED, "KR": KR_RECORD_STATUS_OBSERVED,
+}
 
 STATUS_NOT_ACCEPTED = "NOT_ACCEPTED"
 STATUS_PIT_ACCEPTED = "PIT_ACCEPTED"
@@ -184,18 +199,27 @@ def _real_evidence_bundle(market: str, bundle: object) -> list:
     return records
 
 
-def _axis_directions(record: dict) -> Optional[dict]:
+def _axis_directions(market: str, record: dict) -> Optional[dict]:
     """Extract {axis: direction} from a real population record, or None.
 
     ``candidate_normalized_result.axes`` is the exact, already-classified
     output of the unmodified ``regime.paper_regime_reference`` per-axis
     helpers (see the population modules' own parity tests), shaped as a list
     of ``{"axis": ..., "direction": ...}`` rows. An axis absent from that list
-    (structurally always true for US BREADTH/LEADERSHIP, which those
-    functions never compute) is simply not represented here — condition 2
-    then excludes the date rather than inventing a value for it.
+    (structurally always true for a US date whose replay is not authorized
+    for BREADTH/LEADERSHIP) is simply not represented here — condition 2 then
+    excludes the date rather than inventing a value for it.
+
+    The record-level ``status`` gate is market-scoped via
+    ``POPULATION_RECORD_STATUS_OBSERVED`` rather than a single hardcoded
+    literal: KR's population publishes a plain ``OBSERVED``/``BLOCKED``, but
+    US's publishes ``FREE_AXES_OBSERVED``/``FREE_AXES_PARTIAL``/``BLOCKED``
+    (three states, because a US date can carry some but not all currently
+    replayed axes). Comparing every market's record against the KR-shaped
+    literal meant a genuinely fully-observed US record could never pass this
+    gate at all, regardless of what its axes actually were.
     """
-    if record.get("status") != "OBSERVED":
+    if record.get("status") != POPULATION_RECORD_STATUS_OBSERVED.get(market):
         return None
     if "no_lookahead_attestation" not in record or not record["no_lookahead_attestation"]:
         # Condition 3: only a real population record carries this field; its
@@ -225,7 +249,7 @@ def _build_sequence(market: str, records: list) -> Optional[dict]:
     """Condition 2: keep only dates with real, complete 5-of-5 axes."""
     steps = []
     for record in records:
-        directions = _axis_directions(record)
+        directions = _axis_directions(market, record)
         as_of_date = _as_of_date(record)
         if directions is None or as_of_date is None:
             continue

@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "contract_version": "korea_five_signal_pointer_writer/v1",
+  "record_mode": "PRODUCTION_PATH_RECORD_ONLY_NO_RATIFICATION_NO_POLICY_CHANGE",
+  "market": "KRX",
+  "note": "An additive overlay that records which workflow actually writes the committed data/latest_korea_market_signals.json pointer. It is deliberately NOT a ratification and NOT a policy: no threshold, status, authority or acceptance state anywhere in this repository changes because this file exists. config/regime_source_owner_registry_v2.json is not edited -- its exact bytes are hash-bound by config/crypto_paper_runtime_v1.json and config/kr_paper_runtime_ratification_candidate_v1.json (POLICY_BINDING_DRIFT on any byte change, at regime/crypto_paper_runtime.py and regime/kr_paper_runtime_ratification_candidate.py), and those files are in turn hash-bound by committed append-only evidence. This is the same separate-additional-record pattern config/paper_runtime_normalization_v1.json, config/regime_semantic_freshness_policy_v1.json and config/us_session_calendar_source_v1.json already use, and which the registry's own registry_binding reason field names.",
+  "user_approval": {
+    "record_type": "USER_APPROVAL",
+    "path": "evidence/authority/USER_APPROVAL_KR_SIGNALS_WRITER_RELOCATION_20260918.json",
+    "sha256": "978ada40f84a9c333ad9d55a55097ac0ad53c338ec3f28bed44888297580a82b",
+    "approved_at_utc": "2026-09-18T06:12:00Z",
+    "binding_mode": "PATH_AND_SHA256_VERIFIED",
+    "verified_by": "test/test_korea_leadership_live_proof_workflow.py FiveSignalWriterOverlayTest -- the only place this overlay is loaded. A status no one can re-derive is just a string, so the record is resolved by path and re-hashed rather than cited.",
+    "record_origin": "Authored outside this repository at /Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/ (CIO records, untracked) and committed here byte-identical so the approval is checkable from inside the repository.",
+    "bound_items": {
+      "host_workflow": ".github/workflows/korea-leadership-live-proof.yml",
+      "producer": "korea_market_signals.py",
+      "output": "data/latest_korea_market_signals.json",
+      "additional_provider_call_approved": 1,
+      "registry_accuracy_fix_approved": true
+    },
+    "premise_refined_after_measurement": "The record's registry_accuracy_rationale expects that a registry workflow_path diverging from the real production path would be a quiet lie of the kind corrected in the watchdog the same day. Measurement found the premise narrower than stated: markets.KRX.source_owner.workflow_path never asserted production. It is enforced only as a byte-freeze anchor (see registry_workflow_path_semantics), and all four in-repository consumers use it in exactly that sense -- as a reason a pinned workflow is not edited. The approval's intent, a record that matches where production actually happens, is satisfied by this overlay. The approval's stated route, editing the registry, is not taken, because the registry's bytes are hash-bound by two fail-closed runtimes and by committed append-only evidence -- which is the scale report the record's own cio_obligations required before acting.",
+    "obligations_recorded_in_the_approval": {
+      "cascade_scale_reported_before_acting": true,
+      "me006_provisional_row_not_applicable": "The five-signal record describes the prior completed session, which is why it was historically produced at 18:24 KST.",
+      "new_test_files_registered_in_run_all": "NONE_ADDED -- every new test lives in test/test_korea_leadership_live_proof_workflow.py, already registered in run_all.py APPROVED_TESTS.",
+      "collection_targets_and_sources_unchanged": true,
+      "korea_market_signals_yml_not_dispatched": true
+    }
+  },
+  "registry_binding": {
+    "path": "config/regime_source_owner_registry_v2.json",
+    "sha256": "8dd2ad50f66e144aaca78ffc6a82615d814dee2b8f23f736cdbc85a56dba68bb",
+    "field": "markets.KRX.source_owner",
+    "mode": "ADDITIVE_OVERLAY_REGISTRY_BYTES_UNCHANGED"
+  },
+  "registry_workflow_path_semantics": {
+    "recorded_value": ".github/workflows/korea-market-signals.yml",
+    "recorded_sha256": "9226b64a344de2d76ccc706931227a26a478bbcb92ebaa27cb95f3b8f8f0df6f",
+    "unchanged_by_this_record": true,
+    "enforced_as": "BYTE_FREEZE_ANCHOR_ONLY",
+    "enforced_by": [
+      "test/test_regime_decision_authority.py RegimeSourceOwnerRegistryV2Test.assert_pins -- generic: for every *_sha256 key it derives the sibling *_path and re-hashes that file, so workflow_path IS machine-read",
+      "test/test_kr_paper_runtime_adoption_v1.py test_korea_market_signals_workflow_pin_k2_unchanged -- the same self-referential check, KRX-specific"
+    ],
+    "not_enforced": "NOTHING_IN_THIS_REPOSITORY_ASSERTS_THAT_THE_NAMED_WORKFLOW_PRODUCES_COMMITS_OR_SOLELY_WRITES_ANY_OUTPUT. Both checks above hash whatever file workflow_path names; neither reads the workflow's triggers, permissions or steps.",
+    "runtime_readers_of_this_registry": {
+      "regime/decision_authority.py::load_common_v1_policy": "registry_version, decision, common_v1_alignment, legacy_runtime_contract",
+      "regime/decision_authority.py::load_signed_axis_policy": "forbidden_promotions and, per market, signed_normalization_policy / pit_replay_acceptance / acceptance_status -- it does read markets, but not source_owner",
+      "source_owner_read_by_runtime": false,
+      "workflow_path_read_by_runtime": false
+    },
+    "how_the_repository_already_uses_it": [
+      ".github/workflows/kr-paper-runtime-daily-publish.yml -- 'that workflow's sha256 is pinned by config/regime_source_owner_registry_v2.json'",
+      ".github/workflows/rule-lineage-paper-reference.yml -- pinned by the registry, 'so it is not edited'",
+      "governance/rule_lineage_producers.py -- 'because that workflow's own bytes are pinned in config/regime_source_owner_registry_v2.json'",
+      "watchdog/daily_producer_freshness.py -- 'That other workflow is deliberately not modified here -- its bytes are referenced from config/regime_source_owner_registry_v2.json's markets.CRYPTO.status_owner.workflow_path'"
+    ],
+    "conclusion": "workflow_path is load-bearing as a change-freeze anchor -- a reason to route new work to a different workflow -- and is not load-bearing as a record of which workflow produces the output. Routing the writer elsewhere is the use this field was already being put to, not a violation of it."
+  },
+  "committed_pointer": {
+    "path": "data/latest_korea_market_signals.json",
+    "prior_state": "NO_AUTOMATED_WRITER",
+    "prior_state_detail": "Last produced 2026-09-11T09:24:14Z (as_of_date 2026-09-10) and then frozen. The registry's workflow_path workflow is permissions: contents: read and packages its output through actions/upload-artifact instead of committing it, so no scheduled path ever wrote this tracked file.",
+    "consumer_that_froze_with_it": "decision/korea_population_symbol_observation.py default_inputs() -- session = session_date or market['as_of_date']"
+  },
+  "writer": {
+    "workflow_path": ".github/workflows/korea-leadership-live-proof.yml",
+    "job": "publish-scheduled-five-signal-pointer",
+    "producer_path": ".github/scripts/korea_market_signals.py",
+    "producer_sha256": "06e8e6324eab2a91b7477e5200c1ca8a5e4a91c1becba581393c4c33b763101c",
+    "producer_source": "markets.KRX.source_owner.producer_path in the registry, unchanged and still accurate -- the ratified producer, not .github/scripts/korea_market_signals_pykrx_candidate.py",
+    "contract_path": "config/korea_market_signals_contract.json",
+    "contract_sha256": "e0e91bd51b17532a7a3c4dfc8648a94f54bf32ee0ab255d9cb9866fa96c557e4",
+    "binding_mode": "STRUCTURAL_NOT_BYTE_PINNED",
+    "binding_reason": "No workflow_sha256 is recorded for the writer on purpose. A byte pin here would freeze the writing workflow the way markets.KRX.source_owner.workflow_path froze korea-market-signals.yml, which is the condition that left this pointer without a writer in the first place. The binding is instead structural and re-checked by test/test_korea_leadership_live_proof_workflow.py: the named job must exist, must invoke the registry's own producer_path, must hold contents: write, and must commit the pointer.",
+    "commits": [
+      "data/latest_korea_market_signals.json",
+      "data/observations/korea_market_signals/<as_of_date>/packet.json",
+      "data/latest_korea_symbol_market_review.json",
+      "evidence/korea_symbol_market_review/<operational_date_kst>/<source_market_packet_sha256>/packet.json"
+    ],
+    "additional_provider_calls": 1,
+    "idempotency_token": "reused",
+    "idempotency_detail": "korea_market_signals.py run() returns reused=True and prints PASS_KOREA_MARKET_SIGNALS_REUSED when the session's dated packet is already committed. This producer does NOT use the repository's 'verified_existing' populator convention; that string does not appear in it.",
+    "raw_row_persistence": 0,
+    "per_symbol_persistence": 0,
+    "public_artifact_upload": false
+  },
+  "supersedes": "ONLY_THE_IMPLIED_READING_THAT_markets_KRX_source_owner_workflow_path_NAMES_THE_WORKFLOW_THAT_WRITES_THE_COMMITTED_POINTER",
+  "does_not_supersede": [
+    "markets.KRX.source_owner.workflow_path as a byte-freeze anchor -- still in force, still pinned, still not edited",
+    "markets.KRX.source_owner.producer_path / producer_sha256 -- unchanged and accurate",
+    "markets.KRX.source_owner.contract_path / contract_sha256 -- unchanged and accurate",
+    "markets.KRX.source_owner.source_name KRX_OPEN_API_STOCK_AND_INDEX_DAILY -- unchanged; no new provider or endpoint",
+    "markets.KRX.acceptance_status BLOCKED_SIGNED_NORMALIZATION_TTL_PIT_REPLAY -- unchanged",
+    "the registry's forbidden_promotions list -- unchanged and still in force"
+  ],
+  "authority": {
+    "record_only": true,
+    "registry_amendment_authorized": false,
+    "market_regime_authorized": false,
+    "runtime_binding_authorized": false,
+    "candidate_authorized": false,
+    "stage_authorized": false,
+    "buy_authorized": false,
+    "order_authorized": false,
+    "trading_authorized": false,
+    "real_authorized": false,
+    "production_authorized": false,
+    "capital_authorized": false
+  }
+}

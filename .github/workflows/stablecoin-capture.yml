@@ -11,7 +11,23 @@ on:
     - cron: "20 6 * * *"
     - cron: "20 7 * * *"
     - cron: "20 8 * * *"
-  workflow_dispatch:           # 수동 실행 버튼
+  # 수동/자동 dispatch. schedule 경로와 동일한 pending_current_observation
+  # guard를 그대로 적용하며, guard를 우회하는 선택지는 존재하지 않는다.
+  # default 는 refuse 이므로 input 을 생략한 API dispatch 는 fail-closed 로
+  # 거부된다. available_at 을 만들거나 소급할 수 있는 input 은 없다.
+  workflow_dispatch:
+    inputs:
+      guard_mode:
+        description: >-
+          schedule_equivalent 만 실행된다. 당일 UTC observation row 가 없으면
+          schedule 조기 슬롯과 똑같이 pending_current_observation 으로 종료한다.
+          refuse(기본값)는 아무것도 capture 하지 않는다.
+        required: true
+        type: choice
+        default: refuse
+        options:
+          - refuse
+          - schedule_equivalent
 
 permissions:
   contents: write
@@ -41,8 +57,48 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
+          DISPATCH_GUARD_MODE: ${{ inputs.guard_mode }}
         run: |
           set -euo pipefail
+
+          # Trigger 분류 — provider 호출과 파일 생성보다 먼저, fail-closed.
+          # schedule 이 아닌 경로는 guard_mode=schedule_equivalent 를 명시해야
+          # 하며, 그 경우에도 아래 pending_current_observation guard 를 schedule
+          # 조기 슬롯과 동일하게 통과해야만 capture 한다. guard 를 건너뛰는
+          # dispatch 입력은 존재하지 않는다.
+          case "${EVENT_NAME:-}" in
+            schedule)
+              # schedule 이벤트에서 inputs context 는 비어 있다. 혹시 기본값이
+              # 채워져 들어오더라도 refuse 는 "dispatch 입력 없음"과 같으므로
+              # 예약 경로를 절대 막지 않는다. schedule_equivalent 가 schedule
+              # 이벤트에 실려 오는 경우만 거부한다.
+              case "${DISPATCH_GUARD_MODE:-}" in
+                ""|refuse) ;;
+                *)
+                  echo "::error::schedule 이벤트에 dispatch input 이 실렸습니다: ${DISPATCH_GUARD_MODE}" >&2
+                  echo "result=trigger_input_conflict" >> "$GITHUB_OUTPUT"
+                  exit 1
+                  ;;
+              esac
+              CAPTURE_TRIGGER="schedule"
+              DISPATCH_GUARD_MODE=""
+              ;;
+            workflow_dispatch)
+              if [ "${DISPATCH_GUARD_MODE:-}" != "schedule_equivalent" ]; then
+                echo "::error::dispatch 는 guard_mode=schedule_equivalent 만 허용합니다 (받은 값: '${DISPATCH_GUARD_MODE:-}')" >&2
+                echo "result=dispatch_guard_mode_invalid" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+              CAPTURE_TRIGGER="workflow_dispatch"
+              ;;
+            *)
+              echo "::error::허용되지 않은 trigger: '${EVENT_NAME:-}'" >&2
+              echo "result=trigger_not_authorized" >> "$GITHUB_OUTPUT"
+              exit 1
+              ;;
+          esac
+          echo "capture_trigger=$CAPTURE_TRIGGER" >> "$GITHUB_OUTPUT"
+
           ROOT="$PWD"
           D=$(date -u +%F)
           DIR="evidence/stablecoin/raw/$D"
@@ -132,14 +188,57 @@ jobs:
           PY
           ) || CURRENT_ROW="check_error"
           if [ "$CURRENT_ROW" = "check_error" ]; then
+            # schedule 경로는 원문을 잃지 않도록 계속한다(기존 확정 동작).
+            # dispatch 는 guard 를 판정할 수 없으면 아무것도 쓰지 않는다.
+            if [ "$CAPTURE_TRIGGER" = "workflow_dispatch" ]; then
+              echo "::error::current-row check 실패 — dispatch 는 guard 미판정 상태로 capture 하지 않습니다" >&2
+              echo "result=dispatch_guard_undetermined" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
             echo "::warning::current-row check failed; capturing the snapshot anyway"
           fi
-          if [ "$CURRENT_ROW" = "absent" ] && [ "${EVENT_NAME:-}" = "schedule" ] \
-            && [ "${EVENT_SCHEDULE:-}" != "20 8 * * *" ]; then
+          GUARD_APPLIES=no
+          if [ "$CAPTURE_TRIGGER" = "workflow_dispatch" ]; then
+            # dispatch 에는 08:20Z final-slot 예외가 없다. 그 예외까지 주면
+            # dispatch 가 schedule 이 거부한 기록을 쓸 수 있게 된다.
+            GUARD_APPLIES=yes
+          elif [ "${EVENT_SCHEDULE:-}" != "20 8 * * *" ]; then
+            GUARD_APPLIES=yes
+          fi
+          if [ "$CURRENT_ROW" = "absent" ] && [ "$GUARD_APPLIES" = "yes" ]; then
             echo "당일 UTC observation row가 아직 없어 뒤 슬롯에서 다시 시도합니다."
             echo "result=pending_current_observation" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          # trigger provenance — _sha256.txt 와 _manifest.json 이 이미 확정된
+          # 뒤에 쓴다. revision contract 의 checksum inventory 와 manifest 는
+          # 건드리지 않으며, available_at 은 여기서 나오지 않는다(원문 fetch
+          # 시각인 _downloaded_at.txt 가 유일한 출처다).
+          python3 - "$CAPTURE_TRIGGER" "${EVENT_SCHEDULE:-}" "${DISPATCH_GUARD_MODE:-}" \
+            "$CURRENT_ROW" "$GUARD_APPLIES" <<'PY'
+          import json, sys
+          from pathlib import Path
+          trigger, schedule, guard_mode, current_row, guard_applies = sys.argv[1:6]
+          record = {
+              "schema_version": 1,
+              "trigger": trigger,
+              "event_schedule": schedule or None,
+              "dispatch_guard_mode": guard_mode or None,
+              "current_row_check": current_row,
+              "pending_current_observation_guard": (
+                  "ENFORCED" if guard_applies == "yes"
+                  else "EXEMPT_SCHEDULE_FINAL_SLOT_20_8"
+              ),
+              "available_at_source": "_downloaded_at.txt",
+              "available_at_supplied_by_trigger": False,
+          }
+          Path("_trigger.json").write_text(
+              json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          cat _trigger.json
 
           cd "$ROOT"
           mkdir -p "$(dirname "$DIR")"
@@ -155,6 +254,7 @@ jobs:
         env:
           ATLAS_EVENT_NAME: ${{ github.event_name }}
           ATLAS_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ATLAS_DISPATCH_GUARD_MODE: ${{ inputs.guard_mode }}
           ATLAS_RUN_ID: ${{ github.run_id }}
           ATLAS_RUN_ATTEMPT: ${{ github.run_attempt }}
           ATLAS_RUNNER_STARTED_AT_UTC: ${{ steps.runner_start.outputs.observed_started_at_utc }}

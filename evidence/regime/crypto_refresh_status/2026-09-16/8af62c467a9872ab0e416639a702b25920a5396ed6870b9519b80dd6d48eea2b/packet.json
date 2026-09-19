@@ -1,0 +1,92 @@
+{
+  "authority": {
+    "action_authorized": false,
+    "capital_authorized": false,
+    "final_regime_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "read_only_reference": true,
+    "trading_authorized": false
+  },
+  "automatic_refresh": {
+    "daily_capture_kst": "09:40",
+    "official_decision_recheck_minutes": 30,
+    "portal_live_poll_minutes": 5,
+    "status_rebuild_kst": [
+      "10:20",
+      "10:50"
+    ],
+    "watchdog_kst": "12:30"
+  },
+  "current_reference": {
+    "as_of_date": "2026-09-16",
+    "coverage": {
+      "defined_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY",
+        "LEADERSHIP"
+      ],
+      "defined_count": 5,
+      "missing_axes": [],
+      "ratio": "5/5",
+      "required_count": 5
+    },
+    "leadership_code": "MIXED_WINDOW_LEADERSHIP",
+    "mode": "CURRENT_DECISION_TIME_REFERENCE_NOT_PIT_REPLAY",
+    "price_as_of_date": "2026-09-15"
+  },
+  "generated_at": "2026-09-16T13:42:51Z",
+  "generation_id": "8af62c467a9872ab0e416639a702b25920a5396ed6870b9519b80dd6d48eea2b",
+  "natural_history_progress": {
+    "earliest_pilot_capture_date_if_no_new_gap": "2026-09-16",
+    "earliest_primary_capture_date_if_no_new_gap": "2026-10-08",
+    "eligible_consecutive_days": 8,
+    "new_missing_or_unknown_day_delays_dates": true,
+    "pilot_remaining_days": 0,
+    "pilot_required_days": 7,
+    "primary_remaining_days": 22,
+    "primary_required_days": 30
+  },
+  "official_decision": {
+    "captured_at_utc": "2026-09-16T13:42:51Z",
+    "classification_status": "WAIT_PIT_LEADERSHIP_HISTORY",
+    "coverage": {
+      "defined_axes": [
+        "TREND",
+        "BREADTH",
+        "RISK_VOL",
+        "LIQUIDITY"
+      ],
+      "defined_count": 4,
+      "missing_axes": [
+        "LEADERSHIP"
+      ],
+      "ratio": "4/5",
+      "required_count": 5
+    },
+    "runtime_regime": "UNKNOWN",
+    "unavailable_reason": null
+  },
+  "payload_sha256": "679db83f58ff245d367a8603a5dbcdc2c0365cc3f4e58b0d89e5edaa4d22c0be",
+  "schema_version": "crypto_regime_refresh_status/1",
+  "sources": [
+    {
+      "kind": "CURRENT_REFERENCE",
+      "path": "data/observations/crypto_recent_reference/2026-09-16/packet.json",
+      "sha256": "686e732c2de982eeb9a7e4e57cb25c07173633aef506447dc99b7c4cb60ed4c5"
+    },
+    {
+      "generation_id": "064f33e97f024cde2cb7ab530d6da50aff695abfd34927a4b0633bc2e4c71622",
+      "kind": "OFFICIAL_DECISION",
+      "path": "evidence/crypto_paper_decision/2026-09-16/1342/064f33e97f024cde2cb7ab530d6da50aff695abfd34927a4b0633bc2e4c71622/packet.json",
+      "sha256": "5662f69b365c943aebff2d67784cd889641cd0ef9bf5893f764000323ddc35e0"
+    }
+  ],
+  "status": "CURRENT_REFERENCE_COMPLETE_OFFICIAL_HISTORY_PENDING",
+  "user_message": {
+    "detail_ko": "오늘 흐름을 보는 5개 참고 신호는 확인됐습니다. 자동매매용 Leadership은 과거시점 보존 이력이 더 필요합니다.",
+    "headline_ko": "오늘 참고 신호 5개 확인 · 공식 판정 이력 검증 중"
+  }
+}

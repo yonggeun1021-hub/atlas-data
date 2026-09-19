@@ -77,6 +77,28 @@ HISTORICAL_RECORDS = sorted(
 )
 
 
+def adjacent_real_record_pair():
+    """Two REAL, already-committed records, genuinely adjacent in the
+    forward-only hash chain (the second's `previous_record_sha256` names
+    the first), with two DIFFERENT real `source_commit` values -- so a
+    test using them cannot pass merely because
+    `_validate_daily_at_commit`'s own in-memory `functools.lru_cache`
+    collapsed two calls for the SAME key into one. `HISTORICAL_RECORDS` is
+    filename (content-hash) order, not chain order, so this walks actual
+    `previous_record_sha256` links rather than trusting list position."""
+    by_sha = {
+        row["record_sha256"]: row
+        for row in (
+            json.loads(path.read_text(encoding="utf-8")) for path in HISTORICAL_RECORDS
+        )
+    }
+    genesis = next(row for row in by_sha.values() if row["previous_record_sha256"] is None)
+    successor = next(
+        row for row in by_sha.values() if row["previous_record_sha256"] == genesis["record_sha256"]
+    )
+    return genesis, successor
+
+
 def commit_for(path: Path) -> str:
     relative = path.relative_to(ROOT).as_posix()
     return subprocess.check_output(
@@ -250,6 +272,104 @@ class OperationalDecisionLineageTests(unittest.TestCase):
         ):
             validated = MODULE.validate_record(record)
         self.assertEqual(validated["record_sha256"], record["record_sha256"])
+
+    def test_load_history_reuses_one_worktree_across_all_records(self):
+        """Pins the fix for `load_history()`'s O(records-ever-published)
+        `git worktree add`/`remove` cost: it fully re-validates EVERY
+        already-published historical record on every single publish (by
+        design -- nothing is skipped or cached, see
+        `_shared_exact_checkout_scope`), but previously did that by
+        creating and destroying a brand-new worktree per record, growing
+        without bound as the record chain grows by roughly two records a
+        day. A wall-clock assertion here could pass by luck on a fast,
+        otherwise-idle disk and silently regress on a slower or busier one;
+        counting real `git worktree add` invocations cannot.
+
+        Uses two REAL, genuinely different commits (not the same key
+        twice) so this cannot pass merely because
+        `_validate_daily_at_commit`'s own in-memory `functools.lru_cache`
+        already collapsed repeat calls for an identical key -- it must be
+        the shared-worktree reuse doing the work."""
+        genesis, successor = adjacent_real_record_pair()
+        self.assertNotEqual(genesis["source_commit"], successor["source_commit"])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / f"record-{genesis['record_sha256']}.json").write_text(
+                json.dumps(genesis, sort_keys=True), encoding="utf-8"
+            )
+            (root / f"record-{successor['record_sha256']}.json").write_text(
+                json.dumps(successor, sort_keys=True), encoding="utf-8"
+            )
+
+            real_run = MODULE.subprocess.run
+            worktree_add_calls = []
+
+            def spy(args, *a, **kw):
+                if isinstance(args, (list, tuple)) and list(args[:3]) == [
+                    "git", "worktree", "add",
+                ]:
+                    worktree_add_calls.append(list(args))
+                return real_run(args, *a, **kw)
+
+            with mock.patch.object(
+                MODULE, "_validate_daily_at_commit", side_effect=REAL_VALIDATE_DAILY_AT_COMMIT,
+            ), mock.patch.object(MODULE.subprocess, "run", side_effect=spy):
+                REAL_VALIDATE_DAILY_AT_COMMIT.cache_clear()
+                history = MODULE.load_history(root)
+
+        self.assertEqual(len(history), 2)
+        self.assertEqual(
+            len(worktree_add_calls), 1,
+            "load_history() must materialize exactly one shared worktree for "
+            "its entire pass over the record chain, not one per record",
+        )
+
+    def test_shared_checkout_scope_removes_worktree_on_mid_pass_failure(self):
+        """`git worktree add` runs as the FIRST command inside
+        `_materialize_exact_commit`; a LATER step in that same call
+        (`sparse-checkout set`, here forced to fail) can still raise. That
+        is exactly the window the MEDIUM finding identified: gating
+        cleanup on a `created` flag set only AFTER
+        `_materialize_exact_commit` returns misses it, because the
+        worktree -- and its registration under this repository's real
+        `.git/worktrees/` -- already exists by then. This must be
+        deregistered for real (checked via `git worktree list` on the
+        real repository, not just this module's own bookkeeping), and the
+        shared-scope state must still be cleared for a later, unrelated
+        call."""
+        real_run = MODULE.subprocess.run
+
+        def fail_after_worktree_add(args, *a, **kw):
+            if isinstance(args, (list, tuple)) and "sparse-checkout" in args:
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="forced failure for this test"
+                )
+            return real_run(args, *a, **kw)
+
+        before = subprocess.check_output(
+            ["git", "worktree", "list"], cwd=ROOT, text=True
+        )
+        with mock.patch.object(MODULE.subprocess, "run", side_effect=fail_after_worktree_add):
+            with self.assertRaisesRegex(
+                MODULE.OperationalDecisionLineageError, "SOURCE_COMMIT_CHECKOUT_FAILED"
+            ):
+                with MODULE._shared_exact_checkout_scope():
+                    with MODULE._exact_commit_checkout(SOURCE_COMMIT, ()):
+                        self.fail(
+                            "must not reach the checkout body: "
+                            "sparse-checkout was forced to fail first"
+                        )
+        after = subprocess.check_output(
+            ["git", "worktree", "list"], cwd=ROOT, text=True
+        )
+        self.assertEqual(
+            before, after,
+            "the worktree registered by the forced-failing checkout must be "
+            "deregistered (git worktree remove/prune), not left stale in "
+            "`git worktree list`",
+        )
+        self.assertIsNone(MODULE._SHARED_EXACT_CHECKOUT["path"])
+        self.assertFalse(MODULE._SHARED_EXACT_CHECKOUT["created"])
 
     def test_snapshot_source_ref_is_exact_repo_commit_path_only(self):
         with self.assertRaisesRegex(

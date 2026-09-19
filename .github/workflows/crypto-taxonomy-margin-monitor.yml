@@ -1,0 +1,160 @@
+name: Crypto Taxonomy Classification Margin Monitor
+
+# The cadence lives here, in this file. Until 2026-09-19 this header claimed
+# the daily run was "registered with the server dispatcher separately". It
+# never was: the workflow is absent from both
+# /etc/atlas-schedule-dispatcher/config.json and its config-private.json, and
+# its only runs ever were two `pull_request` runs on 2026-09-18. The thing
+# watching the taxonomy margin had never once watched it. See
+# docs/do_not_touch_and_why.md entry 3 for what the dispatcher actually pins.
+#
+# A GitHub `schedule:` is the right home for this monitor rather than the
+# dispatcher, for three reasons recorded here so the question is not reopened
+# from scratch:
+#   1. The dispatcher exists to protect captures that irreversibly claim an
+#      append-only date directory before a hard cutoff. This workflow claims
+#      no date, commits nothing (`contents: read`), and a late or missed run
+#      costs one observation rather than a day of the 5-day crypto clock. It
+#      needs neither catch-up nor a share of the dispatcher's global budget.
+#   2. The dispatch path needs `source_date`, a required input naming a
+#      *committed* Kraken snapshot date. The dispatcher can interpolate only
+#      slot-derived dates, and which snapshot directory exists is
+#      data-dependent, so a slot-derived guess would fail the run closed on
+#      exactly the days the upstream capture had not landed yet.
+#   3. The scheduled path needs no input at all: the non-dispatch step below
+#      resolves the latest committed snapshot itself. That is the code path
+#      the 2026-09-18 pull_request runs already exercised green.
+#
+# The scheduled run reports the margin axis and fails on GAP_OPEN or
+# CRITICAL_ARMED. It deliberately does not accumulate the per-day observation
+# series (its --data-root is RUNNER_TEMP), so the shrink-rate axis remains
+# available only on a workflow_dispatch run that keeps its artifact.
+#
+# Detect-and-report only. This workflow creates no classification, no
+# ratification, no investable universe and no trading action; it reports how
+# many ranks still separate the production eligibility scan from the nearest
+# unclassified asset, and it fails closed on any input it cannot verify.
+
+on:
+  # 03:30Z is after the upstream crypto-breadth-capture 00:40Z slot and after
+  # the ceiling of that slot's server-side catch-up window (02:40Z), so the
+  # day's snapshot is committed by the time this reads it. This monitor has no
+  # cutoff of its own, so GitHub's current multi-hour schedule slip is
+  # tolerable here in a way it is not for the clock's axis producers.
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+    inputs:
+      source_date:
+        description: Committed Kraken breadth snapshot date (YYYY-MM-DD)
+        required: true
+        type: string
+      fail_on_severity:
+        description: >-
+          Comma-separated severities that make the run exit non-zero, e.g.
+          GAP_OPEN,CRITICAL_ARMED. Empty means report only.
+        required: false
+        default: ''
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/crypto-taxonomy-margin-monitor.yml'
+      - '.github/scripts/crypto_taxonomy_margin_monitor.py'
+      - 'config/crypto_taxonomy_margin_monitor_v1.json'
+      - 'test/test_crypto_taxonomy_margin_monitor.py'
+
+permissions:
+  contents: read
+
+jobs:
+  classification-margin:
+    runs-on: ubuntu-latest
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      SOURCE_DATE: ${{ github.event.inputs.source_date }}
+      FAIL_ON_SEVERITY: ${{ github.event.inputs.fail_on_severity }}
+      # A monitor that can only ever be green is not watching anything. On the
+      # schedule, GAP_OPEN (an unclassified asset is inside the scan) and
+      # CRITICAL_ARMED both make the run red so the failure is visible without
+      # anyone opening a step summary. CRITICAL stays green on purpose: the
+      # margin is already CRITICAL (12 ranks, measured 2026-09-18), and per
+      # config/crypto_taxonomy_margin_monitor_v1.json that level means the
+      # classification work must be queued, not that the gap has opened.
+      # pull_request runs stay report-only, unchanged.
+      SCHEDULED_FAIL_ON: ${{ github.event_name == 'schedule' && 'GAP_OPEN,CRITICAL_ARMED' || '' }}
+    steps:
+      - name: Checkout exact event SHA with full provenance history
+        run: |
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags origin "${HEAD_SHA}"
+          git checkout --detach "${HEAD_SHA}"
+
+      - name: Margin monitor regression
+        run: |
+          python3 test/test_crypto_taxonomy_margin_monitor.py
+          python3 test/test_crypto_taxonomy_gap_inventory.py
+          python3 test/test_crypto_breadth_cutoff_aware_scan.py
+
+      # Dispatch run: the append-only observation is written under the tracked
+      # observation root so the per-day margin series the rate is derived from
+      # accumulates. This job has `contents: read` and never commits or pushes,
+      # so the artifact uploaded below is the only place the packet survives.
+      # (An earlier version of this comment said persisting it was "the
+      # dispatcher's job". It is not: the server dispatcher only POSTs
+      # workflow_dispatch and has no artifact or commit path whatsoever.)
+      - name: Report the classification margin
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          case "${SOURCE_DATE}" in
+            [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+            *) echo "source_date must be YYYY-MM-DD"; exit 1 ;;
+          esac
+          python3 .github/scripts/crypto_taxonomy_margin_monitor.py \
+            "${SOURCE_DATE}" \
+            --fail-on-severity "${FAIL_ON_SEVERITY}" \
+            | tee "$RUNNER_TEMP/crypto-taxonomy-margin.txt"
+          cat "$RUNNER_TEMP/crypto-taxonomy-margin.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the margin observation
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: crypto-taxonomy-margin-${{ github.event.inputs.source_date }}
+          path: data/observations/crypto_taxonomy_margin/
+          if-no-files-found: error
+
+      # Schedule and PR runs: report against the latest committed snapshot
+      # without touching the tracked observation root at all. `set -o pipefail`
+      # is what lets the monitor's own exit code survive the `tee`, so
+      # SCHEDULED_FAIL_ON actually fails the run.
+      - name: Report the classification margin for the latest committed snapshot
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          latest="$(ls evidence/crypto/breadth/raw | sort | tail -1)"
+          echo "latest committed snapshot: ${latest}"
+          python3 .github/scripts/crypto_taxonomy_margin_monitor.py "${latest}" \
+            --data-root "$RUNNER_TEMP/margin-observations" \
+            --fail-on-severity "${SCHEDULED_FAIL_ON}" \
+            | tee "$RUNNER_TEMP/crypto-taxonomy-margin.txt"
+          cat "$RUNNER_TEMP/crypto-taxonomy-margin.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      # No committed file may be modified by this workflow, and the only new
+      # file it may leave behind is the append-only margin observation.
+      - name: No tracked mutation
+        run: git diff --exit-code
+
+      - name: Nothing written outside the margin observation root
+        run: |
+          set -euo pipefail
+          untracked="$(git ls-files --others --exclude-standard)"
+          echo "${untracked}"
+          stray="$(printf '%s\n' "${untracked}" \
+            | grep -v '^data/observations/crypto_taxonomy_margin/' \
+            | grep -v '^$' || true)"
+          if [ -n "${stray}" ]; then
+            echo "unexpected new file(s): ${stray}"
+            exit 1
+          fi

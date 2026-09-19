@@ -3097,6 +3097,11 @@ class DailyOrchestratorTest(unittest.TestCase):
         regression_job = WF["jobs"]["offline-regression"]
         self.assertEqual(regression_job["needs"], "briefing")
         self.assertEqual(regression_job["if"], "always()")
+        # The suite outgrew 30 min; a cut-off marks every briefing run cancelled.
+        self.assertGreaterEqual(regression_job["timeout-minutes"], 60)
+        # The briefing job itself was cut off at 15 min on 2026-09-17 (run
+        # 35233182670) inside the deterministic validator.
+        self.assertGreaterEqual(WF["jobs"]["briefing"]["timeout-minutes"], 40)
         regression_steps = regression_job["steps"]
         regression = next(
             step for step in regression_steps

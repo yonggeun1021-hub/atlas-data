@@ -40,10 +40,18 @@ def axis_row(axis, direction):
     }
 
 
-def record(date, directions, *, evidence_class=None, status="OBSERVED", attest=True):
+def record(date, directions, *, market="KR", evidence_class=None, status=None, attest=True):
+    # ``status`` defaults to the *real* per-market "fully observed" literal
+    # (mirroring MODULE.POPULATION_RECORD_STATUS_OBSERVED) rather than a bare
+    # "OBSERVED" for every market: KR's population really does publish
+    # "OBSERVED", but US's publishes "FREE_AXES_OBSERVED" -- a fixture that
+    # hardcoded "OBSERVED" for a US-shaped bundle would never accurately
+    # exercise a genuinely-observed US record.
     return {
         "requested_date": date,
-        "status": status,
+        "status": (
+            MODULE.POPULATION_RECORD_STATUS_OBSERVED[market] if status is None else status
+        ),
         "evidence_class": (
             MODULE.POPULATION_EVIDENCE_CLASS if evidence_class is None else evidence_class
         ),
@@ -71,7 +79,9 @@ FULL_CYCLE = [
 
 def real_bundle(market, rows=None, **overrides):
     schema_version = MODULE.POPULATION_SCHEMA_VERSION[market]
-    records = [record(date, directions) for date, directions in (rows or FULL_CYCLE)]
+    records = [
+        record(date, directions, market=market) for date, directions in (rows or FULL_CYCLE)
+    ]
     bundle = {
         "schema_version": schema_version,
         "mode": MODULE.POPULATION_MODE,
@@ -167,6 +177,70 @@ class SyntheticCreditZeroTest(unittest.TestCase):
         self.assertEqual(result["status"], MODULE.STATUS_NOT_ACCEPTED)
         self.assertEqual(result["reasons"], [MODULE.REASON_NO_BUNDLE])
         self.assertEqual(result["evaluated_date_count"], 0)
+
+
+class PerMarketRecordStatusVocabularyTest(unittest.TestCase):
+    """The root-cause fix: ``_axis_directions``/``_build_sequence`` must read
+    each market's own record-level "fully observed" status literal
+    (``MODULE.POPULATION_RECORD_STATUS_OBSERVED``) rather than a single
+    literal borrowed from KR's vocabulary. Before this fix, a genuinely
+    fully-observed US record could never be recognized here at all, because
+    its real record-level status is ``FREE_AXES_OBSERVED``, never the bare
+    ``OBSERVED`` this module used to require unconditionally.
+    """
+
+    def test_genuinely_observed_us_bundle_is_now_pit_accepted(self):
+        # regime.us_historical_replay_population's own record-level status
+        # for a fully-observed date -- exercised end to end through the same
+        # evaluate_market_pit_acceptance entry point build_status() uses.
+        bundle = real_bundle("US")
+        self.assertEqual(
+            bundle["records"][0]["status"], "FREE_AXES_OBSERVED",
+        )
+        result = MODULE.evaluate_market_pit_acceptance("US", bundle)
+        self.assertEqual(result["status"], MODULE.STATUS_PIT_ACCEPTED)
+        self.assertEqual(result["reasons"], [])
+        self.assertEqual(
+            set(result["regimes_observed"]),
+            {"RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS"},
+        )
+        self.assertEqual(result["evaluated_date_count"], len(FULL_CYCLE))
+
+    def test_a_us_record_carrying_krs_status_literal_is_still_excluded(self):
+        # The fix is market-scoped, not "any truthy status is now accepted":
+        # a US record mislabeled with KR's own "OBSERVED" literal (never what
+        # the real US population module publishes) must still be excluded.
+        bundle = real_bundle("US")
+        for row in bundle["records"]:
+            row["status"] = "OBSERVED"
+        result = MODULE.evaluate_market_pit_acceptance("US", bundle)
+        self.assertEqual(result["status"], MODULE.STATUS_NOT_ACCEPTED)
+        self.assertEqual(result["evaluated_date_count"], 0)
+
+    def test_a_kr_record_carrying_us_status_literal_is_still_excluded(self):
+        bundle = real_bundle("KR")
+        for row in bundle["records"]:
+            row["status"] = "FREE_AXES_OBSERVED"
+        result = MODULE.evaluate_market_pit_acceptance("KR", bundle)
+        self.assertEqual(result["status"], MODULE.STATUS_NOT_ACCEPTED)
+        self.assertEqual(result["evaluated_date_count"], 0)
+
+    def test_kr_acceptance_path_is_completely_unaffected_by_the_us_status_fix(self):
+        # Regression: KR's own vocabulary ("OBSERVED") and acceptance
+        # behavior must be exactly what they were before this module learned
+        # a second, US-specific literal.
+        bundle = real_bundle("KR")
+        self.assertEqual(bundle["records"][0]["status"], "OBSERVED")
+        result = MODULE.evaluate_market_pit_acceptance("KR", bundle)
+        self.assertEqual(result["status"], MODULE.STATUS_PIT_ACCEPTED)
+        self.assertEqual(result["reasons"], [])
+        self.assertEqual(
+            set(result["regimes_observed"]),
+            {"RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS"},
+        )
+        self.assertEqual(result["evaluated_date_count"], len(FULL_CYCLE))
+        # And the module-level KR test suite above (ContractTest through
+        # ReadinessOverlayTest) exercises the rest of the KR path unmodified.
 
 
 class MissingRequiredEpisodeTest(unittest.TestCase):

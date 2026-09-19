@@ -1,0 +1,295 @@
+{
+  "as_of_date": "2026-09-17",
+  "authority": {
+    "allocation_change_authorized": false,
+    "entry_edge_claimed": false,
+    "order_authorized": false,
+    "real_trading_authorized": false
+  },
+  "confirmation": {
+    "observation_status": "OBSERVED",
+    "path": "evidence/rotation/confirmation/US/2026-09-17/packet.json",
+    "payload_sha256": "52bccc4c62e0f4f92ba39997029ebb993061e093babdb7eeda31fb09a5d65424",
+    "unknown_reason": null
+  },
+  "counts": {
+    "blocked_by_market_state": 0,
+    "eligible_pending_t2": 3,
+    "opportunities": 3
+  },
+  "entry_rule": {
+    "explicit_non_claim": "NOT_A_CONFIRMATION_OF_ENTRY_EDGE",
+    "record_id": "USER_RATIFICATION_PAPER_ENTRY_BASELINE_B_20260915",
+    "repo_path": "evidence/authority/paper_entry_baseline_b_user_ratification_20260915.json",
+    "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+    "sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+    "status": "RATIFIED_AS_PAPER_BASELINE"
+  },
+  "evidence_phase": "DECISION_EFFECTIVE",
+  "market": "US",
+  "market_state": {
+    "candidate_regime": "NEUTRAL",
+    "classification_status": "PAPER_REFERENCE_CLASSIFIED",
+    "new_buy_verdict": "PERMIT_SELECTIVE",
+    "reason": null,
+    "runtime_regime": "UNKNOWN",
+    "source": {
+      "generated_at": "2026-09-18T02:44:00Z",
+      "generation_id": "463b1acfb31c72d9a5fd5e0b1eac7d239c36994b5d10103e438eaf7610ede83d",
+      "path": "evidence/regime/paper_reference/2026-09-18/463b1acfb31c72d9a5fd5e0b1eac7d239c36994b5d10103e438eaf7610ede83d/packet.json",
+      "payload_sha256": "8d639387719deef245ff5b713ec7befa1a13338fc36036c2e5fc55b2da019c60"
+    },
+    "status": "OBSERVED"
+  },
+  "market_state_pending_definitions": [
+    "REGIME_CONFIRMATION_SESSIONS_NOT_APPLIED_RAW_CANDIDATE_REGIME_RECORDED",
+    "PAPER_REFERENCE_IS_DIAGNOSTIC_NOT_RUNTIME_REGIME"
+  ],
+  "opportunities": [
+    {
+      "calendar_days_in_state": 9,
+      "eligibility": "ELIGIBLE_PENDING_T2",
+      "entity_id": "XLK",
+      "forward_tracking": {
+        "bought": null,
+        "entry_reference_price": null,
+        "excess_forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "excess_return_baseline_status": "PENDING_DEFINITION",
+        "filled_by": "LATER_SCORECARD_JOB",
+        "forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "horizon_unit": "SESSIONS",
+        "status": "NOT_YET_FILLED"
+      },
+      "instrument_candidates_status": "PENDING_INSTRUMENT_LEVEL_T1_T2_OUTPUT",
+      "label": "XLK",
+      "market": "US",
+      "market_state_new_buy": "PERMIT_SELECTIVE",
+      "observations_in_state": 5,
+      "opportunity_id": "48770fd4f954e060422087dea64ad06137b69fa7f1ffca09be391b2045e61f10",
+      "record_only_features": {
+        "atr14": "2.939643",
+        "atr_distance_from_ema20": "0.905800",
+        "bars_used": 124,
+        "breakout_20": false,
+        "close": "188.060000",
+        "close_vs_ema20_pct": "1.436229",
+        "ema20": "185.397272",
+        "ema20_position": "ABOVE",
+        "feed_caveat": "IEX_PARTIAL_FEED",
+        "instrument": "XLK",
+        "prior_20_session_high": "189.060000",
+        "prior_session_change_pct": "2.184308",
+        "rise_since_signal_pct": null,
+        "session": "2026-09-17",
+        "source": {
+          "path": "evidence/free_market_data/raw/2026-09-18/alpaca_iex_daily_bars.json.gz",
+          "sha256": "56d63ae9e2279a4b5bb7cb98c328c81a4ebe2274ee04b4f61b35c3a1755515d9"
+        },
+        "status": "OBSERVED"
+      },
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+          "source_record_sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.US.V1P",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "SPY",
+      "sector_state": "STRONG_HELD",
+      "signal_as_of_date": "2026-09-17",
+      "state_since_date": "2026-09-09",
+      "t2": {
+        "reason": "T2_CANDIDATE_OUTPUT_NOT_IN_REPOSITORY",
+        "status": "PENDING"
+      }
+    },
+    {
+      "calendar_days_in_state": 17,
+      "eligibility": "ELIGIBLE_PENDING_T2",
+      "entity_id": "XLE",
+      "forward_tracking": {
+        "bought": null,
+        "entry_reference_price": null,
+        "excess_forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "excess_return_baseline_status": "PENDING_DEFINITION",
+        "filled_by": "LATER_SCORECARD_JOB",
+        "forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "horizon_unit": "SESSIONS",
+        "status": "NOT_YET_FILLED"
+      },
+      "instrument_candidates_status": "PENDING_INSTRUMENT_LEVEL_T1_T2_OUTPUT",
+      "label": "XLE",
+      "market": "US",
+      "market_state_new_buy": "PERMIT_SELECTIVE",
+      "observations_in_state": 10,
+      "opportunity_id": "4851bd99b5b255564f5cfdf23c6b32bb7332048a651d42e823c1de9f04209895",
+      "record_only_features": {
+        "atr14": "1.314643",
+        "atr_distance_from_ema20": "0.448357",
+        "bars_used": 124,
+        "breakout_20": false,
+        "close": "64.460000",
+        "close_vs_ema20_pct": "0.922849",
+        "ema20": "63.870571",
+        "ema20_position": "ABOVE",
+        "feed_caveat": "IEX_PARTIAL_FEED",
+        "instrument": "XLE",
+        "prior_20_session_high": "66.130000",
+        "prior_session_change_pct": "0.640125",
+        "rise_since_signal_pct": null,
+        "session": "2026-09-17",
+        "source": {
+          "path": "evidence/free_market_data/raw/2026-09-18/alpaca_iex_daily_bars.json.gz",
+          "sha256": "56d63ae9e2279a4b5bb7cb98c328c81a4ebe2274ee04b4f61b35c3a1755515d9"
+        },
+        "status": "OBSERVED"
+      },
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+          "source_record_sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.US.V1P",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "SPY",
+      "sector_state": "STRONG_HELD",
+      "signal_as_of_date": "2026-09-17",
+      "state_since_date": "2026-09-01",
+      "t2": {
+        "reason": "T2_CANDIDATE_OUTPUT_NOT_IN_REPOSITORY",
+        "status": "PENDING"
+      }
+    },
+    {
+      "calendar_days_in_state": 8,
+      "eligibility": "ELIGIBLE_PENDING_T2",
+      "entity_id": "XLC",
+      "forward_tracking": {
+        "bought": null,
+        "entry_reference_price": null,
+        "excess_forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "excess_return_baseline_status": "PENDING_DEFINITION",
+        "filled_by": "LATER_SCORECARD_JOB",
+        "forward_returns": {
+          "10": null,
+          "20": null,
+          "5": null
+        },
+        "horizon_unit": "SESSIONS",
+        "status": "NOT_YET_FILLED"
+      },
+      "instrument_candidates_status": "PENDING_INSTRUMENT_LEVEL_T1_T2_OUTPUT",
+      "label": "XLC",
+      "market": "US",
+      "market_state_new_buy": "PERMIT_SELECTIVE",
+      "observations_in_state": 4,
+      "opportunity_id": "831ecce66372562b9b3d5621fb698ecc1cce111cf1c354e28911c7d684456d09",
+      "record_only_features": {
+        "atr14": "1.682143",
+        "atr_distance_from_ema20": "0.020012",
+        "bars_used": 124,
+        "breakout_20": false,
+        "close": "112.325000",
+        "close_vs_ema20_pct": "0.029978",
+        "ema20": "112.291337",
+        "ema20_position": "ABOVE",
+        "feed_caveat": "IEX_PARTIAL_FEED",
+        "instrument": "XLC",
+        "prior_20_session_high": "115.260000",
+        "prior_session_change_pct": "-0.610538",
+        "rise_since_signal_pct": null,
+        "session": "2026-09-17",
+        "source": {
+          "path": "evidence/free_market_data/raw/2026-09-18/alpaca_iex_daily_bars.json.gz",
+          "sha256": "56d63ae9e2279a4b5bb7cb98c328c81a4ebe2274ee04b4f61b35c3a1755515d9"
+        },
+        "status": "OBSERVED"
+      },
+      "rule_refs": [
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ENTRY.PAPER_BASELINE_B.V1",
+          "source_record_sha256": "b2a905c4eaf23d44749d3e5bcd59b2efe34ff0b0ab5c955a8ce1e0870163154f",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        },
+        {
+          "registry_sha256": null,
+          "role": "APPLIED",
+          "rule_id": "RULE.ROTATION.US.V1P",
+          "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+          "version": 1
+        }
+      ],
+      "scope_id": "SPY",
+      "sector_state": "STRONG_HELD",
+      "signal_as_of_date": "2026-09-17",
+      "state_since_date": "2026-09-10",
+      "t2": {
+        "reason": "T2_CANDIDATE_OUTPUT_NOT_IN_REPOSITORY",
+        "status": "PENDING"
+      }
+    }
+  ],
+  "payload_sha256": "3f58368cd996a7defb353f55e08793f518583a208d409b66dc8fcd7cf5375d9f",
+  "schema_version": "paper_entry_opportunity_ledger_day/1"
+}

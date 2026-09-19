@@ -17,7 +17,10 @@ This helper measures that gap from the exact bytes the decision consumed:
   ``capture_observed_at`` the decision module rebuilds the ratified result
   at), and
 * decision time = the decision step's ``generated_at`` (cross-checked against
-  the written decision packet when one exists).
+  the written decision packet when one exists).  The decision module stamps a
+  new packet at the first whole second no realtime input postdates
+  (``decision_time_not_before_inputs``), which is the sampled second or the
+  next one; the guard then measures from the packet's instant.
 
 ENGINEERING BUDGET, NOT POLICY.  ``ENGINEERING_BUDGET_SECONDS`` is a
 scheduler-ordering regression budget for GitHub Actions step hand-off.  It is
@@ -82,6 +85,15 @@ def capture_observed_at(realtime_run_path: Path) -> dt.datetime:
     return _parse_utc(status.get("generated_at"), "REALTIME_RUN_GENERATED_AT")
 
 
+def _latest_realtime_input_at(realtime_run_path: Path) -> dt.datetime | None:
+    run = _read_json(realtime_run_path, "REALTIME_RUN").get("run") or {}
+    values = [run.get("ended_at"), (run.get("status") or {}).get("generated_at")]
+    values += [(row or {}).get("received_at") for row in (run.get("latest_public_messages") or {}).values()]
+    values += [(row or {}).get("received_at") for row in (run.get("message_log") or [])]
+    instants = [_parse_utc(value, "REALTIME_INPUT") for value in values if isinstance(value, str)]
+    return max(instants) if instants else None
+
+
 def measure(
     *,
     realtime_run_path: Path,
@@ -99,7 +111,17 @@ def measure(
     if decision_packet_path is not None:
         packet = _read_json(decision_packet_path, "DECISION_PACKET")
         if packet.get("generated_at") != decision_generated_at:
-            raise CaptureGapError("DECISION_PACKET_GENERATED_AT_MISMATCH")
+            stamped = _parse_utc(packet.get("generated_at"), "DECISION_PACKET_GENERATED_AT")
+            latest_input = _latest_realtime_input_at(realtime_run_path)
+            # Only the input-bounded +1s stamp is accepted: some realtime input
+            # postdates the sampled second and none postdates the packet.
+            if not (
+                stamped - decision_at == dt.timedelta(seconds=1)
+                and latest_input is not None and decision_at < latest_input <= stamped
+            ):
+                raise CaptureGapError("DECISION_PACKET_GENERATED_AT_MISMATCH")
+            decision_generated_at = packet["generated_at"]
+            decision_at = stamped
     captured_at = capture_observed_at(realtime_run_path)
     gap = (decision_at - captured_at).total_seconds()
     if gap < 0:

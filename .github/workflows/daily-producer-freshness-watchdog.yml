@@ -1,0 +1,158 @@
+name: Daily Producer Freshness Watchdog
+
+# Read-only, evidence-only. Watches for the failure mode nothing else in
+# this repo watches for: "a daily producer stopped producing," silently.
+# See watchdog/daily_producer_freshness.py's module docstring for the
+# three 2026-09-18 incidents that motivated this (free-market-data.yml's
+# 09-16/09-17 push-race failures, the KIS master capture running outside
+# its binding window for days, and KR/US population symbol observations
+# not produced since 2026-09-10/09-11 -- a week, unnoticed, because they
+# have never had a .github/workflows trigger at all).
+#
+# Each watched producer is judged on TWO committed facts, never on age
+# alone: our newest observation date, and the newest date the source itself
+# claims to offer (read from evidence already in this repo -- a raw
+# manifest's observation_date_range end, a venue manifest's
+# latest_finalized_day, the newest dated directory of the upstream producer
+# the artifact names as its input). No network call is added.
+#   COLLECTION_BEHIND_SOURCE  -> the loudest alarm: a run that looked
+#                                successful left data behind.
+#   SOURCE_NOT_YET_PUBLISHED  -> informational only, opens no issue.
+#   SOURCE_LATEST_UNKNOWN     -> a gap we cannot attribute; neither "fine"
+#                                nor "stale", and reported as its own state.
+# Related but NOT duplicated here: collectors/verify_evidence_staged.py
+# (PR #794) fails a collection run at the time the staged evidence does not
+# match what was fetched. This workflow is the after-the-fact audit that the
+# gate was actually reached -- it also sees what that check cannot (a job
+# that never ran, was never scheduled, or whose push was lost).
+#
+# Same shape as .github/workflows/crypto-regime-refresh-watchdog.yml:
+# verify today's freshness, open or update exactly one issue, close it on
+# recovery. Never more than one open issue at a time.
+#
+# DISPATCH-ONLY. The proposed activation cron is commented out below and
+# needs a separate user approval before it runs unattended -- see the PR
+# body. workflow_dispatch always works so this can be run by hand today.
+
+on:
+  workflow_dispatch:
+  # Proposed activation (NOT enabled by this PR -- needs user approval):
+  #   schedule:
+  #     - cron: "0 13 * * *"  # 22:00 KST -- after every watched producer's
+  #                           # primary and retry slots for the day
+  #                           # (latest is spdr-sector-holdings.yml's
+  #                           # 07:00 KST capture; this leaves ~15h margin).
+
+permissions:
+  contents: read
+  # Read-only listing of run conclusions for the watched producers. Needed
+  # because a workflow's *latest* run conclusion can be `skipped` while real
+  # failures sit behind it; see the run-conclusion axis in
+  # watchdog/daily_producer_freshness.py. No write scope is added.
+  actions: read
+  issues: write
+
+concurrency:
+  group: atlas-daily-producer-freshness-watchdog
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Offline contract regression (fixtures only, no network, no secrets)
+        run: python3 test/test_daily_producer_freshness_watchdog.py
+      # The Python module never calls the network. Run conclusions are fetched
+      # here, read-only, with the token the job already has, and handed to the
+      # module as a file. If this step yields nothing usable the module fails
+      # closed to RUN_HISTORY_UNAVAILABLE -- output-staleness alarms, which come
+      # only from committed evidence, are unaffected either way.
+      - name: Fetch watched producers' run conclusions (read-only)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/producer_runs
+          for wf in $(python3 watchdog/daily_producer_freshness.py --emit-workflow-files); do
+            gh api "repos/${REPO}/actions/workflows/${wf}/runs?per_page=30" \
+              --jq '[.workflow_runs[] | {id, created_at, status, conclusion, event}]' \
+              > "/tmp/producer_runs/${wf}.json" || echo '[]' > "/tmp/producer_runs/${wf}.json"
+          done
+          python3 - <<'PY' > /tmp/producer_run_history.json
+          import datetime, glob, json, os
+          workflows = {}
+          for path in sorted(glob.glob("/tmp/producer_runs/*.json")):
+              name = os.path.basename(path)[: -len(".json")]
+              try:
+                  with open(path, encoding="utf-8") as handle:
+                      loaded = json.load(handle)
+              except (OSError, ValueError):
+                  loaded = []
+              workflows[name] = loaded if isinstance(loaded, list) else []
+          print(json.dumps({
+              "schema_version": "daily_producer_run_history/1",
+              "fetched_at_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "workflows": workflows,
+          }))
+          PY
+      - name: Build today's freshness report
+        id: report
+        env:
+          TZ: Asia/Seoul
+        run: |
+          history=""
+          if [ -s /tmp/producer_run_history.json ]; then
+            history="--run-history /tmp/producer_run_history.json"
+          fi
+          # shellcheck disable=SC2086
+          python3 watchdog/daily_producer_freshness.py $history --format json > /tmp/freshness_report.json
+          # shellcheck disable=SC2086
+          python3 watchdog/daily_producer_freshness.py $history --format issue > /tmp/freshness_issue_body.txt
+          if python3 -c "import json,sys; sys.exit(0 if json.load(open('/tmp/freshness_report.json'))['all_fresh'] else 1)"; then
+            echo "all_fresh=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "all_fresh=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open or update one staleness issue
+        if: steps.report.outputs.all_fresh == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title='[자동감시] 일일 산출물 정체 감지'
+          body="$(cat /tmp/freshness_issue_body.txt)
+
+          점검 실행: ${RUN_URL}"
+          number="$(gh issue list --repo "$REPO" --state open --search "${title} in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body "$body"
+          fi
+      - name: Close staleness issue after recovery
+        if: steps.report.outputs.all_fresh == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          title='[자동감시] 일일 산출물 정체 감지'
+          gh issue list --repo "$REPO" --state open --search "${title} in:title" --json number --jq '.[].number' |
+          while read -r number; do
+            [ -z "$number" ] || gh issue close "$number" --repo "$REPO" --comment '모든 감시 대상이 최신으로 회복되어 자동 종료합니다.'
+          done
+      - name: Keep the delay as an explicit safe WAIT
+        if: steps.report.outputs.all_fresh == 'false'
+        run: |
+          echo "::warning::하나 이상의 일일 산출물이 정체되어 있습니다. 감시 이슈에 기록했으며 주문·매매·자본 배분 권한은 열리지 않았습니다."

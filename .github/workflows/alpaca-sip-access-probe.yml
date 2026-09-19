@@ -1,0 +1,75 @@
+name: Alpaca SIP Access Probe
+
+# User approval 2026-09-15: "Alpaca 과거 SIP 데이터 접근 확인 테스트 승인".
+# Manual only; the user approves each run. Makes at most 6 HTTP GET requests
+# to https://data.alpaca.markets/v2/stocks/bars (multi-symbol): once with
+# feed=sip and once with feed=iex over the SAME fixed 10-session window
+# ending >=2 days before the run (well outside Alpaca's real-time SIP
+# embargo, which only restricts the trailing 15 minutes), each with at most
+# one retry on a transient failure only (a definitive 401/403 is never
+# retried). Nothing is committed. Only an aggregate-only JSON artifact is
+# uploaded: per-request status/error class, whether SIP returned bars, bar
+# counts, and ratios (SIP/IEX volume; vwap*volume vs close*volume notional).
+# Per-day price/close/volume/vwap values are never written to that artifact
+# -- collectors/alpaca_sip_access_probe.py::assert_no_forbidden_fields checks
+# this mechanically before the file is written, and this workflow checks the
+# written file the same way again before upload.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpaca-sip-access-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Offline probe regression (fake HTTP layer, no network, no secrets)
+        run: python3 test/test_alpaca_sip_access_probe.py
+      - name: Bounded SIP-vs-IEX capture (at most 6 requests)
+        env:
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/alpaca-sip-probe/upload"
+          python3 collectors/alpaca_sip_access_probe.py \
+            --out "$RUNNER_TEMP/alpaca-sip-probe/upload/alpaca_sip_access_probe_summary.json"
+      - name: Schema re-check before upload (reject any price/volume/close series)
+        run: |
+          python3 -c "
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, 'collectors')
+          import alpaca_sip_access_probe as probe
+          path = Path('$RUNNER_TEMP/alpaca-sip-probe/upload/alpaca_sip_access_probe_summary.json')
+          summary = json.loads(path.read_text(encoding='utf-8'))
+          probe.assert_no_forbidden_fields(summary)
+          print('schema check PASS: no forbidden per-day price/volume/close/vwap field found')
+          "
+      - name: Upload aggregate-only probe result
+        # Deliberately NOT if: always() -- this uploads vendor data derived
+        # from a live credential into a public repo's artifact storage. If
+        # the schema re-check step above failed (or any earlier step did),
+        # the run must stop here and upload nothing, not upload whatever
+        # happens to be on disk anyway.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: alpaca-sip-access-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/alpaca-sip-probe/upload
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Tracked output prohibition
+        if: always()
+        run: git diff --exit-code && test -z "$(git status --porcelain)"

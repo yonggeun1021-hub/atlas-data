@@ -340,20 +340,10 @@ class DerivationAgreementTests(unittest.TestCase):
 
 
 def _consume(decision_date: str, contract: dict, get):
-    """consume() on real retained packets.
-
-    ``_validate_pinned_delivery_packet`` is bypassed here only: its closed
-    top-level field set predates the daily_orchestrator/6 packet fields
-    (crypto_derivation_version, flow_replay_version,
-    runtime_regime_readiness_version), so on main it already rejects every
-    retained packet with DELIVERY_PACKET_FIELDS_MISMATCH, independent of this
-    contract. Discovery, envelope and binding validation, immutable hash
-    checks and the weekend delivery semantics all run unmodified.
-    """
-    with mock.patch.object(CONSUMER, "_validate_pinned_delivery_packet", lambda *args: None):
-        return CONSUMER.consume(
-            decision_date, "morning", {}, contract=contract, get=get, nonce_factory=lambda: "nonce",
-        )
+    """consume() on real retained packets, with full packet validation."""
+    return CONSUMER.consume(
+        decision_date, "morning", {}, contract=contract, get=get, nonce_factory=lambda: "nonce",
+    )
 
 
 def _serve_from_git(repo: Path, envelopes: list[dict]):
@@ -566,7 +556,10 @@ class V4PublishConsumeRealSlotTests(unittest.TestCase):
         packet = _referenced_packet(slot)
         packet["frozen_sources"]["STEP0_READ_MODEL_HEALTH"][ORCH.PRESENTATION_REFERENCES][
             "krx_confirmed_close"]["source_sha256"] = "0" * 64
+        previous_status = _component(packet, "FREE_MARKET_DATA")["status"]
         _component(packet, "FREE_MARKET_DATA")["status"] = "DEGRADED"
+        packet["component_status_counts"][previous_status] -= 1
+        packet["component_status_counts"]["DEGRADED"] += 1
         _rehash(packet)
         rendered = ORCH.render_markdown(packet)
         self.assertIn("- krx_latest_confirmed_close_date: UNKNOWN\n", rendered)
