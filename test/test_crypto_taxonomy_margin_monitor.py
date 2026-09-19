@@ -767,30 +767,50 @@ class PolicyAndWiringTests(unittest.TestCase):
             with self.assertRaises(MONITOR.MarginMonitorError):
                 MONITOR.output_path(bad, Path("/tmp"))
 
-    def test_workflow_is_dispatch_only_and_writes_no_classification(self):
+    def test_workflow_is_scheduled_and_writes_no_classification(self):
+        # Until 2026-09-19 this test asserted the opposite -- that the workflow
+        # carried no `schedule:`, because its header claimed the daily run was
+        # "registered with the server dispatcher separately". It was not
+        # registered with the dispatcher at all (absent from both
+        # /etc/atlas-schedule-dispatcher configs), so the monitor had never run
+        # on any cadence: its only runs ever were two pull_request runs on
+        # 2026-09-18. The cadence now lives in this file and this test pins it.
+        import yaml
+
         self.assertTrue(WORKFLOW.is_file(), str(WORKFLOW))
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("workflow_dispatch:", text)
-        # Registered with the server dispatcher, never self-scheduled. Checked
-        # on real directives, so a comment mentioning the word cannot pass or
-        # fail this assertion.
-        directives = [
-            line.strip()
-            for line in text.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        ]
-        self.assertNotIn("schedule:", directives)
-        for line in directives:
-            self.assertNotIn("cron", line)
-        triggers = {
-            line.strip().rstrip(":")
-            for line in text.splitlines()
-            if line.startswith("  ") and not line.startswith("   ")
-            and line.rstrip().endswith(":")
-            and not line.lstrip().startswith("#")
-        }
-        self.assertIn("workflow_dispatch", triggers)
-        self.assertNotIn("schedule", triggers)
+        parsed = yaml.safe_load(text)
+        # GitHub's `on:` key parses as the YAML boolean True.
+        triggers = parsed.get("on") or parsed.get(True)
+        self.assertEqual(
+            sorted(triggers), ["pull_request", "schedule", "workflow_dispatch"]
+        )
+        self.assertEqual(
+            [entry["cron"] for entry in triggers["schedule"]], ["30 3 * * *"]
+        )
+        # The monitor has no cutoff of its own, so it is deliberately NOT on the
+        # server dispatcher: that machinery exists for captures which claim an
+        # append-only date directory before a hard cutoff. Re-registering it
+        # there requires a server change, so the header must not start claiming
+        # dispatcher coverage again -- a false claim of coverage is worse than
+        # an admitted gap.
+        # The distinguishing clause of the old, false claim. The header may
+        # still quote the claim in order to refute it (it does), so this pins
+        # the assertive form rather than the words themselves.
+        self.assertNotIn("so the cadence stays in one place", text)
+        # And the header must keep saying where the absence was verified.
+        self.assertIn("/etc/atlas-schedule-dispatcher", text)
+        # The scheduled run must be able to go red; a monitor that can only be
+        # green is not watching anything. pull_request runs stay report-only.
+        job_env = parsed["jobs"]["classification-margin"]["env"]
+        self.assertIn("SCHEDULED_FAIL_ON", job_env)
+        self.assertIn("github.event_name == 'schedule'", job_env["SCHEDULED_FAIL_ON"])
+        for severity in ("GAP_OPEN", "CRITICAL_ARMED"):
+            self.assertIn(severity, job_env["SCHEDULED_FAIL_ON"])
+        self.assertIn('--fail-on-severity "${SCHEDULED_FAIL_ON}"', text)
+        # pipefail is what lets the monitor's exit code survive the `tee`;
+        # without it --fail-on-severity could never fail the run.
+        self.assertIn("set -euo pipefail", text)
         self.assertIn("permissions:\n  contents: read", text)
         self.assertIn(".github/scripts/crypto_taxonomy_margin_monitor.py", text)
         self.assertIn("test/test_crypto_taxonomy_margin_monitor.py", text)

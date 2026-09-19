@@ -232,49 +232,257 @@ the US amendment above needed its own extra ratification):
 
 ---
 
-## 3. `.github/workflows/stablecoin-capture.yml` -- frozen until 2026-09-24
+## 3. The 13 workflow files the server dispatcher pins by fingerprint
 
-**What must not be changed:** any byte of this workflow file, including
-comments -- a comment-only edit still changes the file's sha256.
+**What must not be changed:** on any of the thirteen files listed below, three
+kinds of edit silently and permanently disable that workflow's server-side
+catch-up. They are, exactly:
 
-**What breaks if you do:** an Ubuntu server at `192.168.0.205` runs a
-dispatch controller that reads this workflow's bytes from the GitHub
-contents API at `ref: main` and compares them against a fingerprint it holds
-on the server side. On a mismatch it returns `drift_blocked` and does not
-dispatch the run for that day -- and per
-`gpt/outputs/CLAUDE_CIO_DAY_CLOSE_20260918.md` ("9/24까지
+1. the `schedule:` cron expressions,
+2. the `workflow_dispatch:` input **names** -- adding, removing or renaming
+   one, or removing the `workflow_dispatch:` trigger,
+3. **any line** matching the dispatcher's event-reference regex (below),
+   including a line inside a **comment**.
+
+Plus, for `stablecoin-capture.yml` only, **any byte at all**, including a
+comment, until **2026-09-24** (see the sub-entry at the end).
+
+Everything else -- `run:` step bodies, `env:` values that do not match the
+regex, third-party `uses:` pins, added or removed steps, job names,
+indentation, comments containing none of the regex tokens -- is a
+**compatible** change: the file's bytes drift from the pin, the dispatcher
+logs a warning, and it keeps dispatching. This distinction is the whole point
+of this entry. A blanket "do not touch these thirteen files" would be wrong
+(six of them have already drifted and still work) and would therefore be
+ignored.
+
+### The thirteen pinned files
+
+Pinned at commit `a3f28ed3` (`pinned_at_utc` 2026-09-14T06:05:00Z) in
+`/etc/atlas-schedule-dispatcher/config.json` on the Ubuntu server at
+`192.168.0.205`. "Slot at risk" is what a blocking change destroys.
+
+| # | workflow file | crons (UTC) | mode | dispatch inputs the pin allows | slot at risk |
+|---|---|---|---|---|---|
+| 1 | `upbit-realtime-capture.yml` | `6,36 * * * *` | primary | `duration_seconds`, `validation_duration_seconds` | every 30 min |
+| 2 | `crypto-breadth-capture.yml` | `40 0 * * *` | catch_up | (none) | daily 00:40Z |
+| 3 | `upbit-universe-capture.yml` | `50 0 * * *` | catch_up | (none) | daily 00:50Z |
+| 4 | `upbit-microstructure-capture.yml` | `20 1 * * *` | catch_up | (none) | daily 01:20Z |
+| 5 | `stablecoin-capture.yml` | `50 5`, `20 6`, `20 7`, `20 8` | catch_up | `guard_mode` | daily 05:50Z + 06:20Z |
+| 6 | `crypto-paper-runtime.yml` | `15 7 * * *`, `45 8 * * *` | catch_up | (none) | daily 07:15Z + 08:45Z |
+| 7 | `briefing-handoff-watchdog.yml` | `25 22 * * *`, `50 9 * * 1-5` | catch_up | `decision_date`, `fail_on_alert` | 22:25Z + 09:50Z |
+| 8 | `daily-briefing.yml` | `5 22 * * *`, `30 9 * * 1-5` | **alert_only** | `slot`, `mode`, `decision_date`, `portal_canary` | (never dispatches) |
+| 9 | `daily-briefing-recovery.yml` | `20 22`, `40 22`, `45 9`, `5 10` | **alert_only** | (not dispatchable) | (never dispatches) |
+| 10 | `spdr-sector-holdings.yml` | `0 22 * * 1-5` | catch_up | `tickers` | weekdays 22:00Z |
+| 11 | `fred-dexkous-fx.yml` | `40 21 * * 0-5` | catch_up | `backfill` | daily 21:40Z |
+| 12 | `kr-paper-runtime-daily-publish.yml` | `40 23 * * 0-4`, `45 0 * * 1-5` | catch_up | `mode`, `signals_run_id` | 23:40Z + 00:45Z |
+| 13 | `us-paper-runtime.yml` | `55 21 * * 0-5`, `40 23 * * 0-5` | catch_up | (none) | 21:55Z + 23:40Z |
+
+Rows 8 and 9 are the two exceptions: all their targets are `alert_only`
+(`max_dispatches_per_24h: 0`), and the pin gate is skipped for `alert_only`
+targets, so a blocking change to those two files does not suppress their
+alert. **The other eleven each carry at least one catch-up or primary slot
+that a blocking change kills.** Row 9 is additionally `dispatchable: false`,
+so its input axis is not checked at all.
+
+There is a second config file, `/etc/atlas-schedule-dispatcher/config-private.json`,
+which pins two more workflows (`kis-master-capture.yml`,
+`price-history-capture.yml`) under the same rules -- but its `repository` is
+`yonggeun1021-hub/atlas-private-evidence`, **not this repository**. Those two
+files do not exist here and nothing you change in `atlas-data` can affect
+them. They are named only so that "fifteen pinned files" in an older note
+resolves.
+
+### The rule, exactly as implemented
+
+From `evaluate_pin()` in `/opt/atlas-schedule-dispatcher/atlas_schedule_dispatcher.py`
+(read on 2026-09-19; the file is `root`-owned and world-readable, so this was
+read from the implementation, not from a summary):
+
+- If the file's live git blob sha on `main` equals the pinned `blob_sha`, the
+  status is `pinned` and **nothing else is examined**.
+- Otherwise -- i.e. on any byte change -- the dispatcher derives a problem
+  list:
+  - `crons_changed` -- the parsed `schedule:` crons differ from the pinned
+    `crons`.
+  - `event_branch_lines_changed` -- the `event_ref_fingerprint` differs.
+  - and, only for `dispatchable` workflows: `workflow_dispatch_removed`;
+    `dispatch_input_removed` (an input a target fills is gone);
+    `required_input_unfilled:<name>` (a `required: true` input that no target
+    fills); `dispatch_inputs_changed` (the set of input names differs from
+    `dispatch_inputs_allowed`).
+- Empty problem list -> **`drift_compatible`**: a warning is logged and the
+  workflow keeps dispatching. Any problem -> **`drift_blocked`**.
+
+`event_ref_fingerprint` is the sha256 of every **stripped** line matching,
+case-insensitively:
+
+```
+GITHUB_EVENT|github\.event|github\.(triggering_)?actor|github\[|toJSON\(github|\binputs\.|EVENT_NAME|EVENT_SCHEDULE|uses:\s*\./
+```
+
+joined by `\n`. Three consequences that are not obvious and have each already
+cost something:
+
+- **Comments are not excluded.** The fingerprint function does not strip
+  comments (unlike `parse_workflow_triggers()`, which does). A comment
+  containing `github.event`, or even the bare word `inputs.` -- `\binputs\.`
+  matches `dispatch inputs.` at the end of an English sentence -- changes the
+  fingerprint and blocks the slot.
+- **Indentation alone is safe, reordering is not.** Lines are stripped before
+  hashing, so re-indenting a matching line does not change the fingerprint;
+  moving one matching line above another does.
+- **`uses: ./` means local composite actions only.** `uses: actions/checkout@...`
+  does not match; `uses: ./.github/actions/foo` does.
+
+### What "blocked" costs
+
+From `evaluate()` in the same file: when a target whose mode is not
+`alert_only` sees `drift_blocked`, the dispatcher calls
+`resolve(key, slot, "skip_pin_drift_blocked")`, which writes that slot into
+`state["resolved"]`. `evaluate()` returns immediately for any key already in
+`state["resolved"]`. **The slot is therefore never reconsidered: no retry,
+ever, for that slot.** The process logs at `level=error` and exits `6`, but
+that is a line in the systemd journal on a machine nobody is watching -- there
+is no mail, no webhook, no GitHub signal. The workflow's own GitHub page looks
+normal, because the *schedule* still fires; only the catch-up is gone. Note
+the contrast with `unverified` (a GitHub API failure): that also skips, but
+does **not** resolve, so it retries on the next cycle. Only `drift_blocked` is
+permanent.
+
+### Verified drift state on `main` as of 2026-09-19
+
+Recomputed by re-implementing `git_blob_sha()` and `event_ref_fingerprint()`
+against `origin/main` (`3af23514b`) and comparing with the values in the
+server config -- not read from the dispatcher's own state, which lives in
+`/var/lib/atlas-schedule-dispatcher/` and is `root`-only:
+
+- **`drift_compatible` (bytes differ from the 2026-09-14 pin; crons,
+  fingerprint and input names all unchanged):**
+  `upbit-realtime-capture.yml`, `upbit-universe-capture.yml`,
+  `upbit-microstructure-capture.yml`, `daily-briefing.yml`,
+  `fred-dexkous-fx.yml`, `kr-paper-runtime-daily-publish.yml`.
+- **`pinned` (byte-identical):** the other seven.
+- **`drift_blocked`: none.**
+
+Six of thirteen already drifted and all six still dispatch. That is the
+evidence for the compatible/blocking distinction, and the reason a blanket
+freeze on these files would be both wrong and counterproductive.
+
+### The incident
+
+**2026-09-18/19, PR #815** ("Consolidate every workflow push retry onto one
+shared script", ready for review, not a draft). It touches **seven** of the
+thirteen pinned files. Computing the fingerprint on `refs/pull/815/merge`
+(`3613b2fb6`) against the pinned values gives:
+
+- **Blocking** -- `event_branch_lines_changed`, because the PR adds
+  `DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}`, which
+  matches `github\.event`:
+  - `fred-dexkous-fx.yml` -> kills the daily 21:40Z catch-up.
+  - `spdr-sector-holdings.yml` -> kills the weekday 22:00Z catch-up.
+- **Compatible** -- bytes change but the fingerprint, crons and input names do
+  not: `briefing-handoff-watchdog.yml`, `kr-paper-runtime-daily-publish.yml`,
+  `upbit-microstructure-capture.yml`, `upbit-universe-capture.yml`,
+  `upbit-realtime-capture.yml`. These five move to `drift_compatible` and keep
+  working.
+
+Merging #815 as-is would therefore have permanently and silently ended
+catch-up for two slots, with CI fully green -- the repository has no test that
+knows the fingerprint exists. A hold is recorded on #815. **The earlier
+version of this entry is what should have caught it, and could not: it froze
+one file and said nothing about the other twelve.**
+
+Note also that the PR's own `bash .github/scripts/push_to_default_branch.sh`
+lines are *not* what blocks -- a called script is outside the fingerprint by
+design ("workflow YAML only, not scripts it calls"). Only the
+`DEFAULT_BRANCH:` env line does. The fix for #815 is correspondingly small:
+on those two files only, obtain the default branch without naming
+`github.event` (`$GITHUB_BASE_REF`/`$GITHUB_REF_NAME`, a literal `main`, or
+`gh repo view`), or leave those two files out of the consolidation.
+
+### The guard that enforces it: none, in this repository
+
+The fingerprint lives only in `/etc/atlas-schedule-dispatcher/config.json` on
+the server. Nothing in `test/`, in `run_all.py`, or in any workflow knows the
+pinned shas, the fingerprint, or even that the dispatcher exists. **No CI
+check will fail on a blocking edit to any of these thirteen files.** The
+failure surfaces only as a capture that quietly stops being caught up, days
+later, when a day of evidence is already missing. Say so plainly rather than
+implying a guard exists.
+
+A repo-side guard is possible in principle -- a test that re-implements
+`event_ref_fingerprint()` and compares against a committed copy of the 13
+expected values -- but it would need the committed copy to be updated in
+lockstep with the server, so it trades a silent server-side failure for a
+noisy repo-side one. It has not been built, and building it is a decision, not
+a cleanup.
+
+### The legitimate way to change a pinned file
+
+1. **First determine whether your change is even blocking.** Grep your diff
+   on those files for the regex above. If no matching line is added, removed
+   or reordered, and you changed no cron and no `workflow_dispatch:` input
+   name, the change is compatible: merge it normally. Most workflow edits are.
+2. **If it is blocking**, the edit and the server re-pin must land together,
+   and the server change requires explicit user approval (see
+   `reference-ubuntu-server-access.md` in CIO memory: "changes need
+   approval"). Prepare an approval request naming the file, the new
+   `blob_sha`, the new `event_ref_fingerprint`, and any changed `crons` /
+   `dispatch_inputs_allowed`. The dispatcher ships a `verify-pins` mode that
+   recomputes all of this against `main`; run it after re-pinning.
+3. **Until the re-pin lands, do not merge the blocking edit.** There is no
+   safe ordering in the other direction: the pin is checked against `main`, so
+   the moment the edit reaches `main` the slot begins resolving as
+   `skip_pin_drift_blocked`, and every slot resolved that way is gone for good.
+4. **If the change is cosmetic, drop it instead.** Two slots of daily
+   catch-up is a steep price for a consistency refactor.
+
+### Sub-entry: `stablecoin-capture.yml` is frozen on *every* byte until 2026-09-24
+
+For this one file the rule above is tightened to all bytes, comments included,
+because the freeze was ratified on the byte sha rather than on the fingerprint
+(`gpt/outputs/CLAUDE_CIO_DAY_CLOSE_20260918.md`: "9/24까지
 `stablecoin-capture.yml` 변경 금지 -- 바이트가 지문으로 고정돼 있어 바뀌면
-그날 대신 실행이 조용히 차단됨"), that slot is then permanently resolved for
-the day: there is no retry and no alarm. A running 5-day crypto observation
-clock (first market-state classification due 2026-09-23 16:00 KST per the
-same record) depends on this workflow firing on its own schedule every day
-through the freeze window.
+그날 대신 실행이 조용히 차단됨"). Treat a comment-only edit as forbidden here.
 
-**The incident:** ongoing as of 2026-09-18 -- this is a standing freeze, not
-a single past event. It is recorded specifically because the freeze date
-(2026-09-24) is not self-evident from anything in this repository and the
-mechanism that enforces it is not in this repository either.
+**Correction to the previous version of this entry.** It said the 5-day crypto
+observation clock "depends on this workflow firing on its own schedule every
+day through the freeze window." **That is no longer true, and the truth makes
+the freeze matter more, not less.** GitHub's scheduled runs for this workflow
+now land 3-6 hours late. The primary cron is `50 5 * * *` and the ratified
+crypto runtime cutoff is `available_at <= 07:00:00Z`; observed first scheduled
+run of the day:
 
-**The guard that enforces it: none, in this repository.** Every test file
-that loads `stablecoin-capture.yml`
-(`test/test_crypto_paper_runtime_schedule.py`,
-`test/test_population_observation_daily_schedule.py`,
-`test/test_stablecoin_supply_demand_population.py`,
-`test/test_stablecoin_revision_contract.py`,
-`test/test_stablecoin_schedule_hardening.py`) was checked; none of them
-compares the workflow's bytes to a fixed sha256 -- they check structure and
-behavior (guard ordering, atomic staging, dispatch-input handling), not a
-byte fingerprint. The fingerprint that actually blocks a drifted file lives
-only on the server's dispatch controller, outside this repository's CI and
-outside version control this doc-writing session had access to. **Nothing
-in this repository's test suite or CI would catch an edit to this file
-before it reached `main` and silently broke a day's dispatch.** Say so
-plainly rather than implying a guard exists.
+| date | first scheduled run created | before the 07:00:00Z cut? |
+|---|---|---|
+| 2026-09-11 | 06:37:48Z | yes |
+| 2026-09-12 | 06:35:41Z | yes |
+| 2026-09-13 | 06:39:18Z | yes |
+| 2026-09-14 | 10:59:13Z | **no** |
+| 2026-09-15 | 10:28:29Z | **no** |
+| 2026-09-16 | 10:18:49Z | **no** |
+| 2026-09-17 | 10:27:00Z | **no** |
+| 2026-09-18 | 10:03:27Z | **no** |
 
-**The legitimate way to change it:** wait until after 2026-09-24, or get the
-server-side fingerprint updated in the same change (a server change, which
-per project convention requires explicit approval -- see
-`reference-ubuntu-server-access.md` in CIO memory: "changes need approval").
+Since 2026-09-14 **not one scheduled run has landed before the cut.** On
+2026-09-18 the only pre-cut capture was the dispatcher's own
+`workflow_dispatch` at 06:31:21Z (`available_at` 06:32:10Z). The clock now
+depends on the dispatcher's catch-up window for the 05:50Z and 06:20Z slots
+(eligible fires 06:25:07Z-06:35:07Z and 06:30:07Z-06:35:07Z; the 07:20Z and
+08:20Z crons deliberately have no target, because catching them up would claim
+the date with an `available_at` past the cutoff and destroy the day).
+
+So the dependency runs the other way from what the old text said: the GitHub
+schedule can no longer cover for a blocked dispatcher, because the schedule
+itself now lands ~3.5 hours after the cut. If this file drifts in a blocking
+way, the first market-state classification due **2026-09-23 16:00 KST** loses
+its day, and the 5-day observation clock restarts from zero.
+
+**The incident:** ongoing as of 2026-09-19 -- a standing freeze, not a single
+past event. It is recorded because the freeze date (2026-09-24) is not
+self-evident from anything in this repository and the mechanism that enforces
+it is not in this repository either.
 
 ---
 
