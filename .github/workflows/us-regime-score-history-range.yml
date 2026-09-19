@@ -4,16 +4,34 @@ name: US Regime Score History Range
 # (free-market-data.yml) is the scheduled producer and is not modified by this
 # workflow, this file, or the collector it calls.
 #
-# mode=measure makes at most five HTTP GETs (ALFRED vintagedates for the three
-# FRED series, one Alpaca window request on iex, one on sip), prints the result
-# and commits nothing, so "how many sessions and how many 20-session windows are
-# actually reachable" is answered before any full receive is attempted.
+# mode=measure makes at most TWELVE HTTP GETs (eight in the expected case) and
+# commits nothing:
+#   3  ALFRED vintagedates, one per contract FRED series
+#   2  Alpaca window request, feed=iex and feed=sip
+#   1-5  FRED series/observations shape ladder on the first series, stopping at
+#        the first shape the provider accepts
+#   2  that accepted shape confirmed on the other two series
+# It answers both "how many sessions and how many 20-session windows are
+# reachable" and "will the observations request that does the real work be
+# accepted at all" before any full receive is attempted.
+#
+# ★ 2026-09-19. The earlier version of this file said five requests and probed
+#   only vintagedates. measure passed (run 35432763470) and mode=fetch then died
+#   on the first series/observations request with a bare HTTP_ERROR:400 (run
+#   35432930212) -- the endpoint that does the work was never probed, and the
+#   shared getter had dropped FRED's own explanation. Both holes are closed: the
+#   collector has its own getter that keeps the masked, truncated 400 body, and
+#   measure probes series/observations over one chunk-sized window and prints
+#   each rejected shape with the provider's reason.
 #
 # mode=fetch receives the requested window and publishes it append-only and
-# content-addressed under evidence/free_market_data/history only. It never
-# writes data/latest_free_market_data.json and never writes the daily
-# derived / raw / fred-raw trees; collectors/free_market_data_history.py
-# enforces that mechanically and test/test_free_market_data.py asserts it.
+# content-addressed under evidence/free_market_data/history only. The FRED
+# observation window is always received in bounded chunks, so response size is
+# not a variable, and the chunk merge fails closed rather than silently dropping
+# or duplicating a row. It never writes data/latest_free_market_data.json and
+# never writes the daily derived / raw / fred-raw trees;
+# collectors/free_market_data_history.py enforces that mechanically and
+# test/test_free_market_data.py asserts it.
 #
 # Credentials: the dedicated market-data-only Alpaca pair and the FRED key.
 # The account/trading Alpaca credential lives only in the private
@@ -23,7 +41,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: measure (five requests, commits nothing) or fetch (receive the window)
+        description: measure (at most 12 requests, commits nothing) or fetch (receive the window)
         required: true
         default: measure
         type: choice
