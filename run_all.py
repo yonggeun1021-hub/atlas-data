@@ -1423,6 +1423,13 @@ APPROVED_TESTS = [
     #   disclosure so it cannot be silently upgraded to an exact-contract
     #   claim.
     "test/test_crypto_breadth_deferred_five_identity_20260918.py",
+    # ★ P1-CR-07 rank-200 push, slice A — 크립토 분류 여유 172~185위.
+    #   2026-10-07 축 전환(7일→30일) 전에 분류를 끝내기 위한 3분할 중 첫
+    #   조각. ROBO/GRASS/AXS 는 체인 수준 신원만 기록하고 그 사실을 시험이
+    #   고정한다. TURBO/ZEREBRO 는 PLAY/RE/MOODENG 와 같은 근거로
+    #   unverified_identity — 확정된 제외이며 투자 판단이 아니다.
+    #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
+    "test/test_crypto_breadth_rank200_slice_a_20260919.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
