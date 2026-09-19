@@ -800,3 +800,72 @@ re-derived locally; that weakness is unchanged for those receipts and is
 not claimed to be fixed. These bodies survive such a sweep, they are still
 not committed to this repository, and permanent published retention
 remains undecided.
+
+### 2026-09-19 rank-200 push, slice B (ranks 187–193)
+
+Second of three stacked slices. Slice A carried the block to rank 186 and
+named `CPOOL` at minimum rank 187 as the next unclassified asset. Ten
+assets are recorded effective 2026-09-19 — nine `eligible_crypto` and one
+`stablecoin` — and the block runs contiguous through rank **193**, again
+measured as minimum rank across the seven committed vintages
+2026-09-12…2026-09-18. The next unclassified asset is `SC` at minimum
+rank 194, which slice C picks up.
+
+Seven records bind an exact identifier the project publishes itself:
+Clearpool's Ethereum contract, Bio Protocol's Solana mint, Katana's native
+`KAT` contract, xMoney's Sui object address, the BRL1 Polygon contract,
+STBL's BNB Chain contract and the SuperVerse Ethereum contract. `S` is a
+native-coin claim on Sonic's own chain and `TAC` a native gas-coin claim on
+TAC Protocol's own chain, both in the same shape as the existing `ETC` and
+`VET` records.
+
+Three assets needed real disambiguation, and the records carry it.
+
+**`TAC` is the one Kraken publishes with a blank network.** The catalog leg
+alone therefore offers nothing to match, and several unrelated tokens trade
+as TAC. Kraken's own listing notice of 2025-07-15 resolves it: it states
+that TAC "is a purpose-built blockchain that enables EVM dApps to tap into
+the TON and Telegram user base" and "brings EVM compatibility and liquidity
+to the TON ecosystem". Independently, TAC Protocol's own blog publishes
+that `$TAC` "is the exclusive gas token for executing transactions and
+smart contracts on the TAC EVM". Two organisations describe the same
+TON-integrated EVM layer-1 and the same native token. The blank network is
+correct rather than missing — an L1 native coin has no host chain to name.
+
+**`BRL1` is not `eligible_crypto`.** Its issuing consortium's own site
+describes BRL1 as backed 1:1 by Brazilian public securities indexed to the
+Selic rate, repurchase agreements and reserves at regulated financial
+institutions, with regular external certification and published Proof of
+Reserves. That is a fiat-pegged, fully reserved stablecoin, and the record
+takes the ratified `stablecoin` exclusion on the same basis as `AUSD`. It
+is a source-coverage classification, not an investability claim.
+
+**`STBL` is the mirror case, and is not a stablecoin.** The project's own
+documentation separates two tokens: `USST` is its over-collateralised,
+dollar-pegged stablecoin, while `STBL` is the governance and value-capture
+token layered on top through staking, buybacks and voting. The BNB Chain
+contract is also what ties Kraken's listing to the `stbl.com` Stablecoin
+2.0 project rather than to the unrelated `stbl.io` precious-metals project
+that shares the ticker.
+
+`AIN` is recorded as a **chain-level identity only**, and the record says
+so. Kraken's asset page and its 2025-11-04 listing notice both describe an
+agentic IDE whose AIN token "powers fees, payments, and governance", and
+Infinity Ground's own whitepaper independently publishes exactly that
+utility for `[AIN]` — payments and transaction fees, membership, launchpad
+access, governance and staking. Two organisations therefore agree on
+ticker, project and token role. But the project's whitepaper never states
+a blockchain or a contract address, and its website and blog both refuse
+automated capture, so the BNB Chain representation rests on Kraken's
+listing alone. That limit is named in the record, in the receipt and in a
+test, in the same shape as the ratified `ZIG` record. No exact-contract
+claim is made.
+
+Every record is effective 2026-09-19, the latest retained `as_of`
+(2026-09-17) is strictly before it, and snapshots 2026-09-12…2026-09-18
+return byte-identical members, excluded rows and unknown rows with and
+without these records. `target_asset_count=100`,
+`minimum_observation_coverage_bps=9000`, the 30-day turnover ranking rule,
+every existing exclusion and all classification/threshold/Regime/
+Production/trading authority flags are unchanged. This is breadth source
+coverage only.

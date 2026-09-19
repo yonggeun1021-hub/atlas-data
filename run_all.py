@@ -1430,6 +1430,14 @@ APPROVED_TESTS = [
     #   unverified_identity — 확정된 제외이며 투자 판단이 아니다.
     #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
     "test/test_crypto_breadth_rank200_slice_a_20260919.py",
+    # ★ P1-CR-07 rank-200 push, slice B — 크립토 분류 여유 187~193위.
+    #   slice A 위에 쌓인 두 번째 조각. TAC 은 Kraken 이 network 를 "-" 로
+    #   내보내 카탈로그만으로는 대조할 것이 없어, Kraken 자체 상장 공지와
+    #   TAC Protocol 자체 블로그가 같은 TON 연동 EVM L1 을 기술하는 것으로
+    #   확정했다. BRL1 은 발행 컨소시엄 자체 표현대로 stablecoin 제외,
+    #   STBL 은 반대로 거버넌스 토큰이라 eligible. AIN 은 체인 수준만 기록.
+    #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
+    "test/test_crypto_breadth_rank200_slice_b_20260919.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
