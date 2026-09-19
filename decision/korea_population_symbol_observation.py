@@ -72,6 +72,8 @@ symbol_row = CORE.symbol_row
 KOREA_REVIEW = load_module("population_korea_symbol_market_review", "decision/korea_symbol_market_review.py")
 CAPTURE = load_module("population_krx_information_system_capture", "regime/krx_information_system_capture.py")
 BRIDGE = load_module("population_kr_information_system_runtime_bridge", "regime/kr_information_system_runtime_bridge.py")
+POLICY = load_module("population_ratified_policy_kr", "universe/population_ratified_policy.py")
+POLICY_CONTRACT = POLICY.load_contract()
 COMPACT_DATE_RE = re.compile(r"^\d{8}$")
 
 
@@ -351,6 +353,9 @@ def load_context(inputs: dict, *, generated_at: str, contract: dict) -> dict:
         "universe": universe,
         "population_records": population,
         "population_symbols": sorted(population),
+        "population_display_names": frozenset(
+            record.get("display_name") for record in population.values() if record.get("display_name")
+        ),
         "population": {
             "count": len(population),
             "as_of": universe["as_of_date"],
@@ -396,8 +401,48 @@ def _membership(record: dict) -> dict:
     }
 
 
+def _kr_population_policy(ctx: dict, symbol: str, record: dict) -> dict:
+    """Evaluate the six ratified population-level rules for one KR symbol.
+
+    LIQUIDITY needs a real 20-session trading-value window; the only source
+    for that in this pipeline is the private price-history store
+    (``ATLAS_PRICE_HISTORY_ROOT``), absent by default in this public
+    repository. Absent that, LIQUIDITY resolves UNKNOWN for every symbol --
+    never a silent pass or exclusion. TAXONOMY (no KRX 46-industry table
+    wired) and TRADABILITY (no KIS master wired) resolve UNKNOWN the same
+    way; see universe/population_ratified_policy.py.
+    """
+    history = ctx["price_history"]
+    avg_trading_value = None
+    sessions_available = 0
+    latest_close = None
+    if history["status"] == "LOADED":
+        bars = history["by_code"].get(symbol) or []
+        sessions_available = len(bars)
+        required = history["sma_sessions"]
+        if sessions_available >= required:
+            window = bars[-required:]
+            try:
+                values = [float(bar["value"]) for bar in window]
+                latest_close = float(window[-1]["close"])
+                avg_trading_value = sum(values) / required
+            except (KeyError, TypeError, ValueError):
+                avg_trading_value = None
+                latest_close = None
+    return POLICY.evaluate_kr(
+        display_name=record.get("display_name"),
+        population_display_names=ctx["population_display_names"],
+        avg_trading_value_20s_krw=avg_trading_value,
+        sessions_available=sessions_available,
+        latest_close_krw=latest_close,
+        sector_46=None,
+        contract=POLICY_CONTRACT,
+    )
+
+
 def build_symbol(ctx: dict, symbol: str) -> dict:
     record = ctx["population_records"][symbol]
+    population_policy = _kr_population_policy(ctx, symbol, record)
     session = ctx["session_date"]
     formal = formal_candidate(symbol, ctx["stage_as_of"], ctx["latest_stage"], ctx["bounded_subjects"])
     watch = ctx["watchlist"].get(symbol)
@@ -472,7 +517,7 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
                           "partial_review": _compact_partial(partial)}
         return symbol_row(symbol=symbol, name=observed.get("name") or record.get("display_name"), membership=_membership(record),
                           data_observation=data_observation, evaluability=evaluability, evaluation=evaluation, formal=formal,
-                          facts=facts, evidence_refs=evidence_refs)
+                          facts=facts, evidence_refs=evidence_refs, population_policy=population_policy)
 
     # 2. price-history store bars for this session (private store, when configured)
     history = ctx["price_history"]
@@ -544,7 +589,7 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
                 "fields_missing": ([] if sma20 is not None else ["sma20"]) + ["investor_flows"],
             },
             evaluability=evaluability, evaluation=evaluation, formal=formal, facts=facts,
-            evidence_refs=evidence_refs,
+            evidence_refs=evidence_refs, population_policy=population_policy,
         )
 
     # 3. information-system session row only
@@ -569,7 +614,7 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
             evaluability={"status": "NOT_EVALUABLE", "level": None, "reasons": reasons, "session_price_present": True},
             evaluation={"status": "NOT_EVALUATED", "entry_state": None, "reasons": reasons, "row": None,
                         "partial_review": _compact_partial(partial)},
-            formal=formal, facts=facts, evidence_refs=evidence_refs,
+            formal=formal, facts=facts, evidence_refs=evidence_refs, population_policy=population_policy,
         )
 
     # 4. nothing observed for this session
@@ -580,7 +625,7 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
                           "fields_missing": ["confirmed_close", "sma20", "investor_flows"]},
         evaluability={"status": "NOT_EVALUABLE", "level": None, "reasons": [reason], "session_price_present": False},
         evaluation={"status": "NOT_EVALUATED", "entry_state": None, "reasons": [reason], "row": None},
-        formal=formal, facts=facts, evidence_refs=evidence_refs,
+        formal=formal, facts=facts, evidence_refs=evidence_refs, population_policy=population_policy,
     )
 
 
