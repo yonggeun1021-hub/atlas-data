@@ -68,6 +68,7 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    "test/test_public_workflow_pin_inventory.py",
     # ★ P6-06 Defensive Action Decision readiness boundary. Existing P6
     #   guardrails are semantically revalidated while missing P1/P2 production
     #   packets remain explicit BLOCKED evidence. Missing/unevaluated input is
