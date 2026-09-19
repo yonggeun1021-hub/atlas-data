@@ -7,6 +7,7 @@ import gzip
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -30,6 +31,56 @@ RC = OL.RC
 POLICY = RC.load_policy()
 CONFIG = OL.load_config()
 US = POLICY["markets"]["US"]["entities"]
+
+# ── Who answers for a replay problem ──────────────────────────────────────────
+# `RC.verify_market` / `OL.verify_market_days` report two different kinds of
+# thing about the real repository, and they have two different owners:
+#
+#   MISMATCH:<path>         a day that IS committed replays to different bytes.
+#   LATEST_MISMATCH:<path>  the latest pointer disagrees with the newest packet
+#                           while that packet is committed.
+#     -> code in a pull request can cause both, so a pull request answers for
+#        them and they stay exactly as strict as before.
+#
+#   MISSING:<path>          a rebuilt day has no committed packet at all, and
+#                           the latest pointer that necessarily trails it.
+#     -> nothing a pull request contains can make this true or false; it asks
+#        "did the producer's last run write its packets?". Asked on a
+#        pull-request shard it turns every open branch red whenever a producer
+#        run aborted -- including the branch that fixes the producer, which is
+#        how #831 (the fix that lets the producer write the packet) came to be
+#        blocked by the absence of the packet it would write.
+#
+# The two sibling regressions over the same committed evidence already draw the
+# line this way, and neither asserts the missing-day direction:
+#   test_rotation_confirmation.py::RetainedEvidenceReplayTests
+#     ::test_committed_confirmation_packets_match_replay
+#   test_rotation_opportunity_ledger.py::RetainedEvidenceTests
+#     ::test_rebuild_is_deterministic_and_committed_days_match
+# Both walk the *committed* packets and assert each one replays byte-identically.
+#
+# So the missing-day direction is not dropped, it moves behind an explicit
+# declaration of the producer's own context -- the same shape run_all.py uses
+# for its environment-scoped authoritative mode (`ATLAS_DISPOSABLE_CHECKOUT`,
+# run_all.py:3180, "Actions workflow 가 이 값을 설정한다").
+# `.github/workflows/rotation-confirmation.yml` sets it for its own gate step,
+# which runs *after* the build loop, where a missing packet means "this run
+# failed to write it" and is actionable by whoever is reading that run.
+# `WorkflowTests.test_producer_gate_declares_and_runs_the_missing_day_check`
+# below fails on every pull request if the workflow ever stops doing either, so
+# the check cannot silently stop checking.
+PRODUCER_GATE_ENV = "ATLAS_ROTATION_PRODUCER_GATE"
+PRODUCER_GATE = os.environ.get(PRODUCER_GATE_ENV) == "1"
+
+
+def split_replay_problems(problems: list, newest_day_committed: bool) -> tuple:
+    """Split a verify_* problem list into (committed-day drift, uncommitted day)."""
+    drift, uncommitted = [], []
+    for problem in problems:
+        producer_owned = problem.startswith("MISSING:") or (
+            problem.startswith("LATEST_MISMATCH:") and not newest_day_committed)
+        (uncommitted if producer_owned else drift).append(problem)
+    return drift, uncommitted
 
 
 def copy_contracts(root: Path) -> None:
@@ -136,7 +187,32 @@ class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".github/workflows/rotation-confirmation.yml").read_text(encoding="utf-8")
         self.workflow = yaml.safe_load(self.text)
-        self.run = "\n".join(step.get("run", "") for step in self.workflow["jobs"]["build"]["steps"])
+        self.steps = self.workflow["jobs"]["build"]["steps"]
+        self.run = "\n".join(step.get("run", "") for step in self.steps)
+
+    def _step_index(self, needle: str) -> int:
+        return next(i for i, step in enumerate(self.steps) if needle in (step.get("run") or ""))
+
+    def test_producer_gate_declares_and_runs_the_missing_day_check(self):
+        """The missing-day assertion left the PR shard; this is what keeps it alive in the producer.
+
+        If the workflow ever stops declaring the producer context, or stops
+        running this file, nothing would assert that a rebuilt day has a
+        committed packet -- so the absence fails here, where every PR sees it.
+        """
+        gate = next(i for i, step in enumerate(self.steps) if PRODUCER_GATE_ENV in (step.get("env") or {}))
+        self.assertEqual(self.steps[gate]["env"][PRODUCER_GATE_ENV], "1")
+        self.assertIn("python3 test/test_rotation_confirmation_robustness.py", self.steps[gate]["run"])
+        # after the build loop: only a completed build can be asked whether it wrote every day
+        self.assertLess(self._step_index("for market in US KR CRYPTO; do"), gate)
+        self.assertEqual(self.steps[gate].get("if"), "always()")
+
+    def test_whole_repo_regression_runs_after_the_per_market_loop(self):
+        """These files assert over every market, so before the loop one market's drift aborted all three."""
+        loop = self._step_index("for market in US KR CRYPTO; do")
+        for name in ("test_rotation_confirmation.py", "test_rotation_opportunity_ledger.py",
+                     "test_rotation_confirmation_robustness.py"):
+            self.assertGreater(self._step_index(f"python3 test/{name}"), loop, name)
 
     def test_per_market_build_and_push_retry(self):
         self.assertIn("for market in US KR CRYPTO; do", self.run)
@@ -204,14 +280,27 @@ class PostSessionBarLeakTests(unittest.TestCase):
 
 
 class ReplayByteIdentityTests(unittest.TestCase):
+    def _replay(self, market: str) -> tuple:
+        """(committed-day drift, uncommitted-day) replay problems over the real repository."""
+        packets = RC.build_market(market, ROOT, POLICY)
+        days = OL.build_market_days(market, ROOT, CONFIG, POLICY)
+        newest_committed = not packets or RC.evidence_path(ROOT, market, packets[-1]["as_of_date"]).exists()
+        confirmation = split_replay_problems(RC.verify_market(market, packets, ROOT), newest_committed)
+        ledger = split_replay_problems(OL.verify_market_days(market, days, ROOT), newest_committed)
+        return confirmation[0] + ledger[0], confirmation[1] + ledger[1]
+
     def test_committed_packets_and_portal_replay_byte_identical(self):
+        """A committed packet or ledger day that replays to different bytes fails here, on every PR."""
         for market in RC.MARKETS:
             self.assertEqual(RC.late_older_evidence_dates(market, ROOT, POLICY), [], market)
-            packets = RC.build_market(market, ROOT, POLICY)
-            self.assertEqual(RC.verify_market(market, packets, ROOT), [], market)
-            days = OL.build_market_days(market, ROOT, CONFIG, POLICY)
-            self.assertEqual(OL.verify_market_days(market, days, ROOT), [], market)
+            self.assertEqual(self._replay(market)[0], [], market)
         self.assertEqual(run_cli(RC, ["portal", "--root", str(ROOT)])[0], 0)
+
+    @unittest.skipUnless(PRODUCER_GATE, f"producer-only: {PRODUCER_GATE_ENV}=1 declares the producer's own run")
+    def test_producer_gate_every_rebuilt_day_has_a_committed_packet(self):
+        """After the producer's build loop, a rebuilt day with no packet means this run failed to write it."""
+        for market in RC.MARKETS:
+            self.assertEqual(self._replay(market)[1], [], market)
 
 
 if __name__ == "__main__":

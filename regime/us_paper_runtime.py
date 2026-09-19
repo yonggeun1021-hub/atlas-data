@@ -30,6 +30,10 @@ collects committed evidence and writes nothing here.
   call) and an official session calendar.  Anything absent, invalid, unbound,
   missing, stale or lookahead is UNKNOWN with explicit reasons; nothing is
   carried forward.  A decision expires at the next official session close.
+  Both of those artifacts are bound from inside the adoption identity, so an
+  absent or invalid adoption reports their two UNBOUND reasons as well -- and
+  says in ``adoption.derived_reasons`` that it derived them, because neither can
+  be cleared while the adoption is the thing that is missing.
 
 No provider is called, no file is written, and no strategy, stage, buy,
 action, capital, order, production, trading or REAL authority is opened.
@@ -64,6 +68,18 @@ ADOPTION_CONTRACT_VERSION = "us_paper_runtime_adoption/v1"
 ADOPTION_IDENTITY = "US_PAPER_RUNTIME_ADOPTION_V1"
 ADOPTION_ACTIVE_STATUS = "CIO_TECHNICAL_ADOPTED"
 ADOPTION_TEMPLATE_STATUS = "TEMPLATE_NOT_ACTIVE"
+# Both bindings the runtime needs live INSIDE the adoption identity
+# (``pit_acceptance`` and ``session_calendar``), so when the adoption itself is
+# absent or invalid these two reasons are consequences of that one failure, not
+# two further observations: nothing else in the repository could satisfy either
+# of them on its own.  They are still reported -- suppressing them would hide a
+# closed gate -- but ``adoption.derived_reasons`` says they were derived, so a
+# reader can tell this case apart from the one where a *valid* adoption simply
+# omits a binding (``test_calendar_gates``), which is an independent
+# observation and leaves ``derived_reasons`` empty.  Without that distinction
+# the packet reads as three separable wiring gaps and invites a hunt for a
+# second place to bind an artifact that has none.
+ADOPTION_DERIVED_REASONS = ("US_PIT_ACCEPTED_RECORD_UNBOUND", "US_OFFICIAL_SESSION_CALENDAR_UNBOUND")
 ACCEPTANCE_RECORD_SCHEMA = "us_pit_acceptance_record/1"
 CALENDAR_SCHEMA = "us_official_session_calendar/1"
 SOURCE_SCHEMA = "free_market_data_capture/5"
@@ -713,7 +729,7 @@ def evaluate_us_paper_runtime(*, evaluation_at: str, code_revision: str, session
                     "execution_session_date": None, "expires_at": None},
         "bindings": None,
         "adoption": {"identity": ADOPTION_IDENTITY, "path": ADOPTION_RELATIVE, "status": "ABSENT",
-                     "sha256": None},
+                     "sha256": None, "blocking_reason": None, "derived_reasons": []},
         "pit_acceptance": {"status": "UNBOUND", "published_market_scoped_status": published_pit_status(root)},
         "current_observation": None, "latest_source_diagnostic": None, "chain": [], "aggregation": None,
         "reasons": [], "caveats": list(CAVEATS), "authority": dict(AUTHORITY_CLOSED),
@@ -754,7 +770,9 @@ def evaluate_us_paper_runtime(*, evaluation_at: str, code_revision: str, session
             code = reason_code(exc, "ADOPTION_IDENTITY_INVALID") if isinstance(exc, UsPaperRuntimeError) \
                 else "ADOPTION_IDENTITY_INVALID"
             packet["adoption"]["status"] = "ABSENT" if code == "US_PAPER_RUNTIME_ADOPTION_IDENTITY_ABSENT" else "INVALID"
-            reasons.extend([code, "US_PIT_ACCEPTED_RECORD_UNBOUND", "US_OFFICIAL_SESSION_CALENDAR_UNBOUND"])
+            packet["adoption"]["blocking_reason"] = code
+            packet["adoption"]["derived_reasons"] = list(ADOPTION_DERIVED_REASONS)
+            reasons.extend([code, *ADOPTION_DERIVED_REASONS])
 
         if adoption is not None:
             acceptance = calendar = None

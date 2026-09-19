@@ -229,6 +229,16 @@ class GateTest(unittest.TestCase):
                                              "US_PIT_ACCEPTED_RECORD_UNBOUND",
                                              "US_OFFICIAL_SESSION_CALENDAR_UNBOUND"])
         self.assertEqual(packet["adoption"]["status"], "ABSENT")
+        # The two UNBOUND reasons are consequences of the absent adoption, not
+        # two further gaps a reader could go and close somewhere else: both
+        # bindings live inside the adoption identity.  The packet has to say so,
+        # or it reads as three separable wiring problems.
+        self.assertEqual(packet["adoption"]["blocking_reason"],
+                         "US_PAPER_RUNTIME_ADOPTION_IDENTITY_ABSENT")
+        self.assertEqual(packet["adoption"]["derived_reasons"],
+                         ["US_PIT_ACCEPTED_RECORD_UNBOUND", "US_OFFICIAL_SESSION_CALENDAR_UNBOUND"])
+        self.assertEqual(packet["reasons"],
+                         [packet["adoption"]["blocking_reason"], *packet["adoption"]["derived_reasons"]])
         self.assertFalse(packet["authority"]["paper_runtime_display_authorized"])
         self.assertEqual(packet["latest_source_diagnostic"]["source"]["observed_at_utc"], "2026-09-11T21:41:28Z")
 
@@ -323,6 +333,13 @@ class GateTest(unittest.TestCase):
                     fixture.close()
                 self.assertEqual(packet["runtime_regime"], "UNKNOWN")
                 self.assertIn(reason, packet["reasons"])
+                # The adoption itself loaded here, so US_OFFICIAL_SESSION_CALENDAR_UNBOUND
+                # is an independent observation about a valid adoption that omits
+                # the binding -- the opposite of the derived case above, and the
+                # distinction the two fields exist to carry.
+                self.assertEqual(packet["adoption"]["status"], RUNTIME.ADOPTION_ACTIVE_STATUS)
+                self.assertIsNone(packet["adoption"]["blocking_reason"])
+                self.assertEqual(packet["adoption"]["derived_reasons"], [])
         beyond = evaluate(self.fixture.root, evaluation_at="2026-10-31T00:00:00Z", session_records={})
         self.assertIn("EXPECTED_COMPLETED_SESSION_CALENDAR_UNKNOWN", beyond["reasons"])
 

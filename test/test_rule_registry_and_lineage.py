@@ -42,6 +42,7 @@ def _load(name: str, relative: str):
 
 CPDS = _load("rule_lineage_test_crypto_snapshot", "decision/crypto_paper_decision_snapshot.py")
 PRR = _load("rule_lineage_test_paper_reference", "regime/paper_regime_reference.py")
+COVERAGE = _load("rule_lineage_test_sidecar_coverage", ".github/scripts/check_rule_lineage_sidecar_coverage.py")
 
 # Hashes of the CIO workspace originals (current bytes, after CIO timestamp
 # corrections where a correction_note says so).
@@ -887,6 +888,235 @@ class PaperReferenceLineageTests(unittest.TestCase):
             self.assertEqual({r["status"] for r in second}, {"verified_existing", "SKIPPED_SCHEMA"})
             self.assertEqual(LIN.scan_reference_evidence("2999-01-01", lineage_root=Path(tmp)), [])
         self.assertEqual(err.getvalue(), "")
+
+
+class UpbitRealtimeCaptureTimeoutChangeTests(unittest.TestCase):
+    """Regression test for this change only, not a general dispatcher-pin
+    guard -- docs/do_not_touch_and_why.md section 3 explicitly treats a
+    general guard (re-implementing event_ref_fingerprint() for all thirteen
+    pinned files) as a decision, not a cleanup, since it would need to be
+    kept in lockstep with the server config. This just pins down that
+    raising timeout-minutes on the capture job stayed byte-drift-compatible
+    (not fingerprint-changing) against that one file, the way it was
+    verified by hand before the change was made."""
+
+    # Reproduced from docs/do_not_touch_and_why.md section 3
+    # ("event_ref_fingerprint is the sha256 of every stripped line
+    # matching..."), split across two literals so this test file's own
+    # comment can describe it without becoming a matching line itself if
+    # anyone ever runs this fingerprint over the test tree.
+    _TOKENS = ["GITHUB_EVENT", r"github\.event", r"github\.(triggering_)?actor",
+               r"github\[", r"toJSON\(github", r"\binputs\.", "EVENT_NAME",
+               "EVENT_SCHEDULE", r"uses:\s*\./"]
+    _PATTERN = re.compile("|".join(_TOKENS), re.IGNORECASE)
+
+    # The fingerprint of origin/main's upbit-realtime-capture.yml before this
+    # PR (commit 5c4db14fc, HEAD at the time this change was written).
+    _BASELINE_FINGERPRINT = "ddd3a4132c6e1791a80a72974fc12d3f101636148d68ad74a1ba922685f7db7d"
+
+    def _fingerprint(self, text: str) -> str:
+        lines = [line.strip() for line in text.splitlines() if self._PATTERN.search(line)]
+        return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+    def test_timeout_was_raised(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/upbit-realtime-capture.yml").read_text(encoding="utf-8"))
+        self.assertEqual(workflow["jobs"]["capture"]["timeout-minutes"], 20)
+
+    def test_fingerprint_is_unchanged_from_the_pre_change_baseline(self):
+        text = (ROOT / ".github/workflows/upbit-realtime-capture.yml").read_text(encoding="utf-8")
+        self.assertEqual(self._fingerprint(text), self._BASELINE_FINGERPRINT)
+
+    def test_this_files_own_comment_does_not_self_match(self):
+        # Guards against the exact mistake this PR's own first draft made:
+        # explaining the fingerprint tokens inline in the workflow's comment
+        # would itself change the fingerprint, since comments are not
+        # stripped by event_ref_fingerprint().
+        text = (ROOT / ".github/workflows/upbit-realtime-capture.yml").read_text(encoding="utf-8")
+        matching = [line.strip() for line in text.splitlines() if self._PATTERN.search(line)]
+        # Every matching line must be a real, pre-existing github-context
+        # reference (env/with values), never workflow-authored prose.
+        for line in matching:
+            self.assertTrue(line.startswith(("ref:", "DURATION_SECONDS:", "ATLAS_EVENT", "TRIGGER:", "DEFAULT_BRANCH:")),
+                             line)
+
+
+class CryptoDecisionScanTests(unittest.TestCase):
+    """governance/rule_lineage_producers.py::scan_crypto_decision_evidence.
+
+    Second, independent path to the same sidecars the per-run capture-job
+    step emits -- exists because that step is guarded on the capture job not
+    having been cancelled (2026-09-18/19: coverage 49/49 -> 2/41 -> 0/1 with
+    no signal, once the job started exceeding its timeout-minutes)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ctx = REFS.RegistryContext.load()
+
+    def test_scan_is_idempotent_over_every_retained_crypto_packet(self):
+        paths = _crypto_packets()
+        self.assertGreater(len(paths), 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            first = LIN.scan_crypto_decision_evidence("2026-08-01", lineage_root=Path(tmp), context=self.ctx)
+            self.assertEqual(len(first), len(paths))
+            self.assertEqual({r["status"] for r in first}, {"written"})
+            second = LIN.scan_crypto_decision_evidence("2026-08-01", lineage_root=Path(tmp), context=self.ctx)
+            self.assertEqual({r["status"] for r in second}, {"verified_existing"})
+            self.assertEqual(len(second), len(paths))
+
+    def test_scan_excludes_the_non_date_sources_directory(self):
+        base = ROOT / "evidence/crypto_paper_decision"
+        self.assertTrue((base / "_sources").is_dir())
+        # A plain string compare would place "_sources" after every date
+        # ("_" sorts after every digit); DATE_DIR_RE must exclude it before
+        # the >= min_date comparison ever runs.
+        self.assertIsNone(LIN.DATE_DIR_RE.match("_sources"))
+        with tempfile.TemporaryDirectory() as tmp:
+            results = LIN.scan_crypto_decision_evidence("2026-09-19", lineage_root=Path(tmp), context=self.ctx)
+        self.assertTrue(all("_sources" not in r["packet"] for r in results))
+
+    def test_scan_min_date_excludes_earlier_dates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = LIN.scan_crypto_decision_evidence("2026-09-19", lineage_root=Path(tmp), context=self.ctx)
+        self.assertGreater(len(results), 0)
+        self.assertTrue(all("/2026-09-19/" in r["packet"] for r in results))
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(LIN.scan_crypto_decision_evidence("2999-01-01", lineage_root=Path(tmp)), [])
+
+    def test_cli_scan_kind_matches_the_workflow_invocation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(LIN.main(["crypto-decision-scan", "--min-date", "2026-09-19",
+                                           "--lineage-root", str(tmp)]), 0)
+            summary = json.load(io.StringIO(out.getvalue()))["summary"]
+            self.assertEqual(summary.get("FAILED", 0), 0)
+            self.assertGreater(summary.get("written", 0), 0)
+        workflow = (ROOT / ".github/workflows/rule-lineage-crypto-paper-decision.yml").read_text(encoding="utf-8")
+        self.assertIn("governance/rule_lineage_producers.py crypto-decision-scan --min-date", workflow)
+
+
+class CryptoPaperDecisionLineageWorkflowTests(unittest.TestCase):
+    """.github/workflows/rule-lineage-crypto-paper-decision.yml wiring."""
+
+    def setUp(self):
+        self.text = (ROOT / ".github/workflows/rule-lineage-crypto-paper-decision.yml").read_text(encoding="utf-8")
+        self.workflow = yaml.safe_load(self.text)
+
+    def test_triggered_by_the_capture_workflow_and_dispatch(self):
+        triggers = self.workflow.get("on", self.workflow.get(True))
+        self.assertEqual(triggers["workflow_run"]["workflows"],
+                          ["P9-06 Upbit Realtime WebSocket Bounded Capture"])
+        self.assertEqual(triggers["workflow_run"]["types"], ["completed"])
+        self.assertIn("workflow_dispatch", triggers)
+
+    def test_runs_on_cancelled_capture_runs_not_only_success(self):
+        # The entire point: a cancelled capture run is exactly the case that
+        # went silent on 2026-09-18/19, so this job must not skip it.
+        condition = self.workflow["jobs"]["sidecars"]["if"]
+        self.assertNotIn("conclusion == 'success'", condition)
+        self.assertIn("workflow_dispatch", condition)
+
+    def test_backfill_precedes_coverage_check_precedes_commit(self):
+        steps = self.workflow["jobs"]["sidecars"]["steps"]
+        ids = [step.get("id") for step in steps]
+        names = [step.get("name") for step in steps]
+        backfill = ids.index("backfill")
+        coverage = names.index("Fail loudly if crypto PAPER decision sidecar coverage is not full")
+        commit = names.index("Commit append-only rule lineage sidecars")
+        self.assertLess(backfill, coverage)
+        self.assertLess(coverage, commit)
+        # A coverage-check failure must never suppress the commit of
+        # whatever the backfill step did successfully write.
+        self.assertEqual(steps[coverage]["if"], "always()")
+        self.assertEqual(steps[commit]["if"], "always()")
+
+    def test_coverage_check_reads_the_same_window_the_backfill_wrote(self):
+        steps = self.workflow["jobs"]["sidecars"]["steps"]
+        coverage = next(s for s in steps
+                         if s.get("name") == "Fail loudly if crypto PAPER decision sidecar coverage is not full")
+        self.assertIn("check_rule_lineage_sidecar_coverage.py", coverage["run"])
+        self.assertIn("steps.backfill.outputs.min_date", coverage["run"])
+
+    def test_only_touches_rule_lineage_evidence_and_no_secrets(self):
+        runs = "\n".join(step.get("run", "") for step in self.workflow["jobs"]["sidecars"]["steps"])
+        self.assertIn("git add evidence/rule_lineage/crypto_paper_decision", runs)
+        self.assertNotIn("git add evidence/crypto_paper_decision", runs)
+        self.assertNotIn("decision/crypto_paper_decision_snapshot.py", runs)
+        self.assertNotIn("secrets.", json.dumps(self.workflow))
+        self.assertEqual(self.workflow["permissions"], {"contents": "write"})
+
+    def test_capture_workflow_own_name_matches_what_this_file_watches(self):
+        capture = yaml.safe_load((ROOT / ".github/workflows/upbit-realtime-capture.yml").read_text(encoding="utf-8"))
+        triggers = self.workflow.get("on", self.workflow.get(True))
+        self.assertEqual(triggers["workflow_run"]["workflows"], [capture["name"]])
+
+
+class RuleLineageSidecarCoverageTests(unittest.TestCase):
+    """.github/scripts/check_rule_lineage_sidecar_coverage.py."""
+
+    def test_full_coverage_over_every_retained_crypto_packet(self):
+        # Sanity check against the real, committed evidence tree (read-only):
+        # every retained packet from 2026-09-15 onward must have a sidecar --
+        # this is the exact backfilled range for the 2026-09-18/19 gap.
+        result = COVERAGE.measure(ROOT, "2026-09-15")
+        self.assertEqual(result["status"], COVERAGE.FULL)
+        self.assertEqual(result["missing"], [])
+        self.assertEqual(result["total_packets"], result["total_with_sidecar"])
+        self.assertGreater(result["total_packets"], 0)
+        for date, counts in result["per_date"].items():
+            self.assertEqual(counts["packets"], counts["with_sidecar"], date)
+
+    def test_detects_a_dropped_date_and_reports_it_by_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            covered_dir = root / "evidence/crypto_paper_decision/2026-09-17/1200/gen-covered"
+            dropped_dir = root / "evidence/crypto_paper_decision/2026-09-18/1300/gen-dropped"
+            covered_dir.mkdir(parents=True)
+            dropped_dir.mkdir(parents=True)
+            (covered_dir / "packet.json").write_text(json.dumps({"payload_sha256": "a" * 64}), encoding="utf-8")
+            (dropped_dir / "packet.json").write_text(json.dumps({"payload_sha256": "b" * 64}), encoding="utf-8")
+            sidecar_dir = root / "evidence/rule_lineage/crypto_paper_decision/2026-09-17/1200" / ("a" * 64)
+            sidecar_dir.mkdir(parents=True)
+            (sidecar_dir / "registry-c.json").write_text("{}", encoding="utf-8")
+            # 2026-09-18's own sidecar directory is never created -- the
+            # exact shape of the 09-18 incident.
+            result = COVERAGE.measure(root, "2026-09-17")
+        self.assertEqual(result["status"], COVERAGE.DROPPED)
+        self.assertEqual(result["total_packets"], 2)
+        self.assertEqual(result["total_with_sidecar"], 1)
+        self.assertEqual(result["per_date"], {
+            "2026-09-17": {"packets": 1, "with_sidecar": 1},
+            "2026-09-18": {"packets": 1, "with_sidecar": 0},
+        })
+        self.assertEqual(result["missing"], ["evidence/crypto_paper_decision/2026-09-18/1300/gen-dropped/packet.json"])
+
+    def test_excludes_the_non_date_sources_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sources_dir = root / "evidence/crypto_paper_decision/_sources/sha256/deadbeef"
+            sources_dir.mkdir(parents=True)
+            (sources_dir / "packet.json").write_text(json.dumps({"payload_sha256": "a" * 64}), encoding="utf-8")
+            result = COVERAGE.measure(root, "2026-09-01")
+        self.assertEqual(result["total_packets"], 0)
+        self.assertEqual(result["status"], COVERAGE.FULL)
+
+    def test_cli_exit_codes_and_step_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "evidence/crypto_paper_decision/2026-09-19/0100/gen").mkdir(parents=True)
+            (root / "evidence/crypto_paper_decision/2026-09-19/0100/gen/packet.json").write_text(
+                json.dumps({"payload_sha256": "a" * 64}), encoding="utf-8")
+            summary_path = root / "step_summary.txt"
+            with contextlib.redirect_stdout(io.StringIO()):
+                exit_code = COVERAGE.main(["--min-date", "2026-09-19", "--root", str(root)])
+            self.assertEqual(exit_code, 1)  # missing its sidecar -> loud failure
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(COVERAGE.main(["--min-date", "not-a-date", "--root", str(root)]), 2)
+
+    def test_full_coverage_cli_exits_zero(self):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            exit_code = COVERAGE.main(["--min-date", "2026-09-15", "--root", str(ROOT)])
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(out.getvalue())["status"], COVERAGE.FULL)
 
 
 def _walk(value):
