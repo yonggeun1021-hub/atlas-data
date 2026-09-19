@@ -69,6 +69,7 @@ class PinnedEvidenceTests(unittest.TestCase):
         self.assertEqual(result["five_axis"]["missing_axes"], [])
         self.assertEqual(result["five_axis"]["aggregate_regime"], "UNKNOWN")
         by_symbol = {row["symbol"]: row for row in result["symbols"]}
+        latest_stage = stages[sorted(stages)[-1]]
         self.assertEqual(set(by_symbol), {"TSM", "SNDK"})
         self.assertEqual(by_symbol["TSM"]["pipeline_stage"], "Ready")
         self.assertEqual(by_symbol["TSM"]["price_context"]["status"], "OBSERVED")
@@ -77,7 +78,7 @@ class PinnedEvidenceTests(unittest.TestCase):
             [row["symbol"] for row in by_symbol["TSM"]["market_context"]["leadership_proxies"]],
             ["SMH", "XLK"],
         )
-        self.assertEqual(by_symbol["SNDK"]["pipeline_stage"], "Discovery")
+        self.assertEqual(by_symbol["SNDK"]["pipeline_stage"], latest_stage["SNDK"]["stage"])
         self.assertEqual(by_symbol["SNDK"]["price_context"]["status"], "OBSERVED")
         self.assertEqual(by_symbol["SNDK"]["entry_review"]["state"], "WAIT")
         self.assertEqual(result["summary"]["automatic_entry_count"], 0)

@@ -1,0 +1,62 @@
+{
+  "authority": "operations_telemetry_only",
+  "authority_flags": {
+    "data_readiness_authorized": false,
+    "production_wiring_authorized": false,
+    "ranking_authorized": false,
+    "regime_score_authorized": false,
+    "trading_action_authorized": false
+  },
+  "capture": {
+    "provider_calls_skipped": true,
+    "raw_publication_eligible": false,
+    "reason": "snapshot_already_exists",
+    "result": "skipped_existing",
+    "step_outcome": "success"
+  },
+  "decision_eligible": false,
+  "github": {
+    "event_name": "schedule",
+    "event_schedule": "40 0 * * *",
+    "repository": "yonggeun1021-hub/atlas-data",
+    "run_attempt": 1,
+    "run_id": 35422847935,
+    "run_url": "https://github.com/yonggeun1021-hub/atlas-data/actions/runs/35422847935"
+  },
+  "p1_cr_06_validation": {
+    "result": "passed",
+    "step_outcome": "success"
+  },
+  "p1_cr_07_validation": {
+    "result": "passed",
+    "step_outcome": "success"
+  },
+  "p2_04_source_pair_population": {
+    "output_path": "/home/runner/work/atlas-data/atlas-data/data/observations/crypto_rotation_source_pair/2026-09-18/pair-2e3997b18a04b37b.json",
+    "payload_sha256": "2e3997b18a04b37b097ac0c2218028d4a69539c48ef87baa363ff8c5b8c18edf",
+    "reason": "ROTATION_POLICY_ABSENT_SOURCE_PAIR_ONLY",
+    "result": "verified_existing",
+    "step_outcome": "success"
+  },
+  "p3_04_population": {
+    "output_path": null,
+    "payload_sha256": null,
+    "reason": "EXISTING_PACKET_DRIFT_OR_TAMPER:2026-09-19",
+    "result": "failed",
+    "step_outcome": "failure"
+  },
+  "runner": {
+    "observed_started_at_kst": "2026-09-19T14:02:24+09:00",
+    "observed_started_at_utc": "2026-09-19T05:02:24Z"
+  },
+  "schema_version": 1,
+  "slot": {
+    "delay_seconds": 15744,
+    "expected_start_kst": "2026-09-19T09:40:00+09:00",
+    "expected_start_utc": "2026-09-19T00:40:00Z",
+    "id": "daily_0940_kst",
+    "timing_status": "measured"
+  },
+  "snapshot_date_utc": "2026-09-19",
+  "workflow": "P1-CR-06 Crypto Breadth Daily Capture"
+}

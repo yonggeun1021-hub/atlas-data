@@ -18,8 +18,9 @@ CIO interpretations with sources (config ``cio_interpretations``): canon 2-2
 NAV0 / L / Cap / Room / B and allocation steps (equal share, cap, redistribute,
 floor to quantity step, no carry, code ascending); canon 2-3 submitted-amount
 consumption, no restore on cancel, one allocation per session; canon 2-4
-record key (market, session_id, rule version) reused on restart, unverified
-holding blocks its market; canon 5-4 inverse hedge not in L; build plan 2-3
+record key (market, session_id, rule version) reused on restart, an
+unverified holding valuation in any market blocks new buys in every
+market (user ratification 2026-09-18); canon 5-4 inverse hedge not in L; build plan 2-3
 principle 4 / section 9 note 3 for NAV0 in the first crypto cycle.
 
 US holdings are valued in USD and converted with RULE.NAV.KRW_USD_CONVERSION_
@@ -272,8 +273,12 @@ def build_session_budget_record(
         pairs.append((RULE_ALLOC, "BLOCKED_BY"))
     if nav["status"] != "KNOWN":
         reasons.append("NAV0_UNKNOWN")
-    elif market in nav["unverified_markets"]:
-        reasons.append("MARKET_HOLDING_VALUATION_UNVERIFIED")
+    elif nav["unverified_markets"]:
+        # User ratification 2026-09-18: an unverified holding valuation denies new
+        # buys in every market, not only the market that holds it.  The reason
+        # names the unverified markets so a later "why no buy that day" is
+        # answerable from the record alone.
+        reasons.append("NEW_BUYS_BLOCKED_HOLDING_VALUATION_UNVERIFIED_IN_" + "_".join(nav["unverified_markets"]))
     if env_market["cap_fraction"] is None:
         reasons.append("MARKET_CAP_NOT_APPLICABLE")
     if nav["status"] == "KNOWN" and env_market["cap_fraction"] is not None:

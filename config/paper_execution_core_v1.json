@@ -97,9 +97,8 @@
     "nav0": {
       "formula": "VIRTUAL_CASH_PLUS_SUM_VERIFIED_VALUATIONS_ALL_MARKETS_AT_SESSION_START",
       "first_crypto_cycle_equivalence": "KRW 200,000,000 virtual capital + crypto ledger realized P&L + crypto unrealized P&L while KR/US hold nothing",
-      "unverified_holding": "MARKET_OF_THAT_HOLDING_NO_NEW_ALLOCATION_OTHER_MARKETS_USE_LAST_VERIFIED_VALUE_AND_FLAG",
-      "source": "canon 2-2 (NAV0), canon 2-4 (NAV unknown), build plan 2-3 principle 4 and section 9 CIO note 3",
-      "unverified_holding_kind": "CIO_INTERPRETATION_NOT_USER_RATIFIED"
+      "unverified_holding": "ANY_UNVERIFIED_HOLDING_VALUATION_DENIES_NEW_BUYS_IN_ALL_MARKETS_NAV_STILL_USES_LAST_VERIFIED_VALUE_AND_FLAG",
+      "source": "canon 2-2 (NAV0), canon 2-4 (NAV unknown), build plan 2-3 principle 4 and section 9 CIO note 3; unverified_holding ratified by the user 2026-09-18 23:10 KST ('보유분 평가가 확인되지 않으면 해당 시장뿐 아니라 모든 시장의 신규 매수를 금지한다'): new buys only; valuation, exits and releases unchanged"
     },
     "available_cash": {
       "formula": "VIRTUAL_CASH_MINUS_ALL_OPEN_BUY_RESERVATIONS",
@@ -147,8 +146,7 @@
       "source": "RULE.RISK.NAV_DRAWDOWN_LIFT.V1 (combined NAV, lift levels), RULE.ALLOCATION.V2 drawdown_overrides; build plan C19 and section 9 CIO note 5 (no peak reset: the ratified lift rule prevails over canon 5-2 'reset after CIO review'); 'within' read inclusively",
       "unverified_observation_kind": "CIO_INTERPRETATION_NOT_USER_RATIFIED",
       "unknown_stage": "DENY_ALL_NEW_BUYS",
-      "unknown_stage_kind": "CIO_INTERPRETATION_NOT_USER_RATIFIED",
-      "unknown_stage_source": "canon 2-4 (no allocation without a verified NAV); CIO interpretation, behavior kept per PR #758 review L2"
+      "unknown_stage_source": "canon 2-4 (no allocation without a verified NAV); ratified by the user 2026-09-18, behavior unchanged from PR #758 review L2"
     },
     "reentry": {
       "same_packet_key": ["market", "decision_packet_id", "instrument"],

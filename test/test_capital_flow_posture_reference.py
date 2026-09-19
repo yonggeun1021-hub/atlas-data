@@ -23,6 +23,30 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 
+def _tree_with_one_path_missing(source: Path, dest: Path, missing_relative: str) -> None:
+    """Recreate ``source`` under ``dest`` via symlinks, omitting exactly one
+    relative path -- the same "full tree minus one directory" shape a sparse
+    checkout (``actions/checkout`` with ``sparse-checkout`` silently implies
+    ``blob:none``) can produce. Only directories that are ancestors of the
+    omitted path are ever materialized as real directories of symlinks;
+    every sibling is a single symlink to the real repository, so this does
+    not copy this repository's mostly-evidence multi-GB tree.
+    """
+    parts = Path(missing_relative).parts
+
+    def _walk(src: Path, remaining: tuple[str, ...], dst: Path) -> None:
+        dst.mkdir(parents=True, exist_ok=True)
+        for child in sorted(src.iterdir()):
+            if remaining and child.name == remaining[0]:
+                if len(remaining) > 1:
+                    _walk(child, remaining[1:], dst / child.name)
+                # len(remaining) == 1: exactly the path being omitted
+            else:
+                (dst / child.name).symlink_to(child, target_is_directory=child.is_dir())
+
+    _walk(source, parts, dest)
+
+
 class CapitalFlowPostureReferenceTest(unittest.TestCase):
     def setUp(self):
         self._temp = tempfile.TemporaryDirectory()
@@ -147,8 +171,84 @@ class CapitalFlowPostureReferenceTest(unittest.TestCase):
         unsigned_source.pop("payload_sha256")
         source["payload_sha256"] = MODULE.payload_sha256(unsigned_source)
         (self.root / "data/latest_paper_regime_reference.json").write_text(json.dumps(source), encoding="utf-8")
-        with self.assertRaisesRegex(MODULE.CapitalFlowPostureReferenceError, "SOURCE_REVALIDATION_FAILED"):
+        with self.assertRaises(MODULE.CapitalFlowPostureReferenceError) as ctx:
             MODULE.build_reference(self.root)
+        message = str(ctx.exception)
+        self.assertIn("SOURCE_REVALIDATION_FAILED", message)
+        self.assertIn("REFERENCE_REDERIVATION_MISMATCH", message)
+        # A genuine mismatch -- the PAPER source's own declared inputs are
+        # unmoved and present -- must get no extra diagnosis appended: only
+        # a moved or absent input earns one.
+        self.assertNotIn("diagnosis=", message)
+
+    def test_stale_paper_reference_gets_a_diagnosis_naming_the_moved_input(self):
+        # Reproduces the 2026-09-18 shape: the committed PAPER regime
+        # reference this producer reads as its own source was correct when
+        # written, then a primary input (here, KR) moved underneath it.
+        # SOURCE_REVALIDATION_FAILED:REFERENCE_REDERIVATION_MISMATCH alone
+        # does not say that; this module's diagnosis must.
+        kr_path = self.root / "data/latest_korea_market_signals.json"
+        kr_source = json.loads(kr_path.read_text(encoding="utf-8"))
+        committed_kr_as_of = kr_source["as_of_date"]
+        backfilled_kr_as_of = "2099-01-02" if committed_kr_as_of != "2099-01-02" else "2099-01-03"
+        kr_source["as_of_date"] = backfilled_kr_as_of
+        kr_path.write_text(json.dumps(kr_source), encoding="utf-8")
+
+        with self.assertRaises(MODULE.CapitalFlowPostureReferenceError) as ctx:
+            MODULE.build_reference(self.root)
+        message = str(ctx.exception)
+        self.assertIn("SOURCE_REVALIDATION_FAILED", message)
+        self.assertIn("REFERENCE_REDERIVATION_MISMATCH", message)
+        self.assertIn("diagnosis=", message)
+        self.assertIn("was not wrong when generated", message)
+        self.assertIn("data/latest_korea_market_signals.json", message)
+        self.assertIn(MODULE.STALE_PRODUCER_WORKFLOW, message)
+        self.assertIn(
+            f"KR as_of_date {committed_kr_as_of!r}->{backfilled_kr_as_of!r}", message
+        )
+        # Never an incomplete-checkout diagnosis for a moved-but-present input.
+        self.assertNotIn("absent from this checkout", message)
+
+    def test_incomplete_checkout_gets_a_diagnosis_naming_the_absent_input(self):
+        # A third way to reach the same failure, proven in isolation
+        # elsewhere: a completely correct, completely unmoved repository
+        # whose checkout is missing one directory (a sparse checkout can
+        # silently omit evidence/crypto/btc/raw/<date>/, since
+        # actions/checkout's sparse-checkout implies blob:none). That must
+        # never be reported as staleness -- it would send a reader to
+        # dispatch the producer to regenerate a reference that was never
+        # stale, which is the expensive kind of wrong for a committed
+        # append-only evidence packet. Uses the real repository root
+        # (skipping itself if today's live data has no normalization
+        # closure to omit), not the synthetic self.root fixture, because
+        # only the real committed reference actually has one.
+        committed = MODULE.PAPER_REGIME.build_reference(ROOT)
+        normalization_sources = committed.get("crypto_descriptive_normalization_sources")
+        if not normalization_sources:
+            self.skipTest(
+                "today's real repository has no Crypto normalization closure "
+                "to omit (CRYPTO is already WAIT_MARKET_NORMALIZATION_INPUT)"
+            )
+        crypto_row = next(row for row in committed["markets"] if row["market"] == "CRYPTO")
+        raw_manifest = f"evidence/crypto/btc/raw/{crypto_row['as_of_date']}/_manifest.json"
+        self.assertIn(raw_manifest, {row["path"] for row in normalization_sources})
+        missing_dir = str(Path(raw_manifest).parent)
+
+        with tempfile.TemporaryDirectory() as raw:
+            tmp_root = Path(raw)
+            _tree_with_one_path_missing(ROOT, tmp_root, missing_dir)
+            self.assertFalse((tmp_root / raw_manifest).exists())
+
+            with self.assertRaises(MODULE.CapitalFlowPostureReferenceError) as ctx:
+                MODULE.build_reference(tmp_root)
+            message = str(ctx.exception)
+            self.assertIn("SOURCE_REVALIDATION_FAILED", message)
+            self.assertIn("diagnosis=", message)
+            self.assertIn("absent from this checkout", message)
+            self.assertIn(raw_manifest, message)
+            # Never the staleness wording for an input that simply is not
+            # there in this checkout.
+            self.assertNotIn("was not wrong when generated", message)
 
     def test_policy_identity_and_boolean_types_fail_closed(self):
         path = self.root / "config/capital_flow_posture_reference_policy_v1.json"
