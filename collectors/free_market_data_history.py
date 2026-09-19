@@ -62,6 +62,7 @@ import json
 import os
 from pathlib import Path
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -127,13 +128,31 @@ MAX_PAGES = 64
 #    Not probing the endpoint that does the work was the design hole.
 HTTP_ERROR_BODY_MAX = 400
 
+# ★ 2026-09-19, run 35435347342. The measure probe added by the previous change
+# found the real cause of the fetch 400, and it was none of the three suspected
+# ones. All five request shapes were rejected with the SAME provider message:
+#
+#   "There are 3936 vintage dates in the specified real-time period:
+#    1776-07-04 to 9999-12-31. This exceeds the maximum number of vintage dates
+#    allowed for this file type (2000)."
+#
+# The constraint is the number of VINTAGES inside the requested real-time
+# period, not the request's parameter shape and not the response's size. The
+# axis that has to be split is therefore the realtime axis, which used to be one
+# fixed window per series. ``build_vintage_window_plan`` splits it; the
+# observation axis keeps its own chunking below for paging safety.
+#
 # The observation window is ALWAYS received in chunks of this many days, per
-# series. That removes response size as a variable (rather than assuming it is
-# not one) and keeps every retained response small. Chunks are inclusive and
-# strictly adjacent -- ``fred_observation_chunks`` yields [start, end] ranges
-# with no gap and no overlap -- so merging them can neither lose nor duplicate a
-# row, which ``_merge_vintage_rows`` enforces and the regression pins.
-FRED_CHUNK_DAYS = 365
+# series and per realtime window. Chunks are inclusive and strictly adjacent --
+# ``fred_observation_chunks`` yields [start, end] ranges with no gap and no
+# overlap -- so merging them can neither lose nor duplicate a row, which
+# ``_merge_vintage_rows`` enforces and the regression pins. The default is
+# deliberately larger than a year: the observation axis was never the failing
+# constraint (the provider named the vintage count), and multiplying it against
+# the realtime windows costs requests for nothing. It is still small enough that
+# a multi-year window produces more than one chunk, so the merge path runs in
+# production rather than only in the regression.
+FRED_CHUNK_DAYS = 1830
 
 # Candidate request shapes for ``series/observations``, most explicit first.
 # Every shape keeps ``realtime_start``/``realtime_end`` at the ALFRED extremes:
@@ -159,6 +178,30 @@ FRED_OBSERVATION_SHAPES = (
     {"id": "provider_defaults", "sort_order": None,
      "limit": None, "output_type": False},
 )
+
+# Vintage dates per realtime window. The provider stated its own maximum as
+# 2000 on 2026-09-19, so this is a 4x margin. Two reasons for the margin rather
+# than sitting just under the stated cap:
+#
+# * Batching by vintage COUNT (not by a fixed date window) means a series that
+#   accumulates vintages gets MORE windows, never more vintages per window. The
+#   plan therefore cannot rot as the series grows -- which a date-based split
+#   would, and that would be a time bomb.
+# * If the provider ever lowers the cap, ``build_vintage_window_plan`` compares
+#   this size against the number parsed out of the provider's own message and
+#   fails closed (``FRED_VINTAGE_BATCH_SIZE_EXCEEDS_PROVIDER_LIMIT``) instead of
+#   discovering it mid-receive. measure reports that comparison before any
+#   receive is started.
+FRED_VINTAGE_BATCH_SIZE = 500
+
+# The provider states its own limit in the 400 body; parsed, never assumed.
+FRED_VINTAGE_LIMIT_PATTERN = re.compile(
+    r"maximum number of vintage dates allowed[^(]*\((\d+)\)", re.IGNORECASE
+)
+
+# FRED rate-limits per key. A full receive now makes tens of observation
+# requests, so they are paced rather than issued as fast as the runner can.
+FRED_REQUEST_INTERVAL_SECONDS = 0.6
 
 # measure mode request budget, counted exactly (see measure_request_budget):
 #   N  ALFRED vintagedates, one per contract FRED series
@@ -484,8 +527,14 @@ def fetch_fred_vintage_dates(
     getter=None,
     budget: RequestBudget | None = None,
     receipts: list | None = None,
-) -> tuple[bytes, dict]:
-    """How far back ALFRED actually holds vintages for one series."""
+) -> tuple[bytes, dict, list[str]]:
+    """Every vintage date ALFRED holds for one series, oldest first.
+
+    The dates are the input to ``build_vintage_window_plan``: the realtime axis
+    is split by vintage COUNT, so the list itself -- not a guess about how dense
+    vintages are -- decides the windows. A truncated listing would silently drop
+    vintages from the plan, so it fails closed rather than planning on a subset.
+    """
     series_id = _check_series_id(series_id)
     params = {
         "series_id": series_id,
@@ -507,16 +556,170 @@ def fetch_fred_vintage_dates(
         raise FreeMarketDataError(f"FRED_VINTAGE_DATES_MISSING:{series_id}")
     for value in dates:
         _check_date(value, f"FRED_VINTAGE_DATE_INVALID:{series_id}")
+    dates = sorted(dates)
     count = body.get("count")
+    truncated = isinstance(count, int) and count > len(dates)
     summary = {
         "series_id": series_id,
         "vintage_date_count_reported": count if isinstance(count, int) else None,
         "vintage_date_count_returned": len(dates),
         "earliest_vintage_date": dates[0],
         "latest_vintage_date": dates[-1],
-        "truncated": isinstance(count, int) and count > len(dates),
+        "truncated": truncated,
     }
-    return raw, summary
+    return raw, summary, dates
+
+
+def parse_vintage_date_limit(text: object) -> int | None:
+    """The provider's own stated maximum, read out of its own message.
+
+    Nothing here assumes 2000. The number is parsed when FRED says it, recorded,
+    and compared against ``FRED_VINTAGE_BATCH_SIZE``; if the provider ever
+    lowers it below twice the committed batch size, the plan fails closed.
+    """
+    if not isinstance(text, str):
+        return None
+    match = FRED_VINTAGE_LIMIT_PATTERN.search(text)
+    if match is None:
+        return None
+    try:
+        value = int(match.group(1))
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _next_day(value: str) -> str | None:
+    """The calendar day after ``value``, or None at the ALFRED horizon."""
+    if value == FRED_REALTIME_MAX:
+        return None
+    return (dt.date.fromisoformat(value) + dt.timedelta(days=1)).isoformat()
+
+
+def build_vintage_window_plan(
+    series_id: str,
+    vintage_dates: list[str],
+    *,
+    batch_size: int = FRED_VINTAGE_BATCH_SIZE,
+    provider_limit: int | None = None,
+) -> list[dict]:
+    """Split the realtime axis into windows holding at most ``batch_size`` vintages.
+
+    The windows are calendar-contiguous and disjoint, and together they cover
+    ``[earliest vintage date .. FRED_REALTIME_MAX]``. Calendar-contiguous rather
+    than vintage-exact matters: ALFRED clips each row's realtime window to the
+    requested one, so two adjacent requests return the two halves of one
+    availability interval. If the windows had gaps on days that happen to hold no
+    vintage, ``_stitch_availability`` would leave a hole on exactly those days
+    and an as-of read there would find nothing. Contiguity removes that.
+
+    The last window ends at ``FRED_REALTIME_MAX`` so a value that is still
+    current keeps ``9999-12-31`` and not a clipped end.
+    """
+    series_id = _check_series_id(series_id)
+    if not isinstance(batch_size, int) or batch_size < 1:
+        raise FreeMarketDataError("FRED_VINTAGE_BATCH_SIZE_INVALID")
+    if provider_limit is not None and batch_size * 2 > provider_limit:
+        raise FreeMarketDataError(
+            "FRED_VINTAGE_BATCH_SIZE_EXCEEDS_PROVIDER_LIMIT:"
+            f"{batch_size}:{provider_limit}"
+        )
+    dates = sorted(
+        _check_date(value, f"FRED_VINTAGE_DATE_INVALID:{series_id}")
+        for value in vintage_dates
+    )
+    if not dates:
+        raise FreeMarketDataError(f"FRED_VINTAGE_DATES_MISSING:{series_id}")
+    if len(set(dates)) != len(dates):
+        raise FreeMarketDataError(f"FRED_VINTAGE_DATES_DUPLICATED:{series_id}")
+    windows = []
+    cursor = dates[0]
+    for index, position in enumerate(range(0, len(dates), batch_size)):
+        batch = dates[position:position + batch_size]
+        last = position + len(batch) >= len(dates)
+        realtime_end = FRED_REALTIME_MAX if last else batch[-1]
+        windows.append({
+            "index": index,
+            "realtime_start": cursor,
+            "realtime_end": realtime_end,
+            "vintage_date_count": len(batch),
+            "first_vintage_date": batch[0],
+            "last_vintage_date": batch[-1],
+        })
+        if not last:
+            following = _next_day(realtime_end)
+            if following is None:
+                raise FreeMarketDataError(
+                    f"FRED_VINTAGE_WINDOW_PLAN_INVALID:{series_id}"
+                )
+            cursor = following
+    assert_vintage_window_plan_covers(series_id, dates, windows, batch_size)
+    return windows
+
+
+def assert_vintage_window_plan_covers(
+    series_id: str, vintage_dates: list[str], windows: list[dict], batch_size: int
+) -> None:
+    """Prove the plan loses no vintage and double-counts none.
+
+    Narrowing the realtime window is only safe if the union of the narrowed
+    windows still covers every vintage ALFRED holds. That is asserted here, on
+    every plan, at build time -- not left to a reviewer's reading.
+    """
+    if not windows:
+        raise FreeMarketDataError(f"FRED_VINTAGE_WINDOW_PLAN_EMPTY:{series_id}")
+    dates = sorted(vintage_dates)
+    if windows[0]["realtime_start"] != dates[0]:
+        raise FreeMarketDataError(
+            f"FRED_VINTAGE_WINDOW_PLAN_START_MISMATCH:{series_id}"
+        )
+    if windows[-1]["realtime_end"] != FRED_REALTIME_MAX:
+        raise FreeMarketDataError(
+            f"FRED_VINTAGE_WINDOW_PLAN_END_MISMATCH:{series_id}"
+        )
+    for earlier, later in zip(windows, windows[1:]):
+        if earlier["realtime_start"] > earlier["realtime_end"]:
+            raise FreeMarketDataError(
+                f"FRED_VINTAGE_WINDOW_ORDER_INVALID:{series_id}"
+            )
+        if _next_day(earlier["realtime_end"]) != later["realtime_start"]:
+            raise FreeMarketDataError(
+                f"FRED_VINTAGE_WINDOW_PLAN_NOT_CONTIGUOUS:{series_id}"
+            )
+    covered = 0
+    for window in windows:
+        if window["vintage_date_count"] > batch_size:
+            raise FreeMarketDataError(
+                f"FRED_VINTAGE_WINDOW_OVER_BATCH_SIZE:{series_id}"
+            )
+        inside = [
+            value for value in dates
+            if window["realtime_start"] <= value <= window["realtime_end"]
+        ]
+        if len(inside) != window["vintage_date_count"]:
+            raise FreeMarketDataError(
+                f"FRED_VINTAGE_WINDOW_COUNT_MISMATCH:{series_id}:{window['index']}"
+            )
+        covered += len(inside)
+    if covered != len(dates):
+        raise FreeMarketDataError(
+            f"FRED_VINTAGE_WINDOW_PLAN_COVERAGE_MISMATCH:{series_id}:{covered}"
+            f":{len(dates)}"
+        )
+
+
+def vintage_window_plan_summary(series_id: str, windows: list[dict]) -> dict:
+    counts = [window["vintage_date_count"] for window in windows]
+    return {
+        "series_id": series_id,
+        "window_count": len(windows),
+        "batch_size": FRED_VINTAGE_BATCH_SIZE,
+        "vintage_date_total": sum(counts),
+        "max_vintage_dates_in_a_window": max(counts) if counts else 0,
+        "realtime_start": windows[0]["realtime_start"] if windows else None,
+        "realtime_end": windows[-1]["realtime_end"] if windows else None,
+        "windows": windows,
+    }
 
 
 def parse_fred_vintage_page(series_id: str, raw: bytes) -> tuple[list[dict], object]:
@@ -559,14 +762,23 @@ def fred_observation_params(
     output_type: int,
     shape: dict,
     offset: int = 0,
+    *,
+    realtime_start: str,
+    realtime_end: str,
 ) -> dict:
     """Build one ``series/observations`` request under a candidate shape.
 
-    The four keys that carry the point-in-time meaning -- ``series_id``,
-    the observation window, and ``realtime_start``/``realtime_end`` at the ALFRED
-    extremes -- are NOT shape-dependent and are always present. Everything the
-    shape varies is an optional parameter whose omitted value is FRED's own
-    default, so no shape can change which data is asked for.
+    The keys that carry the point-in-time meaning -- ``series_id``, the
+    observation window, and the realtime window -- are NOT shape-dependent and
+    are always present. Everything the shape varies is an optional parameter
+    whose omitted value is FRED's own default, so no shape can change which data
+    is asked for.
+
+    The realtime window is required and is never defaulted: omitting it would
+    make FRED answer for today only, i.e. the current revision, which is the one
+    thing this module exists to avoid. It comes from
+    ``build_vintage_window_plan``, whose windows together cover every vintage the
+    series has.
 
     ``offset`` is sent only when it is non-zero: sending the default on the first
     page added one more parameter that could be rejected for nothing.
@@ -580,9 +792,13 @@ def fred_observation_params(
         "observation_end": _check_date(
             observation_end, "FRED_OBSERVATION_END_INVALID"
         ),
-        "realtime_start": FRED_REALTIME_MIN,
-        "realtime_end": FRED_REALTIME_MAX,
+        "realtime_start": _check_date(
+            realtime_start, "FRED_REALTIME_START_INVALID"
+        ),
+        "realtime_end": _check_date(realtime_end, "FRED_REALTIME_END_INVALID"),
     }
+    if params["realtime_start"] > params["realtime_end"]:
+        raise FreeMarketDataError("FRED_REALTIME_WINDOW_ORDER_INVALID")
     if shape.get("output_type"):
         params["output_type"] = output_type
     if shape.get("sort_order"):
@@ -643,6 +859,45 @@ def _merge_vintage_rows(row_groups: list[list[dict]]) -> list[dict]:
     return [merged[key] for key in sorted(merged)]
 
 
+def _stitch_availability(rows: list[dict]) -> list[dict]:
+    """Rejoin availability intervals that a realtime window boundary split.
+
+    ALFRED clips every row's realtime window to the one requested, so a value
+    that was published inside window k and was still current in window k+1 comes
+    back as two rows: ``[published, k.end]`` and ``[k+1.start, ...]``. Because
+    the plan's windows are calendar-contiguous, ``k+1.start`` is exactly the day
+    after ``k.end``, and only those two halves stitch.
+
+    Two intervals are joined only when they are calendar-adjacent for the SAME
+    observation date AND the same value. A value that was revised away and later
+    restored has a real gap between its intervals (the intervening value
+    occupied it), so it is left as two intervals -- which is correct, and is why
+    the value is part of the key. An actual overlap is a contradiction and fails
+    closed rather than being resolved silently.
+    """
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        grouped.setdefault((row["observation_date"], row["value"]), []).append(row)
+    stitched: list[dict] = []
+    for (observation_date, value), group in grouped.items():
+        group = sorted(group, key=lambda row: (row["available_from"], row["available_to"]))
+        current = dict(group[0])
+        for row in group[1:]:
+            if row["available_from"] <= current["available_to"]:
+                raise FreeMarketDataError(
+                    f"FRED_AVAILABILITY_OVERLAP:{observation_date}:{value}"
+                )
+            if _next_day(current["available_to"]) == row["available_from"]:
+                current["available_to"] = row["available_to"]
+                continue
+            stitched.append(current)
+            current = dict(row)
+        stitched.append(current)
+    return sorted(
+        stitched, key=lambda row: (row["observation_date"], row["available_from"])
+    )
+
+
 def fetch_fred_vintage_observations(
     api_key: str,
     series_id: str,
@@ -650,6 +905,8 @@ def fetch_fred_vintage_observations(
     observation_end: str,
     output_type: int,
     *,
+    realtime_start: str,
+    realtime_end: str,
     shape: dict | None = None,
     require_rows: bool = True,
     getter=None,
@@ -670,7 +927,8 @@ def fetch_fred_vintage_observations(
     offset = 0
     for _page in range(MAX_PAGES):
         params = fred_observation_params(
-            series_id, observation_start, observation_end, output_type, shape, offset
+            series_id, observation_start, observation_end, output_type, shape, offset,
+            realtime_start=realtime_start, realtime_end=realtime_end,
         )
         raw = _request(
             f"{FRED_API}/series/observations",
@@ -703,23 +961,30 @@ def probe_fred_observation_shape(
     output_type: int,
     shape: dict,
     *,
+    realtime_start: str,
+    realtime_end: str,
     getter=None,
     budget: RequestBudget | None = None,
     receipts: list | None = None,
 ) -> dict:
-    """Try ONE shape on ONE chunk-sized window and report what FRED said.
+    """Try ONE shape on ONE planned realtime window and report what FRED said.
 
     A rejection carries the provider's own (masked, truncated) explanation, which
-    is the thing run 35432930212 could not tell anyone.
+    is the thing run 35432930212 could not tell anyone, and which named the real
+    constraint on run 35435347342. Any vintage-count limit stated in that
+    explanation is parsed out and reported rather than assumed.
     """
     params = fred_observation_params(
-        series_id, observation_start, observation_end, output_type, shape
+        series_id, observation_start, observation_end, output_type, shape,
+        realtime_start=realtime_start, realtime_end=realtime_end,
     )
     record = {
         "shape_id": shape["id"],
         "series_id": series_id,
         "observation_start": observation_start,
         "observation_end": observation_end,
+        "realtime_start": realtime_start,
+        "realtime_end": realtime_end,
         # The credential is never part of `params`, so this is safe to print
         # and safe to commit.
         "params": {key: str(value) for key, value in sorted(params.items())},
@@ -727,11 +992,18 @@ def probe_fred_observation_shape(
     try:
         _pages, rows = fetch_fred_vintage_observations(
             api_key, series_id, observation_start, observation_end, output_type,
+            realtime_start=realtime_start, realtime_end=realtime_end,
             shape=shape, require_rows=False, getter=getter, budget=budget,
             receipts=receipts,
         )
     except FreeMarketDataError as exc:
-        return {**record, "status": "REJECTED", "provider_error": mask_secrets(str(exc))}
+        message = mask_secrets(str(exc))
+        return {
+            **record,
+            "status": "REJECTED",
+            "provider_error": message,
+            "provider_vintage_date_limit": parse_vintage_date_limit(message),
+        }
     availability = sorted({row["available_from"] for row in rows})
     return {
         **record,
@@ -751,6 +1023,8 @@ def negotiate_fred_observation_shape(
     observation_end: str,
     output_type: int,
     *,
+    realtime_start: str,
+    realtime_end: str,
     attempts: list | None = None,
     getter=None,
     budget: RequestBudget | None = None,
@@ -770,7 +1044,8 @@ def negotiate_fred_observation_shape(
     for shape in FRED_OBSERVATION_SHAPES:
         attempt = probe_fred_observation_shape(
             api_key, series_id, observation_start, observation_end, output_type,
-            shape, getter=getter, budget=budget, receipts=receipts,
+            shape, realtime_start=realtime_start, realtime_end=realtime_end,
+            getter=getter, budget=budget, receipts=receipts,
         )
         attempts.append(attempt)
         if attempt["status"] == "ACCEPTED":
@@ -791,40 +1066,68 @@ def fetch_fred_vintage_range(
     output_type: int,
     *,
     shape: dict,
+    windows: list[dict],
     chunk_days: int = FRED_CHUNK_DAYS,
+    pace_seconds: float = 0.0,
     getter=None,
     budget: RequestBudget | None = None,
     receipts: list | None = None,
 ) -> tuple[list[bytes], list[dict], list[dict]]:
-    """Receive a whole observation window as adjacent chunks, then merge.
+    """Receive one series over every planned realtime window, then merge.
 
-    Chunking is unconditional: it removes response size as a variable instead of
-    assuming it is not one. Because the chunks are inclusive and strictly
-    adjacent, the merge is lossless, and ``_merge_vintage_rows`` fails closed if
-    two chunks ever disagree about the same published value.
+    Two axes, both split, for two different reasons:
+
+    * **realtime** -- because the provider caps the number of vintages inside one
+      requested real-time period (it said 2000 on 2026-09-19 for a series that
+      has 3936). ``windows`` comes from ``build_vintage_window_plan``, which has
+      already proved it covers every vintage.
+    * **observation** -- for paging safety, inclusive and strictly adjacent.
+
+    Every series takes this path, including the two that would fit in a single
+    realtime window today (TOTBKCR 1553 vintages, WRESBAL 1148). Giving them a
+    different code path would mean the split is never exercised for them, and the
+    day they cross the cap it would break silently. One path, always.
+
+    The rows are merged (duplicate-free, failing closed on a conflict) and then
+    stitched: ALFRED clips each row's realtime window to the requested one, so a
+    single availability interval crossing a window boundary arrives as two halves
+    and must be rejoined or an as-of read past the boundary would find nothing.
     """
+    if not windows:
+        raise FreeMarketDataError(f"FRED_VINTAGE_WINDOW_PLAN_EMPTY:{series_id}")
     chunks = fred_observation_chunks(observation_start, observation_end, chunk_days)
     pages: list[bytes] = []
     row_groups: list[list[dict]] = []
-    chunk_records: list[dict] = []
-    for chunk_start, chunk_end in chunks:
-        chunk_pages, chunk_rows = fetch_fred_vintage_observations(
-            api_key, series_id, chunk_start, chunk_end, output_type,
-            shape=shape, require_rows=False, getter=getter, budget=budget,
-            receipts=receipts,
-        )
-        pages.extend(chunk_pages)
-        row_groups.append(chunk_rows)
-        chunk_records.append({
-            "observation_start": chunk_start,
-            "observation_end": chunk_end,
-            "page_count": len(chunk_pages),
-            "row_count": len(chunk_rows),
-        })
-    rows = _merge_vintage_rows(row_groups)
+    request_records: list[dict] = []
+    first = True
+    for window in windows:
+        for chunk_start, chunk_end in chunks:
+            if pace_seconds and not first:
+                time.sleep(pace_seconds)
+            first = False
+            chunk_pages, chunk_rows = fetch_fred_vintage_observations(
+                api_key, series_id, chunk_start, chunk_end, output_type,
+                realtime_start=window["realtime_start"],
+                realtime_end=window["realtime_end"],
+                shape=shape, require_rows=False, getter=getter, budget=budget,
+                receipts=receipts,
+            )
+            pages.extend(chunk_pages)
+            row_groups.append(chunk_rows)
+            request_records.append({
+                "realtime_window_index": window["index"],
+                "realtime_start": window["realtime_start"],
+                "realtime_end": window["realtime_end"],
+                "vintage_date_count": window["vintage_date_count"],
+                "observation_start": chunk_start,
+                "observation_end": chunk_end,
+                "page_count": len(chunk_pages),
+                "row_count": len(chunk_rows),
+            })
+    rows = _stitch_availability(_merge_vintage_rows(row_groups))
     if not rows:
         raise FreeMarketDataError(f"FRED_VINTAGE_ROWS_EMPTY:{series_id}")
-    return pages, rows, chunk_records
+    return pages, rows, request_records
 
 
 def fetch_fred_series_metadata(
@@ -925,6 +1228,7 @@ def build_availability_series(
     rows: list[dict],
     metadata: dict,
     page_pointers: list[dict],
+    plan_summary: dict | None = None,
 ) -> dict:
     vintages = sorted({row["available_from"] for row in rows})
     observed = sorted({row["observation_date"] for row in rows})
@@ -937,8 +1241,16 @@ def build_availability_series(
         ),
         "observation_start": observation_start,
         "observation_end": observation_end,
-        "realtime_start": FRED_REALTIME_MIN,
-        "realtime_end": FRED_REALTIME_MAX,
+        # The realtime axis is received as a plan of contiguous windows whose
+        # union covers every vintage the series has; the plan is recorded so the
+        # coverage claim is auditable from the packet alone.
+        "realtime_start": (
+            plan_summary["realtime_start"] if plan_summary else FRED_REALTIME_MIN
+        ),
+        "realtime_end": (
+            plan_summary["realtime_end"] if plan_summary else FRED_REALTIME_MAX
+        ),
+        "vintage_window_plan": plan_summary,
         "metadata": metadata,
         "row_count": len(rows),
         "observation_date_count": len(observed),
@@ -1169,6 +1481,11 @@ def measure(
             "chunk_days": FRED_CHUNK_DAYS,
             "chunk_count_for_requested_window": len(probe_chunks),
             "shape_ladder": [shape["id"] for shape in FRED_OBSERVATION_SHAPES],
+            "vintage_batch_size": FRED_VINTAGE_BATCH_SIZE,
+            "provider_vintage_date_limit": None,
+            "batch_size_within_provider_limit": None,
+            "plan": {},
+            "planned_fetch_observation_requests": None,
             "attempts": [],
             "accepted_shape_id": None,
             "series": {},
@@ -1176,11 +1493,13 @@ def measure(
         "fred_vintages": {},
         "alpaca": {},
     }
+    vintage_dates: dict[str, list[str]] = {}
     for series_id in contract["fred"]["series"]:
         try:
-            _, summary = fetch_fred_vintage_dates(
+            _, summary, dates = fetch_fred_vintage_dates(
                 fred_key, series_id, getter=getter, budget=budget, receipts=receipts
             )
+            vintage_dates[series_id] = dates
             result["fred_vintages"][series_id] = {"status": "OBSERVED", **summary}
         except FreeMarketDataError as exc:
             result["fred_vintages"][series_id] = {
@@ -1216,24 +1535,69 @@ def measure(
     probe = result["fred_observation_probe"]
     series_ids = list(contract["fred"]["series"])
     output_type = contract["fred"]["output_type"]
+    # The realtime axis is planned from the vintage date lists already received
+    # above, so the probe asks for a window a receive will actually ask for --
+    # the previous version probed the full 1776..9999 window and that is exactly
+    # what the provider refuses.
+    plans: dict[str, list[dict]] = {}
+    for series_id, dates in vintage_dates.items():
+        try:
+            plans[series_id] = build_vintage_window_plan(series_id, dates)
+            probe["plan"][series_id] = vintage_window_plan_summary(
+                series_id, plans[series_id]
+            )
+        except FreeMarketDataError as exc:
+            probe["plan"][series_id] = {
+                "series_id": series_id, "error": mask_secrets(str(exc))
+            }
+    chunk_count = len(probe_chunks)
+    probe["planned_fetch_observation_requests"] = sum(
+        summary.get("window_count", 0) * chunk_count
+        for summary in probe["plan"].values()
+    )
+    probe["observation_chunk_count_for_requested_window"] = chunk_count
     accepted_shape = None
     attempts: list[dict] = probe["attempts"]
-    try:
-        accepted_shape, _ = negotiate_fred_observation_shape(
-            fred_key, series_ids[0], probe_start, probe_end, output_type,
-            attempts=attempts, getter=getter, budget=budget, receipts=receipts,
-        )
-        probe["accepted_shape_id"] = accepted_shape["id"]
-        probe["series"][series_ids[0]] = attempts[-1]
-    except FreeMarketDataError as exc:
-        # Every shape's own rejection reason is already in `attempts`; keep the
-        # aggregate too.
-        probe["error"] = mask_secrets(str(exc))
+    first_series = series_ids[0]
+    first_plan = plans.get(first_series)
+    if not first_plan:
+        probe["error"] = f"FRED_VINTAGE_WINDOW_PLAN_EMPTY:{first_series}"
+    else:
+        # Probe the LAST planned window: it is the one whose realtime_end is the
+        # ALFRED horizon, so it is the window an as-of read of today depends on.
+        window = first_plan[-1]
+        try:
+            accepted_shape, _ = negotiate_fred_observation_shape(
+                fred_key, first_series, probe_start, probe_end, output_type,
+                realtime_start=window["realtime_start"],
+                realtime_end=window["realtime_end"],
+                attempts=attempts, getter=getter, budget=budget, receipts=receipts,
+            )
+            probe["accepted_shape_id"] = accepted_shape["id"]
+            probe["series"][first_series] = attempts[-1]
+        except FreeMarketDataError as exc:
+            # Every shape's own rejection reason is already in `attempts`; keep
+            # the aggregate too, plus any limit the provider named.
+            probe["error"] = mask_secrets(str(exc))
+    for attempt in attempts:
+        limit = attempt.get("provider_vintage_date_limit")
+        if limit is not None:
+            probe["provider_vintage_date_limit"] = limit
+            probe["batch_size_within_provider_limit"] = (
+                FRED_VINTAGE_BATCH_SIZE * 2 <= limit
+            )
     if accepted_shape is not None:
         for series_id in series_ids[1:]:
+            series_plan = plans.get(series_id)
+            if not series_plan:
+                continue
+            series_window = series_plan[-1]
             probe["series"][series_id] = probe_fred_observation_shape(
                 fred_key, series_id, probe_start, probe_end, output_type,
-                accepted_shape, getter=getter, budget=budget, receipts=receipts,
+                accepted_shape,
+                realtime_start=series_window["realtime_start"],
+                realtime_end=series_window["realtime_end"],
+                getter=getter, budget=budget, receipts=receipts,
             )
     result["requests_made"] = budget.spent
     result["request_receipts"] = receipts
@@ -1249,11 +1613,21 @@ def measure(
         "sip_available": result["alpaca"].get("sip", {}).get("status") == "OBSERVED",
         "fred_observations_ready": observations_ready,
         "fred_accepted_shape_id": probe["accepted_shape_id"],
+        "fred_realtime_window_counts": {
+            series_id: summary.get("window_count")
+            for series_id, summary in probe["plan"].items()
+        },
+        "planned_fetch_observation_requests": (
+            probe["planned_fetch_observation_requests"]
+        ),
         "note": (
             "A full receive is only worth running when a feed reaches "
             "bars_required_for_window_target AND fred_observations_ready is true. "
             "If it is false, read fred_observation_probe.attempts: each rejected "
-            "shape carries the provider's own reason."
+            "shape carries the provider's own reason, and any vintage-date limit "
+            "it states is parsed into provider_vintage_date_limit. "
+            "planned_fetch_observation_requests is how many observation requests "
+            "the receive will make: realtime windows x observation chunks."
         ),
     }
     return result
@@ -1270,6 +1644,7 @@ def fetch(
     *,
     feed: str = "iex",
     symbols: list[str] | None = None,
+    pace_seconds: float = FRED_REQUEST_INTERVAL_SECONDS,
     getter=None,
 ) -> dict:
     """Receive the range and publish it append-only under the history store."""
@@ -1337,31 +1712,71 @@ def fetch(
             "series_pointer": series_pointer,
         })
 
-    # Negotiate the observations request shape ONCE, on one chunk of the first
-    # series, before receiving anything. Run 35432930212 failed on this endpoint
-    # with no recoverable reason; the accepted shape and every rejection are now
-    # recorded in the receipt.
-    fred_start_first = (
+    fred_start = (
         dt.date.fromisoformat(start) - dt.timedelta(days=FRED_OBSERVATION_LEAD_DAYS)
     ).isoformat()
-    negotiation_window = fred_observation_chunks(fred_start_first, end)[-1]
+
+    # Vintage date lists first, for every series: they are the input to the
+    # realtime window plan, and the plan has to exist before a single
+    # observations request can be shaped. Run 35435347342 proved the realtime
+    # axis is the constrained one (the provider caps vintages per real-time
+    # period), so there is no correct request to make before this step.
+    vintage_raws: dict[str, bytes] = {}
+    vintage_summaries: dict[str, dict] = {}
+    plans: dict[str, list[dict]] = {}
+    for series_id in contract["fred"]["series"]:
+        vintage_raws[series_id], vintage_summaries[series_id], dates = (
+            fetch_fred_vintage_dates(
+                fred_key, series_id, getter=getter, receipts=receipts
+            )
+        )
+        if vintage_summaries[series_id]["truncated"]:
+            raise FreeMarketDataError(
+                f"FRED_VINTAGE_DATES_TRUNCATED:{series_id}"
+            )
+        plans[series_id] = build_vintage_window_plan(series_id, dates)
+
+    # Negotiate the observations request shape ONCE, on the LAST planned realtime
+    # window of the first series. The accepted shape and every rejection -- with
+    # the provider's own reason and any limit it names -- go into the receipt.
+    negotiation_window = fred_observation_chunks(fred_start, end)[-1]
+    negotiation_realtime = plans[contract["fred"]["series"][0]][-1]
     shape_attempts: list[dict] = []
-    observation_shape, _ = negotiate_fred_observation_shape(
-        fred_key,
-        contract["fred"]["series"][0],
-        negotiation_window[0],
-        negotiation_window[1],
-        contract["fred"]["output_type"],
-        attempts=shape_attempts,
-        getter=getter,
-        receipts=receipts,
-    )
+    try:
+        observation_shape, _ = negotiate_fred_observation_shape(
+            fred_key,
+            contract["fred"]["series"][0],
+            negotiation_window[0],
+            negotiation_window[1],
+            contract["fred"]["output_type"],
+            realtime_start=negotiation_realtime["realtime_start"],
+            realtime_end=negotiation_realtime["realtime_end"],
+            attempts=shape_attempts,
+            getter=getter,
+            receipts=receipts,
+        )
+    except FreeMarketDataError:
+        # If the provider named a vintage-date limit, say THAT rather than
+        # leaving the operator to read five identical rejection bodies. The
+        # actionable fact is that the committed batch size no longer fits.
+        limits = [
+            parse_vintage_date_limit(attempt.get("provider_error"))
+            for attempt in shape_attempts
+        ]
+        limits = [value for value in limits if value]
+        if limits and min(limits) < FRED_VINTAGE_BATCH_SIZE * 2:
+            raise FreeMarketDataError(
+                "FRED_VINTAGE_BATCH_SIZE_EXCEEDS_PROVIDER_LIMIT:"
+                f"{FRED_VINTAGE_BATCH_SIZE}:{min(limits)}"
+            ) from None
+        raise
 
     fred_records = []
     for series_id in contract["fred"]["series"]:
-        vintage_raw, vintage_summary = fetch_fred_vintage_dates(
-            fred_key, series_id, getter=getter, receipts=receipts
-        )
+        vintage_raw = vintage_raws[series_id]
+        vintage_summary = vintage_summaries[series_id]
+        plan = plans[series_id]
+        plan_summary = vintage_window_plan_summary(series_id, plan)
         vintage_pointer = publish_raw_object(
             root,
             build_raw_object(
@@ -1385,17 +1800,15 @@ def fetch(
             ),
             "fred_series_metadata.json.gz",
         )
-        fred_start = (
-            dt.date.fromisoformat(start)
-            - dt.timedelta(days=FRED_OBSERVATION_LEAD_DAYS)
-        ).isoformat()
-        pages, rows, chunk_records = fetch_fred_vintage_range(
+        pages, rows, request_records = fetch_fred_vintage_range(
             fred_key,
             series_id,
             fred_start,
             end,
             contract["fred"]["output_type"],
             shape=observation_shape,
+            windows=plan,
+            pace_seconds=pace_seconds,
             getter=getter,
             receipts=receipts,
         )
@@ -1417,8 +1830,8 @@ def fetch(
                     "series_id": series_id,
                     "observation_start": fred_start,
                     "observation_end": end,
-                    "realtime_start": FRED_REALTIME_MIN,
-                    "realtime_end": FRED_REALTIME_MAX,
+                    "realtime_start": plan_summary["realtime_start"],
+                    "realtime_end": plan_summary["realtime_end"],
                     "page_index": index,
                 },
             })
@@ -1427,13 +1840,14 @@ def fetch(
             "fred_alfred_availability.json",
             {
                 **build_availability_series(
-                    series_id, fred_start, end, rows, metadata, page_pointers
+                    series_id, fred_start, end, rows, metadata, page_pointers,
+                    plan_summary,
                 ),
                 "requested_window_start": start,
                 "observation_lead_days": FRED_OBSERVATION_LEAD_DAYS,
                 "request_shape_id": observation_shape["id"],
                 "chunk_days": FRED_CHUNK_DAYS,
-                "chunks": chunk_records,
+                "requests": request_records,
             },
         )
         availability_pointer = publish_derived_object(
@@ -1445,7 +1859,8 @@ def fetch(
             "observation_end_applied": end,
             "observation_lead_days": FRED_OBSERVATION_LEAD_DAYS,
             "chunk_days": FRED_CHUNK_DAYS,
-            "chunks": chunk_records,
+            "vintage_window_plan": plan_summary,
+            "requests": request_records,
             "vintage_dates": vintage_summary,
             "vintage_dates_pointer": vintage_pointer,
             "metadata": metadata,
@@ -1477,6 +1892,10 @@ def fetch(
                 "request_shape_id": observation_shape["id"],
                 "request_shape_attempts": shape_attempts,
                 "chunk_days": FRED_CHUNK_DAYS,
+                "vintage_batch_size": FRED_VINTAGE_BATCH_SIZE,
+                "realtime_axis_split_reason": (
+                    "PROVIDER_CAPS_VINTAGE_DATES_PER_REALTIME_PERIOD"
+                ),
                 "series": fred_records,
             },
             "request_receipts": receipts,
@@ -1586,9 +2005,10 @@ def verify(root: Path) -> dict:
                 )
                 rows, _count = parse_fred_vintage_page(body["series_id"], page)
                 groups.append(rows)
-            # The same merge the receive used, so a chunked receive replays
-            # exactly and a boundary conflict fails here too.
-            rebuilt = _merge_vintage_rows(groups)
+            # The same merge AND the same stitch the receive used, so a
+            # chunked, window-split receive replays exactly and a boundary
+            # conflict fails here too.
+            rebuilt = _stitch_availability(_merge_vintage_rows(groups))
             if rebuilt != body.get("rows"):
                 raise FreeMarketDataError("HISTORY_ALFRED_AVAILABILITY_REPLAY_MISMATCH")
             latest = body.get("latest_availability_date")
