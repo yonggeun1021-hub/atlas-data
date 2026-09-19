@@ -1,21 +1,24 @@
 {
-  "_comment": "Portfolio Constitution B층 — IC 세션에서 확정한다. null 인 동안 status 는 not_ratified 이며 어떤 매수도 허용되지 않는다.",
-  "status": "not_ratified",
-  "ratified_at": null,
-  "constitution_version": null,
+  "_comment": "Portfolio Constitution B층 — 2026-09-19 사용자가 '확정'으로 B1~B7 을 확정했다. 확정 전에는 값이 null 이고 status 가 not_ratified 였으며 어떤 매수도 허용되지 않았다. 지금은 status 가 ratified 이고 B1~B7 이 모두 채워져 있어 규모 산정이 가능하다 — 그러나 값이 다시 null 이 되거나 status 가 ratified 가 아니거나 내부 모순이 생기면 즉시 다시 어떤 매수도 허용되지 않는다(fail-closed). 확정이 푸는 것은 규모 산정이고, 매수·주문·실거래 권한은 이 파일이 주지 않는다.",
+  "status": "ratified",
+  "ratified_at": "2026-09-19T08:57:22Z",
+  "constitution_version": "ATLAS-CONSTITUTION-B1-B7-V1",
 
-  "B1_bucket_definition": null,
-  "B2_cash_floor_pct": null,
-  "B3_bucket_max_pct": null,
-  "B4_position_max_pct": null,
-  "B5_stop_loss_pct": null,
-  "B6_portfolio_max_loss_pct": null,
+  "B1_bucket_definition": {
+    "definition_ref": "config/constitution_b1_bucket_definition_v1.json",
+    "definition_sha256": "dabd3731fc1b6e508e092e83984b537e284670db7c9a89f32b7309944eb015d6"
+  },
+  "B2_cash_floor_pct": 10,
+  "B3_bucket_max_pct": 50,
+  "B4_position_max_pct": 10,
+  "B5_stop_loss_pct": 20,
+  "B6_portfolio_max_loss_pct": 20,
 
   "B7_evidence_state_max_pct": {
-    "backtest_only": null,
-    "forward_early": null,
-    "forward_established": null,
-    "operating": null
+    "backtest_only": 0,
+    "forward_early": 2,
+    "forward_established": 5,
+    "operating": 10
   },
 
   "amendment_log": []
