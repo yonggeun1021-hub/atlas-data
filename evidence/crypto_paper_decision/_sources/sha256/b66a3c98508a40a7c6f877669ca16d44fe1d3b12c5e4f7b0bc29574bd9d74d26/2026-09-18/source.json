@@ -1,0 +1,94 @@
+{
+  "as_of_date": "2026-09-18",
+  "authority": {
+    "allocation_change_authorized": false,
+    "forced_liquidation_authorized": false,
+    "order_authorized": false,
+    "real_trading_authorized": false,
+    "secret_access_authorized": false
+  },
+  "chain": {
+    "chain_start_date": null,
+    "last_observed_as_of_date": null,
+    "observation_index": null,
+    "previous_observation_date": null,
+    "reset": false
+  },
+  "decision_view": {
+    "emerging_watch_display_only": [],
+    "forced_exit": [],
+    "release_new_buy_stop": [],
+    "t1_selection": []
+  },
+  "decisions_effective_from": "2026-09-15",
+  "entry_gate_view": [],
+  "evidence_badge_ko": "경계선 통과",
+  "evidence_phase": "DECISION_EFFECTIVE",
+  "input_chain_sha256": "2e7c3253acd266d0b6f3dbad8bb533dbd121c6d77919cd0cd6823ee587b92279",
+  "market": "CRYPTO",
+  "maximum_observation_gap_days": 2,
+  "observation": {
+    "sources": [
+      {
+        "path": "data/observations/crypto_leadership/2026-09-18/packet.json",
+        "sha256": "6ca7453d88126b0e951394e6f91b9248e64cbfc466fd1f5d44251f5bac98ee69"
+      }
+    ],
+    "status": "UNKNOWN",
+    "unknown_reason": "WINDOW_SOURCE_POINT_UNKNOWN"
+  },
+  "payload_sha256": "7cdc9b9a2e3193160642c7381852a3f0bf5104bec1c550252241e306d1bf32ce",
+  "pending_definitions": [
+    "FORWARD_REVIEW_EXCESS_RETURN_BASELINE_CLARIFICATION_PENDING_USER_RATIFICATION"
+  ],
+  "policy": {
+    "policy_id": "ROTATION_CONFIRMATION.USER_RATIFIED.V1",
+    "policy_sha256": "0bf2af4b63171c2bc7dda2cbcfde0b7023bba4a63d4ef10d4ed5361a223885d8",
+    "ratification_record_id": "USER_RATIFICATION_CAPITAL_ROTATION_RULES_V1_20260915",
+    "ratification_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116"
+  },
+  "ratification_status": "RATIFIED",
+  "rule_id": "RULE.ROTATION.CRYPTO.V1",
+  "rule_refs": [
+    {
+      "registry_sha256": null,
+      "role": "APPLIED",
+      "rule_id": "RULE.ROTATION.COMMON_T1T2_NEUTRAL.V1",
+      "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+      "version": 1
+    },
+    {
+      "registry_sha256": null,
+      "role": "APPLIED",
+      "rule_id": "RULE.ROTATION.CRYPTO.V1",
+      "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+      "version": 1
+    },
+    {
+      "registry_sha256": null,
+      "role": "APPLIED",
+      "rule_id": "RULE.ROTATION.RELEASE_HANDLING.V1",
+      "source_record_sha256": "c6f5dbbe36f3eabc104db9c547ba99d84300fd5b7ef4d801a71c76a071b47116",
+      "version": 1
+    }
+  ],
+  "schema_version": "rotation_confirmation_packet/1",
+  "scopes": [],
+  "strength_basis": null,
+  "summary": {
+    "by_state": {
+      "EMERGING_WATCH": [],
+      "NEUTRAL": [],
+      "STRONG_CONFIRMED": [],
+      "STRONG_HELD": [],
+      "STRONG_RELEASED": []
+    },
+    "counts": {
+      "EMERGING_WATCH": 0,
+      "NEUTRAL": 0,
+      "STRONG_CONFIRMED": 0,
+      "STRONG_HELD": 0,
+      "STRONG_RELEASED": 0
+    }
+  }
+}
