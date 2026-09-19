@@ -1,0 +1,111 @@
+{
+  "authority": {
+    "aggregate_coverage_only": true,
+    "candidate_promotion_authorized": false,
+    "investable_universe_authorized": false,
+    "paper_order_authorized": false,
+    "production_authorized": false,
+    "real_order_authorized": false,
+    "strategy_entry_authorized": false,
+    "trading_authorized": false
+  },
+  "coverage": {
+    "actual_discovery_target_count": "미집계",
+    "decision_counts": {
+      "ELIGIBLE": 0,
+      "EXCLUDED": 944,
+      "UNKNOWN": 3446
+    },
+    "evaluated_record_count": 4390,
+    "final_candidate_count": "미집계",
+    "registry_evaluation_input_count": 4390,
+    "screening_counts": {
+      "CATEGORICAL_CANDIDATE": 3415,
+      "EXCLUDED": 944,
+      "UNKNOWN": 31
+    },
+    "source_coverage_universe_count": 2767
+  },
+  "decision_unknown_blocker_counts": {
+    "CATEGORICAL_SCREENING_UNKNOWN": 31,
+    "KRX_DELISTING_SCHEDULE_EVIDENCE_MISSING": 3415,
+    "LIQUIDITY_AND_EXECUTION_THRESHOLDS_UNRATIFIED": 3415,
+    "NOT_COMPUTABLE_NO_PRIOR_KIS_REGISTRY": 3415,
+    "ORDER_BOOK_DEPTH_MEASUREMENT_MISSING": 3415,
+    "SLIPPAGE_MEASUREMENT_MISSING": 3415,
+    "SPREAD_MEASUREMENT_MISSING": 3415,
+    "TURNOVER_MEASUREMENT_MISSING": 3415
+  },
+  "evaluation_session_date": "2026-08-28",
+  "generated_at": "2026-08-30T10:05:14Z",
+  "interpretation": {
+    "categorical_candidate_is_not_discovery_candidate": true,
+    "decision_eligible_count_is_not_candidate_count": true,
+    "denominators_are_not_equivalent": true,
+    "policy_gap": "FINAL_INVESTABLE_UNIVERSE_AND_LIQUIDITY_EXECUTION_THRESHOLDS_UNRATIFIED",
+    "reason": "KIS_MASTER_SCREENING_INCLUDES_NON_KRX_STOCK_PRODUCTS",
+    "reason_counts_are_multivalued_non_additive": true,
+    "registry_evaluation_is_not_recomputed_with_later_evidence": true,
+    "source_coverage_is_not_investable_universe": true
+  },
+  "market": "KOREA",
+  "payload_sha256": "8b137f1dfe41ecd529980db4aac670c2de38f8a2a98da83b7d88845af43b3269",
+  "registry_evaluation_source": {
+    "kis_master_record_count": 4390,
+    "private_manifest_file_sha256": "68c5272584a3c9294490722d04c0998c480d5b0da1fdb7ef76da42da71c53c17",
+    "private_registry_file_sha256": "88e34da1e1ac273218d5c5f7ef1c959275a309c8f2a1f2933df711be9a000444",
+    "private_registry_payload_sha256": "6d832f99f02433e7334e6b3750064c6a398336c0d37ab502d13aa4ed0225c9b4",
+    "private_source_commit": "9a22be425fb296411f467b799a482db6271eb990",
+    "semantics": "EXISTING_KIS_MASTER_CATEGORICAL_SCREENING_EVIDENCE"
+  },
+  "schema_version": "krx_registry_evaluation_coverage/1",
+  "screening_exclusion_reason_counts": {
+    "KIS_KOSDAQ_INVESTMENT_ATTENTION": 92,
+    "KIS_LIQUIDATION_TRADING": 3,
+    "KIS_LOW_LIQUIDITY_FLAG_MEASURED_NOT_THRESHOLD": 19,
+    "KIS_MANAGED_ISSUE": 170,
+    "KIS_MARKET_WARNING:01": 30,
+    "KIS_MARKET_WARNING:02": 24,
+    "KIS_MARKET_WARNING_ADVANCE_NOTICE": 4,
+    "KIS_TRADING_HALT": 130,
+    "PRODUCT_ETN": 371,
+    "PRODUCT_OUTSIDE_COMMON_STOCK_ETF_SCOPE": 133,
+    "PRODUCT_PREFERRED_STOCK": 101,
+    "PRODUCT_SPAC": 71,
+    "STANDARD_CODE_MISSING_FROM_KRX_STOCK_SNAPSHOT": 1
+  },
+  "screening_unknown_reason_counts": {
+    "KIS_ETF_ETP_CODE_UNDOCUMENTED:8": 16,
+    "KIS_LOW_LIQUIDITY_FLAG_MEASURED_NOT_THRESHOLD": 1,
+    "KIS_PREFERRED_CODE_UNDOCUMENTED:9": 13,
+    "KIS_SECURITY_GROUP_UNDOCUMENTED:EN": 2
+  },
+  "source_membership_reconciliation": {
+    "cross_source_status_counts": {
+      "MATCHED": 2754,
+      "MISSING_FROM_KRX_STOCK_SNAPSHOT": 1,
+      "NOT_APPLICABLE_TO_KRX_STOCK_ENDPOINT": 1635
+    },
+    "duplicate_short_code_count": 0,
+    "duplicate_standard_code_count": 0,
+    "kis_stock_scope_missing_from_krx_count": 1,
+    "krx_orphan_standard_code_count": 0
+  },
+  "source_universe": {
+    "count": 2767,
+    "file_sha256": "1c62c0f7563fee8ca87d47c8980f2932b6f9b6e8cc389e227cc0c4a10a0bd558",
+    "investable_universe_authorized": false,
+    "market_counts": {
+      "KOSDAQ": 1823,
+      "KOSPI": 944
+    },
+    "packet_sha256": "919752773cd107b5733011f44f0b592d45e813907cfcec85e25a98b5676d2d4c",
+    "path": "data/observations/krx_global_universe/2026-08-28/packet.json",
+    "semantics": "exact_trading_date_source_coverage_not_investable"
+  },
+  "state_lifetime": {
+    "automatic_carry_forward": false,
+    "reevaluation_required": true,
+    "snapshot_only": true
+  }
+}
