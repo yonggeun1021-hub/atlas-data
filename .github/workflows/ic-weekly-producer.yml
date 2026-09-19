@@ -1,0 +1,61 @@
+name: IC weekly evidence producer
+on:
+  pull_request:
+    paths:
+      - 'audit/ic_weekly_producer.py'
+      - 'audit/ic_weekly_control.py'
+      - 'config/ic_weekly_control_packet.schema.json'
+      - 'validation/tests/test_ic_weekly_producer.py'
+      - '.github/workflows/ic-weekly-producer.yml'
+  workflow_dispatch:
+    inputs:
+      period_start:
+        description: Explicit period start with timezone
+        required: true
+        type: string
+      cutoff:
+        description: Explicit evidence cutoff with timezone (not changed by delayed runs)
+        required: true
+        type: string
+      source_commit:
+        description: Exact public source commit at or before cutoff
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  producer-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - run: python3 validation/tests/test_ic_weekly_producer.py
+      - run: python3 validation/tests/test_ic_weekly_control.py
+  produce:
+    if: github.event_name == 'workflow_dispatch'
+    needs: producer-contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Produce fixed public evidence report (no analysis or publication claim)
+        env:
+          PERIOD_START: ${{ inputs.period_start }}
+          CUTOFF: ${{ inputs.cutoff }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: >-
+          python3 -m audit.ic_weekly_producer
+          --source-commit "$SOURCE_COMMIT" --period-start "$PERIOD_START"
+          --cutoff "$CUTOFF" --output-dir weekly-evidence
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weekly-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: weekly-evidence/*.json
+          if-no-files-found: error
+# No schedule or contents:write. CIO must ratify cadence/ownership before activation.
