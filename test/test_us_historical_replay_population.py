@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
-import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -916,10 +915,6 @@ class UsWiredFiveAxisReplayTest(unittest.TestCase):
 # bars the module expects; replaying real committed provider bytes and
 # comparing against the real committed output can.
 REAL_EVIDENCE_ANCHOR = "2026-09-11"
-REAL_EVIDENCE_RAW_PATH = (
-    ROOT / "evidence" / "free_market_data" / "raw" / REAL_EVIDENCE_ANCHOR
-    / "alpaca_iex_daily_bars.json.gz"
-)
 # The content-addressed derived packet the 2026-09-11 capture published --
 # never the rolling ``data/latest_free_market_data.json``, which the daily
 # free-market capture overwrites and would silently change what this compares
@@ -935,8 +930,36 @@ REAL_EVIDENCE_PACKET_SHA256 = (
 )
 
 
+def _real_evidence_daily_raw_path():
+    """Resolve the immutable daily-bars revision the committed packet pins.
+
+    ``evidence/free_market_data/raw/<day>/alpaca_iex_daily_bars.json.gz`` is a
+    latest-wins compatibility pointer that ``free_market_data.publish``
+    overwrites in place on a same-UTC-date recapture, so reading it would pin
+    this class's ``daily_raw_sha256`` assertion to bytes that can change
+    without any regression. The packet names the revision it actually consumed
+    in ``alpaca.daily_raw_evidence``, an ``APPEND_ONLY_CONTENT_ADDRESSED``
+    object under ``evidence/free_market_data/raw/alpaca/daily_bars/<response
+    sha256>/``; that pointer is what the collector's own ``resolve_daily_raw``
+    reads, and it is the only address for these bytes a later capture cannot
+    rebind. Returns ``None`` when the packet is absent from this checkout, so
+    the skip guard below stays a checkout question rather than an import error.
+    """
+    if not REAL_EVIDENCE_COMMITTED_PATH.is_file():
+        return None
+    packet = json.loads(REAL_EVIDENCE_COMMITTED_PATH.read_text(encoding="utf-8"))
+    pointer = (packet.get("alpaca") or {}).get("daily_raw_evidence") or {}
+    raw_path = pointer.get("raw_path")
+    if not isinstance(raw_path, str):
+        return None
+    return ROOT / raw_path
+
+
+REAL_EVIDENCE_RAW_PATH = _real_evidence_daily_raw_path()
+
+
 @unittest.skipUnless(
-    REAL_EVIDENCE_RAW_PATH.is_file() and REAL_EVIDENCE_COMMITTED_PATH.is_file(),
+    REAL_EVIDENCE_RAW_PATH is not None and REAL_EVIDENCE_RAW_PATH.is_file(),
     "real committed US evidence fixtures not present in this checkout",
 )
 class UsRealEvidenceReplayFidelityTest(unittest.TestCase):
@@ -957,8 +980,6 @@ class UsRealEvidenceReplayFidelityTest(unittest.TestCase):
         )
         self.replayed = MODULE.authorized_axes(self.contract)
         self.excluded = MODULE.exclusion_basis(self.contract)
-        raw = gzip.decompress(REAL_EVIDENCE_RAW_PATH.read_bytes())
-        self.responses = json.loads(raw)["responses"]
         self.committed = json.loads(
             REAL_EVIDENCE_COMMITTED_PATH.read_text(encoding="utf-8")
         )
@@ -967,6 +988,14 @@ class UsRealEvidenceReplayFidelityTest(unittest.TestCase):
         self.assertEqual(
             FMD.sha256_bytes(FMD.canonical_bytes(unsigned)), REAL_EVIDENCE_PACKET_SHA256,
         )
+        # Replay the immutable revision this packet pinned, verified by the
+        # collector's own reader, rather than the mutable per-day compatibility
+        # pointer -- and keep the skip guard reading the same object setUp does.
+        pointer = self.committed["alpaca"]["daily_raw_evidence"]
+        self.assertEqual(ROOT / pointer["raw_path"], REAL_EVIDENCE_RAW_PATH)
+        self.assertEqual(pointer["raw_retention"], FMD.ALPACA_RAW_RETENTION)
+        raw = FMD.read_alpaca_raw_revision(ROOT, pointer)
+        self.responses = json.loads(raw)["responses"]
         self.assertEqual(self.committed["alpaca"]["daily_raw_sha256"], FMD.sha256_bytes(raw))
         self.assertEqual(
             self.committed["us_market_reference"]["as_of_session_date"], REAL_EVIDENCE_ANCHOR,
