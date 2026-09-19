@@ -869,3 +869,54 @@ without these records. `target_asset_count=100`,
 every existing exclusion and all classification/threshold/Regime/
 Production/trading authority flags are unchanged. This is breadth source
 coverage only.
+
+### 2026-09-19 rank-200 push, slice C (ranks 194–200) — target reached
+
+Last of three stacked slices. Slice A carried the block from rank 171 to
+186 and slice B to 193; this slice carries it to **201**. That is the
+number the 2026-10-07 leadership-axis latch made worth paying for: after
+that date the axis moves irreversibly from a 7-day to a 30-day window, and
+one day with an unclassified asset inside the scan range costs roughly 35
+days (30-day window plus `MINIMUM_CONSECUTIVE_COMPLETE_DAYS=5`
+re-acceptance). Before the latch it costs nothing. The next unclassified
+asset is now `PIEVERSE` at minimum rank 202.
+
+Five assets, all `eligible_crypto`, effective 2026-09-19: `FUN`, `HONEY`,
+`RED`, `RUNE`, `SC`.
+
+`RUNE` and `SC` are native-coin claims on their projects' own layer-1
+chains — THORChain's own technical documentation states that "THORChain's
+native token is called RUNE", and Sia's own site states that siacoins are
+"the primary currency of the Sia network" — in the same shape as the
+existing `ETC` and `VET` records. The other three bind an exact identifier
+the project publishes itself: Sport.fun's Base contract
+`0x16EE7ecAc70d1028E7712751E2Ee6BA808a7dd92`, Hivemapper's Solana mint
+`4vMsoUT2BWatFweudnQM1xedRLfJgJ7hswhcpz4xgBTy` and RedStone's Ethereum
+contract `0xc43c6bfeda065fe2c4c11765bf838789bd0bb5de`.
+
+**`FUN` is the ticker-collision case, and the record says so.** Kraken
+publishes this asset as **Sport.fun on Base** — not as the older,
+unrelated FunFair ERC-20 on Ethereum that carried this ticker for years.
+Sport.fun's own documentation publishes an official contract-address table
+giving Chain = Base with the `$FUN` address, its whitepaper states the
+blockchain layer operates on Base, and its tokenomics page describes `$FUN`
+as an ERC-20 with a fixed 1,000,000,000 supply. FunFair was deliberately
+not used as a source: it would have matched the ticker while contradicting
+both the name and the network Kraken publishes. The record binds only the
+Sport.fun Base contract.
+
+Every record is effective 2026-09-19, the latest retained `as_of`
+(2026-09-17) is strictly before it, and snapshots 2026-09-12…2026-09-18
+return byte-identical members, excluded rows and unknown rows with and
+without these records. `target_asset_count=100`,
+`minimum_observation_coverage_bps=9000`, the 30-day turnover ranking rule,
+every existing exclusion and all classification/threshold/Regime/
+Production/trading authority flags are unchanged. This is breadth source
+coverage only.
+
+Across the three slices, 28 assets were classified: 25 `eligible_crypto`,
+one `stablecoin` (`BRL1`) and two `unverified_identity` (`TURBO` and
+`ZEREBRO`). The block moved from rank 171 to rank 201 — a 30-rank gain,
+against a rank-112 scan cutoff at the 2026-09-18 vintage. Both exclusions
+are ratified categories, so neither opens a coverage hole: the frontier is
+201 with them exactly as it would be without them.
