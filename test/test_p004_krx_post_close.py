@@ -328,7 +328,7 @@ class P004KrxPostCloseTest(unittest.TestCase):
         collect = self.require_step(
             "Collect and publish KRX post-close observation"
         )
-        commit = self.require_step("Commit post-close observation evidence (shared push retry)")
+        commit = self.require_step("Commit post-close observation evidence")
 
         self.assertIn("--check", guard.get("run", ""))
         self.assertEqual(
