@@ -48,6 +48,7 @@ from market_data import us_official_session_calendar_producer as PROD  # noqa: E
 from regime import decision_authority as COMMON  # noqa: E402
 from regime import market_scoped_pit_acceptance as PIT  # noqa: E402
 from regime import us_pit_acceptance_record as GEN  # noqa: E402
+from regime import us_historical_replay_population as POPULATION  # noqa: E402
 from regime import us_paper_runtime as RUNTIME  # noqa: E402
 
 CALENDAR_RELATIVE = "data/us_official_session_calendar_v1.json"
@@ -327,17 +328,40 @@ class U5ValuesTest(unittest.TestCase):
 
 
 class UnreachableTodayTest(unittest.TestCase):
-    """Why no real accepted record is committed by this change."""
+    """Why no real accepted record is committed, now that only one blocker is left.
 
-    def test_the_five_axis_replay_identity_is_still_inactive(self):
+    The generator named two blockers. (a) the 3-axis replay identity — RESOLVED
+    2026-09-20 by USER_RATIFICATION_US_REPLAY_FLAG_20260920; the five-axis replay
+    is active and a 1,480-session population does reach PIT_ACCEPTED. (b) no
+    bundle bytes exist in the repository to hash — UNRESOLVED, and it is not a
+    timing problem: ``us_historical_replay_population._forbid_tracked_output``
+    refuses to write historical replay evidence anywhere inside the checkout,
+    while ``us_paper_runtime.load_acceptance`` binds ``bundle_path`` only as a
+    repo-relative file it can hash. Until that is decided, the acceptance record
+    is derivable but not bindable, and the adoption stays absent.
+    """
+
+    def test_the_five_axis_replay_identity_is_now_active(self):
         identity = json.loads(
             (ROOT / "config" / "us_historical_pit_replay_identity_v1.json").read_text(encoding="utf-8"))
-        self.assertIs(identity["replay_population_wiring_activated"], False)
+        self.assertIs(identity["replay_population_wiring_activated"], True)
+
+    def test_the_bundle_binding_and_the_output_guard_still_contradict(self):
+        """Blocker (b), asserted as the contradiction it actually is."""
+        # The guard refuses every path inside the checkout ...
+        with self.assertRaises(POPULATION.ReplayPopulationError):
+            POPULATION._forbid_tracked_output(ROOT, ROOT / BUNDLE_RELATIVE)
+        # ... and the runtime binds the bundle only as a repo-relative file.
+        with self.assertRaises(RUNTIME.UsPaperRuntimeError):
+            RUNTIME._bound_file(ROOT, "/tmp/us_replay_bundle.json", "US_PIT_POPULATION_BUNDLE")
+        with self.assertRaises(RUNTIME.UsPaperRuntimeError):
+            RUNTIME._bound_file(ROOT, BUNDLE_RELATIVE, "US_PIT_POPULATION_BUNDLE")
 
     def test_a_three_axis_us_population_can_never_be_pit_accepted(self):
-        # BREADTH and LEADERSHIP stay UNKNOWN while the identity above is
-        # inactive, so common-v1 classifies every step UNKNOWN, no regime is ever
-        # observed, and acceptance is structurally impossible.
+        # A 3-axis population leaves BREADTH and LEADERSHIP UNKNOWN, so common-v1
+        # classifies every step UNKNOWN, no regime is ever observed, and
+        # acceptance is structurally impossible. Still true, and still reachable:
+        # the replay identity flag is reversible.
         dates = official_sessions(7)
         rows = [(date, ["POSITIVE", "UNKNOWN", "POSITIVE", "POSITIVE", "UNKNOWN"])
                 for date in dates]

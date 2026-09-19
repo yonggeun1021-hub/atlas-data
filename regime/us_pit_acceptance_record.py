@@ -36,16 +36,29 @@ and requires at least one session after it).  Catching that here turns a daily
 refusal.
 
 Current state, stated plainly because the generator fails closed on it: US PIT
-acceptance is NOT reachable today, for two reasons that are outside this
-module.  (a) ``config/us_historical_pit_replay_identity_v1.json`` carries
-``replay_population_wiring_activated: false``, so the US replay populates three
-axes (TREND/RISK_VOL/LIQUIDITY) and leaves BREADTH/LEADERSHIP UNKNOWN — common-v1
-then classifies every step UNKNOWN and no bundle can observe the four regimes
-``PIT_ACCEPTED`` requires.  (b) ``.github/workflows/us-regime-historical-replay.yml``
-uploads ``merged_population.json`` as an artifact and commits nothing, so no
-bundle bytes exist in the repository to hash.  This module is the piece that
-turns a bundle into the record once both are resolved; it refuses, with named
-reasons, until then.
+acceptance is reachable in ARITHMETIC but not yet BINDABLE, for one remaining
+reason outside this module.
+
+(a) RESOLVED 2026-09-20.  ``config/us_historical_pit_replay_identity_v1.json``
+carried ``replay_population_wiring_activated: false``, so the US replay
+populated three axes (TREND/RISK_VOL/LIQUIDITY) and left BREADTH/LEADERSHIP
+UNKNOWN — common-v1 then classified every step UNKNOWN and no bundle could
+observe the four regimes ``PIT_ACCEPTED`` requires.  The flag is now ``true``
+(user ratification ``USER_RATIFICATION_US_REPLAY_FLAG_20260920``) and a
+1,480-session population over the declared range does reach ``PIT_ACCEPTED``
+with all four regimes observed.  ``build`` over such a bundle succeeds.
+
+(b) UNRESOLVED, and not a timing problem.  There are still no bundle bytes in
+the repository to hash: ``.github/workflows/us-regime-historical-replay.yml``
+uploads ``merged_population.json`` as an artifact and commits nothing, and
+``us_historical_replay_population._forbid_tracked_output`` refuses, by design,
+to write historical replay evidence to ANY path inside the checkout.  Meanwhile
+``us_paper_runtime.load_acceptance`` binds ``bundle_path`` only as a
+repo-relative file it can hash and refuses an absolute path outright
+(``US_PIT_POPULATION_BUNDLE_PATH_INVALID``).  So the record is derivable from an
+out-of-checkout bundle but cannot be bound by an adoption, and resolving it is a
+decision about the guard and about committing a ~64 MiB artifact — not something
+this module may make.  It refuses, with named reasons, until then.
 """
 from __future__ import annotations
 
