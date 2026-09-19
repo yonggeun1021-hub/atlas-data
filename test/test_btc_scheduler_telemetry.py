@@ -226,8 +226,13 @@ class BtcSchedulerTelemetryTest(unittest.TestCase):
             'git add "evidence/crypto/btc/raw/$SNAPSHOT_DATE"', command
         )
         self.assertNotIn("git add evidence/crypto/btc/raw\n", command)
-        self.assertIn('git pull --rebase origin "$DEFAULT_BRANCH"', command)
-        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH"', command)
+        # 2026-09-18 consolidation: this step's own single unbounded
+        # `pull --rebase && push` (kept in git history, no retry, no
+        # `set -e`) is now .github/scripts/push_to_default_branch.sh -- see
+        # test/test_push_retry_consolidation.py for its own bounded/
+        # fail-closed proof.
+        self.assertIn("set -euo pipefail", command)
+        self.assertIn('bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"', command)
 
 
 if __name__ == "__main__":

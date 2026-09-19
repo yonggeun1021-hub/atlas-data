@@ -109,16 +109,20 @@ jobs:
           echo "result=captured" >> "$GITHUB_OUTPUT"
       - name: Commit immutable capture
         if: steps.capture.outputs.result == 'captured'
+        # 2026-09-18 consolidation: shares
+        # .github/scripts/push_to_default_branch.sh with every other
+        # append-only evidence producer -- see
+        # test/test_push_retry_consolidation.py.
         env:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "evidence/us_breadth/raw/$SNAPSHOT_DATE"
           git commit -m "us breadth universe ${SNAPSHOT_DATE} [${{ github.event_name }}]"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:$DEFAULT_BRANCH"
+          bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
       # P3-02 source-coverage population is deliberately its own step, after
       # the raw commit above has already landed. Its own failure must never
       # be able to lose or roll back the immutable raw snapshot already
@@ -141,6 +145,7 @@ jobs:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ -n "$SNAPSHOT_DATE" ] && [ -d "data/observations/us_global_universe/$SNAPSHOT_DATE" ]; then
@@ -150,6 +155,5 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "us global universe population ${SNAPSHOT_DATE} [${{ github.event_name }}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi

@@ -803,7 +803,8 @@ class CryptoDecisionLineageTests(unittest.TestCase):
         self.assertEqual(steps[lineage]["timeout-minutes"], 5)
         self.assertIn("crypto-decision --packet \"$DECISION_PATH\"", steps[lineage]["run"])
         self.assertEqual(steps[lineage]["env"]["DECISION_PATH"], "${{ steps.crypto_paper_decision.outputs.path }}")
-        self.assertEqual(steps[lineage + 1]["name"], "Commit append-only realtime evidence and run telemetry")
+        self.assertEqual(steps[lineage + 1]["name"],
+                         "Commit append-only realtime evidence and run telemetry")
 
 
 class PaperReferenceLineageTests(unittest.TestCase):

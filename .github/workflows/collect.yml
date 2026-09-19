@@ -357,7 +357,9 @@ jobs:
           #   이 값이 쌓여야 "본 회차가 계속 이기는가 / 백업이 자주 받아내는가"를
           #   측정할 수 있다. 이것 없이는 스케줄 신뢰도를 사후에 알 방법이 없다.
           TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name  "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
           git add data/ config/corp_map.json || true
@@ -366,5 +368,5 @@ jobs:
           else
             # ★ KST 기준 (UTC 로 찍으면 06시 KST 실행분이 전날 날짜로 기록됨)
             git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) collect [${TRIGGER}]"
-            git push
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi

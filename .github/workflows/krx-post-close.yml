@@ -101,6 +101,7 @@ jobs:
           COLLECT_OUTCOME: ${{ steps.post_close.outcome }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name  "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
           for evidence_path in \
@@ -124,6 +125,5 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) KRX post-close [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi

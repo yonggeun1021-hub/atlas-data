@@ -93,12 +93,12 @@ jobs:
           MODE: ${{ steps.capture.outputs.mode }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$CAPTURE_PATH"
           git commit -m "kofia $MODE capture ${CAPTURE_PATH##*/}"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:$DEFAULT_BRANCH"
+          bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
       - name: Build provider-free release timing observation
         id: release_timing
         env:
@@ -133,5 +133,4 @@ jobs:
           set -euo pipefail
           git add "$REPORT_PATH"
           git commit -m "kofia release timing ${REPORT_PATH%/packet.json}"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:$DEFAULT_BRANCH"
+          bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"

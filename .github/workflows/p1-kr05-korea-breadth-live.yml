@@ -117,7 +117,10 @@ jobs:
             --artifact-name "p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}" \
             --artifact-digest "$ARTIFACT_DIGEST"
       - name: Commit Korea Breadth context lineage
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
           git add data/observations/korea_breadth_context data/observations/krx_global_universe data/observations/korea_breadth_aggregate
@@ -125,5 +128,5 @@ jobs:
             echo "no change (verified_existing) -- nothing to commit"
           else
             git commit -m "korea breadth context lineage $(date -u +%Y-%m-%d) [P1-KR-05 run ${{ github.run_id }}]"
-            git push
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi

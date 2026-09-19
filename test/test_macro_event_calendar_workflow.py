@@ -85,13 +85,16 @@ class MacroEventCalendarWorkflowTest(unittest.TestCase):
         self.assertIn("--sources", self.text)
         self.assertIn("--all-years", self.text)
 
-    def test_commit_step_has_bounded_push_retry_with_pull_rebase(self):
+    def test_commit_step_has_bounded_push_retry_via_shared_script(self):
+        # 2026-09-18 consolidation: this step's own inline retry loop (it had
+        # no `set -e`, so a conflicted rebase would not abort) is now
+        # .github/scripts/push_to_default_branch.sh -- see
+        # test/test_push_retry_consolidation.py for its own bounded/
+        # fail-closed proof.
         commit_step = next(step for step in steps(self.document) if "git add" in step.get("run", ""))
         run = commit_step["run"]
-        self.assertIn("git pull --rebase", run)
-        self.assertIn("max_attempts=3", run)
-        self.assertIn("until git push", run)
-        self.assertIn("exit 1", run)
+        self.assertIn("push_to_default_branch.sh", run)
+        self.assertRegex(run, r'push_to_default_branch\.sh\s+"\$DEFAULT_BRANCH"\s+3\b')
 
 
 if __name__ == "__main__":

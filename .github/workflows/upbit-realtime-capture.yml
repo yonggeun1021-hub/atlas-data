@@ -358,6 +358,5 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "upbit realtime bounded capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi

@@ -226,8 +226,13 @@ class P004SchedulerTelemetryTest(unittest.TestCase):
         self.assertIn("successful collection produced no staged", command)
         self.assertNotIn("latest_krx.json", command)
         self.assertNotIn("data/briefing", command)
-        self.assertIn('git pull --rebase origin "$DEFAULT_BRANCH"', command)
-        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH"', command)
+        # 2026-09-18 consolidation: this step had no `set -e` at all -- a
+        # conflicted `git pull --rebase` would not abort it. Now shares
+        # .github/scripts/push_to_default_branch.sh -- see
+        # test/test_push_retry_consolidation.py for its own bounded/
+        # fail-closed proof.
+        self.assertIn("set -euo pipefail", command)
+        self.assertIn('bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"', command)
 
 
 if __name__ == "__main__":

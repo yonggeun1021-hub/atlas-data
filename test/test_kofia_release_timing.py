@@ -320,7 +320,9 @@ class ContractAndWorkflowTests(unittest.TestCase):
         derived = names.index("Commit release timing observation separately")
         self.assertLess(raw, build)
         self.assertLess(build, derived)
-        self.assertIn('git push origin "HEAD:$DEFAULT_BRANCH"', steps[raw]["run"])
+        self.assertIn('bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"', steps[raw]["run"])
+        self.assertEqual(steps[raw]["env"]["DEFAULT_BRANCH"], "${{ github.event.repository.default_branch }}")
+        self.assertIn("set -euo pipefail", steps[raw]["run"])
         self.assertIn("kofia_release_timing.py build", steps[build]["run"])
         self.assertEqual(
             steps[derived]["if"], "steps.release_timing.outputs.report_path != ''"

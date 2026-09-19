@@ -87,16 +87,21 @@ class SpdrSectorHoldingsWorkflowTest(unittest.TestCase):
     def test_time_gated_rationale_still_documented(self):
         self.assertIn("time-gated", self.text)
 
-    def test_commit_step_has_bounded_push_retry_with_pull_rebase(self):
+    def test_commit_step_has_bounded_push_retry_via_shared_script(self):
         # 2026-09-15 incident: the first live run pushed first and won the
         # race, but fred-dexkous-fx.yml's first live run then failed with
         # no retry -- both workflows' commit steps get the same bounded fix.
+        #
+        # 2026-09-18 consolidation: this step's own inline retry loop had no
+        # `set -e`, so a conflicted rebase did not abort the step -- it is
+        # now .github/scripts/push_to_default_branch.sh, shared with every
+        # other append-only evidence producer (see
+        # test/test_push_retry_consolidation.py for its own proof).
         commit_step = next(step for step in steps(self.document) if "git add" in step.get("run", ""))
         run = commit_step["run"]
-        self.assertIn("git pull --rebase", run)
-        self.assertIn("max_attempts=3", run)
-        self.assertIn("until git push", run)
-        self.assertIn("exit 1", run)
+        self.assertIn("set -euo pipefail", run)
+        self.assertIn("push_to_default_branch.sh", run)
+        self.assertRegex(run, r'push_to_default_branch\.sh\s+"\$\{\{ github\.event\.repository\.default_branch \}\}"\s+3\b')
 
     def test_uses_pinned_action_shas(self):
         for step in steps(self.document):

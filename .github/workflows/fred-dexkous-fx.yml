@@ -68,18 +68,12 @@ jobs:
           else
             python3 collectors/fred_dexkous_fx.py | tee /tmp/fred_dexkous_capture_summary.json
           fi
-      - name: Commit append-only evidence (bounded push retry, evidence-loss guard)
+      - name: Commit append-only evidence (evidence-loss guard, shared push retry)
         # 2026-09-15 incident: the first live run of this workflow and the
         # first live run of spdr-sector-holdings.yml raced each other --
         # SPDR pushed first, this run's plain `git push` then failed with
         # no retry at all, and the run failed outright even though its
-        # commit was perfectly good locally. `git pull --rebase` replays
-        # this run's one commit on top of whatever landed on main first,
-        # then retries the push; bounded at 3 attempts so a real, non-race
-        # failure (auth, network) still fails the job instead of looping.
-        # This workflow already serializes its own runs via the
-        # `concurrency:` group above, so that race can no longer recur
-        # between two runs of *this* workflow.
+        # commit was perfectly good locally.
         #
         # 2026-09-17/18 investigation (see PR body): no evidence was
         # actually lost that day -- the collector's own summary correctly
@@ -91,6 +85,14 @@ jobs:
         # impossible: it compares the collector's own
         # new_observation_paths against what is actually staged and fails
         # the run if any of them are missing, before the commit is made.
+        #
+        # 2026-09-18 consolidation: this step's own inline retry loop (kept
+        # in git history) and spdr-sector-holdings.yml's near-identical copy
+        # were two of six divergent push-retry implementations discovered
+        # while hardening population-symbol-observation-daily.yml -- one of
+        # the six had no `set -e` and could retry mid-rebase. All now share
+        # .github/scripts/push_to_default_branch.sh; see
+        # test/test_push_retry_consolidation.py.
         run: |
           set -euo pipefail
           git config user.name "atlas-bot"
@@ -104,14 +106,4 @@ jobs:
           python3 collectors/verify_evidence_staged.py /tmp/fred_dexkous_capture_summary.json
           if git diff --staged --quiet; then exit 0; fi
           git commit -m "data: FRED DEXKOUS FX evidence $(date -u +%Y-%m-%d)"
-          attempt=1
-          max_attempts=3
-          until git push; do
-            if [ "$attempt" -ge "$max_attempts" ]; then
-              echo "push failed after $max_attempts attempts" >&2
-              exit 1
-            fi
-            attempt=$((attempt + 1))
-            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
-            git pull --rebase
-          done
+          bash .github/scripts/push_to_default_branch.sh "${{ github.event.repository.default_branch }}" 3

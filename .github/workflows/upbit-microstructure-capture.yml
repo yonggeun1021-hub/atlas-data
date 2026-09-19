@@ -152,8 +152,7 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "upbit microstructure capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi
       # Deliberately its own step and commit, after raw evidence above is
       # already pushed -- a P4-07 derivation failure can never lose or roll
@@ -176,6 +175,5 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "upbit microstructure evidence ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi

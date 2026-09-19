@@ -222,16 +222,22 @@ class WorkflowTests(unittest.TestCase):
                         "rotation/rotation_opportunity_ledger.py verify --market \"$market\"",
                         "rotation/rotation_confirmation.py portal --write"):
             self.assertIn(command, self.run)
-        self.assertIn("for attempt in 1 2 3 4 5; do", self.run)
-        self.assertIn("git pull --rebase origin main && git push origin HEAD:main", self.run)
-        self.assertIn("git rebase --abort", self.run)
-        self.assertLess(self.run.index("git push origin HEAD:main"), self.run.index('if [ -n "$failed" ]'))
+        # 2026-09-18 consolidation: this step's own 5-attempt
+        # `pull --rebase && push` loop (15s/30s/45s/60s backoff, kept in git
+        # history) is now .github/scripts/push_to_default_branch.sh with a
+        # 5-attempt bound and PUSH_RETRY_BACKOFF_SECONDS=15 to preserve that
+        # backoff exactly -- see test/test_push_retry_consolidation.py for
+        # its own bounded/fail-closed proof.
+        self.assertIn("push_to_default_branch.sh", self.run)
+        self.assertRegex(self.run, r'push_to_default_branch\.sh\s+"\$DEFAULT_BRANCH"\s+5\b')
+        self.assertIn('PUSH_RETRY_BACKOFF_SECONDS: "15"', self.text)
+        self.assertLess(self.run.index("push_to_default_branch.sh"), self.run.index('if [ -n "$failed" ]'))
 
     def test_portal_failure_does_not_block_market_commit_and_notices_are_kept(self):
         portal = self.run.index("if python3 rotation/rotation_confirmation.py portal --write; then")
         self.assertIn("portal_failed=1", self.run)
         self.assertLess(portal, self.run.index('git commit -m "data: rotation confirmation'))
-        self.assertLess(self.run.index("git push origin HEAD:main"), self.run.index('if [ "$portal_failed" -ne 0 ]'))
+        self.assertLess(self.run.index("push_to_default_branch.sh"), self.run.index('if [ "$portal_failed" -ne 0 ]'))
         self.assertIn('notice="data/rotation_confirmation_late_older_evidence_$lower.json"', self.run)
         self.assertLess(self.run.index('git add -- "$notice"'), self.run.index('git commit -m "data: rotation confirmation'))
         # the per-market clean-up of a failed market never touches the notice file

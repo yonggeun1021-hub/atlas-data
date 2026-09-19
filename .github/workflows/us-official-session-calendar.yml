@@ -98,6 +98,7 @@ jobs:
         # so this replays the one commit on top of main and retries, bounded at 3
         # attempts so a real auth/network failure still fails the job.
         run: |
+          set -euo pipefail
           git config user.name "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
           git add "$CALENDAR" evidence/market_calendar/us_official_session_calendar
@@ -106,16 +107,6 @@ jobs:
             exit 0
           fi
           git commit -m "data: US official session calendar $(date -u +%Y-%m-%d)"
-          attempt=1
-          max_attempts=3
-          until git push; do
-            if [ "$attempt" -ge "$max_attempts" ]; then
-              echo "push failed after $max_attempts attempts" >&2
-              exit 1
-            fi
-            attempt=$((attempt + 1))
-            echo "push failed (attempt $((attempt - 1))/$max_attempts) -- pull --rebase and retry"
-            git pull --rebase
-          done
+          PUSH_RETRY_BACKOFF_SECONDS=0 bash .github/scripts/push_to_default_branch.sh "${{ github.event.repository.default_branch }}" 3
       - name: Verify no other tracked file moved
         run: git diff --exit-code && test -z "$(git status --porcelain)"

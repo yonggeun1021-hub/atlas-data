@@ -58,8 +58,7 @@ jobs:
           git add "$SNAPSHOT"
           git add data/observations/upbit_paper_identity_hardening_candidate
           git commit -m "upbit first-party identity evidence and candidate $(date -u +%F) [workflow_dispatch]"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:$DEFAULT_BRANCH"
+          bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
       # This workflow captures public source bytes and produces an unratified
       # exact-hash review packet. It deliberately does not edit the canonical
       # registry/taxonomy/freeze, does not promote a candidate,

@@ -112,6 +112,11 @@ jobs:
 
       - name: Commit BTC price evidence
         if: always()
+        # 2026-09-18 consolidation: this step's single unbounded
+        # `pull --rebase && push` (kept in git history, no retry, no
+        # `set -e`) is now .github/scripts/push_to_default_branch.sh, shared
+        # with every other append-only evidence producer -- see
+        # test/test_push_retry_consolidation.py.
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
           VALIDATION_OUTCOME: ${{ steps.validation.outcome }}
@@ -119,6 +124,7 @@ jobs:
           TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/operations/btc_capture_runs || true
@@ -132,8 +138,7 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "BTC capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi
 
       - name: Upload BTC Trend and Risk live validation

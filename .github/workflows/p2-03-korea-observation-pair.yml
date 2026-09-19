@@ -195,7 +195,10 @@ jobs:
             --artifact-digest "$ARTIFACT_DIGEST"
       - name: Commit Korea Breadth context lineage
         if: needs.korea-breadth-live-proof.outputs.context_exists != 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
           # actions/checkout in this job resolved main at the SHA fixed when
@@ -204,12 +207,14 @@ jobs:
           # have already pushed since then, so re-sync to the real current
           # tip before committing, or this push can be rejected as
           # non-fast-forward even though nothing here actually conflicts.
+          # The shared push script's own rebase-and-retry is the bounded
+          # fallback if a race still lands in the gap after this re-sync.
           git add data/observations/korea_breadth_context data/observations/krx_global_universe data/observations/korea_breadth_aggregate
           if git diff --cached --quiet; then
             echo "no change (verified_existing) -- nothing to commit"
           else
             git commit -m "korea breadth context lineage $(date -u +%Y-%m-%d) [P2-03 pair run ${{ github.run_id }}]"
-            git push
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi
 
   # Real dependency: this job cannot start until the Breadth context
@@ -267,7 +272,10 @@ jobs:
             --current-date "$CURRENT_DATE"
       - name: Commit Korea Leadership live-fetch attempt evidence
         if: steps.existing_leadership.outputs.exists != 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
           # Same real fix as the Breadth commit job above: this job's own
@@ -276,7 +284,9 @@ jobs:
           # commit that just landed a moment ago in this same run. Re-sync to
           # the real current tip (which now genuinely includes that Breadth
           # commit) before committing, so this push is a real fast-forward
-          # instead of being rejected as diverged from a stale base.
+          # instead of being rejected as diverged from a stale base. The
+          # shared push script's own rebase-and-retry is the bounded fallback
+          # if a race still lands in the gap after this re-sync.
           git fetch origin main
           git reset --hard origin/main
           git add data/observations/korea_leadership_context
@@ -284,7 +294,7 @@ jobs:
             echo "no change (verified_existing) -- nothing to commit"
           else
             git commit -m "korea leadership live-fetch attempt $(date -u +%Y-%m-%d) [P2-03 pair run ${{ github.run_id }}]"
-            git push
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi
 
   # Build the already-ratified P2-03 packet from the exact Breadth ->

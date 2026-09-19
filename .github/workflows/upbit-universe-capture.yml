@@ -84,8 +84,7 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "upbit universe raw capture ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi
       - name: P3-12 classification (reads raw snapshot only, never re-fetches)
         id: p3_12
@@ -152,6 +151,5 @@ jobs:
             echo "변경 없음 — 커밋 생략"
           else
             git commit -m "upbit tradeable universe classification ${SNAPSHOT_DATE:-unknown} [${TRIGGER}]"
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            git push origin "HEAD:$DEFAULT_BRANCH"
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi

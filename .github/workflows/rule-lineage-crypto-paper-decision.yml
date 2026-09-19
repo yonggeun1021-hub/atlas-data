@@ -93,10 +93,4 @@ jobs:
             exit 0
           fi
           git commit -m "data: rule lineage sidecars for crypto PAPER decision $(date -u +%F)"
-          for attempt in 1 2 3; do
-            if git pull --rebase origin main && git push origin HEAD:main; then
-              exit 0
-            fi
-            sleep $((attempt * 5))
-          done
-          exit 1
+          bash .github/scripts/push_to_default_branch.sh "${{ github.event.repository.default_branch }}" 3

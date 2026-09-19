@@ -381,7 +381,7 @@ class FiveSignalPointerProducerTest(unittest.TestCase):
         self.assertIn("data/observations/korea_market_signals", run)
         self.assertIn(REVIEW_PATH, run)
         self.assertIn("evidence/korea_symbol_market_review", run)
-        self.assertIn("git push origin", run)
+        self.assertIn('bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH" 3', run)
         # No upload-artifact anywhere in this job: the pointer is committed,
         # and KRX-derived material is never published as a public artifact.
         self.assertFalse(

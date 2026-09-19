@@ -82,17 +82,20 @@ class FredDexkousFxWorkflowTest(unittest.TestCase):
         self.assertIn("backfill", on_block["workflow_dispatch"]["inputs"])
         self.assertIn("--backfill", self.text)
 
-    def test_commit_step_has_bounded_push_retry_with_pull_rebase(self):
+    def test_commit_step_has_bounded_push_retry_via_shared_script(self):
         # 2026-09-15 incident: the first live run failed on a push race
         # with spdr-sector-holdings.yml, with no retry at all.
+        #
+        # 2026-09-18 consolidation: this step's own inline retry loop is now
+        # .github/scripts/push_to_default_branch.sh, shared with every other
+        # append-only evidence producer. Its own bounded/fail-closed
+        # behaviour is proven by test/test_push_retry_consolidation.py; this
+        # test only checks that this workflow actually calls it, with the
+        # 3-attempt bound this workflow has always used.
         commit_step = next(step for step in steps(self.document) if "git add" in step.get("run", ""))
         run = commit_step["run"]
-        self.assertIn("git pull --rebase", run)
-        self.assertIn("max_attempts=3", run)
-        self.assertIn("until git push", run)
-        # A real (non-race) failure must still fail the job, not loop
-        # forever or succeed silently.
-        self.assertIn("exit 1", run)
+        self.assertIn("push_to_default_branch.sh", run)
+        self.assertRegex(run, r'push_to_default_branch\.sh\s+"\$\{\{ github\.event\.repository\.default_branch \}\}"\s+3\b')
 
 
 if __name__ == "__main__":

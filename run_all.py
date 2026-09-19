@@ -3055,6 +3055,16 @@ APPROVED_TESTS = [
     #      주문·매매·자본 배분 권한은 열리지 않는다. 오프라인 fixture 와 이
     #      저장소에 이미 커밋된 KRX 공식 휴장 capture 만 사용한다.
     "test/test_daily_producer_freshness_watchdog.py",
+    # ★ 2026-09-18 push-retry consolidation. 6개의 서로 다른 push-retry 구현체
+    #   (shared 5-attempt 스크립트 1개 + fred/spdr/population/macro-event
+    #   -calendar/kr-paper-runtime-daily-publish 의 5개 inline 사본) 와 재시도가
+    #   전혀 없던 26개 워크플로를 .github/scripts/push_to_default_branch.sh
+    #   하나로 통합한다. 절반은 실제 git repo 를 만들어 스크립트를 직접
+    #   실행하는 행동 증거(rebase-replay, 충돌 시 fail-closed, mid-rebase 방치
+    #   없음, 5회 상한)이고, 절반은 이 저장소의 모든 workflow git push 단계가
+    #   공유 스크립트를 쓰거나 근거가 적힌 예외 표(registry pin·rebuild-on
+    #   -rebase)에 등재돼 있음을 검사하는 가드다.
+    "test/test_push_retry_consolidation.py",
     # ★ Class-wide guard: every workflow checkout that feeds a real
     #   git-history-walking consumer (first-seen/tamper verdicts via
     #   `git log`/`git show`/`git merge-base`) must use `fetch-depth: 0`.

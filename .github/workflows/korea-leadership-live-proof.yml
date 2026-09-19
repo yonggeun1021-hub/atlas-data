@@ -322,7 +322,10 @@ jobs:
             --current-date "$CURRENT_DATE"
       - name: Commit effective-date Korea Leadership evidence
         if: steps.existing_leadership.outputs.exists != 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
           git fetch origin main
@@ -332,7 +335,7 @@ jobs:
             echo "no change (verified_existing) -- nothing to commit"
           else
             git commit -m "korea leadership effective-date seed $(date -u +%Y-%m-%d) [run ${{ github.run_id }}] [trigger=${{ github.event_name }}]"
-            git push
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi
       # Runs only after the reuse check or the fetch+commit above has
       # already preserved this date's attempt evidence (reused evidence
@@ -557,6 +560,7 @@ jobs:
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
           git add data/latest_korea_market_signals.json \
@@ -569,14 +573,7 @@ jobs:
           fi
           ISO_DATE="${CURRENT_DATE:0:4}-${CURRENT_DATE:4:2}-${CURRENT_DATE:6:2}"
           git commit -m "korea five-signal pointer $ISO_DATE [run ${{ github.run_id }}] [trigger=${{ github.event_name }}]"
-          for attempt in 1 2 3; do
-            if git pull --rebase origin "$DEFAULT_BRANCH" && git push origin "HEAD:$DEFAULT_BRANCH"; then
-              exit 0
-            fi
-            sleep $((attempt * 10))
-          done
-          echo "STOP: push failed after 3 attempts"
-          exit 1
+          PUSH_RETRY_BACKOFF_SECONDS=10 bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH" 3
 
   korea-leadership-live-fetch:
     if: github.event_name == 'workflow_dispatch'
@@ -634,13 +631,18 @@ jobs:
             --current-date "$CURRENT_DATE"
       - name: Commit Korea Leadership live-fetch attempt evidence
         if: steps.existing_leadership.outputs.exists != 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           git config user.name "atlas-data-bot"
           git config user.email "atlas-data-bot@users.noreply.github.com"
           # This job's own checkout is pinned to the SHA fixed at trigger
           # time, not main's live tip -- re-sync before committing so a
           # concurrent push from another job/workflow cannot turn this
-          # push into a spurious non-fast-forward rejection.
+          # push into a spurious non-fast-forward rejection. The shared push
+          # script's own rebase-and-retry is the bounded fallback if a race
+          # still lands in the gap after this re-sync.
           git fetch origin main
           git reset --hard origin/main
           git add data/observations/korea_leadership_context
@@ -648,5 +650,5 @@ jobs:
             echo "no change (verified_existing) -- nothing to commit"
           else
             git commit -m "korea leadership live-fetch attempt $(date -u +%Y-%m-%d) [run ${{ github.run_id }}] [trigger=${{ github.event_name }}]"
-            git push
+            bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
           fi
