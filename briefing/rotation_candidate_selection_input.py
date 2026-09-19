@@ -281,11 +281,21 @@ def _checked_stage1(stage1_reference, contract: dict) -> tuple[dict, str]:
         != contract["stage1_market_order"]
     ):
         raise RotationCandidateSelectionInputError("STAGE1_MARKET_VOCABULARY_INVALID")
+    # runtime_regime was asserted to be the literal "UNKNOWN" here while the
+    # producer hardcoded it.  It is now derived per market from the ratified
+    # market-state source binding, so the same fail-closed intent is kept as the
+    # derivation: a market the binding does not open must still be UNKNOWN, and
+    # an opened market must carry exactly its own reference judgement -- never
+    # another market's, and never a value this projection invented.
+    adopted, _ = PAPER_REGIME.state_source_binding(ROOT)
     for row in markets:
+        candidate = (row.get("paper_reference") or {}).get("candidate_regime")
         if (
             not isinstance(row.get("as_of_date"), str)
-            or not isinstance((row.get("paper_reference") or {}).get("candidate_regime"), str)
-            or row.get("runtime_regime") != "UNKNOWN"
+            or not isinstance(candidate, str)
+            or row.get("runtime_regime") != PAPER_REGIME.derived_runtime_regime(
+                row.get("market"), candidate, adopted
+            )
         ):
             raise RotationCandidateSelectionInputError("STAGE1_MARKET_FIELDS_INVALID")
     for key in (

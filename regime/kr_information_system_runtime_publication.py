@@ -20,6 +20,22 @@ QUALIFICATION_PATH = (
 )
 OUTPUT_PATH = ROOT / "data/latest_kr_paper_runtime_decision.json"
 CALENDAR_ROOT = "evidence/market_calendar/krx_global_holiday/2026-09-09"
+# The 2026-09-14 (#696) publication frozen under EVIDENCE_ROOT recorded the
+# qualification bytes it actually consumed, by sha256, inside its own packet.
+# QUALIFICATION_PATH above is a *live* record: its bindings.implementation_sha256
+# tracks the current bytes of the seven KR-pinned implementation files, so it
+# legitimately moves whenever one of them is requalified (2026-09-19,
+# RATIFICATION_MARKET_STATE_SOURCE_BINDING, for
+# regime/paper_regime_reference.py).  Re-deriving a frozen artifact against a
+# moving input would fail every time that happens, and the only other way to
+# make it pass would be to rewrite committed append-only evidence so that it
+# claims a qualification it never read.  The superseded bytes are retained
+# instead, so the frozen publication stays checkable against exactly what it
+# consumed while the live record keeps following the live code.
+RETAINED_QUALIFICATION_PATH = (
+    ROOT
+    / "evidence/authority/kr_information_system_runtime_qualification_retained_20260914_publication.json"
+)
 
 
 class KrInformationSystemRuntimePublicationError(ValueError):

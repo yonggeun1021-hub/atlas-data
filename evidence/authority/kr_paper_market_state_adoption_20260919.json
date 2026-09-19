@@ -1,0 +1,70 @@
+{
+  "adopted": {
+    "consumer": "regime/paper_market_state_binding.py -> portfolio/paper_allocation_envelope.allocation_envelope",
+    "evidence_already_satisfied": [
+      "KR_SIGNED_AXIS_NORMALIZATION_RATIFIED",
+      "KR_SEMANTIC_FRESHNESS_RATIFIED",
+      "COMMON_V1_CLASSIFICATION_DIRECTION_HYSTERESIS_RATIFIED",
+      "REAL_HISTORICAL_SEQUENCE_COMPLETE_28_OF_28",
+      "REQUIRED_AXES_COMPLETE_5_OF_5_FOR_ALL_SESSIONS",
+      "NO_LOOKAHEAD_VALIDATION_PASS",
+      "DETERMINISTIC_RERUN_BYTE_IDENTICAL",
+      "ALL_FOUR_REQUIRED_REGIMES_OBSERVED",
+      "MARKET_SCOPED_PIT_VALIDATOR_RESULT_ACCEPTED"
+    ],
+    "what": "KR paper_reference.candidate_regime as the PAPER market-state sizing input",
+    "where": "config/paper_market_state_source_binding_v1.json markets.KR.adopted = true"
+  },
+  "authority": {
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "exchange_order_authorized": false,
+    "order_authorized": false,
+    "position_size_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "real_trading": false,
+    "scope": "PAPER market-state sizing input only",
+    "target_weight_authorized": false,
+    "trading_authorized": false
+  },
+  "authority_record": {
+    "path": "evidence/authority/USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919.json",
+    "record_id": "USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919",
+    "sha256": "98fce306ea3cfc93646b37a829f854d56dd508e572c2591de9736dc80ce6ead0"
+  },
+  "market": "KR",
+  "not_adopted": {
+    "note_ko": "네 항목 중 하나도 억지로 통과시키지 않았다. 후보 문서 자체도 proposed_effect_after_separate_ratification 에서 buy/capital/order/production/trading 을 UNCHANGED_FALSE 로 못박아 두었고, 이 변경도 그대로 유지한다.",
+    "path": "config/kr_paper_runtime_ratification_candidate_v1.json",
+    "remaining_preconditions": {
+      "CIO_RATIFICATION_OF_KR_REGIME_RESULT_AUTHORITY": {
+        "resolved": false,
+        "unblocks_when": "KR 국면 결과 권한을 묶는 별도 확정",
+        "why_ko": "위와 같은 이유. 국면 '결과 권한'은 사이징 입력보다 넓다."
+      },
+      "CIO_RATIFICATION_OF_KR_RUNTIME_BINDING": {
+        "resolved": false,
+        "unblocks_when": "KR 런타임 판정 자체를 묶는 별도 확정",
+        "why_ko": "이 항목은 KR '런타임 판정'(PIT 검증된 kr_paper_runtime 사슬)을 묶는 것이고, 2026-09-19 사용자 확정이 허가한 것은 PAPER 시장상태 사이징 입력 묶기다. 후자는 위 adopted 에 기록했고, 전자는 범위가 더 넓어 이 확정만으로 켤 수 없다."
+      },
+      "EXACT_HEAD_CI_AND_POST_MERGE_MAIN_REVALIDATION": {
+        "resolved": false,
+        "unblocks_when": "이 변경의 정확한 head 에서 CI 가 통과하고, 병합된 main 에서 재검증이 통과할 때",
+        "why_ko": "구조적으로 병합 이후에만 관측된다. 병합 전 PR 안에서는 참으로 만들 수 없다."
+      },
+      "SOURCE_AWARE_RUNTIME_BRIDGE_INDEPENDENT_REVIEW": {
+        "resolved": false,
+        "unblocks_when": "regime/kr_information_system_runtime_bridge.py 에 대한 별도 검토자의 기록이 커밋될 때",
+        "why_ko": "구현자가 아닌 제3자의 검토가 필요하다. 이 변경을 만든 세션이 스스로 독립 검토라고 쓸 수 없다."
+      }
+    },
+    "sha256": "b169be8554c766250393f3619eadfcda895801b9a6186d7b0e4d6ac6094f8285",
+    "status": "DRAFT_NOT_RATIFIED",
+    "what": "config/kr_paper_runtime_ratification_candidate_v1.json stays DRAFT_NOT_RATIFIED"
+  },
+  "record_id": "KR_PAPER_MARKET_STATE_ADOPTION_20260919",
+  "record_type": "CIO_ADOPTION_PARTIAL",
+  "recorded_at_utc": "2026-09-19T00:00:00Z",
+  "recorded_by": "CLAUDE_CIO"
+}

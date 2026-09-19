@@ -1,0 +1,93 @@
+{
+  "authority": {
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "exchange_order_authorized": false,
+    "order_authorized": false,
+    "position_size_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "real_trading": false,
+    "scope": "record of a blocked adoption; grants nothing",
+    "target_weight_authorized": false,
+    "trading_authorized": false
+  },
+  "authority_record": {
+    "authorized_item_ko": "CRYPTO 채택 기록의 수락조건 3건 해소 (자료 조건이 충족되는 시점까지 차단 유지는 허용)",
+    "path": "evidence/authority/USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919.json",
+    "record_id": "USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919",
+    "sha256": "98fce306ea3cfc93646b37a829f854d56dd508e572c2591de9736dc80ce6ead0"
+  },
+  "conditions_reviewed": {
+    "2_MINIMUM_CONSECUTIVE_COMPLETE_DAYS": {
+      "measured": "complete_day_count 1 of the required 5 consecutive complete UTC days; conditions.2_REQUIRED_5_OF_5_AXES is false",
+      "resolved": false,
+      "unblocks_when": "2026-09-23 (5일 연속 완전일이 누적되는 가장 이른 첫 판정일)",
+      "why_ko": "자료 부족이다. 코인 5축이 5일 연속 완전해야 하고 사슬 시작은 2026-09-18 이다. 코드로 앞당길 수 없다 — 모자란 입력은 커밋된 증거의 '경과한 날짜'다."
+    },
+    "3_NO_LOOKAHEAD": {
+      "measured": "true on main at the time of this record",
+      "note_ko": "2026-09-19 건식 재생 보고서는 이 조건이 실패 중이라고 적었는데, 그 이후 main 이 진행되어 현재는 통과다. 실패 3건이 아니라 1건이다.",
+      "resolved": true
+    },
+    "5_EXACT_COMMON_V1_REPLAY": {
+      "measured": "true on main at the time of this record",
+      "note_ko": "위와 같다.",
+      "resolved": true
+    }
+  },
+  "market": "CRYPTO",
+  "measured_cost_of_keeping_it_closed": {
+    "cells_that_would_have_opened_if_crypto_were_adopted": 6,
+    "crypto_cells_denied": 20,
+    "dates": [
+      "2026-09-13",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-18"
+    ],
+    "exposure_effect": "three-market investable cap 0.6000 instead of 0.6300 on those six dates (CRYPTO 0.0750 instead of 0.1050)",
+    "mean_exposure_18_or_19_comparable_days": {
+      "crypto_closed": "0.59553",
+      "crypto_open": "0.60528"
+    },
+    "window": "2026-08-28 .. 2026-09-19 (20 committed reference evidence dates)"
+  },
+  "measured_today": {
+    "acceptance_label": "PROVISIONAL_FORWARD_ACCEPTANCE",
+    "acceptance_status": "NOT_ACCEPTED",
+    "accepted_run": {
+      "complete_day_count": 1,
+      "confirmed_regimes_observed": [
+        "UNKNOWN"
+      ],
+      "first_decision_date": "2026-09-18",
+      "last_decision_date": "2026-09-18"
+    },
+    "conditions": {
+      "1_REAL_EVIDENCE_ONLY": true,
+      "2_REQUIRED_5_OF_5_AXES": false,
+      "3_NO_LOOKAHEAD": true,
+      "4_DETERMINISTIC_RERUN_BYTE_IDENTICAL": true,
+      "5_EXACT_COMMON_V1_REPLAY": true,
+      "6_REPLACED_KRAKEN_BULK_BTC_REPLAY_DIAGNOSTIC": true
+    },
+    "decision_status": "BLOCKED",
+    "path": "data/latest_crypto_paper_runtime_decision.json",
+    "reasons": [
+      "PROVISIONAL_FORWARD_ACCEPTANCE_NOT_PASSED",
+      "ACCEPTANCE_CONDITION_FAILED:2_MINIMUM_CONSECUTIVE_COMPLETE_DAYS",
+      "COMMON_CONFIRMATION_PENDING"
+    ],
+    "sha256": "f9b85ca69a668f5f891446c4f50df8c8067d2a1896f19a5cb9122149f394247b"
+  },
+  "must_not_be_forced_ko": "레지스트리 확정 해석: '롤링 5일 연속 완전일 요건 — 하루 불완전하면 약 6일치 UNKNOWN 비용(fail-closed)'. 자료가 없어서 막힌 조건을 통과시키면 그 fail-closed 설계를 무력화한다. 차단을 유지하는 것이 정답이다.",
+  "record_id": "CRYPTO_PAPER_MARKET_STATE_ADOPTION_BLOCKED_20260919",
+  "record_type": "CIO_ADOPTION_BLOCKED",
+  "recorded_at_utc": "2026-09-19T00:00:00Z",
+  "recorded_by": "CLAUDE_CIO",
+  "verdict": "BLOCK_MAINTAINED",
+  "where": "config/paper_market_state_source_binding_v1.json markets.CRYPTO.adopted = false"
+}

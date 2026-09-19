@@ -1,0 +1,80 @@
+{
+  "authority": {
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "exchange_order_authorized": false,
+    "order_authorized": false,
+    "position_size_authorized": false,
+    "production_authorized": false,
+    "real_capital_authorized": false,
+    "real_trading": false,
+    "scope": "record of a blocked adoption; grants nothing",
+    "target_weight_authorized": false,
+    "trading_authorized": false
+  },
+  "authority_considered": {
+    "authorized_item_ko": "config/us_paper_runtime_adoption_v1.json 신설 (현재 템플릿만 존재)",
+    "path": "evidence/authority/USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919.json",
+    "record_id": "USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919",
+    "sha256": "98fce306ea3cfc93646b37a829f854d56dd508e572c2591de9736dc80ce6ead0"
+  },
+  "earliest_possible": "UNKNOWN_NOT_DATE_BOUND: it waits on US sessions that actually score RISK_ON and STRESS, which no code change can produce.",
+  "market": "US",
+  "measured_today": {
+    "session_calendar_available": {
+      "note": "The calendar half of the binding exists; the PIT acceptance half does not.",
+      "path": "data/us_official_session_calendar_v1.json",
+      "sha256": "24b52b94705d528622b9034dba549006eee716b562ae940a0ccf083e40f80c63"
+    },
+    "us_paper_runtime_decision": {
+      "decision_status": "BLOCKED",
+      "path": "data/latest_us_paper_runtime_decision.json",
+      "reasons": [
+        "US_PAPER_RUNTIME_ADOPTION_IDENTITY_ABSENT",
+        "US_PIT_ACCEPTED_RECORD_UNBOUND",
+        "US_OFFICIAL_SESSION_CALENDAR_UNBOUND"
+      ],
+      "runtime_regime": "UNKNOWN",
+      "sha256": "7675849fa842125d03a8cc987c5d2414e76fafc9246f784750b8f1c36ebc7423"
+    },
+    "us_pit_acceptance": {
+      "evaluated_date_count": 0,
+      "missing_regimes": [
+        "RISK_ON",
+        "NEUTRAL",
+        "RISK_OFF",
+        "STRESS"
+      ],
+      "path": "data/latest_market_scoped_pit_acceptance.json",
+      "reasons": [
+        "NO_EVIDENCE_BUNDLE_SUPPLIED"
+      ],
+      "regimes_observed": [],
+      "sha256": "06888f1705ce289e92294d7e7834d27749b81e35ac6b568bce2289436e9f6f13",
+      "status": "NOT_ACCEPTED"
+    }
+  },
+  "record_id": "US_PAPER_RUNTIME_ADOPTION_BLOCKED_20260919",
+  "record_type": "CIO_ADOPTION_BLOCKED",
+  "recorded_at_utc": "2026-09-19T00:00:00Z",
+  "recorded_by": "CLAUDE_CIO",
+  "subject": {
+    "active_path": "config/us_paper_runtime_adoption_v1.json",
+    "active_path_state": "DELIBERATELY_ABSENT",
+    "adoption_identity": "US_PAPER_RUNTIME_ADOPTION_V1",
+    "contract_path": "config/us_paper_runtime_contract_v1.json",
+    "contract_sha256": "bad715c8a960b6aa7a5618b22e5ccefc580f38599e2c3f532f7e182c700812d3",
+    "gate": "regime/us_paper_runtime.py load_adoption() / load_acceptance() / load_calendar()",
+    "template_path": "config/us_paper_runtime_adoption_v1.TEMPLATE.json",
+    "template_sha256": "ffa7e8e592371f9bfd69c78ca2fcda949c3faf80b3243dc7f2add2c31a6065ad"
+  },
+  "unblocks_when": [
+    "A US replay population bundle is committed that validates under regime/us_historical_replay_population.validate_population, and",
+    "regime.market_scoped_pit_acceptance.evaluate_market_pit_acceptance('US', bundle) returns PIT_ACCEPTED -- which needs all four of RISK_ON, NEUTRAL, RISK_OFF and STRESS observed in the sequence, and",
+    "a us_pit_acceptance_record/1 record is committed and bound, with the official session calendar, by a CIO technical adoption (U5)."
+  ],
+  "verdict": "NOT_CREATED",
+  "what_this_does_not_block": "The PAPER market-state source binding does not depend on this adoption and does not substitute for it. config/paper_market_state_source_binding_v1.json opens US for sizing from paper_reference.candidate_regime only, and records this weakness explicitly under markets.US.disclosed_weaknesses.",
+  "why_ko": "권한은 있으나 묶을 자료가 없다. 이 기록을 CIO_TECHNICAL_ADOPTED 로 만들려면 regime/us_paper_runtime.py 의 load_acceptance() 가 요구하는 US PIT_ACCEPTED 수락 레코드와 그 레코드가 재평가되는 replay population 꾸러미를 묶어야 한다. 저장소에는 둘 다 없고, 있다 해도 통과할 수 없다: 수락 판정은 RISK_ON·NEUTRAL·RISK_OFF·STRESS 네 국면이 모두 관측된 시퀀스를 요구하는데 커밋된 US 점수 이력 20일에는 NEUTRAL 과 RISK_OFF 두 국면만 있다. 없는 자료를 만들어 통과시키는 것은 이 확정이 허가한 범위가 아니다.",
+  "why_the_active_path_is_left_absent": "Creating the file in any non-CIO_TECHNICAL_ADOPTED state changes nothing about authority -- US stays UNKNOWN either way -- and it makes the producer's diagnostic worse: regime/us_paper_runtime.py currently reports US_PAPER_RUNTIME_ADOPTION_IDENTITY_ABSENT with US_PIT_ACCEPTED_RECORD_UNBOUND and US_OFFICIAL_SESSION_CALENDAR_UNBOUND as its derived reasons, which names the real gap. A file with status CIO_TECHNICAL_PROPOSED would replace that with ADOPTION_IDENTITY_NOT_ACTIVE and force data/latest_us_paper_runtime_decision.json plus a new append-only evidence copy to be rewritten for no gain."
+}

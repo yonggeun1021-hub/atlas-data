@@ -541,5 +541,100 @@ class PaperRegimeRuntimeAdoptionTests(unittest.TestCase):
         })
 
 
+class RuntimeProductionRegimeAuthorityTest(unittest.TestCase):
+    """The fail-closed assertion redesigned on 2026-09-19.
+
+    ``runtime_production_regime_authorized`` used to sit in the blanket
+    "must be exactly False" list, which made ``True`` a forbidden value rather
+    than a consumed one: there was no way to open one market without opening all
+    of them, and no way to open any market at all.  It is now read per market.
+    The property that must survive is the one the blanket check was protecting:
+    the default is closed, and only an explicit per-market ``True`` opens a
+    market.
+    """
+
+    def schema(self, value):
+        copied = copy.deepcopy(SCHEMA)
+        copied["authority"]["runtime_production_regime_authorized"] = value
+        return copied
+
+    def markets(self, value):
+        return subject.runtime_production_regime_markets(self.schema(value))
+
+    def test_repository_schema_still_opens_nothing(self):
+        self.assertEqual(subject.runtime_production_regime_markets(SCHEMA), frozenset())
+
+    def test_false_closes_every_market(self):
+        self.assertEqual(self.markets(False), frozenset())
+
+    def test_a_mapping_opens_only_markets_set_to_exactly_true(self):
+        self.assertEqual(
+            self.markets({"US": True, "KR": True, "CRYPTO": False}),
+            frozenset({"US", "KR"}),
+        )
+        self.assertEqual(self.markets({"KR": True}), frozenset({"KR"}))
+
+    def test_a_market_absent_from_the_mapping_is_closed(self):
+        opened = self.markets({"KR": True})
+        self.assertNotIn("US", opened)
+        self.assertNotIn("CRYPTO", opened)
+
+    def test_a_blanket_true_is_still_forbidden(self):
+        for value in (True, 1, "US", ["US"], {}, None):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    subject.PaperRegimeEligibilityError,
+                    "SCHEMA_AUTHORITY_NOT_FAIL_CLOSED",
+                ):
+                    self.markets(value)
+
+    def test_a_non_boolean_or_unknown_market_fails_closed(self):
+        for value in ({"US": 1}, {"US": "true"}, {"US": None}, {"FX": True},
+                      {"US": True, "FX": True}):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    subject.PaperRegimeEligibilityError,
+                    "SCHEMA_AUTHORITY_NOT_FAIL_CLOSED",
+                ):
+                    self.markets(value)
+
+    def test_a_missing_key_fails_closed(self):
+        broken = copy.deepcopy(SCHEMA)
+        del broken["authority"]["runtime_production_regime_authorized"]
+        with self.assertRaisesRegex(
+            subject.PaperRegimeEligibilityError, "SCHEMA_AUTHORITY_NOT_FAIL_CLOSED"
+        ):
+            subject.runtime_production_regime_markets(broken)
+
+    def test_the_ten_capital_flags_are_still_strictly_false(self):
+        self.assertNotIn(
+            subject.RUNTIME_PRODUCTION_REGIME_KEY,
+            subject.CAPITAL_AUTHORITY_ALWAYS_FALSE,
+        )
+        for key in subject.CAPITAL_AUTHORITY_ALWAYS_FALSE:
+            for value in (True, 1, "no", None, {}, {"US": False}):
+                with self.subTest(flag=key, value=value):
+                    broken = copy.deepcopy(SCHEMA)
+                    broken["authority"][key] = value
+                    with self.assertRaisesRegex(
+                        subject.PaperRegimeEligibilityError,
+                        "SCHEMA_AUTHORITY_NOT_FAIL_CLOSED",
+                    ):
+                        subject._validate_schema(
+                            broken, raw(broken), subject.sha256(raw(broken))
+                        )
+
+    def test_validate_schema_accepts_a_per_market_mapping(self):
+        opened = self.schema({"US": True, "KR": True, "CRYPTO": False})
+        validated, actual = subject._validate_schema(
+            opened, raw(opened), subject.sha256(raw(opened))
+        )
+        self.assertEqual(
+            subject.runtime_production_regime_markets(validated),
+            frozenset({"US", "KR"}),
+        )
+        self.assertEqual(actual, subject.sha256(raw(opened)))
+
+
 if __name__ == "__main__":
     unittest.main()

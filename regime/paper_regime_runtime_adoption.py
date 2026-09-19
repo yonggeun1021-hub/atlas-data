@@ -46,6 +46,17 @@ SLOWER_RULES = {"US_VIXCLS", "US_WRESBAL", "US_TOTBKCR"}
 AXES = ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]
 
 
+ADOPTION_MARKETS = ("CRYPTO", "KR", "US")
+# Capital-side authority that no schema may ever assert, in any shape.
+CAPITAL_AUTHORITY_ALWAYS_FALSE = (
+    "action_authorized", "buy_authorized", "capital_authorized",
+    "order_authorized", "position_size_authorized", "stage_authorized",
+    "strategy_authorized", "target_weight_authorized",
+    "trading_authorized", "real_trading",
+)
+RUNTIME_PRODUCTION_REGIME_KEY = "runtime_production_regime_authorized"
+
+
 class PaperRegimeEligibilityError(ValueError):
     """Raised only when the API contract/schema itself is unusable."""
 
@@ -167,16 +178,52 @@ def _validate_schema(
     if not required.issubset(schema):
         raise PaperRegimeEligibilityError("SCHEMA_FIELDS_MISSING")
     authority = schema["authority"]
-    forbidden = (
-        "action_authorized", "buy_authorized", "capital_authorized",
-        "order_authorized", "position_size_authorized",
-        "runtime_production_regime_authorized", "stage_authorized",
-        "strategy_authorized", "target_weight_authorized",
-        "trading_authorized", "real_trading",
-    )
-    if not isinstance(authority, Mapping) or any(authority.get(key) is not False for key in forbidden):
+    if not isinstance(authority, Mapping) or any(
+        authority.get(key) is not False for key in CAPITAL_AUTHORITY_ALWAYS_FALSE
+    ):
         raise PaperRegimeEligibilityError("SCHEMA_AUTHORITY_NOT_FAIL_CLOSED")
+    # Redesigned 2026-09-19 (RATIFICATION_MARKET_STATE_SOURCE_BINDING).  This
+    # flag used to be in the list above, which made ``True`` a *forbidden*
+    # value rather than a consumed one: there was no way to open one market
+    # without opening all of them, and no way to open any market at all.  It is
+    # now read per market and still fails closed -- see
+    # runtime_production_regime_markets().  Every capital/order/trading flag
+    # above stays strictly ``is False``.
+    runtime_production_regime_markets(schema)
     return copy.deepcopy(dict(schema)), actual
+
+
+def runtime_production_regime_markets(schema: Mapping[str, Any]) -> frozenset:
+    """Markets whose runtime production regime the schema opens.  Default: none.
+
+    Accepted shapes for ``authority.runtime_production_regime_authorized``:
+
+    * ``False``               -- every market closed (the value every schema
+      carried before this was readable, so nothing changes by default).
+    * a mapping of market -> bool -- a market is open only when its value is
+      exactly ``True``.  A market that is absent from the mapping is closed.
+
+    Anything else fails closed with ``SCHEMA_AUTHORITY_NOT_FAIL_CLOSED``: a bare
+    ``True`` (a blanket grant across markets), a non-boolean value, a market
+    name this module does not know, or a missing key.  The default is the safe
+    side in every one of those cases, which is the property the old blanket
+    ``is False`` check was protecting and this keeps.
+    """
+    if not isinstance(schema, Mapping):
+        raise PaperRegimeEligibilityError("SCHEMA_AUTHORITY_NOT_FAIL_CLOSED")
+    authority = schema.get("authority")
+    if not isinstance(authority, Mapping) or RUNTIME_PRODUCTION_REGIME_KEY not in authority:
+        raise PaperRegimeEligibilityError("SCHEMA_AUTHORITY_NOT_FAIL_CLOSED")
+    value = authority[RUNTIME_PRODUCTION_REGIME_KEY]
+    if value is False:
+        return frozenset()
+    if not isinstance(value, Mapping) or isinstance(value, bool):
+        raise PaperRegimeEligibilityError("SCHEMA_AUTHORITY_NOT_FAIL_CLOSED")
+    if not value or any(market not in ADOPTION_MARKETS for market in value):
+        raise PaperRegimeEligibilityError("SCHEMA_AUTHORITY_NOT_FAIL_CLOSED")
+    if any(not isinstance(flag, bool) for flag in value.values()):
+        raise PaperRegimeEligibilityError("SCHEMA_AUTHORITY_NOT_FAIL_CLOSED")
+    return frozenset(market for market in ADOPTION_MARKETS if value.get(market) is True)
 
 
 def _invalid_result(base: dict[str, Any], reason: str) -> dict[str, Any]:

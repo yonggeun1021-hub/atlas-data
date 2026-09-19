@@ -23,6 +23,9 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from regime import paper_market_state_binding as STATE_BINDING
+
 POLICY_PATH = ROOT / "config" / "paper_regime_reference_policy_v1.json"
 US_PATH = ROOT / "data" / "latest_free_market_data.json"
 KR_PATH = ROOT / "data" / "latest_korea_market_signals.json"
@@ -262,7 +265,40 @@ def _us_market_policy(policy: dict) -> dict:
     return resolved
 
 
-def build_us(packet: dict, policy: dict) -> dict:
+def state_source_binding(root: Path | None) -> tuple[frozenset, str | None]:
+    """Markets the ratified market-state source binding opens, and its hash.
+
+    ``RATIFICATION_MARKET_STATE_SOURCE_BINDING`` (2026-09-19) made the runtime
+    state of a market a *derived* value instead of the hardcoded ``"UNKNOWN"``
+    literal that used to sit in ``market_packet`` and ``build_crypto``.  The
+    derivation is per market and fails closed: no binding file, an unratified
+    binding, or a market that is not marked ``adopted`` all read as UNKNOWN.
+
+    The hash is returned only when the binding actually opens a market.  While
+    every market is closed the packet is byte-for-byte what it was before this
+    function existed, so historical and frozen-closure replays -- which
+    materialize a root without this file -- keep re-deriving exactly.
+    """
+    if root is None:
+        return frozenset(), None
+    path = Path(root) / STATE_BINDING.BINDING_RELATIVE
+    if not path.is_file():
+        return frozenset(), None
+    try:
+        adopted = STATE_BINDING.adopted_markets(STATE_BINDING.load_binding(Path(root)))
+    except STATE_BINDING.PaperMarketStateBindingError as exc:
+        fail("MARKET_STATE_SOURCE_BINDING_INVALID", str(exc).split(":", 1)[0])
+    if not adopted:
+        return frozenset(), None
+    return adopted, file_sha256(path)
+
+
+def derived_runtime_regime(market: str, candidate_regime: object, adopted: frozenset) -> str:
+    """The value that replaced the hardcoded ``"runtime_regime": "UNKNOWN"``."""
+    return STATE_BINDING.runtime_regime(market, candidate_regime, adopted)
+
+
+def build_us(packet: dict, policy: dict, *, adopted: frozenset = frozenset()) -> dict:
     us_policy = _us_market_policy(policy)
     reference = packet.get("us_market_reference")
     if not isinstance(reference, dict) or reference.get("status") != "READY":
@@ -312,7 +348,10 @@ def build_us(packet: dict, policy: dict) -> dict:
         axis("LEADERSHIP", leadership_direction, {"positive_groups": positive_groups, "total": 12}, f"대표 업종 12개 중 {positive_groups}개가 20거래일 기준 상승입니다."),
     ]
     regime, score, explanation = classify(rows, policy)
-    return market_packet("US", reference["as_of_session_date"], rows, regime, score, explanation)
+    return market_packet(
+        "US", reference["as_of_session_date"], rows, regime, score, explanation,
+        adopted=adopted,
+    )
 
 
 def kr_threshold(block: dict, name: str, key: str) -> Decimal:
@@ -432,14 +471,20 @@ def normalize_kr_measurements(
 
 def build_kr(
     packet: dict, policy: dict, *, render_version: str | None = None,
+    adopted: frozenset = frozenset(),
 ) -> dict:
     # Versionless historical callers retain their original text and hashes.
     rows = normalize_kr_measurements(packet, policy, render_version=render_version)
     regime, score, explanation = classify(rows, policy)
-    return market_packet("KR", packet["as_of_date"], rows, regime, score, explanation)
+    return market_packet(
+        "KR", packet["as_of_date"], rows, regime, score, explanation, adopted=adopted,
+    )
 
 
-def market_packet(market: str, as_of_date: str, axes: list[dict], regime: str, score: int, explanation: str) -> dict:
+def market_packet(
+    market: str, as_of_date: str, axes: list[dict], regime: str, score: int,
+    explanation: str, *, adopted: frozenset = frozenset(),
+) -> dict:
     conf = confidence(regime, axes)
     return {
         "market": market,
@@ -447,7 +492,11 @@ def market_packet(market: str, as_of_date: str, axes: list[dict], regime: str, s
         "coverage": {"defined_count": len(axes), "required_count": 5, "ratio": f"{len(axes)}/5", "missing_axes": []},
         "paper_reference": {"candidate_regime": regime, "score": score, "confidence": None if conf is None else str(conf), "explanation_ko": explanation},
         "classification_status": "PAPER_REFERENCE_CLASSIFIED",
-        "runtime_regime": "UNKNOWN",
+        # Derived per market from the ratified market-state source binding, not a
+        # literal: UNKNOWN unless this market is adopted (see
+        # state_source_binding above).  Default closed for every caller that
+        # does not pass an adopted set -- historical replays included.
+        "runtime_regime": derived_runtime_regime(market, regime, adopted),
         "axes": axes,
     }
 
@@ -541,6 +590,7 @@ def build_crypto(
     render_version: str | None = CURRENT_RENDER_VERSION,
     root: Path | None = None,
     policy: dict | None = None,
+    adopted: frozenset = frozenset(),
 ) -> dict:
     if packet.get("schema_version") != "crypto_regime_refresh_status/1":
         fail("CRYPTO_SOURCE_INVALID")
@@ -662,7 +712,7 @@ def build_crypto(
             "explanation_ko": explanation,
         },
         "classification_status": classification_status,
-        "runtime_regime": "UNKNOWN",
+        "runtime_regime": derived_runtime_regime("CRYPTO", "UNKNOWN", adopted),
         "axes": [],
     }
     if current_coverage is not None and render_version in current_render_versions:
@@ -699,7 +749,8 @@ def build_crypto(
         rows = normalized["axes"]
         regime, score, explanation = classify(rows, policy)
         result = market_packet(
-            "CRYPTO", current["as_of_date"], rows, regime, score, explanation
+            "CRYPTO", current["as_of_date"], rows, regime, score, explanation,
+            adopted=adopted,
         )
         result.update({
             "mode": current["mode"],
@@ -725,7 +776,18 @@ def build_crypto(
 
 def build_reference(
     root: Path = ROOT, *, render_version: str | None = CURRENT_RENDER_VERSION,
+    state_binding: tuple | None = None,
 ) -> dict:
+    """Build the packet.  ``state_binding`` is for isolated roots only.
+
+    A root that materializes a fixed closure of files (the Flow replay root, for
+    instance) does not carry
+    ``config/paper_market_state_source_binding_v1.json``, so its binding would
+    read as all-closed while the packet it is re-deriving was produced with a
+    binding that opened markets.  ``recorded_state_binding()`` recovers the
+    binding the packet itself names, and is accepted ONLY when the root has no
+    binding file of its own -- see its docstring for why that is not a bypass.
+    """
     if render_version is not None and render_version not in SUPPORTED_RENDER_VERSIONS:
         fail("REFERENCE_RENDER_VERSION_INVALID")
     policy_path = root / "config" / "paper_regime_reference_policy_v1.json"
@@ -750,6 +812,9 @@ def build_reference(
         {"market": "KR", "path": "data/latest_korea_market_signals.json", "sha256": file_sha256(kr_path)},
         {"market": "CRYPTO", "path": "data/latest_crypto_regime_refresh_status.json", "sha256": file_sha256(crypto_path)},
     ]
+    adopted, state_binding_sha256 = (
+        state_source_binding(root) if state_binding is None else state_binding
+    )
     generation_binding = {"policy_sha256": file_sha256(policy_path), "sources": sources}
     crypto_normalization_sources = None
     current = crypto_source.get("current_reference")
@@ -779,15 +844,21 @@ def build_reference(
             )
     if render_version is not None:
         generation_binding["render_version"] = render_version
+    # The binding is an input only while it opens a market.  Absent/all-closed
+    # leaves the recipe exactly as it was before the binding existed, so frozen
+    # and historical closures keep re-deriving byte-for-byte.
+    if state_binding_sha256 is not None:
+        generation_binding["market_state_source_binding_sha256"] = state_binding_sha256
     generation_id = payload_sha256(generation_binding)
     markets = [
-        build_us(us_source, policy),
-        build_kr(kr_source, policy, render_version=render_version),
+        build_us(us_source, policy, adopted=adopted),
+        build_kr(kr_source, policy, render_version=render_version, adopted=adopted),
         build_crypto(
             crypto_source,
             render_version=render_version,
             root=root,
             policy=policy,
+            adopted=adopted,
         ),
     ]
     packet = {
@@ -819,11 +890,56 @@ def build_reference(
         packet["crypto_descriptive_normalization_sources"] = (
             crypto_normalization_sources
         )
+    if state_binding_sha256 is not None:
+        packet["market_state_source_binding"] = {
+            "path": STATE_BINDING.BINDING_RELATIVE,
+            "sha256": state_binding_sha256,
+            "adopted_markets": sorted(adopted),
+            "closed_markets": sorted(set(STATE_BINDING.MARKETS) - adopted),
+        }
     packet["payload_sha256"] = payload_sha256(packet)
     return packet
 
 
-def _validate_authenticated_frozen_v4(packet: dict, root: Path) -> None:
+def recorded_state_binding(packet: dict, root: Path) -> tuple | None:
+    """The market-state binding a packet names, for a root that lacks the file.
+
+    Returns ``None`` -- meaning "read the root, as usual" -- whenever the root
+    actually carries ``config/paper_market_state_source_binding_v1.json``.  So in
+    the real repository this never applies: a packet cannot talk its own binding
+    into existence, and the production consumer
+    (``regime/paper_market_state_binding``) always reads the real file and never
+    this field.  It applies only to an isolated closure root, where the packet
+    bytes have already been authenticated by the caller and the recorded hash is
+    the same kind of in-packet representation the crypto normalization closure
+    already uses.
+    """
+    if (Path(root) / STATE_BINDING.BINDING_RELATIVE).is_file():
+        return None
+    recorded = packet.get("market_state_source_binding")
+    if not isinstance(recorded, dict):
+        return None
+    sha256_claim = recorded.get("sha256")
+    adopted_claim = recorded.get("adopted_markets")
+    if (
+        not isinstance(sha256_claim, str)
+        or SHA256.fullmatch(sha256_claim) is None
+        or recorded.get("path") != STATE_BINDING.BINDING_RELATIVE
+        or not isinstance(adopted_claim, list)
+        or not adopted_claim
+        or any(market not in STATE_BINDING.MARKETS for market in adopted_claim)
+        or sorted(set(adopted_claim)) != sorted(adopted_claim)
+        or recorded.get("closed_markets") != sorted(
+            set(STATE_BINDING.MARKETS) - set(adopted_claim)
+        )
+    ):
+        fail("REFERENCE_RECORDED_STATE_BINDING_INVALID")
+    return frozenset(adopted_claim), sha256_claim
+
+
+def _validate_authenticated_frozen_v4(
+    packet: dict, root: Path, state_binding: tuple | None = None,
+) -> None:
     """Validate a Git-authenticated v4 packet when its raw closure is not materialized.
 
     The caller has already authenticated the packet bytes to a trusted Git
@@ -855,12 +971,17 @@ def _validate_authenticated_frozen_v4(packet: dict, root: Path) -> None:
             or SHA256.fullmatch(row["sha256"]) is None
         ):
             fail("REFERENCE_FROZEN_NORMALIZATION_BINDING_INVALID")
+    adopted, state_binding_sha256 = (
+        state_source_binding(root) if state_binding is None else state_binding
+    )
     generation_binding = {
         "policy_sha256": file_sha256(policy_path),
         "sources": expected_sources,
         "crypto_descriptive_normalization_sources": normalization_sources,
         "render_version": CURRENT_RENDER_VERSION,
     }
+    if state_binding_sha256 is not None:
+        generation_binding["market_state_source_binding_sha256"] = state_binding_sha256
     if packet.get("generation_id") != payload_sha256(generation_binding):
         fail("REFERENCE_FROZEN_GENERATION_MISMATCH")
     by_market = {
@@ -868,11 +989,12 @@ def _validate_authenticated_frozen_v4(packet: dict, root: Path) -> None:
     }
     if set(by_market) != {"US", "KR", "CRYPTO"}:
         fail("REFERENCE_FROZEN_MARKETS_INVALID")
-    us = build_us(read_json(primary["US"], "US_SOURCE_INVALID"), policy)
+    us = build_us(read_json(primary["US"], "US_SOURCE_INVALID"), policy, adopted=adopted)
     kr = build_kr(
         read_json(primary["KR"], "KR_SOURCE_INVALID"),
         policy,
         render_version=CURRENT_RENDER_VERSION,
+        adopted=adopted,
     )
     if by_market["US"] != us or by_market["KR"] != kr:
         fail("REFERENCE_FROZEN_MARKET_REDERIVATION_MISMATCH")
@@ -889,8 +1011,19 @@ def _validate_authenticated_frozen_v4(packet: dict, root: Path) -> None:
         "explanation_ko": explanation,
     }:
         fail("REFERENCE_FROZEN_CRYPTO_CLASSIFICATION_MISMATCH")
-    if crypto.get("runtime_regime") != "UNKNOWN":
-        fail("REFERENCE_FROZEN_CRYPTO_AUTHORITY_INVALID")
+    # Was: crypto's runtime_regime had to be the literal "UNKNOWN".  Now every
+    # market's runtime_regime must equal the per-market derivation from the
+    # ratified market-state source binding -- so a market the binding does not
+    # open still cannot carry a state, and a market it does open cannot carry a
+    # state other than its own reference judgement.  Markets are independent.
+    for market, row in sorted(by_market.items()):
+        reference_row = row.get("paper_reference")
+        candidate = (
+            reference_row.get("candidate_regime")
+            if isinstance(reference_row, dict) else None
+        )
+        if row.get("runtime_regime") != derived_runtime_regime(market, candidate, adopted):
+            fail("REFERENCE_FROZEN_RUNTIME_AUTHORITY_INVALID", market)
     if packet.get("authority") != policy.get("authority"):
         fail("REFERENCE_FROZEN_AUTHORITY_MISMATCH")
 
@@ -909,10 +1042,13 @@ def validate_reference(
         fail("REFERENCE_SHA_INVALID")
     if "render_version" in packet and packet["render_version"] not in SUPPORTED_RENDER_VERSIONS:
         fail("REFERENCE_RENDER_VERSION_INVALID")
-    expected = build_reference(root, render_version=packet.get("render_version"))
+    recorded = recorded_state_binding(packet, root)
+    expected = build_reference(
+        root, render_version=packet.get("render_version"), state_binding=recorded,
+    )
     if packet != expected:
         if frozen_packet_authenticated and packet.get("render_version") == CURRENT_RENDER_VERSION:
-            _validate_authenticated_frozen_v4(packet, root)
+            _validate_authenticated_frozen_v4(packet, root, recorded)
         else:
             fail("REFERENCE_REDERIVATION_MISMATCH")
     return copy.deepcopy(packet)
