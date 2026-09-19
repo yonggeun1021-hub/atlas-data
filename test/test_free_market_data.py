@@ -852,6 +852,36 @@ def _history_getter(*, bars_per_symbol=3, split_pages=False, calls=None,
     return getter
 
 
+class AdvancingClock:
+    """A clock that returns a NEW second on every call.
+
+    The 2026-09-19 determinism defect hid behind wall-clock speed: two receives
+    that finished inside one second hashed identically and the regression passed,
+    while a slower runner crossed a second boundary and the same code failed. A
+    real sleep would only make the test slow and still depend on timing, so the
+    clock is replaced by one that guarantees the boundary is crossed on every
+    single call -- the worst case, every time, in milliseconds.
+    """
+
+    def __init__(self, start=None, step_seconds=1):
+        self.now = start or dt.datetime(2026, 9, 19, 12, 0, 0, tzinfo=dt.timezone.utc)
+        self.step = dt.timedelta(seconds=step_seconds)
+        self.calls = 0
+
+    def __call__(self):
+        value = self.now
+        self.now = self.now + self.step
+        self.calls += 1
+        return value
+
+
+def _file_snapshot(root):
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*")) if path.is_file()
+    }
+
+
 class HistoricalRangeReceiptTests(unittest.TestCase):
     """The added range/vintage entry point, and the daily path it must not move."""
 
@@ -1047,32 +1077,32 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
                     self.assertNotIn(secret, text, path.name)
                 self.assertNotIn("api_key", text, path.name)
 
+    def _fetch(self, root, contract, **kwargs):
+        options = {
+            "feed": "iex", "symbols": ["SPY"], "pace_seconds": 0,
+            "getter": _history_getter(bars_per_symbol=3),
+        }
+        options.update(kwargs)
+        return H.fetch(
+            root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+            contract, "2026-05-04", "2026-05-06", **options
+        )
+
     def test_retained_objects_are_deterministic_gzip_and_append_only(self):
         contract = self._contract()
         with tempfile.TemporaryDirectory() as tmp:
             root = _contract_root(tmp)
-            first = H.fetch(
-                root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
-                contract, "2026-05-04", "2026-05-06", feed="iex",
-                symbols=["SPY"], pace_seconds=0,
-                getter=_history_getter(bars_per_symbol=3),
-            )
-            snapshot = {
-                path.relative_to(root).as_posix(): path.read_bytes()
-                for path in sorted(root.rglob("*")) if path.is_file()
-            }
-            # An identical re-run is a byte-identical no-op, not an overwrite.
-            second = H.fetch(
-                root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
-                contract, "2026-05-04", "2026-05-06", feed="iex",
-                symbols=["SPY"], pace_seconds=0,
-                getter=_history_getter(bars_per_symbol=3),
-            )
+            # Every timestamp this run takes is a different second from the next
+            # run's, which is exactly the case that used to break the no-op.
+            clock = AdvancingClock()
+            with mock.patch.object(H, "_utc_now", clock):
+                first = self._fetch(root, contract)
+                snapshot = _file_snapshot(root)
+                # An identical re-run is a byte-identical no-op, not an overwrite.
+                second = self._fetch(root, contract)
+            self.assertGreater(clock.calls, 4, "the clock must have been used")
             self.assertEqual(second["receipt_sha256"], first["receipt_sha256"])
-            self.assertEqual(snapshot, {
-                path.relative_to(root).as_posix(): path.read_bytes()
-                for path in sorted(root.rglob("*")) if path.is_file()
-            })
+            self.assertEqual(snapshot, _file_snapshot(root))
             gz = [name for name in snapshot if name.endswith(".json.gz")]
             self.assertTrue(gz)
             for name in gz:
@@ -1133,6 +1163,146 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
         self.assertNotIn("_request(", verify_source)
         self.assertNotIn("getter", verify_source)
         self.assertIn("if args.mode == \"verify\":", source)
+
+    def test_a_re_receive_across_a_second_boundary_adds_nothing(self):
+        """The 2026-09-19 defect, pinned.
+
+        Two identical receives separated by a second boundary used to produce two
+        receipt addresses and append a receipt carrying no new evidence, while a
+        fast machine kept both inside one second and the check passed. The clock
+        here crosses a boundary on every call, so speed cannot hide it again.
+        """
+        contract = self._contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            clock = AdvancingClock()
+            with mock.patch.object(H, "_utc_now", clock):
+                first = self._fetch(root, contract)
+                before = _file_snapshot(root)
+                second = self._fetch(root, contract)
+                after = _file_snapshot(root)
+                third = self._fetch(root, contract)
+                third_files = _file_snapshot(root)
+        self.assertEqual(first["receipt_status"], "PUBLISHED")
+        self.assertEqual(second["receipt_status"], "ALREADY_PRESENT")
+        self.assertEqual(third["receipt_status"], "ALREADY_PRESENT")
+        self.assertEqual(first["receipt_sha256"], second["receipt_sha256"])
+        self.assertEqual(first["receipt_sha256"], third["receipt_sha256"])
+        self.assertEqual(sorted(set(after) - set(before)), [], "nothing new")
+        self.assertEqual(
+            [name for name in set(before) & set(after) if before[name] != after[name]],
+            [], "nothing changed",
+        )
+        self.assertEqual(before, third_files)
+        # A duplicate receive publishes no second timing record either.
+        self.assertIsNotNone(first["retrieval_timing_path"])
+        self.assertIsNone(second["retrieval_timing_path"])
+
+    def test_retrieval_time_is_preserved_beside_the_receipt_not_inside_it(self):
+        """Splitting the time out must not mean discarding it."""
+        contract = self._contract()
+        start = dt.datetime(2026, 9, 19, 12, 0, 0, tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            clock = AdvancingClock(start=start)
+            with mock.patch.object(H, "_utc_now", clock):
+                report = self._fetch(root, contract)
+            receipt = json.loads(
+                (root / report["receipt_path"]).read_text("utf-8")
+            )
+            timing = json.loads(
+                (root / report["retrieval_timing_path"]).read_text("utf-8")
+            )
+        # The receipt keeps the content facts and no clock at all.
+        self.assertEqual(receipt["schema_version"], H.RECEIPT_SCHEMA)
+        self.assertEqual(receipt["schema_version"],
+                         "free_market_data_history_receipt/2")
+        H.assert_no_wall_clock(receipt, "SHOULD_NOT_RAISE")
+        self.assertNotIn("captured_at_utc", receipt)
+        for record in receipt["request_receipts"]:
+            self.assertIn("response_sha256", record)
+            self.assertNotIn("requested_at_utc", record)
+            self.assertNotIn("received_at_utc", record)
+            self.assertNotIn(H.RETRIEVAL_TIMING_KEY, record)
+        # The times are all still there, joined by index and response hash.
+        self.assertEqual(timing["schema_version"], H.RECEIPT_TIMING_SCHEMA)
+        self.assertEqual(timing["receipt_payload_sha256"], report["receipt_sha256"])
+        self.assertEqual(timing["request_count"], len(receipt["request_receipts"]))
+        self.assertEqual(
+            [entry["response_sha256"] for entry in timing["request_timings"]],
+            [record["response_sha256"] for record in receipt["request_receipts"]],
+        )
+        self.assertEqual(timing["captured_at_utc"], "2026-09-19T12:00:00Z")
+        for entry in timing["request_timings"]:
+            self.assertRegex(entry["requested_at_utc"],
+                             r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+            self.assertLessEqual(entry["requested_at_utc"], entry["received_at_utc"])
+        stamps = [entry["received_at_utc"] for entry in timing["request_timings"]]
+        self.assertEqual(len(set(stamps)), len(stamps),
+                         "the advancing clock must give every request its own second")
+
+    def test_a_wall_clock_cannot_be_reintroduced_into_a_receipt(self):
+        with self.assertRaises(H.FreeMarketDataError) as by_key:
+            H.assert_no_wall_clock({"a": {"captured_at_utc": "x"}}, "CODE")
+        self.assertIn("captured_at_utc", str(by_key.exception))
+        with self.assertRaises(H.FreeMarketDataError):
+            H.assert_no_wall_clock({"a": ["2026-09-19T12:00:00Z"]}, "CODE")
+        with self.assertRaises(H.FreeMarketDataError):
+            H.assert_no_wall_clock([{"b": {"c": "2026-09-19T00:00:00Z"}}], "CODE")
+        # Calendar dates are not timestamps: availability must stay untouched.
+        H.assert_no_wall_clock({
+            "available_from": "2026-05-05", "available_to": "9999-12-31",
+            "observation_start": "2018-01-01", "opened_at_date": "2026-05-04",
+            "row_count": 3, "ratio": None,
+        }, "CODE")
+
+    def test_verify_accepts_the_receipt_already_on_main_and_rejects_an_unknown_one(self):
+        """The 8-year receive already landed with a /1 receipt.
+
+        It is read, replayed and left exactly as it is; only the version number
+        distinguishes it. An unrecognised version fails rather than being
+        guessed at, and a /2 receipt without its timing record fails too.
+        """
+        self.assertEqual(
+            H.RECEIPT_SCHEMA_VERSIONS_ACCEPTED,
+            ("free_market_data_history_receipt/1",
+             "free_market_data_history_receipt/2"),
+        )
+        contract = self._contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            clock = AdvancingClock()
+            with mock.patch.object(H, "_utc_now", clock):
+                report = self._fetch(root, contract)
+            checked = H.verify(root)["receipts_checked"]
+            self.assertEqual(checked["free_market_data_history_receipt/2"], 1)
+            self.assertEqual(checked["free_market_data_history_receipt/1"], 0)
+
+            # Removing the timing record leaves a /2 receipt unexplained in time.
+            timing = root / report["retrieval_timing_path"]
+            moved = timing.with_suffix(".moved")
+            timing.rename(moved)
+            with self.assertRaises(H.FreeMarketDataError) as caught:
+                H.verify(root)
+            self.assertIn("TIMING_MISSING", str(caught.exception))
+            moved.rename(timing)
+            H.verify(root)
+
+            # An unrecognised receipt version is refused, not interpreted.
+            receipt_path = root / report["receipt_path"]
+            body = json.loads(receipt_path.read_text("utf-8"))
+            body["schema_version"] = "free_market_data_history_receipt/99"
+            payload = {k: v for k, v in body.items() if k != "payload_sha256"}
+            body["payload_sha256"] = H.sha256_bytes(H.canonical_bytes(payload))
+            rewritten = receipt_path.parent.parent / body["payload_sha256"]
+            rewritten.mkdir(parents=True)
+            (rewritten / "manifest.json").write_text(
+                json.dumps(body, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(H.FreeMarketDataError) as caught:
+                H.verify(root)
+            self.assertIn("SCHEMA_UNKNOWN", str(caught.exception))
 
     def test_history_paths_outside_the_store_are_refused(self):
         with tempfile.TemporaryDirectory() as tmp:

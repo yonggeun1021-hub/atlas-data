@@ -54,6 +54,16 @@ name: US Regime Score History Range
 #   being silently resolved. The plan is also proved at build time to cover every
 #   vintage the series has.
 #
+#   A receive whose evidence is byte-identical to one already in the store is a
+#   true no-op: the commit step stages nothing and the run publishes nothing. The
+#   receipt is addressed by WHAT was received, and the run's retrieval times are
+#   published beside it (receipts/<sha>/timing/) only when the receipt itself is
+#   new. Before 2026-09-19 the times were inside the receipt, so a re-run
+#   appended a receipt carrying no new evidence -- and whether a regression saw
+#   that depended on whether the two runs landed in the same second. Receipts
+#   already committed under the old version are read, replayed and never
+#   rewritten; the schema version is what tells them apart.
+#
 # It never writes data/latest_free_market_data.json and never writes the daily
 # derived / raw / fred-raw trees; collectors/free_market_data_history.py
 # enforces that mechanically and test/test_free_market_data.py asserts it.
