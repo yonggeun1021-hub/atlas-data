@@ -212,7 +212,16 @@ class RuntimeAcceptsRecordTest(unittest.TestCase):
         self.assertEqual(plan["context"]["date"], dt.date(2026, 9, 18))
         self.assertEqual(plan["execution"]["date"], dt.date(2026, 9, 21))
         self.assertTrue(plan["live_sessions"])
-        self.assertFalse((ROOT / RUNTIME.ADOPTION_RELATIVE).exists())
+        # The repo adoption is no longer absent: it landed 2026-09-20 in
+        # COMMITTED_REPLAY_RECEIPT_HASH_BOUND_UNCOMMITTED_BUNDLE mode. This temp
+        # root still proves the BUNDLE mode independently of it, so the real
+        # adoption's own mode is asserted here rather than its absence.
+        self.assertTrue((ROOT / RUNTIME.ADOPTION_RELATIVE).exists())
+        real = json.loads((ROOT / RUNTIME.ADOPTION_RELATIVE).read_text(encoding="utf-8"))
+        self.assertEqual(RUNTIME.pit_binding_mode(real["pit_acceptance"]),
+                         RUNTIME.PIT_BINDING_MODE_RECEIPT)
+        self.assertEqual(RUNTIME.pit_binding_mode(adoption["pit_acceptance"]),
+                         RUNTIME.PIT_BINDING_MODE_BUNDLE)
 
     def test_a_one_byte_edit_to_the_record_breaks_the_binding(self):
         raw = accepted_bundle_bytes()
@@ -327,18 +336,202 @@ class U5ValuesTest(unittest.TestCase):
         self.assertNotEqual(bound[identity], RUNTIME.IMPLEMENTATION_PATH_ABSENT)
 
 
-class UnreachableTodayTest(unittest.TestCase):
-    """Why no real accepted record is committed, now that only one blocker is left.
+class ReceiptBindingFailsClosedTest(unittest.TestCase):
+    """RECEIPT mode over the REAL committed artifacts, then every way to break it.
 
-    The generator named two blockers. (a) the 3-axis replay identity — RESOLVED
-    2026-09-20 by USER_RATIFICATION_US_REPLAY_FLAG_20260920; the five-axis replay
-    is active and a 1,480-session population does reach PIT_ACCEPTED. (b) no
-    bundle bytes exist in the repository to hash — UNRESOLVED, and it is not a
-    timing problem: ``us_historical_replay_population._forbid_tracked_output``
-    refuses to write historical replay evidence anywhere inside the checkout,
-    while ``us_paper_runtime.load_acceptance`` binds ``bundle_path`` only as a
-    repo-relative file it can hash. Until that is decided, the acceptance record
-    is derivable but not bindable, and the adoption stays absent.
+    The point of the mode is that it re-derives rather than reads. Each test below
+    re-signs its tampering (updates the hashes the adoption pins) so that a merely
+    hash-checking binding would accept it; the binding must still refuse, because
+    the value is recomputed from the committed replay's own inputs.
+    """
+
+    def setUp(self):
+        self.adoption = json.loads(
+            (ROOT / RUNTIME.ADOPTION_RELATIVE).read_text(encoding="utf-8"))
+        self.binding = copy.deepcopy(self.adoption["pit_acceptance"])
+
+    def _temp_root(self, *, receipt=None, replay=None):
+        """A root carrying just the two bound files, optionally mutated+re-signed."""
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        binding = copy.deepcopy(self.binding)
+        replay_value = replay if replay is not None else json.loads(
+            (ROOT / binding["replay_path"]).read_text(encoding="utf-8"))
+        replay_raw = GEN.record_bytes(replay_value)
+        receipt_value = receipt if receipt is not None else json.loads(
+            (ROOT / binding["receipt_path"]).read_text(encoding="utf-8"))
+        if replay is not None:
+            # Re-sign: point the receipt at the mutated replay bytes.
+            receipt_value["replay_report_file_sha256"] = hashlib.sha256(replay_raw).hexdigest()
+        receipt_raw = GEN.record_bytes(receipt_value)
+        for relative, raw in ((binding["replay_path"], replay_raw),
+                              (binding["receipt_path"], receipt_raw)):
+            out = tmp / relative
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(raw)
+        binding["replay_sha256"] = hashlib.sha256(replay_raw).hexdigest()
+        binding["receipt_sha256"] = hashlib.sha256(receipt_raw).hexdigest()
+        return tmp, {"pit_acceptance": binding}
+
+    def test_the_real_committed_artifacts_load_and_are_pit_accepted(self):
+        acceptance = RUNTIME.load_acceptance(ROOT, self.adoption)
+        summary = acceptance["summary"]
+        self.assertEqual(summary["status"], PIT.STATUS_PIT_ACCEPTED)
+        self.assertEqual(summary["binding_mode"], RUNTIME.PIT_BINDING_MODE_RECEIPT)
+        self.assertIs(summary["bundle_committed"], False)
+        self.assertEqual(summary["evaluated_date_count"], 1480)
+        self.assertEqual(summary["regimes_observed"],
+                         ["NEUTRAL", "RISK_OFF", "RISK_ON", "STRESS"])
+        self.assertEqual(summary["history_first_session_date"], "2020-10-20")
+        self.assertEqual(summary["history_last_session_date"], "2026-09-11")
+        self.assertEqual(len(acceptance["history_steps"]), 1480)
+
+    def test_a_one_byte_edit_to_the_receipt_breaks_the_binding(self):
+        path = ROOT / self.binding["receipt_path"]
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        for relative in (self.binding["receipt_path"], self.binding["replay_path"]):
+            out = tmp / relative
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes((ROOT / relative).read_bytes())
+        (tmp / self.binding["receipt_path"]).write_bytes(path.read_bytes() + b" ")
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_ACCEPTANCE_RECEIPT_HASH_MISMATCH"):
+            RUNTIME.load_acceptance(tmp, {"pit_acceptance": self.binding})
+
+    def test_a_one_byte_edit_to_the_replay_breaks_the_binding(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        for relative in (self.binding["receipt_path"], self.binding["replay_path"]):
+            out = tmp / relative
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes((ROOT / relative).read_bytes())
+        path = tmp / self.binding["replay_path"]
+        path.write_bytes(path.read_bytes() + b" ")
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_REPLAY_REPORT_HASH_MISMATCH"):
+            RUNTIME.load_acceptance(tmp, {"pit_acceptance": self.binding})
+
+    def test_a_resigned_forged_evaluation_is_caught_by_rederivation(self):
+        receipt = json.loads((ROOT / self.binding["receipt_path"]).read_text(encoding="utf-8"))
+        receipt["evaluation"]["evaluated_date_count"] = 9999
+        tmp, adoption = self._temp_root(receipt=receipt)
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_ACCEPTANCE_RECEIPT_REDERIVATION_MISMATCH"):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+    def test_a_resigned_tampered_replay_verdict_is_caught_by_the_rerun(self):
+        """Flip one step's verdict and re-sign everything: the rerun still refuses."""
+        replay = json.loads((ROOT / self.binding["replay_path"]).read_text(encoding="utf-8"))
+        for step in replay["steps"]:
+            if step["confirmed_regime"] == "NEUTRAL":
+                step["confirmed_regime"] = "RISK_ON"
+                break
+        else:
+            self.fail("no NEUTRAL step to flip")
+        tmp, adoption = self._temp_root(replay=replay)
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_REPLAY_REPORT_NOT_REPRODUCIBLE"):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+    def test_a_resigned_axis_direction_edit_is_caught_by_the_rerun(self):
+        """Editing the INPUT the replay records also fails: the verdict no longer follows."""
+        replay = json.loads((ROOT / self.binding["replay_path"]).read_text(encoding="utf-8"))
+        replay["steps"][5]["axis_directions"]["TREND"] = (
+            "NEGATIVE" if replay["steps"][5]["axis_directions"]["TREND"] != "NEGATIVE"
+            else "POSITIVE")
+        tmp, adoption = self._temp_root(replay=replay)
+        with self.assertRaises(RUNTIME.UsPaperRuntimeError):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+    def test_claiming_the_bundle_is_committed_fails_closed(self):
+        receipt = json.loads((ROOT / self.binding["receipt_path"]).read_text(encoding="utf-8"))
+        receipt["population"]["committed"] = True
+        tmp, adoption = self._temp_root(receipt=receipt)
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_POPULATION_BUNDLE_MUST_NOT_BE_COMMITTED"):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+    def test_an_unbound_population_hash_fails_closed(self):
+        receipt = json.loads((ROOT / self.binding["receipt_path"]).read_text(encoding="utf-8"))
+        receipt["population"]["file_sha256"] = "0" * 64
+        tmp, adoption = self._temp_root(receipt=receipt)
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_POPULATION_BUNDLE_UNBOUND"):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+    def test_a_failed_population_validation_cannot_be_adopted(self):
+        receipt = json.loads((ROOT / self.binding["receipt_path"]).read_text(encoding="utf-8"))
+        receipt["population"]["validate_population"] = "FAIL"
+        tmp, adoption = self._temp_root(receipt=receipt)
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_POPULATION_BUNDLE_NOT_VALIDATED"):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+    def test_both_binding_modes_at_once_is_ambiguous_not_a_free_choice(self):
+        binding = copy.deepcopy(self.binding)
+        binding["bundle_path"] = "evidence/us_regime_replay/population_bundle_v1.json"
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_BINDING_MODE_AMBIGUOUS"):
+            RUNTIME.pit_binding_mode(binding)
+
+    def test_neither_binding_mode_is_unbound_not_a_default(self):
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_BINDING_MODE_AMBIGUOUS"):
+            RUNTIME.pit_binding_mode({"replay_report_sha256": "0" * 64})
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_ACCEPTED_RECORD_UNBOUND"):
+            RUNTIME.pit_binding_mode(None)
+
+    def test_a_replay_missing_a_regime_is_not_accepted(self):
+        """Drop every STRESS step and re-sign: condition 6 still refuses."""
+        replay = json.loads((ROOT / self.binding["replay_path"]).read_text(encoding="utf-8"))
+        replay["steps"] = [s for s in replay["steps"] if s["confirmed_regime"] != "STRESS"]
+        tmp, adoption = self._temp_root(replay=replay)
+        with self.assertRaises(RUNTIME.UsPaperRuntimeError):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+    def test_an_incomplete_axis_set_in_a_step_fails_closed(self):
+        replay = json.loads((ROOT / self.binding["replay_path"]).read_text(encoding="utf-8"))
+        del replay["steps"][3]["axis_directions"]["LEADERSHIP"]
+        tmp, adoption = self._temp_root(replay=replay)
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_REPLAY_STEP_AXES_INCOMPLETE"):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+    def test_reordered_or_duplicated_steps_fail_closed(self):
+        replay = json.loads((ROOT / self.binding["replay_path"]).read_text(encoding="utf-8"))
+        replay["steps"][4], replay["steps"][5] = replay["steps"][5], replay["steps"][4]
+        tmp, adoption = self._temp_root(replay=replay)
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_REPLAY_STEPS_NOT_STRICTLY_ORDERED"):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+    def test_a_wrong_history_last_session_fails_closed(self):
+        tmp, adoption = self._temp_root()
+        adoption["pit_acceptance"]["history_last_session_date"] = "2026-09-10"
+        with self.assertRaisesRegex(RUNTIME.UsPaperRuntimeError,
+                                    "US_PIT_HISTORY_LAST_SESSION_MISMATCH"):
+            RUNTIME.load_acceptance(tmp, adoption)
+
+
+class BothBlockersResolvedTest(unittest.TestCase):
+    """Both blockers the generator named are resolved. Was ``UnreachableTodayTest``.
+
+    (a) the 3-axis replay identity — resolved 2026-09-20 by
+    ``USER_RATIFICATION_US_REPLAY_FLAG_20260920``; the five-axis replay is active
+    and a 1,480-session population reaches ``PIT_ACCEPTED``.
+
+    (b) no bundle bytes in the repository to hash — resolved by giving the
+    contract a second binding mode rather than by yielding on either side of the
+    contradiction. ``_forbid_tracked_output`` is UNCHANGED and the bundle is still
+    not committed; what changed is that an adoption may now bind the committed
+    ``replay_common_v1`` output plus a receipt and hash-bind the uncommitted
+    bundle, which is the shape KR has always used.
+
+    These tests are deliberately kept rather than deleted: they assert that the
+    resolution did NOT come from relaxing the guard or from committing the bundle.
+    If someone later takes either shortcut, these fail.
     """
 
     def test_the_five_axis_replay_identity_is_now_active(self):
@@ -346,16 +539,57 @@ class UnreachableTodayTest(unittest.TestCase):
             (ROOT / "config" / "us_historical_pit_replay_identity_v1.json").read_text(encoding="utf-8"))
         self.assertIs(identity["replay_population_wiring_activated"], True)
 
-    def test_the_bundle_binding_and_the_output_guard_still_contradict(self):
-        """Blocker (b), asserted as the contradiction it actually is."""
-        # The guard refuses every path inside the checkout ...
-        with self.assertRaises(POPULATION.ReplayPopulationError):
-            POPULATION._forbid_tracked_output(ROOT, ROOT / BUNDLE_RELATIVE)
-        # ... and the runtime binds the bundle only as a repo-relative file.
+    def test_the_output_guard_was_not_relaxed(self):
+        """The guard still refuses every path inside the checkout. Unchanged."""
+        for candidate in (ROOT / BUNDLE_RELATIVE, ROOT / "data" / "x.json",
+                          ROOT / "evidence" / "us_regime_replay" / "history" / "x.json"):
+            with self.assertRaises(POPULATION.ReplayPopulationError):
+                POPULATION._forbid_tracked_output(ROOT, candidate)
+        # And BUNDLE mode still binds only a repo-relative file, so the
+        # contradiction is still real for that mode -- it was routed around, not
+        # argued away.
         with self.assertRaises(RUNTIME.UsPaperRuntimeError):
             RUNTIME._bound_file(ROOT, "/tmp/us_replay_bundle.json", "US_PIT_POPULATION_BUNDLE")
         with self.assertRaises(RUNTIME.UsPaperRuntimeError):
             RUNTIME._bound_file(ROOT, BUNDLE_RELATIVE, "US_PIT_POPULATION_BUNDLE")
+
+    def test_the_real_adoption_binds_receipt_mode_and_the_bundle_stays_out(self):
+        adoption = json.loads(
+            (ROOT / RUNTIME.ADOPTION_RELATIVE).read_text(encoding="utf-8"))
+        binding = adoption["pit_acceptance"]
+        self.assertEqual(RUNTIME.pit_binding_mode(binding), RUNTIME.PIT_BINDING_MODE_RECEIPT)
+        self.assertIs(binding["bundle_committed"], False)
+        # The bundle it hash-binds is genuinely not in the tree, under any name.
+        self.assertNotIn("bundle_path", binding)
+        receipt = json.loads((ROOT / binding["receipt_path"]).read_text(encoding="utf-8"))
+        self.assertIs(receipt["population"]["committed"], False)
+        self.assertIs(receipt["population"]["raw_provider_rows_committed"], False)
+        self.assertEqual(receipt["population"]["file_sha256"], binding["bundle_sha256"])
+
+    def test_the_real_adoption_still_records_the_unverified_gate(self):
+        """GATE_ITSELF_UNVERIFIED must survive the adoption, per the ratification."""
+        for path in (RUNTIME.ADOPTION_RELATIVE,
+                     "evidence/us_regime_replay/history/final-receipt.json"):
+            value = json.loads((ROOT / path).read_text(encoding="utf-8"))
+            gate = value["gate"]
+            self.assertEqual(gate["status"], "GATE_ITSELF_UNVERIFIED", path)
+            self.assertIs(gate["regime_gate_value_confirmed"], False, path)
+            self.assertEqual(gate["sealed_verification_verdict_20260920"], "PARTIAL", path)
+
+    def test_the_real_adoption_authorizes_display_only(self):
+        adoption = json.loads(
+            (ROOT / RUNTIME.ADOPTION_RELATIVE).read_text(encoding="utf-8"))
+        authority = adoption["authority"]
+        self.assertEqual(set(authority), set(RUNTIME.AUTHORITY_CLOSED))
+        self.assertIs(authority["paper_runtime_display_authorized"], True)
+        for key, value in sorted(authority.items()):
+            if key != "paper_runtime_display_authorized":
+                self.assertIs(value, False, key)
+        self.assertEqual(
+            sorted(k for k, v in authority.items() if v is False),
+            ["action_authorized", "buy_authorized", "capital_authorized", "order_authorized",
+             "production_authorized", "real_authorized", "stage_authorized",
+             "strategy_authorized", "trading_authorized"])
 
     def test_a_three_axis_us_population_can_never_be_pit_accepted(self):
         # A 3-axis population leaves BREADTH and LEADERSHIP UNKNOWN, so common-v1

@@ -1,0 +1,101 @@
+{
+  "adopted_at_utc": "2026-09-20T00:00:00Z",
+  "adopted_by": "CLAUDE_CIO",
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "paper_runtime_display_authorized": true,
+    "production_authorized": false,
+    "real_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "trading_authorized": false
+  },
+  "bindings": {
+    "common_v1_binding_payload_sha256": "44e13d9176270a45a8426970726d67ceeb5fda559653dcbe2711811bac37207e",
+    "contract_sha256": "d85a0bfe985ca1b3d33785a8a422aea7213d19c807ddf389c6aca7e35fb992f5",
+    "implementation_sha256": {
+      "collectors/fred_vix_provenance.py": "8ba916197aabd2bb1d858c4f7f88fa3081ef17469b940b87105d4d92e9b121d8",
+      "collectors/free_market_data.py": "68fb32b414c0958ce67934e01cbcc5af56c4c214bc9184cbb433499f118918cf",
+      "config/us_historical_pit_replay_identity_v1.json": "699270fd04be5f2491f962458b1d8938eb37ee933b91d5896444bbe95a9de552",
+      "regime/decision_authority.py": "c4f19cef26b66f1782707553445a6cf43e7059b3fb4d1eb90044c07b1284d3a3",
+      "regime/market_scoped_pit_acceptance.py": "b9c0bf13691d513e9f164a8d0f0693c26cf9e7d935aca707613e833abc5c6973",
+      "regime/paper_regime_reference.py": "8f8f330ab57eb02705a0a40702fb07a5578a37cd586a06c4a091c8469c930ee1",
+      "regime/regime_semantic_freshness.py": "9cfdffd8320a919d7f4d6205d1317e6b0a38c33ec2c7810d8d09024798e66268",
+      "regime/us_historical_replay_population.py": "7efaca5ab61bb229b7cb2188206e314ca8879ee0af991506ccebe71c88e1b09c",
+      "regime/us_paper_runtime.py": "5aea9fd8dfc8b49272efb41aee62535fd709a72c6fa72e65d0182c1deabcfb82",
+      "regime/us_paper_runtime_publication.py": "19aa6b860b80d10d6c0520c9cbee38af3c4a990251e70a4d8c47f15dd254dd78"
+    },
+    "normalization": {
+      "path": "config/paper_runtime_normalization_v1.json",
+      "ratifying_commit": "ba82906a1e438247070cba96a08c9b9469fcfce5",
+      "sha256": "cb6945225cd4f972825aaa3a6fb300ab440bd9b0d247bd0edb216e8513335385",
+      "us_block_payload_sha256": "766ab14531682c133d900299dbb66a71a7c83f0cec73e7e140455c8b57e39419"
+    },
+    "pit_acceptance_contract": {
+      "path": "config/market_scoped_pit_acceptance_contract_v1.json",
+      "sha256": "c13006da3da69df4a94ab494942045c988bd6e7d6c51c0fe57c12c889ab45712"
+    },
+    "reference_policy": {
+      "path": "config/paper_regime_reference_policy_v1.json",
+      "sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350"
+    },
+    "semantic_freshness": {
+      "path": "config/regime_semantic_freshness_policy_v1.json",
+      "sha256": "0194dd4647b9a42b5183977c822eb8125320d32e93ef4e7f4efda364db6ff193"
+    }
+  },
+  "contract_version": "us_paper_runtime_adoption/v1",
+  "decision_card_path": "gpt/outputs/CLAUDE_CIO_DECISION_CARD_US_REPLAY_FLAG_20260920.md",
+  "decision_card_sha256": "fb4eb6271c0c577c77adf7547e4d7cb092c8b9db0648f9709b74872679e54631",
+  "decision_record_location": "CIO_WORKSPACE_OUTPUTS_NOT_IN_REPOSITORY",
+  "decision_record_path": "gpt/outputs/USER_RATIFICATION_US_REPLAY_FLAG_20260920.json",
+  "decision_record_sha256": "30e246a8d5a529ec751e17f51d2a6ff4454058db05eac7a3faa3afc92dfe1e96",
+  "effective_at_utc": "2026-09-20T00:00:00Z",
+  "evidence_class": "LIVE_NATURAL",
+  "freshness": {
+    "expected_session": "latest officially completed NYSE session per bindings session_calendar",
+    "expiry": "close of the next official session",
+    "missing_invalid_or_stale_axis": "IMMEDIATE_UNKNOWN_NO_CARRY",
+    "usable_after": "free-market-data terminal success (capture observed_at_utc at or after the session close)"
+  },
+  "gate": {
+    "max_drawdown_change": "-7.57% -> -9.03% (worse)",
+    "note": "The 2026-09-20 sealed verification returned PARTIAL and the regime gate's value is NOT confirmed: 4 of 5 window phases were rejected and max drawdown worsened from -7.57% to -9.03%. This adoption does not change that. evaluated_date_count 1,480 and all four regimes observed are statements about COVERAGE of the replayed history, not evidence that the gate has value. Do not read this record as an alpha claim, and do not remove this block: gate 5 (two or more markets) is still unresolved, and the sealed verification must be re-run across all five window phases once KR and CRYPTO are computable.",
+    "regime_gate_value_confirmed": false,
+    "sealed_verification_verdict_20260920": "PARTIAL",
+    "status": "GATE_ITSELF_UNVERIFIED",
+    "what_this_adoption_is": "PIT acceptance gate passage. NOT an alpha claim.",
+    "window_phases_rejected": "4 of 5"
+  },
+  "identity": "US_PAPER_RUNTIME_ADOPTION_V1",
+  "market": "US",
+  "pit_acceptance": {
+    "bundle_committed": false,
+    "bundle_sha256": "847261fc12c134fc4c81f1a841621f54630ea0849fd8d7ac1816e2423c370f27",
+    "history_last_session_date": "2026-09-11",
+    "receipt_path": "evidence/us_regime_replay/history/final-receipt.json",
+    "receipt_sha256": "8e36d75dcbd4a2cf82e43ff25e43a6f9125e79655da303464edc301f3bfc346a",
+    "replay_path": "evidence/us_regime_replay/history/common-v1-replay-through-2026-09-11.json",
+    "replay_report_sha256": "98dbfe8692405cb65036d513d0edb004bbaf18e0a12672efb42ab2650c362314",
+    "replay_sha256": "f098f87deb309192ed3d74cd781dbd52151a3e5f04466021425080a0dd4c9f3b"
+  },
+  "pit_binding_mode": "COMMITTED_REPLAY_RECEIPT_HASH_BOUND_UNCOMMITTED_BUNDLE",
+  "requalification_rule": "Any change to a pinned implementation, policy or contract byte fails closed with ADOPTION_PIN_DRIFT_REQUALIFICATION_REQUIRED until a new adoption record with updated pins is CIO-adopted. Setting replay_population_wiring_activated back to false changes config/us_historical_pit_replay_identity_v1.json's hash and therefore invalidates this adoption, which is the intended behaviour.",
+  "runtime_authorized_regimes": [
+    "RISK_ON",
+    "NEUTRAL",
+    "RISK_OFF",
+    "STRESS",
+    "UNKNOWN"
+  ],
+  "scope": "US_INTERNAL_VIRTUAL_PAPER_ONLY",
+  "session_calendar": {
+    "path": "data/us_official_session_calendar_v1.json",
+    "sha256": "24b52b94705d528622b9034dba549006eee716b562ae940a0ccf083e40f80c63"
+  },
+  "status": "CIO_TECHNICAL_ADOPTED",
+  "why_receipt_mode": "The declared US range is 1,480 sessions and its population bundle measures 67,217,148 bytes, ~86% of it per-record five_axis raw measurement the acceptance evaluation never reads. COMMITTED_POPULATION_BUNDLE mode would require committing it, which collides with us_historical_replay_population._forbid_tracked_output; relaxing that guard and committing the bundle are both forbidden by USER_RATIFICATION_US_REPLAY_FLAG_20260920. This binds KR's shape instead (evidence/authority/kr_paper_runtime_adoption_v1.json): the replay_common_v1 output is committed, the population is hash-bound and not committed, and us_paper_runtime.load_acceptance re-derives the input sequence, the replay bytes and the entire acceptance evaluation from the committed replay on every evaluation."
+}

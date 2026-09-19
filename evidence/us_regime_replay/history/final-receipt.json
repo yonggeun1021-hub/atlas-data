@@ -1,0 +1,98 @@
+{
+  "authority": {
+    "acceptance_record_only": true,
+    "action_authorized": false,
+    "adoption_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "production_authorized": false,
+    "real_authorized": false,
+    "runtime_binding_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "trading_authorized": false
+  },
+  "binding_mode": "COMMITTED_REPLAY_RECEIPT_HASH_BOUND_UNCOMMITTED_BUNDLE",
+  "coverage": {
+    "confirmed_regime_counts": {
+      "NEUTRAL": 936,
+      "RISK_OFF": 78,
+      "RISK_ON": 365,
+      "STRESS": 100,
+      "UNKNOWN": 1
+    },
+    "five_of_five_step_count": 1480,
+    "population_record_count": 1480
+  },
+  "evaluation": {
+    "authority": {
+      "acceptance_rule_ratified": true,
+      "action_authorized": false,
+      "buy_authorized": false,
+      "capital_authorized": false,
+      "evidence_accepted": false,
+      "order_authorized": false,
+      "production_authorized": false,
+      "regime_result_ratification_authorized": false,
+      "runtime_binding_authorized": false,
+      "runtime_classification_authorized": false,
+      "runtime_decision_available": false,
+      "stage_authorized": false,
+      "strategy_eligibility_authorized": false,
+      "trading_authorized": false
+    },
+    "contract_version": "market_scoped_pit_acceptance_contract/v1",
+    "evaluated_date_count": 1480,
+    "market": "US",
+    "missing_regimes": [],
+    "reasons": [],
+    "regimes_observed": [
+      "NEUTRAL",
+      "RISK_OFF",
+      "RISK_ON",
+      "STRESS"
+    ],
+    "replay_report_sha256": "98dbfe8692405cb65036d513d0edb004bbaf18e0a12672efb42ab2650c362314",
+    "status": "PIT_ACCEPTED"
+  },
+  "gate": {
+    "max_drawdown_change": "-7.57% -> -9.03% (worse)",
+    "note": "evaluated_date_count and regimes_observed are statements about COVERAGE of the replayed history, not about the gate having value. The 2026-09-20 sealed verification returned PARTIAL and the regime gate's value is not confirmed. This receipt does not change that and must not be read as evidence of alpha.",
+    "regime_gate_value_confirmed": false,
+    "sealed_verification_verdict_20260920": "PARTIAL",
+    "status": "GATE_ITSELF_UNVERIFIED",
+    "what_this_is": "PIT acceptance gate passage. NOT an alpha claim.",
+    "window_phases_rejected": "4 of 5"
+  },
+  "generator": "regime/us_pit_acceptance_record.py",
+  "market": "US",
+  "population": {
+    "byte_count": 67217148,
+    "committed": false,
+    "compaction_rule": "Committed here is the replay_common_v1 OUTPUT, not the population. Each replay step carries its input axis_directions, so the input sequence is rebuildable and the replay is re-runnable in-checkout without the bundle. ~86% of each population record is five_axis raw measurement, which the acceptance evaluation never reads.",
+    "file_sha256": "847261fc12c134fc4c81f1a841621f54630ea0849fd8d7ac1816e2423c370f27",
+    "observed_at_generation": "/private/tmp/claude-503/-Users-yonggeun-Documents-Codex-2026-09-05-gpt-work-claude-population-lookup-20260913/2cec9694-5912-4a81-b868-153d12259fde/scratchpad/us_bundle.json",
+    "path_scope": "OUTSIDE_THIS_CHECKOUT",
+    "payload_sha256": "27fdd12dc5d766b1bb8c9a99912ec5a09a29e56c137b0de0a4472a43cd395b12",
+    "raw_provider_rows_committed": false,
+    "raw_provider_rows_scope": "OUT_OF_CHECKOUT_REPRODUCIBLE_HASH_BOUND_IN_THIS_RECEIPT",
+    "record_count": 1480,
+    "regeneration_command": "python3 regime/us_historical_replay_population.py --source-mode COMMITTED_EVIDENCE_HISTORY_STORE over every session in evidence/us_regime_replay/range_declaration_v1.json range.sessions; see the PR body for the exact script",
+    "source_mode": null,
+    "validate_population": "PASS",
+    "validated_by": "regime/us_historical_replay_population.py::validate_population",
+    "why_not_committed": "us_historical_replay_population._forbid_tracked_output refuses, by design, to write historical replay evidence to any path inside the checkout, and user ratification USER_RATIFICATION_US_REPLAY_FLAG_20260920 forbids both relaxing that guard and committing the bundle. The bundle is reproducible from committed inputs and is hash-bound here instead -- the same arrangement KR uses (evidence/authority/kr_paper_runtime_adoption_v1.json, raw_provider_rows_committed false)."
+  },
+  "range": {
+    "history_first_session_date": "2020-10-20",
+    "history_last_session_date": "2026-09-11",
+    "session_count": 1480
+  },
+  "replay_report_file_sha256": "f098f87deb309192ed3d74cd781dbd52151a3e5f04466021425080a0dd4c9f3b",
+  "replay_report_path": "evidence/us_regime_replay/history/common-v1-replay-through-2026-09-11.json",
+  "replay_report_payload_sha256": "98dbfe8692405cb65036d513d0edb004bbaf18e0a12672efb42ab2650c362314",
+  "schema_version": "us_pit_acceptance_receipt/1",
+  "scope": "US_INTERNAL_VIRTUAL_PAPER_ONLY",
+  "source_sequence_sha256": "42708279333262f407bf4a615b3784921277f01178d8b51696f95830a6b349b7"
+}

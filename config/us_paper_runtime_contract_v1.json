@@ -4,7 +4,7 @@
   "policy_status": "CODE_CONTRACT_NOT_AN_ADOPTION",
   "market": "US",
   "scope": "US_INTERNAL_VIRTUAL_PAPER_ONLY",
-  "note": "U4 producer contract (CLAUDE_CIO_US_CRYPTO_REGIME_GAP_DIAGNOSIS_20260914 sec. 3 U4). This file ratifies nothing and adds no number. It pins the already-ratified identities the US PAPER runtime consumes and the shapes of the three artifacts a later CIO technical adoption (U5) must bind. Until config/us_paper_runtime_adoption_v1.json exists, is active, and binds a US PIT_ACCEPTED acceptance record and an official session calendar, every decision is UNKNOWN.",
+  "note": "U4 producer contract (CLAUDE_CIO_US_CRYPTO_REGIME_GAP_DIAGNOSIS_20260914 sec. 3 U4). This file ratifies nothing and adds no number. It pins the already-ratified identities the US PAPER runtime consumes and the shapes of the three artifacts a later CIO technical adoption (U5) must bind. Until config/us_paper_runtime_adoption_v1.json exists, is active, and binds US PIT_ACCEPTED evidence (in either of the two pit_binding_modes) and an official session calendar, every decision is UNKNOWN.",
   "ratified_bindings": {
     "normalization": {
       "path": "config/paper_runtime_normalization_v1.json",
@@ -40,7 +40,11 @@
   "axis_rules": {
     "arithmetic": "regime.paper_regime_reference.build_us (unmodified) over the committed free_market_data_capture/5 packet",
     "session_based_axes": {
-      "axes": ["TREND", "BREADTH", "LEADERSHIP"],
+      "axes": [
+        "TREND",
+        "BREADTH",
+        "LEADERSHIP"
+      ],
       "freshness": "regime.regime_semantic_freshness.evaluate_axis_freshness SESSION_EXACT_MATCH against the session being decided"
     },
     "release_based_axes": {
@@ -79,24 +83,61 @@
   },
   "acceptance_record": {
     "schema_version": "us_pit_acceptance_record/1",
-    "required_fields": ["schema_version", "market", "bundle_sha256", "evaluation"],
+    "required_fields": [
+      "schema_version",
+      "market",
+      "bundle_sha256",
+      "evaluation"
+    ],
     "evaluation": "byte-identical canonical output of regime.market_scoped_pit_acceptance.evaluate_market_pit_acceptance('US', bundle); must be PIT_ACCEPTED on every re-evaluation",
-    "bundle_validation": "regime.us_historical_replay_population.validate_population(bundle) must pass on every evaluation"
+    "bundle_validation": "regime.us_historical_replay_population.validate_population(bundle) must pass on every evaluation",
+    "note": "us_pit_acceptance_record/1 is the COMMITTED_POPULATION_BUNDLE mode's artifact. COMMITTED_REPLAY_RECEIPT_HASH_BOUND_UNCOMMITTED_BUNDLE binds us_pit_acceptance_receipt/1 instead -- see pit_binding_modes."
   },
   "session_calendar": {
     "schema_version": "us_official_session_calendar/1",
-    "required_fields": ["schema_version", "market", "timezone", "source", "coverage_start", "coverage_end", "sessions"],
+    "required_fields": [
+      "schema_version",
+      "market",
+      "timezone",
+      "source",
+      "coverage_start",
+      "coverage_end",
+      "sessions"
+    ],
     "timezone": "America/New_York",
-    "allowed_close_times_et": ["16:00", "13:00"]
+    "allowed_close_times_et": [
+      "16:00",
+      "13:00"
+    ]
   },
   "decision": {
     "schema_version": "us_paper_runtime_decision/1",
     "required_fields": [
-      "schema_version", "market", "scope", "evaluation_at", "code_revision", "evidence_class",
-      "decision_status", "paper_regime", "runtime_regime", "direction", "confidence",
-      "runtime_decision_available", "session", "bindings", "adoption", "pit_acceptance",
-      "current_observation", "latest_source_diagnostic", "chain", "aggregation", "reasons",
-      "caveats", "authority", "basis_sha256", "decision_id"
+      "schema_version",
+      "market",
+      "scope",
+      "evaluation_at",
+      "code_revision",
+      "evidence_class",
+      "decision_status",
+      "paper_regime",
+      "runtime_regime",
+      "direction",
+      "confidence",
+      "runtime_decision_available",
+      "session",
+      "bindings",
+      "adoption",
+      "pit_acceptance",
+      "current_observation",
+      "latest_source_diagnostic",
+      "chain",
+      "aggregation",
+      "reasons",
+      "caveats",
+      "authority",
+      "basis_sha256",
+      "decision_id"
     ],
     "latest_path": "data/latest_us_paper_runtime_decision.json",
     "evidence_copy_path": "evidence/regime/us_paper_runtime/<publication_key>/<sha256>.json"
@@ -112,5 +153,47 @@
     "production_authorized": false,
     "trading_authorized": false,
     "real_authorized": false
+  },
+  "pit_binding_modes": {
+    "note": "Two mutually exclusive ways an adoption may bind US PIT acceptance. regime/us_paper_runtime.py::pit_binding_mode picks the mode from the adoption's own key set and fails closed with US_PIT_BINDING_MODE_AMBIGUOUS if both or neither key set is present, so a half-migrated adoption can never select one by accident.",
+    "COMMITTED_POPULATION_BUNDLE": {
+      "keys": [
+        "bundle_path",
+        "bundle_sha256",
+        "acceptance_record_path",
+        "acceptance_record_sha256",
+        "replay_report_sha256",
+        "history_last_session_date"
+      ],
+      "proves": "The full population bundle is a committed file, hashed on every evaluation, and regime.us_historical_replay_population.validate_population plus regime.market_scoped_pit_acceptance.evaluate_market_pit_acceptance both re-run over its own bytes every time.",
+      "when": "Whenever the bundle is small enough to commit. This is the stronger mode."
+    },
+    "COMMITTED_REPLAY_RECEIPT_HASH_BOUND_UNCOMMITTED_BUNDLE": {
+      "keys": [
+        "receipt_path",
+        "receipt_sha256",
+        "replay_path",
+        "replay_sha256",
+        "bundle_sha256",
+        "bundle_committed",
+        "replay_report_sha256",
+        "history_last_session_date"
+      ],
+      "why_it_exists": "The declared US range is 1,480 sessions and its bundle measures ~64 MiB, ~86% of it per-record five_axis raw measurement the acceptance evaluation never reads. COMMITTED_POPULATION_BUNDLE would require committing it, which collides head-on with regime.us_historical_replay_population._forbid_tracked_output -- a deliberate blanket refusal to write historical replay evidence to ANY path inside the checkout. Both cannot hold, so a real US adoption was unreachable: the acceptance record was derivable from an out-of-checkout bundle but not bindable. User ratification USER_RATIFICATION_US_REPLAY_FLAG_20260920 forbids relaxing the guard AND committing the bundle, so the contract gained this mode instead.",
+      "not_a_new_convention": "This is the shape KR has always used. See evidence/authority/kr_paper_runtime_adoption_v1.json: history_root binds a committed common-v1 replay file and a committed receipt by sha256, its population.file_sha256 names an out-of-checkout path, and raw_provider_rows_committed is false with raw_provider_rows_scope naming the hash-bound manifest. US now binds the same way.",
+      "proves": "Nothing is taken on trust from the receipt. The committed replay output records each step's INPUT axis_directions, so load_acceptance rebuilds the input sequence from it, re-runs the unmodified regime.decision_authority.replay_common_v1 over that rebuild, requires the rerun's source_sequence_sha256 to equal the committed report's, requires the rerun to reproduce the committed replay bytes canonically, and then re-derives the ENTIRE acceptance evaluation -- status, evaluated_date_count, regimes_observed, missing_regimes, reasons, replay_report_sha256, contract_version, authority -- from that rerun and requires it to byte-match the receipt's recorded evaluation. A hand-edited receipt is refused even when internally consistent and re-signed.",
+      "residual_disclosed": "validate_population over the full bundle cannot be repeated in-checkout, because the bundle is not here. It runs at generation time, where the bundle exists, and the receipt carries its verdict with the bundle's file and payload sha256, byte count and committed:false. This is the same residual KR already carries, and it is disclosed here rather than hidden.",
+      "receipt_schema_version": "us_pit_acceptance_receipt/1",
+      "receipt_required_fields": [
+        "schema_version",
+        "market",
+        "binding_mode",
+        "replay_report_file_sha256",
+        "population",
+        "evaluation",
+        "gate"
+      ],
+      "generator": "regime/us_pit_acceptance_record.py receipt"
+    }
   }
 }

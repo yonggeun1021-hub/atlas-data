@@ -48,17 +48,26 @@ observe the four regimes ``PIT_ACCEPTED`` requires.  The flag is now ``true``
 1,480-session population over the declared range does reach ``PIT_ACCEPTED``
 with all four regimes observed.  ``build`` over such a bundle succeeds.
 
-(b) UNRESOLVED, and not a timing problem.  There are still no bundle bytes in
-the repository to hash: ``.github/workflows/us-regime-historical-replay.yml``
-uploads ``merged_population.json`` as an artifact and commits nothing, and
-``us_historical_replay_population._forbid_tracked_output`` refuses, by design,
-to write historical replay evidence to ANY path inside the checkout.  Meanwhile
-``us_paper_runtime.load_acceptance`` binds ``bundle_path`` only as a
-repo-relative file it can hash and refuses an absolute path outright
-(``US_PIT_POPULATION_BUNDLE_PATH_INVALID``).  So the record is derivable from an
-out-of-checkout bundle but cannot be bound by an adoption, and resolving it is a
-decision about the guard and about committing a ~64 MiB artifact — not something
-this module may make.  It refuses, with named reasons, until then.
+(b) RESOLVED 2026-09-20, by routing around the contradiction rather than
+yielding on either side of it.  There are still no bundle bytes in the
+repository to hash — ``.github/workflows/us-regime-historical-replay.yml``
+commits nothing, and ``_forbid_tracked_output`` still refuses, by design, to
+write historical replay evidence to ANY path inside the checkout — and the
+``bundle_path`` binding still refuses an absolute path outright
+(``US_PIT_POPULATION_BUNDLE_PATH_INVALID``).  What changed is that
+``us_paper_runtime`` grew a second binding mode,
+``COMMITTED_REPLAY_RECEIPT_HASH_BOUND_UNCOMMITTED_BUNDLE``: the
+``replay_common_v1`` output and a receipt are committed, and the ~64 MiB
+population is hash-bound without being committed.  That is KR's long-standing
+shape, not a new convention.  ``receipt`` below is the subcommand that produces
+the pair; ``build`` still serves the older ``COMMITTED_POPULATION_BUNDLE`` mode
+and is unchanged.
+
+So this module now has two products.  ``build`` turns a committed bundle into a
+``us_pit_acceptance_record/1``.  ``receipt`` turns an out-of-checkout bundle into
+a committed (replay output, ``us_pit_acceptance_receipt/1``) pair whose every
+derivable value the runtime recomputes on each evaluation.  Both still refuse,
+with named reasons, on anything they cannot derive.
 """
 from __future__ import annotations
 
@@ -84,6 +93,18 @@ GENERATOR_PATH = "regime/us_pit_acceptance_record.py"
 DEFAULT_BUNDLE_PATH = "evidence/us_regime_replay/population_bundle_v1.json"
 DEFAULT_RECORD_PATH = "evidence/us_regime_replay/pit_acceptance_record_v1.json"
 DEFAULT_CALENDAR_PATH = "data/us_official_session_calendar_v1.json"
+
+# RECEIPT mode artifacts (see us_paper_runtime's PIT_BINDING_MODE_* commentary).
+# Named after KR's own committed pair -- ``final-receipt.json`` beside
+# ``common-v1-replay-through-<last session>.json`` under a ``history/`` root --
+# because this is KR's binding shape applied to US, not a new convention.
+DEFAULT_RECEIPT_PATH = "evidence/us_regime_replay/history/final-receipt.json"
+RECEIPT_SCHEMA = "us_pit_acceptance_receipt/1"
+RECEIPT_REPLAY_DIR = "evidence/us_regime_replay/history"
+
+
+def replay_relative_path(history_last: str) -> str:
+    return f"{RECEIPT_REPLAY_DIR}/common-v1-replay-through-{history_last}.json"
 
 AUTHORITY_CLOSED = {
     "acceptance_record_only": True,
@@ -315,6 +336,142 @@ def calendar_only_u5_values(calendar_relative_path: str, calendar_file_sha256: s
 
 
 # ---------------------------------------------------------------------------
+# RECEIPT mode: the committed pair, derived from an out-of-checkout bundle
+# ---------------------------------------------------------------------------
+
+
+def build_receipt_pair(bundle_raw: bytes, *, bundle_source_path: str,
+                       regeneration_command: str, population=None) -> tuple[dict, dict]:
+    """Derive the (replay report, receipt) pair the RECEIPT binding needs.
+
+    The bundle is read but NEVER copied into the checkout: what gets committed is
+    the replay output plus this receipt, and the bundle itself is hash-bound only.
+    That is KR's arrangement, and it is the only one compatible with
+    ``us_historical_replay_population._forbid_tracked_output``.
+
+    Pure function of the bundle bytes: nothing time-varying, so re-running over
+    the same bundle yields the same two files and the same two sha256 values an
+    adoption pins.
+    """
+    if not isinstance(bundle_raw, bytes) or not bundle_raw:
+        fail("BUNDLE_BYTES_REQUIRED")
+    bundle_file_sha = sha256_bytes(bundle_raw)
+    try:
+        bundle = json.loads(bundle_raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        fail("BUNDLE_JSON_INVALID")
+    if not isinstance(bundle, dict):
+        fail("BUNDLE_JSON_INVALID")
+
+    # The full validator runs HERE, where the bundle exists, and its verdict is
+    # what the receipt attests to.  In-checkout verification cannot repeat it.
+    module = population_module() if population is None else population
+    try:
+        module.validate_population(copy.deepcopy(bundle))
+    except Exception as exc:
+        fail("BUNDLE_REVALIDATION_FAILED", f"{type(exc).__name__}:{exc}")
+
+    evaluation = PIT.evaluate_market_pit_acceptance("US", bundle)
+    if evaluation.get("status") != PIT.STATUS_PIT_ACCEPTED:
+        fail("US_PIT_NOT_ACCEPTED",
+             f"{evaluation.get('status')}:{','.join(evaluation.get('reasons') or [])}")
+
+    sequence = PIT._build_sequence("US", bundle["records"])
+    if sequence is None:
+        fail("US_PIT_SEQUENCE_NOT_BUILDABLE")
+    replay = COMMON.replay_common_v1(copy.deepcopy(sequence))
+    if PIT.payload_sha256(replay) != evaluation["replay_report_sha256"]:
+        fail("REPLAY_REPORT_REDERIVATION_MISMATCH")
+
+    # The runtime will re-derive the evaluation from the replay alone; prove here
+    # that the two derivations already agree, so a receipt can never be committed
+    # that the runtime would then reject.
+    rederived = RUNTIME._evaluation_from_replay(replay)
+    if RUNTIME.canonical_bytes(rederived) != RUNTIME.canonical_bytes(evaluation):
+        fail("RECEIPT_EVALUATION_DIVERGES_FROM_BUNDLE_EVALUATION")
+    rebuilt = RUNTIME._sequence_from_replay(replay)
+    if PIT.payload_sha256(rebuilt) != PIT.payload_sha256(sequence):
+        fail("RECEIPT_SEQUENCE_NOT_REBUILDABLE_FROM_REPLAY")
+
+    steps = sequence["steps"]
+    history_first, history_last = steps[0]["as_of_date"], steps[-1]["as_of_date"]
+    replay_relative = replay_relative_path(history_last)
+    replay_file_sha = sha256_bytes(record_bytes(replay))
+
+    regimes = {}
+    for row in replay["steps"]:
+        regimes[row["confirmed_regime"]] = regimes.get(row["confirmed_regime"], 0) + 1
+
+    receipt = {
+        "schema_version": RECEIPT_SCHEMA,
+        "market": "US",
+        "scope": "US_INTERNAL_VIRTUAL_PAPER_ONLY",
+        "binding_mode": RUNTIME.PIT_BINDING_MODE_RECEIPT,
+        "generator": GENERATOR_PATH,
+        "replay_report_path": replay_relative,
+        "replay_report_file_sha256": replay_file_sha,
+        "replay_report_payload_sha256": evaluation["replay_report_sha256"],
+        "source_sequence_sha256": replay["source_sequence_sha256"],
+        "population": {
+            "committed": False,
+            "why_not_committed": (
+                "us_historical_replay_population._forbid_tracked_output refuses, by design, to "
+                "write historical replay evidence to any path inside the checkout, and user "
+                "ratification USER_RATIFICATION_US_REPLAY_FLAG_20260920 forbids both relaxing "
+                "that guard and committing the bundle. The bundle is reproducible from committed "
+                "inputs and is hash-bound here instead -- the same arrangement KR uses "
+                "(evidence/authority/kr_paper_runtime_adoption_v1.json, raw_provider_rows_committed false)."
+            ),
+            "file_sha256": bundle_file_sha,
+            "payload_sha256": bundle["payload_sha256"],
+            "byte_count": len(bundle_raw),
+            "record_count": len(bundle["records"]),
+            "source_mode": bundle.get("pit_source", {}).get("source_mode"),
+            "validate_population": "PASS",
+            "validated_by": "regime/us_historical_replay_population.py::validate_population",
+            "raw_provider_rows_committed": False,
+            "raw_provider_rows_scope": "OUT_OF_CHECKOUT_REPRODUCIBLE_HASH_BOUND_IN_THIS_RECEIPT",
+            "path_scope": "OUTSIDE_THIS_CHECKOUT",
+            "observed_at_generation": bundle_source_path,
+            "regeneration_command": regeneration_command,
+            "compaction_rule": (
+                "Committed here is the replay_common_v1 OUTPUT, not the population. Each replay "
+                "step carries its input axis_directions, so the input sequence is rebuildable and "
+                "the replay is re-runnable in-checkout without the bundle. ~86% of each population "
+                "record is five_axis raw measurement, which the acceptance evaluation never reads."
+            ),
+        },
+        "range": {
+            "history_first_session_date": history_first,
+            "history_last_session_date": history_last,
+            "session_count": len(steps),
+        },
+        "coverage": {
+            "confirmed_regime_counts": dict(sorted(regimes.items())),
+            "five_of_five_step_count": len(steps),
+            "population_record_count": len(bundle["records"]),
+        },
+        "evaluation": evaluation,
+        "gate": {
+            "status": "GATE_ITSELF_UNVERIFIED",
+            "what_this_is": "PIT acceptance gate passage. NOT an alpha claim.",
+            "sealed_verification_verdict_20260920": "PARTIAL",
+            "regime_gate_value_confirmed": False,
+            "window_phases_rejected": "4 of 5",
+            "max_drawdown_change": "-7.57% -> -9.03% (worse)",
+            "note": (
+                "evaluated_date_count and regimes_observed are statements about COVERAGE of the "
+                "replayed history, not about the gate having value. The 2026-09-20 sealed "
+                "verification returned PARTIAL and the regime gate's value is not confirmed. "
+                "This receipt does not change that and must not be read as evidence of alpha."
+            ),
+        },
+        "authority": dict(AUTHORITY_CLOSED),
+    }
+    return replay, receipt
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -383,6 +540,62 @@ def _u5_values(args) -> int:
     return 0
 
 
+def _receipt(args) -> int:
+    """Write the committed RECEIPT-mode pair from an out-of-checkout bundle."""
+    root = ROOT
+    bundle_path = Path(args.bundle)
+    if not bundle_path.is_absolute():
+        bundle_path = root / bundle_path
+    if not bundle_path.is_file():
+        fail("BUNDLE_ABSENT", str(args.bundle))
+    # Refuse to read a bundle that someone has already copied into the checkout:
+    # the whole point is that it lives outside, and accepting an in-tree copy
+    # would quietly re-create exactly what the output guard forbids.
+    try:
+        bundle_path.resolve().relative_to(root.resolve())
+        fail("BUNDLE_MUST_BE_OUTSIDE_CHECKOUT", str(bundle_path))
+    except ValueError:
+        pass
+    replay, receipt = build_receipt_pair(
+        bundle_path.read_bytes(),
+        bundle_source_path=str(bundle_path),
+        regeneration_command=args.regeneration_command,
+    )
+    replay_relative = receipt["replay_report_path"]
+    replay_out = root / replay_relative
+    replay_out.parent.mkdir(parents=True, exist_ok=True)
+    replay_raw = record_bytes(replay)
+    replay_out.write_bytes(replay_raw)
+    receipt_out = root / args.out
+    receipt_out.parent.mkdir(parents=True, exist_ok=True)
+    receipt_raw = record_bytes(receipt)
+    receipt_out.write_bytes(receipt_raw)
+    print(json.dumps({
+        "pit_acceptance": {
+            "receipt_path": args.out,
+            "receipt_sha256": sha256_bytes(receipt_raw),
+            "replay_path": replay_relative,
+            "replay_sha256": sha256_bytes(replay_raw),
+            "bundle_sha256": receipt["population"]["file_sha256"],
+            "bundle_committed": False,
+            "replay_report_sha256": receipt["replay_report_payload_sha256"],
+            "history_last_session_date": receipt["range"]["history_last_session_date"],
+        },
+        "session_calendar": {
+            "path": args.calendar,
+            "sha256": sha256_bytes((root / args.calendar).read_bytes()),
+        },
+        "bindings": {
+            "contract_sha256": RUNTIME.CONTRACT_SHA256,
+            "implementation_sha256": RUNTIME.implementation_sha256(),
+            "common_v1_binding_payload_sha256": RUNTIME.payload_sha256(
+                COMMON.load_common_v1_policy()["binding"]
+            ),
+        },
+    }, indent=2, sort_keys=True))
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -398,6 +611,17 @@ def main(argv=None) -> int:
     verify.add_argument("--calendar", default=DEFAULT_CALENDAR_PATH)
     verify.add_argument("--record", default=DEFAULT_RECORD_PATH)
     verify.set_defaults(func=_verify)
+
+    receipt = sub.add_parser(
+        "receipt", help="write the committed RECEIPT-mode pair from an out-of-checkout bundle")
+    receipt.add_argument("--bundle", required=True,
+                         help="path to the population bundle; MUST be outside this checkout")
+    receipt.add_argument("--calendar", default=DEFAULT_CALENDAR_PATH)
+    receipt.add_argument("--out", default=DEFAULT_RECEIPT_PATH)
+    receipt.add_argument("--regeneration-command", required=True,
+                         dest="regeneration_command",
+                         help="the exact command that reproduces the bundle, recorded in the receipt")
+    receipt.set_defaults(func=_receipt)
 
     values = sub.add_parser("u5-values", help="print the exact adoption values U5 must ratify")
     values.add_argument("--calendar", default=DEFAULT_CALENDAR_PATH)
