@@ -1,0 +1,176 @@
+name: US Regime Score History Range
+
+# Manual only. There is deliberately no schedule here: the daily capture
+# (free-market-data.yml) is the scheduled producer and is not modified by this
+# workflow, this file, or the collector it calls.
+#
+# mode=measure makes at most TWELVE HTTP GETs (eight in the expected case) and
+# commits nothing:
+#   3  ALFRED vintagedates, one per contract FRED series -- also the input to
+#      the realtime window plan
+#   2  Alpaca window request, feed=iex and feed=sip
+#   1-5  FRED series/observations shape ladder on the first series, over the LAST
+#        planned realtime window, stopping at the first shape the provider accepts
+#   2  that accepted shape confirmed on the other two series
+# It answers three things before any full receive is attempted: how many sessions
+# and 20-session windows are reachable, whether the observations request that
+# does the real work is accepted at all, and how many requests the receive will
+# make -- fred_observation_probe.plan gives the realtime windows per series and
+# planned_fetch_observation_requests gives windows x observation chunks. Any
+# vintage-date limit the provider states is parsed into
+# provider_vintage_date_limit and compared against the committed batch size.
+#
+# ★ 2026-09-19, three runs. 35432763470 (measure) passed while 35432930212
+#   (fetch) died on the first series/observations request with a bare
+#   HTTP_ERROR:400: the endpoint that does the work was never probed, and the
+#   shared getter had dropped FRED's own explanation. Both holes were closed,
+#   and 35435347342 (measure) then named the real cause -- none of the three
+#   suspected ones. All five request shapes were refused with the SAME message:
+#
+#     "There are 3936 vintage dates in the specified real-time period:
+#      1776-07-04 to 9999-12-31. This exceeds the maximum number of vintage
+#      dates allowed for this file type (2000)."
+#
+#   The constrained axis is the number of VINTAGES per requested real-time
+#   period, not the parameter shape and not the response size. The realtime axis
+#   is therefore split too, by vintage count, from the vintage date list the
+#   probe already receives.
+#
+# mode=fetch receives the requested window and publishes it append-only and
+# content-addressed under evidence/free_market_data/history only.
+#
+#   FRED requests per series = realtime windows x observation chunks. With the
+#   vintage counts measured on 2026-09-19 (VIXCLS 3936, TOTBKCR 1553, WRESBAL
+#   1148) and 500 vintages per window, that is 8 + 4 + 3 = 15 windows; a
+#   2018-2026 window is 2 observation chunks, so 30 observation requests, plus
+#   3 vintagedates + 3 metadata + 1 shape negotiation = 37 FRED requests, plus
+#   one Alpaca request per score symbol (15) = about 52 in total. They are paced
+#   (FRED_REQUEST_INTERVAL_SECONDS) because FRED rate-limits per key; the
+#   observation requests add about 18s of pacing.
+#
+#   Both split axes have a boundary-invariance regression: whatever the vintage
+#   batch size or the observation chunk size, the merged-and-stitched rows are
+#   identical, and a lost, duplicated or overlapping row fails closed instead of
+#   being silently resolved. The plan is also proved at build time to cover every
+#   vintage the series has.
+#
+#   A receive whose evidence is byte-identical to one already in the store is a
+#   true no-op: the commit step stages nothing and the run publishes nothing. The
+#   receipt is addressed by WHAT was received, and the run's retrieval times are
+#   published beside it (receipts/<sha>/timing/) only when the receipt itself is
+#   new. Before 2026-09-19 the times were inside the receipt, so a re-run
+#   appended a receipt carrying no new evidence -- and whether a regression saw
+#   that depended on whether the two runs landed in the same second. Receipts
+#   already committed under the old version are read, replayed and never
+#   rewritten; the schema version is what tells them apart.
+#
+# It never writes data/latest_free_market_data.json and never writes the daily
+# derived / raw / fred-raw trees; collectors/free_market_data_history.py
+# enforces that mechanically and test/test_free_market_data.py asserts it.
+#
+# Credentials: the dedicated market-data-only Alpaca pair and the FRED key.
+# The account/trading Alpaca credential lives only in the private
+# atlas-private-evidence repo and is not referenced anywhere here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: measure (at most 12 requests, commits nothing) or fetch (receive the window)
+        required: true
+        default: measure
+        type: choice
+        options:
+          - measure
+          - fetch
+      start_date:
+        description: >-
+          window start, YYYY-MM-DD. This is the literal receive window: it
+          must already include the 21 bars that precede the first scored
+          session (20-session return plus one), so ten non-overlapping
+          20-session windows need 221 bars. Run measure first and read
+          non_overlapping_windows_possible before receiving.
+        required: true
+        type: string
+      end_date:
+        description: window end, YYYY-MM-DD
+        required: true
+        type: string
+      probe_symbol:
+        description: symbol used by measure mode only
+        required: false
+        default: SPY
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: us-regime-score-history-range
+  cancel-in-progress: false
+
+jobs:
+  range:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Offline regression (fake HTTP layer, no network, no secrets)
+        run: python3 test/test_free_market_data.py
+      - name: Measure what is reachable before receiving anything
+        if: ${{ github.event.inputs.mode == 'measure' }}
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
+          MODE: ${{ github.event.inputs.mode }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+          PROBE_SYMBOL: ${{ github.event.inputs.probe_symbol }}
+        run: |
+          python3 collectors/free_market_data_history.py \
+            --mode measure \
+            --start "$START_DATE" \
+            --end "$END_DATE" \
+            --probe-symbol "$PROBE_SYMBOL"
+      - name: Measure mode must leave the tree untouched
+        if: ${{ github.event.inputs.mode == 'measure' }}
+        run: git diff --exit-code && test -z "$(git status --porcelain)"
+      - name: Receive the requested window into the history store
+        if: ${{ github.event.inputs.mode == 'fetch' }}
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+        run: |
+          python3 collectors/free_market_data_history.py \
+            --mode fetch \
+            --start "$START_DATE" \
+            --end "$END_DATE"
+      - name: Replay the retained vintage evidence before committing it
+        if: ${{ github.event.inputs.mode == 'fetch' }}
+        run: python3 collectors/free_market_data_history.py --mode verify
+      - name: Commit the appended history evidence only
+        if: ${{ github.event.inputs.mode == 'fetch' }}
+        env:
+          # Publish back to the ref this run was dispatched from, so a test
+          # dispatch on a branch never pushes to the default branch.
+          TARGET_BRANCH: ${{ github.ref_name }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+        run: |
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add evidence/free_market_data/history
+          if git diff --staged --quiet; then
+            echo "nothing appended"
+            exit 0
+          fi
+          git status --porcelain --untracked-files=no
+          git commit -m "data: us regime score history range $START_DATE..$END_DATE"
+          bash .github/scripts/push_to_default_branch.sh "$TARGET_BRANCH"

@@ -287,13 +287,17 @@ check("evaluator 연결 금지 표기가 전부 살아 있다",
 
 print("K-9b Definition Application — pilot + 2차 확대")
 by_id0 = {r["rule_id"]: r for r in R}
-EXPECTED_APPLIED = ["RULE-0002", "RULE-0004", "RULE-0010", "RULE-0011",
-                    "RULE-0012", "RULE-0015", "RULE-0017", "RULE-0018",
-                    "RULE-0019", "RULE-0020", "RULE-0021", "RULE-0022",
-                    "RULE-0025"]
-check("적용된 Rule 이 정확히 13건 (pilot 2 + 2차 7 + 최종 4)",
-      len(APPLIED) == 13, str(len(APPLIED)))
-check("적용 대상이 승인 목록과 정확히 같다",
+# ★ 개수를 박지 않는다 — SSOT allowlist(`promote_rules_ssot.DEFINITION_APPLICATION_PILOT`)
+#   에서 파생한다. 승인으로 목록이 늘어나는 것은 정상이고(신규 RULE 승인 시
+#   자동으로 커진다), allowlist 밖으로 적용이 번지는 것 · allowlist 안인데
+#   적용이 누락되는 것이 결함이다.
+EXPECTED_APPLIED = sorted(
+    set(PR.DEFINITION_APPLICATION_PILOT) - set(PR.DEFINITION_APPLICATION_EXCLUDED))
+check("★ EXCLUDED 대상은 pilot allowlist 에 없다 (경합 자체가 없다)",
+      not (set(PR.DEFINITION_APPLICATION_PILOT) & set(PR.DEFINITION_APPLICATION_EXCLUDED)))
+check(f"적용된 Rule 이 allowlist 크기와 정확히 같다 ({len(EXPECTED_APPLIED)}건)",
+      len(APPLIED) == len(EXPECTED_APPLIED), str(len(APPLIED)))
+check("적용 대상이 승인 목록과 정확히 같다 (양방향)",
       sorted(r["rule_id"] for r in APPLIED) == EXPECTED_APPLIED,
       str(sorted(r["rule_id"] for r in APPLIED)))
 check("★ pilot 2건의 적용이 확대 후에도 보존된다",

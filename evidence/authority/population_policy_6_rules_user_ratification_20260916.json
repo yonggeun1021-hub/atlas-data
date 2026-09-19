@@ -1,0 +1,53 @@
+{
+  "record_type": "USER_RATIFICATION",
+  "ratified_at_kst": "2026-09-16T23:20:00+09:00",
+  "verbatim": "이걸로 일단 확정하자",
+  "card": {
+    "path": "CLAUDE_CIO_POPULATION_POLICY_RATIFICATION_CARD_20260916.md",
+    "sha256": "f0adb62db7d821d29ad10f3d854ca5d21d6eaa6d43220e0b1412cf1e23a75847"
+  },
+  "scope": "전 종목 발굴 규칙 6건 (한국·미국). CANDIDATE_PASS_RULE, STAGE_TRANSITION_RULE은 제외 — 근거 확보 후 별도 확정.",
+  "rules": [
+    {
+      "id": "INVESTABLE_UNIVERSE",
+      "kr": "코스피·코스닥 보통주만; 우선주·스팩·리츠·ETF·ETN·신주인수권 제외",
+      "us": "NYSE/NASDAQ/AMEX 보통주만; 우선주·워런트·유닛·ADR·ETF·OTC 제외"
+    },
+    {
+      "id": "LIQUIDITY",
+      "kr": "20거래일 평균 거래대금 >= 1,000,000,000 KRW AND 종가 >= 1,000 KRW",
+      "us": "20거래일 평균 거래대금 >= 10,000,000 USD AND 종가 >= 5 USD"
+    },
+    {
+      "id": "LISTING_DELISTING",
+      "both": "신규 상장은 상장 후 20거래일 경과부터 후보; 폐지·정리매매 지정 즉시 후보 제외, 보유분은 선도 판정과 무관하게 다음 허용 체결 시각에 전량 매도; 이력은 종목 코드 기준 연결"
+    },
+    {
+      "id": "TAXONOMY",
+      "kr": "KRX 공식 업종 분류 46개",
+      "us": "SPDR 섹터 ETF 11개 보유 명단 소속, 비중 최대 ETF 하나에만 귀속"
+    },
+    {
+      "id": "TRADABILITY",
+      "kr": "거래정지·관리종목 제외(기존 확정 유지) + 투자경고·투자위험 제외 + 단기과열 해제 후 5거래일 미경과 제외",
+      "us": "거래정지(halt) 중 제외 + 상장폐지 통보(deficiency) 제외"
+    },
+    {
+      "id": "SOURCE_HIERARCHY",
+      "us": "SIP 1순위, IEX 2순위; IEX만 있을 때는 'IEX 기준(부분 거래량)'을 기록에 표시하고 유동성 기준 통과 시에만 후보 인정",
+      "kr": "해당 없음(KRX 단일 거래소)"
+    }
+  ],
+  "notes": [
+    "유동성 한국 값은 기존 확정 T2 C3(20세션 평균 10억·종가 1,000원)과 동일",
+    "미국 유동성 값은 신규 확정치",
+    "후보가 부족해지면 미국 SIP 유료 전환($99/월) 검토",
+    "PAPER 미체결·슬리피지 기록으로 사후 조정 가능"
+  ],
+  "authority": {
+    "order_authorized": false,
+    "capital_authorized": false,
+    "real_authorized": false,
+    "trading_authorized": false
+  }
+}

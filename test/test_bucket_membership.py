@@ -3,6 +3,7 @@
 
 import ast
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -12,6 +13,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "portfolio" / "bucket_membership.py"
+REPOSITORY_CONSTITUTION_PATH = ROOT / "config" / "constitution.json"
 
 
 def load_module(name, path):
@@ -22,6 +24,9 @@ def load_module(name, path):
 
 
 MODULE = load_module("bucket_membership", SOURCE)
+CONSTITUTION_MODULE = load_module(
+    "atlas_constitution_check", ROOT / "portfolio" / "constitution.py"
+)
 CONTRACT = MODULE.load_contract()
 
 
@@ -48,6 +53,31 @@ def ratified_constitution():
         },
         "amendment_log": [],
     }
+
+
+def unratified_constitution():
+    """Synthetic pre-ratification fixture — status not_ratified, every B null.
+
+    The repository's own config/constitution.json used to stand in for this
+    fixture. The user ratified B1~B7 on 2026-09-19, so the repository file is
+    now `ratified` and can no longer prove the fail-closed path. The proof is
+    unchanged and still required — it is pinned to this fixture instead, and
+    the repository file's ratified state is asserted separately below.
+    """
+    value = ratified_constitution()
+    value["_comment"] = "synthetic test-only UNRATIFIED fixture"
+    value["status"] = "not_ratified"
+    value["ratified_at"] = None
+    value["constitution_version"] = None
+    for field in (
+        "B1_bucket_definition", "B2_cash_floor_pct", "B3_bucket_max_pct",
+        "B4_position_max_pct", "B5_stop_loss_pct", "B6_portfolio_max_loss_pct",
+    ):
+        value[field] = None
+    value["B7_evidence_state_max_pct"] = {
+        key: None for key in value["B7_evidence_state_max_pct"]
+    }
+    return value
 
 
 def bucket(bucket_id="BUCKET_ALPHA", marker="a"):
@@ -131,14 +161,82 @@ class BucketMembershipTests(unittest.TestCase):
             if key != "membership_registry_validation_only":
                 self.assertFalse(value, key)
 
-    def test_repository_default_constitution_blocks_membership(self):
-        default = json.loads((ROOT / "config" / "constitution.json").read_text())
+    def test_unratified_constitution_blocks_membership(self):
         with self.assertRaisesRegex(
             MODULE.BucketMembershipError,
             "CONSTITUTION_NOT_RATIFIED",
         ):
             MODULE.build_packet(
-                assignment_set(), default, "2026-08-21", CONTRACT
+                assignment_set(), unratified_constitution(), "2026-08-21", CONTRACT
+            )
+
+        # A ratified status string alone does not satisfy the B1 gate: an absent
+        # bucket definition must still fail closed.
+        b1_absent = ratified_constitution()
+        b1_absent["B1_bucket_definition"] = None
+        with self.assertRaisesRegex(
+            MODULE.BucketMembershipError,
+            "CONSTITUTION_B1_NOT_RATIFIED",
+        ):
+            MODULE.build_packet(assignment_set(), b1_absent, "2026-08-21", CONTRACT)
+
+    def test_repository_constitution_is_ratified_and_b1_is_hash_bound(self):
+        """User ratification 2026-09-19 — the ratified state is now itself tested.
+
+        The previous version of this assertion pinned the fail-closed proof to
+        the repository file. That proof moved to unratified_constitution();
+        what the repository file must now prove is that it really is ratified,
+        internally consistent, and hash-bound to a real B1 definition document.
+        """
+        live = json.loads(REPOSITORY_CONSTITUTION_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(live["status"], "ratified")
+        self.assertEqual(live["constitution_version"], "ATLAS-CONSTITUTION-B1-B7-V1")
+        checked = CONSTITUTION_MODULE.check(copy.deepcopy(live))
+        self.assertEqual(checked["status"], "ratified")
+        self.assertEqual(checked["violations"], [])
+        self.assertEqual(checked["missing"], [])
+        self.assertTrue(checked["buy_allowed"])
+        self.assertEqual(checked["derived"], {
+            "max_deployed_pct": 90.0,
+            "worst_case_loss_pct": 18.0,
+            "headroom_pct": 2.0,
+        })
+        self.assertIn("fail-closed", live["_comment"])
+
+        # B1 is bound the way the contract says it is bound: an opaque pointer
+        # to a definition document plus that document's exact sha256.
+        self.assertEqual(
+            CONTRACT["bucket_definition_binding"], "OPAQUE_B1_SHA256_EXACT"
+        )
+        b1 = live["B1_bucket_definition"]
+        self.assertEqual(set(b1), {"definition_ref", "definition_sha256"})
+        definition_path = ROOT / b1["definition_ref"]
+        self.assertTrue(definition_path.is_file(), b1["definition_ref"])
+        self.assertEqual(
+            hashlib.sha256(definition_path.read_bytes()).hexdigest(),
+            b1["definition_sha256"],
+        )
+        definition = json.loads(definition_path.read_text(encoding="utf-8"))
+        self.assertEqual(definition["axis"], "MARKET_SLEEVE")
+        self.assertEqual(
+            [row["bucket_id"] for row in definition["buckets"]],
+            ["CRYPTO", "KOREA", "US"],
+        )
+        self.assertEqual(
+            sorted(definition["market_to_bucket"]),
+            sorted(CONTRACT["allowed_markets"]),
+        )
+        self.assertEqual(definition["sector_theme_buckets"]["state"], "NOT_IN_CANON")
+
+        # Ratifying B1 did not open assignment, and membership still cannot be
+        # produced from repository state alone: assignment stays explicit-only
+        # and an assignment set with no ratified rows fails closed.
+        self.assertEqual(CONTRACT["assignment_mode"], "EXPLICIT_RATIFIED_ONLY")
+        self.assertFalse(CONTRACT["authority"]["automatic_assignment_authorized"])
+        self.assertFalse(definition["authority"]["automatic_assignment_authorized"])
+        with self.assertRaisesRegex(MODULE.BucketMembershipError, "ASSIGNMENTS_EMPTY"):
+            MODULE.build_packet(
+                assignment_set(live, assignments=[]), live, "2026-09-19", CONTRACT
             )
 
     def test_explicit_candidate_and_holding_create_one_membership_each(self):
