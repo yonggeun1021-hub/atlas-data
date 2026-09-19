@@ -1438,6 +1438,13 @@ APPROVED_TESTS = [
     #   STBL 은 반대로 거버넌스 토큰이라 eligible. AIN 은 체인 수준만 기록.
     #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
     "test/test_crypto_breadth_rank200_slice_b_20260919.py",
+    # ★ P1-CR-07 rank-200 push, slice C — 크립토 분류 여유 194~200위, 목표 도달.
+    #   3분할의 마지막. 이 조각으로 블록이 201위까지 연속이 되고 다음
+    #   미분류는 PIEVERSE(202위)다. FUN 은 티커 충돌 사례 — Kraken 이 내보내는
+    #   것은 Base 의 Sport.fun 이지 이더리움의 구 FunFair 가 아니며, 기록은
+    #   Base 계약만 묶는다. RUNE/SC 는 자체 체인 네이티브 코인 주장.
+    #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
+    "test/test_crypto_breadth_rank200_slice_c_20260919.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
