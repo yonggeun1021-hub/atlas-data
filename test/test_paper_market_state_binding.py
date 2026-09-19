@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 from fractions import Fraction
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -66,6 +67,37 @@ class BindingContractTest(unittest.TestCase):
             if row["adopted"] is False:
                 self.assertIsInstance(row["blocked_reason"], str, market)
                 self.assertTrue(row["blocked_reason"], market)
+
+    def test_every_market_names_a_dated_record_that_still_hashes(self):
+        """Each market's adoption decision is written down, not just implied."""
+        for market, row in sorted(self.binding["markets"].items()):
+            record = row["market_record"]
+            path = ROOT / record["path"]
+            self.assertTrue(path.is_file(), market)
+            self.assertEqual(
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+                record["sha256"],
+                market,
+            )
+            value = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(value["market"], market)
+            self.assertIn(
+                value["record_type"],
+                ("CIO_ADOPTION_PARTIAL", "CIO_ADOPTION_BLOCKED"),
+                market,
+            )
+            self.assertTrue(record["verdict"], market)
+            # A closed market's record must say the block stands.  An open one
+            # may still carry a BLOCKED record: US is open for market-state
+            # sizing while its separate PIT-backed U5 runtime adoption stays
+            # blocked, and conflating those two layers is exactly what the
+            # record exists to prevent.
+            if row["adopted"] is False:
+                self.assertEqual(value["record_type"], "CIO_ADOPTION_BLOCKED", market)
+                self.assertEqual(value["verdict"], "BLOCK_MAINTAINED", market)
+            for key, flag in value["authority"].items():
+                if key != "scope":
+                    self.assertIs(flag, False, f"{market}.{key}")
 
     def test_crypto_stays_closed_and_names_the_input_it_is_waiting_for(self):
         """Crypto is blocked on elapsed evidence days, which code cannot supply."""
@@ -356,6 +388,9 @@ class WiringIsNotADispatchTest(unittest.TestCase):
         for relative in (
             MODULE.BINDING_RELATIVE,
             "evidence/authority/USER_RATIFICATION_MARKET_STATE_SOURCE_BINDING_20260919.json",
+            "evidence/authority/us_paper_runtime_adoption_blocked_20260919.json",
+            "evidence/authority/kr_paper_market_state_adoption_20260919.json",
+            "evidence/authority/crypto_paper_market_state_adoption_blocked_20260919.json",
         ):
             value = json.loads((ROOT / relative).read_text(encoding="utf-8"))
             found = []

@@ -60,6 +60,11 @@
           "sha256": "f9b85ca69a668f5f891446c4f50df8c8067d2a1896f19a5cb9122149f394247b"
         }
       },
+      "market_record": {
+        "path": "evidence/authority/crypto_paper_market_state_adoption_blocked_20260919.json",
+        "sha256": "a932919524fb7b1fd6a7a8dd9105df5fba4af19d03234ab04be519f7c9c4ca64",
+        "verdict": "BLOCK_MAINTAINED on 2_MINIMUM_CONSECUTIVE_COMPLETE_DAYS; 1 of the 3 conditions the 2026-09-19 dry run listed still fails, the other two now pass on main"
+      },
       "must_not_be_forced": true,
       "unblocks_when": "five consecutive complete UTC days of 5/5 crypto axes accumulate from the 2026-09-18 chain start; the earliest possible first verdict is 2026-09-23. No code change can advance it -- the missing input is elapsed days of committed evidence."
     },
@@ -83,6 +88,11 @@
           "satisfied_preconditions": 9,
           "sha256": "b169be8554c766250393f3619eadfcda895801b9a6186d7b0e4d6ac6094f8285"
         }
+      },
+      "market_record": {
+        "path": "evidence/authority/kr_paper_market_state_adoption_20260919.json",
+        "sha256": "b3a39549b9be088a74e1fb363aa8c8fe44f11fd26b222ae9c35ef2ef2588964d",
+        "verdict": "market-state sizing input ADOPTED; the KR runtime ratification candidate stays DRAFT_NOT_RATIFIED with all four remaining preconditions unresolved and named"
       }
     },
     "US": {
@@ -99,6 +109,11 @@
           "path": "config/us_paper_runtime_contract_v1.json",
           "sha256": "bad715c8a960b6aa7a5618b22e5ccefc580f38599e2c3f532f7e182c700812d3"
         }
+      },
+      "market_record": {
+        "path": "evidence/authority/us_paper_runtime_adoption_blocked_20260919.json",
+        "sha256": "dc23a145210171746f89e76174814b8c0f5987f62251d3ccca76da169a7c62db",
+        "verdict": "US_PAPER_RUNTIME_ADOPTION_V1 (U5) NOT_CREATED -- no US PIT_ACCEPTED record exists and none can pass today; this binding does not substitute for it"
       }
     }
   },
