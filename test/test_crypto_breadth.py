@@ -959,5 +959,21 @@ class CryptoBreadthTest(unittest.TestCase):
         self.assertNotIn("data/factors/crypto_breadth", workflows)
 
 
+class Rank200GapReceiptTests(unittest.TestCase):
+    def test_receipt_matches_taxonomy_and_does_not_backdate(self):
+        receipt = json.loads((ROOT / "evidence/crypto/identity/crypto_breadth_rank200_gaps_source_facts_20260919.json").read_text())
+        policy = MODULE.load_exclusion_taxonomy(ROOT / "config/crypto_breadth_exclusion_taxonomy.json")
+        for asset in receipt["assets"]:
+            symbol = asset["canonical_asset_id"]
+            self.assertEqual(len(set(asset["independent_source_organisations"])), 2)
+            self.assertEqual(MODULE.taxonomy_category(symbol, dt.date(2026, 9, 20), policy), asset["verdict"])
+            self.assertIsNone(MODULE.taxonomy_category(symbol, dt.date(2026, 9, 19), policy))
+        self.assertEqual({a["canonical_asset_id"]: a["verdict"] for a in receipt["assets"]}, {"AVA": "eligible_crypto", "JITOSOL": "staked"})
+        for source in receipt["sources"]:
+            self.assertEqual(len(source["retained_content_sha256"]), 64)
+            self.assertGreater(source["retained_bytes"], 0)
+        self.assertTrue(any(s["representation"] == "WEB_TOOL_TEXT_EXTRACTION_NOT_HTTP_BYTES" for s in receipt["sources"]))
+
+
 if __name__ == "__main__":
     unittest.main()
