@@ -1,0 +1,76 @@
+{
+  "as_of_date": "2026-09-18",
+  "authority": {
+    "breadth_classification_authorized": false,
+    "historical_reconstruction_authorized": false,
+    "price_breadth_authorized": false,
+    "production_wiring_authorized": false,
+    "regime_score_authorized": false,
+    "threshold_authorized": false,
+    "trading_action_authorized": false
+  },
+  "membership": {
+    "changed_attribute_ids": [
+      "nasdaq_listed:FWONA",
+      "nasdaq_listed:FWONK",
+      "other_listed:ILS"
+    ],
+    "changed_attributes_count": 3,
+    "current_count": 13258,
+    "current_source_counts": {
+      "nasdaq_listed": 5623,
+      "other_listed": 7635
+    },
+    "entered_count": 8,
+    "entered_ids": [
+      "nasdaq_listed:ETRA",
+      "nasdaq_listed:LEDRU",
+      "nasdaq_listed:OIG",
+      "nasdaq_listed:XIII",
+      "nasdaq_listed:XIIIW",
+      "other_listed:ASGI.V",
+      "other_listed:ASSX",
+      "other_listed:HOST"
+    ],
+    "exited_count": 3,
+    "exited_ids": [
+      "nasdaq_listed:SNYR",
+      "other_listed:HCWC",
+      "other_listed:SAT"
+    ],
+    "previous_count": 13253,
+    "previous_source_counts": {
+      "nasdaq_listed": 5619,
+      "other_listed": 7634
+    },
+    "unchanged_count": 13250
+  },
+  "observation": "SOURCE_DIRECTORY_MEMBERSHIP_CHANGE_ONLY",
+  "paid_data_checkpoint": {
+    "allowed_without_reconfirmation": [
+      "forward_only_current_day_symbol_directory_capture",
+      "append_only_raw_persistence",
+      "captured_snapshot_membership_diff"
+    ],
+    "approved": false,
+    "status": "USER_RECONFIRMATION_REQUIRED",
+    "stop_before": [
+      "historical_breadth_reconstruction",
+      "delisted_security_ohlcv_acquisition",
+      "paid_api_or_vendor_integration",
+      "license_or_subscription_cost",
+      "trial_that_converts_to_paid"
+    ]
+  },
+  "previous_date": "2026-09-17",
+  "price_breadth": {
+    "advance_fraction": null,
+    "advancing_count": null,
+    "declining_count": null,
+    "status": "UNKNOWN_PRICE_SOURCE_UNAVAILABLE",
+    "unchanged_count": null
+  },
+  "schema_version": 1,
+  "status": "PASS",
+  "universe_semantics": "source_directory_membership_not_investable_universe"
+}
