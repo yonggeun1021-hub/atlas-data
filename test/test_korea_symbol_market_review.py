@@ -44,7 +44,14 @@ class CurrentEvidenceTests(unittest.TestCase):
         source_row = result["source"]["stage_snapshot"]["subjects"]["298040"][
             "latest_confirmed_row"
         ]
-        self.assertEqual(candidate["pipeline_stage"], "Candidate")
+        # ``data/stage_history.json`` is the rolling pointer the daily collect
+        # rewrites, so the Notion board tag it carries for 298040 today is not
+        # a fixed fact -- it moves whenever the symbol is retagged. Derive the
+        # expectation from the same source instead of pinning today's tag.
+        stage_as_of = sorted(stages)[-1]
+        self.assertEqual(
+            candidate["pipeline_stage"], stages[stage_as_of]["298040"]["stage"]
+        )
         self.assertEqual(candidate["price_context"]["close_krw"], source_row["close"])
         self.assertEqual(
             candidate["flow_context"]["foreign_net_value_krw"],

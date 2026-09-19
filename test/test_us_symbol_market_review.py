@@ -39,14 +39,20 @@ class CurrentEvidenceTests(unittest.TestCase):
         self.assertEqual(result["five_axis"]["missing_axes"], [])
         self.assertEqual(result["five_axis"]["aggregate_regime"], "UNKNOWN")
         by_symbol = {row["symbol"]: row for row in result["symbols"]}
-        self.assertEqual(by_symbol["TSM"]["pipeline_stage"], "Ready")
+        # ``data/stage_history.json`` is the rolling pointer the daily collect
+        # rewrites, so the board tag it carries for TSM/SNDK today is not a
+        # fixed fact -- it moves whenever either symbol is retagged. Derive
+        # the expectation from the same source instead of pinning today's tag.
+        stage_as_of = sorted(stages)[-1]
+        latest_stage = stages[stage_as_of]
+        self.assertEqual(by_symbol["TSM"]["pipeline_stage"], latest_stage["TSM"]["stage"])
         self.assertEqual(by_symbol["TSM"]["price_context"]["status"], "OBSERVED")
         self.assertEqual(by_symbol["TSM"]["entry_review"]["state"], "WAIT")
         self.assertEqual(
             [row["symbol"] for row in by_symbol["TSM"]["market_context"]["leadership_proxies"]],
             ["SMH", "XLK"],
         )
-        self.assertEqual(by_symbol["SNDK"]["pipeline_stage"], "Discovery")
+        self.assertEqual(by_symbol["SNDK"]["pipeline_stage"], latest_stage["SNDK"]["stage"])
         self.assertEqual(by_symbol["SNDK"]["price_context"]["status"], "OBSERVED")
         self.assertEqual(by_symbol["SNDK"]["entry_review"]["state"], "WAIT")
         self.assertEqual(result["summary"]["automatic_entry_count"], 0)
