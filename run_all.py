@@ -68,6 +68,7 @@ NON_AUTHORITY_VIEWS = ["rules/decompose_pilot.json", "rules/populations.json"]
 # ★ 승인 회귀 목록. 이 목록과 실제 test/test_*.py 집합이 다르면 FAIL 이다.
 #   ⛔ FI suite 는 여기 섞지 않는다 (CIO 판정 9).
 APPROVED_TESTS = [
+    "test/test_public_workflow_pin_inventory.py",
     # ★ P6-06 Defensive Action Decision readiness boundary. Existing P6
     #   guardrails are semantically revalidated while missing P1/P2 production
     #   packets remain explicit BLOCKED evidence. Missing/unevaluated input is
@@ -806,6 +807,17 @@ APPROVED_TESTS = [
     #   resume reproduce the same bytes, fresh-process reverify passes.
     #   ⛔ no stage change, no promotion, no threshold, no network, no order.
     "test/test_population_symbol_observation.py",
+    # ★ Ratified population-level policy (2026-09-16 user ratification):
+    #   INVESTABLE_UNIVERSE / LIQUIDITY / LISTING_DELISTING / TAXONOMY /
+    #   TRADABILITY (KR + US) and US-only SOURCE_HIERARCHY. Each rule
+    #   filters what it should; a symbol missing a required input (KIS
+    #   master, 46-industry table, listing date, <20-session window)
+    #   resolves UNKNOWN, never a silent pass or exclusion; the two
+    #   population-level zero-states ("no rule exists" vs "the wired rules
+    #   did not pass every symbol") stay distinguishable; ratification
+    #   evidence is byte-checked, not merely referenced.
+    #   ⛔ CANDIDATE_PASS_RULE / STAGE_TRANSITION_RULE untouched, 미정.
+    "test/test_population_ratified_policy.py",
     # ★ Daily scheduled run for the two population observations (2026-09-18).
     #   Both producers had NO .github/workflows trigger at all, so KR sat at
     #   2026-09-10 and US at 2026-09-11 while the committed universes they
@@ -3138,6 +3150,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_rotation_discovery_briefing.py": 24.4,
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
     "test/test_population_symbol_observation.py": 60.0,
+    "test/test_population_ratified_policy.py": 1.0,
     "test/test_population_observation_daily_schedule.py": 20.0,
     "test/test_three_market_evaluation_coverage.py": 60.0,
     "test/test_market_candidate_discovery_lookup.py": 120.0,

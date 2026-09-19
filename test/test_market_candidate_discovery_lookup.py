@@ -709,6 +709,17 @@ class PopulationLevelSymbolDataTests(unittest.TestCase):
             "evaluation": {"status": "NOT_EVALUATED", "entry_state": None},
             "formal_candidate": {"status": "NOT_A_FORMAL_CANDIDATE", "promotion_by_this_packet": False},
             "facts": {}, "evidence_refs": [],
+            # 2026-09-16 ratified population policy (six rules, KR + US;
+            # see universe/population_ratified_policy.py): every real row
+            # now carries this block. This synthetic fixture is unrelated to
+            # that policy -- it exists only to exercise the candidate-lookup
+            # module's own reproducibility/isolation checks -- so every rule
+            # is UNKNOWN, which is also the correct fail-closed default when
+            # a required input (there is none here) is absent.
+            "population_policy": {
+                "status": "RATIFIED_POPULATION_UNKNOWN",
+                "rules": {"TEST_RULE": {"status": "UNKNOWN", "reason": "SYNTHETIC_FIXTURE_NO_INPUT"}},
+            },
         }
 
     def _persist_session(

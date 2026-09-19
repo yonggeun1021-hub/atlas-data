@@ -50,6 +50,9 @@ symbol_row = CORE.symbol_row
 
 US_REVIEW = load_module("population_us_symbol_market_review", "decision/us_symbol_market_review.py")
 US_REGISTRY = load_module("population_us_investable_registry", "universe/us_investable_registry.py")
+POLICY = load_module("population_ratified_policy_us", "universe/population_ratified_policy.py")
+POLICY_CONTRACT = POLICY.load_contract()
+SPDR = load_module("population_us_spdr_sector_mapping", "universe/us_spdr_sector_mapping.py")
 
 
 def _latest_universe(root: Path, session_date: str | None) -> Path:
@@ -208,6 +211,7 @@ def load_context(inputs: dict, *, generated_at: str, contract: dict) -> dict:
         "leadership_by_symbol": US_REVIEW._leadership_by_symbol(coverage),
         "breadth": coverage["axes"]["BREADTH"].get("facts"),
         "source_scope": source["market_capture"]["alpaca_scope"],
+        "feed": alpaca.get("feed"),
         "bars": bars,
         "configured_symbols": sorted(bars),
         "input_refs": input_refs,
@@ -245,6 +249,30 @@ def _directory_facts(rows: list, registry_contract: dict) -> dict:
     }
 
 
+def _us_population_policy(ctx: dict, symbol: str, rows: list, bars: list, security_name: str | None) -> dict:
+    """Evaluate the six ratified population-level rules for one US symbol.
+
+    LIQUIDITY and SOURCE_HIERARCHY need real IEX/SIP daily bars; only the 22
+    symbols ``collectors/free_market_data.py`` is configured to fetch carry
+    any (2026-09-16 ratification note: US coverage is 22 symbols today).
+    Every other symbol resolves both to UNKNOWN, never a silent pass or
+    exclusion. TAXONOMY reuses the already-ratified, already-implemented
+    SPDR sector reader (``universe/us_spdr_sector_mapping.py``) read-only.
+    LISTING_DELISTING and TRADABILITY resolve UNKNOWN for every symbol: no
+    listing-date, delisting-flag, halt, or deficiency feed is wired into
+    this pipeline today.
+    """
+    fields_by_row = [row.get("fields") or {} for row in rows]
+    etf_flags = [str(f["ETF"]) for f in fields_by_row if f.get("ETF") is not None]
+    test_issue_flags = [str(f["Test Issue"]) for f in fields_by_row if f.get("Test Issue") is not None]
+    feed = ctx.get("feed") if bars else None
+    spdr_result = SPDR.sector_for_symbol(ROOT, symbol, ctx["snapshot_at"])
+    return POLICY.evaluate_us(
+        etf_flags=etf_flags, test_issue_flags=test_issue_flags, security_name=security_name,
+        bars=bars, spdr_result=spdr_result, feed=feed, contract=POLICY_CONTRACT,
+    )
+
+
 def build_symbol(ctx: dict, symbol: str) -> dict:
     rows = ctx["population_records"][symbol]
     session = ctx["session_date"]
@@ -259,6 +287,7 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
     evidence_refs = []
     bars = ctx["bars"].get(symbol) or []
     in_stage_history = symbol in ctx["latest_stage"]
+    population_policy = _us_population_policy(ctx, symbol, rows, bars, name)
 
     if symbol in ctx["bounded_rows"]:
         row = copy.deepcopy(ctx["bounded_rows"][symbol])
@@ -279,6 +308,7 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
                         "evaluated_at": ctx["bounded"]["generated_at"], "entry_state": row["entry_review"]["state"],
                         "reasons": list(row["entry_review"]["reasons"]), "row": row, "row_source": "bounded_review_packet"},
             formal=formal, facts=facts, evidence_refs=evidence_refs + [{"role": "bounded_review_row", "packet_sha256": ctx["bounded"]["packet_sha256"]}],
+            population_policy=population_policy,
         )
 
     if bars:
@@ -302,6 +332,7 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
                               "sources": ["iex_daily_bars"], "fields_present": ["daily_bars"], "fields_missing": []},
             evaluability=evaluability, evaluation=evaluation, formal=formal, facts=facts,
             evidence_refs=evidence_refs + [{"role": "iex_daily_bars", "session_count": len(bars)}],
+            population_policy=population_policy,
         )
 
     reason = "PRICE_SOURCE_NOT_CONFIGURED" if in_stage_history else "PRICE_SOURCE_NOT_RETAINED"
@@ -312,6 +343,7 @@ def build_symbol(ctx: dict, symbol: str) -> dict:
         evaluability={"status": "NOT_EVALUABLE", "level": None, "reasons": [reason], "session_price_present": False},
         evaluation={"status": "NOT_EVALUATED", "entry_state": None, "reasons": [reason], "row": None},
         formal=formal, facts=facts, evidence_refs=evidence_refs,
+        population_policy=population_policy,
     )
 
 
