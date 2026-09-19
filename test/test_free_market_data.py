@@ -726,8 +726,10 @@ def _history_bar(day, step):
     }
 
 
-# Two revisions of one observation date, plus neighbours outside that month, so
-# the chunk-boundary regression has something to split.
+# The UNCLIPPED truth: what a single realtime window covering everything would
+# return. Two revisions of one observation date, plus neighbours outside that
+# month, so both boundary regressions (observation axis and realtime axis) have
+# something to split.
 FRED_VINTAGE_TABLE = (
     {"realtime_start": "2025-01-10", "realtime_end": "9999-12-31",
      "date": "2025-01-06", "value": "0.5"},
@@ -739,6 +741,20 @@ FRED_VINTAGE_TABLE = (
      "date": "2026-06-01", "value": "3.5"},
 )
 
+# Every vintage date the fake series has. The realtime axis is split by COUNT of
+# these, which is what the provider actually caps.
+FRED_VINTAGE_DATES = (
+    "2025-01-10", "2026-05-05", "2026-05-12", "2026-05-19", "2026-05-26",
+    "2026-06-02", "2026-06-09", "2026-06-16", "2026-06-23", "2026-06-30",
+)
+
+# The provider's real message, verbatim in shape, from run 35435347342.
+FRED_VINTAGE_CAP_BODY = (
+    '{{"error_code":400,"error_message":"Bad Request.  There are {count} vintage '
+    'dates in the specified real-time period: {start} to {end}. This exceeds the '
+    'maximum number of vintage dates allowed for this file type ({cap})."}}'
+)
+
 # What FRED actually returns in a 400 body: a reason, in the response, which the
 # shared getter throws away. Run 35432930212 is the cost of that.
 FAKE_FRED_400_BODY = (
@@ -748,8 +764,19 @@ FAKE_FRED_400_BODY = (
 
 
 def _history_getter(*, bars_per_symbol=3, split_pages=False, calls=None,
-                    reject_max_limit=False):
-    """Fake HTTP layer for the history collector. No network, no real key."""
+                    reject_max_limit=False, vintage_date_cap=None):
+    """Fake HTTP layer for the history collector. No network, no real key.
+
+    The FRED side models the two provider behaviours that matter:
+
+    * **the vintage-date cap** -- more than ``vintage_date_cap`` vintage dates
+      inside the requested real-time period is refused with the provider's own
+      message, the failure that killed run 35432930212;
+    * **clipping** -- every returned row's realtime window is the intersection of
+      its true window with the requested one, which is why one availability
+      interval arrives as two halves across a window boundary and has to be
+      stitched back.
+    """
     start = dt.date(2026, 5, 4)
 
     def getter(url, headers=None):
@@ -777,21 +804,43 @@ def _history_getter(*, bars_per_symbol=3, split_pages=False, calls=None,
             return json.dumps({"bars": rows, "next_page_token": None}).encode()
         if base.endswith("/fred/series/vintagedates"):
             return json.dumps({
-                "count": 2, "vintage_dates": ["2026-05-05", "2026-05-12"],
+                "count": len(FRED_VINTAGE_DATES),
+                "vintage_dates": list(FRED_VINTAGE_DATES),
             }).encode()
         if base.endswith("/fred/series/observations"):
             if reject_max_limit and params.get("limit") == str(H.FRED_PAGE_LIMIT):
-                # Stand in for the real 2026-09-19 rejection: one shape is
-                # refused with a reason in the body, later shapes are accepted.
+                # Stand in for a shape-level rejection: one shape is refused with
+                # a reason in the body, later shapes are accepted.
                 raise H.FreeMarketDataError(
                     f"HTTP_ERROR:400:{H.mask_secrets(FAKE_FRED_400_BODY)}"
                 )
+            realtime_start = params["realtime_start"]
+            realtime_end = params["realtime_end"]
+            inside = [
+                value for value in FRED_VINTAGE_DATES
+                if realtime_start <= value <= realtime_end
+            ]
+            if vintage_date_cap is not None and len(inside) > vintage_date_cap:
+                raise H.FreeMarketDataError("HTTP_ERROR:400:" + FRED_VINTAGE_CAP_BODY.format(
+                    count=len(inside), start=realtime_start, end=realtime_end,
+                    cap=vintage_date_cap,
+                ))
             window_start = params["observation_start"]
             window_end = params["observation_end"]
-            rows = [
-                dict(row) for row in FRED_VINTAGE_TABLE
-                if window_start <= row["date"] <= window_end
-            ]
+            rows = []
+            for row in FRED_VINTAGE_TABLE:
+                if not window_start <= row["date"] <= window_end:
+                    continue
+                # Clipping, exactly as ALFRED does it.
+                clipped_from = max(row["realtime_start"], realtime_start)
+                clipped_to = min(row["realtime_end"], realtime_end)
+                if clipped_from > clipped_to:
+                    continue
+                rows.append({
+                    **row,
+                    "realtime_start": clipped_from,
+                    "realtime_end": clipped_to,
+                })
             return json.dumps({"count": len(rows), "observations": rows}).encode()
         if base.endswith("/fred/series"):
             return json.dumps({"seriess": [{
@@ -873,16 +922,25 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
             H.window_feasibility(0)["bars_required_for_window_target"], 221
         )
 
-    def test_vintage_request_asks_alfred_for_the_full_realtime_window(self):
+    def _plan(self, series_id="TOTBKCR", batch_size=1000):
+        return H.build_vintage_window_plan(
+            series_id, list(FRED_VINTAGE_DATES), batch_size=batch_size
+        )
+
+    def test_vintage_request_asks_for_a_planned_realtime_window(self):
         calls = []
         getter = _history_getter(calls=calls)
         contract = self._contract()
+        window = self._plan()[-1]
         _, rows = H.fetch_fred_vintage_observations(
             FAKE_FRED_KEY, "TOTBKCR", "2026-05-01", "2026-05-31",
-            contract["fred"]["output_type"], getter=getter,
+            contract["fred"]["output_type"],
+            realtime_start=window["realtime_start"],
+            realtime_end=window["realtime_end"], getter=getter,
         )
         params = dict(urllib.parse.parse_qsl(calls[0][0].partition("?")[2]))
-        self.assertEqual(params["realtime_start"], H.FRED_REALTIME_MIN)
+        # The realtime window is the plan's, not "today" and not a shape default.
+        self.assertEqual(params["realtime_start"], FRED_VINTAGE_DATES[0])
         self.assertEqual(params["realtime_end"], H.FRED_REALTIME_MAX)
         self.assertEqual(params["output_type"], str(contract["fred"]["output_type"]))
         # Both revisions of the same observation date survive, each with its
@@ -891,6 +949,21 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
         self.assertEqual([row["available_from"] for row in rows],
                          ["2026-05-05", "2026-05-12"])
         self.assertEqual({row["observation_date"] for row in rows}, {"2026-05-04"})
+
+    def test_a_request_without_a_realtime_window_cannot_be_built(self):
+        """Omitting it would ask FRED for today, i.e. the current revision."""
+        contract = self._contract()
+        with self.assertRaises(TypeError):
+            H.fred_observation_params(
+                "TOTBKCR", "2026-01-01", "2026-06-30",
+                contract["fred"]["output_type"], H.FRED_OBSERVATION_SHAPES[0],
+            )
+        with self.assertRaises(H.FreeMarketDataError):
+            H.fred_observation_params(
+                "TOTBKCR", "2026-01-01", "2026-06-30",
+                contract["fred"]["output_type"], H.FRED_OBSERVATION_SHAPES[0],
+                realtime_start="2026-06-30", realtime_end="2026-01-01",
+            )
 
     def test_availability_never_returns_a_value_published_later(self):
         rows = [
@@ -917,7 +990,8 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
             report = H.fetch(
                 root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
                 contract, "2026-05-04", "2026-05-06", feed="iex",
-                symbols=["SPY", "QQQ"], getter=_history_getter(bars_per_symbol=3),
+                symbols=["SPY", "QQQ"], pace_seconds=0,
+                getter=_history_getter(bars_per_symbol=3),
             )
             self.assertEqual(report["status"], "PASS")
             written = sorted(
@@ -962,7 +1036,8 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
             H.fetch(
                 root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
                 contract, "2026-05-04", "2026-05-06", feed="iex",
-                symbols=["SPY"], getter=_history_getter(bars_per_symbol=3),
+                symbols=["SPY"], pace_seconds=0,
+                getter=_history_getter(bars_per_symbol=3),
             )
             for path in sorted(root.rglob("*")):
                 if not path.is_file() or path.suffix == ".gz":
@@ -979,7 +1054,8 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
             first = H.fetch(
                 root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
                 contract, "2026-05-04", "2026-05-06", feed="iex",
-                symbols=["SPY"], getter=_history_getter(bars_per_symbol=3),
+                symbols=["SPY"], pace_seconds=0,
+                getter=_history_getter(bars_per_symbol=3),
             )
             snapshot = {
                 path.relative_to(root).as_posix(): path.read_bytes()
@@ -989,7 +1065,8 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
             second = H.fetch(
                 root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
                 contract, "2026-05-04", "2026-05-06", feed="iex",
-                symbols=["SPY"], getter=_history_getter(bars_per_symbol=3),
+                symbols=["SPY"], pace_seconds=0,
+                getter=_history_getter(bars_per_symbol=3),
             )
             self.assertEqual(second["receipt_sha256"], first["receipt_sha256"])
             self.assertEqual(snapshot, {
@@ -1025,7 +1102,8 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
             H.fetch(
                 root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
                 contract, "2026-05-04", "2026-05-06", feed="iex",
-                symbols=["SPY", "QQQ"], getter=_history_getter(bars_per_symbol=3),
+                symbols=["SPY", "QQQ"], pace_seconds=0,
+                getter=_history_getter(bars_per_symbol=3),
             )
             report = H.verify(root)
             self.assertEqual(report["status"], "PASS")
@@ -1089,7 +1167,8 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
         self.assertEqual(report["requests_made"], 8)
         self.assertEqual(sorted(report["fred_vintages"]), ["TOTBKCR", "VIXCLS", "WRESBAL"])
         for series in report["fred_vintages"].values():
-            self.assertEqual(series["earliest_vintage_date"], "2026-05-05")
+            self.assertEqual(series["earliest_vintage_date"],
+                             FRED_VINTAGE_DATES[0])
         self.assertEqual(report["alpaca"]["iex"]["status"], "OBSERVED")
         # A denied SIP feed is reported, never raised, and never substituted.
         self.assertEqual(report["alpaca"]["sip"]["status"], "UNAVAILABLE")
@@ -1128,6 +1207,63 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
             text = json.dumps(attempt, ensure_ascii=False)
             self.assertNotIn("api_key=0123", text)
             self.assertNotIn(FAKE_FRED_KEY, text)
+
+    def test_measure_names_the_vintage_date_cap_that_killed_the_receive(self):
+        """Reproduces run 35435347342.
+
+        All five shapes rejected with the SAME provider message, naming the
+        number of vintages in the requested real-time period and the maximum
+        allowed. measure must surface that number rather than leaving the
+        operator to guess, and must say the committed batch size is now too big.
+        """
+        contract = self._contract()
+        report = H.measure(
+            FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET, contract,
+            "2026-05-04", "2026-05-06",
+            getter=_history_getter(bars_per_symbol=3, vintage_date_cap=4),
+        )
+        probe = report["fred_observation_probe"]
+        self.assertEqual(len(probe["attempts"]), len(H.FRED_OBSERVATION_SHAPES))
+        reasons = {attempt["provider_error"] for attempt in probe["attempts"]}
+        self.assertEqual(len(reasons), 1, "one cause, not five different ones")
+        for attempt in probe["attempts"]:
+            self.assertEqual(attempt["status"], "REJECTED")
+            self.assertIn("vintage dates", attempt["provider_error"])
+            self.assertEqual(attempt["provider_vintage_date_limit"], 4)
+        self.assertEqual(probe["provider_vintage_date_limit"], 4)
+        self.assertFalse(probe["batch_size_within_provider_limit"])
+        self.assertIsNone(probe["accepted_shape_id"])
+        self.assertFalse(report["conclusion"]["fred_observations_ready"])
+
+    def test_measure_reports_the_split_plan_and_the_request_count_it_implies(self):
+        contract = self._contract()
+        report = H.measure(
+            FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET, contract,
+            "2026-05-04", "2026-05-06",
+            getter=_history_getter(bars_per_symbol=3),
+        )
+        probe = report["fred_observation_probe"]
+        self.assertEqual(sorted(probe["plan"]), ["TOTBKCR", "VIXCLS", "WRESBAL"])
+        expected = 0
+        for series_id, summary in probe["plan"].items():
+            self.assertEqual(summary["batch_size"], H.FRED_VINTAGE_BATCH_SIZE)
+            self.assertEqual(summary["vintage_date_total"], len(FRED_VINTAGE_DATES))
+            self.assertEqual(summary["realtime_end"], H.FRED_REALTIME_MAX)
+            self.assertGreaterEqual(summary["window_count"], 1)
+            expected += summary["window_count"]
+        chunk_count = probe["observation_chunk_count_for_requested_window"]
+        self.assertGreaterEqual(chunk_count, 1)
+        # This is the number the operator needs before starting a receive.
+        self.assertEqual(probe["planned_fetch_observation_requests"],
+                         expected * chunk_count)
+        self.assertEqual(report["conclusion"]["planned_fetch_observation_requests"],
+                         expected * chunk_count)
+        self.assertEqual(
+            report["conclusion"]["fred_realtime_window_counts"],
+            {series_id: summary["window_count"]
+             for series_id, summary in probe["plan"].items()},
+        )
+        self.assertTrue(report["conclusion"]["fred_observations_ready"])
 
     def test_measure_reports_every_rejection_when_no_shape_is_accepted(self):
         contract = self._contract()
@@ -1195,18 +1331,20 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
         self.assertNotIn("super-secret-value-1234", masked)
         self.assertIn("<redacted>", masked)
 
-    def test_no_request_shape_may_narrow_the_realtime_window(self):
-        """A shape that dropped the realtime window would silently return the
-        current revision and destroy the point-in-time guarantee."""
+    def test_no_request_shape_may_change_the_realtime_window_it_is_given(self):
+        """The shape varies only provider-default parameters, never the window."""
         contract = self._contract()
         self.assertTrue(H.FRED_OBSERVATION_SHAPES)
+        window = self._plan()[0]
         for shape in H.FRED_OBSERVATION_SHAPES:
             params = H.fred_observation_params(
                 "TOTBKCR", "2026-01-01", "2026-06-30",
                 contract["fred"]["output_type"], shape,
+                realtime_start=window["realtime_start"],
+                realtime_end=window["realtime_end"],
             )
-            self.assertEqual(params["realtime_start"], H.FRED_REALTIME_MIN)
-            self.assertEqual(params["realtime_end"], H.FRED_REALTIME_MAX)
+            self.assertEqual(params["realtime_start"], window["realtime_start"])
+            self.assertEqual(params["realtime_end"], window["realtime_end"])
             self.assertEqual(params["series_id"], "TOTBKCR")
             self.assertEqual(params["observation_start"], "2026-01-01")
             self.assertEqual(params["observation_end"], "2026-06-30")
@@ -1215,9 +1353,199 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
             self.assertIn("offset", H.fred_observation_params(
                 "TOTBKCR", "2026-01-01", "2026-06-30",
                 contract["fred"]["output_type"], shape, 100,
+                realtime_start=window["realtime_start"],
+                realtime_end=window["realtime_end"],
             ))
         first = H.FRED_OBSERVATION_SHAPES[0]
         self.assertEqual(first["limit"], H.FRED_PAGE_LIMIT)
+
+    def test_the_window_plan_covers_every_vintage_the_series_has(self):
+        """Narrowing the realtime window is only safe if the union still covers
+        every vintage ALFRED holds. Asserted on every plan, at build time."""
+        dates = list(FRED_VINTAGE_DATES)
+        for batch_size in (1, 2, 3, 5, 9, 10, 500):
+            windows = H.build_vintage_window_plan(
+                "TOTBKCR", dates, batch_size=batch_size
+            )
+            self.assertEqual(windows[0]["realtime_start"], dates[0])
+            self.assertEqual(windows[-1]["realtime_end"], H.FRED_REALTIME_MAX)
+            for earlier, later in zip(windows, windows[1:]):
+                self.assertEqual(
+                    dt.date.fromisoformat(later["realtime_start"])
+                    - dt.date.fromisoformat(earlier["realtime_end"]),
+                    dt.timedelta(days=1),
+                    "realtime windows must be calendar-contiguous, or an as-of "
+                    "read on a day holding no vintage would find a hole",
+                )
+            covered = []
+            for window in windows:
+                inside = [
+                    value for value in dates
+                    if window["realtime_start"] <= value <= window["realtime_end"]
+                ]
+                self.assertLessEqual(len(inside), batch_size)
+                self.assertEqual(len(inside), window["vintage_date_count"])
+                covered.extend(inside)
+            self.assertEqual(sorted(covered), dates)   # no vintage lost
+            self.assertEqual(len(covered), len(set(covered)))  # none counted twice
+            self.assertEqual(
+                len(windows), -(-len(dates) // batch_size), f"batch={batch_size}"
+            )
+        with self.assertRaises(H.FreeMarketDataError):
+            H.build_vintage_window_plan("TOTBKCR", [], batch_size=3)
+        with self.assertRaises(H.FreeMarketDataError):
+            H.build_vintage_window_plan("TOTBKCR", dates, batch_size=0)
+        with self.assertRaises(H.FreeMarketDataError):
+            H.build_vintage_window_plan("TOTBKCR", dates + [dates[0]], batch_size=3)
+
+    def test_committed_batch_size_is_checked_against_the_provider_limit(self):
+        dates = list(FRED_VINTAGE_DATES)
+        # 2000 was the stated cap on 2026-09-19; 500 leaves a 4x margin.
+        self.assertEqual(H.FRED_VINTAGE_BATCH_SIZE, 500)
+        H.build_vintage_window_plan("TOTBKCR", dates, provider_limit=2000)
+        # A provider that lowered its cap under twice the batch size must break
+        # the plan loudly rather than mid-receive.
+        with self.assertRaises(H.FreeMarketDataError) as caught:
+            H.build_vintage_window_plan("TOTBKCR", dates, provider_limit=600)
+        self.assertIn("EXCEEDS_PROVIDER_LIMIT", str(caught.exception))
+
+    def test_provider_vintage_limit_is_parsed_not_assumed(self):
+        message = (
+            "HTTP_ERROR:400:" + FRED_VINTAGE_CAP_BODY.format(
+                count=3936, start="1776-07-04", end="9999-12-31", cap=2000)
+        )
+        self.assertEqual(H.parse_vintage_date_limit(message), 2000)
+        self.assertEqual(H.parse_vintage_date_limit(
+            "maximum number of vintage dates allowed for some other type (123)"), 123)
+        self.assertIsNone(H.parse_vintage_date_limit("HTTP_ERROR:400:something else"))
+        self.assertIsNone(H.parse_vintage_date_limit(None))
+
+    def test_realtime_window_boundaries_do_not_change_the_received_rows(self):
+        """The realtime-axis twin of the observation-axis boundary regression.
+
+        ALFRED clips each row to the requested realtime window, so splitting the
+        axis returns one availability interval as several halves. Whatever the
+        batch size, the stitched result must equal the unsplit truth.
+        """
+        contract = self._contract()
+        output_type = contract["fred"]["output_type"]
+        window = ("2024-01-01", "2026-12-31")
+        truth = [
+            {"observation_date": row["date"], "value": row["value"],
+             "available_from": row["realtime_start"],
+             "available_to": row["realtime_end"]}
+            for row in FRED_VINTAGE_TABLE
+        ]
+        truth.sort(key=lambda row: (row["observation_date"], row["available_from"]))
+        for batch_size in (1, 2, 3, 5, 9, 10, 500):
+            plan = self._plan(batch_size=batch_size)
+            _, rows, records = H.fetch_fred_vintage_range(
+                FAKE_FRED_KEY, "TOTBKCR", *window, output_type,
+                shape=H.FRED_OBSERVATION_SHAPES[0], windows=plan,
+                getter=_history_getter(),
+            )
+            self.assertEqual(rows, truth, f"batch_size={batch_size}")
+            self.assertEqual(len(records), len(plan))
+            self.assertEqual(
+                {record["realtime_window_index"] for record in records},
+                set(range(len(plan))),
+            )
+        # A stitch that would have to overlap is a contradiction, not a merge.
+        row = dict(truth[0])
+        with self.assertRaises(H.FreeMarketDataError):
+            H._stitch_availability([
+                row, {**row, "available_from": row["available_from"]},
+            ]) if False else H._stitch_availability([
+                {**row, "available_from": "2025-01-10", "available_to": "2025-02-01"},
+                {**row, "available_from": "2025-01-20", "available_to": "2025-03-01"},
+            ])
+        # A real gap (the value was revised away and later restored) is NOT
+        # stitched: two intervals stay two intervals.
+        gapped = H._stitch_availability([
+            {"observation_date": "2026-01-01", "value": "1",
+             "available_from": "2026-01-02", "available_to": "2026-01-10"},
+            {"observation_date": "2026-01-01", "value": "1",
+             "available_from": "2026-02-01", "available_to": "9999-12-31"},
+        ])
+        self.assertEqual(len(gapped), 2)
+
+    def test_every_series_takes_the_same_split_path(self):
+        """TOTBKCR (1553 vintages) and WRESBAL (1148) fit one window today.
+
+        Giving them a different path would mean the split is never exercised for
+        them, and the day they cross the provider cap it would break silently.
+        """
+        contract = self._contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            H.fetch(
+                root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+                contract, "2026-05-04", "2026-05-06", feed="iex",
+                symbols=["SPY"], pace_seconds=0,
+                getter=_history_getter(bars_per_symbol=3),
+            )
+            receipt_path = sorted(
+                (root / H.HISTORY_STORE / "receipts").rglob("manifest.json")
+            )[0]
+            receipt = json.loads(receipt_path.read_text("utf-8"))
+            self.assertEqual(
+                receipt["fred"]["realtime_axis_split_reason"],
+                "PROVIDER_CAPS_VINTAGE_DATES_PER_REALTIME_PERIOD",
+            )
+            self.assertEqual(receipt["fred"]["vintage_batch_size"],
+                             H.FRED_VINTAGE_BATCH_SIZE)
+            self.assertEqual(len(receipt["fred"]["series"]), 3)
+            for series in receipt["fred"]["series"]:
+                plan = series["vintage_window_plan"]
+                self.assertEqual(plan["batch_size"], H.FRED_VINTAGE_BATCH_SIZE)
+                self.assertGreaterEqual(plan["window_count"], 1)
+                self.assertEqual(plan["realtime_end"], H.FRED_REALTIME_MAX)
+                self.assertEqual(plan["realtime_start"], FRED_VINTAGE_DATES[0])
+                self.assertEqual(plan["vintage_date_total"],
+                                 len(FRED_VINTAGE_DATES))
+                self.assertTrue(series["requests"])
+                for record in series["requests"]:
+                    self.assertIn("realtime_window_index", record)
+
+    def test_fetch_names_the_batch_size_when_the_provider_lowers_its_cap(self):
+        """Five identical rejection bodies are not an actionable failure."""
+        contract = self._contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            with self.assertRaises(H.FreeMarketDataError) as caught:
+                H.fetch(
+                    root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+                    contract, "2026-05-04", "2026-05-06", feed="iex",
+                    symbols=["SPY"], pace_seconds=0,
+                    getter=_history_getter(bars_per_symbol=3, vintage_date_cap=4),
+                )
+        message = str(caught.exception)
+        self.assertIn("FRED_VINTAGE_BATCH_SIZE_EXCEEDS_PROVIDER_LIMIT", message)
+        self.assertIn(str(H.FRED_VINTAGE_BATCH_SIZE), message)
+        self.assertIn(":4", message)
+
+    def test_fetch_refuses_a_truncated_vintage_date_listing(self):
+        """Planning on a subset of the vintages would silently lose revisions."""
+        contract = self._contract()
+
+        def truncating(url, headers=None):
+            base = url.partition("?")[0]
+            if base.endswith("/fred/series/vintagedates"):
+                return json.dumps({
+                    "count": len(FRED_VINTAGE_DATES) + 7,
+                    "vintage_dates": list(FRED_VINTAGE_DATES),
+                }).encode()
+            return _history_getter(bars_per_symbol=3)(url, headers)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            with self.assertRaises(H.FreeMarketDataError) as caught:
+                H.fetch(
+                    root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+                    contract, "2026-05-04", "2026-05-06", feed="iex",
+                    symbols=["SPY"], pace_seconds=0, getter=truncating,
+                )
+            self.assertIn("TRUNCATED", str(caught.exception))
         self.assertEqual(
             H.MEASURE_REQUEST_BUDGET, 3 + 2 + len(H.FRED_OBSERVATION_SHAPES) + 2
         )
@@ -1250,16 +1578,18 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
         contract = self._contract()
         output_type = contract["fred"]["output_type"]
         window = ("2025-01-01", "2026-06-30")
+        plan = self._plan()
         _, single = H.fetch_fred_vintage_observations(
             FAKE_FRED_KEY, "TOTBKCR", *window, output_type,
-            getter=_history_getter(),
+            realtime_start=plan[0]["realtime_start"],
+            realtime_end=plan[0]["realtime_end"], getter=_history_getter(),
         )
-        expected = H._merge_vintage_rows([single])
+        expected = H._stitch_availability(H._merge_vintage_rows([single]))
         for chunk_days in (7, 30, 100, 365, 10000):
             _, rows, records = H.fetch_fred_vintage_range(
                 FAKE_FRED_KEY, "TOTBKCR", *window, output_type,
-                shape=H.FRED_OBSERVATION_SHAPES[0], chunk_days=chunk_days,
-                getter=_history_getter(),
+                shape=H.FRED_OBSERVATION_SHAPES[0], windows=plan,
+                chunk_days=chunk_days, getter=_history_getter(),
             )
             self.assertEqual(rows, expected, f"chunk_days={chunk_days}")
             self.assertEqual(
@@ -1277,8 +1607,8 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
         _, rows, _ = H.fetch_fred_vintage_range(
             FAKE_FRED_KEY, "TOTBKCR", "2025-01-01", "2026-06-30",
             contract["fred"]["output_type"],
-            shape=H.FRED_OBSERVATION_SHAPES[0], chunk_days=30,
-            getter=_history_getter(),
+            shape=H.FRED_OBSERVATION_SHAPES[0], windows=self._plan(batch_size=3),
+            chunk_days=30, getter=_history_getter(),
         )
         early = H.observations_available_at(rows, "2026-05-06")
         self.assertEqual(
@@ -1350,7 +1680,7 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
                 H.fetch(
                     root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
                     contract, "2026-05-04", "2026-05-06", feed="sip",
-                    symbols=["SPY"], getter=_history_getter(),
+                    symbols=["SPY"], pace_seconds=0, getter=_history_getter(),
                 )
             self.assertFalse((root / H.HISTORY_STORE).exists())
 

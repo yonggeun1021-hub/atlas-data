@@ -6,32 +6,57 @@ name: US Regime Score History Range
 #
 # mode=measure makes at most TWELVE HTTP GETs (eight in the expected case) and
 # commits nothing:
-#   3  ALFRED vintagedates, one per contract FRED series
+#   3  ALFRED vintagedates, one per contract FRED series -- also the input to
+#      the realtime window plan
 #   2  Alpaca window request, feed=iex and feed=sip
-#   1-5  FRED series/observations shape ladder on the first series, stopping at
-#        the first shape the provider accepts
+#   1-5  FRED series/observations shape ladder on the first series, over the LAST
+#        planned realtime window, stopping at the first shape the provider accepts
 #   2  that accepted shape confirmed on the other two series
-# It answers both "how many sessions and how many 20-session windows are
-# reachable" and "will the observations request that does the real work be
-# accepted at all" before any full receive is attempted.
+# It answers three things before any full receive is attempted: how many sessions
+# and 20-session windows are reachable, whether the observations request that
+# does the real work is accepted at all, and how many requests the receive will
+# make -- fred_observation_probe.plan gives the realtime windows per series and
+# planned_fetch_observation_requests gives windows x observation chunks. Any
+# vintage-date limit the provider states is parsed into
+# provider_vintage_date_limit and compared against the committed batch size.
 #
-# ★ 2026-09-19. The earlier version of this file said five requests and probed
-#   only vintagedates. measure passed (run 35432763470) and mode=fetch then died
-#   on the first series/observations request with a bare HTTP_ERROR:400 (run
-#   35432930212) -- the endpoint that does the work was never probed, and the
-#   shared getter had dropped FRED's own explanation. Both holes are closed: the
-#   collector has its own getter that keeps the masked, truncated 400 body, and
-#   measure probes series/observations over one chunk-sized window and prints
-#   each rejected shape with the provider's reason.
+# ★ 2026-09-19, three runs. 35432763470 (measure) passed while 35432930212
+#   (fetch) died on the first series/observations request with a bare
+#   HTTP_ERROR:400: the endpoint that does the work was never probed, and the
+#   shared getter had dropped FRED's own explanation. Both holes were closed,
+#   and 35435347342 (measure) then named the real cause -- none of the three
+#   suspected ones. All five request shapes were refused with the SAME message:
+#
+#     "There are 3936 vintage dates in the specified real-time period:
+#      1776-07-04 to 9999-12-31. This exceeds the maximum number of vintage
+#      dates allowed for this file type (2000)."
+#
+#   The constrained axis is the number of VINTAGES per requested real-time
+#   period, not the parameter shape and not the response size. The realtime axis
+#   is therefore split too, by vintage count, from the vintage date list the
+#   probe already receives.
 #
 # mode=fetch receives the requested window and publishes it append-only and
-# content-addressed under evidence/free_market_data/history only. The FRED
-# observation window is always received in bounded chunks, so response size is
-# not a variable, and the chunk merge fails closed rather than silently dropping
-# or duplicating a row. It never writes data/latest_free_market_data.json and
-# never writes the daily derived / raw / fred-raw trees;
-# collectors/free_market_data_history.py enforces that mechanically and
-# test/test_free_market_data.py asserts it.
+# content-addressed under evidence/free_market_data/history only.
+#
+#   FRED requests per series = realtime windows x observation chunks. With the
+#   vintage counts measured on 2026-09-19 (VIXCLS 3936, TOTBKCR 1553, WRESBAL
+#   1148) and 500 vintages per window, that is 8 + 4 + 3 = 15 windows; a
+#   2018-2026 window is 2 observation chunks, so 30 observation requests, plus
+#   3 vintagedates + 3 metadata + 1 shape negotiation = 37 FRED requests, plus
+#   one Alpaca request per score symbol (15) = about 52 in total. They are paced
+#   (FRED_REQUEST_INTERVAL_SECONDS) because FRED rate-limits per key; the
+#   observation requests add about 18s of pacing.
+#
+#   Both split axes have a boundary-invariance regression: whatever the vintage
+#   batch size or the observation chunk size, the merged-and-stitched rows are
+#   identical, and a lost, duplicated or overlapping row fails closed instead of
+#   being silently resolved. The plan is also proved at build time to cover every
+#   vintage the series has.
+#
+# It never writes data/latest_free_market_data.json and never writes the daily
+# derived / raw / fred-raw trees; collectors/free_market_data_history.py
+# enforces that mechanically and test/test_free_market_data.py asserts it.
 #
 # Credentials: the dedicated market-data-only Alpaca pair and the FRED key.
 # The account/trading Alpaca credential lives only in the private
