@@ -91,7 +91,23 @@ deterministic_gzip = DAILY.FRED_PROVENANCE.deterministic_gzip
 
 HISTORY_STORE = "evidence/free_market_data/history"
 HISTORY_RAW_RETENTION = "APPEND_ONLY_CONTENT_ADDRESSED"
-RECEIPT_SCHEMA = "free_market_data_history_receipt/1"
+# ★ 2026-09-19. ``/1`` receipts put the run's wall-clock times INSIDE the
+# content-addressed payload, so two byte-identical receives produced two
+# different receipt addresses and a re-run appended a receipt that carried no
+# new evidence. Worse, whether a regression saw that depended on how fast the
+# machine was: both runs inside one second hashed the same and the check passed.
+# Green or red decided by execution speed is the most expensive kind of defect
+# in this repository, so the identity of a receipt is now what was RECEIVED, and
+# the retrieval times live in their own object next to it (``/2``).
+#
+# Already-committed ``/1`` receipts are read, never rewritten: ``verify``
+# accepts both versions and the version number is what distinguishes them.
+RECEIPT_SCHEMA = "free_market_data_history_receipt/2"
+RECEIPT_TIMING_SCHEMA = "free_market_data_history_retrieval_timing/1"
+RECEIPT_SCHEMA_VERSIONS_ACCEPTED = (
+    "free_market_data_history_receipt/1",
+    "free_market_data_history_receipt/2",
+)
 ALPACA_PAGE_SCHEMA = "alpaca_daily_bars_range_page/1"
 ALPACA_SERIES_SCHEMA = "alpaca_daily_bars_range_series/1"
 ALFRED_OBSERVATIONS_SCHEMA = "fred_alfred_vintage_observations_page/1"
@@ -127,6 +143,10 @@ MAX_PAGES = 64
 #    chunk-sized window, so the shape is proven before a full receive is started.
 #    Not probing the endpoint that does the work was the design hole.
 HTTP_ERROR_BODY_MAX = 400
+
+# Key under which a request record carries its retrieval times in memory. It is
+# stripped before the record reaches any content-addressed payload.
+RETRIEVAL_TIMING_KEY = "retrieval_timing"
 
 # ★ 2026-09-19, run 35435347342. The measure probe added by the previous change
 # found the real cause of the fetch 400, and it was none of the three suspected
@@ -498,12 +518,95 @@ def _request(
             # `params` deliberately excludes every credential-bearing key, so a
             # committed receipt can never leak the FRED key that the URL needs.
             "params": {key: str(value) for key, value in sorted(params.items())},
-            "requested_at_utc": _stamp(requested_at),
-            "received_at_utc": _stamp(received_at),
             "response_sha256": sha256_bytes(raw),
             "response_bytes": len(raw),
+            # The two times are kept OUT of this record on purpose: it is part of
+            # a content-addressed payload, and a wall-clock value in there makes
+            # the address of identical evidence depend on when it was fetched.
+            # They travel beside it and are published as their own object by
+            # ``build_retrieval_timing``, so nothing about when the response
+            # arrived is lost.
+            RETRIEVAL_TIMING_KEY: {
+                "requested_at_utc": _stamp(requested_at),
+                "received_at_utc": _stamp(received_at),
+            },
         })
     return raw
+
+
+def split_request_timing(receipts: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Separate the timeless request facts from the retrieval times.
+
+    Returns (content_records, timing_records). The two are joined by ``index``
+    and by ``response_sha256``, so a reader can always say when a given response
+    was received without the time having ever been part of the evidence address.
+    """
+    content: list[dict] = []
+    timing: list[dict] = []
+    for index, record in enumerate(receipts):
+        times = record.get(RETRIEVAL_TIMING_KEY) or {}
+        content.append({
+            key: value for key, value in record.items()
+            if key != RETRIEVAL_TIMING_KEY
+        })
+        timing.append({
+            "index": index,
+            "endpoint": record.get("endpoint"),
+            "response_sha256": record.get("response_sha256"),
+            "requested_at_utc": times.get("requested_at_utc"),
+            "received_at_utc": times.get("received_at_utc"),
+        })
+    return content, timing
+
+
+UTC_SECOND = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
+def assert_no_wall_clock(payload: object, code: str, path: str = "") -> None:
+    """Refuse a wall-clock value anywhere inside a content-addressed payload.
+
+    This is the lock on the 2026-09-19 defect, not a comment about it. Any key
+    ending ``_at_utc`` and any value shaped like a UTC second stamp fails here,
+    so a later edit cannot reintroduce a timestamp into the receipt and make the
+    address of identical evidence depend on when it was fetched again. Calendar
+    dates (``available_from``, ``observation_start``, vintage dates) are not
+    timestamps and are untouched by this.
+    """
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if isinstance(key, str) and key.endswith("_at_utc"):
+                raise FreeMarketDataError(f"{code}:{path}/{key}")
+            assert_no_wall_clock(value, code, f"{path}/{key}")
+    elif isinstance(payload, list):
+        for index, value in enumerate(payload):
+            assert_no_wall_clock(value, code, f"{path}[{index}]")
+    elif isinstance(payload, str) and UTC_SECOND.fullmatch(payload):
+        raise FreeMarketDataError(f"{code}:{path}")
+
+
+def build_retrieval_timing(
+    receipt_pointer: dict, captured_at: dt.datetime, timing: list[dict]
+) -> dict:
+    """The run's wall clock, published beside the receipt it belongs to.
+
+    Addressed by its own content, which includes the times, so it can never
+    collide with an earlier run's record and never has to be rewritten. It is
+    published only when the receipt it points at is NEW: a byte-identical
+    re-receive brought no new evidence, and the times already stored with those
+    bytes are the times they were received.
+    """
+    return build_derived_object(
+        f"receipts/{receipt_pointer['payload_sha256']}/timing",
+        "retrieval_timing.json",
+        {
+            "schema_version": RECEIPT_TIMING_SCHEMA,
+            "receipt_payload_sha256": receipt_pointer["payload_sha256"],
+            "receipt_path": receipt_pointer["payload_path"],
+            "captured_at_utc": _stamp(captured_at),
+            "request_count": len(timing),
+            "request_timings": timing,
+        },
+    )
 
 
 def _json(raw: bytes, code: str) -> dict:
@@ -1870,6 +1973,10 @@ def fetch(
             "availability_pointer": availability_pointer,
         })
 
+    # The receipt's identity is WHAT was received, never when. The run's clock is
+    # published beside it, and only when the receipt itself is new -- see
+    # build_retrieval_timing.
+    request_records, request_timings = split_request_timing(receipts)
     receipt = build_derived_object(
         "receipts",
         "manifest.json",
@@ -1877,7 +1984,7 @@ def fetch(
             "schema_version": RECEIPT_SCHEMA,
             "contract_version": contract["contract_version"],
             "mode": "fetch",
-            "captured_at_utc": _stamp(captured_at),
+            "receipt_identity": "CONTENT_ADDRESSED_TIMES_HELD_IN_TIMING_SIDECAR",
             "requested_window": {"start": start, "end": end},
             "alpaca": {
                 "feed": feed,
@@ -1898,7 +2005,7 @@ def fetch(
                 ),
                 "series": fred_records,
             },
-            "request_receipts": receipts,
+            "request_receipts": request_records,
             "store": HISTORY_STORE,
             "raw_retention": HISTORY_RAW_RETENTION,
             "daily_paths_written": [],
@@ -1909,12 +2016,41 @@ def fetch(
             ],
         },
     )
+    assert_no_wall_clock(
+        {key: value for key, value in receipt["payload"].items()
+         if key != "payload_sha256"},
+        "HISTORY_RECEIPT_CARRIES_WALL_CLOCK",
+    )
+    # A re-receive of byte-identical evidence must be a true no-op: nothing new,
+    # nothing changed. Deciding that needs no scan -- the receipt is
+    # content-addressed, so its own path either already holds these exact bytes
+    # or it does not.
+    receipt_path = _safe_history_path(
+        root, receipt["pointer"]["payload_path"], "/manifest.json"
+    )
+    receipt_already_present = (
+        receipt_path.is_file()
+        and receipt_path.read_bytes() == receipt["payload_bytes"]
+    )
     receipt_pointer = publish_derived_object(root, receipt, "manifest.json")
+    timing_pointer = None
+    if not receipt_already_present:
+        timing_pointer = publish_derived_object(
+            root,
+            build_retrieval_timing(receipt_pointer, captured_at, request_timings),
+            "retrieval_timing.json",
+        )
     return {
         "status": "PASS",
         "mode": "fetch",
         "receipt_path": receipt_pointer["payload_path"],
         "receipt_sha256": receipt_pointer["payload_sha256"],
+        "receipt_status": (
+            "ALREADY_PRESENT" if receipt_already_present else "PUBLISHED"
+        ),
+        "retrieval_timing_path": (
+            timing_pointer["payload_path"] if timing_pointer else None
+        ),
         "requests_made": len(receipts),
         "alpaca_bar_counts": {
             record["symbol"]: record["bar_count"] for record in alpaca_records
@@ -1968,6 +2104,8 @@ def verify(root: Path) -> dict:
     derived_checked = 0
     replayed_series = 0
     replayed_availability = 0
+    receipts_v1_checked = 0
+    receipts_v2_checked = 0
     for path in sorted(store.rglob("*.json")):
         body = json.loads(path.read_bytes())
         if not isinstance(body, dict):
@@ -1986,6 +2124,44 @@ def verify(root: Path) -> dict:
         ).encode("utf-8") + b"\n":
             raise FreeMarketDataError("HISTORY_DERIVED_BYTES_NOT_CANONICAL")
         derived_checked += 1
+        if path.name == "manifest.json" and "request_receipts" in body:
+            version = body.get("schema_version")
+            if version not in RECEIPT_SCHEMA_VERSIONS_ACCEPTED:
+                raise FreeMarketDataError(
+                    f"HISTORY_RECEIPT_SCHEMA_UNKNOWN:{version}"
+                )
+            if version == RECEIPT_SCHEMA:
+                # The identity guarantee, re-checked on the stored bytes.
+                assert_no_wall_clock(
+                    {key: value for key, value in body.items()
+                     if key != "payload_sha256"},
+                    "HISTORY_RECEIPT_CARRIES_WALL_CLOCK",
+                )
+                timings = sorted(
+                    (path.parent / "timing").rglob("retrieval_timing.json")
+                )
+                if not timings:
+                    raise FreeMarketDataError(
+                        "HISTORY_RECEIPT_TIMING_MISSING:"
+                        f"{body['payload_sha256']}"
+                    )
+                for timing_path in timings:
+                    timing = json.loads(timing_path.read_bytes())
+                    if timing.get("receipt_payload_sha256") != body["payload_sha256"]:
+                        raise FreeMarketDataError(
+                            "HISTORY_RECEIPT_TIMING_MISPAIRED:"
+                            f"{body['payload_sha256']}"
+                        )
+                    if not timing.get("request_timings"):
+                        raise FreeMarketDataError(
+                            "HISTORY_RECEIPT_TIMING_EMPTY:"
+                            f"{body['payload_sha256']}"
+                        )
+                receipts_v2_checked += 1
+            else:
+                # A ``/1`` receipt landed before the split. It is read and
+                # replayed like any other object and is never rewritten.
+                receipts_v1_checked += 1
         if body.get("schema_version") == ALPACA_SERIES_SCHEMA:
             rebuilt = []
             for pointer in body.get("response_pointers") or []:
@@ -2022,6 +2198,10 @@ def verify(root: Path) -> dict:
         "derived_objects_replayed": derived_checked,
         "alpaca_series_replayed": replayed_series,
         "alfred_availability_series_replayed": replayed_availability,
+        "receipts_checked": {
+            RECEIPT_SCHEMA_VERSIONS_ACCEPTED[0]: receipts_v1_checked,
+            RECEIPT_SCHEMA_VERSIONS_ACCEPTED[1]: receipts_v2_checked,
+        },
     }
 
 
