@@ -170,15 +170,19 @@ class PositionSizingTests(unittest.TestCase):
         ):
             build(value)
 
-    def test_repository_default_constitution_and_unratified_policy_fail_closed(self):
+    def test_unratified_constitution_and_unratified_policy_fail_closed(self):
+        # The fail-closed proof used to be pinned to the repository's own
+        # config/constitution.json, which was unratified. The user ratified
+        # B1~B7 on 2026-09-19, so the same proof is now pinned to a synthetic
+        # unratified fixture. Nothing about the expected failure changed.
         assignment, _ = sources()
-        default = json.loads((ROOT / "config" / "constitution.json").read_text())
         with self.assertRaisesRegex(
-            MODULE.PositionSizingError, "BUCKET_MEMBERSHIP_VALIDATION_FAILED"
+            MODULE.PositionSizingError,
+            "BUCKET_MEMBERSHIP_VALIDATION_FAILED:CONSTITUTION_NOT_RATIFIED",
         ):
             MODULE.build_packet(
                 assignment,
-                default,
+                BUCKET.unratified_constitution(),
                 sizing_input(),
                 policy(),
                 "2026-08-21",
@@ -186,6 +190,28 @@ class PositionSizingTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(MODULE.PositionSizingError, "POLICY_IDENTITY_INVALID"):
             build(ratified_policy=policy(status="DRAFT"))
+
+    def test_repository_constitution_is_ratified_and_sizing_still_has_no_policy(self):
+        """B2~B7 no longer block sizing; the absent sizing policy still does."""
+        live = json.loads((ROOT / "config" / "constitution.json").read_text())
+        self.assertEqual(live["status"], "ratified")
+        checked = BUCKET.CONSTITUTION_MODULE.check(copy.deepcopy(live))
+        self.assertEqual(checked["status"], "ratified")
+        self.assertEqual(checked["violations"], [])
+        self.assertTrue(checked["buy_allowed"])
+
+        # Ratification supplies limits, not authority. The contract ships no
+        # default sizing policy and the repository holds no ratified one, so
+        # nothing in the repository can size a position on its own.
+        self.assertEqual(CONTRACT["repository_default_policy"], "ABSENT")
+        self.assertEqual(sorted(ROOT.glob("config/position_sizing_policy*.json")), [])
+        for key, value in CONTRACT["authority"].items():
+            if key != "ratified_limit_calculation_only":
+                self.assertFalse(value, key)
+        # And the ratified-limit path itself still emits no action or order.
+        packet = build()
+        self.assertIsNone(packet["action"])
+        self.assertIsNone(packet["order_intent"])
 
     def test_invalid_portfolio_state_crypto_lineage_and_digest_fail_closed(self):
         excessive = sizing_input(cash_available_nav_fraction="0.8")
