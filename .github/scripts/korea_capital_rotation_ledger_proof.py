@@ -92,7 +92,7 @@ REVIEWED_PAPER_RUNTIME_RELEASE = {
     "sha256": "a5f76eb6b38292185a893bcf9d321da7154777d5cd5e0cb7c2c994a1874aea44",
     "code_revision": "0be1d1ab8b43916ad11b5c6ad51394ed2fc58f08",
     "evaluation_at": "2026-09-13T00:58:44Z",
-    "qualification_sha256": "5ac5df219dff45a2c8515733c303a5ec260449b6a4c05c12e9cdd92f7e6296e4",
+    "qualification_sha256": "8c1b6c1a6f4ee6cc8c0c29f9bc998adcad1cccc8decb74298849cc24ad582cb9",
     "actual_source_qualification": "RATIFIED_KR_PAPER_DISPLAY_ONLY",
 }
 

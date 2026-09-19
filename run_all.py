@@ -917,6 +917,18 @@ APPROVED_TESTS = [
     #   UNCONFIRMED; this helper never self-certifies, classifies, calls a
     #   provider, advances strategy state, allocates capital, or issues orders.
     "test/test_paper_regime_runtime_adoption.py",
+    # ★ RATIFICATION_MARKET_STATE_SOURCE_BINDING (2026-09-19).  The PAPER market
+    #   state now comes from paper_reference.candidate_regime through
+    #   config/paper_market_state_source_binding_v1.json, per market and fail
+    #   closed, and regime/paper_market_state_binding.py is the production call
+    #   into portfolio/paper_allocation_envelope.allocation_envelope() that did
+    #   not exist before.  Every case is cause-based: the binding is mutated and
+    #   the consequence measured.  A missing binding, an unratified one, a market
+    #   absent from it, a non-boolean flag, an unmaterialized authority record
+    #   and a tampered one all end in UNKNOWN or a hard failure; no capital,
+    #   order, buy, position-size, target-weight or real-trading flag is ever
+    #   true, and the module is wired into no workflow.
+    "test/test_paper_market_state_binding.py",
     "test/test_kr_paper_runtime.py",
     "test/test_kr_paper_runtime_ratification_candidate.py",
     "test/test_kr_information_system_runtime_bridge.py",

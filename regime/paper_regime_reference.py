@@ -776,7 +776,18 @@ def build_crypto(
 
 def build_reference(
     root: Path = ROOT, *, render_version: str | None = CURRENT_RENDER_VERSION,
+    state_binding: tuple | None = None,
 ) -> dict:
+    """Build the packet.  ``state_binding`` is for isolated roots only.
+
+    A root that materializes a fixed closure of files (the Flow replay root, for
+    instance) does not carry
+    ``config/paper_market_state_source_binding_v1.json``, so its binding would
+    read as all-closed while the packet it is re-deriving was produced with a
+    binding that opened markets.  ``recorded_state_binding()`` recovers the
+    binding the packet itself names, and is accepted ONLY when the root has no
+    binding file of its own -- see its docstring for why that is not a bypass.
+    """
     if render_version is not None and render_version not in SUPPORTED_RENDER_VERSIONS:
         fail("REFERENCE_RENDER_VERSION_INVALID")
     policy_path = root / "config" / "paper_regime_reference_policy_v1.json"
@@ -801,7 +812,9 @@ def build_reference(
         {"market": "KR", "path": "data/latest_korea_market_signals.json", "sha256": file_sha256(kr_path)},
         {"market": "CRYPTO", "path": "data/latest_crypto_regime_refresh_status.json", "sha256": file_sha256(crypto_path)},
     ]
-    adopted, state_binding_sha256 = state_source_binding(root)
+    adopted, state_binding_sha256 = (
+        state_source_binding(root) if state_binding is None else state_binding
+    )
     generation_binding = {"policy_sha256": file_sha256(policy_path), "sources": sources}
     crypto_normalization_sources = None
     current = crypto_source.get("current_reference")
@@ -888,7 +901,45 @@ def build_reference(
     return packet
 
 
-def _validate_authenticated_frozen_v4(packet: dict, root: Path) -> None:
+def recorded_state_binding(packet: dict, root: Path) -> tuple | None:
+    """The market-state binding a packet names, for a root that lacks the file.
+
+    Returns ``None`` -- meaning "read the root, as usual" -- whenever the root
+    actually carries ``config/paper_market_state_source_binding_v1.json``.  So in
+    the real repository this never applies: a packet cannot talk its own binding
+    into existence, and the production consumer
+    (``regime/paper_market_state_binding``) always reads the real file and never
+    this field.  It applies only to an isolated closure root, where the packet
+    bytes have already been authenticated by the caller and the recorded hash is
+    the same kind of in-packet representation the crypto normalization closure
+    already uses.
+    """
+    if (Path(root) / STATE_BINDING.BINDING_RELATIVE).is_file():
+        return None
+    recorded = packet.get("market_state_source_binding")
+    if not isinstance(recorded, dict):
+        return None
+    sha256_claim = recorded.get("sha256")
+    adopted_claim = recorded.get("adopted_markets")
+    if (
+        not isinstance(sha256_claim, str)
+        or SHA256.fullmatch(sha256_claim) is None
+        or recorded.get("path") != STATE_BINDING.BINDING_RELATIVE
+        or not isinstance(adopted_claim, list)
+        or not adopted_claim
+        or any(market not in STATE_BINDING.MARKETS for market in adopted_claim)
+        or sorted(set(adopted_claim)) != sorted(adopted_claim)
+        or recorded.get("closed_markets") != sorted(
+            set(STATE_BINDING.MARKETS) - set(adopted_claim)
+        )
+    ):
+        fail("REFERENCE_RECORDED_STATE_BINDING_INVALID")
+    return frozenset(adopted_claim), sha256_claim
+
+
+def _validate_authenticated_frozen_v4(
+    packet: dict, root: Path, state_binding: tuple | None = None,
+) -> None:
     """Validate a Git-authenticated v4 packet when its raw closure is not materialized.
 
     The caller has already authenticated the packet bytes to a trusted Git
@@ -920,7 +971,9 @@ def _validate_authenticated_frozen_v4(packet: dict, root: Path) -> None:
             or SHA256.fullmatch(row["sha256"]) is None
         ):
             fail("REFERENCE_FROZEN_NORMALIZATION_BINDING_INVALID")
-    adopted, state_binding_sha256 = state_source_binding(root)
+    adopted, state_binding_sha256 = (
+        state_source_binding(root) if state_binding is None else state_binding
+    )
     generation_binding = {
         "policy_sha256": file_sha256(policy_path),
         "sources": expected_sources,
@@ -989,10 +1042,13 @@ def validate_reference(
         fail("REFERENCE_SHA_INVALID")
     if "render_version" in packet and packet["render_version"] not in SUPPORTED_RENDER_VERSIONS:
         fail("REFERENCE_RENDER_VERSION_INVALID")
-    expected = build_reference(root, render_version=packet.get("render_version"))
+    recorded = recorded_state_binding(packet, root)
+    expected = build_reference(
+        root, render_version=packet.get("render_version"), state_binding=recorded,
+    )
     if packet != expected:
         if frozen_packet_authenticated and packet.get("render_version") == CURRENT_RENDER_VERSION:
-            _validate_authenticated_frozen_v4(packet, root)
+            _validate_authenticated_frozen_v4(packet, root, recorded)
         else:
             fail("REFERENCE_REDERIVATION_MISMATCH")
     return copy.deepcopy(packet)

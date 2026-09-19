@@ -49,6 +49,13 @@ BINDING_CONTRACT_VERSION = "paper_market_state_source_binding/v1"
 BINDING_RATIFIED_STATUS = "USER_RATIFIED"
 REFERENCE_RELATIVE = "data/latest_paper_regime_reference.json"
 REFERENCE_SCHEMA_VERSION = "paper_regime_reference/v2"
+# Sizing a live cycle accepts only the current schema.  Walking the committed
+# evidence to count UNKNOWN streaks also has to read the retained v1 packets
+# (2026-08-28 is still v1); a streak only needs the per-market state, which both
+# schemas carry in the same place.
+HISTORICAL_SOURCE_SCHEMA_VERSIONS = frozenset({
+    "paper_regime_reference/v1", REFERENCE_SCHEMA_VERSION,
+})
 REFERENCE_EVIDENCE_RELATIVE = "evidence/regime/paper_reference"
 MARKETS = ("CRYPTO", "KR", "US")
 STATES = ("RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS", "UNKNOWN")
@@ -176,7 +183,9 @@ def load_binding(root: Path = ROOT) -> dict:
     for market, row in markets.items():
         if market not in MARKETS:
             fail("BINDING_MARKET_UNKNOWN", market)
-        if not isinstance(row, dict) or row.get("adopted") not in (True, False):
+        if not isinstance(row, dict) or not isinstance(row.get("adopted"), bool):
+            # ``1``/``0`` compare equal to True/False in Python; only a real
+            # boolean may decide whether a market is open.
             fail("BINDING_MARKET_ADOPTED_INVALID", market)
         if row["adopted"] is False and not isinstance(row.get("blocked_reason"), str):
             fail("BINDING_MARKET_BLOCK_REASON_MISSING", market)
@@ -227,8 +236,12 @@ def runtime_regime(market: str, candidate_regime: object, adopted: frozenset) ->
 # Reference artifact -> market_states
 # ---------------------------------------------------------------------------
 
-def _reference_rows(packet: dict) -> dict:
-    if not isinstance(packet, dict) or packet.get("schema_version") != REFERENCE_SCHEMA_VERSION:
+def _reference_rows(packet: dict, *, allow_historical: bool = False) -> dict:
+    accepted = (
+        HISTORICAL_SOURCE_SCHEMA_VERSIONS if allow_historical
+        else {REFERENCE_SCHEMA_VERSION}
+    )
+    if not isinstance(packet, dict) or packet.get("schema_version") not in accepted:
         fail("REFERENCE_SCHEMA_INVALID")
     rows = {}
     for row in packet.get("markets") or []:
@@ -240,9 +253,9 @@ def _reference_rows(packet: dict) -> dict:
     return rows
 
 
-def market_states(packet: dict, adopted: frozenset) -> dict:
+def market_states(packet: dict, adopted: frozenset, *, allow_historical: bool = False) -> dict:
     """The ``market_states`` argument of ``allocation_envelope()``."""
-    rows = _reference_rows(packet)
+    rows = _reference_rows(packet, allow_historical=allow_historical)
     states = {}
     for market in MARKETS:
         reference = rows[market].get("paper_reference")
@@ -285,7 +298,10 @@ def state_history(root: Path = ROOT, adopted: frozenset | None = None) -> list:
     if adopted is None:
         adopted = load_adopted_markets(root)
     return [
-        {"evidence_date": row["evidence_date"], "market_states": market_states(row["packet"], adopted)}
+        {
+            "evidence_date": row["evidence_date"],
+            "market_states": market_states(row["packet"], adopted, allow_historical=True),
+        }
         for row in _latest_packet_per_date(root)
     ]
 
