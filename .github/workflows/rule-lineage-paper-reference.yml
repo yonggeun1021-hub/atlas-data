@@ -43,7 +43,7 @@ jobs:
           MIN_DATE="$(date -u -d '3 days ago' +%F)"
           python3 governance/rule_lineage_producers.py paper-reference-scan --min-date "$MIN_DATE" \
             | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["summary"], sort_keys=True))'
-      - name: Commit append-only rule lineage sidecars (shared push retry)
+      - name: Commit append-only rule lineage sidecars
         # 2026-09-18 consolidation: this step's own `pull --rebase && push`
         # loop (kept in git history, 5s/10s backoff) is now
         # .github/scripts/push_to_default_branch.sh's default backoff, which

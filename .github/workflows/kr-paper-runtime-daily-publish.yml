@@ -282,7 +282,7 @@ jobs:
           lines.append("- Re-capture before the next 15:30 KST close or this session is lost.")
           print("\n".join(lines))
           PY
-      - name: Commit and push (shared push retry)
+      - name: Commit and push
         if: (inputs.mode || 'capture') == 'artifact' || steps.pair.outputs.skip != 'true'
         # 2026-09-18 consolidation: this step's own `pull --rebase && push`
         # loop (kept in git history, 10s/20s backoff) is now

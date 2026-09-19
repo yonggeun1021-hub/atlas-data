@@ -116,7 +116,7 @@ jobs:
             --artifact-id "${{ needs.korea-breadth-live-proof.outputs.artifact_id }}" \
             --artifact-name "p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}" \
             --artifact-digest "$ARTIFACT_DIGEST"
-      - name: Commit Korea Breadth context lineage (shared push retry)
+      - name: Commit Korea Breadth context lineage
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |

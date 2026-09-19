@@ -349,7 +349,7 @@ jobs:
 
       # Guard=fresh 인 manual run도 read-model-only repair 결과를 저장할 수 있어야 한다.
       # 실제 변경이 없으면 아래 git diff --staged --quiet 에서 커밋 없이 종료한다.
-      - name: Commit data (shared push retry)
+      - name: Commit data
         if: always()
         env:
           # ★ 어느 트리거가 이 수집을 성사시켰는지 기록한다.

@@ -132,7 +132,7 @@ jobs:
           ATLAS_REPOSITORY: ${{ github.repository }}
           ATLAS_SERVER_URL: ${{ github.server_url }}
         run: python3 .github/scripts/record_upbit_microstructure_run.py
-      - name: Commit immutable raw snapshot and run telemetry (shared push retry)
+      - name: Commit immutable raw snapshot and run telemetry
         if: always()
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
@@ -157,7 +157,7 @@ jobs:
       # Deliberately its own step and commit, after raw evidence above is
       # already pushed -- a P4-07 derivation failure can never lose or roll
       # back the already-committed raw snapshot.
-      - name: Commit P4-07 market-evidence packet (shared push retry)
+      - name: Commit P4-07 market-evidence packet
         if: always()
         env:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}

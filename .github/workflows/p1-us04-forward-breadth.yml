@@ -107,7 +107,7 @@ jobs:
           python3 .github/scripts/us_breadth_forward.py replay-archive
 
           echo "result=captured" >> "$GITHUB_OUTPUT"
-      - name: Commit immutable capture (shared push retry)
+      - name: Commit immutable capture
         if: steps.capture.outputs.result == 'captured'
         # 2026-09-18 consolidation: shares
         # .github/scripts/push_to_default_branch.sh with every other
@@ -139,7 +139,7 @@ jobs:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}
         run: |
           python3 .github/scripts/us_forward_universe_populate.py "$SNAPSHOT_DATE"
-      - name: Commit P3-02 source-coverage population (shared push retry)
+      - name: Commit P3-02 source-coverage population
         if: always()
         env:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}

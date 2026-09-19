@@ -82,7 +82,7 @@ jobs:
           else
             python3 collectors/spdr_sector_holdings.py
           fi
-      - name: Commit derived evidence and latest pointer (shared push retry)
+      - name: Commit derived evidence and latest pointer
         # 2026-09-15 incident: this workflow's first live run and
         # fred-dexkous-fx.yml's first live run raced each other -- this one
         # pushed first, and the FRED run's plain `git push` then failed

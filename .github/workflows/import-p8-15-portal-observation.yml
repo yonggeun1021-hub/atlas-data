@@ -70,10 +70,8 @@ jobs:
             evidence/operational/capital_rotation_e2e_acceptance.json
           python3 test/test_capital_rotation_e2e_acceptance.py
 
-      - name: Commit append-only import if changed (shared push retry)
+      - name: Commit append-only import if changed
         shell: bash
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git add evidence/capital_rotation_acceptance/portal_receipts \
@@ -86,4 +84,4 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -m "import trusted P8-15 Portal observation"
-          bash .github/scripts/push_to_default_branch.sh "$DEFAULT_BRANCH"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"

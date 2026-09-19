@@ -73,7 +73,7 @@ jobs:
             args+=(--all-years)
           fi
           python3 collectors/macro_event_calendar.py "${args[@]}"
-      - name: Commit append-only evidence (shared push retry)
+      - name: Commit append-only evidence
         # 2026-09-18 consolidation: this step's own inline retry loop (kept
         # in git history) had no `set -e`, so a conflicted `git pull
         # --rebase` did not abort the step. Shares

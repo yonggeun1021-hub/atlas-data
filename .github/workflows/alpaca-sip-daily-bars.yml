@@ -74,7 +74,7 @@ jobs:
           collector.assert_no_raw_bar_fields(summary)
           print('schema check PASS: no raw vendor field found')
           "
-      - name: Commit derived liquidity evidence and latest pointer (shared push retry)
+      - name: Commit derived liquidity evidence and latest pointer
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |

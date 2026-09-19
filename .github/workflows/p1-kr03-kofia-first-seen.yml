@@ -124,7 +124,7 @@ jobs:
             --out "$REPORT_PATH"
           python3 .github/scripts/kofia_release_timing.py validate "$REPORT_PATH" \
             --evidence-root evidence/kofia/first_seen
-      - name: Commit release timing observation separately (shared push retry)
+      - name: Commit release timing observation separately
         if: steps.release_timing.outputs.report_path != ''
         env:
           REPORT_PATH: ${{ steps.release_timing.outputs.report_path }}

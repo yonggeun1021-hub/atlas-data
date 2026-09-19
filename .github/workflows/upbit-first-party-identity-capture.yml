@@ -47,7 +47,7 @@ jobs:
             --first-party-root evidence/crypto/upbit/identity/first_party \
             --market-root evidence/crypto/upbit/raw \
             --output-root data/observations/upbit_paper_identity_hardening_candidate
-      - name: Commit immutable evidence and unratified review candidate (shared push retry)
+      - name: Commit immutable evidence and unratified review candidate
         env:
           SNAPSHOT: ${{ steps.capture.outputs.snapshot }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}

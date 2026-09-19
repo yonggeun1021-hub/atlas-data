@@ -93,7 +93,7 @@ jobs:
 
       # A partial response is incident evidence, not a briefing read model.
       # Persist it for diagnosis while retaining the collector's failed job.
-      - name: Commit post-close observation evidence (shared push retry)
+      - name: Commit post-close observation evidence
         if: always()
         env:
           TRIGGER: ${{ github.event_name == 'schedule' && github.event.schedule || github.event_name }}

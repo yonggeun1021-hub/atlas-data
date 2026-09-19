@@ -66,7 +66,7 @@ jobs:
       # auth_required/order_or_withdrawal_endpoints_called invariants
       # (enforced fail-closed by upbit_market_capture.py::load_contract)
       # and test_upbit_market_capture.py's endpoint-path assertions.
-      - name: Commit immutable raw snapshot before P3 classification (shared push retry)
+      - name: Commit immutable raw snapshot before P3 classification
         if: always()
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}
@@ -130,7 +130,7 @@ jobs:
       # OBSERVATION_POOL is an expected, deterministic outcome for unmapped,
       # excluded, incomplete, or threshold-failing markets and is never
       # treated as a workflow failure.
-      - name: Commit P3-12 tradeable-universe classification (shared push retry)
+      - name: Commit P3-12 tradeable-universe classification
         if: always()
         env:
           SNAPSHOT_DATE: ${{ steps.capture.outputs.snapshot_date }}

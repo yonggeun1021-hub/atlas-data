@@ -317,7 +317,7 @@ jobs:
         env:
           DECISION_PATH: ${{ steps.crypto_paper_decision.outputs.path }}
         run: python3 governance/rule_lineage_producers.py crypto-decision --packet "$DECISION_PATH"
-      - name: Commit append-only realtime evidence and run telemetry (shared push retry)
+      - name: Commit append-only realtime evidence and run telemetry
         if: always()
         env:
           CAPTURE_RESULT: ${{ steps.capture.outputs.result }}

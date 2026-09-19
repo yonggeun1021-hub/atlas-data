@@ -61,6 +61,9 @@ REGISTRY_PINNED: dict[str, int] = {
 # closed or rebuild from the new head instead. Key = (workflow file, step name),
 # value = (number of raw `git push` sites, why).
 NO_REBASE_BY_DESIGN: dict[tuple[str, str], tuple[int, str]] = {
+    ("import-p8-15-portal-observation.yml", "Commit append-only import if changed"): (
+        1, "the import also rebuilds capital_rotation_e2e_acceptance.json from current repository evidence; a rebase would replay a stale inventory, so retain the existing fail-closed push",
+    ),
     ("daily-briefing.yml", "Publish provider-free daily briefing packet"): (
         3, "the briefing locator is built from main's tip; on a race it rebuilds once rather than replaying a stale locator",
     ),
