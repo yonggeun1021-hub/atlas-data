@@ -2512,5 +2512,496 @@ class UsFreeAxisOutputBoundaryTest(unittest.TestCase):
         })
 
 
+EVIDENCE_SCRIPT = ROOT / "regime" / "us_replay_evidence_source.py"
+EVIDENCE_SPEC = importlib.util.spec_from_file_location(
+    "us_replay_evidence_source_tested", EVIDENCE_SCRIPT,
+)
+EVIDENCE = importlib.util.module_from_spec(EVIDENCE_SPEC)
+assert EVIDENCE_SPEC.loader is not None
+EVIDENCE_SPEC.loader.exec_module(EVIDENCE)
+HIST = EVIDENCE.HIST
+
+
+class UsCommittedHistoryStoreReplayTest(unittest.TestCase):
+    """Replay the *committed* history store, not a fixture.
+
+    ``evidence/free_market_data/history/`` has been in this repository since the
+    US-DATA-1 capture and nothing read it: the replay issued live Alpaca/FRED
+    requests for every date, so the committed capture could not produce a single
+    replayed axis. These tests bind the read path to that store as it actually
+    stands -- its own bars, its own ALFRED vintage rows, its own content
+    addresses -- so a store that grows, shrinks, or is edited in place changes
+    the outcome here rather than silently changing a score.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.contract = FMD.load_contract(FMD.CONTRACT_PATH)
+        try:
+            cls.store = EVIDENCE.EvidenceStore(ROOT, cls.contract)
+        except EVIDENCE.ReplayEvidenceSourceError as exc:  # pragma: no cover
+            raise unittest.SkipTest(f"committed history store unusable: {exc}")
+
+    def _getter(self):
+        return EVIDENCE.EvidenceGetter(self.store)
+
+    # -- the derived window -------------------------------------------------
+
+    def test_lead_sessions_required_is_derived_and_is_sixty_one_not_twenty_one(self):
+        """The replay needs 61 bars of lead, and the number is derived, not typed.
+
+        ``derive_us_market_reference`` computes every configured return window
+        and ``_session_return(closes, n)`` needs ``n + 1`` closes, so the binding
+        requirement is the longest configured window plus one. The capture
+        receipts' own ``feasibility`` blocks report 21 because
+        ``free_market_data_history.LEAD_BARS_REQUIRED`` describes a 20-session
+        scoring window; assuming that number here would quietly leave the first
+        forty intersection sessions PARTIAL.
+        """
+        windows = list(self.contract["alpaca"]["return_windows_sessions"])
+        self.assertEqual(self.store.lead_sessions_required, max(windows) + 1)
+        self.assertEqual(self.store.lead_sessions_required, 61)
+        self.assertNotEqual(self.store.lead_sessions_required, HIST.LEAD_BARS_REQUIRED)
+        sessions = self.store.session_intersection()
+        scoreable = self.store.scoreable_sessions()
+        # Derived from the intersection, so more landed data means more
+        # scoreable dates and less means fewer -- never a hardcoded window.
+        self.assertEqual(len(scoreable), len(sessions) - (max(windows) + 1) + 1)
+        self.assertEqual(scoreable[0], sessions[max(windows)])
+
+    def test_intersection_is_every_replay_symbol_and_the_first_scoreable_date_is_replayable(self):
+        sessions = self.store.session_intersection()
+        self.assertTrue(sessions)
+        symbols = sorted(
+            set(self.contract["alpaca"]["trend_symbols"])
+            | set(self.contract["alpaca"]["sector_reference_symbols"])
+        )
+        self.assertEqual(self.store.symbols, symbols)
+        for symbol in symbols:
+            held = {row["session_date"] for row in self.store.bars[symbol]}
+            self.assertTrue(set(sessions) <= held, symbol)
+        # The very first scoreable session is exactly the one the 61-bar lead
+        # makes reachable, and it really does replay -- the boundary is the case
+        # a lead-by-one error hides in.
+        first = self.store.scoreable_sessions()[0]
+        identity = copy.deepcopy(MODULE._load_historical_pit_replay_identity())
+        identity["replay_population_wiring_activated"] = True
+        with mock.patch.object(
+            MODULE, "_load_historical_pit_replay_identity", return_value=identity,
+        ):
+            record = MODULE.replay_one_requested_date(
+                dict(EVIDENCE.EVIDENCE_CREDENTIALS), first, getter=self._getter(),
+                contract=self.contract, policy=MODULE._load_candidate_policy(),
+                excluded=MODULE.exclusion_basis(self.contract),
+                replayed=MODULE.authorized_axes(self.contract),
+                source_mode=MODULE.SOURCE_MODE_EVIDENCE,
+                units_scale=self.store.units_scale(),
+            )
+        self.assertEqual(record["status"], MODULE.STATUS_OBSERVED, record.get("failure_reason"))
+        self.assertEqual(record["effective_session_date"], first)
+
+    # -- the no-future-information guarantee --------------------------------
+
+    def test_a_later_revision_of_a_revised_series_never_reaches_an_earlier_date(self):
+        """The load-bearing point-in-time claim, asserted on the real store.
+
+        TOTBKCR is revised repeatedly, so the committed availability rows hold
+        several published values for the same observation date, each with its own
+        window. What this asserts is that replaying an early date serves the
+        value that was current *then* and that the later revision of that same
+        observation is genuinely absent -- not merely that dates were filtered.
+        Reading the latest revision instead would leave every hash, axis row and
+        signature internally consistent while silently turning the replay into
+        hindsight.
+        """
+        rows = self.store.fred_rows["TOTBKCR"]
+        revised = {}
+        for row in rows:
+            revised.setdefault(row["observation_date"], []).append(row)
+        multi = sorted(
+            date for date, group in revised.items()
+            if len({row["value"] for row in group}) > 1
+        )
+        self.assertTrue(multi, "the committed store holds no revised TOTBKCR observation")
+        observation_date = multi[0]
+        group = sorted(revised[observation_date], key=lambda row: row["available_from"])
+        first_vintage, latest_vintage = group[0], group[-1]
+        self.assertNotEqual(first_vintage["value"], latest_vintage["value"])
+
+        as_of = first_vintage["available_from"]
+        visible = HIST.observations_available_at(rows, as_of)
+        served = {row["observation_date"]: row for row in visible}
+        self.assertIn(observation_date, served)
+        self.assertEqual(served[observation_date]["value"], first_vintage["value"])
+        self.assertNotEqual(served[observation_date]["value"], latest_vintage["value"])
+
+        # And the same holds of what the getter actually answers with, including
+        # each row's own publication window containing the as-of.
+        body = json.loads(self._getter()(
+            "https://api.stlouisfed.org/fred/series/observations?"
+            + MODULE._fred_query("TOTBKCR", "KEY", dt.date.fromisoformat(as_of), 180)
+        ))
+        answered = {row["date"]: row for row in body["observations"]}
+        self.assertEqual(answered[observation_date]["value"], first_vintage["value"])
+        for row in body["observations"]:
+            self.assertLessEqual(row["realtime_start"], as_of, row["date"])
+            self.assertGreaterEqual(row["realtime_end"], as_of, row["date"])
+            self.assertLessEqual(row["date"], as_of)
+
+    def test_every_observation_the_store_answers_was_already_published(self):
+        """No served row may open after the replayed date, on any series."""
+        for series_id in self.store.fred_series:
+            rows = self.store.fred_rows[series_id]
+            vintages = sorted({row["available_from"] for row in rows})
+            as_of = vintages[len(vintages) // 2]
+            for row in HIST.observations_available_at(rows, as_of):
+                self.assertLessEqual(row["available_from"], as_of, series_id)
+                self.assertGreaterEqual(row["available_to"], as_of, series_id)
+                self.assertLessEqual(row["observation_date"], as_of, series_id)
+
+    def test_bars_answered_are_bounded_by_the_requested_window(self):
+        anchor = self.store.scoreable_sessions()[len(self.store.scoreable_sessions()) // 2]
+        end = dt.datetime.combine(
+            dt.date.fromisoformat(anchor), dt.time(23, 59, 59), tzinfo=MODULE.UTC,
+        )
+        raw, normalized = FMD.fetch_alpaca_daily_bars(
+            "KEY", "SECRET", ["SPY"], end, getter=self._getter(),
+        )
+        self.assertTrue(normalized)
+        for row in normalized:
+            self.assertLessEqual(str(row["opened_at"])[:10], anchor)
+        # Closes travel as the committed decimal text, not through a float.
+        committed = {
+            row["session_date"]: row["bar"]["close"] for row in self.store.bars["SPY"]
+        }
+        for row in normalized:
+            self.assertEqual(row["close"], committed[str(row["opened_at"])[:10]])
+        self.assertIsInstance(raw, bytes)
+
+    def test_the_getter_never_falls_back_to_the_network(self):
+        for url in (
+            "https://example.invalid/anything",
+            "https://api.stlouisfed.org/fred/series/vintagedates?series_id=VIXCLS",
+            "https://data.alpaca.markets/v2/stocks/NOPE/bars?feed=iex",
+        ):
+            with self.assertRaises(EVIDENCE.ReplayEvidenceSourceError):
+                self._getter()(url, {})
+
+    def test_a_fred_request_that_does_not_pin_one_vintage_day_is_refused(self):
+        with self.assertRaises(EVIDENCE.ReplayEvidenceSourceError):
+            self._getter()(
+                "https://api.stlouisfed.org/fred/series/observations"
+                "?series_id=VIXCLS&observation_start=2024-01-01&observation_end=2024-06-03"
+                "&realtime_start=2024-01-01&realtime_end=2024-06-03"
+            )
+
+    # -- what the population records ---------------------------------------
+
+    def _evidence_population(self, dates):
+        return MODULE.build_population(
+            dict(EVIDENCE.EVIDENCE_CREDENTIALS), dates, getter=self._getter(),
+            source_mode=MODULE.SOURCE_MODE_EVIDENCE,
+            source_store=self.store.descriptor(),
+        )
+
+    def test_evidence_mode_is_recorded_declared_and_validated(self):
+        dates = self.store.scoreable_sessions()[-2:]
+        population = self._evidence_population(dates)
+        MODULE.validate_population(population)
+        self.assertEqual(
+            population["pit_source"]["mode"], MODULE.SOURCE_MODE_EVIDENCE,
+        )
+        self.assertFalse(population["pit_source"]["units_vintage_available"])
+        self.assertEqual(
+            population["pit_source"]["store"]["path"], EVIDENCE.HISTORY_STORE_REL,
+        )
+        self.assertTrue(population["pit_source"]["store"]["read_only"])
+        for record in population["records"]:
+            self.assertEqual(record["warnings"], MODULE.EVIDENCE_RECORD_WARNINGS)
+            self.assertIn(
+                "SOURCES_READ_FROM_COMMITTED_EVIDENCE_STORE_NOT_LIVE_PROVIDER",
+                record["warnings"],
+            )
+
+    def test_an_evidence_population_cannot_be_re_signed_as_a_live_provider_one(self):
+        """The weaker units guarantee cannot be laundered into the stronger one."""
+        population = self._evidence_population(self.store.scoreable_sessions()[-1:])
+        forged = copy.deepcopy(population)
+        forged["pit_source"] = MODULE._pit_source_block(MODULE.SOURCE_MODE_API, None)
+        forged.pop("payload_sha256")
+        forged["payload_sha256"] = MODULE.payload_sha256(forged)
+        with self.assertRaises(MODULE.ReplayPopulationError):
+            MODULE.validate_population(forged)
+
+        dropped = copy.deepcopy(population)
+        del dropped["pit_source"]
+        dropped.pop("payload_sha256")
+        dropped["payload_sha256"] = MODULE.payload_sha256(dropped)
+        with self.assertRaises(MODULE.ReplayPopulationError):
+            MODULE.validate_population(dropped)
+
+    def test_an_evidence_liquidity_row_derives_the_units_vintage_it_cannot_read(self):
+        """The factor is the derived one, and cannot be the capture-time one.
+
+        The committed store shows WRESBAL rescaled on 2025-11-13, so a date
+        before that boundary must normalize with 1000 and a date after it with 1,
+        while TOTBKCR -- which the store shows was never rescaled -- normalizes
+        with 1000 throughout. Reading the capture-time metadata instead would
+        give 1 for every WRESBAL date, which is right only after the boundary.
+        """
+        scale = self.store.units_scale()
+        early, late = "2024-06-03", self.store.scoreable_sessions()[-1]
+        population = self._evidence_population([early, late])
+        MODULE.validate_population(population)
+        factors = {}
+        for record in population["records"]:
+            rows = record["five_axis"]["axes"]["LIQUIDITY"]["measurement"]["series"]
+            factors[record["requested_date"]] = {
+                row["series_id"]: row["normalization_factor"] for row in rows
+            }
+            for row in rows:
+                series_scale = scale[row["series_id"]]
+                expected, undone = MODULE._derived_units_scale_at(
+                    series_scale, record["requested_date"], row["series_id"],
+                )
+                self.assertEqual(
+                    row["normalization_factor"], FMD._decimal_text(expected),
+                )
+                self.assertEqual(
+                    row["units_vintage"], MODULE.units_vintage_block(expected, undone),
+                )
+                # The boundary dates stay out of the measurement: one of them is
+                # later than this replayed date, and every date inside a
+                # measurement is bound as a consumed source date.
+                self.assertNotIn("rescale_events", row["units_vintage"])
+                self.assertEqual(
+                    row["normalized_unit"], series_scale["normalized_unit"],
+                )
+                self.assertIsNone(row["source_unit"])
+                self.assertNotIn("metadata_realtime_start", row)
+                self.assertNotIn("metadata_realtime_end", row)
+        self.assertEqual(factors[early]["WRESBAL"], "1000")
+        self.assertEqual(factors[late]["WRESBAL"], "1")
+        self.assertEqual(factors[early]["TOTBKCR"], "1000")
+        self.assertEqual(factors[late]["TOTBKCR"], "1000")
+
+    def test_the_derived_rescale_timeline_is_what_the_committed_store_shows(self):
+        """One WRESBAL rescale, exactly ×1000, and no TOTBKCR rescale at all."""
+        scale = self.store.units_scale()
+        wresbal = scale["WRESBAL"]["rescale_events"]
+        self.assertEqual(len(wresbal), 1, wresbal)
+        self.assertEqual(wresbal[0]["effective_from"], "2025-11-13")
+        self.assertEqual(wresbal[0]["power_of_ten"], 3)
+        self.assertGreater(wresbal[0]["observation_date_count"], 100)
+        self.assertEqual(scale["TOTBKCR"]["rescale_events"], [])
+        # Every derived factor must be one the production unit table contains --
+        # a derived scale outside it could not have come from the live producer.
+        supported = {value[1] for value in FMD.FRED_LIQUIDITY_UNITS.values()}
+        for series_id, series_scale in scale.items():
+            for date in ("2020-10-20", "2025-11-12", "2025-11-13", "2026-09-11"):
+                self.assertIn(
+                    MODULE._derived_units_scale_at(series_scale, date, series_id)[0],
+                    supported, f"{series_id}:{date}",
+                )
+
+    def test_a_liquidity_row_cannot_carry_a_factor_the_timeline_does_not_yield(self):
+        population = self._evidence_population(["2024-06-03"])
+        MODULE.validate_population(population)
+        for mutate in (
+            # the capture-time factor, which is wrong before the rescale
+            lambda row: row.update({"normalization_factor": "1"}),
+            # a metadata vintage window the store does not hold
+            lambda row: row.update({
+                "metadata_realtime_start": "2026-09-18",
+                "metadata_realtime_end": "2026-09-18",
+            }),
+            # a units string it never read
+            lambda row: row.update({"source_unit": "Millions of U.S. Dollars"}),
+            # a disclosure block that no longer says what was derived
+            lambda row: row.update({"units_vintage": None}),
+        ):
+            forged = copy.deepcopy(population)
+            rows = forged["records"][0]["five_axis"]["axes"][
+                "LIQUIDITY"
+            ]["measurement"]["series"]
+            mutate(next(row for row in rows if row["series_id"] == "WRESBAL"))
+            forged.pop("payload_sha256")
+            forged["payload_sha256"] = MODULE.payload_sha256(forged)
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.validate_population(forged)
+
+    # -- the VIX vintage lag, and the asymmetry it is half of ---------------
+
+    def test_the_evidence_vix_is_the_previous_calendar_day_vintage(self):
+        """The rule, asserted as a date relation rather than as a comment.
+
+        ALFRED backdates a VIXCLS row's availability to its observation date, so
+        resolving VIX at the replayed date's own vintage serves a value the live
+        producer had not been published yet. Evidence mode resolves it one
+        calendar day earlier, so no replayed VIX observation may be dated on the
+        replayed date itself.
+        """
+        self.assertEqual(
+            MODULE.fred_vintage_lag_days(MODULE.SOURCE_MODE_EVIDENCE, "RISK_VOL"), 1,
+        )
+        dates = self.store.scoreable_sessions()[-6:]
+        population = self._evidence_population(dates)
+        MODULE.validate_population(population)
+        for record in population["records"]:
+            measurement = record["five_axis"]["axes"]["RISK_VOL"]["measurement"]
+            requested = record["requested_date"]
+            expected_as_of = (
+                dt.date.fromisoformat(requested) - dt.timedelta(days=1)
+            ).isoformat()
+            self.assertEqual(measurement["vintage_lag_days"], 1, requested)
+            self.assertEqual(measurement["vintage_date"], requested)
+            self.assertEqual(measurement["vintage_as_of_date"], expected_as_of)
+            # The load-bearing assertion: never the replayed date's own value.
+            self.assertLess(measurement["observation_date"], requested, requested)
+            self.assertLessEqual(measurement["observation_date"], expected_as_of)
+
+    def test_reverting_the_evidence_vix_to_the_same_day_vintage_fails(self):
+        """The lock. "ALFRED says it was available that day" must not come back.
+
+        Two ways back to the same-day value, both refused: flipping the declared
+        lag to 0, and keeping the declared lag while carrying an observation dated
+        on the replayed date.
+        """
+        population = self._evidence_population(self.store.scoreable_sessions()[-1:])
+        MODULE.validate_population(population)
+        requested = population["records"][0]["requested_date"]
+        for mutate in (
+            lambda m: m.update({
+                "vintage_lag_days": 0, "vintage_as_of_date": requested,
+            }),
+            lambda m: m.update({"observation_date": requested}),
+            lambda m: m.update({"vintage_as_of_date": requested}),
+        ):
+            forged = copy.deepcopy(population)
+            mutate(forged["records"][0]["five_axis"]["axes"]["RISK_VOL"]["measurement"])
+            forged.pop("payload_sha256")
+            forged["payload_sha256"] = MODULE.payload_sha256(forged)
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.validate_population(forged)
+
+    def test_the_liquidity_vintage_stays_same_day_and_the_asymmetry_holds(self):
+        """The other half of the rule: liquidity is not lagged, and cannot be.
+
+        The weekly series carry their release lag inside the row already, so a
+        calendar-day lag here would be a second, invented delay. The asymmetry is
+        the live producer's behaviour, so flattening it in *either* direction is a
+        rule change and fails closed.
+        """
+        self.assertEqual(
+            MODULE.fred_vintage_lag_days(MODULE.SOURCE_MODE_EVIDENCE, "LIQUIDITY"), 0,
+        )
+        self.assertNotEqual(
+            MODULE.fred_vintage_lag_days(MODULE.SOURCE_MODE_EVIDENCE, "RISK_VOL"),
+            MODULE.fred_vintage_lag_days(MODULE.SOURCE_MODE_EVIDENCE, "LIQUIDITY"),
+        )
+        population = self._evidence_population(self.store.scoreable_sessions()[-1:])
+        MODULE.validate_population(population)
+        requested = population["records"][0]["requested_date"]
+        liquidity = population["records"][0]["five_axis"]["axes"][
+            "LIQUIDITY"
+        ]["measurement"]
+        self.assertEqual(liquidity["vintage_lag_days"], 0)
+        self.assertEqual(liquidity["vintage_as_of_date"], requested)
+        self.assertEqual(liquidity["vintage_date"], requested)
+
+        lagged = (dt.date.fromisoformat(requested) - dt.timedelta(days=1)).isoformat()
+        forged = copy.deepcopy(population)
+        forged["records"][0]["five_axis"]["axes"]["LIQUIDITY"]["measurement"].update({
+            "vintage_lag_days": 1, "vintage_as_of_date": lagged,
+        })
+        forged.pop("payload_sha256")
+        forged["payload_sha256"] = MODULE.payload_sha256(forged)
+        with self.assertRaises(MODULE.ReplayPopulationError):
+            MODULE.validate_population(forged)
+
+        # And the builder refuses to lag it even if the rule table were edited.
+        with mock.patch.dict(
+            MODULE.FRED_VINTAGE_LAG_DAYS[MODULE.SOURCE_MODE_EVIDENCE],
+            {"LIQUIDITY": 1},
+        ):
+            with self.assertRaises(MODULE.ReplayPopulationError):
+                MODULE.replay_liquidity_source(
+                    "KEY", dt.date.fromisoformat(requested), getter=self._getter(),
+                    contract=self.contract,
+                    source_mode=MODULE.SOURCE_MODE_EVIDENCE,
+                    units_scale=self.store.units_scale(),
+                )
+
+    def test_the_liquidity_direction_is_invariant_under_any_positive_units_factor(self):
+        """Why the withheld units vintage cannot change an axis, only a magnitude.
+
+        ``liquidity_axis_row`` reads the sign of each series' change; both sides
+        of that difference come from one vintage and therefore one scale, and
+        every factor in ``FMD.FRED_LIQUIDITY_UNITS`` is strictly positive. This
+        pins that bound rather than asserting it in a comment: the evidence-read
+        magnitudes are native rather than normalized, and the axis is the same.
+        """
+        for _, factor in FMD.FRED_LIQUIDITY_UNITS.values():
+            self.assertGreater(factor, 0)
+        population = self._evidence_population(self.store.scoreable_sessions()[-1:])
+        series = population["records"][0]["five_axis"]["axes"][
+            "LIQUIDITY"
+        ]["measurement"]["series"]
+        native = MODULE.liquidity_axis_row(series)
+        for factor in ("1000", "0.001", "1000000"):
+            scaled = copy.deepcopy(series)
+            for row in scaled:
+                for key in ("value", "previous_value", "change"):
+                    row[key] = FMD._decimal_text(
+                        FMD._decimal(row[key], "X") * FMD._decimal(factor, "X")
+                    )
+            rescaled = MODULE.liquidity_axis_row(scaled)
+            self.assertEqual(rescaled["direction"], native["direction"], factor)
+            self.assertEqual(rescaled["score"], native["score"], factor)
+
+    def test_evidence_mode_is_deterministic(self):
+        dates = self.store.scoreable_sessions()[-3:]
+        first = self._evidence_population(dates)
+        second = self._evidence_population(dates)
+        self.assertEqual(
+            MODULE.canonical_json(first), MODULE.canonical_json(second),
+        )
+
+    def test_a_live_provider_population_is_unchanged_by_the_evidence_mode(self):
+        """The default path keeps its exact records, warnings and declaration.
+
+        The only addition a live-provider population gains is the explicit
+        ``pit_source`` block saying so -- the records, the warnings and the PIT
+        statement are byte-identical to what this module produced before the
+        evidence read path existed, and the liquidity rows still carry the
+        strictly bound metadata vintage.
+        """
+        population = build([ANCHOR])
+        MODULE.validate_population(population)
+        self.assertEqual(
+            population["pit_source"],
+            MODULE._pit_source_block(MODULE.SOURCE_MODE_API, None),
+        )
+        self.assertEqual(population["records"][0]["warnings"], MODULE.RECORD_WARNINGS)
+        self.assertEqual(
+            population["pit_replay"]["statement"], MODULE.PIT_REPLAY_STATEMENT,
+        )
+        for row in population["records"][0]["five_axis"]["axes"][
+            "LIQUIDITY"
+        ]["measurement"]["series"]:
+            self.assertNotIn("units_vintage", row)
+            self.assertIn("metadata_realtime_start", row)
+            self.assertIsNotNone(row["normalized_unit"])
+
+    def test_a_population_built_before_this_block_existed_is_still_the_api_default(self):
+        """An older payload carries no ``pit_source``; that is the live default."""
+        population = build([ANCHOR])
+        legacy = copy.deepcopy(population)
+        del legacy["pit_source"]
+        legacy.pop("payload_sha256")
+        legacy["payload_sha256"] = MODULE.payload_sha256(legacy)
+        MODULE.validate_population(legacy)
+
+
 if __name__ == "__main__":
     unittest.main()

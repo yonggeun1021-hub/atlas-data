@@ -1,0 +1,70 @@
+{
+  "schema_version": "crypto_breadth_source_facts/1",
+  "receipt_id": "CRYPTO-BREADTH-RANK200-GAPS-20260919",
+  "produced_at_utc": "2026-09-19T14:35:04.547218+00:00",
+  "produced_by": "Codex source-fact review for CIO merge review",
+  "scope": "Source coverage classification only; no trading or candidate authority change. Effective next UTC date, no historical rewrite.",
+  "taxonomy_hash_before": "50c1e748f3a869061812564f932773df884d67dcc93e6221ea03bc5296a3bc7c",
+  "sources": [
+    {
+      "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken",
+      "retained_content_sha256": "550361f6cb46d97fd57e2bdca5041ac3d64d818eff8d891810968fd855b13653",
+      "retained_bytes": 1884520,
+      "retained_path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/taxonomy-coverage-20260919/source-bodies/550361f6cb46d97fd57e2bdca5041ac3d64d818eff8d891810968fd855b13653.html",
+      "representation": "HTTP_RESPONSE_BODY",
+      "captured_at": "2026-09-19T14:32:54.480838+00:00"
+    },
+    {
+      "url": "https://www.avafoundation.org/ava-2-0-overview/",
+      "retained_content_sha256": "252568eda6eba689986369b49f715ab2020038cdf433218c874c3c91ffe2ae09",
+      "retained_bytes": 98578,
+      "retained_path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/taxonomy-coverage-20260919/source-bodies/252568eda6eba689986369b49f715ab2020038cdf433218c874c3c91ffe2ae09.html",
+      "representation": "HTTP_RESPONSE_BODY",
+      "captured_at": "2026-09-19T14:32:55.869061+00:00"
+    },
+    {
+      "url": "https://www.kraken.com/sell/jitosol",
+      "retained_content_sha256": "32b52968d9dde674f4720513872e488fdb0cb53a99aa0abcee50174c695b8ab4",
+      "retained_bytes": 1479301,
+      "retained_path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/taxonomy-coverage-20260919/source-bodies/32b52968d9dde674f4720513872e488fdb0cb53a99aa0abcee50174c695b8ab4.html",
+      "representation": "HTTP_RESPONSE_BODY",
+      "captured_at": "2026-09-19T14:32:56.763085+00:00"
+    },
+    {
+      "url": "https://www.jito.network/docs/jitosol/faqs/technical-faqs/",
+      "retained_content_sha256": "cf42ab449d9a784781ca5893eaf5df983949abb2ce5d4016767cc53a45996bf4",
+      "retained_bytes": 21023,
+      "retained_path": "/Users/yonggeun/Documents/Codex/2026-09-05/gpt/outputs/taxonomy-coverage-20260919/source-bodies/jito-web-extraction.json",
+      "representation": "WEB_TOOL_TEXT_EXTRACTION_NOT_HTTP_BYTES",
+      "capture_note": "Direct HTTP returned 403; retained official page text returned by web open, including SPL mint. Not claimed as original HTML."
+    }
+  ],
+  "assets": [
+    {
+      "canonical_asset_id": "AVA",
+      "verdict": "eligible_crypto",
+      "effective_from": "2026-09-20",
+      "independent_source_organisations": [
+        "Kraken",
+        "AVA Foundation"
+      ],
+      "identity_finding": "AVA Foundation loyalty utility token on Ethereum ERC-20: Kraken official network table identifies AVA on Ethereum; AVA Foundation independently publishes ERC20 contract 0xa6c0c097741d55ecd9a3a7def3a8253fd022ceb9. Not AVAAI or AVAX."
+    },
+    {
+      "canonical_asset_id": "JITOSOL",
+      "verdict": "staked",
+      "effective_from": "2026-09-20",
+      "independent_source_organisations": [
+        "Kraken",
+        "Jito Foundation"
+      ],
+      "identity_finding": "JitoSOL liquid staking receipt token on Solana: Kraken official network table and JitoSOL description identify Solana liquid staking; Jito Foundation independently publishes SPL mint J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn and stake-pool mechanics. Classified staked, not native SOL or governance JTO."
+    }
+  ],
+  "catalog_sha256": {
+    "kraken_assets.json.gz": "9b0f3273040f4c8f20f9db2874e27b20d1dd5974dc6132ca055ae79e10bbd32e",
+    "kraken_asset_pairs.json.gz": "d9d167d25795195b0202efeb7aeeed144c899b2674808fa4d95dcbb3dbdc7c59"
+  },
+  "coverage_note": "Latest retained 2026-09-19 snapshot ranks finalized 2026-09-18 turnover. Forward taxonomy comparison only; 2026-09-20 actual ranking has not yet been observed.",
+  "retention": "Bodies remain in gpt/outputs/taxonomy-coverage-20260919/source-bodies, not session temp; repository contains hashes only."
+}

@@ -1,16 +1,38 @@
 #!/usr/bin/env python3
-"""Korea five-axis to staged-symbol review bridge regression."""
+"""Korea five-axis to staged-symbol review bridge regression.
+
+The bridge is exercised on the frozen input snapshot
+(test/rolling_pointer_snapshot.py), not on the live rolling pointers.
+``data/latest_korea_market_signals.json`` (korea-market-signals.yml),
+``data/stage_history.json`` (one appended snapshot per day, sourced from
+the Notion watchlist) and ``data/briefing/krx`` all move on operational
+clocks of their own: a stage tag flipping or a symbol entering the
+watchlist is a normal day, not a code change, so exact assertions against
+today's values were testing the watchlist rather than the projection.
+
+Pinning the input keeps every expected value exact -- what is asserted is
+that the review re-labels the evidence it was given.  What must still
+track the live tree is asserted in ``LiveRollingPointerTests`` as
+properties (contract subjects are labelled with their own watchlist
+stage, from the known stage vocabulary, and never with an order).
+"""
 from __future__ import annotations
 
 import copy
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "test") not in sys.path:
+    sys.path.insert(0, str(ROOT / "test"))
+
+import rolling_pointer_snapshot as SNAPSHOT  # noqa: E402
+
 SPEC = importlib.util.spec_from_file_location("korea_symbol_market_review", ROOT / "decision" / "korea_symbol_market_review.py")
 REVIEW = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -24,16 +46,37 @@ assert SHADOW_SPEC.loader is not None
 SHADOW_SPEC.loader.exec_module(SHADOW)
 
 
-def current_inputs():
+def pinned_inputs():
+    market = json.loads(SNAPSHOT.fixture_bytes("data/latest_korea_market_signals.json"))
+    stages = json.loads(SNAPSHOT.fixture_bytes("data/stage_history.json"))
+    return market, stages
+
+
+def live_inputs():
     market = json.loads((ROOT / "data" / "latest_korea_market_signals.json").read_text(encoding="utf-8"))
     stages = json.loads((ROOT / "data" / "stage_history.json").read_text(encoding="utf-8"))
     return market, stages
 
 
-class CurrentEvidenceTests(unittest.TestCase):
-    def test_current_packet_connects_five_axes_price_and_flow_without_orders(self):
-        market, stages = current_inputs()
-        result = REVIEW.build_review(market, stages)
+class PinnedEvidenceTests(unittest.TestCase):
+    """Exact expectations, held against one frozen consistent input."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory(prefix="korea_symbol_review_snapshot_")
+        cls.snapshot = SNAPSHOT.materialize(Path(cls._tmp.name))
+        cls.briefing_root = cls.snapshot / "data" / "briefing" / "krx"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def build(self, market, stages, **kwargs):
+        return REVIEW.build_review(market, stages, briefing_root=self.briefing_root, **kwargs)
+
+    def test_pinned_packet_connects_five_axes_price_and_flow_without_orders(self):
+        market, stages = pinned_inputs()
+        result = self.build(market, stages)
         self.assertEqual(REVIEW.validate_output(result), result)
         self.assertEqual(result["five_axis"]["ratio"], "5/5")
         self.assertEqual(result["five_axis"]["aggregate_regime"], "UNKNOWN")
@@ -44,14 +87,9 @@ class CurrentEvidenceTests(unittest.TestCase):
         source_row = result["source"]["stage_snapshot"]["subjects"]["298040"][
             "latest_confirmed_row"
         ]
-        # ``data/stage_history.json`` is the rolling pointer the daily collect
-        # rewrites, so the Notion board tag it carries for 298040 today is not
-        # a fixed fact -- it moves whenever the symbol is retagged. Derive the
-        # expectation from the same source instead of pinning today's tag.
-        stage_as_of = sorted(stages)[-1]
-        self.assertEqual(
-            candidate["pipeline_stage"], stages[stage_as_of]["298040"]["stage"]
-        )
+        self.assertEqual(candidate["pipeline_stage"], "Candidate")
+        self.assertEqual(by_symbol["012450"]["pipeline_stage"], "Discovery")
+        self.assertEqual(by_symbol["329180"]["pipeline_stage"], "Discovery")
         self.assertEqual(candidate["price_context"]["close_krw"], source_row["close"])
         self.assertEqual(
             candidate["flow_context"]["foreign_net_value_krw"],
@@ -75,9 +113,39 @@ class CurrentEvidenceTests(unittest.TestCase):
         self.assertEqual(result["summary"]["automatic_exit_count"], 0)
         self.assertTrue(all(value is False for value in result["authority"].values()))
 
+    def test_restaged_subject_is_relabelled_not_absorbed(self):
+        # The projection must report whatever stage the watchlist carries --
+        # a stage change moves the label and nothing else, and a subject the
+        # watchlist stops staging is refused rather than guessed.
+        market, stages = pinned_inputs()
+        baseline = self.build(market, stages)
+        as_of = baseline["source"]["stage_snapshot"]["as_of"]
+
+        restaged = copy.deepcopy(stages)
+        restaged[as_of]["298040"]["stage"] = "Ready"
+        briefing = json.loads((self.briefing_root / "298040.json").read_text(encoding="utf-8"))
+        briefing["atlas_stage"] = "Ready"
+        with tempfile.TemporaryDirectory(prefix="korea_symbol_review_restaged_") as tmp:
+            root = Path(tmp)
+            for path in self.briefing_root.glob("*.json"):
+                (root / path.name).write_bytes(path.read_bytes())
+            (root / "298040.json").write_text(json.dumps(briefing, ensure_ascii=False), encoding="utf-8")
+            moved = REVIEW.build_review(market, restaged, briefing_root=root)
+        self.assertEqual(REVIEW.validate_output(moved), moved)
+        moved_rows = {row["symbol"]: row for row in moved["symbols"]}
+        self.assertEqual(set(moved_rows), {row["symbol"] for row in baseline["symbols"]})
+        self.assertEqual(moved_rows["298040"]["pipeline_stage"], "Ready")
+        self.assertEqual(moved["summary"]["automatic_entry_count"], 0)
+        self.assertTrue(all(value is False for value in moved["authority"].values()))
+
+        dropped = copy.deepcopy(stages)
+        dropped[as_of]["298040"]["stage"] = None
+        with self.assertRaisesRegex(REVIEW.KoreaSymbolMarketReviewError, "PIPELINE_SUBJECT_MISSING:298040"):
+            self.build(market, dropped)
+
     def test_rehashing_tampered_source_cannot_change_output(self):
-        market, stages = current_inputs()
-        packet = REVIEW.build_review(market, stages)
+        market, stages = pinned_inputs()
+        packet = self.build(market, stages)
         tampered = copy.deepcopy(packet)
         tampered["source"]["stage_snapshot"]["subjects"]["298040"]["latest_confirmed_row"]["close"] = 1
         unsigned = {key: value for key, value in tampered.items() if key != "packet_sha256"}
@@ -86,19 +154,80 @@ class CurrentEvidenceTests(unittest.TestCase):
             REVIEW.validate_output(tampered)
 
     def test_open_authority_fails_closed(self):
-        market, stages = current_inputs()
+        market, stages = pinned_inputs()
         contract = REVIEW.load_contract()
         contract["authority"]["order_authorized"] = True
         with self.assertRaisesRegex(REVIEW.KoreaSymbolMarketReviewError, "AUTHORITY_INVALID"):
-            REVIEW.build_review(market, stages, contract=contract)
+            self.build(market, stages, contract=contract)
 
     def test_populate_is_idempotent(self):
         with tempfile.TemporaryDirectory(prefix="korea_symbol_review_") as tmp:
-            first = REVIEW.populate(output_root=Path(tmp) / "evidence", latest_path=Path(tmp) / "latest.json")
-            second = REVIEW.populate(output_root=Path(tmp) / "evidence", latest_path=Path(tmp) / "latest.json")
+            common = {
+                "market_path": self.snapshot / "data" / "latest_korea_market_signals.json",
+                "stage_path": self.snapshot / "data" / "stage_history.json",
+                "briefing_root": self.briefing_root,
+                "output_root": Path(tmp) / "evidence",
+                "latest_path": Path(tmp) / "latest.json",
+            }
+            first = REVIEW.populate(**common)
+            second = REVIEW.populate(**common)
         self.assertEqual(first["outcome"], "populated")
         self.assertEqual(second["outcome"], "verified_existing")
         self.assertEqual(first["packet_sha256"], second["packet_sha256"])
+
+
+class LiveRollingPointerTests(unittest.TestCase):
+    """What the live pointers must satisfy, stated as properties.
+
+    No expected value here is a copy of today's watchlist: adding a symbol,
+    removing one or moving a stage tag must leave these green, while a
+    projection that invents a stage, drops a staged subject or emits an
+    order must turn them red.
+    """
+
+    def test_live_stage_tags_come_from_the_known_vocabulary(self):
+        _, stages = live_inputs()
+        self.assertTrue(stages)
+        vocabulary = set(SNAPSHOT.valid_stages())
+        for day, rows in stages.items():
+            self.assertIsInstance(rows, dict, msg=day)
+            for symbol, row in rows.items():
+                stage = row.get("stage")
+                if stage is not None:
+                    self.assertIn(stage, vocabulary, msg=f"{day}:{symbol}")
+
+    def test_live_review_labels_every_staged_contract_subject_and_orders_nothing(self):
+        market, stages = live_inputs()
+        subjects = REVIEW.load_contract()["supported_pipeline_subjects"]
+        latest = stages[sorted(stages)[-1]]
+        unstaged = [
+            symbol
+            for symbol in subjects
+            if not isinstance(latest.get(symbol), dict) or not isinstance(latest[symbol].get("stage"), str)
+        ]
+        if unstaged:
+            # The watchlist stopped staging a bounded subject. The bridge owes
+            # a refusal naming it, never a projected row with a guessed stage.
+            with self.assertRaisesRegex(
+                REVIEW.KoreaSymbolMarketReviewError, f"PIPELINE_SUBJECT_MISSING:{unstaged[0]}"
+            ):
+                REVIEW.build_review(market, stages)
+            return
+
+        result = REVIEW.build_review(market, stages)
+        self.assertEqual(REVIEW.validate_output(result), result)
+        by_symbol = {row["symbol"]: row for row in result["symbols"]}
+        self.assertEqual(set(by_symbol), set(subjects))
+        self.assertEqual(result["source"]["stage_snapshot"]["as_of"], sorted(stages)[-1])
+        vocabulary = set(SNAPSHOT.valid_stages())
+        for symbol, row in by_symbol.items():
+            self.assertEqual(row["pipeline_stage"], latest[symbol]["stage"], msg=symbol)
+            self.assertIn(row["pipeline_stage"], vocabulary, msg=symbol)
+            self.assertFalse(row["entry_review"]["automatic_entry_generated"], msg=symbol)
+            self.assertIsNone(row["entry_review"]["order_draft"], msg=symbol)
+        self.assertEqual(result["summary"]["automatic_entry_count"], 0)
+        self.assertEqual(result["summary"]["automatic_exit_count"], 0)
+        self.assertTrue(all(value is False for value in result["authority"].values()))
 
 
 def _shadow_window(available_at="2026-08-27T00:15:00Z", valid_until="2026-08-27T01:00:00Z"):
