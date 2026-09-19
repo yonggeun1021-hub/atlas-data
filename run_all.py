@@ -3057,6 +3057,21 @@ APPROVED_TESTS = [
     #   ⛔ Read-only: parses workflow YAML and greps repository .py files;
     #      no network, no git history mutation, no authority.
     "test/test_workflow_history_checkout_depth.py",
+    # ★ Cross-market comparability at one common decision timestamp.
+    #   compare_market_rows() requires the three markets' decision dates to be
+    #   identical (len(groups) == 1), which US/KR/Crypto session calendars make
+    #   a coincidence rather than a reachable state (1 of the 20 committed PAPER
+    #   reference days, and Crypto was UNKNOWN that day), while date coercion is
+    #   unauthorized. These tests pin the replacement contract: T is
+    #   caller-supplied and never inferred, each market keeps its own as_of_date
+    #   and available_at with its lag from T recorded, COMPLETE is gated on each
+    #   market's own already-adopted freshness state instead of date identity,
+    #   one unusable market is excluded with reason codes while the rest stay
+    #   comparable, and a two-market result is never labelled three-market.
+    #   ⛔ Read-only: pure-function fixtures plus reads of the adopted config
+    #      record and two repository source files; no network, no clock, no git
+    #      history mutation, and no authority flag is read or written.
+    "test/test_cross_market_comparability.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
