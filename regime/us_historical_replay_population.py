@@ -57,6 +57,25 @@ Historical replay evidence != NATURAL evidence:
   ``--out`` path outside the checkout, or (when ``--out`` is omitted) a private
   system-temp file whose path is printed and never committed.
 
+Where a date's sources come from is a declaration, not an assumption:
+
+* ``SOURCE_MODE_API`` (the default, and unchanged) issues live, per-date
+  Alpaca/FRED requests.
+* ``SOURCE_MODE_EVIDENCE`` answers those same requests from the append-only,
+  content-addressed capture already committed under
+  ``evidence/free_market_data/history/``, via ``regime/us_replay_evidence_source.py``.
+  Only the ``getter`` differs: every fetch, bind, axis derivation and record
+  field below is the same code, so an evidence-read date is not a second
+  implementation of a score. That store is read and never written.
+* Which mode ran is published in ``pit_source`` and re-required by
+  ``validate_population``, because the two modes do not carry the same
+  guarantees: the committed store holds one FRED series-metadata capture per
+  series rather than one per vintage, so evidence mode withholds the units
+  normalization instead of substituting a capture-time units string into an
+  earlier date (see ``UNITS_VINTAGE_UNAVAILABLE``). An evidence-read population
+  re-signed as a live-provider one would be claiming a units-vintage bind it
+  never had, so that swap fails closed.
+
 Point-in-time integrity is structural, not merely asserted:
 
 * Alpaca bars are requested with ``end`` pinned to the requested date, and any
@@ -351,6 +370,30 @@ VINTAGE_END_KEYS = frozenset(
     )
 )
 
+# ---------------------------------------------------------------------------
+# Where a replayed date's sources are read from.
+# ---------------------------------------------------------------------------
+#
+# ``LIVE_PROVIDER_API`` is the original and still the default: every axis is
+# rebuilt from live, per-date Alpaca/FRED requests. It is unchanged by the
+# evidence mode below -- same requests, same binds, same record shape, same
+# warnings -- so every existing caller keeps behaving exactly as before.
+#
+# ``COMMITTED_EVIDENCE_HISTORY_STORE`` rebuilds the same dates from the
+# append-only, content-addressed capture already committed under
+# ``evidence/free_market_data/history/``. That store is read, never written, by
+# ``regime/us_replay_evidence_source.py``, which answers the *same* request URLs
+# this module already issues -- so nothing about the derivation, the axis
+# arithmetic, the lookahead binds, or the record shape is re-implemented for it.
+#
+# Which mode produced a population is recorded in its ``pit_source`` block and
+# re-required by ``validate_population``: an evidence-read population can never
+# be mistaken for a live-provider one, in either direction.
+SOURCE_MODE_API = "LIVE_PROVIDER_API"
+SOURCE_MODE_EVIDENCE = "COMMITTED_EVIDENCE_HISTORY_STORE"
+SOURCE_MODES = (SOURCE_MODE_API, SOURCE_MODE_EVIDENCE)
+PIT_SOURCE_KEYS = ("mode", "store", "statement", "units_vintage_available")
+
 # The exact point-in-time block this population publishes, declared once so
 # ``build_population`` and ``validate_population`` cannot drift apart, and
 # required key for key by ``_validate_pit_replay``.
@@ -388,6 +431,24 @@ PIT_REPLAY_STATEMENT = (
 PIT_REPLAY_KEYS = PIT_REPLAY_TRUE_KEYS + PIT_REPLAY_FALSE_KEYS + (
     "close_adjustment", "statement",
 )
+# The evidence-read statement is the API one plus the two facts that only apply
+# when the sources came off disk. The API statement is left byte-identical so an
+# existing live-provider population still validates unchanged.
+PIT_REPLAY_STATEMENT_EVIDENCE = PIT_REPLAY_STATEMENT + (
+    " Sources were read from the committed, content-addressed"
+    " evidence/free_market_data/history/ store rather than requested live; FRED"
+    " observations were resolved through observations_available_at, so only rows"
+    " already published on the replayed date were visible. The store holds one"
+    " FRED series-metadata capture per series rather than one per vintage, so no"
+    " units normalization is applied and each liquidity row carries a"
+    " units_vintage disclosure instead of a metadata vintage window."
+)
+
+
+def pit_replay_statement(source_mode: str) -> str:
+    if source_mode == SOURCE_MODE_EVIDENCE:
+        return PIT_REPLAY_STATEMENT_EVIDENCE
+    return PIT_REPLAY_STATEMENT
 
 RAW_RETENTION = "TRANSIENT_NOT_PERSISTED_HASH_ATTESTED"
 RECORD_WARNINGS = [
@@ -397,6 +458,86 @@ RECORD_WARNINGS = [
     "SHADOW_HISTORICAL_BACKFILL_NOT_NATURAL_OBSERVATION",
     "REGIME_INTERPRETATION_UNAUTHORIZED",
 ]
+
+# The one point-in-time fact the committed store cannot supply, stated as a
+# limitation rather than papered over.
+#
+# FRED series *metadata* fixes the units string and hence the normalization
+# factor, and it is itself vintaged: WRESBAL was rescaled billions -> millions
+# on 2025-11-13. The committed history store holds exactly one metadata capture
+# per series, taken at capture time, so for any replayed date before that
+# capture the units in effect *on that date* are simply not in the evidence.
+#
+# Substituting the capture-time units for a historical date would be using a
+# later revision as if it had been knowable -- the exact thing this module
+# exists to prevent -- so evidence mode does not do it. It applies no
+# normalization at all (factor 1), records the observation values on the
+# vintage's own native scale, publishes no units claim it cannot support, and
+# says so in the row and in the record warnings.
+#
+# The consequence is bounded and stated: ``liquidity_axis_row`` reads only the
+# *sign* of each series' change, both sides of that difference come from the
+# same vintage and therefore the same scale, and every unit factor in
+# ``FMD.FRED_LIQUIDITY_UNITS`` is strictly positive -- so the axis direction is
+# invariant under the missing factor, while the recorded magnitudes are native
+# rather than normalized. ``test_us_historical_replay_population.py`` pins that
+# invariance instead of asserting it here.
+UNITS_VINTAGE_UNAVAILABLE_STATUS = "NOT_CAPTURED_AT_REPLAYED_VINTAGE"
+UNITS_VINTAGE_UNAVAILABLE_STATEMENT = (
+    "The committed evidence history store holds one FRED series-metadata"
+    " capture per series, not one per replayed vintage, so the units string in"
+    " effect on this replayed date is unknown. Using the capture-time units"
+    " would be a later revision leaking backwards, so no normalization is"
+    " applied: values and changes are on the vintage's own native scale and no"
+    " normalized unit is claimed. liquidity_axis_row reads only the sign of"
+    " each change and both sides of that difference share one vintage, so the"
+    " axis direction is unaffected; the magnitudes are not normalized."
+)
+UNITS_VINTAGE_KEYS = ("normalization_factor", "statement", "status")
+UNITS_VINTAGE_UNAVAILABLE = {
+    "status": UNITS_VINTAGE_UNAVAILABLE_STATUS,
+    "normalization_factor": "1",
+    "statement": UNITS_VINTAGE_UNAVAILABLE_STATEMENT,
+}
+EVIDENCE_RECORD_WARNINGS = RECORD_WARNINGS + [
+    "SOURCES_READ_FROM_COMMITTED_EVIDENCE_STORE_NOT_LIVE_PROVIDER",
+    "FRED_UNITS_VINTAGE_NOT_CAPTURED_LIQUIDITY_VALUES_ARE_NATIVE_SCALE",
+]
+PIT_SOURCE_STATEMENT = {
+    SOURCE_MODE_API: (
+        "Every axis observation was rebuilt from live, per-date Alpaca/FRED"
+        " requests issued at replay time."
+    ),
+    SOURCE_MODE_EVIDENCE: (
+        "Every axis observation was rebuilt from the append-only,"
+        " content-addressed capture committed under"
+        " evidence/free_market_data/history/, read and never written. FRED"
+        " observations are resolved through"
+        " collectors/free_market_data_history.py::observations_available_at, so"
+        " only rows already published on the replayed date are visible and a"
+        " later revision cannot leak backwards. The one point-in-time fact the"
+        " store does not hold is the per-vintage FRED units string -- see each"
+        " liquidity row's units_vintage block."
+    ),
+}
+
+
+def record_warnings(source_mode: str) -> list[str]:
+    """The disclosed limitations a record carries under this source mode.
+
+    Mode-derived rather than a single global: reading the committed store adds
+    two limitations a live-provider replay does not have, and a reader must not
+    have to infer either of them from the population's mode field.
+    """
+    if source_mode == SOURCE_MODE_EVIDENCE:
+        return list(EVIDENCE_RECORD_WARNINGS)
+    return list(RECORD_WARNINGS)
+
+
+def _check_source_mode(source_mode: object) -> str:
+    if source_mode not in SOURCE_MODES:
+        fail("SOURCE_MODE_INVALID", str(source_mode))
+    return str(source_mode)
 
 
 class ReplayPopulationError(ValueError):
@@ -995,13 +1136,26 @@ def replay_risk_vol_source(
 
 def replay_liquidity_source(
     fred_key: str, anchor: dt.date, *, getter, contract: dict,
+    source_mode: str = SOURCE_MODE_API,
 ) -> dict:
     """Rebuild the WRESBAL/TOTBKCR change known as of ``anchor``.
 
     Unit handling reuses ``collectors/free_market_data.FRED_LIQUIDITY_UNITS``
     and ``_decimal``/``_decimal_text`` unmodified, so a replayed change is on
     the same normalized scale as the production capture.
+
+    Under ``SOURCE_MODE_EVIDENCE`` that last sentence stops being true and the
+    row says so rather than pretending otherwise. The committed history store
+    holds one metadata capture per series, not one per vintage, so the units in
+    effect on an earlier replayed date are not in the evidence; applying the
+    capture-time factor anyway would be the later-revision leak this module
+    exists to prevent. The observation vintages themselves stay bound exactly as
+    strictly as in API mode -- only the units claim is withheld. See
+    ``UNITS_VINTAGE_UNAVAILABLE`` for the full statement and for why the axis
+    direction is unaffected.
     """
+    source_mode = _check_source_mode(source_mode)
+    units_vintage_available = source_mode != SOURCE_MODE_EVIDENCE
     if not fred_key:
         fail("BLOCKED_BY_FRED_CREDENTIAL")
     series_rows = []
@@ -1028,14 +1182,28 @@ def replay_liquidity_source(
         # The units definition is itself vintaged: a later metadata vintage can
         # carry a units string — and therefore a normalization factor — that was
         # not in effect on the replayed date.
-        metadata_realtime_start, metadata_realtime_end = _assert_vintage_covers(
-            anchor.isoformat(), metadata_rows[0], f"{series_id}.metadata",
-        )
-        units = metadata_rows[0].get("units")
-        unit_base = units.split(",", 1)[0].strip() if isinstance(units, str) else None
-        if unit_base not in FMD.FRED_LIQUIDITY_UNITS:
-            fail("US_LIQUIDITY_UNITS_INVALID", series_id)
-        normalized_unit, factor = FMD.FRED_LIQUIDITY_UNITS[unit_base]
+        units_block = None
+        if units_vintage_available:
+            metadata_vintage = _assert_vintage_covers(
+                anchor.isoformat(), metadata_rows[0], f"{series_id}.metadata",
+            )
+            units = metadata_rows[0].get("units")
+            unit_base = units.split(",", 1)[0].strip() if isinstance(units, str) else None
+            if unit_base not in FMD.FRED_LIQUIDITY_UNITS:
+                fail("US_LIQUIDITY_UNITS_INVALID", series_id)
+            normalized_unit, factor = FMD.FRED_LIQUIDITY_UNITS[unit_base]
+        else:
+            # No units claim, no normalization, and no metadata vintage window
+            # copied into the row: the captured window lies after most replayed
+            # dates, so recording it here would either read as a lookahead or
+            # have to be exempted from the backward-looking measurement walk.
+            # The population-level ``pit_source`` block carries the capture
+            # provenance instead.
+            metadata_vintage = None
+            units = None
+            normalized_unit = None
+            factor = Decimal("1")
+            units_block = dict(UNITS_VINTAGE_UNAVAILABLE)
         valid = _valid_observations(
             observations_body, f"US_LIQUIDITY_OBSERVATIONS_MISSING:{series_id}"
         )
@@ -1070,7 +1238,7 @@ def replay_liquidity_source(
             "metadata_response_sha256": metadata_sha,
             "observations_response_sha256": observations_sha,
         }
-        series_rows.append({
+        row = {
             "series_id": series_id,
             "title": metadata_rows[0].get("title"),
             "frequency": metadata_rows[0].get("frequency"),
@@ -1086,9 +1254,13 @@ def replay_liquidity_source(
             "realtime_end": realtime_end,
             "previous_realtime_start": previous_realtime_start,
             "previous_realtime_end": previous_realtime_end,
-            "metadata_realtime_start": metadata_realtime_start,
-            "metadata_realtime_end": metadata_realtime_end,
-        })
+        }
+        if metadata_vintage is not None:
+            row["metadata_realtime_start"] = metadata_vintage[0]
+            row["metadata_realtime_end"] = metadata_vintage[1]
+        else:
+            row["units_vintage"] = units_block
+        series_rows.append(row)
     return {
         "source_scope": contract["fred"]["source_scope"],
         "derivation_version": "fred_liquidity_current/v1",
@@ -1387,6 +1559,7 @@ def _no_lookahead_attestation(
 
 def _blocked_date_record(
     requested_date: str, failure_reason: str, *, replayed: list[str], attempted: int = 0,
+    source_mode: str = SOURCE_MODE_API,
 ) -> dict:
     return {
         "requested_date": requested_date,
@@ -1398,7 +1571,7 @@ def _blocked_date_record(
         "candidate_normalized_result": None,
         "source_hashes": None,
         "failure_reason": failure_reason,
-        "warnings": list(RECORD_WARNINGS),
+        "warnings": record_warnings(source_mode),
         "no_lookahead_attestation": _no_lookahead_attestation(
             requested_date, None, None, None, [], attempted=False,
             breadth_leadership_authorized="BREADTH" in replayed,
@@ -1519,7 +1692,7 @@ def _unified_trend_breadth_leadership_attempts(
 
 def replay_one_requested_date(
     credentials: dict, requested_date: str, *, getter, contract: dict, policy: dict,
-    excluded: dict, replayed: list[str],
+    excluded: dict, replayed: list[str], source_mode: str = SOURCE_MODE_API,
 ) -> dict:
     """Resolve and replay exactly one caller-supplied historical date.
 
@@ -1534,12 +1707,14 @@ def replay_one_requested_date(
     this call's authorized axis set can never silently diverge from the
     contract it was actually built against.
     """
+    source_mode = _check_source_mode(source_mode)
     secrets = [value for value in credentials.values() if value]
     try:
         anchor = _parse_requested_date(requested_date)
     except ReplayPopulationError as exc:
         return _blocked_date_record(
             requested_date, redact(str(exc), secrets), replayed=replayed,
+            source_mode=source_mode,
         )
 
     breadth_leadership_authorized = "BREADTH" in replayed
@@ -1561,7 +1736,8 @@ def replay_one_requested_date(
             ),
             "LIQUIDITY": _axis_attempt(
                 lambda: replay_liquidity_source(
-                    credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+                    credentials.get("fred_key", ""), anchor, getter=getter,
+                    contract=contract, source_mode=source_mode,
                 ),
                 lambda measurement: liquidity_axis_row(measurement["series"]),
                 secrets,
@@ -1588,7 +1764,8 @@ def replay_one_requested_date(
             ),
             "LIQUIDITY": _axis_attempt(
                 lambda: replay_liquidity_source(
-                    credentials.get("fred_key", ""), anchor, getter=getter, contract=contract,
+                    credentials.get("fred_key", ""), anchor, getter=getter,
+                    contract=contract, source_mode=source_mode,
                 ),
                 lambda measurement: liquidity_axis_row(measurement["series"]),
                 secrets,
@@ -1646,7 +1823,7 @@ def replay_one_requested_date(
     if any(date > requested_date for date in source_dates):
         return _blocked_date_record(
             requested_date, LOOKAHEAD_BLOCKED_REASON, replayed=replayed,
-            attempted=len(replayed),
+            attempted=len(replayed), source_mode=source_mode,
         )
 
     axes = {
@@ -1714,7 +1891,7 @@ def replay_one_requested_date(
         "candidate_normalized_result": candidate,
         "source_hashes": source_hashes,
         "failure_reason": failure_reason,
-        "warnings": list(RECORD_WARNINGS),
+        "warnings": record_warnings(source_mode),
         "no_lookahead_attestation": _no_lookahead_attestation(
             requested_date, trend, risk, liquidity, liquidity_dates, attempted=True,
             breadth_leadership=breadth_leadership_measurement,
@@ -1728,7 +1905,24 @@ def replay_one_requested_date(
 # ---------------------------------------------------------------------------
 
 
-def _pit_replay_block() -> dict:
+def _pit_source_block(source_mode: str, store: object) -> dict:
+    """Which sources this population was actually rebuilt from.
+
+    Published and re-required key for key by ``_validate_pit_source``, for the
+    same reason ``pit_replay`` is: a re-hashed payload is a valid signature over
+    whatever it contains, so an unchecked mode field would let an evidence-read
+    population be re-signed as a live-provider one -- and with it the stronger
+    units-vintage guarantee it never had.
+    """
+    return {
+        "mode": _check_source_mode(source_mode),
+        "store": store,
+        "units_vintage_available": source_mode != SOURCE_MODE_EVIDENCE,
+        "statement": PIT_SOURCE_STATEMENT[source_mode],
+    }
+
+
+def _pit_replay_block(source_mode: str = SOURCE_MODE_API) -> dict:
     """The population's point-in-time declaration, built from the shared shape.
 
     Emitted here and re-required by ``_validate_pit_replay`` from the same
@@ -1739,13 +1933,28 @@ def _pit_replay_block() -> dict:
         **{key: True for key in PIT_REPLAY_TRUE_KEYS},
         **{key: False for key in PIT_REPLAY_FALSE_KEYS},
         "close_adjustment": PIT_REPLAY_CLOSE_ADJUSTMENT,
-        "statement": PIT_REPLAY_STATEMENT,
+        "statement": pit_replay_statement(source_mode),
     }
 
 
 def build_population(
     credentials: dict, requested_dates: list[str], *, getter=None,
+    source_mode: str = SOURCE_MODE_API, source_store: object = None,
 ) -> dict:
+    """Replay every requested date and publish one population.
+
+    ``source_mode`` records — and is re-checked against — where the per-date
+    sources came from. It changes nothing about the derivation: the same
+    requests are issued against the same code, only answered by a different
+    ``getter``. It is a declaration, not a switch over arithmetic, and
+    ``SOURCE_MODE_EVIDENCE`` additionally requires ``source_store`` so the
+    population names the store it read.
+    """
+    source_mode = _check_source_mode(source_mode)
+    if source_mode == SOURCE_MODE_EVIDENCE and not isinstance(source_store, dict):
+        fail("SOURCE_STORE_REQUIRED", source_mode)
+    if source_mode == SOURCE_MODE_API and source_store is not None:
+        fail("SOURCE_STORE_FORBIDDEN", source_mode)
     getter = FMD._get if getter is None else getter
     contract = FMD.load_contract(FMD.CONTRACT_PATH)
     policy = _load_candidate_policy()
@@ -1765,7 +1974,7 @@ def build_population(
     records = [
         replay_one_requested_date(
             credentials, date, getter=getter, contract=contract, policy=policy,
-            excluded=excluded, replayed=replayed,
+            excluded=excluded, replayed=replayed, source_mode=source_mode,
         )
         for date in unique_dates
     ]
@@ -1799,11 +2008,15 @@ def build_population(
             "collectors/free_market_data.py::load_contract",
         ],
         "records": records,
+        # Where the per-date sources came from -- live providers or the
+        # committed evidence store -- and what that choice does and does not
+        # guarantee. Re-required by ``_validate_pit_source``.
+        "pit_source": _pit_source_block(source_mode, source_store),
         # Structural facts about *how* this population was produced. Each is
         # enforced by test/test_us_historical_replay_population.py rather than
         # merely asserted here, and each is re-required key for key by
         # ``_validate_pit_replay``.
-        "pit_replay": _pit_replay_block(),
+        "pit_replay": _pit_replay_block(source_mode),
         "authority": dict(AUTHORITY),
     }
     population["payload_sha256"] = payload_sha256(population)
@@ -1898,13 +2111,49 @@ def validate_population(value: dict) -> dict:
         or requested != sorted(set(requested))
     ):
         fail("POPULATION_DATE_ORDER_INVALID")
-    _validate_records(value, requested, _revalidation_policy(value), excluded, replayed)
-    _validate_pit_replay(value)
+    # Read before the records are walked: which units-vintage rule applies to an
+    # evidence-read liquidity row is keyed off this declaration, never off what
+    # the row itself claims.
+    source_mode = _validate_pit_source(value)
+    _validate_records(
+        value, requested, _revalidation_policy(value), excluded, replayed,
+        source_mode,
+    )
+    _validate_pit_replay(value, source_mode)
     _validate_authority(value)
     return copy.deepcopy(value)
 
 
-def _validate_pit_replay(value: dict) -> None:
+def _validate_pit_source(value: dict) -> str:
+    """The population's own source declaration, required key for key.
+
+    Returns the declared mode, which every record check below is keyed off.
+
+    A population built before this block existed carries no ``pit_source`` at
+    all; that is the live-provider default and is accepted as such, exactly like
+    an absent historical-PIT identity file is the pre-U1 narrow default. What is
+    not accepted is a *present* block that is malformed, that names an unknown
+    mode, or whose statement or ``units_vintage_available`` flag disagrees with
+    the mode it declares -- re-signing an evidence-read population as a
+    live-provider one would silently claim the stronger units-vintage guarantee
+    that mode never had.
+    """
+    pit_source = value.get("pit_source")
+    if pit_source is None:
+        return SOURCE_MODE_API
+    if not isinstance(pit_source, dict) or sorted(pit_source) != sorted(PIT_SOURCE_KEYS):
+        fail("PIT_SOURCE_SCHEMA_INVALID")
+    mode = _check_source_mode(pit_source.get("mode"))
+    if pit_source != _pit_source_block(mode, pit_source.get("store")):
+        fail("PIT_SOURCE_DECLARATION_INVALID", mode)
+    if mode == SOURCE_MODE_EVIDENCE and not isinstance(pit_source.get("store"), dict):
+        fail("PIT_SOURCE_STORE_REQUIRED", mode)
+    if mode == SOURCE_MODE_API and pit_source.get("store") is not None:
+        fail("PIT_SOURCE_STORE_FORBIDDEN", mode)
+    return mode
+
+
+def _validate_pit_replay(value: dict, source_mode: str = SOURCE_MODE_API) -> None:
     """The point-in-time declaration must be complete and must say what it says.
 
     Point-in-time integrity is non-negotiable, so the block asserting it is
@@ -1945,7 +2194,7 @@ def _validate_pit_replay(value: dict) -> None:
             fail("PIT_REPLAY_DECLARATION_INVALID", key)
     if pit["close_adjustment"] != PIT_REPLAY_CLOSE_ADJUSTMENT:
         fail("PIT_REPLAY_DECLARATION_INVALID", "close_adjustment")
-    if pit["statement"] != PIT_REPLAY_STATEMENT:
+    if pit["statement"] != pit_replay_statement(source_mode):
         fail("PIT_REPLAY_STATEMENT_INVALID")
 
 
@@ -2021,6 +2270,7 @@ def _revalidation_policy(value: dict) -> dict:
 
 def _validate_records(
     value: dict, requested: list[str], policy: dict, excluded: dict, replayed: list[str],
+    source_mode: str = SOURCE_MODE_API,
 ) -> None:
     """Exactly one record per requested date, in the same order — no omissions.
 
@@ -2040,11 +2290,14 @@ def _validate_records(
     if dates != requested:
         fail("POPULATION_RECORDS_NOT_BIJECTIVE", "requested_date")
     for record, requested_date in zip(records, requested):
-        _validate_record(record, requested_date, policy, excluded, replayed)
+        _validate_record(
+            record, requested_date, policy, excluded, replayed, source_mode,
+        )
 
 
 def _validate_record(
     record: dict, requested_date: str, policy: dict, excluded: dict, replayed: list[str],
+    source_mode: str = SOURCE_MODE_API,
 ) -> None:
     """One record, re-derived from its own axes rather than read as written.
 
@@ -2067,7 +2320,7 @@ def _validate_record(
     # The unadjusted-close convention and the "shadow, not NATURAL" scope are
     # disclosed limitations a reader relies on, exactly like ``close_adjustment``
     # in the PIT block, so they are required rather than carried unread.
-    if record.get("warnings") != RECORD_WARNINGS:
+    if record.get("warnings") != record_warnings(source_mode):
         fail("RECORD_WARNINGS_INVALID", requested_date)
     five_axis = record.get("five_axis")
     candidate = record.get("candidate_normalized_result")
@@ -2201,7 +2454,7 @@ def _validate_record(
         record, five_axis, candidate, policy, requested_date, replayed, excluded,
     )
     _validate_source_hash_consistency(record, axes, observed, replayed, requested_date)
-    _validate_fred_vintage_binding(axes, observed, requested_date)
+    _validate_fred_vintage_binding(axes, observed, requested_date, source_mode)
     _validate_measurement_source_dates(axes, observed, requested_date)
     _validate_no_lookahead(record, requested_date)
     _validate_attestation_is_derived_from_its_evidence(
@@ -2298,8 +2551,37 @@ def _validate_attestation_is_derived_from_its_evidence(
         fail("RECORD_ATTESTATION_NOT_DERIVED_FROM_ITS_EVIDENCE", requested_date)
 
 
+def _validate_units_vintage_withheld(row: object, label: str) -> None:
+    """An evidence-read liquidity row must withhold the units claim, exactly.
+
+    The weaker guarantee is only honest if it cannot be quietly upgraded into
+    the stronger one, or downgraded into nothing. A row is therefore required to
+    carry the ``units_vintage`` block verbatim, to carry *no* metadata vintage
+    window (which would read as a units vintage the store does not hold), and to
+    claim neither a source unit nor a normalized unit. The applied factor must
+    be exactly ``1``: any other factor is a normalization derived from units
+    this mode does not know.
+    """
+    if not isinstance(row, dict):
+        fail("OBSERVED_AXIS_MUST_CARRY_ITS_MEASUREMENT", label)
+    if any(key in row for key in FRED_METADATA_VINTAGE_KEYS):
+        fail("UNITS_VINTAGE_MUST_NOT_BE_CLAIMED_FROM_THE_EVIDENCE_STORE", label)
+    block = row.get("units_vintage")
+    if (
+        not isinstance(block, dict)
+        or sorted(block) != sorted(UNITS_VINTAGE_KEYS)
+        or block != UNITS_VINTAGE_UNAVAILABLE
+    ):
+        fail("UNITS_VINTAGE_DISCLOSURE_INVALID", label)
+    if row.get("source_unit") is not None or row.get("normalized_unit") is not None:
+        fail("UNITS_VINTAGE_DISCLOSURE_INVALID", f"{label}.unit")
+    if row.get("normalization_factor") != "1":
+        fail("UNITS_VINTAGE_DISCLOSURE_INVALID", f"{label}.normalization_factor")
+
+
 def _validate_fred_vintage_binding(
     axes: dict, observed: list[str], requested_date: str,
+    source_mode: str = SOURCE_MODE_API,
 ) -> None:
     """Every observed FRED measurement must carry a vintage that covers its date.
 
@@ -2344,9 +2626,18 @@ def _validate_fred_vintage_binding(
             _assert_vintage_covers(
                 requested_date, row, f"{label}.previous", FRED_PREVIOUS_VINTAGE_KEYS,
             )
-            _assert_vintage_covers(
-                requested_date, row, f"{label}.metadata", FRED_METADATA_VINTAGE_KEYS,
-            )
+            # The observation vintages above are bound identically in both
+            # modes. Only the units vintage differs, and which of the two rules
+            # applies is keyed off the population's declared source mode rather
+            # than off anything the row itself says -- a row cannot escape the
+            # strict bind by declaring its units withheld.
+            if source_mode == SOURCE_MODE_EVIDENCE:
+                _validate_units_vintage_withheld(row, label)
+            else:
+                _assert_vintage_covers(
+                    requested_date, row, f"{label}.metadata",
+                    FRED_METADATA_VINTAGE_KEYS,
+                )
 
 
 def _measurement_dates(value: object, label: str) -> list[dt.date]:
@@ -2735,6 +3026,17 @@ def main() -> int:
         "--out", type=Path, default=None,
         help="External output path (must be outside this checkout). Defaults to a private system-temp file.",
     )
+    parser.add_argument(
+        "--source-mode", choices=list(SOURCE_MODES), default=SOURCE_MODE_API,
+        dest="source_mode",
+        help=(
+            "Where each date's sources are read from."
+            f" {SOURCE_MODE_API} (default) issues live Alpaca/FRED requests."
+            f" {SOURCE_MODE_EVIDENCE} reads the committed, content-addressed"
+            " evidence/free_market_data/history/ store via"
+            " regime/us_replay_evidence_source.py and makes no network request."
+        ),
+    )
     parser.add_argument("--verify", type=Path)
     args = parser.parse_args()
 
@@ -2747,7 +3049,19 @@ def main() -> int:
     if not args.dates:
         fail("NO_DATES_REQUESTED")
 
-    population = build_population(_credentials_from_env(), args.dates)
+    if args.source_mode == SOURCE_MODE_EVIDENCE:
+        # Imported here, not at module import: the live-provider path must not
+        # acquire a dependency on the evidence reader.
+        from regime import us_replay_evidence_source as EVIDENCE
+
+        store = EVIDENCE.open_store(ROOT)
+        population = build_population(
+            dict(EVIDENCE.EVIDENCE_CREDENTIALS), args.dates,
+            getter=EVIDENCE.EvidenceGetter(store),
+            source_mode=SOURCE_MODE_EVIDENCE, source_store=store.descriptor(),
+        )
+    else:
+        population = build_population(_credentials_from_env(), args.dates)
     out_path = args.out if args.out is not None else _default_temp_out()
     write_population(population, out_path)
     counts = {status: 0 for status in RECORD_STATUSES}
@@ -2756,6 +3070,7 @@ def main() -> int:
     print(json.dumps(
         {
             "out": str(out_path),
+            "source_mode": args.source_mode,
             "payload_sha256": population["payload_sha256"],
             "records": len(population["records"]),
             "free_axes_observed": counts[STATUS_OBSERVED],
