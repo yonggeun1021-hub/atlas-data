@@ -216,6 +216,7 @@ def fetch_filings(cik: str, days: int = LOOKBACK_DAYS) -> dict:
 
     forms = recent.get("form", [])
     dates = recent.get("filingDate", [])
+    acceptances = recent.get("acceptanceDateTime", [])
     accs = recent.get("accessionNumber", [])
     docs = recent.get("primaryDocument", [])
     items = recent.get("items", [""] * len(forms))
@@ -231,7 +232,7 @@ def fetch_filings(cik: str, days: int = LOOKBACK_DAYS) -> dict:
         acc = (accs[i] if i < len(accs) else "").replace("-", "")
         fam = form_family(form)
         family_counts[fam] = family_counts.get(fam, 0) + 1
-        out.append({
+        row = {
             "date": d,
             "form": form,
             "form_family": fam,                            # Decision Layer 재사용용 분류
@@ -248,7 +249,14 @@ def fetch_filings(cik: str, days: int = LOOKBACK_DAYS) -> dict:
             "body_capture_status": ("Unimplemented — 본문·Exhibit 저장 여부는 "
                                     "저장비용·보존기간 결정이 선행되어야 한다"),
             **parse_items(items[i] if i < len(items) else "", form),
-        })
+        }
+        # SEC submissions supplies an exact acceptance instant when available.
+        # Preserve the provider field verbatim; older/stub responses remain
+        # date-only and must not receive an invented timestamp.
+        acceptance = acceptances[i] if i < len(acceptances) else None
+        if acceptance:
+            row["acceptanceDateTime"] = acceptance
+        out.append(row)
 
     # ★ 발행사 프로파일은 제출된 폼에서 '도출'한다. 종목명으로 하드코딩하지 않는다.
     #   판단이 안 서면 unknown 으로 남긴다 — 추정으로 채우지 않는다.

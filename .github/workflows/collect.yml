@@ -36,6 +36,8 @@ jobs:
           echo "observed_started_at_utc=$STARTED_AT" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
 
       # ────────────────────────────────────────────────────────────────
       # Guard — 오늘자(KST) '정상' 수집분이 이미 있으면 이 회차는 건너뛴다.
@@ -366,5 +368,27 @@ jobs:
           else
             # ★ KST 기준 (UTC 로 찍으면 06시 KST 실행분이 전날 날짜로 기록됨)
             git commit -m "data: $(TZ=Asia/Seoul date +%Y-%m-%d) collect [${TRIGGER}]"
+            git push
+          fi
+
+      # P10-07 — after the collector data commit exists, build a reference-only
+      # source-readiness observation against that exact commit. The adapter
+      # reuses retained DART/SEC bytes and owner validators without provider or
+      # model calls. A nominal cron is never treated as a delivery guarantee;
+      # incomplete event/freshness/admission evidence remains UNKNOWN.
+      - name: Record AI Shadow source readiness (P10-07)
+        if: always()
+        run: |
+          SOURCE_COMMIT=$(git rev-parse HEAD)
+          EVALUATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 shadow/ai_external_analysis_source_readiness.py \
+            --source-commit "$SOURCE_COMMIT" \
+            --evaluated-at-utc "$EVALUATED_AT" \
+            --out-root data/observations/ai_external_analysis_source_readiness
+          git add data/observations/ai_external_analysis_source_readiness
+          if git diff --staged --quiet; then
+            echo "AI Shadow source readiness unchanged"
+          else
+            git commit -m "data: AI Shadow source readiness observation"
             git push
           fi
