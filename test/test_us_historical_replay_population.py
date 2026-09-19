@@ -234,7 +234,37 @@ def full_us_packet(trend_returns, vix, liquidity_changes):
     }
 
 
-class UsFreeAxisReplayScopeTest(unittest.TestCase):
+class NarrowThreeAxisScope:
+    """Pin the 3-axis replay scope explicitly instead of inheriting it from disk.
+
+    The 3-axis path (TREND/RISK_VOL/LIQUIDITY, BREADTH/LEADERSHIP excluded) is
+    live, reachable code: ``config/us_historical_pit_replay_identity_v1.json``'s
+    ``replay_population_wiring_activated`` is a reversible switch, and every
+    historical population built before that file existed is exactly this case.
+    Until the flag was activated (user ratification
+    ``USER_RATIFICATION_US_REPLAY_FLAG_20260920``, 2026-09-20) these classes got
+    the narrow scope for free from the on-disk bytes, which quietly made them
+    assertions about the committed *value* rather than about the narrow
+    *behaviour* they are named for. The value is pinned here instead -- the same
+    ``mock.patch.object`` mechanism ``UsWiredFiveAxisReplayTest`` uses for the
+    widened side, inverted. Not one assertion in these classes changed.
+
+    ``UsHistoricalPitReplayIdentityTest`` is the one class that still reads the
+    real on-disk bytes, and it is where the committed value is asserted.
+    """
+
+    def setUp(self):
+        identity = copy.deepcopy(MODULE._load_historical_pit_replay_identity())
+        identity["replay_population_wiring_activated"] = False
+        self.enterContext(
+            mock.patch.object(
+                MODULE, "_load_historical_pit_replay_identity", return_value=identity,
+            )
+        )
+        super().setUp()
+
+
+class UsFreeAxisReplayScopeTest(NarrowThreeAxisScope, unittest.TestCase):
     def test_schema_mode_and_evidence_class_are_shadow_never_natural(self):
         population = build([ANCHOR])
         self.assertEqual(population["schema_version"], "regime_us_historical_replay_population/v1")
@@ -327,10 +357,11 @@ class UsFreeAxisReplayScopeTest(unittest.TestCase):
             self.assertIs(authority[critical], False, critical)
 
 
-class UsFreeAxisRuleParityTest(unittest.TestCase):
+class UsFreeAxisRuleParityTest(NarrowThreeAxisScope, unittest.TestCase):
     """The replayed rows must equal the live build_us rows, boundary by boundary."""
 
     def setUp(self):
+        super().setUp()
         self.policy = MODULE._load_candidate_policy()
 
     def _built_rows(self, packet):
@@ -428,7 +459,7 @@ def _leadership_slopes(positive_count: int) -> dict:
     return slopes
 
 
-class UsBreadthLeadershipPreparedNotWiredTest(unittest.TestCase):
+class UsBreadthLeadershipPreparedNotWiredTest(NarrowThreeAxisScope, unittest.TestCase):
     """U1 (CIO US-DATA-1, 2026-09-14): BREADTH/LEADERSHIP arithmetic and its
     fetch are added and parity-tested, but not wired into the replay
     pipeline -- U2 (the ratification widening
@@ -437,9 +468,14 @@ class UsBreadthLeadershipPreparedNotWiredTest(unittest.TestCase):
     module still has no authority to make on its own. Every guarantee
     ``UsFreeAxisReplayScopeTest`` already asserts (BREADTH/LEADERSHIP always
     UNKNOWN, 3/3 replay, 3/5 coverage) must therefore keep holding unchanged.
+
+    The on-disk flag is now activated, so "not wired" is pinned explicitly by
+    ``NarrowThreeAxisScope`` instead of read off the committed bytes. The
+    unwired arithmetic is still reachable code and still has to be correct.
     """
 
     def setUp(self):
+        super().setUp()
         self.policy = MODULE._load_candidate_policy()
         self.contract = FMD.load_contract(FMD.CONTRACT_PATH)
 
@@ -585,10 +621,12 @@ class UsHistoricalPitReplayIdentityTest(unittest.TestCase):
     unrelated governance anchor, so editing it at all would change its
     sha256 and break that pin. ``authority.us_breadth_authorized`` is never
     the gate -- these tests pin that it stays exactly ``False`` under every
-    widened/narrowed identity below -- and the real on-disk identity file's
-    own ``replay_population_wiring_activated`` stays ``False``, so
-    ``UsFreeAxisReplayScopeTest``/``UsBreadthLeadershipPreparedNotWiredTest``
-    above keep holding unchanged against it.
+    widened/narrowed identity below. The real on-disk identity file's own
+    ``replay_population_wiring_activated`` is ``True`` as of user ratification
+    ``USER_RATIFICATION_US_REPLAY_FLAG_20260920`` (2026-09-20); this class is the
+    only place that asserts that committed value, and the narrow-scope classes
+    above pin ``False`` for themselves through ``NarrowThreeAxisScope`` rather
+    than inheriting it from these bytes.
     """
 
     def setUp(self):
@@ -600,7 +638,7 @@ class UsHistoricalPitReplayIdentityTest(unittest.TestCase):
         active["replay_population_wiring_activated"] = True
         return active
 
-    def test_real_identity_file_is_present_but_inactive_and_narrow(self):
+    def test_real_identity_file_is_present_and_activated_to_all_five_axes(self):
         self.assertIsNotNone(self.identity)
         self.assertEqual(
             self.identity["status"], MODULE.RATIFIED_HISTORICAL_PIT_REPLAY_STATUS,
@@ -613,11 +651,12 @@ class UsHistoricalPitReplayIdentityTest(unittest.TestCase):
             self.identity["decision_record"]["sha256"],
             MODULE.RATIFIED_HISTORICAL_PIT_REPLAY_DECISION_SHA256,
         )
-        self.assertIs(self.identity["replay_population_wiring_activated"], False)
-        self.assertEqual(
-            MODULE.authorized_axes(self.contract), ["TREND", "RISK_VOL", "LIQUIDITY"],
-        )
-        self.assertEqual(sorted(MODULE.exclusion_basis(self.contract)), ["BREADTH", "LEADERSHIP"])
+        # Activated 2026-09-20 by USER_RATIFICATION_US_REPLAY_FLAG_20260920. The
+        # value is a reversible switch, so it is asserted here -- once, against
+        # the real bytes -- and nowhere else.
+        self.assertIs(self.identity["replay_population_wiring_activated"], True)
+        self.assertEqual(MODULE.authorized_axes(self.contract), list(PRR.AXES))
+        self.assertEqual(MODULE.exclusion_basis(self.contract), {})
 
     def test_activating_the_identity_widens_to_all_five_axes(self):
         with mock.patch.object(
@@ -711,11 +750,9 @@ class UsHistoricalPitReplayIdentityTest(unittest.TestCase):
         self.assertTrue(path.is_file())
         self.assertIs(
             MODULE._load_historical_pit_replay_identity()["replay_population_wiring_activated"],
-            False,
+            True,
         )
-        self.assertEqual(
-            MODULE.authorized_axes(self.contract), ["TREND", "RISK_VOL", "LIQUIDITY"],
-        )
+        self.assertEqual(MODULE.authorized_axes(self.contract), list(PRR.AXES))
 
     def test_breadth_authorized_flipping_still_fails_closed_with_no_identity(self):
         # The original pre-U1 guarantee, preserved: us_breadth_authorized is
@@ -1229,7 +1266,7 @@ class UsRealEvidenceReplayFidelityTest(unittest.TestCase):
         )
 
 
-class UsFreeAxisPointInTimeTest(unittest.TestCase):
+class UsFreeAxisPointInTimeTest(NarrowThreeAxisScope, unittest.TestCase):
     def test_every_request_is_pinned_to_the_requested_date(self):
         providers = FakeProviders()
         build([ANCHOR], providers)
@@ -1479,7 +1516,7 @@ class UsFreeAxisPointInTimeTest(unittest.TestCase):
         self.assertEqual(solo, matched)
 
 
-class UsFreeAxisFailClosedTest(unittest.TestCase):
+class UsFreeAxisFailClosedTest(NarrowThreeAxisScope, unittest.TestCase):
     def test_a_fred_outage_leaves_trend_observed_and_the_record_partial(self):
         record = build([ANCHOR], FakeProviders(fail_fred=True))["records"][0]
         self.assertEqual(record["status"], "FREE_AXES_PARTIAL")
@@ -1591,7 +1628,7 @@ class UsFreeAxisDeterminismTest(unittest.TestCase):
         self.assertEqual(MODULE.canonical_json(first), MODULE.canonical_json(second))
 
 
-class UsFreeAxisValidationTest(unittest.TestCase):
+class UsFreeAxisValidationTest(NarrowThreeAxisScope, unittest.TestCase):
     def test_validate_population_accepts_its_own_output(self):
         population = build([ANCHOR])
         self.assertEqual(MODULE.validate_population(copy.deepcopy(population)), population)

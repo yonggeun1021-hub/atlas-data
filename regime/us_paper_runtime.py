@@ -58,7 +58,7 @@ from regime import regime_semantic_freshness as SEMANTIC
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_RELATIVE = "config/us_paper_runtime_contract_v1.json"
-CONTRACT_SHA256 = "bad715c8a960b6aa7a5618b22e5ccefc580f38599e2c3f532f7e182c700812d3"
+CONTRACT_SHA256 = "d85a0bfe985ca1b3d33785a8a422aea7213d19c807ddf389c6aca7e35fb992f5"
 ADOPTION_RELATIVE = "config/us_paper_runtime_adoption_v1.json"
 TEMPLATE_RELATIVE = "config/us_paper_runtime_adoption_v1.TEMPLATE.json"
 PIT_STATUS_RELATIVE = "data/latest_market_scoped_pit_acceptance.json"
@@ -81,6 +81,57 @@ ADOPTION_TEMPLATE_STATUS = "TEMPLATE_NOT_ACTIVE"
 # second place to bind an artifact that has none.
 ADOPTION_DERIVED_REASONS = ("US_PIT_ACCEPTED_RECORD_UNBOUND", "US_OFFICIAL_SESSION_CALENDAR_UNBOUND")
 ACCEPTANCE_RECORD_SCHEMA = "us_pit_acceptance_record/1"
+
+# ---------------------------------------------------------------------------
+# The two PIT binding modes, and why there are two
+# ---------------------------------------------------------------------------
+# BUNDLE mode binds the full population bundle as a committed file and
+# re-validates it with its owning validator on every evaluation.  It is the
+# strongest form and stays the only form whenever the bundle is small enough to
+# commit.
+#
+# RECEIPT mode exists because the real US bundle is not: the declared range is
+# 1,480 sessions and the bundle measures ~64 MiB, of which ~86% is per-record
+# ``five_axis`` raw measurement.  Committing it collides head-on with
+# ``us_historical_replay_population._forbid_tracked_output``, which refuses --
+# by design, as "a blanket 'not inside the checkout at all'" -- to write
+# historical replay evidence to ANY path inside the checkout.  BUNDLE mode and
+# that guard cannot both be satisfied, so before RECEIPT mode existed a real US
+# adoption was unreachable: the acceptance record was derivable from an
+# out-of-checkout bundle but not bindable.  Relaxing the guard was refused
+# (user ratification USER_RATIFICATION_US_REPLAY_FLAG_20260920 forbids both
+# relaxing it and committing the bundle).
+#
+# RECEIPT mode is not a new convention.  It is the shape KR has always used
+# (``evidence/authority/kr_paper_runtime_adoption_v1.json``): commit the
+# ``replay_common_v1`` OUTPUT plus a receipt, and hash-bind the population that
+# is NOT committed (KR's ``population.file_sha256`` names an out-of-checkout
+# path, and its ``raw_provider_rows_committed`` is ``false``).
+#
+# What makes it a binding rather than a written-down hash: nothing here is
+# taken on trust from the receipt.  The committed replay output carries each
+# step's INPUT ``axis_directions``, so the input sequence is rebuilt from it and
+# checked against the replay's own ``source_sequence_sha256``; ``replay_common_v1``
+# is then re-run over that rebuilt sequence and must reproduce the committed
+# replay bytes exactly; and the whole acceptance evaluation --
+# ``evaluated_date_count``, ``regimes_observed``, ``missing_regimes``, ``status``,
+# ``replay_report_sha256``, ``contract_version``, ``authority`` -- is re-derived
+# from that rerun and must byte-match the receipt's recorded ``evaluation``.  A
+# hand-edited receipt is refused even when internally consistent and re-signed.
+#
+# The one thing RECEIPT mode cannot re-derive in-checkout is
+# ``validate_population`` over the full bundle, because the bundle is not here.
+# That is recorded as a hash-bound attestation (bundle payload and file sha256,
+# byte count, validator verdict, ``committed: false``) and is exactly the
+# residual KR already carries.  It is disclosed, not hidden.
+ACCEPTANCE_RECEIPT_SCHEMA = "us_pit_acceptance_receipt/1"
+PIT_BINDING_MODE_BUNDLE = "COMMITTED_POPULATION_BUNDLE"
+PIT_BINDING_MODE_RECEIPT = "COMMITTED_REPLAY_RECEIPT_HASH_BOUND_UNCOMMITTED_BUNDLE"
+# Mutually exclusive key sets.  Exactly one mode's keys may be present; both or
+# neither fails closed, so a half-migrated adoption can never pick a mode by
+# accident.
+PIT_BUNDLE_KEYS = frozenset({"bundle_path", "acceptance_record_path", "acceptance_record_sha256"})
+PIT_RECEIPT_KEYS = frozenset({"receipt_path", "receipt_sha256", "replay_path", "replay_sha256"})
 CALENDAR_SCHEMA = "us_official_session_calendar/1"
 SOURCE_SCHEMA = "free_market_data_capture/5"
 
@@ -442,10 +493,164 @@ def population_module():
     return POPULATION
 
 
-def load_acceptance(root: Path, adoption: dict) -> dict:
-    """Bound US PIT_ACCEPTED record, re-evaluated from the bound bundle bytes."""
-    binding = adoption.get("pit_acceptance")
+def pit_binding_mode(binding: object) -> str:
+    """Which of the two PIT binding modes this adoption uses, or fail closed.
+
+    Exactly one mode's key set may be present.  Both present is a half-migrated
+    adoption and neither is an unbound one; both fail rather than letting the
+    stricter or the weaker mode be chosen implicitly.
+    """
     require(isinstance(binding, dict), "US_PIT_ACCEPTED_RECORD_UNBOUND")
+    bundle = bool(PIT_BUNDLE_KEYS & set(binding))
+    receipt = bool(PIT_RECEIPT_KEYS & set(binding))
+    require(bundle != receipt, "US_PIT_BINDING_MODE_AMBIGUOUS")
+    return PIT_BINDING_MODE_BUNDLE if bundle else PIT_BINDING_MODE_RECEIPT
+
+
+def _sequence_from_replay(replay: dict) -> dict:
+    """Rebuild ``PIT._build_sequence``'s output from the committed replay output.
+
+    The replay output records each step's INPUT ``axis_directions`` alongside its
+    verdict, which is what makes the committed artifact re-derivable instead of
+    merely readable.  This rebuilds the exact shape ``_build_sequence`` emits, so
+    the rebuilt value can be hashed against the replay's own
+    ``source_sequence_sha256`` and re-run through the unmodified replay.
+    """
+    steps = replay.get("steps")
+    require(isinstance(steps, list) and bool(steps), "US_PIT_REPLAY_STEPS_INVALID")
+    rebuilt, previous = [], None
+    for step in steps:
+        require(isinstance(step, dict), "US_PIT_REPLAY_STEPS_INVALID")
+        as_of = step.get("as_of_date")
+        directions = step.get("axis_directions")
+        require(isinstance(as_of, str) and ISO_DATE.fullmatch(as_of) is not None,
+                "US_PIT_REPLAY_STEP_DATE_INVALID")
+        require(previous is None or as_of > previous, "US_PIT_REPLAY_STEPS_NOT_STRICTLY_ORDERED")
+        previous = as_of
+        require(isinstance(directions, dict) and set(directions) == set(PIT.REQUIRED_AXES),
+                "US_PIT_REPLAY_STEP_AXES_INCOMPLETE")
+        rebuilt.append({
+            "packet_id": f"pit-us-{as_of}",
+            "as_of_date": as_of,
+            "axes": {axis: {"status": "DEFINED", "direction": directions[axis]}
+                     for axis in PIT.REQUIRED_AXES},
+        })
+    return {"schema_version": 1, "market": "US", "case_id": "pit-acceptance-us", "steps": rebuilt}
+
+
+def _evaluation_from_replay(replay: dict) -> dict:
+    """Re-derive the whole acceptance evaluation from the replay output alone.
+
+    Every field of ``PIT.evaluate_market_pit_acceptance``'s return value is
+    reproduced here from the rerun replay plus the ratified contract and the
+    closed authority block -- no field is copied from the receipt.
+    """
+    observed = sorted({row["confirmed_regime"] for row in replay["steps"]}
+                      & set(PIT.REQUIRED_REGIMES))
+    missing = sorted(set(PIT.REQUIRED_REGIMES) - set(observed))
+    return {
+        "market": "US",
+        "status": PIT.STATUS_PIT_ACCEPTED if not missing else PIT.STATUS_NOT_ACCEPTED,
+        "reasons": [] if not missing else [PIT._condition_failed(6)],
+        "evaluated_date_count": len(replay["steps"]),
+        "regimes_observed": observed,
+        "missing_regimes": missing,
+        "replay_report_sha256": PIT.payload_sha256(replay),
+        "contract_version": PIT.load_contract()["contract_version"],
+        "authority": PIT.authority(),
+    }
+
+
+def _load_acceptance_receipt(root: Path, binding: dict) -> dict:
+    """RECEIPT mode: KR's shape, with every derivable value actually re-derived."""
+    for key in ("receipt_sha256", "replay_sha256", "bundle_sha256", "replay_report_sha256"):
+        require(isinstance(binding.get(key), str) and SHA256.fullmatch(binding[key]) is not None,
+                "US_PIT_ACCEPTED_RECORD_UNBOUND")
+
+    replay_raw = _bound_file(root, binding.get("replay_path"), "US_PIT_REPLAY_REPORT")
+    require(sha256(replay_raw) == binding["replay_sha256"], "US_PIT_REPLAY_REPORT_HASH_MISMATCH")
+    replay = json_object(replay_raw, "US_PIT_REPLAY_REPORT_INVALID")
+    require(replay.get("market") == "US" and replay.get("case_id") == "pit-acceptance-us",
+            "US_PIT_REPLAY_REPORT_INVALID")
+
+    receipt_raw = _bound_file(root, binding.get("receipt_path"), "US_PIT_ACCEPTANCE_RECEIPT")
+    require(sha256(receipt_raw) == binding["receipt_sha256"],
+            "US_PIT_ACCEPTANCE_RECEIPT_HASH_MISMATCH")
+    receipt = json_object(receipt_raw, "US_PIT_ACCEPTANCE_RECEIPT_INVALID")
+    require(receipt.get("schema_version") == ACCEPTANCE_RECEIPT_SCHEMA
+            and receipt.get("market") == "US", "US_PIT_ACCEPTANCE_RECEIPT_INVALID")
+
+    # The receipt must bind the replay bytes it claims to summarise ...
+    require(receipt.get("replay_report_file_sha256") == binding["replay_sha256"],
+            "US_PIT_ACCEPTANCE_RECEIPT_REPLAY_UNBOUND")
+    # ... and the population it was compacted from, which is NOT committed.
+    population = receipt.get("population")
+    require(isinstance(population, dict), "US_PIT_ACCEPTANCE_RECEIPT_INVALID")
+    require(population.get("file_sha256") == binding["bundle_sha256"],
+            "US_PIT_POPULATION_BUNDLE_UNBOUND")
+    require(population.get("committed") is False, "US_PIT_POPULATION_BUNDLE_MUST_NOT_BE_COMMITTED")
+    require(population.get("validate_population") == "PASS",
+            "US_PIT_POPULATION_BUNDLE_NOT_VALIDATED")
+
+    # Re-derivation 1: rebuild the input sequence from the committed replay's own
+    # per-step ``axis_directions`` and re-run the unmodified replay over it.
+    sequence = _sequence_from_replay(replay)
+    try:
+        rerun = COMMON.replay_common_v1(copy.deepcopy(sequence))
+    except Exception as exc:
+        raise UsPaperRuntimeError("US_PIT_REPLAY_RERUN_FAILED") from exc
+
+    # Re-derivation 2: the rebuilt input must be the input the committed replay
+    # actually consumed.  ``source_sequence_sha256`` is the hash of the sequence
+    # AFTER replay_common_v1's own validation/normalisation, so it is compared
+    # between the rerun and the committed report rather than computed here -- a
+    # rebuilt sequence hashed before validation would not match, and asserting
+    # that would only prove this module can reproduce its own arithmetic.
+    require(isinstance(replay.get("source_sequence_sha256"), str)
+            and rerun.get("source_sequence_sha256") == replay["source_sequence_sha256"],
+            "US_PIT_REPLAY_SOURCE_SEQUENCE_MISMATCH")
+    require(canonical_bytes(rerun) == canonical_bytes(replay),
+            "US_PIT_REPLAY_REPORT_NOT_REPRODUCIBLE")
+    require(PIT.payload_sha256(rerun) == binding["replay_report_sha256"],
+            "US_PIT_ACCEPTANCE_REPLAY_BINDING_MISMATCH")
+
+    # Re-derivation 3: the whole evaluation, and it must still be PIT_ACCEPTED.
+    evaluation = _evaluation_from_replay(rerun)
+    require(canonical_bytes(receipt.get("evaluation")) == canonical_bytes(evaluation),
+            "US_PIT_ACCEPTANCE_RECEIPT_REDERIVATION_MISMATCH")
+    require(evaluation["status"] == PIT.STATUS_PIT_ACCEPTED, "US_PIT_NOT_ACCEPTED")
+
+    history_last = day(binding.get("history_last_session_date"), "US_PIT_HISTORY_LAST_SESSION_INVALID")
+    require(sequence["steps"][-1]["as_of_date"] == history_last.isoformat(),
+            "US_PIT_HISTORY_LAST_SESSION_MISMATCH")
+    return {
+        "history_steps": sequence["steps"],
+        "history_last": history_last,
+        "summary": {
+            "status": evaluation["status"],
+            "binding_mode": PIT_BINDING_MODE_RECEIPT,
+            "bundle_sha256": binding["bundle_sha256"],
+            "bundle_committed": False,
+            "receipt_sha256": binding["receipt_sha256"],
+            "replay_sha256": binding["replay_sha256"],
+            "replay_report_sha256": evaluation["replay_report_sha256"],
+            "evaluated_date_count": evaluation["evaluated_date_count"],
+            "regimes_observed": evaluation["regimes_observed"],
+            "history_first_session_date": sequence["steps"][0]["as_of_date"],
+            "history_last_session_date": history_last.isoformat(),
+        },
+    }
+
+
+def load_acceptance(root: Path, adoption: dict) -> dict:
+    """Bound US PIT_ACCEPTED evidence, re-derived from the bound bytes.
+
+    Two modes, chosen by the adoption's own key set and never implicitly -- see
+    the PIT_BINDING_MODE_* commentary above for what each one proves.
+    """
+    binding = adoption.get("pit_acceptance")
+    if pit_binding_mode(binding) == PIT_BINDING_MODE_RECEIPT:
+        return _load_acceptance_receipt(root, binding)
     for key in ("bundle_sha256", "acceptance_record_sha256", "replay_report_sha256"):
         require(isinstance(binding.get(key), str) and SHA256.fullmatch(binding[key]) is not None,
                 "US_PIT_ACCEPTED_RECORD_UNBOUND")
@@ -481,7 +686,9 @@ def load_acceptance(root: Path, adoption: dict) -> dict:
         "history_last": history_last,
         "summary": {
             "status": evaluation["status"],
+            "binding_mode": PIT_BINDING_MODE_BUNDLE,
             "bundle_sha256": binding["bundle_sha256"],
+            "bundle_committed": True,
             "acceptance_record_sha256": binding["acceptance_record_sha256"],
             "replay_report_sha256": evaluation["replay_report_sha256"],
             "evaluated_date_count": evaluation["evaluated_date_count"],
