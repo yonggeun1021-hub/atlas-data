@@ -216,7 +216,7 @@ class P004SchedulerTelemetryTest(unittest.TestCase):
         self.assertEqual(collect.get("if"), condition)
 
     def test_commit_preserves_telemetry_and_observation_boundaries(self):
-        commit = self.require_step("Commit post-close observation evidence (shared push retry)")
+        commit = self.require_step("Commit post-close observation evidence")
         command = commit.get("run", "")
 
         self.assertEqual(commit.get("if"), "always()")

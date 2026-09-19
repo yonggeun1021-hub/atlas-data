@@ -215,7 +215,7 @@ class BtcSchedulerTelemetryTest(unittest.TestCase):
         )
 
     def test_commit_publishes_telemetry_but_only_valid_new_raw(self):
-        commit = self.require_step("Commit BTC price evidence (shared push retry)")
+        commit = self.require_step("Commit BTC price evidence")
         command = commit.get("run", "")
 
         self.assertEqual(commit.get("if"), "always()")
