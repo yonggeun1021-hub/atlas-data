@@ -110,7 +110,7 @@ jobs:
           python3 .github/scripts/p3_10_crypto_risk_population.py \
             --snapshot-dir "evidence/crypto/btc/raw/$SNAPSHOT_DATE"
 
-      - name: Commit BTC price evidence (shared push retry)
+      - name: Commit BTC price evidence
         if: always()
         # 2026-09-18 consolidation: this step's single unbounded
         # `pull --rebase && push` (kept in git history, no retry, no

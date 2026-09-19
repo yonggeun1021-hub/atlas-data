@@ -87,7 +87,7 @@ jobs:
           mv "$STAGING" "$DIR"
           trap - EXIT
           rm -rf "$STAGING_PARENT"
-      - name: Commit immutable evidence (shared push retry)
+      - name: Commit immutable evidence
         env:
           CAPTURE_PATH: ${{ steps.capture.outputs.capture_path }}
           MODE: ${{ steps.capture.outputs.mode }}
