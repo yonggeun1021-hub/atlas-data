@@ -1,0 +1,123 @@
+name: US Regime Score History Range
+
+# Manual only. There is deliberately no schedule here: the daily capture
+# (free-market-data.yml) is the scheduled producer and is not modified by this
+# workflow, this file, or the collector it calls.
+#
+# mode=measure makes at most five HTTP GETs (ALFRED vintagedates for the three
+# FRED series, one Alpaca window request on iex, one on sip), prints the result
+# and commits nothing, so "how many sessions and how many 20-session windows are
+# actually reachable" is answered before any full receive is attempted.
+#
+# mode=fetch receives the requested window and publishes it append-only and
+# content-addressed under evidence/free_market_data/history only. It never
+# writes data/latest_free_market_data.json and never writes the daily
+# derived / raw / fred-raw trees; collectors/free_market_data_history.py
+# enforces that mechanically and test/test_free_market_data.py asserts it.
+#
+# Credentials: the dedicated market-data-only Alpaca pair and the FRED key.
+# The account/trading Alpaca credential lives only in the private
+# atlas-private-evidence repo and is not referenced anywhere here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: measure (five requests, commits nothing) or fetch (receive the window)
+        required: true
+        default: measure
+        type: choice
+        options:
+          - measure
+          - fetch
+      start_date:
+        description: >-
+          window start, YYYY-MM-DD. This is the literal receive window: it
+          must already include the 21 bars that precede the first scored
+          session (20-session return plus one), so ten non-overlapping
+          20-session windows need 221 bars. Run measure first and read
+          non_overlapping_windows_possible before receiving.
+        required: true
+        type: string
+      end_date:
+        description: window end, YYYY-MM-DD
+        required: true
+        type: string
+      probe_symbol:
+        description: symbol used by measure mode only
+        required: false
+        default: SPY
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: us-regime-score-history-range
+  cancel-in-progress: false
+
+jobs:
+  range:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Offline regression (fake HTTP layer, no network, no secrets)
+        run: python3 test/test_free_market_data.py
+      - name: Measure what is reachable before receiving anything
+        if: ${{ github.event.inputs.mode == 'measure' }}
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
+          MODE: ${{ github.event.inputs.mode }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+          PROBE_SYMBOL: ${{ github.event.inputs.probe_symbol }}
+        run: |
+          python3 collectors/free_market_data_history.py \
+            --mode measure \
+            --start "$START_DATE" \
+            --end "$END_DATE" \
+            --probe-symbol "$PROBE_SYMBOL"
+      - name: Measure mode must leave the tree untouched
+        if: ${{ github.event.inputs.mode == 'measure' }}
+        run: git diff --exit-code && test -z "$(git status --porcelain)"
+      - name: Receive the requested window into the history store
+        if: ${{ github.event.inputs.mode == 'fetch' }}
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPACA_MARKET_DATA_API_KEY: ${{ secrets.ALPACA_MARKET_DATA_API_KEY }}
+          ALPACA_MARKET_DATA_API_SECRET: ${{ secrets.ALPACA_MARKET_DATA_API_SECRET }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+        run: |
+          python3 collectors/free_market_data_history.py \
+            --mode fetch \
+            --start "$START_DATE" \
+            --end "$END_DATE"
+      - name: Replay the retained vintage evidence before committing it
+        if: ${{ github.event.inputs.mode == 'fetch' }}
+        run: python3 collectors/free_market_data_history.py --mode verify
+      - name: Commit the appended history evidence only
+        if: ${{ github.event.inputs.mode == 'fetch' }}
+        env:
+          # Publish back to the ref this run was dispatched from, so a test
+          # dispatch on a branch never pushes to the default branch.
+          TARGET_BRANCH: ${{ github.ref_name }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+        run: |
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add evidence/free_market_data/history
+          if git diff --staged --quiet; then
+            echo "nothing appended"
+            exit 0
+          fi
+          git status --porcelain --untracked-files=no
+          git commit -m "data: us regime score history range $START_DATE..$END_DATE"
+          bash .github/scripts/push_to_default_branch.sh "$TARGET_BRANCH"

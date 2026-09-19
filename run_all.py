@@ -1450,6 +1450,13 @@ APPROVED_TESTS = [
     #   STBL 은 반대로 거버넌스 토큰이라 eligible. AIN 은 체인 수준만 기록.
     #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
     "test/test_crypto_breadth_rank200_slice_b_20260919.py",
+    # ★ P1-CR-07 rank-200 push, slice C — 크립토 분류 여유 194~200위, 목표 도달.
+    #   3분할의 마지막. 이 조각으로 블록이 201위까지 연속이 되고 다음
+    #   미분류는 PIEVERSE(202위)다. FUN 은 티커 충돌 사례 — Kraken 이 내보내는
+    #   것은 Base 의 Sport.fun 이지 이더리움의 구 FunFair 가 아니며, 기록은
+    #   Base 계약만 묶는다. RUNE/SC 는 자체 체인 네이티브 코인 주장.
+    #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
+    "test/test_crypto_breadth_rank200_slice_c_20260919.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
@@ -3062,6 +3069,21 @@ APPROVED_TESTS = [
     #   ⛔ Read-only: parses workflow YAML and greps repository .py files;
     #      no network, no git history mutation, no authority.
     "test/test_workflow_history_checkout_depth.py",
+    # ★ Cross-market comparability at one common decision timestamp.
+    #   compare_market_rows() requires the three markets' decision dates to be
+    #   identical (len(groups) == 1), which US/KR/Crypto session calendars make
+    #   a coincidence rather than a reachable state (1 of the 20 committed PAPER
+    #   reference days, and Crypto was UNKNOWN that day), while date coercion is
+    #   unauthorized. These tests pin the replacement contract: T is
+    #   caller-supplied and never inferred, each market keeps its own as_of_date
+    #   and available_at with its lag from T recorded, COMPLETE is gated on each
+    #   market's own already-adopted freshness state instead of date identity,
+    #   one unusable market is excluded with reason codes while the rest stay
+    #   comparable, and a two-market result is never labelled three-market.
+    #   ⛔ Read-only: pure-function fixtures plus reads of the adopted config
+    #      record and two repository source files; no network, no clock, no git
+    #      history mutation, and no authority flag is read or written.
+    "test/test_cross_market_comparability.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"

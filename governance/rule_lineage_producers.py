@@ -48,6 +48,7 @@ import argparse
 import copy
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -350,6 +351,44 @@ def run_cli(kind: str, packet_path: Path, *, root: Path = ROOT, lineage_root: Pa
         return {"status": "FAILED", "path": None, "error": message}
 
 
+CRYPTO_EVIDENCE_RELATIVE = "evidence/crypto_paper_decision"
+DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def scan_crypto_decision_evidence(min_date: str, *, root: Path = ROOT, lineage_root: Path | None = None,
+                                  context=None) -> list:
+    """Emit sidecars for every retained crypto PAPER decision packet dated >= ``min_date``.
+
+    Idempotent (existing sidecars are verified, never rewritten -- a repeat
+    scan over an already-covered range costs one read and one comparison per
+    packet).  Exists because the per-run sidecar step wired into
+    ``.github/workflows/upbit-realtime-capture.yml`` is guarded on the
+    capture job not having been cancelled: whenever that job overruns its
+    timeout (observed since 2026-09-18), every step guarded that way is
+    skipped even though the decision packet itself still commits (its own
+    step runs unconditionally). This scan is a second, independent path to
+    the same sidecars that depends on nothing about how the capture job
+    ended -- it only reads packets already committed to evidence -- so a
+    stretch of cancelled/overrun capture runs no longer means a stretch of
+    missing lineage. ``evidence/crypto_paper_decision/_sources`` (the packet
+    dedup store, not a date) is excluded by requiring the directory name to
+    match ``YYYY-MM-DD`` before the ``>= min_date`` comparison; a plain
+    string compare would otherwise place ``_sources`` after every date.
+    """
+    results = []
+    base = Path(root) / CRYPTO_EVIDENCE_RELATIVE
+    if not base.is_dir():
+        return results
+    context = context or REFS.RegistryContext.load()
+    for date_dir in sorted(p for p in base.iterdir()
+                            if p.is_dir() and DATE_DIR_RE.match(p.name) and p.name >= min_date):
+        for packet_path in sorted(date_dir.glob("*/*/packet.json")):
+            result = run_cli("crypto-decision", packet_path, root=root, lineage_root=lineage_root, context=context)
+            result["packet"] = str(packet_path)
+            results.append(result)
+    return results
+
+
 REFERENCE_EVIDENCE_RELATIVE = "evidence/regime/paper_reference"
 
 
@@ -391,23 +430,31 @@ def _warn(message: str) -> None:
     print(f"::warning title=Rule lineage sidecar failed::{text}", file=sys.stderr)
 
 
+SCAN_KINDS = {
+    "crypto-decision-scan": scan_crypto_decision_evidence,
+    "paper-reference-scan": scan_reference_evidence,
+}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Emit additive rule-lineage sidecars for producer packets.")
-    parser.add_argument("kind", choices=["crypto-decision", "paper-reference", "paper-reference-scan"])
+    parser.add_argument("kind", choices=["crypto-decision", "paper-reference",
+                                          "crypto-decision-scan", "paper-reference-scan"])
     parser.add_argument("--packet", type=Path, default=None)
-    parser.add_argument("--min-date", default=None, help="paper-reference-scan: first evidence date (YYYY-MM-DD)")
+    parser.add_argument("--min-date", default=None,
+                         help="*-scan: first evidence date (YYYY-MM-DD)")
     parser.add_argument("--lineage-root", type=Path, default=None)
     args = parser.parse_args(argv)
-    if args.kind == "paper-reference-scan":
+    if args.kind in SCAN_KINDS:
         if not args.min_date or len(args.min_date) != 10:
-            parser.error("paper-reference-scan requires --min-date YYYY-MM-DD")
-        results = scan_reference_evidence(args.min_date, lineage_root=args.lineage_root)
+            parser.error(f"{args.kind} requires --min-date YYYY-MM-DD")
+        results = SCAN_KINDS[args.kind](args.min_date, lineage_root=args.lineage_root)
         summary = {}
         for result in results:
             summary[result["status"]] = summary.get(result["status"], 0) + 1
         print(json.dumps({"summary": summary, "results": results}, ensure_ascii=False, sort_keys=True))
         if summary.get("FAILED"):
-            _warn(f"{summary['FAILED']} PAPER reference sidecar(s) failed; see RULE_LINEAGE_EMIT_FAILED lines")
+            _warn(f"{summary['FAILED']} sidecar(s) failed for {args.kind}; see RULE_LINEAGE_EMIT_FAILED lines")
         return 0
     if args.packet is None:
         parser.error(f"{args.kind} requires --packet")

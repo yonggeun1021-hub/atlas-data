@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest import mock
 import urllib.error
+import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("free_market_data", ROOT / "collectors" / "free_market_data.py")
@@ -693,6 +694,500 @@ class LegacyPacketCompatibilityTests(unittest.TestCase):
                 M.validate_alpaca_daily_evidence(root, legacy)
             with self.assertRaisesRegex(M.FreeMarketDataError, "ALPACA_RAW_REVISION_MISSING"):
                 M.validate_alpaca_daily_evidence(root, capture["packet"])
+
+
+
+
+# ---------------------------------------------------------------------------
+# Historical range receipt (collectors/free_market_data_history.py).
+#
+# Registered here rather than in a new test file on purpose: a new test/ file
+# must also be added to run_all.py's APPROVED_TESTS by filename or all four
+# regression shards fail instantly, and this module is the daily collector's
+# own regression. The two are checked against each other below, so a change to
+# one that silently diverges from the other fails here.
+# ---------------------------------------------------------------------------
+
+HISTORY_SPEC = importlib.util.spec_from_file_location(
+    "free_market_data_history", ROOT / "collectors" / "free_market_data_history.py"
+)
+H = importlib.util.module_from_spec(HISTORY_SPEC)
+HISTORY_SPEC.loader.exec_module(H)
+
+FAKE_FRED_KEY = "fake-fred-key-never-real"
+FAKE_ALPACA_KEY = "fake-alpaca-key"
+FAKE_ALPACA_SECRET = "fake-alpaca-secret"
+
+
+def _history_bar(day, step):
+    return {
+        "o": 100 + step, "h": 103 + step, "l": 97 + step, "c": 101 + step,
+        "v": 1000 + step, "t": f"{day.isoformat()}T05:00:00Z",
+    }
+
+
+def _history_getter(*, bars_per_symbol=3, split_pages=False, calls=None):
+    """Fake HTTP layer for the history collector. No network, no real key."""
+    start = dt.date(2026, 5, 4)
+
+    def getter(url, headers=None):
+        if calls is not None:
+            calls.append((url, dict(headers or {})))
+        base, _, query = url.partition("?")
+        params = dict(urllib.parse.parse_qsl(query))
+        if "/stocks/" in base:
+            symbol = base.split("/stocks/", 1)[1].split("/", 1)[0]
+            if params.get("feed") == "sip":
+                # The history module imports its own copy of the daily
+                # collector, so its exception class is a distinct object; the
+                # fake transport must raise the class that module catches.
+                raise H.FreeMarketDataError("HTTP_ERROR:403")
+            rows = [
+                _history_bar(start + dt.timedelta(days=step), step)
+                for step in range(bars_per_symbol)
+            ]
+            if split_pages and not params.get("page_token"):
+                return json.dumps(
+                    {"bars": rows[:1], "next_page_token": "page-2"}
+                ).encode()
+            if split_pages:
+                return json.dumps({"bars": rows[1:], "next_page_token": None}).encode()
+            return json.dumps({"bars": rows, "next_page_token": None}).encode()
+        if base.endswith("/fred/series/vintagedates"):
+            return json.dumps({
+                "count": 2, "vintage_dates": ["2026-05-05", "2026-05-12"],
+            }).encode()
+        if base.endswith("/fred/series/observations"):
+            series_id = params["series_id"]
+            return json.dumps({"count": 2, "observations": [
+                {"realtime_start": "2026-05-05", "realtime_end": "2026-05-11",
+                 "date": "2026-05-04", "value": "1.5"},
+                {"realtime_start": "2026-05-12", "realtime_end": "9999-12-31",
+                 "date": "2026-05-04", "value": f"2.5{len(series_id)}"},
+            ]}).encode()
+        if base.endswith("/fred/series"):
+            return json.dumps({"seriess": [{
+                "title": params["series_id"], "frequency": "Weekly",
+                "units": "Millions of Dollars",
+            }]}).encode()
+        raise AssertionError(f"unexpected url {base}")
+
+    return getter
+
+
+class HistoricalRangeReceiptTests(unittest.TestCase):
+    """The added range/vintage entry point, and the daily path it must not move."""
+
+    def _contract(self):
+        return M.load_contract(ROOT / "config" / "free_market_data_contract.json")
+
+    def test_score_symbols_come_from_the_contract_and_stay_inside_it(self):
+        contract = self._contract()
+        symbols = H.score_symbols(contract)
+        alpaca = contract["alpaca"]
+        proxy = alpaca["current_proxy_axes"]
+        self.assertEqual(symbols, sorted(set(
+            alpaca["trend_symbols"] + proxy["breadth_symbols"]
+            + proxy["leadership_symbols"] + [proxy["leadership_benchmark"]]
+        )))
+        self.assertTrue(set(symbols) <= set(alpaca["symbols"]))
+        # The axes are read, never redefined: the thresholds and the symbol
+        # lists this module consumes are exactly the contract's own.
+        self.assertEqual(alpaca["trend_symbols"], ["SPY", "QQQ", "IWM"])
+        self.assertEqual(len(proxy["breadth_symbols"]), 14)
+        self.assertEqual(len(proxy["leadership_symbols"]), 12)
+        self.assertEqual(proxy["leadership_window_sessions"], 20)
+
+    def test_normalized_bar_is_identical_to_the_daily_collector(self):
+        """Same bytes, same rows -- the two must not drift apart silently."""
+        symbols = ["SPY", "QQQ"]
+        getter = _history_getter(bars_per_symbol=4)
+        observed_at = dt.datetime(2026, 5, 8, 12, 0, 0, tzinfo=dt.timezone.utc)
+        _, daily_rows = M.fetch_alpaca_daily_bars(
+            FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET, symbols, observed_at, getter
+        )
+        history_rows = []
+        for symbol in symbols:
+            _, bars, _ = H.fetch_alpaca_daily_bars_range(
+                FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET, symbol,
+                "2026-05-04", "2026-05-08", feed="iex", getter=getter,
+            )
+            history_rows.extend(bars)
+        key = lambda row: (row["symbol"], row["opened_at"])
+        self.assertEqual(sorted(history_rows, key=key), sorted(daily_rows, key=key))
+
+    def test_explicit_window_is_sent_and_every_page_is_followed(self):
+        calls = []
+        getter = _history_getter(bars_per_symbol=3, split_pages=True, calls=calls)
+        pages, bars, summary = H.fetch_alpaca_daily_bars_range(
+            FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET, "SPY",
+            "2026-05-04", "2026-05-06", feed="iex", getter=getter,
+        )
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(summary["bar_count"], 3)
+        self.assertEqual(summary["first_session_date"], "2026-05-04")
+        self.assertEqual(summary["last_session_date"], "2026-05-06")
+        first = dict(urllib.parse.parse_qsl(calls[0][0].partition("?")[2]))
+        self.assertEqual(first["start"], "2026-05-04")
+        self.assertEqual(first["end"], "2026-05-06")
+        self.assertNotIn("page_token", first)
+        second = dict(urllib.parse.parse_qsl(calls[1][0].partition("?")[2]))
+        self.assertEqual(second["page_token"], "page-2")
+        # Credentials travel in Alpaca's own headers, never in the URL.
+        self.assertNotIn(FAKE_ALPACA_SECRET, calls[0][0])
+        self.assertEqual(calls[0][1]["APCA-API-SECRET-KEY"], FAKE_ALPACA_SECRET)
+
+    def test_window_feasibility_reports_ten_windows_only_at_221_bars(self):
+        self.assertFalse(H.window_feasibility(220)["meets_window_target"])
+        self.assertTrue(H.window_feasibility(221)["meets_window_target"])
+        self.assertEqual(H.window_feasibility(221)["scored_sessions_possible"], 200)
+        self.assertEqual(
+            H.window_feasibility(0)["bars_required_for_window_target"], 221
+        )
+
+    def test_vintage_request_asks_alfred_for_the_full_realtime_window(self):
+        calls = []
+        getter = _history_getter(calls=calls)
+        contract = self._contract()
+        _, rows = H.fetch_fred_vintage_observations(
+            FAKE_FRED_KEY, "TOTBKCR", "2026-05-01", "2026-05-31",
+            contract["fred"]["output_type"], getter=getter,
+        )
+        params = dict(urllib.parse.parse_qsl(calls[0][0].partition("?")[2]))
+        self.assertEqual(params["realtime_start"], H.FRED_REALTIME_MIN)
+        self.assertEqual(params["realtime_end"], H.FRED_REALTIME_MAX)
+        self.assertEqual(params["output_type"], str(contract["fred"]["output_type"]))
+        # Both revisions of the same observation date survive, each with its
+        # own publication window -- that is what the current-revision request
+        # in the daily path cannot give.
+        self.assertEqual([row["available_from"] for row in rows],
+                         ["2026-05-05", "2026-05-12"])
+        self.assertEqual({row["observation_date"] for row in rows}, {"2026-05-04"})
+
+    def test_availability_never_returns_a_value_published_later(self):
+        rows = [
+            {"observation_date": "2026-05-04", "value": "1.5",
+             "available_from": "2026-05-05", "available_to": "2026-05-11"},
+            {"observation_date": "2026-05-04", "value": "2.5",
+             "available_from": "2026-05-12", "available_to": "9999-12-31"},
+            {"observation_date": "2026-05-11", "value": ".",
+             "available_from": "2026-05-12", "available_to": "9999-12-31"},
+        ]
+        self.assertEqual(H.observations_available_at(rows, "2026-05-04"), [])
+        early = H.observations_available_at(rows, "2026-05-06")
+        self.assertEqual([row["value"] for row in early], ["1.5"])
+        late = H.observations_available_at(rows, "2026-05-20")
+        self.assertEqual([row["value"] for row in late], ["2.5"])
+        # The revised value must not leak backwards into the earlier as-of day:
+        # that is the TOTBKCR failure mode the vintage path exists to prevent.
+        self.assertNotIn("2.5", [row["value"] for row in early])
+
+    def test_fetch_writes_only_under_the_history_store(self):
+        contract = self._contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            report = H.fetch(
+                root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+                contract, "2026-05-04", "2026-05-06", feed="iex",
+                symbols=["SPY", "QQQ"], getter=_history_getter(bars_per_symbol=3),
+            )
+            self.assertEqual(report["status"], "PASS")
+            written = sorted(
+                path.relative_to(root).as_posix()
+                for path in root.rglob("*") if path.is_file()
+            )
+            self.assertTrue(written)
+            for relative in written:
+                if relative == "config/free_market_data_contract.json":
+                    continue
+                self.assertTrue(
+                    relative.startswith(f"{H.HISTORY_STORE}/"),
+                    f"{relative} is outside the history store",
+                )
+            # The daily capture's own outputs must not exist after a range run.
+            for untouched in (
+                "data/latest_free_market_data.json",
+                "evidence/free_market_data/derived",
+                "evidence/free_market_data/raw",
+                "evidence/free_market_data/fred",
+            ):
+                self.assertFalse((root / untouched).exists(), untouched)
+            self.assertTrue((root / report["receipt_path"]).is_file())
+            receipt = json.loads((root / report["receipt_path"]).read_text("utf-8"))
+            # The weekly liquidity change needs the observation before the
+            # window start, so the FRED window is extended backwards and both
+            # windows are recorded rather than the extension being implicit.
+            self.assertEqual(receipt["requested_window"],
+                             {"start": "2026-05-04", "end": "2026-05-06"})
+            for series in receipt["fred"]["series"]:
+                self.assertEqual(series["observation_lead_days"],
+                                 H.FRED_OBSERVATION_LEAD_DAYS)
+                self.assertLess(series["observation_start_applied"], "2026-05-04")
+            self.assertEqual(receipt["daily_paths_written"], [])
+            self.assertFalse(receipt["authority"]["trading_authorized"])
+            self.assertFalse(receipt["authority"]["us_breadth_authorized"])
+
+    def test_receipts_and_manifests_never_carry_a_credential(self):
+        contract = self._contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            H.fetch(
+                root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+                contract, "2026-05-04", "2026-05-06", feed="iex",
+                symbols=["SPY"], getter=_history_getter(bars_per_symbol=3),
+            )
+            for path in sorted(root.rglob("*")):
+                if not path.is_file() or path.suffix == ".gz":
+                    continue
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                for secret in (FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET):
+                    self.assertNotIn(secret, text, path.name)
+                self.assertNotIn("api_key", text, path.name)
+
+    def test_retained_objects_are_deterministic_gzip_and_append_only(self):
+        contract = self._contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            first = H.fetch(
+                root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+                contract, "2026-05-04", "2026-05-06", feed="iex",
+                symbols=["SPY"], getter=_history_getter(bars_per_symbol=3),
+            )
+            snapshot = {
+                path.relative_to(root).as_posix(): path.read_bytes()
+                for path in sorted(root.rglob("*")) if path.is_file()
+            }
+            # An identical re-run is a byte-identical no-op, not an overwrite.
+            second = H.fetch(
+                root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+                contract, "2026-05-04", "2026-05-06", feed="iex",
+                symbols=["SPY"], getter=_history_getter(bars_per_symbol=3),
+            )
+            self.assertEqual(second["receipt_sha256"], first["receipt_sha256"])
+            self.assertEqual(snapshot, {
+                path.relative_to(root).as_posix(): path.read_bytes()
+                for path in sorted(root.rglob("*")) if path.is_file()
+            })
+            gz = [name for name in snapshot if name.endswith(".json.gz")]
+            self.assertTrue(gz)
+            for name in gz:
+                raw = gzip.decompress(snapshot[name])
+                self.assertEqual(
+                    snapshot[name], M.FRED_PROVENANCE.deterministic_gzip(raw), name
+                )
+            manifests = [
+                json.loads(snapshot[name]) for name in snapshot
+                if name.endswith("/manifest.json")
+            ]
+            self.assertTrue(manifests)
+            for manifest in manifests:
+                self.assertIn(
+                    manifest.get("raw_retention"),
+                    {H.HISTORY_RAW_RETENTION, None},
+                )
+            # Conflicting bytes at one immutable address fail closed.
+            target = root / sorted(gz)[0]
+            with self.assertRaises(H.FreeMarketDataError):
+                H._write_once(target, b"different", "HISTORY_RAW_OBJECT_CONFLICT")
+
+    def test_verify_replays_every_retained_object_and_fails_on_tampering(self):
+        contract = self._contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            H.fetch(
+                root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+                contract, "2026-05-04", "2026-05-06", feed="iex",
+                symbols=["SPY", "QQQ"], getter=_history_getter(bars_per_symbol=3),
+            )
+            report = H.verify(root)
+            self.assertEqual(report["status"], "PASS")
+            self.assertEqual(report["alpaca_series_replayed"], 2)
+            self.assertEqual(report["alfred_availability_series_replayed"], 3)
+            self.assertGreater(report["raw_objects_replayed"], 0)
+            # A derived packet edited in place no longer replays.
+            series = sorted(
+                (root / H.HISTORY_STORE / "alpaca" / "series").rglob(
+                    "alpaca_daily_bars_series.json"
+                )
+            )[0]
+            body = json.loads(series.read_text(encoding="utf-8"))
+            body["bars"][0]["close"] = "999"
+            series.write_text(
+                json.dumps(body, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(H.FreeMarketDataError):
+                H.verify(root)
+
+    def test_verify_needs_no_credential_and_makes_no_request(self):
+        source = (ROOT / "collectors" / "free_market_data_history.py").read_text(
+            encoding="utf-8"
+        )
+        verify_source = inspect.getsource(H.verify)
+        self.assertNotIn("_request(", verify_source)
+        self.assertNotIn("getter", verify_source)
+        self.assertIn("if args.mode == \"verify\":", source)
+
+    def test_history_paths_outside_the_store_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for candidate in (
+                "data/latest_free_market_data.json",
+                "evidence/free_market_data/raw/alpaca/daily_bars/x/manifest.json",
+                "../escape/manifest.json",
+                f"{H.HISTORY_STORE}/../../manifest.json",
+            ):
+                with self.assertRaises(H.FreeMarketDataError):
+                    H._safe_history_path(root, candidate, "/manifest.json")
+
+    def test_measure_mode_stays_within_five_requests_and_writes_nothing(self):
+        contract = self._contract()
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            before = sorted(path for path in root.rglob("*") if path.is_file())
+            report = H.measure(
+                FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET, contract,
+                "2026-05-04", "2026-05-06",
+                getter=_history_getter(bars_per_symbol=3, calls=calls),
+            )
+            self.assertEqual(
+                sorted(path for path in root.rglob("*") if path.is_file()), before
+            )
+        self.assertTrue(report["writes_nothing"])
+        self.assertLessEqual(report["requests_made"], H.MEASURE_REQUEST_BUDGET)
+        self.assertEqual(report["requests_made"], 5)
+        self.assertEqual(sorted(report["fred_vintages"]), ["TOTBKCR", "VIXCLS", "WRESBAL"])
+        for series in report["fred_vintages"].values():
+            self.assertEqual(series["earliest_vintage_date"], "2026-05-05")
+        self.assertEqual(report["alpaca"]["iex"]["status"], "OBSERVED")
+        # A denied SIP feed is reported, never raised, and never substituted.
+        self.assertEqual(report["alpaca"]["sip"]["status"], "UNAVAILABLE")
+        self.assertFalse(report["conclusion"]["sip_available"])
+        self.assertFalse(report["conclusion"]["iex_meets_window_target"])
+        self.assertEqual(report["conclusion"]["score_symbol_count"], 15)
+
+    def test_measure_mode_refuses_to_exceed_its_request_budget(self):
+        budget = H.RequestBudget(1)
+        getter = _history_getter()
+        H.fetch_fred_vintage_dates(FAKE_FRED_KEY, "VIXCLS", getter=getter, budget=budget)
+        with self.assertRaises(H.FreeMarketDataError):
+            H.fetch_fred_vintage_dates(
+                FAKE_FRED_KEY, "WRESBAL", getter=getter, budget=budget
+            )
+
+    @staticmethod
+    def _executable_source(path):
+        """Source with comments and docstrings removed.
+
+        The module's prose legitimately names the daily paths it must not write
+        (that is the point of the docstring). Only executable code is checked,
+        so documentation can stay explicit without weakening the assertion.
+        """
+        import ast
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Module, ast.FunctionDef,
+                                     ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            body = getattr(node, "body", None)
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                node.body = body[1:] or [ast.Pass()]
+        return ast.unparse(ast.fix_missing_locations(tree))
+
+    def test_history_module_names_no_daily_output_path(self):
+        """The daily path's outputs are not writable from this module at all."""
+        source = self._executable_source(
+            ROOT / "collectors" / "free_market_data_history.py"
+        )
+        self.assertNotIn("latest_free_market_data", source)
+        self.assertNotIn("_atomic_write", source)
+        self.assertNotIn("publish_alpaca_raw_revision", source)
+        self.assertNotIn("publish_evidence_bundle", source)
+        self.assertNotIn("ALPACA_API_SECRET", source.replace(
+            "ALPACA_MARKET_DATA_API_SECRET", ""
+        ))
+        self.assertNotIn("ALPACA_API_KEY", source.replace(
+            "ALPACA_MARKET_DATA_API_KEY", ""
+        ))
+        self.assertNotIn("RISK_ON_MIN_SCORE", source)
+        self.assertNotIn("RISK_OFF_MAX_SCORE", source)
+        # The daily collector itself is imported as a library and its own
+        # publish path is never called from here.
+        self.assertNotIn("DAILY.publish", source)
+        self.assertNotIn("DAILY.main", source)
+
+    def test_fetch_refuses_a_feed_the_contract_does_not_pin(self):
+        contract = self._contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            with self.assertRaises(H.FreeMarketDataError):
+                H.fetch(
+                    root, FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET,
+                    contract, "2026-05-04", "2026-05-06", feed="sip",
+                    symbols=["SPY"], getter=_history_getter(),
+                )
+            self.assertFalse((root / H.HISTORY_STORE).exists())
+
+
+class HistoricalRangeWorkflowTests(unittest.TestCase):
+    """The new manual workflow, and the pinned files it must not disturb."""
+
+    WORKFLOW = ROOT / ".github/workflows/us-regime-score-history-range.yml"
+    # The thirteen files the Ubuntu schedule dispatcher pins by blob sha and
+    # event-ref fingerprint (docs/do_not_touch_and_why.md). A byte change to
+    # any of them can permanently and silently end a catch-up slot, so the new
+    # capability is a NEW file and these stay untouched.
+    PINNED = (
+        "upbit-realtime-capture.yml", "crypto-breadth-capture.yml",
+        "upbit-universe-capture.yml", "upbit-microstructure-capture.yml",
+        "stablecoin-capture.yml", "crypto-paper-runtime.yml",
+        "briefing-handoff-watchdog.yml", "daily-briefing.yml",
+        "daily-briefing-recovery.yml", "spdr-sector-holdings.yml",
+        "fred-dexkous-fx.yml", "kr-paper-runtime-daily-publish.yml",
+        "us-paper-runtime.yml",
+    )
+
+    def test_new_workflow_is_manual_only_and_takes_an_explicit_window(self):
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", text)
+        self.assertNotIn("schedule:", text)
+        self.assertNotIn("cron", text)
+        for required in ("start_date", "end_date", "mode"):
+            self.assertIn(f"{required}:", text)
+        self.assertIn("collectors/free_market_data_history.py", text)
+        # Account/trading credential names must never appear in any workflow.
+        self.assertNotIn("secrets.ALPACA_API_KEY", text)
+        self.assertNotIn("secrets.ALPACA_API_SECRET", text)
+
+    def test_new_workflow_never_dispatches_the_forbidden_korea_workflow(self):
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("korea-market-signals", text)
+        self.assertNotIn("workflow_run", text)
+
+    def test_measure_mode_commits_nothing(self):
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("git diff --exit-code", text)
+        # Only the history store may ever be staged by this workflow.
+        staged = [
+            line.strip() for line in text.splitlines()
+            if line.strip().startswith("git add ")
+        ]
+        self.assertTrue(staged)
+        for line in staged:
+            self.assertEqual(
+                line, f"git add {H.HISTORY_STORE}", "only the history store may be staged"
+            )
+
+    def test_the_thirteen_dispatcher_pinned_workflows_are_not_this_file(self):
+        self.assertNotIn(self.WORKFLOW.name, self.PINNED)
+        for name in self.PINNED:
+            self.assertTrue(
+                (ROOT / ".github/workflows" / name).is_file(),
+                f"{name} is pinned by the schedule dispatcher and must still exist",
+            )
 
 
 if __name__ == "__main__": unittest.main()
