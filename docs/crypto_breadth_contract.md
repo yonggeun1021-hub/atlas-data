@@ -694,3 +694,109 @@ strictly before the effective date and no committed result moves.
 30-day turnover ranking rule, every existing exclusion and all
 classification/threshold/Regime/Production/trading authority flags are
 unchanged. This is breadth source coverage only.
+
+### 2026-09-19 rank-200 push, slice A (ranks 172–185)
+
+The 2026-09-18 deferred-five batch left the block contiguous through rank
+**171** and named `ROBO` at minimum rank 172 as the next unclassified
+asset. This is the first of three stacked slices that carry the block to
+rank **201**, ahead of the 2026-10-07 latch. Before the latch a
+classification costs nothing; after it, one day with an unclassified asset
+inside the scan range costs roughly 35 days (30-day window plus
+`MINIMUM_CONSECUTIVE_COMPLETE_DAYS=5` re-acceptance). Thirteen assets are
+recorded effective 2026-09-19 — eleven `eligible_crypto` and two
+`unverified_identity` — and the block runs contiguous through rank
+**186**, measured as minimum rank across the seven committed vintages
+2026-09-12…2026-09-18 rather than from one day's snapshot.
+
+Six records bind an exact on-chain identifier the project publishes
+itself: the ADI Foundation's ERC-20 contract
+`0x8b1484d57abbe239bb280661377363b03c89caea`, the Avantis Base contract
+`0x696F9436B67233384889472Cd7cD58A6fB5DF4f1`, the Moonbeam Foundation's
+new Base MOVR contract `0x43fEB74608334DDa8c1a6500D185cFC3Ea962B83`,
+MegaETH's native protocol token `0x28B7E77f82B25B95953825F1E3eA0E36c1c29861`,
+VeChain's built-in VTHO Energy contract
+`0x0000000000000000000000000000456E65726779` and Ponke's Solana mint
+`5z3EqYQo9HiCEs3R84RCDMu2n7anpDMxRhdK8PSWmrRC`. `EGLD` and `OKB` are
+native-coin claims on their projects' own chains, taken from those
+projects' own documentation, in the same shape as the existing `ETC` and
+`VET` records.
+
+Two findings are worth stating rather than burying.
+
+**MOVR is not a Kraken catalog quirk.** Kraken publishes Moonriver on
+**Base**, not on its Kusama parachain, which is exactly what a bad catalog
+row looks like. It is not one. The Moonbeam Foundation itself announced
+and executed a full migration of MOVR to Base — "the migration is 1:1
+every MOVR you hold today becomes one Base ERC-20 MOVR", with a
+2026-07-31 bridging deadline and the new Base token deployed to
+`0x43fEB74608334DDa8c1a6500D185cFC3Ea962B83`. Kraken's network is
+correct and the record binds the Base contract.
+
+**`okx.com` cannot be captured with a rendered-DOM fetch.** Every headless
+render of an OKX URL returned an empty body, including URLs that answer
+HTTP 200. The three OKB source bodies were therefore retained over a
+plain HTTP request with a browser user agent instead, and the receipt says
+so per source rather than presenting them as rendered captures.
+
+`ROBO`, `GRASS` and `AXS` are recorded as **chain-level identities only**,
+and the records say so, exactly as the `DENT` record does. Each project
+publishes the chain and the token standard — Fabric Foundation's
+whitepaper says `$ROBO` "initially launched as an ERC20 token on Ethereum
+mainnet", grass.io says its wallet is "running on Solana", Axie Infinity's
+whitepaper says "the $AXS and $SLP ERC-20 contract has been audited by
+Quantstamp" — but none publishes a contract address on any officially
+reachable page. Every address that exists in public for those three lives
+on third-party explorers, which the ratified bar does not accept. A test
+pins each disclosure so the record cannot later be read as an
+exact-contract claim.
+
+**Two assets are classified `unverified_identity`, effective 2026-09-19.**
+This is the fail-closed branch working, not a failure of the batch. As
+with the existing `PLAY`, `RE` and `MOODENG` records, each is a real,
+ratified exclusion — the ranking loop skips it and keeps going, it never
+makes a whole result `UNKNOWN` — and neither is an investability claim.
+
+`ZEREBRO`: Kraken publishes it as Zerebro on Solana and its asset page
+describes the project, but that is one organisation and Kraken's own
+Assets/AssetPairs metadata carries no chain/contract/genesis field. No
+project publication exists to match independently: `zerebro.org` serves a
+Next.js page whose entire body is a single animated canvas with no token,
+chain, mint or contract text anywhere in the retained DOM; the
+research-paper path cited for the project returns HTTP 404; and the ZerePy
+repository documents an agent framework built from the Zerebro backend
+without publishing any token identity. Every mint claim traces to
+third-party explorers and aggregators.
+
+`TURBO`: the only page carrying a contract address, `turbotoken.io`,
+**declines to be an authoritative source for the asset**. It states
+verbatim that "This website is an independent, community-driven platform
+and does NOT officially represent TURBO" and that "The TURBO community
+operates as a decentralized entity". A page that explicitly disowns
+representing the asset cannot be the second independent source the bar
+requires, however accurate its contract string may be. That TURBO has no
+issuer is a real fact about TURBO, and the honest way to record a token
+whose identity nobody authoritative publishes is to say it could not be
+confirmed — not to accept the nearest available page because nothing
+better exists. The contract string and the disclaimer text are both
+retained in the receipt, so this record can be overturned if a genuine
+issuer source ever appears.
+
+Every record is effective 2026-09-19 and every retained vintage evaluates
+at `as_of = vintage - 1 day`, so the latest retained `as_of` (2026-09-17)
+is strictly before the effective date and no committed result moves:
+snapshots 2026-09-12…2026-09-18 return byte-identical members, excluded
+rows and unknown rows with and without these records, and none of the
+thirteen appears in the scanned range of any retained vintage.
+`target_asset_count=100`, `minimum_observation_coverage_bps=9000`, the
+30-day turnover ranking rule, every existing exclusion and all
+classification/threshold/Regime/Production/trading authority flags are
+unchanged. This is breadth source coverage only.
+
+The retained source bodies for this batch are held **outside any session
+scratchpad**. On 2026-09-18 a disk sweep deleted the 149 MB of bodies
+behind two earlier batches' receipts, so those hashes can no longer be
+re-derived locally; that weakness is unchanged for those receipts and is
+not claimed to be fixed. These bodies survive such a sweep, they are still
+not committed to this repository, and permanent published retention
+remains undecided.
