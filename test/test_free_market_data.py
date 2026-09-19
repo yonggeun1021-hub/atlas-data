@@ -523,6 +523,81 @@ class ImmutableRevisionRetentionTests(unittest.TestCase):
                 M.read_alpaca_raw_revision(root, escaped)
 
 
+class AlpacaRawPreservationByteIdentityTests(unittest.TestCase):
+    """Guards a property nothing else in this file checks directly.
+
+    Every other test here compares the *decompressed* payload's sha256
+    (``read_alpaca_raw_revision`` decompresses before returning). A consumer
+    that instead pins the raw gzip container bytes read straight off disk at
+    the mutable ``raw/<day>/...`` compatibility path -- e.g. a packet that
+    records ``sha256(file_bytes_on_disk)`` rather than
+    ``sha256(decompressed_payload)`` -- silently depends on
+    ``_preserve_prior_alpaca_raw`` reproducing that exact container, not just
+    a container that decompresses to the same thing.
+
+    That reproduction is not incidental: both the original write (the
+    producer's own capture-time call in ``publish``) and the later
+    preservation call (``_preserve_prior_alpaca_raw``, invoked right before a
+    second same-day capture would overwrite the compatibility file) route the
+    same payload through ``FRED_PROVENANCE.deterministic_gzip``. If that
+    encoder ever stopped being byte-stable across two calls -- a different
+    library, a real mtime, a different compresslevel or filename in the gzip
+    header -- preservation would keep "working" (the decompressed content
+    would still match, so every *other* test here would keep passing) while
+    silently no longer reproducing the exact bytes a consumer pinned by file
+    hash. This class asserts the byte-exact property at its source instead of
+    against a hardcoded digest, so it tracks the code rather than today's
+    data.
+    """
+
+    def test_deterministic_gzip_produces_identical_bytes_for_the_same_payload_every_call(self):
+        payload = b'{"responses":{"SPY":{"bars":[{"t":"2026-07-04T00:00:00Z","c":1}]}}}'
+        first = M.FRED_PROVENANCE.deterministic_gzip(payload)
+        second = M.FRED_PROVENANCE.deterministic_gzip(payload)
+        self.assertEqual(
+            first, second,
+            "deterministic_gzip must be byte-stable across calls, or a later "
+            "preservation call can no longer reproduce an earlier write's "
+            "exact container",
+        )
+        # A container that merely decompresses to the same payload would not
+        # be enough to make the point above -- require byte equality above,
+        # this just confirms the payload itself round-trips.
+        self.assertEqual(gzip.decompress(first), payload)
+
+    def test_preserving_a_compatibility_capture_reproduces_its_gzip_container_byte_for_byte(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _contract_root(tmp)
+            payload = b'{"responses":{"QQQ":{"bars":[{"t":"2026-07-05T00:00:00Z","c":2}]}}}'
+
+            # Mirrors the producer's own capture-time write of the mutable
+            # per-day compatibility pointer (free_market_data.py's `publish`,
+            # which runs the raw response through the same encoder).
+            original_gzip_bytes = M.FRED_PROVENANCE.deterministic_gzip(payload)
+            compat_path = (
+                root / "evidence/free_market_data/raw/2026-07-05"
+                / M.ALPACA_RAW_KINDS["daily_bars"]
+            )
+            compat_path.parent.mkdir(parents=True, exist_ok=True)
+            compat_path.write_bytes(original_gzip_bytes)
+
+            # Mirrors what `publish` does immediately before a second
+            # same-day capture would overwrite that same mutable path.
+            M._preserve_prior_alpaca_raw(root, compat_path, "daily_bars")
+
+            preserved_path = (
+                root / M.ALPACA_RAW_STORE / "daily_bars" / M.sha256_bytes(payload)
+                / M.ALPACA_RAW_KINDS["daily_bars"]
+            )
+            self.assertTrue(preserved_path.exists())
+            # The property a pinned-by-file-hash consumer depends on: not
+            # merely that both sides decompress to `payload` (any correct
+            # gzip encoder would do that), but that preservation reproduces
+            # the exact bytes the original producer wrote to the
+            # compatibility path.
+            self.assertEqual(preserved_path.read_bytes(), original_gzip_bytes)
+
+
 class LegacyPacketCompatibilityTests(unittest.TestCase):
     """Packets published before pinned revisions must keep replaying, and must
     never be rebound to bytes captured later on the same day."""
