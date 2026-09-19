@@ -726,7 +726,29 @@ def _history_bar(day, step):
     }
 
 
-def _history_getter(*, bars_per_symbol=3, split_pages=False, calls=None):
+# Two revisions of one observation date, plus neighbours outside that month, so
+# the chunk-boundary regression has something to split.
+FRED_VINTAGE_TABLE = (
+    {"realtime_start": "2025-01-10", "realtime_end": "9999-12-31",
+     "date": "2025-01-06", "value": "0.5"},
+    {"realtime_start": "2026-05-05", "realtime_end": "2026-05-11",
+     "date": "2026-05-04", "value": "1.5"},
+    {"realtime_start": "2026-05-12", "realtime_end": "9999-12-31",
+     "date": "2026-05-04", "value": "2.5"},
+    {"realtime_start": "2026-06-02", "realtime_end": "9999-12-31",
+     "date": "2026-06-01", "value": "3.5"},
+)
+
+# What FRED actually returns in a 400 body: a reason, in the response, which the
+# shared getter throws away. Run 35432930212 is the cost of that.
+FAKE_FRED_400_BODY = (
+    '{"error_code":400,"error_message":"Bad Request.  Fake rejection for the '
+    'regression only.  api_key=0123456789abcdef0123456789abcdef"}'
+)
+
+
+def _history_getter(*, bars_per_symbol=3, split_pages=False, calls=None,
+                    reject_max_limit=False):
     """Fake HTTP layer for the history collector. No network, no real key."""
     start = dt.date(2026, 5, 4)
 
@@ -758,13 +780,19 @@ def _history_getter(*, bars_per_symbol=3, split_pages=False, calls=None):
                 "count": 2, "vintage_dates": ["2026-05-05", "2026-05-12"],
             }).encode()
         if base.endswith("/fred/series/observations"):
-            series_id = params["series_id"]
-            return json.dumps({"count": 2, "observations": [
-                {"realtime_start": "2026-05-05", "realtime_end": "2026-05-11",
-                 "date": "2026-05-04", "value": "1.5"},
-                {"realtime_start": "2026-05-12", "realtime_end": "9999-12-31",
-                 "date": "2026-05-04", "value": f"2.5{len(series_id)}"},
-            ]}).encode()
+            if reject_max_limit and params.get("limit") == str(H.FRED_PAGE_LIMIT):
+                # Stand in for the real 2026-09-19 rejection: one shape is
+                # refused with a reason in the body, later shapes are accepted.
+                raise H.FreeMarketDataError(
+                    f"HTTP_ERROR:400:{H.mask_secrets(FAKE_FRED_400_BODY)}"
+                )
+            window_start = params["observation_start"]
+            window_end = params["observation_end"]
+            rows = [
+                dict(row) for row in FRED_VINTAGE_TABLE
+                if window_start <= row["date"] <= window_end
+            ]
+            return json.dumps({"count": len(rows), "observations": rows}).encode()
         if base.endswith("/fred/series"):
             return json.dumps({"seriess": [{
                 "title": params["series_id"], "frequency": "Weekly",
@@ -1040,7 +1068,7 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
                 with self.assertRaises(H.FreeMarketDataError):
                     H._safe_history_path(root, candidate, "/manifest.json")
 
-    def test_measure_mode_stays_within_five_requests_and_writes_nothing(self):
+    def test_measure_mode_stays_within_its_budget_and_writes_nothing(self):
         contract = self._contract()
         calls = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -1055,8 +1083,10 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
                 sorted(path for path in root.rglob("*") if path.is_file()), before
             )
         self.assertTrue(report["writes_nothing"])
+        self.assertEqual(H.MEASURE_REQUEST_BUDGET, 12)
         self.assertLessEqual(report["requests_made"], H.MEASURE_REQUEST_BUDGET)
-        self.assertEqual(report["requests_made"], 5)
+        # 3 vintagedates + 2 Alpaca feeds + 1 accepted shape + 2 confirmations.
+        self.assertEqual(report["requests_made"], 8)
         self.assertEqual(sorted(report["fred_vintages"]), ["TOTBKCR", "VIXCLS", "WRESBAL"])
         for series in report["fred_vintages"].values():
             self.assertEqual(series["earliest_vintage_date"], "2026-05-05")
@@ -1066,6 +1096,199 @@ class HistoricalRangeReceiptTests(unittest.TestCase):
         self.assertFalse(report["conclusion"]["sip_available"])
         self.assertFalse(report["conclusion"]["iex_meets_window_target"])
         self.assertEqual(report["conclusion"]["score_symbol_count"], 15)
+
+    def test_measure_probes_the_observations_endpoint_itself(self):
+        """The check that was missing on 2026-09-19.
+
+        measure passed (run 35432763470) and fetch then died on
+        ``series/observations`` (run 35432930212), because measure probed only
+        ``vintagedates``. It now probes the endpoint that does the work, over one
+        chunk-sized window, and reports the provider's own reason per shape.
+        """
+        contract = self._contract()
+        report = H.measure(
+            FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET, contract,
+            "2026-05-04", "2026-05-06",
+            getter=_history_getter(bars_per_symbol=3, reject_max_limit=True),
+        )
+        probe = report["fred_observation_probe"]
+        self.assertEqual(probe["probe_window"], {"start": "2026-05-04", "end": "2026-05-06"})
+        self.assertEqual(probe["chunk_days"], H.FRED_CHUNK_DAYS)
+        self.assertEqual(probe["attempts"][0]["status"], "REJECTED")
+        self.assertIn("Fake rejection", probe["attempts"][0]["provider_error"])
+        self.assertEqual(probe["attempts"][-1]["status"], "ACCEPTED")
+        self.assertEqual(probe["accepted_shape_id"], probe["attempts"][-1]["shape_id"])
+        self.assertNotEqual(probe["accepted_shape_id"],
+                            H.FRED_OBSERVATION_SHAPES[0]["id"])
+        self.assertEqual(sorted(probe["series"]), ["TOTBKCR", "VIXCLS", "WRESBAL"])
+        self.assertTrue(report["conclusion"]["fred_observations_ready"])
+        self.assertLessEqual(report["requests_made"], H.MEASURE_REQUEST_BUDGET)
+        # The reason is carried, the credential is not.
+        for attempt in probe["attempts"]:
+            text = json.dumps(attempt, ensure_ascii=False)
+            self.assertNotIn("api_key=0123", text)
+            self.assertNotIn(FAKE_FRED_KEY, text)
+
+    def test_measure_reports_every_rejection_when_no_shape_is_accepted(self):
+        contract = self._contract()
+
+        def refuse(url, headers=None):
+            base = url.partition("?")[0]
+            if base.endswith("/fred/series/observations"):
+                raise H.FreeMarketDataError("HTTP_ERROR:400:no shape works")
+            return _history_getter(bars_per_symbol=3)(url, headers)
+
+        report = H.measure(
+            FAKE_FRED_KEY, FAKE_ALPACA_KEY, FAKE_ALPACA_SECRET, contract,
+            "2026-05-04", "2026-05-06", getter=refuse,
+        )
+        probe = report["fred_observation_probe"]
+        self.assertIsNone(probe["accepted_shape_id"])
+        self.assertEqual(len(probe["attempts"]), len(H.FRED_OBSERVATION_SHAPES))
+        for attempt in probe["attempts"]:
+            self.assertEqual(attempt["status"], "REJECTED")
+            self.assertIn("no shape works", attempt["provider_error"])
+        self.assertFalse(report["conclusion"]["fred_observations_ready"])
+        self.assertIn("ALL_REJECTED", probe["error"])
+        # Measuring a total failure still costs no more than the budget.
+        self.assertLessEqual(report["requests_made"], H.MEASURE_REQUEST_BUDGET)
+
+    def test_provider_error_body_is_kept_and_masked(self):
+        """The whole point of this module having its own getter."""
+        real_key = "0123456789abcdef0123456789abcdef"
+        H.register_secrets(real_key)
+
+        class FakeError(urllib.error.HTTPError):
+            def __init__(self):
+                super().__init__("https://example.invalid", 400, "Bad Request",
+                                 {}, None)
+
+            def read(self, *_):
+                return FAKE_FRED_400_BODY.encode()
+
+        def raise_http(*_args, **_kwargs):
+            raise FakeError()
+
+        with mock.patch.object(H.urllib.request, "urlopen", raise_http):
+            with self.assertRaises(H.FreeMarketDataError) as caught:
+                H._get("https://api.stlouisfed.org/fred/series/observations"
+                       f"?series_id=VIXCLS&api_key={real_key}")
+        message = str(caught.exception)
+        # The reason survives ...
+        self.assertIn("HTTP_ERROR:400", message)
+        self.assertIn("Fake rejection", message)
+        # ... the credential does not, in any of its forms.
+        self.assertNotIn(real_key, message)
+        self.assertNotIn("api_key=0123", message)
+        self.assertLessEqual(len(message), H.HTTP_ERROR_BODY_MAX + 40)
+        # And the shared daily getter is untouched: still code-only.
+        self.assertNotIn("HTTP_ERROR_BODY_MAX", inspect.getsource(M._get))
+        self.assertIn('f"HTTP_ERROR:{exc.code}"', inspect.getsource(M._get))
+
+    def test_mask_secrets_removes_every_credential_shape(self):
+        H.register_secrets("super-secret-value-1234")
+        masked = H.mask_secrets(
+            "api_key=abcdef0123456789abcdef0123456789&x=1 "
+            "super-secret-value-1234 0123456789abcdef0123456789abcdef"
+        )
+        self.assertNotIn("abcdef0123456789", masked)
+        self.assertNotIn("super-secret-value-1234", masked)
+        self.assertIn("<redacted>", masked)
+
+    def test_no_request_shape_may_narrow_the_realtime_window(self):
+        """A shape that dropped the realtime window would silently return the
+        current revision and destroy the point-in-time guarantee."""
+        contract = self._contract()
+        self.assertTrue(H.FRED_OBSERVATION_SHAPES)
+        for shape in H.FRED_OBSERVATION_SHAPES:
+            params = H.fred_observation_params(
+                "TOTBKCR", "2026-01-01", "2026-06-30",
+                contract["fred"]["output_type"], shape,
+            )
+            self.assertEqual(params["realtime_start"], H.FRED_REALTIME_MIN)
+            self.assertEqual(params["realtime_end"], H.FRED_REALTIME_MAX)
+            self.assertEqual(params["series_id"], "TOTBKCR")
+            self.assertEqual(params["observation_start"], "2026-01-01")
+            self.assertEqual(params["observation_end"], "2026-06-30")
+            # offset is only sent when it is not the provider default.
+            self.assertNotIn("offset", params)
+            self.assertIn("offset", H.fred_observation_params(
+                "TOTBKCR", "2026-01-01", "2026-06-30",
+                contract["fred"]["output_type"], shape, 100,
+            ))
+        first = H.FRED_OBSERVATION_SHAPES[0]
+        self.assertEqual(first["limit"], H.FRED_PAGE_LIMIT)
+        self.assertEqual(
+            H.MEASURE_REQUEST_BUDGET, 3 + 2 + len(H.FRED_OBSERVATION_SHAPES) + 2
+        )
+        # The applied budget is derived from the contract, so adding a FRED
+        # series cannot silently overrun the documented number.
+        self.assertEqual(H.measure_request_budget(contract),
+                         H.MEASURE_REQUEST_BUDGET)
+        self.assertEqual(
+            H.measure_request_budget({"fred": {"series": ["A", "B", "C", "D"]}}),
+            H.MEASURE_REQUEST_BUDGET + 2,
+        )
+
+    def test_chunks_are_adjacent_with_no_gap_and_no_overlap(self):
+        chunks = H.fred_observation_chunks("2026-01-01", "2026-03-31", 30)
+        self.assertEqual(chunks[0], ("2026-01-01", "2026-01-30"))
+        self.assertEqual(chunks[-1][1], "2026-03-31")
+        for earlier, later in zip(chunks, chunks[1:]):
+            self.assertEqual(
+                dt.date.fromisoformat(later[0]) - dt.date.fromisoformat(earlier[1]),
+                dt.timedelta(days=1),
+            )
+        self.assertEqual(H.fred_observation_chunks("2026-01-01", "2026-01-01", 30),
+                         [("2026-01-01", "2026-01-01")])
+        with self.assertRaises(H.FreeMarketDataError):
+            H.fred_observation_chunks("2026-03-31", "2026-01-01", 30)
+        with self.assertRaises(H.FreeMarketDataError):
+            H.fred_observation_chunks("2026-01-01", "2026-03-31", 0)
+
+    def test_chunk_boundaries_do_not_change_the_received_rows(self):
+        contract = self._contract()
+        output_type = contract["fred"]["output_type"]
+        window = ("2025-01-01", "2026-06-30")
+        _, single = H.fetch_fred_vintage_observations(
+            FAKE_FRED_KEY, "TOTBKCR", *window, output_type,
+            getter=_history_getter(),
+        )
+        expected = H._merge_vintage_rows([single])
+        for chunk_days in (7, 30, 100, 365, 10000):
+            _, rows, records = H.fetch_fred_vintage_range(
+                FAKE_FRED_KEY, "TOTBKCR", *window, output_type,
+                shape=H.FRED_OBSERVATION_SHAPES[0], chunk_days=chunk_days,
+                getter=_history_getter(),
+            )
+            self.assertEqual(rows, expected, f"chunk_days={chunk_days}")
+            self.assertEqual(
+                sum(record["row_count"] for record in records), len(expected),
+                f"chunk_days={chunk_days} lost or duplicated a row",
+            )
+        # A boundary that changed the answer is a failure, never a silent merge.
+        row = dict(expected[0])
+        with self.assertRaises(H.FreeMarketDataError):
+            H._merge_vintage_rows([[row], [{**row, "value": "999"}]])
+
+    def test_receive_still_refuses_to_read_a_value_published_later(self):
+        """The chunked, shape-negotiated path keeps the vintage guarantee."""
+        contract = self._contract()
+        _, rows, _ = H.fetch_fred_vintage_range(
+            FAKE_FRED_KEY, "TOTBKCR", "2025-01-01", "2026-06-30",
+            contract["fred"]["output_type"],
+            shape=H.FRED_OBSERVATION_SHAPES[0], chunk_days=30,
+            getter=_history_getter(),
+        )
+        early = H.observations_available_at(rows, "2026-05-06")
+        self.assertEqual(
+            [(row["observation_date"], row["value"]) for row in early],
+            [("2025-01-06", "0.5"), ("2026-05-04", "1.5")],
+        )
+        late = H.observations_available_at(rows, "2026-06-30")
+        self.assertIn(("2026-05-04", "2.5"),
+                      [(row["observation_date"], row["value"]) for row in late])
+        self.assertNotIn("2.5", [row["value"] for row in early])
 
     def test_measure_mode_refuses_to_exceed_its_request_budget(self):
         budget = H.RequestBudget(1)

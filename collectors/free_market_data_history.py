@@ -62,7 +62,9 @@ import json
 import os
 from pathlib import Path
 import re
+import urllib.error
 import urllib.parse
+import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,7 +109,68 @@ FRED_PAGE_LIMIT = 100000
 FRED_VINTAGE_DATES_LIMIT = 10000
 ALPACA_PAGE_LIMIT = 10000
 MAX_PAGES = 64
-MEASURE_REQUEST_BUDGET = 5
+
+# ★ 2026-09-19, run 35432930212. mode=fetch died on the FIRST
+# ``series/observations`` request with a bare ``HTTP_ERROR:400`` -- the shared
+# ``free_market_data._get`` converts urllib's HTTPError into a code and DROPS the
+# response body, and FRED puts the actual reason in that body. The same run's
+# ``vintagedates`` requests had already succeeded with the same key, so the key
+# was never the problem; the request shape or its size was, and nothing in the
+# log said which. Two things follow, both implemented below.
+#
+# 1. This module now has its OWN getter that keeps the (masked, truncated) 400
+#    body. ``free_market_data._get`` is deliberately left exactly as it is: the
+#    daily collector runs on it.
+# 2. ``measure`` no longer probes only ``vintagedates``. It probes the
+#    ``series/observations`` endpoint itself with the vintage parameters over one
+#    chunk-sized window, so the shape is proven before a full receive is started.
+#    Not probing the endpoint that does the work was the design hole.
+HTTP_ERROR_BODY_MAX = 400
+
+# The observation window is ALWAYS received in chunks of this many days, per
+# series. That removes response size as a variable (rather than assuming it is
+# not one) and keeps every retained response small. Chunks are inclusive and
+# strictly adjacent -- ``fred_observation_chunks`` yields [start, end] ranges
+# with no gap and no overlap -- so merging them can neither lose nor duplicate a
+# row, which ``_merge_vintage_rows`` enforces and the regression pins.
+FRED_CHUNK_DAYS = 365
+
+# Candidate request shapes for ``series/observations``, most explicit first.
+# Every shape keeps ``realtime_start``/``realtime_end`` at the ALFRED extremes:
+# a shape that narrowed or dropped them would silently return the CURRENT
+# revision and destroy the point-in-time guarantee, so no such shape exists here
+# and the regression asserts it never will. The shapes differ only in optional
+# parameters whose values FRED already defaults to, so the semantics of every
+# one of them are identical -- the ladder finds which one the provider ACCEPTS,
+# it does not choose between different data.
+#
+# ``output_type: False`` omits the parameter; FRED's documented default for
+# ``output_type`` is 1, the same value the contract pins, so omitting it asks for
+# the same thing.
+FRED_OBSERVATION_SHAPES = (
+    {"id": "explicit_sorted_max_limit", "sort_order": "asc",
+     "limit": FRED_PAGE_LIMIT, "output_type": True},
+    {"id": "explicit_sorted_small_limit", "sort_order": "asc",
+     "limit": 10000, "output_type": True},
+    {"id": "explicit_unsorted_small_limit", "sort_order": None,
+     "limit": 10000, "output_type": True},
+    {"id": "explicit_no_limit", "sort_order": None,
+     "limit": None, "output_type": True},
+    {"id": "provider_defaults", "sort_order": None,
+     "limit": None, "output_type": False},
+)
+
+# measure mode request budget, counted exactly (see measure_request_budget):
+#   N  ALFRED vintagedates, one per contract FRED series
+#   2  Alpaca window probe (feed=iex, feed=sip)
+#   1..len(FRED_OBSERVATION_SHAPES)  observations shape ladder on the first
+#      series, stopping at the first shape the provider accepts
+#   N-1  the accepted shape confirmed on the remaining series
+# The committed contract has N = 3 series, so the worst case is
+# 3 + 2 + 5 + 2 = 12 and the expected case (first shape accepted) is 8. The
+# constant is the number for the committed contract; the budget actually applied
+# is derived from the contract, so adding a series cannot silently overrun it.
+MEASURE_REQUEST_BUDGET = 3 + 2 + len(FRED_OBSERVATION_SHAPES) + 2
 
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SERIES_ID = re.compile(r"^[A-Z0-9]{1,32}$")
@@ -130,6 +193,68 @@ WINDOW_TARGET = 10
 FRED_OBSERVATION_LEAD_DAYS = 60
 
 
+_REGISTERED_SECRETS: set[str] = set()
+
+
+def register_secrets(*values: object) -> None:
+    """Remember credential values so no diagnostic can ever echo one."""
+    for value in values:
+        if isinstance(value, str) and len(value) >= 8:
+            _REGISTERED_SECRETS.add(value)
+
+
+def mask_secrets(text: str) -> str:
+    """Remove anything credential-shaped from a provider diagnostic.
+
+    A FRED error body can quote the request, and the FRED key must live in the
+    query string, so the body is scrubbed three ways before it is ever allowed
+    into an exception message: the ``api_key`` parameter value, every registered
+    credential value, and any bare 32-character lower-case hex/alphanumeric token
+    (the shape of a FRED key) are replaced.
+    """
+    if not isinstance(text, str):
+        return ""
+    text = re.sub(r"(?i)(api_key=)[^&\s\"'<>]+", r"\1<redacted>", text)
+    for secret in sorted(_REGISTERED_SECRETS, key=len, reverse=True):
+        text = text.replace(secret, "<redacted>")
+    text = re.sub(r"\b[0-9a-z]{32}\b", "<redacted>", text)
+    return " ".join(text.split())
+
+
+def _get(url: str, headers: dict[str, str] | None = None) -> bytes:
+    """Fetch, and on an HTTP error KEEP the provider's explanation.
+
+    ``free_market_data._get`` raises ``HTTP_ERROR:<code>`` and discards the
+    response body, which is right for the daily collector (its URLs carry the
+    FRED key and it has no diagnostic to preserve) and is why run 35432930212
+    said only ``HTTP_ERROR:400``. This getter is a separate function for this
+    module only: the shared one is not modified. The body is masked by
+    ``mask_secrets`` and truncated before it is attached, and the URL itself is
+    never attached.
+    """
+    request = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            if response.status != 200:
+                raise FreeMarketDataError(f"HTTP_STATUS:{response.status}")
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read()[: HTTP_ERROR_BODY_MAX * 4].decode("utf-8", "replace")
+        except OSError:
+            body = ""
+        detail = mask_secrets(body)[:HTTP_ERROR_BODY_MAX]
+        raise FreeMarketDataError(
+            f"HTTP_ERROR:{exc.code}:{detail}" if detail else f"HTTP_ERROR:{exc.code}"
+        ) from None
+    except urllib.error.URLError:
+        raise FreeMarketDataError("NETWORK_ERROR:URL_ERROR") from None
+    except TimeoutError:
+        raise FreeMarketDataError("NETWORK_ERROR:TIMEOUT") from None
+    except OSError as exc:
+        raise FreeMarketDataError(f"NETWORK_ERROR:{type(exc).__name__}") from None
+
+
 class RequestBudget:
     """Fail closed rather than quietly exceed an approved request count."""
 
@@ -141,6 +266,14 @@ class RequestBudget:
         if self.limit is not None and self.spent >= self.limit:
             raise FreeMarketDataError(f"REQUEST_BUDGET_EXCEEDED:{self.limit}")
         self.spent += 1
+
+
+def measure_request_budget(contract: dict) -> int:
+    """The exact worst-case request count measure mode is allowed."""
+    series = contract["fred"]["series"]
+    if not isinstance(series, list) or not series:
+        raise FreeMarketDataError("FRED_SERIES_LIST_INVALID")
+    return len(series) + 2 + len(FRED_OBSERVATION_SHAPES) + (len(series) - 1)
 
 
 def _utc_now() -> dt.datetime:
@@ -307,7 +440,7 @@ def _request(
     budget: RequestBudget | None = None,
     receipts: list | None = None,
 ) -> bytes:
-    getter = getter or DAILY._get
+    getter = getter or _get
     if budget is not None:
         budget.spend()
     query = dict(params)
@@ -419,6 +552,97 @@ def parse_fred_vintage_page(series_id: str, raw: bytes) -> tuple[list[dict], obj
     return rows, body.get("count")
 
 
+def fred_observation_params(
+    series_id: str,
+    observation_start: str,
+    observation_end: str,
+    output_type: int,
+    shape: dict,
+    offset: int = 0,
+) -> dict:
+    """Build one ``series/observations`` request under a candidate shape.
+
+    The four keys that carry the point-in-time meaning -- ``series_id``,
+    the observation window, and ``realtime_start``/``realtime_end`` at the ALFRED
+    extremes -- are NOT shape-dependent and are always present. Everything the
+    shape varies is an optional parameter whose omitted value is FRED's own
+    default, so no shape can change which data is asked for.
+
+    ``offset`` is sent only when it is non-zero: sending the default on the first
+    page added one more parameter that could be rejected for nothing.
+    """
+    params = {
+        "series_id": _check_series_id(series_id),
+        "file_type": "json",
+        "observation_start": _check_date(
+            observation_start, "FRED_OBSERVATION_START_INVALID"
+        ),
+        "observation_end": _check_date(
+            observation_end, "FRED_OBSERVATION_END_INVALID"
+        ),
+        "realtime_start": FRED_REALTIME_MIN,
+        "realtime_end": FRED_REALTIME_MAX,
+    }
+    if shape.get("output_type"):
+        params["output_type"] = output_type
+    if shape.get("sort_order"):
+        params["sort_order"] = shape["sort_order"]
+    if shape.get("limit"):
+        params["limit"] = shape["limit"]
+    if offset:
+        params["offset"] = offset
+    return params
+
+
+def fred_observation_chunks(
+    observation_start: str, observation_end: str, chunk_days: int = FRED_CHUNK_DAYS
+) -> list[tuple[str, str]]:
+    """Split an inclusive window into adjacent, non-overlapping inclusive chunks.
+
+    No gap and no overlap, so merging the chunks can neither drop nor duplicate
+    an observation. The regression pins that a chunked receive equals a
+    single-request receive for the same window.
+    """
+    start = dt.date.fromisoformat(
+        _check_date(observation_start, "FRED_OBSERVATION_START_INVALID")
+    )
+    end = dt.date.fromisoformat(
+        _check_date(observation_end, "FRED_OBSERVATION_END_INVALID")
+    )
+    if start > end:
+        raise FreeMarketDataError("FRED_OBSERVATION_WINDOW_ORDER_INVALID")
+    if not isinstance(chunk_days, int) or chunk_days < 1:
+        raise FreeMarketDataError("FRED_CHUNK_DAYS_INVALID")
+    chunks = []
+    cursor = start
+    while cursor <= end:
+        stop = min(end, cursor + dt.timedelta(days=chunk_days - 1))
+        chunks.append((cursor.isoformat(), stop.isoformat()))
+        cursor = stop + dt.timedelta(days=1)
+    return chunks
+
+
+def _merge_vintage_rows(row_groups: list[list[dict]]) -> list[dict]:
+    """Merge chunk/page row groups into one deterministic, duplicate-free list.
+
+    Keyed by (observation_date, available_from), which identifies one published
+    value exactly. Two groups presenting the same key with different content
+    means the chunk boundaries changed the answer, and that fails closed instead
+    of being silently resolved.
+    """
+    merged: dict[tuple[str, str], dict] = {}
+    for group in row_groups:
+        for row in group:
+            key = (row["observation_date"], row["available_from"])
+            prior = merged.get(key)
+            if prior is not None and prior != row:
+                raise FreeMarketDataError(
+                    f"FRED_VINTAGE_CHUNK_BOUNDARY_CONFLICT:{key[0]}:{key[1]}"
+                )
+            merged[key] = row
+    return [merged[key] for key in sorted(merged)]
+
+
 def fetch_fred_vintage_observations(
     api_key: str,
     series_id: str,
@@ -426,11 +650,13 @@ def fetch_fred_vintage_observations(
     observation_end: str,
     output_type: int,
     *,
+    shape: dict | None = None,
+    require_rows: bool = True,
     getter=None,
     budget: RequestBudget | None = None,
     receipts: list | None = None,
 ) -> tuple[list[bytes], list[dict]]:
-    """Every (observation, revision) row ALFRED holds for a window.
+    """Every (observation, revision) row ALFRED holds for ONE window.
 
     Each returned row carries ``realtime_start``/``realtime_end``: the dates
     between which that value was the published one. Those two fields ARE the
@@ -438,24 +664,14 @@ def fetch_fred_vintage_observations(
     ``observations_available_at`` filters on.
     """
     series_id = _check_series_id(series_id)
-    observation_start = _check_date(observation_start, "FRED_OBSERVATION_START_INVALID")
-    observation_end = _check_date(observation_end, "FRED_OBSERVATION_END_INVALID")
+    shape = shape or FRED_OBSERVATION_SHAPES[0]
     pages: list[bytes] = []
     rows: list[dict] = []
     offset = 0
     for _page in range(MAX_PAGES):
-        params = {
-            "series_id": series_id,
-            "file_type": "json",
-            "observation_start": observation_start,
-            "observation_end": observation_end,
-            "realtime_start": FRED_REALTIME_MIN,
-            "realtime_end": FRED_REALTIME_MAX,
-            "output_type": output_type,
-            "sort_order": "asc",
-            "limit": FRED_PAGE_LIMIT,
-            "offset": offset,
-        }
+        params = fred_observation_params(
+            series_id, observation_start, observation_end, output_type, shape, offset
+        )
         raw = _request(
             f"{FRED_API}/series/observations",
             params,
@@ -474,9 +690,141 @@ def fetch_fred_vintage_observations(
         offset += len(page_rows)
     else:
         raise FreeMarketDataError(f"FRED_VINTAGE_MAX_PAGES_EXCEEDED:{series_id}")
-    if not rows:
+    if require_rows and not rows:
         raise FreeMarketDataError(f"FRED_VINTAGE_ROWS_EMPTY:{series_id}")
     return pages, rows
+
+
+def probe_fred_observation_shape(
+    api_key: str,
+    series_id: str,
+    observation_start: str,
+    observation_end: str,
+    output_type: int,
+    shape: dict,
+    *,
+    getter=None,
+    budget: RequestBudget | None = None,
+    receipts: list | None = None,
+) -> dict:
+    """Try ONE shape on ONE chunk-sized window and report what FRED said.
+
+    A rejection carries the provider's own (masked, truncated) explanation, which
+    is the thing run 35432930212 could not tell anyone.
+    """
+    params = fred_observation_params(
+        series_id, observation_start, observation_end, output_type, shape
+    )
+    record = {
+        "shape_id": shape["id"],
+        "series_id": series_id,
+        "observation_start": observation_start,
+        "observation_end": observation_end,
+        # The credential is never part of `params`, so this is safe to print
+        # and safe to commit.
+        "params": {key: str(value) for key, value in sorted(params.items())},
+    }
+    try:
+        _pages, rows = fetch_fred_vintage_observations(
+            api_key, series_id, observation_start, observation_end, output_type,
+            shape=shape, require_rows=False, getter=getter, budget=budget,
+            receipts=receipts,
+        )
+    except FreeMarketDataError as exc:
+        return {**record, "status": "REJECTED", "provider_error": mask_secrets(str(exc))}
+    availability = sorted({row["available_from"] for row in rows})
+    return {
+        **record,
+        "status": "ACCEPTED",
+        "row_count": len(rows),
+        "observation_date_count": len({row["observation_date"] for row in rows}),
+        "distinct_availability_date_count": len(availability),
+        "earliest_availability_date": availability[0] if availability else None,
+        "latest_availability_date": availability[-1] if availability else None,
+    }
+
+
+def negotiate_fred_observation_shape(
+    api_key: str,
+    series_id: str,
+    observation_start: str,
+    observation_end: str,
+    output_type: int,
+    *,
+    attempts: list | None = None,
+    getter=None,
+    budget: RequestBudget | None = None,
+    receipts: list | None = None,
+) -> tuple[dict, list[dict]]:
+    """Find the first committed shape the provider accepts, and record the rest.
+
+    This is a measurement, not a guess: the ladder is a fixed committed list, the
+    shapes are semantically identical (they differ only in parameters whose
+    omitted value is FRED's own default), every rejection keeps the provider's
+    reason, and the shape actually used is written into the run receipt. If none
+    is accepted, the error carries every reason FRED gave.
+    """
+    # The caller may own the list, so a total failure still leaves every
+    # provider reason in the caller's hands rather than only in the exception.
+    attempts = attempts if attempts is not None else []
+    for shape in FRED_OBSERVATION_SHAPES:
+        attempt = probe_fred_observation_shape(
+            api_key, series_id, observation_start, observation_end, output_type,
+            shape, getter=getter, budget=budget, receipts=receipts,
+        )
+        attempts.append(attempt)
+        if attempt["status"] == "ACCEPTED":
+            return shape, attempts
+    reasons = "; ".join(
+        f"{attempt['shape_id']}={attempt.get('provider_error')}" for attempt in attempts
+    )
+    raise FreeMarketDataError(
+        f"FRED_OBSERVATION_SHAPE_ALL_REJECTED:{series_id}:{mask_secrets(reasons)}"
+    )
+
+
+def fetch_fred_vintage_range(
+    api_key: str,
+    series_id: str,
+    observation_start: str,
+    observation_end: str,
+    output_type: int,
+    *,
+    shape: dict,
+    chunk_days: int = FRED_CHUNK_DAYS,
+    getter=None,
+    budget: RequestBudget | None = None,
+    receipts: list | None = None,
+) -> tuple[list[bytes], list[dict], list[dict]]:
+    """Receive a whole observation window as adjacent chunks, then merge.
+
+    Chunking is unconditional: it removes response size as a variable instead of
+    assuming it is not one. Because the chunks are inclusive and strictly
+    adjacent, the merge is lossless, and ``_merge_vintage_rows`` fails closed if
+    two chunks ever disagree about the same published value.
+    """
+    chunks = fred_observation_chunks(observation_start, observation_end, chunk_days)
+    pages: list[bytes] = []
+    row_groups: list[list[dict]] = []
+    chunk_records: list[dict] = []
+    for chunk_start, chunk_end in chunks:
+        chunk_pages, chunk_rows = fetch_fred_vintage_observations(
+            api_key, series_id, chunk_start, chunk_end, output_type,
+            shape=shape, require_rows=False, getter=getter, budget=budget,
+            receipts=receipts,
+        )
+        pages.extend(chunk_pages)
+        row_groups.append(chunk_rows)
+        chunk_records.append({
+            "observation_start": chunk_start,
+            "observation_end": chunk_end,
+            "page_count": len(chunk_pages),
+            "row_count": len(chunk_rows),
+        })
+    rows = _merge_vintage_rows(row_groups)
+    if not rows:
+        raise FreeMarketDataError(f"FRED_VINTAGE_ROWS_EMPTY:{series_id}")
+    return pages, rows, chunk_records
 
 
 def fetch_fred_series_metadata(
@@ -791,19 +1139,40 @@ def measure(
 ) -> dict:
     """Log-only feasibility measurement. Writes nothing, commits nothing.
 
-    Five requests at most: ALFRED ``vintagedates`` for the three FRED series
-    (how far back vintages actually exist), one Alpaca ``start``/``end`` request
-    on ``feed=iex`` (how many bars really come back), and one on ``feed=sip``
-    (whether SIP is available on this credential at all).
+    ``MEASURE_REQUEST_BUDGET`` requests at most (12; 8 in the expected case --
+    the arithmetic is written out at that constant):
+
+    * ALFRED ``vintagedates`` per FRED series -- how far back vintages exist.
+    * One Alpaca window request on ``feed=iex`` and one on ``feed=sip`` -- how
+      many bars really come back, and whether SIP is open at all.
+    * The ``series/observations`` shape ladder on the first series, then the
+      accepted shape confirmed on the remaining series. **This is the check that
+      was missing.** The 2026-09-19 measure run passed and the fetch run then
+      died on this very endpoint, because measure probed only ``vintagedates``.
+      The probe window is one ``FRED_CHUNK_DAYS`` chunk ending at ``end``, i.e.
+      exactly the size and shape of a request the receive will make.
     """
-    budget = RequestBudget(MEASURE_REQUEST_BUDGET)
+    register_secrets(fred_key, alpaca_key, alpaca_secret)
+    budget_limit = measure_request_budget(contract)
+    budget = RequestBudget(budget_limit)
     receipts: list[dict] = []
+    probe_chunks = fred_observation_chunks(start, end)
+    probe_start, probe_end = probe_chunks[-1]
     result = {
         "mode": "measure",
         "writes_nothing": True,
         "measured_at_utc": _stamp(_utc_now()),
         "requested_window": {"start": start, "end": end},
-        "request_budget": MEASURE_REQUEST_BUDGET,
+        "request_budget": budget_limit,
+        "fred_observation_probe": {
+            "probe_window": {"start": probe_start, "end": probe_end},
+            "chunk_days": FRED_CHUNK_DAYS,
+            "chunk_count_for_requested_window": len(probe_chunks),
+            "shape_ladder": [shape["id"] for shape in FRED_OBSERVATION_SHAPES],
+            "attempts": [],
+            "accepted_shape_id": None,
+            "series": {},
+        },
         "fred_vintages": {},
         "alpaca": {},
     }
@@ -844,18 +1213,47 @@ def measure(
                 "feed": feed,
                 "error": str(exc),
             }
+    probe = result["fred_observation_probe"]
+    series_ids = list(contract["fred"]["series"])
+    output_type = contract["fred"]["output_type"]
+    accepted_shape = None
+    attempts: list[dict] = probe["attempts"]
+    try:
+        accepted_shape, _ = negotiate_fred_observation_shape(
+            fred_key, series_ids[0], probe_start, probe_end, output_type,
+            attempts=attempts, getter=getter, budget=budget, receipts=receipts,
+        )
+        probe["accepted_shape_id"] = accepted_shape["id"]
+        probe["series"][series_ids[0]] = attempts[-1]
+    except FreeMarketDataError as exc:
+        # Every shape's own rejection reason is already in `attempts`; keep the
+        # aggregate too.
+        probe["error"] = mask_secrets(str(exc))
+    if accepted_shape is not None:
+        for series_id in series_ids[1:]:
+            probe["series"][series_id] = probe_fred_observation_shape(
+                fred_key, series_id, probe_start, probe_end, output_type,
+                accepted_shape, getter=getter, budget=budget, receipts=receipts,
+            )
     result["requests_made"] = budget.spent
     result["request_receipts"] = receipts
     iex = result["alpaca"].get("iex", {})
+    observations_ready = accepted_shape is not None and all(
+        record.get("status") == "ACCEPTED" for record in probe["series"].values()
+    ) and len(probe["series"]) == len(series_ids)
     result["conclusion"] = {
         "score_symbol_count": len(score_symbols(contract)),
         "iex_meets_window_target": bool(
             iex.get("feasibility", {}).get("meets_window_target")
         ),
         "sip_available": result["alpaca"].get("sip", {}).get("status") == "OBSERVED",
+        "fred_observations_ready": observations_ready,
+        "fred_accepted_shape_id": probe["accepted_shape_id"],
         "note": (
-            "A full receive is only worth running if a feed here reaches the "
-            "bars_required_for_window_target count."
+            "A full receive is only worth running when a feed reaches "
+            "bars_required_for_window_target AND fred_observations_ready is true. "
+            "If it is false, read fred_observation_probe.attempts: each rejected "
+            "shape carries the provider's own reason."
         ),
     }
     return result
@@ -884,6 +1282,7 @@ def fetch(
     if start > end:
         raise FreeMarketDataError("RANGE_ORDER_INVALID")
     symbols = symbols if symbols is not None else score_symbols(contract)
+    register_secrets(fred_key, alpaca_key, alpaca_secret)
     receipts: list[dict] = []
     captured_at = _utc_now()
 
@@ -938,6 +1337,26 @@ def fetch(
             "series_pointer": series_pointer,
         })
 
+    # Negotiate the observations request shape ONCE, on one chunk of the first
+    # series, before receiving anything. Run 35432930212 failed on this endpoint
+    # with no recoverable reason; the accepted shape and every rejection are now
+    # recorded in the receipt.
+    fred_start_first = (
+        dt.date.fromisoformat(start) - dt.timedelta(days=FRED_OBSERVATION_LEAD_DAYS)
+    ).isoformat()
+    negotiation_window = fred_observation_chunks(fred_start_first, end)[-1]
+    shape_attempts: list[dict] = []
+    observation_shape, _ = negotiate_fred_observation_shape(
+        fred_key,
+        contract["fred"]["series"][0],
+        negotiation_window[0],
+        negotiation_window[1],
+        contract["fred"]["output_type"],
+        attempts=shape_attempts,
+        getter=getter,
+        receipts=receipts,
+    )
+
     fred_records = []
     for series_id in contract["fred"]["series"]:
         vintage_raw, vintage_summary = fetch_fred_vintage_dates(
@@ -970,12 +1389,13 @@ def fetch(
             dt.date.fromisoformat(start)
             - dt.timedelta(days=FRED_OBSERVATION_LEAD_DAYS)
         ).isoformat()
-        pages, rows = fetch_fred_vintage_observations(
+        pages, rows, chunk_records = fetch_fred_vintage_range(
             fred_key,
             series_id,
             fred_start,
             end,
             contract["fred"]["output_type"],
+            shape=observation_shape,
             getter=getter,
             receipts=receipts,
         )
@@ -1011,6 +1431,9 @@ def fetch(
                 ),
                 "requested_window_start": start,
                 "observation_lead_days": FRED_OBSERVATION_LEAD_DAYS,
+                "request_shape_id": observation_shape["id"],
+                "chunk_days": FRED_CHUNK_DAYS,
+                "chunks": chunk_records,
             },
         )
         availability_pointer = publish_derived_object(
@@ -1021,6 +1444,8 @@ def fetch(
             "observation_start_applied": fred_start,
             "observation_end_applied": end,
             "observation_lead_days": FRED_OBSERVATION_LEAD_DAYS,
+            "chunk_days": FRED_CHUNK_DAYS,
+            "chunks": chunk_records,
             "vintage_dates": vintage_summary,
             "vintage_dates_pointer": vintage_pointer,
             "metadata": metadata,
@@ -1047,6 +1472,11 @@ def fetch(
             },
             "fred": {
                 "source_scope": "ALFRED_VINTAGE_SERIES_API",
+                "realtime_start": FRED_REALTIME_MIN,
+                "realtime_end": FRED_REALTIME_MAX,
+                "request_shape_id": observation_shape["id"],
+                "request_shape_attempts": shape_attempts,
+                "chunk_days": FRED_CHUNK_DAYS,
                 "series": fred_records,
             },
             "request_receipts": receipts,
@@ -1149,13 +1579,16 @@ def verify(root: Path) -> dict:
                 raise FreeMarketDataError("HISTORY_ALPACA_SERIES_REPLAY_MISMATCH")
             replayed_series += 1
         if body.get("schema_version") == ALFRED_AVAILABILITY_SCHEMA:
-            rebuilt = []
+            groups = []
             for pointer in body.get("response_pointers") or []:
                 page = _read_raw_object(
                     root, pointer, "fred_alfred_observations.json.gz"
                 )
                 rows, _count = parse_fred_vintage_page(body["series_id"], page)
-                rebuilt.extend(rows)
+                groups.append(rows)
+            # The same merge the receive used, so a chunked receive replays
+            # exactly and a boundary conflict fails here too.
+            rebuilt = _merge_vintage_rows(groups)
             if rebuilt != body.get("rows"):
                 raise FreeMarketDataError("HISTORY_ALFRED_AVAILABILITY_REPLAY_MISMATCH")
             latest = body.get("latest_availability_date")
