@@ -16,7 +16,10 @@ together with:
   verdict;
 * the T2 status (PENDING -- no T2 candidate output exists in this repository);
 * record-only features where computable from committed evidence (US SPDR
-  proxy from the earliest dated IEX bars capture, bars up to the session only);
+  proxy from the earliest committed IEX bars capture observation containing
+  the session, bars up to the session only -- a capture day that a later
+  same-day capture replaces in place keeps the observation it was recorded
+  with, see ``USBars``);
 * forward-return tracking fields left null for a later scorecard job.
 
 A day is written only once it is final (its own or a later market as-of has a
@@ -142,15 +145,73 @@ def _q(value: Decimal) -> str:
 
 
 class USBars:
+    """Committed IEX daily-bar observations, earliest capture first.
+
+    ``evidence/free_market_data/raw/<capture day>/<file>`` is a compatibility
+    address, not an append-only one: a second capture on the same UTC day
+    replaces it in place. Scanning that path alone therefore silently rebinds
+    an already recorded observation to newer bytes, which is what broke the
+    determinism of the 2026-09-17 packet when the 2026-09-18 capture day was
+    captured twice (01:41Z and 23:32Z).
+
+    The capture collector retains every replaced response in the append-only
+    content-addressed store under ``.../raw/alpaca/daily_bars/<response
+    sha256>/`` and pins the pointer in each derived revision manifest, so the
+    observations for a capture day are recovered from those manifests and
+    ordered by their actual capture time. ``source.path`` stays the capture
+    day's compatibility address -- that is where the observation was
+    published -- and ``source.sha256`` pins the exact revision, which stays
+    resolvable in the content-addressed store after the compatibility file is
+    replaced.
+    """
+
+    DERIVED_ROOT = "evidence/free_market_data/derived"
+
     def __init__(self, config: dict, root: Path):
         cfg = config["record_only_features"]["US"]
         self.cfg = cfg
         self.root = Path(root)
-        self.paths = sorted(
-            Path(p) for p in glob.glob(str(self.root / cfg["source_root"] / "*" / cfg["file_name"]))
-            if Path(p).parent.name[:4].isdigit()
-        )
+        self.observations = self._observations()
         self._cache = {}
+
+    def _observations(self) -> list:
+        """[(capture_day, observed_at_utc, compat_relative_path, file)] in capture order."""
+        cfg = self.cfg
+        rows = []
+        for compat in sorted(glob.glob(str(self.root / cfg["source_root"] / "*" / cfg["file_name"]))):
+            compat = Path(compat)
+            day = compat.parent.name
+            if not day[:4].isdigit():
+                continue
+            relative = RC._relative(compat, self.root)
+            seen, day_rows = set(), []
+            for manifest in sorted(glob.glob(str(self.root / self.DERIVED_ROOT / day / "*" / "manifest.json"))) + [
+                str(self.root / self.DERIVED_ROOT / day / "manifest.json")
+            ]:
+                pinned = self._pinned_daily_bars(Path(manifest))
+                if pinned is None or pinned in seen:
+                    continue
+                seen.add(pinned)
+                day_rows.append((day, pinned[0], relative, self.root / pinned[1]))
+            # A capture day with no pinned revision was never replaced, so its
+            # compatibility file still holds the bytes it was published with.
+            rows.extend(sorted(day_rows) or [(day, "", relative, compat)])
+        return rows
+
+    def _pinned_daily_bars(self, manifest: Path) -> Optional[tuple]:
+        """(observed_at_utc, relative raw path) a derived manifest pins, if it resolves."""
+        try:
+            packet = RC._read_json(manifest)
+        except (OSError, ValueError):
+            return None
+        observed = packet.get("observed_at_utc")
+        pointer = (packet.get("alpaca") or {}).get("daily_raw_evidence")
+        if not isinstance(observed, str) or not isinstance(pointer, dict):
+            return None
+        raw_path = pointer.get("raw_path")
+        if not isinstance(raw_path, str) or not (self.root / raw_path).is_file():
+            return None
+        return observed, raw_path
 
     def _load(self, path: Path) -> dict:
         if path not in self._cache:
@@ -159,24 +220,26 @@ class USBars:
         return self._cache[path]
 
     def features(self, symbol: str, session: str) -> dict:
-        cfg = self.cfg
-        for path in self.paths:
-            if path.parent.name < session:
+        for capture_day, _observed, relative, path in self.observations:
+            if capture_day < session:
                 continue
             bars = (self._load(path).get(symbol) or {}).get("bars") or []
             dated = [(str(bar.get("t", ""))[:10], bar) for bar in bars]
             if session not in {day for day, _ in dated}:
                 continue
             upto = [bar for day, bar in dated if day <= session]
-            return self._compute(upto, symbol, session, path)
+            return self._compute(upto, symbol, session, path, relative)
         return {"status": "UNKNOWN", "reason": "NO_COMMITTED_BARS_FOR_SESSION", "instrument": symbol}
 
-    def _compute(self, bars: list, symbol: str, session: str, path: Path) -> dict:
+    def _compute(self, bars: list, symbol: str, session: str, path: Path, relative: Optional[str] = None) -> dict:
         cfg = self.cfg
         period, lookback, atr_period = cfg["ema_period"], cfg["breakout_lookback_sessions"], cfg["atr_period"]
         base = {
             "instrument": symbol,
-            "source": {"path": RC._relative(path, self.root), "sha256": RC.file_sha256(path)},
+            "source": {
+                "path": relative if relative is not None else RC._relative(path, self.root),
+                "sha256": RC.file_sha256(path),
+            },
             "session": session,
             "bars_used": len(bars),
         }
