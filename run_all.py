@@ -392,6 +392,22 @@ APPROVED_TESTS = [
     #   ⛔ live network/tracked taxonomy/master mutation 없음 — temp output only.
     "test/test_theme_taxonomy.py",
     "test/test_theme_taxonomy_authority.py",
+    # ★ Closes a verification gap found 2026-09-18: the only check on
+    #   config/theme_taxonomy_source_fact_registry.json's pinned
+    #   first_seen_commit values anywhere in the repo was a format check
+    #   (^[0-9a-f]{40}$) -- nothing confirmed the pinned commit actually
+    #   exists and is reachable from HEAD. PR #809 squash-merged that same
+    #   day and orphaned 7ef75f76453f2bbb90ecbb79247dc13a2e475aa6 (pinned
+    #   for CRYPTO.KRAKEN.IDENTITY_EXCLUSION) for several hours; it was
+    #   repaired only incidentally because PR #816 happened to land as a
+    #   merge commit. This test discovers every first_seen_commit pin by
+    #   walking the parsed registry (not a hardcoded list) and fails
+    #   closed, naming the offending source_id/path/commit, if any pin is
+    #   missing or not an ancestor of HEAD.
+    #   ⛔ read-only: reads the committed registry and runs read-only git
+    #      queries (rev-parse/merge-base) against this checkout's own
+    #      history; no network, no mutation, no authority.
+    "test/test_theme_taxonomy_source_fact_registry_provenance.py",
     # ★ P2-01 — cross-market Value-Chain EDGE authority layer (CIO 2026-09-04
     #   architecture decision). Korea/US/Crypto market-native classification
     #   families are NOT unified; this only validates a separate evidence-bound
@@ -761,6 +777,17 @@ APPROVED_TESTS = [
     #   breadth/entry/action/order authority.
     #   ⛔ regression uses injected bytes only; no live key/network access.
     "test/test_free_market_data.py",
+    # ★ US capture publication reliability (ratified 2026-09-18). The commit
+    #   step must publish through the shared bounded push-retry helper, never a
+    #   bare `git push` -- runs 34911129881/35163739007/35287712594 captured US
+    #   evidence and then lost it to "! [rejected] main -> main (fetch first)".
+    #   The retry is exercised against real local clones racing on one bare
+    #   origin: a rejected push is replayed, and a persistent failure or a
+    #   rebase conflict still fails and publishes nothing. Also pins the
+    #   ratified fingerprint record to the workflow's real bytes and asserts
+    #   the sha256-pinned source-owner registry file was NOT edited.
+    #   ⛔ offline only — temp git repos, no network, no key, no cron change.
+    "test/test_free_market_data_push_retry.py",
     # ★ P1-US current evidence → pipeline-symbol review bridge. Committed
     #   SPY/QQQ/IWM, VIX, liquidity and per-symbol daily bars are connected
     #   to TSM/SNDK entry/holding/exit review contexts. Missing Breadth,
@@ -790,6 +817,18 @@ APPROVED_TESTS = [
     #   evidence is byte-checked, not merely referenced.
     #   ⛔ CANDIDATE_PASS_RULE / STAGE_TRANSITION_RULE untouched, 미정.
     "test/test_population_ratified_policy.py",
+    # ★ Daily scheduled run for the two population observations (2026-09-18).
+    #   Both producers had NO .github/workflows trigger at all, so KR sat at
+    #   2026-09-10 and US at 2026-09-11 while the committed universes they
+    #   consume had already published through 2026-09-16. Asserts the schedule
+    #   and its backup slot, that a dispatched run is guard-equivalent to a
+    #   scheduled one (no inputs, no github.event_name branch) so the server
+    #   dispatcher may be registered, and that a repeat run for an
+    #   already-captured date reports verified_existing instead of letting
+    #   persist_packet supersede committed bytes.
+    #   ⛔ observation only; no pass rule (passed_count stays 0), no authority,
+    #      no network, no new collection target or source.
+    "test/test_population_observation_daily_schedule.py",
     # ★ Three-market evaluation-coverage receipt (stacked from PR #680/#682,
     #   unchanged). Exact KR/US source-coverage universes and bounded symbol
     #   reviews are kept separate; the Crypto PAPER funnel contributes only
@@ -1057,6 +1096,22 @@ APPROVED_TESTS = [
     #   Probe + full replay workflows: workflow_dispatch only, least privilege,
     #   secrets only in step env, artifacts under RUNNER_TEMP, nothing committed.
     "test/test_us_regime_replay_workflows.py",
+    #   US-DATA-1 U3 producers for the two artifacts a later U5 adoption must
+    #   bind. The session-calendar producer adds no calendar logic: every date is
+    #   classified by market_data/us_official_session_calendar.py under the same
+    #   ratification, only the OFFICIAL_NYSE_CAPTURE basis is admitted (Nasdaq
+    #   cross-check required to attest), and one UNKNOWN date refuses the whole
+    #   file — no weekday inference, no per-date skip. The committed bytes are
+    #   proven stable across re-runs over an unchanged page, so the sha256 U5
+    #   pins cannot silently move. Both tests prove their artifact against
+    #   regime/us_paper_runtime.py's OWN exact-match loaders rather than a
+    #   restatement of them, and neither creates or activates
+    #   config/us_paper_runtime_adoption_v1.json — U5 is a user ratification.
+    "test/test_us_official_session_calendar_producer.py",
+    #   The US PIT acceptance record generator, plus the standing proof that US
+    #   acceptance is still unreachable: the 5-axis replay identity is inactive
+    #   and no population bundle is committed.
+    "test/test_us_pit_acceptance_record.py",
     # ★ P1-COM-05 CIO mandate 2026-09-04 — combined KR+US historical replay
     #   population/report (SHADOW backfill only, never NATURAL). Joins the KR
     #   5-axis and US free-axis replay populations over ONE caller-supplied set
@@ -1222,6 +1277,12 @@ APPROVED_TESTS = [
     # Sun-Fri with --check before commit; authority stays closed.
     "test/test_us_paper_runtime.py",
     "test/test_us_paper_runtime_publication.py",
+    # The producer reads a committed capture, not its own fetch, so it states the
+    # collection coverage of the capture it read and blocks past a bound taken
+    # from the committed decision history.  Coverage is counted in the
+    # collector's cadence dates (cron "35 21 * * 0-5"), never in elapsed
+    # wall-clock days: a Sunday evaluation reading Friday's capture stays green.
+    "test/test_us_paper_runtime_collection_coverage.py",
     # The date-rollover watchdog records an issue and explicit safe WAIT
     # without turning an expected evidence delay into a failed workflow email.
     # Order and trading authority remain closed in the operator message.
@@ -1302,6 +1363,15 @@ APPROVED_TESTS = [
     #   snapshot and binds manifest/policy/taxonomy hashes. It creates no
     #   classification, ratification, investability, Stage, or trading right.
     "test/test_crypto_taxonomy_gap_inventory.py",
+    # ★ P3-04 — preventive classification-margin monitor. Measures the rank
+    #   distance between the production eligibility scan stop and the nearest
+    #   unclassified asset on the *production* ranking, alarms on both the
+    #   level and the per-day shrink rate from committed thresholds, and
+    #   escalates automatically once primary_30d can latch as the official
+    #   LEADERSHIP window (one unknown day then costs 30+5 days instead of
+    #   7+5). ⛔ creates no classification/ratification/investability/Stage/
+    #   threshold/trading right — it reports a queue, it does not decide one.
+    "test/test_crypto_taxonomy_margin_monitor.py",
     # ★ P3-04 — minimal ratified Crypto taxonomy Slice (31 native assets +
     #   EURC exclusion). 실 raw snapshot replay로 coverage 미달 시 계속
     #   blocked임을 재확인하고, 미비준 alias/unresolved ticker는 UNKNOWN을
@@ -1340,6 +1410,52 @@ APPROVED_TESTS = [
     # ★ Conditional LIGHTER (same ratification): Kraken official asset page
     #   identity confirmed; eligible_crypto effective 2026-09-16, no backfill.
     "test/test_crypto_breadth_lighter_identity_20260914.py",
+    # ★ 2026-09-18 cutoff-band identity slice (ranks 124..152, 40-rank band
+    #   above the rank-112 eligibility-scan cutoff): BAT/CAKE/CFG/ENS/ETC/GRT/
+    #   MNT/PEAQ/SAND/SHAPE/SHX/SN51/VET eligible_crypto and MOODENG
+    #   unverified_identity, all effective 2026-09-18. Kraken leg re-checked
+    #   from the committed 09-18 Assets/AssetPairs bytes; the source-fact
+    #   receipt (evidence/crypto/identity/...20260918.json) is bound to the
+    #   taxonomy so the two cannot drift. Retained vintages 09-12..09-18 are
+    #   byte-identical with and without the records — this batch buys headroom
+    #   below the cutoff, it does not change any committed result.
+    #   ⛔ thresholds/Top-100/fail-closed unchanged; no live Kraken, no
+    #   date-dependent test; MOODENG records a failure to verify, not a guess.
+    "test/test_crypto_breadth_band_identity_20260918.py",
+    "test/test_crypto_breadth_headroom_identity_20260918.py",
+    # ★ 2026-09-18 deferred-five batch — the headroom slice left STORJ(159),
+    #   MET(161), RIVER(166), DENT(167), GALA(168) unclassified because two
+    #   independent official sources were not obtained inside that batch.
+    #   All five are now resolved on evidence and the block runs contiguous
+    #   through rank 171 (was 158), measured from minimum rank across the
+    #   seven committed vintages rather than from one day's snapshot.
+    #   ⛔ DENT is a chain-level identity only — no contract address is
+    #   published on any live official page — and the test pins that
+    #   disclosure so it cannot be silently upgraded to an exact-contract
+    #   claim.
+    "test/test_crypto_breadth_deferred_five_identity_20260918.py",
+    # ★ P1-CR-07 rank-200 push, slice A — 크립토 분류 여유 172~185위.
+    #   2026-10-07 축 전환(7일→30일) 전에 분류를 끝내기 위한 3분할 중 첫
+    #   조각. ROBO/GRASS/AXS 는 체인 수준 신원만 기록하고 그 사실을 시험이
+    #   고정한다. TURBO/ZEREBRO 는 PLAY/RE/MOODENG 와 같은 근거로
+    #   unverified_identity — 확정된 제외이며 투자 판단이 아니다.
+    #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
+    "test/test_crypto_breadth_rank200_slice_a_20260919.py",
+    # ★ P1-CR-07 rank-200 push, slice B — 크립토 분류 여유 187~193위.
+    #   slice A 위에 쌓인 두 번째 조각. TAC 은 Kraken 이 network 를 "-" 로
+    #   내보내 카탈로그만으로는 대조할 것이 없어, Kraken 자체 상장 공지와
+    #   TAC Protocol 자체 블로그가 같은 TON 연동 EVM L1 을 기술하는 것으로
+    #   확정했다. BRL1 은 발행 컨소시엄 자체 표현대로 stablecoin 제외,
+    #   STBL 은 반대로 거버넌스 토큰이라 eligible. AIN 은 체인 수준만 기록.
+    #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
+    "test/test_crypto_breadth_rank200_slice_b_20260919.py",
+    # ★ P1-CR-07 rank-200 push, slice C — 크립토 분류 여유 194~200위, 목표 도달.
+    #   3분할의 마지막. 이 조각으로 블록이 201위까지 연속이 되고 다음
+    #   미분류는 PIEVERSE(202위)다. FUN 은 티커 충돌 사례 — Kraken 이 내보내는
+    #   것은 Base 의 Sport.fun 이지 이더리움의 구 FunFair 가 아니며, 기록은
+    #   Base 계약만 묶는다. RUNE/SC 는 자체 체인 네이티브 코인 주장.
+    #   ⛔ live 요청 없음 — 커밋된 Kraken 스냅샷 + 영수증만 읽는다.
+    "test/test_crypto_breadth_rank200_slice_c_20260919.py",
     # ★ P1-CR-06/07 scheduled/manual run lineage — operations telemetry.
     #   Actions REST 없이도 run/event/slot, capture/skip/failure, Breadth와
     #   Leadership validation 결과를 clone에서 독립 판정한다.
@@ -2746,6 +2862,21 @@ APPROVED_TESTS = [
     #      not silently hidden from the test-set comparison.
     "test/test_fred_dexkous_fx.py",
     "test/test_fred_dexkous_fx_workflow.py",
+    # ★ Evidence-loss guard for fred-dexkous-fx.yml's commit step
+    #   (collectors/verify_evidence_staged.py). Added after a 2026-09-17/18
+    #   investigation into an apparent FRED DEXKOUS FX observation gap that
+    #   turned out to be a log-reading false alarm (test/test_fred_dexkous_fx.py's
+    #   own offline end-to-end test prints a summary that looks like a real
+    #   write because it hardcodes the fixture date "2026-09-15", but it
+    #   runs against an isolated tempfile.TemporaryDirectory(), never the
+    #   real checkout). The real gap the investigation surfaced: nothing
+    #   would have caught it if a commit had genuinely dropped a file the
+    #   collector reported writing -- this test proves that shape now goes
+    #   red (exit 1) instead of green.
+    #   ⛔ CI-only git-staging check; runs entirely inside a throwaway local
+    #      `git init` repo it creates itself; no network, no trading/
+    #      allocation authority, never touches the real evidence tree.
+    "test/test_verify_evidence_staged.py",
     # ★ RULE.UNIVERSE.US_STOCK_SPDR_SECTOR_MAPPING.V1 evidence capture
     #   (collectors/spdr_sector_holdings.py) + reader
     #   (universe/us_spdr_sector_mapping.py). Daily holdings for the 11
@@ -2836,6 +2967,122 @@ APPROVED_TESTS = [
     #      단기과열·거래정지는 KIS 종목 마스터 전용으로 남겨 중복 수집하지
     #      않는다. live DART API 호출 없음 — fixture 제목만 오프라인 검증.
     "test/test_dart_adverse_filing_classification.py",
+    # ★ Benchmark ("simply bought and held") NAV series
+    #   (validation/paper_benchmark_nav_series.py +
+    #   config/paper_benchmark_nav_series_policy.json). Unblocks checkpoint B
+    #   (day 30) stop rules 1 (비용 차감 후 그냥 보유보다 낮다) and 5 (하락
+    #   구간에서 그냥 보유보다 더 깎였다), neither of which was computable:
+    #   validation/crypto_paper_counterfactual.py's only counterfactual is
+    #   no_trade_benchmark_pnl = "0", which is not holding. The anchor is the
+    #   product: anchor_utc is derived from the ledger's first FILL_APPLIED
+    #   event (a supplied value is only ever compared), the anchor price must
+    #   already have existed at that instant within the RATIFIED Upbit
+    #   orderbook staleness window, two eligible prices refuse as ambiguous,
+    #   the record must be written within one decision cycle of the fill, and
+    #   the pointer is created with open(..., "x") so a second different
+    #   anchor refuses. Both benchmark variants (EXPOSURE_MATCHED comparable
+    #   with the account's total NAV, ASSET_ONLY the sleeve alone) are emitted
+    #   and NEITHER is a verdict -- which one binds the stop rules is
+    #   RATIFICATION_VARIANT_BINDING. CIO decision 2026-09-18 (option c, card
+    #   CLAUDE_CIO_DECISION_BENCHMARK_NOTIONAL_BASIS_20260918.md): both notional
+    #   bases are emitted from ONE anchor, so four named series --
+    #   {FLAT_BASE_SHARE, MULTIPLIER_MATCHED} x {EXPOSURE_MATCHED, ASSET_ONLY}.
+    #   The mapping (rule 1 -> flat, rule 5 -> multiplier-matched) is
+    #   declared_stop_rule_binding in the policy, RATIFIED 2026-09-18 by the
+    #   user's own record (evidence/authority/
+    #   USER_RATIFICATION_BENCHMARK_NOTIONAL_BASIS_20260918.json, sha256
+    #   ae04aea2...) which load_policy resolves and HASHES rather than trusting
+    #   as a string -- a policy that claims a binding the record does not say is
+    #   refused. It is copied into every anchor and series record, so it cannot
+    #   be chosen at day 30 to suit the result. Ratifying the binding is NOT
+    #   authority to publish a verdict: verdict_authorized stays false, every
+    #   verdict stays NOT_EMITTED_RATIFICATION_REQUIRED, and the two disclosed
+    #   residuals (RATIFICATION_LEDGER_ATTESTATION,
+    #   RATIFICATION_CLOCK_ATTESTATION) stay open -- a policy marking either
+    #   resolved is refused.
+    #   The market state at the anchoring fill enters through exactly ONE named
+    #   function (read_market_state) with a documented contract and NO path of
+    #   this module's own -- the state-multiplier wiring has not settled on an
+    #   artifact yet (RATIFICATION_MARKET_STATE_SOURCE_BINDING). UNKNOWN at the
+    #   anchoring fill refuses outright rather than taking 0.50 from its ratified
+    #   sentence; RISK_OFF/STRESS refuse as states that deny new buys; an absent,
+    #   future or stale state (beyond the ratified crypto observation gap) refuses
+    #   rather than assuming RISK_ON. Fee rate and entry slippage come off the
+    #   account's own first fill (the simulator has no repository default for
+    #   fee); no cost constant is invented here. Fail closed: a missing mark
+    #   at a sample, an off-grid mark, a gap wider than the ratified rotation
+    #   gap, a null NAV. Review 2026-09-18 closed three forgery gaps, each with
+    #   its own regression: the ledger must be recovered from its published
+    #   append-only snapshot store and matched to a genesis pin (a bare
+    #   hash-consistent dict is refused), recorded_at_utc is bounded by an
+    #   independently observed post-fill clock witness instead of being taken on
+    #   trust, and the binding is read back out of append-only bindings markers
+    #   plus the content-addressed records, so deleting the pointer file no
+    #   longer lets a second anchor bind. Fully offline -- ledgers are built by the P10-11
+    #   simulator's own builders, prices are fixtures, no network and no
+    #   evidence directory outside a temporary one. Invoked by no workflow or
+    #   schedule in THIS repo (a test asserts that, and that the CLI is
+    #   dispatch-only). Its one caller is the private crypto PAPER runtime,
+    #   which derives the anchor after its own restart-verified ledger write and
+    #   cannot let a benchmark failure touch the fill; the former
+    #   test_this_module_is_wired_into_no_workflow was replaced by the three
+    #   properties that actually hold (no public caller; no anchor before a
+    #   fill; one binding per account, a second different anchor refuses).
+    #   Every *_authorized field stays False.
+    #   ⛔ CIO has not approved this file itself yet -- registered per the
+    #      same convention as test_capture_azure_fixture.py above so it is
+    #      not silently hidden from the test-set comparison.
+    "test/test_paper_benchmark_nav_series.py",
+    # 일일 산출물 정체 감시(watchdog/daily_producer_freshness.py) — 감시 대상
+    #   11개 산출물에 대해 "우리가 보유한 최신 관측일"과 "원천이 스스로
+    #   제공한다고 밝힌 최신일" 두 값을 각각 기록하고 그 쌍으로 판정한다.
+    #   원천 최신일은 이미 커밋된 증거에서만 읽는다(raw manifest 의
+    #   observation_date_range 끝, venue manifest 의 latest_finalized_day,
+    #   산출물이 스스로 입력으로 지목한 상류 producer 의 최신 날짜 디렉터리).
+    #   네트워크 호출·신규 수집 출처 추가 없음.
+    #   COLLECTION_BEHIND_SOURCE = 원천이 더 최신을 제공하는데 우리가 놓친
+    #   경우로 가장 큰 경보(일정 축이 FRESH 여도 검사한다). 반대로
+    #   SOURCE_NOT_YET_PUBLISHED 는 원천이 아직 발표하지 않은 정상 상태이므로
+    #   경보가 아니다 — 2026-09-11 에서 멈춘 fred_dexkous_fx 를 3일치 환율
+    #   관측 유실로 잘못 보고한 오경보를 이 구분이 철회한다.
+    #   원천 최신일을 확보할 수 없으면 SOURCE_LATEST_UNKNOWN 이라는 독립
+    #   상태로 남긴다 — "정상"으로도 "정체"로도 접어넣지 않고, 값을 임의로
+    #   만들어 채우지도 않는다.
+    #   ⛔ 읽기 전용 관측만 한다 — data/·evidence/ 기록 없음, workflow 는
+    #      dispatch 전용(schedule 트리거 없음)이고 git commit/push 단계도
+    #      없다. authority 는 read_only_watch 를 제외하고 전부 false 이며
+    #      주문·매매·자본 배분 권한은 열리지 않는다. 오프라인 fixture 와 이
+    #      저장소에 이미 커밋된 KRX 공식 휴장 capture 만 사용한다.
+    "test/test_daily_producer_freshness_watchdog.py",
+    # ★ Class-wide guard: every workflow checkout that feeds a real
+    #   git-history-walking consumer (first-seen/tamper verdicts via
+    #   `git log`/`git show`/`git merge-base`) must use `fetch-depth: 0`.
+    #   Closes the btc-price-capture.yml gap (2026-09-18 review of PR
+    #   #817's docs/do_not_touch_and_why.md): that workflow already had the
+    #   correct fetch-depth: 0, but no test asserted it, unlike
+    #   actions-pass.yml's regression job. Discovery of "which jobs" is
+    #   automatic (walks every workflow's run: text); the registry of
+    #   "which scripts actually walk history" is a hand-verified allowlist
+    #   that fails closed if a new git-history consumer anywhere in the
+    #   repository is not registered in it.
+    #   ⛔ Read-only: parses workflow YAML and greps repository .py files;
+    #      no network, no git history mutation, no authority.
+    "test/test_workflow_history_checkout_depth.py",
+    # ★ Cross-market comparability at one common decision timestamp.
+    #   compare_market_rows() requires the three markets' decision dates to be
+    #   identical (len(groups) == 1), which US/KR/Crypto session calendars make
+    #   a coincidence rather than a reachable state (1 of the 20 committed PAPER
+    #   reference days, and Crypto was UNKNOWN that day), while date coercion is
+    #   unauthorized. These tests pin the replacement contract: T is
+    #   caller-supplied and never inferred, each market keeps its own as_of_date
+    #   and available_at with its lag from T recorded, COMPLETE is gated on each
+    #   market's own already-adopted freshness state instead of date identity,
+    #   one unusable market is excluded with reason codes while the rest stay
+    #   comparable, and a two-market result is never labelled three-market.
+    #   ⛔ Read-only: pure-function fixtures plus reads of the adopted config
+    #      record and two repository source files; no network, no clock, no git
+    #      history mutation, and no authority flag is read or written.
+    "test/test_cross_market_comparability.py",
 ]
 
 FI_SUITE = "test/test_fault_injection.py"
@@ -2891,6 +3138,7 @@ REGRESSION_ESTIMATED_SECONDS = {
     "test/test_dynamic_clock_identity_lineage.py": 23.2,
     "test/test_population_symbol_observation.py": 60.0,
     "test/test_population_ratified_policy.py": 1.0,
+    "test/test_population_observation_daily_schedule.py": 20.0,
     "test/test_three_market_evaluation_coverage.py": 60.0,
     "test/test_market_candidate_discovery_lookup.py": 120.0,
 }
@@ -2997,6 +3245,151 @@ def disposable_checkout_proof():
     except FileNotFoundError:
         pass          # git 이 없으면 이 축으로는 판정하지 않는다
     return problems
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ★ checkout 완전성 게이트 — 회귀 2026-09-18: shallow clone 과 sparse checkout
+#   이 둘 다 "저장소가 깨졌다"처럼 읽히는 실패를 냈다 (KNOWLEDGE_PROVENANCE_
+#   SHALLOW_HISTORY 는 traceback 150줄 뒤에야 나오는 provenance guard, sparse
+#   는 REFERENCE_REDERIVATION_MISMATCH). 둘 다 실제로는 checkout 문제였다.
+#   이 게이트는 그 두 guard 를 대체하거나 약화하지 않는다 — 어떤 test 파일보다
+#   먼저, 더 이르고 더 명확하게 "checkout 이 문제다" 라고 말하는 신호를 하나
+#   추가할 뿐이다. 기존 guard 는 그대로 남는다 (이 게이트가 못 잡는 경우를
+#   위한 것이다).
+#
+#   판정 순서는 항상 absence 먼저다: 커밋이 없다 -> 트리가 잘렸다 -> 파일이
+#   없다. "있는데 내용이 다르다" 는 이 게이트의 영역이 아니다 — 그건 real
+#   finding 이고 기존 guard(KNOWLEDGE_PROVENANCE_SHALLOW_HISTORY,
+#   REFERENCE_REDERIVATION_MISMATCH 등)가 계속 담당한다.
+#
+#   ⛔ git 이 아예 없거나 ROOT 가 git 저장소가 아니면 이 게이트는 아무 것도
+#      판정하지 않는다 (조용히 통과) — test/test_fault_injection.py 의 FI
+#      clone() 이 정확히 이 모양이다: rules/test/config 만 사본으로 뜬 임시
+#      디렉터리이고 `.git`이 없다. 그건 "불완전한 checkout" 이 아니라 FI
+#      suite 가 의도적으로 만든 격리된 사본이다 — 이 게이트의 대상이 아니다.
+REQUIRED_EVIDENCE_ROOTS = [
+    # ★ 코드로 추적된 것 — 위시리스트가 아니다.
+    #   test/test_paper_regime_reference.py (APPROVED_TESTS 소속) 는
+    #   regime/paper_regime_reference.build_reference() 를 root 인자 없이
+    #   호출한다. 그 함수의 root 기본값은 이 checkout 자신이다 (tmp 사본이
+    #   아니다). build_reference() -> build_crypto() 는
+    #   evidence/crypto/btc/raw/<as_of_date>/_manifest.json 을 읽어
+    #   crypto_descriptive_normalization_sources 를 만들고,
+    #   validate_reference() 가 그 결과를 committed packet 과 재파생
+    #   비교한다. 이 디렉터리가 sparse 로 잘려 나가면 건드린 파일이 하나도
+    #   없어도 그 비교가 REFERENCE_REDERIVATION_MISMATCH 로 깨진다
+    #   (2026-09-18 증명, symlink farm 로 evidence/crypto/btc/raw 하나만
+    #   제외해 재현).
+    #   ⛔ 날짜 하위 디렉터리(예: .../2026-09-18)는 매일 롤오버되므로 여기
+    #      넣지 않는다 — 부모 디렉터리 자체의 존재/비어있지-않음만 본다.
+    #      그래서 이 목록은 스스로 시한폭탄이 되지 않는다.
+    "evidence/crypto/btc/raw",
+]
+
+
+def checkout_completeness_problems():
+    """이 checkout 이 회귀 스위트가 요구하는 완전한 트리인지 — 실제 git 저장소일
+    때만 판정한다. 문제가 있으면 human-readable 문장 리스트를 돌려준다."""
+    try:
+        shallow_probe = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=ROOT, capture_output=True, text=True)
+    except FileNotFoundError:
+        return []     # git 이 없다 — 이 게이트는 판정하지 않는다
+    if shallow_probe.returncode != 0:
+        # ROOT 가 git 저장소가 아니다 (예: FI suite 의 격리된 사본). 이 게이트는
+        # 실제 checkout 을 위한 것이지, git 이 아닌 사본을 판정하지 않는다.
+        return []
+
+    problems = []
+
+    # 1) shallow history — commit 이 없다.
+    if shallow_probe.stdout.strip() == "true":
+        problems.append(
+            "shallow clone 이다 (git rev-parse --is-shallow-repository == true). "
+            "고치는 법: git fetch --unshallow (또는 전체 히스토리로 다시 clone).")
+
+    # 2) sparse / partial checkout — 트리가 잘렸다. 어떻게 만들어졌든 잡는다:
+    #    actions/checkout 의 sparse-checkout 옵션은 조용히 partial clone
+    #    (blob:none) 을 같이 걸기 때문에, 평범해 보이는 checkout 이 실제로는
+    #    부분본일 수 있다.
+    signals = []
+    try:
+        sparse_cfg = subprocess.run(
+            ["git", "config", "--bool", "core.sparseCheckout"],
+            cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        sparse_cfg = ""
+    if sparse_cfg == "true":
+        signals.append("core.sparseCheckout=true")
+    try:
+        sparse_list = subprocess.run(
+            ["git", "sparse-checkout", "list"],
+            cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        sparse_list = ""
+    if sparse_list:
+        signals.append("git sparse-checkout list 가 비어 있지 않다")
+    try:
+        partial_filter = subprocess.run(
+            ["git", "config", "remote.origin.partialclonefilter"],
+            cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        partial_filter = ""
+    if partial_filter:
+        signals.append(f"remote.origin.partialclonefilter={partial_filter}")
+    if signals:
+        problems.append(
+            "sparse/partial checkout 이다 (" + ", ".join(signals) + "). "
+            "고치는 법: git sparse-checkout disable 로 전체 트리를 복원하거나, "
+            "sparse-checkout/partial-clone 옵션 없이 다시 clone.")
+
+    # 3) 승인 회귀가 이 checkout 의 실제 ROOT 에서 읽는 evidence 루트가 실제로
+    #    있고 비어 있지 않은가 — sparse 신호가 (2) 로 안 잡히는 경우까지
+    #    대비한 방어선이다(예: git 메타데이터를 안 건드리고 디렉터리만 지운
+    #    사본). 날짜 하위 디렉터리는 절대 요구하지 않는다.
+    for rel in REQUIRED_EVIDENCE_ROOTS:
+        path = os.path.join(ROOT, rel)
+        if not os.path.isdir(path):
+            problems.append(
+                f"필요한 evidence 디렉터리가 checkout 에 없다: {rel}. "
+                "고치는 법: sparse-checkout 없이 다시 clone하거나 "
+                "git sparse-checkout disable 로 전체 트리를 복원.")
+        elif not os.listdir(path):
+            problems.append(
+                f"필요한 evidence 디렉터리가 비어 있다: {rel}. "
+                "고치는 법: sparse-checkout 없이 다시 clone하거나 "
+                "git sparse-checkout disable 로 전체 트리를 복원.")
+    return problems
+
+
+def verify_checkout_completeness():
+    """어떤 test 파일보다 먼저, 딱 한 번 실행한다. 불완전한 checkout 을 저장소
+    결함처럼 보이는 실패로 마스커레이드하게 두지 않고, 여기서 먼저 명확하게
+    말한다. 문제가 없으면 아무 것도 출력하지 않고 조용히 돌아간다."""
+    problems = checkout_completeness_problems()
+    if not problems:
+        return None
+    print("⛔ CHECKOUT INCOMPLETE — this is not a repository defect.")
+    print()
+    print("main is fine. Your checkout of it is not — it is missing history")
+    print("or files this suite reads. Do not file this as a broken-main")
+    print("incident before fixing the checkout:")
+    print()
+    print("⛔ 사본이 불완전합니다 — 저장소 결함이 아닙니다.")
+    print()
+    print("main은 멀쩡하고, 문제는 당신이 받아온 사본입니다. 이 사본에는 검사가")
+    print("읽어야 할 이력이나 파일이 빠져 있습니다. 사본을 고치기 전에")
+    print('"main이 깨졌다"고 올리지 마십시오.')
+    print()
+    for p in problems:
+        print("  •", p)
+    print()
+    print("Fix: git fetch --unshallow, or re-clone with full history and")
+    print("no sparse-checkout, then re-run.")
+    print("고치는 법: git fetch --unshallow, 또는 전체 이력으로 sparse-checkout 없이")
+    print("다시 복제한 뒤 재실행하십시오.")
+    return 1
 
 
 SNAPSHOT_DIR = "_committed_snapshot"
@@ -3327,6 +3720,28 @@ def main():
                         help="--phase regression only: 0-based shard index "
                              "(0 <= index < --shard-count)")
     args = parser.parse_args()
+    # ★ test 파일을 실제로 실행하는 phase 로 갈 때만, 그 어떤 test 파일보다 먼저
+    #   checkout 자체가 완전한지 한 번 본다.
+    #   ⛔ `structural` 과 `fi` 는 대상이 아니다 — 위시리스트가 아니라 이 저장소
+    #      자신의 actions-pass.yml 이 이미 그렇게 선언하고 있다:
+    #      "fetch-depth: 0 은 [regression] matrix 에만 준다 — test_replay_
+    #      asset_identity.py 가 실제 git 커밋 히스토리를 직접 읽는다" (해당 워크플로
+    #      주석). `structural` 은 builder 재빌드/byte 비교만 하고 test 파일을 하나도
+    #      실행하지 않으며, `fi` 는 test/test_fault_injection.py 하나만 자식으로
+    #      실행하는데 그 파일은 스스로 만든 `.git` 없는 임시 사본 안에서만 검증한다
+    #      (바깥 checkout 의 역사/evidence 완전성과 무관). 그래서 두 job 모두 CI 에서
+    #      의도적으로 기본 fetch-depth: 1(shallow) 로 checkout 된다 — 이 게이트가 그
+    #      두 곳에서도 unconditionally 발동하면, 올바르게 구성된 checkout 을 스스로
+    #      불완전하다고 오판하게 된다(2026-09-18 밤에 실제로 그랬다: 첫 커밋부터
+    #      `structural`/`fault-injection` 이 이 이유로 즉시 FAIL 했다 — 한국어 배너를
+    #      추가하기 전부터다).
+    #   `regression` 과 legacy `all` 경로는 실제로 APPROVED_TESTS 파일을 실행하므로
+    #   (test_global_asset_master_population_readiness.py, test_paper_regime_
+    #   reference.py 포함) 계속 검사한다.
+    if args.phase in ("all", "regression"):
+        checkout_abort = verify_checkout_completeness()
+        if checkout_abort is not None:
+            return checkout_abort
     if args.log_dir:
         args.log_dir = os.path.realpath(args.log_dir)
         if os.path.commonpath([args.log_dir, os.path.realpath(ROOT)]) == os.path.realpath(ROOT):

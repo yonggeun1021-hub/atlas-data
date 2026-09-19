@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -33,6 +34,14 @@ def load_module(name, path):
 
 REC = load_module("record_stablecoin_run", RECORDER)
 OBS = load_module("check_stablecoin_capture", OBSERVER)
+REV = load_module(
+    "stablecoin_revision_contract",
+    ROOT / ".github" / "scripts" / "stablecoin_revision_contract.py",
+)
+NET = load_module(
+    "stablecoin_net_issuance",
+    ROOT / ".github" / "scripts" / "stablecoin_net_issuance.py",
+)
 
 with WORKFLOW.open(encoding="utf-8") as stream:
     WF = yaml.safe_load(stream)
@@ -90,7 +99,8 @@ esac
 """
 
 
-def run_capture_step(base, *, day, event_name="schedule", schedule="50 5 * * *", broken_check=False):
+def run_capture_step(base, *, day, event_name="schedule", schedule="50 5 * * *", broken_check=False,
+                     guard_mode="", extra_env=None):
     """Execute the real capture step script offline against retained bytes."""
     base = Path(base)
     fixtures = base / "fixtures"
@@ -103,7 +113,10 @@ def run_capture_step(base, *, day, event_name="schedule", schedule="50 5 * * *",
     for name, body in (("curl", FAKE_CURL), ("date", FAKE_DATE)):
         (bin_dir / name).write_text(body, encoding="utf-8")
         (bin_dir / name).chmod(0o755)
-    slug = "".join(ch if ch.isalnum() else "_" for ch in f"{day}-{event_name}-{schedule}-{int(broken_check)}")
+    slug = "".join(
+        ch if ch.isalnum() else "_"
+        for ch in f"{day}-{event_name}-{schedule}-{guard_mode}-{int(broken_check)}"
+    )
     root = base / f"root-{slug}"
     scripts = root / ".github" / "scripts"
     scripts.mkdir(parents=True)
@@ -119,7 +132,9 @@ def run_capture_step(base, *, day, event_name="schedule", schedule="50 5 * * *",
     output.write_text("", encoding="utf-8")
     env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", FIXTURE_DIR=str(fixtures),
                FAKE_DAY=day, GITHUB_OUTPUT=str(output), RUNNER_TEMP=str(runner_temp),
-               EVENT_NAME=event_name, EVENT_SCHEDULE=schedule)
+               EVENT_NAME=event_name, EVENT_SCHEDULE=schedule,
+               DISPATCH_GUARD_MODE=guard_mode)
+    env.update(extra_env or {})
     command = workflow_step("Capture raw snapshot (append-only)")["run"]
     completed = subprocess.run(["bash", "-e", "-c", command], cwd=root, env=env,
                                capture_output=True, text=True, timeout=300)
@@ -196,6 +211,7 @@ class StablecoinScheduleHardeningTest(unittest.TestCase):
             {
                 "ATLAS_EVENT_NAME",
                 "ATLAS_EVENT_SCHEDULE",
+                "ATLAS_DISPATCH_GUARD_MODE",
                 "ATLAS_RUN_ID",
                 "ATLAS_RUN_ATTEMPT",
                 "ATLAS_RUNNER_STARTED_AT_UTC",
@@ -301,15 +317,20 @@ class StablecoinScheduleHardeningTest(unittest.TestCase):
                     self.assertEqual(outputs.get("result"), "pending_current_observation")
                     self.assertFalse(snapshot.exists())
 
-    def test_final_slot_and_manual_run_always_capture(self):
+    def test_final_schedule_slot_still_captures_without_current_row(self):
+        """The ratified 08:20Z evidence-preservation slot is unchanged."""
         with tempfile.TemporaryDirectory() as tmp:
-            for event_name, schedule in (("schedule", "20 8 * * *"), ("workflow_dispatch", "")):
-                with self.subTest(event_name=event_name):
-                    completed, outputs, snapshot = run_capture_step(
-                        tmp, day="2026-09-14", event_name=event_name, schedule=schedule)
-                    self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
-                    self.assertEqual(outputs.get("result"), "captured")
-                    self.assertTrue((snapshot / "_sha256.txt").is_file())
+            completed, outputs, snapshot = run_capture_step(
+                tmp, day="2026-09-14", schedule="20 8 * * *")
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertEqual(outputs.get("result"), "captured")
+            self.assertTrue((snapshot / "_sha256.txt").is_file())
+            trigger = json.loads((snapshot / "_trigger.json").read_text(encoding="utf-8"))
+            self.assertEqual(trigger["trigger"], "schedule")
+            self.assertEqual(
+                trigger["pending_current_observation_guard"],
+                "EXEMPT_SCHEDULE_FINAL_SLOT_20_8",
+            )
 
     def test_current_row_check_error_still_captures_raw_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -438,6 +459,294 @@ class StablecoinScheduleHardeningTest(unittest.TestCase):
             report["classification"], "capture_failed_after_deadline"
         )
         self.assertEqual(report["failed_capture"]["run_id"], 40000000001)
+
+
+class StablecoinDispatchGuardParityTest(unittest.TestCase):
+    """A dispatched run must be exactly as safe as a scheduled early slot.
+
+    The server schedule dispatcher can only be moved off alert-only if a
+    dispatch cannot write a record the ``pending_current_observation`` guard
+    would have refused on the scheduled path.  These are the regressions that
+    hold that property: 2026-09-13 has the current UTC observation row in the
+    retained bytes, 2026-09-14 does not.
+    """
+
+    # -- trigger authorisation, fail-closed ---------------------------------
+
+    def test_dispatch_input_is_a_single_fail_closed_choice(self):
+        triggers = WF.get("on", WF.get(True))
+        dispatch = triggers["workflow_dispatch"]
+        inputs = dispatch["inputs"]
+
+        # Exactly one input, and nothing timestamp-shaped: the dispatcher has
+        # no field through which it could hand the run an available_at.
+        self.assertEqual(set(inputs), {"guard_mode"})
+        guard = inputs["guard_mode"]
+        self.assertEqual(guard["type"], "choice")
+        self.assertTrue(guard["required"])
+        # Omitting the input yields the default, and the default refuses.
+        self.assertEqual(guard["default"], "refuse")
+        self.assertEqual(set(guard["options"]), {"refuse", "schedule_equivalent"})
+
+    def test_workflow_never_reads_any_input_other_than_guard_mode(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        references = set(
+            re.findall(r"(?:github\.event\.)?inputs\.([A-Za-z0-9_-]+)", text)
+        )
+        self.assertEqual(references, {"guard_mode"})
+
+    def test_dispatch_without_the_explicit_guard_mode_refuses_before_fetching(self):
+        for guard_mode in ("", "refuse", "REFUSE", "schedule_equivalent ", "yes", "true"):
+            with tempfile.TemporaryDirectory() as tmp, self.subTest(guard_mode=guard_mode):
+                completed, outputs, snapshot = run_capture_step(
+                    tmp, day="2026-09-13", event_name="workflow_dispatch",
+                    schedule="", guard_mode=guard_mode)
+                self.assertEqual(completed.returncode, 1, completed.stdout[-2000:])
+                self.assertEqual(outputs.get("result"), "dispatch_guard_mode_invalid")
+                self.assertFalse(snapshot.exists())
+
+    def test_schedule_equivalent_on_a_scheduled_event_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(
+                tmp, day="2026-09-13", guard_mode="schedule_equivalent")
+            self.assertEqual(completed.returncode, 1, completed.stdout[-2000:])
+            self.assertEqual(outputs.get("result"), "trigger_input_conflict")
+            self.assertFalse(snapshot.exists())
+
+    def test_the_refuse_default_can_never_break_the_scheduled_path(self):
+        """The inputs context is empty on a schedule event, but if GitHub ever
+        filled in the default, `refuse` must not brick the ratified slots."""
+        for guard_mode in ("", "refuse"):
+            with tempfile.TemporaryDirectory() as tmp, self.subTest(guard_mode=guard_mode):
+                completed, outputs, snapshot = run_capture_step(
+                    tmp, day="2026-09-13", guard_mode=guard_mode)
+                self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+                self.assertEqual(outputs.get("result"), "captured")
+                self.assertEqual(outputs.get("capture_trigger"), "schedule")
+                trigger = json.loads((snapshot / "_trigger.json").read_text(encoding="utf-8"))
+                self.assertIsNone(trigger["dispatch_guard_mode"])
+
+    def test_unknown_trigger_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(
+                tmp, day="2026-09-13", event_name="push", schedule="")
+            self.assertEqual(completed.returncode, 1, completed.stdout[-2000:])
+            self.assertEqual(outputs.get("result"), "trigger_not_authorized")
+            self.assertFalse(snapshot.exists())
+
+    # -- guard parity -------------------------------------------------------
+
+    def test_dispatch_without_the_current_row_refuses_like_an_early_slot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(
+                tmp, day="2026-09-14", event_name="workflow_dispatch",
+                schedule="", guard_mode="schedule_equivalent")
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertEqual(outputs.get("result"), "pending_current_observation")
+            self.assertFalse(snapshot.exists())
+
+    def test_every_dispatch_refusal_leaves_the_repository_tree_untouched(self):
+        """(c) A refused dispatch must not be able to make the day worse: no
+        directory claimed, no partial bytes, nothing under evidence/ at all."""
+        cases = (
+            # guard_mode, day, broken_check, expected result
+            ("refuse", "2026-09-13", False, "dispatch_guard_mode_invalid"),
+            ("", "2026-09-13", False, "dispatch_guard_mode_invalid"),
+            ("schedule_equivalent", "2026-09-14", False, "pending_current_observation"),
+            ("schedule_equivalent", "2026-09-13", True, "dispatch_guard_undetermined"),
+        )
+        for guard_mode, day, broken, expected in cases:
+            with tempfile.TemporaryDirectory() as tmp, self.subTest(expected=expected):
+                completed, outputs, snapshot = run_capture_step(
+                    tmp, day=day, event_name="workflow_dispatch", schedule="",
+                    guard_mode=guard_mode, broken_check=broken)
+                self.assertEqual(outputs.get("result"), expected, completed.stderr[-2000:])
+                self.assertFalse(snapshot.exists())
+                # The whole evidence/ subtree is absent, not merely the date dir,
+                # so no later in-window run is blocked by a partial path.
+                repo_root = snapshot.parents[3]
+                self.assertFalse((repo_root / "evidence").exists())
+                leftovers = [
+                    path for path in repo_root.rglob("*")
+                    if path.is_file() and ".github" not in path.parts
+                ]
+                self.assertEqual(leftovers, [])
+
+    def test_dispatch_gets_no_final_slot_exemption(self):
+        """08:20Z is a schedule-only exemption; a dispatch cannot borrow it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(
+                tmp, day="2026-09-14", event_name="workflow_dispatch",
+                schedule="20 8 * * *", guard_mode="schedule_equivalent")
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertEqual(outputs.get("result"), "pending_current_observation")
+            self.assertFalse(snapshot.exists())
+
+    def test_dispatch_with_an_undecidable_guard_refuses_fail_closed(self):
+        """The schedule path keeps the raw bytes on a check error; a dispatch
+        must not, because that is exactly the guard bypass being closed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(
+                tmp, day="2026-09-13", event_name="workflow_dispatch",
+                schedule="", guard_mode="schedule_equivalent", broken_check=True)
+            self.assertEqual(completed.returncode, 1, completed.stdout[-2000:])
+            self.assertEqual(outputs.get("result"), "dispatch_guard_undetermined")
+            self.assertFalse(snapshot.exists())
+
+    def test_dispatch_with_the_current_row_captures_and_is_recorded_as_dispatched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(
+                tmp, day="2026-09-13", event_name="workflow_dispatch",
+                schedule="", guard_mode="schedule_equivalent")
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertEqual(outputs.get("result"), "captured")
+            self.assertEqual(outputs.get("capture_trigger"), "workflow_dispatch")
+            self.assertTrue((snapshot / "_sha256.txt").is_file())
+
+            trigger = json.loads((snapshot / "_trigger.json").read_text(encoding="utf-8"))
+            self.assertEqual(trigger["trigger"], "workflow_dispatch")
+            self.assertEqual(trigger["dispatch_guard_mode"], "schedule_equivalent")
+            self.assertEqual(trigger["current_row_check"], "present")
+            self.assertEqual(trigger["pending_current_observation_guard"], "ENFORCED")
+            self.assertFalse(trigger["available_at_supplied_by_trigger"])
+
+    def test_scheduled_capture_is_recorded_as_scheduled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(tmp, day="2026-09-13")
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertEqual(outputs.get("capture_trigger"), "schedule")
+            trigger = json.loads((snapshot / "_trigger.json").read_text(encoding="utf-8"))
+            self.assertEqual(trigger["trigger"], "schedule")
+            self.assertEqual(trigger["event_schedule"], "50 5 * * *")
+            self.assertIsNone(trigger["dispatch_guard_mode"])
+            self.assertEqual(trigger["pending_current_observation_guard"], "ENFORCED")
+
+    # -- available_at stays the provider fetch time --------------------------
+
+    def test_dispatch_cannot_supply_or_backdate_available_at(self):
+        """available_at is lineage-derived from _downloaded_at.txt, which the
+        capture step writes from `date -u` immediately before the fetch.  A
+        dispatch carrying timestamp-shaped environment cannot move it."""
+        hostile = {
+            "AVAILABLE_AT": "2026-09-13T00:00:00Z",
+            "ATLAS_AVAILABLE_AT": "2026-09-13T00:00:00Z",
+            "FETCHED_AT_UTC": "2026-09-13T00:00:00Z",
+            "DOWNLOADED_AT": "2026-09-13T00:00:00Z",
+            "SNAPSHOT_DATE": "2026-09-13",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, outputs, snapshot = run_capture_step(
+                tmp, day="2026-09-13", event_name="workflow_dispatch",
+                schedule="", guard_mode="schedule_equivalent", extra_env=hostile)
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertEqual(outputs.get("result"), "captured")
+
+            downloaded = (snapshot / "_downloaded_at.txt").read_text(encoding="utf-8").strip()
+            self.assertEqual(downloaded, "2026-09-13T05:52:00Z")
+
+            manifest = json.loads((snapshot / "_manifest.json").read_text(encoding="utf-8"))
+            for endpoint in manifest["endpoints"]:
+                self.assertEqual(endpoint["fetched_at_utc"], downloaded)
+
+            packet = NET.build_transform(snapshot)
+            self.assertEqual(packet["lineage"]["available_at"], downloaded)
+            self.assertNotIn(downloaded, hostile.values())
+
+    def test_trigger_provenance_stays_out_of_the_revision_contract_inventory(self):
+        """_trigger.json must not enter _sha256.txt or _manifest.json: the
+        ratified revision contract compares both to the endpoint set exactly."""
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, _, snapshot = run_capture_step(
+                tmp, day="2026-09-13", event_name="workflow_dispatch",
+                schedule="", guard_mode="schedule_equivalent")
+            self.assertEqual(completed.returncode, 0, completed.stderr[-2000:])
+            self.assertNotIn("_trigger.json", (snapshot / "_sha256.txt").read_text(encoding="utf-8"))
+            manifest = json.loads((snapshot / "_manifest.json").read_text(encoding="utf-8"))
+            self.assertNotIn("_trigger.json", json.dumps(manifest))
+            # The contract validator still accepts the published directory.
+            REV.validate_snapshot(snapshot)
+
+    # -- telemetry ----------------------------------------------------------
+
+    def test_recorder_records_the_trigger_and_guard_state(self):
+        dispatched = REC.build_record(
+            environment(
+                ATLAS_EVENT_NAME="workflow_dispatch",
+                ATLAS_EVENT_SCHEDULE="",
+                ATLAS_DISPATCH_GUARD_MODE="schedule_equivalent",
+            )
+        )
+        self.assertEqual(dispatched["trigger"]["kind"], "workflow_dispatch")
+        self.assertEqual(
+            dispatched["trigger"]["dispatch_guard_mode"], "schedule_equivalent"
+        )
+        self.assertEqual(
+            dispatched["trigger"]["pending_current_observation_guard"], "ENFORCED"
+        )
+        self.assertFalse(dispatched["trigger"]["final_slot_exemption_applied"])
+        self.assertFalse(dispatched["trigger"]["available_at_supplied_by_trigger"])
+
+        early = REC.build_record(environment())
+        self.assertEqual(early["trigger"]["kind"], "schedule")
+        self.assertIsNone(early["trigger"]["dispatch_guard_mode"])
+
+        # A default leaking onto a schedule event is not a dispatch instruction.
+        leaked = REC.build_record(environment(ATLAS_DISPATCH_GUARD_MODE="refuse"))
+        self.assertEqual(leaked["trigger"]["kind"], "schedule")
+        self.assertIsNone(leaked["trigger"]["dispatch_guard_mode"])
+        self.assertEqual(
+            early["trigger"]["pending_current_observation_guard"], "ENFORCED"
+        )
+
+        final = REC.build_record(environment(ATLAS_EVENT_SCHEDULE="20 8 * * *"))
+        self.assertEqual(
+            final["trigger"]["pending_current_observation_guard"],
+            "EXEMPT_SCHEDULE_FINAL_SLOT_20_8",
+        )
+        self.assertTrue(final["trigger"]["final_slot_exemption_applied"])
+
+    def test_recorder_keeps_guard_refusals_legible(self):
+        cases = {
+            "dispatch_guard_mode_invalid": (
+                "dispatch_guard_mode_not_schedule_equivalent",
+                True,
+            ),
+            "trigger_input_conflict": (
+                "dispatch_input_present_on_schedule_event",
+                True,
+            ),
+            "trigger_not_authorized": ("trigger_not_authorized", True),
+            "dispatch_guard_undetermined": (
+                "current_utc_observation_row_undetermined",
+                False,
+            ),
+        }
+        for result, (reason, provider_skipped) in cases.items():
+            with self.subTest(result=result):
+                record = REC.build_record(
+                    environment(
+                        ATLAS_EVENT_NAME="workflow_dispatch",
+                        ATLAS_EVENT_SCHEDULE="",
+                        ATLAS_DISPATCH_GUARD_MODE="schedule_equivalent",
+                        ATLAS_CAPTURE_STEP_OUTCOME="failure",
+                        ATLAS_CAPTURE_RESULT=result,
+                    )
+                )
+                self.assertEqual(record["capture"]["result"], "refused_before_capture")
+                self.assertEqual(record["capture"]["reason"], reason)
+                self.assertEqual(
+                    record["capture"]["provider_call_skipped"], provider_skipped
+                )
+
+    def test_telemetry_step_forwards_the_dispatch_guard_mode(self):
+        telemetry = next(
+            step for step in STEPS
+            if step.get("name") == "Record Stablecoin scheduler telemetry"
+        )
+        self.assertEqual(
+            telemetry["env"]["ATLAS_DISPATCH_GUARD_MODE"],
+            "${{ inputs.guard_mode }}",
+        )
 
 
 if __name__ == "__main__":

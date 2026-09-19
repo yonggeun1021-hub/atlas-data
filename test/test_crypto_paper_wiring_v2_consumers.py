@@ -53,6 +53,9 @@ from governance import rule_refs as REFS  # noqa: E402
 
 V4 = DECISION.V4_OUTPUT_SCHEMA_VERSION
 V3 = DECISION.PER_MARKET_OUTPUT_SCHEMA_VERSION
+# universe/crypto_candidate_promotion.py::T2_RULE_ID -- the contract/3 rule
+# carried as BLOCKED_BY for a BLOCKED promotion.  Read, never re-derived.
+T2_RULE_ID = "RULE.CRYPTO.CANDIDATE_PROMOTION_T2_REQUIRED6.V1"
 COMMITTED_AT = "2026-09-14T23:43:41Z"
 COMMITTED_BRIEFING_GLOB = "evidence/crypto_funnel_briefing/2026-09-14/2343/*/packet.json"
 EARLIER_RUN_GLOB = "evidence/crypto_paper_decision/2026-09-14/2113/*/packet.json"
@@ -128,6 +131,46 @@ class LineageV4Tests(unittest.TestCase):
         self.assertEqual(eligibility["outcome"]["eligibility_state"], "WATCH")
         state = events[("KRW-ETH", "candidate_state")]
         self.assertEqual(state["unapplied_rules"], list(LINEAGE.CRYPTO_CANDIDATE_UNAPPLIED_V4))
+
+    def test_v4_promotion_watch_on_unknown_t2_is_a_decision_not_a_block(self):
+        """WATCH is an undetermined gate, not a block, and carries no BLOCKED_BY.
+
+        contract/3 ``aggregate_t2_state`` names the T2 rule BLOCKED_BY only for
+        BLOCKED (a FAILED required condition).  An UNKNOWN one yields WATCH with
+        every ref APPLIED, so emitting BLOCK for it would claim a blocking rule
+        the packet never recorded and fail closed as
+        BLOCK_EVENT_WITHOUT_BLOCKING_RULE.  The replay fixture above only ever
+        produces BLOCKED or FOCUSED_REVIEW, which is why this shape went
+        unnoticed until the first natural /4 packet (2026-09-18T07:15:38Z) came
+        back WATCH on every market with a not-current runtime decision.
+        """
+        with W.lifted_regime_and_rotation():
+            v4 = W.replay(V4)
+        row = next(r for r in v4["candidates"] if r["market"] == "KRW-BTC")
+        p5_08 = row["p5_08"]
+        p5_08["promotion_state"] = "WATCH"
+        p5_08["promotion_reason"] = "T2_REQUIRED_UNKNOWN:T2_ROTATION_MEMBERSHIP"
+        p5_08["rule_refs"] = [dict(ref, role="APPLIED") for ref in p5_08["rule_refs"]]
+        p5_08["unapplied_rules"] = []
+        row["p5_09"] = None  # no eligibility row is produced below FOCUSED_REVIEW
+        sidecar = LINEAGE.build_crypto_decision_sidecar(v4, self.context)
+        event = next(e for e in sidecar["events"]
+                     if (e["instrument"], e["gate"]) == ("KRW-BTC", "promotion_t2_required"))
+        self.assertEqual(event["event_type"], "DECISION")
+        self.assertEqual(event["outcome"]["promotion_state"], "WATCH")
+        self.assertEqual({ref["role"] for ref in event["rule_refs"]}, {"APPLIED"})
+        # BLOCKED still blocks, and still names the rule that did it: contract/3
+        # marks its T2 rule BLOCKED_BY for exactly that state.
+        p5_08["promotion_state"] = "BLOCKED"
+        p5_08["promotion_reason"] = "T2_REQUIRED_FAILED:T2_ROTATION_MEMBERSHIP"
+        p5_08["rule_refs"] = [
+            dict(ref, role="BLOCKED_BY" if ref["rule_id"] == T2_RULE_ID else ref["role"])
+            for ref in p5_08["rule_refs"]
+        ]
+        blocked = next(e for e in LINEAGE.build_crypto_decision_sidecar(v4, self.context)["events"]
+                       if (e["instrument"], e["gate"]) == ("KRW-BTC", "promotion_t2_required"))
+        self.assertEqual(blocked["event_type"], "BLOCK")
+        self.assertIn("BLOCKED_BY", {ref["role"] for ref in blocked["rule_refs"]})
 
 
 class BriefingV4Tests(RepoTempMixin, unittest.TestCase):

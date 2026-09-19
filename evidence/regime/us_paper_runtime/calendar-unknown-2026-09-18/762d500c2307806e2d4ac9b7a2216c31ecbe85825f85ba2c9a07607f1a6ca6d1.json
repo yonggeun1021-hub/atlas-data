@@ -1,0 +1,140 @@
+{
+  "adoption": {
+    "identity": "US_PAPER_RUNTIME_ADOPTION_V1",
+    "path": "config/us_paper_runtime_adoption_v1.json",
+    "sha256": null,
+    "status": "ABSENT"
+  },
+  "aggregation": null,
+  "authority": {
+    "action_authorized": false,
+    "buy_authorized": false,
+    "capital_authorized": false,
+    "order_authorized": false,
+    "paper_runtime_display_authorized": false,
+    "production_authorized": false,
+    "real_authorized": false,
+    "stage_authorized": false,
+    "strategy_authorized": false,
+    "trading_authorized": false
+  },
+  "basis_sha256": "9e8024dd87e8bb21d1bd1c93999884a08e2893d374d4638130fa6ba024094025",
+  "bindings": {
+    "common_v1_binding_payload_sha256": "44e13d9176270a45a8426970726d67ceeb5fda559653dcbe2711811bac37207e",
+    "contract_sha256": "bad715c8a960b6aa7a5618b22e5ccefc580f38599e2c3f532f7e182c700812d3",
+    "normalization_ratifying_commit": "ba82906a1e438247070cba96a08c9b9469fcfce5",
+    "normalization_sha256": "cb6945225cd4f972825aaa3a6fb300ab440bd9b0d247bd0edb216e8513335385",
+    "normalization_us_block_payload_sha256": "766ab14531682c133d900299dbb66a71a7c83f0cec73e7e140455c8b57e39419",
+    "pit_acceptance_contract_sha256": "c13006da3da69df4a94ab494942045c988bd6e7d6c51c0fe57c12c889ab45712",
+    "reference_policy_sha256": "6ed1a18670834ff8ed021a4076fc2976792884b6d66f51473c1d3ae0aea57350",
+    "semantic_freshness_sha256": "0194dd4647b9a42b5183977c822eb8125320d32e93ef4e7f4efda364db6ff193"
+  },
+  "caveats": [
+    "US_BREADTH_LEADERSHIP_REPRESENTATIVE_ETF_PROXY_NOT_FULL_SECURITY_UNIVERSE",
+    "ALPACA_IEX_ONLY_PARTIAL_US_MARKET_UNADJUSTED_CLOSES",
+    "FRED_LIQUIDITY_RAW_NOT_RETAINED_HASH_ATTESTED",
+    "CONFIDENCE_MATCHING_AXIS_FRACTION_NOT_PROBABILITY",
+    "DECISION_EXPIRES_AT_NEXT_OFFICIAL_SESSION_CLOSE"
+  ],
+  "chain": [],
+  "code_revision": "2865c7bd124f8149819cffbb31c5322d78809e83",
+  "confidence": null,
+  "current_observation": null,
+  "decision_id": "us-paper-regime:e17853b99b2296d00cc5f363979ed5f43c8f53e5031a92d44df32c5a53c2af4c",
+  "decision_status": "BLOCKED",
+  "direction": "UNKNOWN",
+  "evaluation_at": "2026-09-18T01:28:17Z",
+  "evidence_class": "LIVE_NATURAL",
+  "latest_source_diagnostic": {
+    "axis_observations": {
+      "BREADTH": {
+        "missing_reason": "BREADTH_EXPECTED_COMPLETED_SESSION_CALENDAR_UNKNOWN",
+        "observed_direction": "NEGATIVE"
+      },
+      "LEADERSHIP": {
+        "missing_reason": "LEADERSHIP_EXPECTED_COMPLETED_SESSION_CALENDAR_UNKNOWN",
+        "observed_direction": "NEGATIVE"
+      },
+      "LIQUIDITY": {
+        "derived_payload_sha256": "c22e7809bd03268a24ca8a7064bf052bc78401752ed090ebed491d570757a9b8",
+        "freshness_form": "RELEASE_CYCLE_LATEST_FETCH",
+        "observed_direction": "POSITIVE",
+        "observed_value": {
+          "TOTBKCR": "4553",
+          "WRESBAL": "96779"
+        },
+        "series": {
+          "TOTBKCR": {
+            "change": "4553",
+            "observation_date": "2026-09-02",
+            "previous_observation_date": "2026-08-26",
+            "realtime_end": "2026-09-15",
+            "realtime_start": "2026-09-15"
+          },
+          "WRESBAL": {
+            "change": "96779",
+            "observation_date": "2026-09-09",
+            "previous_observation_date": "2026-09-02",
+            "realtime_end": "2026-09-14",
+            "realtime_start": "2026-09-14"
+          }
+        }
+      },
+      "RISK_VOL": {
+        "freshness_form": "RELEASE_CYCLE_LATEST_FETCH",
+        "observation_date": "2026-09-14",
+        "observed_direction": "NEUTRAL",
+        "observed_value": {
+          "vix": "17.1"
+        },
+        "raw_response_sha256": "49c3e0d1125f37474e3298172762817000a107f10b67c9bf8fc917934981459d",
+        "realtime_end": "2026-09-15",
+        "realtime_start": "2026-09-15",
+        "series_id": "VIXCLS",
+        "value": "17.1"
+      },
+      "TREND": {
+        "missing_reason": "TREND_EXPECTED_COMPLETED_SESSION_CALENDAR_UNKNOWN",
+        "observed_direction": "NEGATIVE"
+      }
+    },
+    "reasons": [
+      "BREADTH_EXPECTED_COMPLETED_SESSION_CALENDAR_UNKNOWN",
+      "LEADERSHIP_EXPECTED_COMPLETED_SESSION_CALENDAR_UNKNOWN",
+      "TREND_EXPECTED_COMPLETED_SESSION_CALENDAR_UNKNOWN"
+    ],
+    "source": {
+      "observed_at_utc": "2026-09-15T23:39:00Z",
+      "packet_sha256": "e7d8e92d3672fc8c97fe0b95d9541b28dd9c82ac132efd55664f7a2eeae40d63",
+      "revision_path": "evidence/free_market_data/derived/2026-09-15/2ea258a1ceda03df2c6f112c6fb0da34218779691d48316ce2c132a2919a67e0/manifest.json"
+    },
+    "use": "DIAGNOSTIC_ONLY_NOT_A_RUNTIME_STEP_NO_SESSION_CALENDAR_APPLIED"
+  },
+  "market": "US",
+  "paper_regime": "UNKNOWN",
+  "pit_acceptance": {
+    "published_market_scoped_status": {
+      "reasons": [
+        "NO_EVIDENCE_BUNDLE_SUPPLIED"
+      ],
+      "status": "NOT_ACCEPTED",
+      "trusted_as_acceptance": false
+    },
+    "status": "UNBOUND"
+  },
+  "reasons": [
+    "US_PAPER_RUNTIME_ADOPTION_IDENTITY_ABSENT",
+    "US_PIT_ACCEPTED_RECORD_UNBOUND",
+    "US_OFFICIAL_SESSION_CALENDAR_UNBOUND"
+  ],
+  "runtime_decision_available": false,
+  "runtime_regime": "UNKNOWN",
+  "schema_version": "us_paper_runtime_decision/1",
+  "scope": "US_INTERNAL_VIRTUAL_PAPER_ONLY",
+  "session": {
+    "context_session_close_at": null,
+    "context_session_date": null,
+    "execution_session_date": null,
+    "expires_at": null
+  }
+}

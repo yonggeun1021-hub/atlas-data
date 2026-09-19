@@ -48,6 +48,7 @@ import argparse
 import copy
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -70,6 +71,10 @@ PER_MARKET_SCHEMA_VERSIONS = (
 # confirmation into P5-08 contract/3 and P5-09 contract/3: their per-candidate
 # ``rule_refs`` become lineage events and the "not wired" gaps no longer apply.
 V4_SCHEMA_VERSION = "crypto_paper_decision_snapshot_packet/4"
+# universe/crypto_candidate_promotion.py::STATE_BLOCKED -- the one contract/3
+# promotion state whose rule_refs carry a BLOCKED_BY role.  Reused verbatim,
+# not reinvented; this module reads the packet and never re-derives the state.
+PROMOTION_STATE_BLOCKED = "BLOCKED"
 CRYPTO_CANDIDATE_UNAPPLIED_V4 = (
     {"rule_id": "RULE.ROTATION.CRYPTO.V1", "reason_code": "ROTATION_BUCKET_STATE_PRODUCED_BY_CONFIRMATION_PACKET"},
 )
@@ -198,8 +203,23 @@ def build_crypto_decision_sidecar(packet: dict, context: REFS.RegistryContext) -
         v4 = schema == V4_SCHEMA_VERSION
         if v4:
             p5_08 = row["p5_08"]
+            # A BLOCK must name the rule that blocked (rule_refs.py
+            # BLOCK_EVENT_WITHOUT_BLOCKING_RULE), so this event type has to
+            # agree with what the packet itself recorded.  contract/3
+            # ``aggregate_t2_state`` (universe/crypto_candidate_promotion.py)
+            # has three outcomes: a FAILED required condition gives BLOCKED and
+            # the packet carries the T2 rule as BLOCKED_BY; an UNKNOWN one gives
+            # WATCH with every ref APPLIED -- no rule blocked the promotion, the
+            # inputs needed to decide it were simply not available; all-passed
+            # gives FOCUSED_REVIEW.  Treating "anything but FOCUSED_REVIEW" as a
+            # BLOCK therefore claimed a blocking rule the packet never named and
+            # failed closed on the first natural /4 packet (2026-09-18T07:15:38Z,
+            # every market WATCH on T2_REQUIRED_UNKNOWN).  BLOCK is emitted for
+            # exactly the state whose refs carry BLOCKED_BY; WATCH stays a
+            # DECISION that records the undetermined gate in its outcome.
             events.append(event(
-                market, "promotion_t2_required", "BLOCK" if p5_08["promotion_state"] != "FOCUSED_REVIEW" else "DECISION",
+                market, "promotion_t2_required",
+                "BLOCK" if p5_08["promotion_state"] == PROMOTION_STATE_BLOCKED else "DECISION",
                 {"promotion_state": p5_08["promotion_state"], "promotion_reason": p5_08["promotion_reason"]},
                 [(ref["rule_id"], ref["role"]) for ref in p5_08["rule_refs"]],
                 p5_08["unapplied_rules"], p5_08["t2_required_conditions"],
@@ -331,6 +351,44 @@ def run_cli(kind: str, packet_path: Path, *, root: Path = ROOT, lineage_root: Pa
         return {"status": "FAILED", "path": None, "error": message}
 
 
+CRYPTO_EVIDENCE_RELATIVE = "evidence/crypto_paper_decision"
+DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def scan_crypto_decision_evidence(min_date: str, *, root: Path = ROOT, lineage_root: Path | None = None,
+                                  context=None) -> list:
+    """Emit sidecars for every retained crypto PAPER decision packet dated >= ``min_date``.
+
+    Idempotent (existing sidecars are verified, never rewritten -- a repeat
+    scan over an already-covered range costs one read and one comparison per
+    packet).  Exists because the per-run sidecar step wired into
+    ``.github/workflows/upbit-realtime-capture.yml`` is guarded on the
+    capture job not having been cancelled: whenever that job overruns its
+    timeout (observed since 2026-09-18), every step guarded that way is
+    skipped even though the decision packet itself still commits (its own
+    step runs unconditionally). This scan is a second, independent path to
+    the same sidecars that depends on nothing about how the capture job
+    ended -- it only reads packets already committed to evidence -- so a
+    stretch of cancelled/overrun capture runs no longer means a stretch of
+    missing lineage. ``evidence/crypto_paper_decision/_sources`` (the packet
+    dedup store, not a date) is excluded by requiring the directory name to
+    match ``YYYY-MM-DD`` before the ``>= min_date`` comparison; a plain
+    string compare would otherwise place ``_sources`` after every date.
+    """
+    results = []
+    base = Path(root) / CRYPTO_EVIDENCE_RELATIVE
+    if not base.is_dir():
+        return results
+    context = context or REFS.RegistryContext.load()
+    for date_dir in sorted(p for p in base.iterdir()
+                            if p.is_dir() and DATE_DIR_RE.match(p.name) and p.name >= min_date):
+        for packet_path in sorted(date_dir.glob("*/*/packet.json")):
+            result = run_cli("crypto-decision", packet_path, root=root, lineage_root=lineage_root, context=context)
+            result["packet"] = str(packet_path)
+            results.append(result)
+    return results
+
+
 REFERENCE_EVIDENCE_RELATIVE = "evidence/regime/paper_reference"
 
 
@@ -372,23 +430,31 @@ def _warn(message: str) -> None:
     print(f"::warning title=Rule lineage sidecar failed::{text}", file=sys.stderr)
 
 
+SCAN_KINDS = {
+    "crypto-decision-scan": scan_crypto_decision_evidence,
+    "paper-reference-scan": scan_reference_evidence,
+}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Emit additive rule-lineage sidecars for producer packets.")
-    parser.add_argument("kind", choices=["crypto-decision", "paper-reference", "paper-reference-scan"])
+    parser.add_argument("kind", choices=["crypto-decision", "paper-reference",
+                                          "crypto-decision-scan", "paper-reference-scan"])
     parser.add_argument("--packet", type=Path, default=None)
-    parser.add_argument("--min-date", default=None, help="paper-reference-scan: first evidence date (YYYY-MM-DD)")
+    parser.add_argument("--min-date", default=None,
+                         help="*-scan: first evidence date (YYYY-MM-DD)")
     parser.add_argument("--lineage-root", type=Path, default=None)
     args = parser.parse_args(argv)
-    if args.kind == "paper-reference-scan":
+    if args.kind in SCAN_KINDS:
         if not args.min_date or len(args.min_date) != 10:
-            parser.error("paper-reference-scan requires --min-date YYYY-MM-DD")
-        results = scan_reference_evidence(args.min_date, lineage_root=args.lineage_root)
+            parser.error(f"{args.kind} requires --min-date YYYY-MM-DD")
+        results = SCAN_KINDS[args.kind](args.min_date, lineage_root=args.lineage_root)
         summary = {}
         for result in results:
             summary[result["status"]] = summary.get(result["status"], 0) + 1
         print(json.dumps({"summary": summary, "results": results}, ensure_ascii=False, sort_keys=True))
         if summary.get("FAILED"):
-            _warn(f"{summary['FAILED']} PAPER reference sidecar(s) failed; see RULE_LINEAGE_EMIT_FAILED lines")
+            _warn(f"{summary['FAILED']} sidecar(s) failed for {args.kind}; see RULE_LINEAGE_EMIT_FAILED lines")
         return 0
     if args.packet is None:
         parser.error(f"{args.kind} requires --packet")

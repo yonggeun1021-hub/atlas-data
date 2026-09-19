@@ -57,16 +57,18 @@ jobs:
       - name: Offline contract regression (fake HTTP layer, no network, no secrets)
         run: |
           python3 test/test_fred_dexkous_fx.py
+          python3 test/test_verify_evidence_staged.py
       - name: Capture FRED DEXKOUS evidence
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
+          set -euo pipefail
           if [ "${{ inputs.backfill }}" = "true" ]; then
-            python3 collectors/fred_dexkous_fx.py --backfill
+            python3 collectors/fred_dexkous_fx.py --backfill | tee /tmp/fred_dexkous_capture_summary.json
           else
-            python3 collectors/fred_dexkous_fx.py
+            python3 collectors/fred_dexkous_fx.py | tee /tmp/fred_dexkous_capture_summary.json
           fi
-      - name: Commit append-only evidence (bounded push retry)
+      - name: Commit append-only evidence (bounded push retry, evidence-loss guard)
         # 2026-09-15 incident: the first live run of this workflow and the
         # first live run of spdr-sector-holdings.yml raced each other --
         # SPDR pushed first, this run's plain `git push` then failed with
@@ -75,10 +77,31 @@ jobs:
         # this run's one commit on top of whatever landed on main first,
         # then retries the push; bounded at 3 attempts so a real, non-race
         # failure (auth, network) still fails the job instead of looping.
+        # This workflow already serializes its own runs via the
+        # `concurrency:` group above, so that race can no longer recur
+        # between two runs of *this* workflow.
+        #
+        # 2026-09-17/18 investigation (see PR body): no evidence was
+        # actually lost that day -- the collector's own summary correctly
+        # reported zero new observations because FRED had not published
+        # past 2026-09-11. But the investigation surfaced a real gap: had
+        # a run's commit genuinely dropped a file the collector reported
+        # writing, this workflow would still have gone green. The step
+        # below (collectors/verify_evidence_staged.py) makes that
+        # impossible: it compares the collector's own
+        # new_observation_paths against what is actually staged and fails
+        # the run if any of them are missing, before the commit is made.
         run: |
+          set -euo pipefail
           git config user.name "atlas-bot"
           git config user.email "atlas-bot@users.noreply.github.com"
           git add evidence/fred_dexkous_fx
+          # Runs before the empty-diff short-circuit below on purpose: if
+          # the collector reported a new path and `git add` still staged
+          # nothing at all, that is the worst version of this bug (the
+          # empty-diff branch would otherwise exit 0 and this run would
+          # report success having staged none of its own evidence).
+          python3 collectors/verify_evidence_staged.py /tmp/fred_dexkous_capture_summary.json
           if git diff --staged --quiet; then exit 0; fi
           git commit -m "data: FRED DEXKOUS FX evidence $(date -u +%Y-%m-%d)"
           attempt=1

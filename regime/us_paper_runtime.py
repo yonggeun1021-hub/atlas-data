@@ -14,6 +14,14 @@ collects committed evidence and writes nothing here.
 * RISK_VOL (VIXCLS) and LIQUIDITY (WRESBAL/TOTBKCR) follow FRED release
   semantics: the capture's own fetch, never coerced to a session date, with
   ALFRED vintage lookahead and observation lookahead rejected.
+* Those two forms are reported FRESH for any DEFINED factor, because the
+  ratified rule reads a DEFINED release-cycle factor as this run's own fetch.
+  A committed capture is not this run's fetch, so the decision additionally
+  states the collection coverage of the capture it read -- measured by the
+  publication module in the collector's own cadence dates, never in elapsed
+  wall-clock days -- and blocks on ``US_FREE_MARKET_DATA_COLLECTION_BEHIND_SOURCE``
+  past its bound, or on ``..._COLLECTION_COVERAGE_UNMEASURED`` if the
+  measurement is absent or contradicts itself.
 * Classification and hysteresis come only from the unmodified
   ``regime.decision_authority.replay_common_v1`` over the accepted historical
   sequence followed by one step per official session.
@@ -22,6 +30,10 @@ collects committed evidence and writes nothing here.
   call) and an official session calendar.  Anything absent, invalid, unbound,
   missing, stale or lookahead is UNKNOWN with explicit reasons; nothing is
   carried forward.  A decision expires at the next official session close.
+  Both of those artifacts are bound from inside the adoption identity, so an
+  absent or invalid adoption reports their two UNBOUND reasons as well -- and
+  says in ``adoption.derived_reasons`` that it derived them, because neither can
+  be cleared while the adoption is the thing that is missing.
 
 No provider is called, no file is written, and no strategy, stage, buy,
 action, capital, order, production, trading or REAL authority is opened.
@@ -56,6 +68,18 @@ ADOPTION_CONTRACT_VERSION = "us_paper_runtime_adoption/v1"
 ADOPTION_IDENTITY = "US_PAPER_RUNTIME_ADOPTION_V1"
 ADOPTION_ACTIVE_STATUS = "CIO_TECHNICAL_ADOPTED"
 ADOPTION_TEMPLATE_STATUS = "TEMPLATE_NOT_ACTIVE"
+# Both bindings the runtime needs live INSIDE the adoption identity
+# (``pit_acceptance`` and ``session_calendar``), so when the adoption itself is
+# absent or invalid these two reasons are consequences of that one failure, not
+# two further observations: nothing else in the repository could satisfy either
+# of them on its own.  They are still reported -- suppressing them would hide a
+# closed gate -- but ``adoption.derived_reasons`` says they were derived, so a
+# reader can tell this case apart from the one where a *valid* adoption simply
+# omits a binding (``test_calendar_gates``), which is an independent
+# observation and leaves ``derived_reasons`` empty.  Without that distinction
+# the packet reads as three separable wiring gaps and invites a hunt for a
+# second place to bind an artifact that has none.
+ADOPTION_DERIVED_REASONS = ("US_PIT_ACCEPTED_RECORD_UNBOUND", "US_OFFICIAL_SESSION_CALENDAR_UNBOUND")
 ACCEPTANCE_RECORD_SCHEMA = "us_pit_acceptance_record/1"
 CALENDAR_SCHEMA = "us_official_session_calendar/1"
 SOURCE_SCHEMA = "free_market_data_capture/5"
@@ -87,6 +111,20 @@ IMPLEMENTATION_PATHS = (
 
 LIVE_NATURAL = "LIVE_NATURAL"
 EVIDENCE_CLASSES = {LIVE_NATURAL, "SYNTHETIC_OFFLINE_FIXTURE"}
+
+# Collection coverage of the capture the decision actually read.  The publication
+# module measures it in the collector's own cadence dates (coverage, not elapsed
+# wall-clock) and this module refuses to treat an unmeasured or self-contradicting
+# block as current, so degrading to an older capture can never be silent.
+SOURCE_CURRENT = "SOURCE_CURRENT"
+COLLECTION_BEHIND_SOURCE = "COLLECTION_BEHIND_SOURCE"
+COLLECTION_COVERAGE_UNMEASURED = "COLLECTION_COVERAGE_UNMEASURED"
+COLLECTION_COVERAGE_STATUSES = (SOURCE_CURRENT, COLLECTION_BEHIND_SOURCE)
+COLLECTION_COVERAGE_FIELDS = (
+    "measure", "cadence_cron", "cadence_declared_in", "selected_capture_cadence_date",
+    "evaluated_cadence_date", "uncovered_cadence_dates", "uncovered_cadence_date_count",
+    "tolerated_uncovered_cadence_dates", "status",
+)
 AXES = ["TREND", "BREADTH", "RISK_VOL", "LIQUIDITY", "LEADERSHIP"]
 SESSION_AXES = ("TREND", "BREADTH", "LEADERSHIP")
 RUNTIME_REGIMES = ["RISK_ON", "NEUTRAL", "RISK_OFF", "STRESS", "UNKNOWN"]
@@ -569,6 +607,33 @@ def _liquidity(record: dict, observed_at: dt.datetime, session_date: dt.date | N
             "freshness_form": SEMANTIC.RELEASE_CYCLE_LATEST_FETCH}
 
 
+def collection_coverage(record: object) -> dict:
+    """The selected capture's collection coverage, or a fail-closed UNMEASURED block.
+
+    A producer that degrades to an older capture must record in its own output
+    which capture it used and how far behind the collector's cadence that is.
+    An absent, malformed or self-contradicting block (one claiming
+    ``SOURCE_CURRENT`` while its own count exceeds its own bound) is never read
+    as current: it becomes ``COLLECTION_COVERAGE_UNMEASURED`` and blocks exactly
+    like being behind, so the measurement cannot be dropped silently.
+    """
+    coverage = record.get("collection_coverage") if isinstance(record, dict) else None
+    if not isinstance(coverage, dict) or set(coverage) != set(COLLECTION_COVERAGE_FIELDS):
+        return {"status": COLLECTION_COVERAGE_UNMEASURED}
+    dates, count = coverage["uncovered_cadence_dates"], coverage["uncovered_cadence_date_count"]
+    bound = coverage["tolerated_uncovered_cadence_dates"]
+    if (coverage["status"] not in COLLECTION_COVERAGE_STATUSES
+            or not isinstance(dates, list) or not all(isinstance(value, str) for value in dates)
+            or not isinstance(count, int) or isinstance(count, bool) or count != len(dates)
+            or not isinstance(bound, int) or isinstance(bound, bool) or bound < 0
+            or (coverage["status"] == SOURCE_CURRENT and count > bound)
+            or (coverage["status"] == COLLECTION_BEHIND_SOURCE and count <= bound
+                and coverage["selected_capture_cadence_date"] is not None
+                and coverage["evaluated_cadence_date"] is not None)):
+        return {"status": COLLECTION_COVERAGE_UNMEASURED}
+    return copy.deepcopy(coverage)
+
+
 def evaluate_source(record: object, session: dict | None, now: dt.datetime, ratified: dict) -> dict:
     """Signed axes from one committed capture; any failure is that axis UNDEFINED."""
     axes = {axis: {"status": "UNDEFINED", "direction": None} for axis in AXES}
@@ -664,7 +729,7 @@ def evaluate_us_paper_runtime(*, evaluation_at: str, code_revision: str, session
                     "execution_session_date": None, "expires_at": None},
         "bindings": None,
         "adoption": {"identity": ADOPTION_IDENTITY, "path": ADOPTION_RELATIVE, "status": "ABSENT",
-                     "sha256": None},
+                     "sha256": None, "blocking_reason": None, "derived_reasons": []},
         "pit_acceptance": {"status": "UNBOUND", "published_market_scoped_status": published_pit_status(root)},
         "current_observation": None, "latest_source_diagnostic": None, "chain": [], "aggregation": None,
         "reasons": [], "caveats": list(CAVEATS), "authority": dict(AUTHORITY_CLOSED),
@@ -683,11 +748,19 @@ def evaluate_us_paper_runtime(*, evaluation_at: str, code_revision: str, session
             reasons.append("EVIDENCE_CLASS_NOT_LIVE_NATURAL")
 
         diagnostic = evaluate_source(copy.deepcopy(latest_source_record), None, now, ratified)
+        coverage = collection_coverage(latest_source_record)
         packet["latest_source_diagnostic"] = {
             "use": "DIAGNOSTIC_ONLY_NOT_A_RUNTIME_STEP_NO_SESSION_CALENDAR_APPLIED",
             "source": diagnostic["source"], "axis_observations": diagnostic["axis_observations"],
-            "reasons": diagnostic["reasons"],
+            "reasons": diagnostic["reasons"], "collection_coverage": coverage,
         }
+        # RISK_VOL and LIQUIDITY carry the RELEASE_CYCLE_LATEST_FETCH freshness
+        # form, which regime_semantic_freshness reports FRESH for any DEFINED
+        # factor because it assumes the capture is this run's own fetch.  Reading
+        # a committed capture breaks that assumption, so the skew of the capture
+        # itself is stated here and blocks past its bound.
+        if coverage["status"] != SOURCE_CURRENT:
+            reasons.append("US_FREE_MARKET_DATA_" + coverage["status"])
 
         adoption = None
         try:
@@ -697,7 +770,9 @@ def evaluate_us_paper_runtime(*, evaluation_at: str, code_revision: str, session
             code = reason_code(exc, "ADOPTION_IDENTITY_INVALID") if isinstance(exc, UsPaperRuntimeError) \
                 else "ADOPTION_IDENTITY_INVALID"
             packet["adoption"]["status"] = "ABSENT" if code == "US_PAPER_RUNTIME_ADOPTION_IDENTITY_ABSENT" else "INVALID"
-            reasons.extend([code, "US_PIT_ACCEPTED_RECORD_UNBOUND", "US_OFFICIAL_SESSION_CALENDAR_UNBOUND"])
+            packet["adoption"]["blocking_reason"] = code
+            packet["adoption"]["derived_reasons"] = list(ADOPTION_DERIVED_REASONS)
+            reasons.extend([code, *ADOPTION_DERIVED_REASONS])
 
         if adoption is not None:
             acceptance = calendar = None

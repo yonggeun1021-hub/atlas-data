@@ -15,6 +15,7 @@ records.
 from __future__ import annotations
 
 import copy
+
 from pathlib import Path
 
 import importlib.util
@@ -116,6 +117,38 @@ def load_context(inputs: dict, *, generated_at: str, contract: dict) -> dict:
     committed = read_json(inputs["bounded_review_path"], "US_BOUNDED_REVIEW_READ_FAILED")
     if committed != bounded:
         _fail("US_BOUNDED_REVIEW_NOT_REPRODUCIBLE")
+    # The session must actually be the one this market data describes.
+    #
+    # KR enforces this with exact equality on the date
+    # (``KR_BOUNDED_REVIEW_SESSION_MISMATCH``) because its
+    # ``operational_date_kst`` IS the session by construction
+    # (``korea_symbol_market_review`` sets it from ``market["as_of_date"]``).  US
+    # has no such field: ``us_symbol_market_review`` derives
+    # ``operational_date_kst`` from the observation instant in Asia/Seoul, and
+    # the capture's wall-clock distance from the session is not a defect signal
+    # at all -- over a weekend it is legitimately 2-3 days (the 2026-09-13
+    # snapshot is a Sunday capture of the Friday 2026-09-11 session, and is
+    # correct).
+    #
+    # What actually matters is coverage, not elapsed days: the newest session
+    # this capture contains must BE the session the packet claims.  If the
+    # capture already holds a later session, the packet would evaluate an older
+    # session using data that includes later trading -- on 2026-09-18 a
+    # session-2026-09-16 packet would be built from a capture whose newest bar
+    # is 2026-09-17.  If it holds only earlier sessions, it does not cover this
+    # session at all.  Both are refused; a weekend-lagged capture whose newest
+    # bar is the session passes.
+    bar_days = sorted({
+        bar["opened_at"][:10]
+        for bar in (market.get("alpaca") or {}).get("daily_bars") or []
+        if isinstance(bar, dict) and isinstance(bar.get("opened_at"), str)
+    })
+    if not bar_days:
+        _fail("US_MARKET_DATA_NO_SESSION_BARS", session)
+    if bar_days[-1] != session:
+        _fail("US_BOUNDED_REVIEW_SESSION_MISMATCH",
+              f"newest_daily_bar={bar_days[-1]} session={session} "
+              f"observed_at_utc={market.get('observed_at_utc')}")
     bounded_rows = {row["symbol"]: row for row in bounded["symbols"]}
     source = US_REVIEW._compact_source(market, stages, review_contract)
     coverage = US_REVIEW._axes(source, review_contract)

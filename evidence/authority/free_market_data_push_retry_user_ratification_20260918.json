@@ -1,0 +1,14 @@
+{
+  "record_type": "USER_RATIFICATION",
+  "ratified_at_kst": "2026-09-18T10:15:00+09:00",
+  "verbatim": "미국 자료 수집 워크플로(free-market-data.yml)에 저장소 반영 재시도를 추가하고, 그에 따른 지문 기록 갱신을 승인한다. 수집 대상과 출처는 변경하지 않는다.",
+  "why_user_ratification_was_required": "The file's sha256 is pinned inside a ratified source-owner binding (config/regime_source_owner_registry_v2.json US_PAPER_PROXY_SOURCE_OWNER, also referenced by config/stage1_market_tuple_20260909.json and asserted live by test_rule_registry_and_lineage.py:851). Changing a ratified binding is outside CIO discretion.",
+  "scope": [
+    "add a push retry-with-rebase loop to .github/workflows/free-market-data.yml, copying the proven pattern at rotation-confirmation.yml:105-119 (5 attempts, rebase --abort on failure, backoff, explicit STOP message)",
+    "update the workflow_sha256 pin(s) that this change invalidates, and any cascading whole-file pins, verified before merge"
+  ],
+  "explicitly_unchanged": ["collection targets", "data sources", "what is committed", "schedule"],
+  "cause": "runs 35163739007 (2026-09-16) and 35287712594 (2026-09-17) both failed with '! [rejected] main -> main (fetch first)' after a bare git push; data was captured fine both times",
+  "deadline": "US rotation chain (data/latest_rotation_confirmation_us.json, 10 observations since 2026-08-28) has a 4-day maximum observation gap; without a successful run by ~2026-09-19/20 the chain resets",
+  "authority": {"order_authorized": false, "capital_authorized": false, "real_authorized": false, "trading_authorized": false}
+}
