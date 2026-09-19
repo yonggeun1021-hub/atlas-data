@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import re
 from pathlib import Path
 import tempfile
 import unittest
@@ -606,18 +607,113 @@ class RegimePolicyCandidateTest(unittest.TestCase):
             self.assertEqual(persisted["policy_status"], "DRAFT_NOT_RATIFIED")
 
 
+# A ratified additive overlay may carry the current fingerprint for exactly one
+# registry pin, so the registry's own bytes never have to move.
+#
+# Why this exists: config/regime_source_owner_registry_v2.json's bytes are
+# hash-bound by config/crypto_paper_runtime_v1.json and
+# config/kr_paper_runtime_ratification_candidate_v1.json (POLICY_BINDING_DRIFT),
+# and through them by seven retained append-only packets under
+# evidence/regime/crypto_paper_runtime/2026-09-14..2026-09-17. Editing the
+# registry to refresh one workflow fingerprint was applied end to end and
+# measured: it cannot be completed without rewriting those packets. Ratified
+# 2026-09-18 (USER-RATIFICATION-REGISTRY-OVERLAY-PIN-VERIFICATION-20260918).
+#
+# This re-points the check; it does not remove or loosen it. An overlay is
+# honoured only if it resolves, is bound to the registry's exact current bytes,
+# carries ratification records that re-hash, and records the value it
+# superseded -- and the file must then match the overlay exactly. Every pin
+# without an overlay stays bound to the registry's own value, and a drifted
+# file with no overlay still fails.
+RATIFIED_PIN_OVERLAYS = {
+    ("markets.US.source_owner", "workflow_path"):
+        ROOT / "config" / "free_market_data_source_owner_amendment_v1.json",
+}
+
+
 class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.registry = json.loads(SOURCE_OWNER_V2.read_text(encoding="utf-8"))
 
-    def assert_pins(self, value):
+    def ratified_overlay_pin(self, section, path_key, registry_expected):
+        """The fingerprint a ratified overlay supersedes this pin with, or None.
+
+        Returns None when no overlay is registered for this pin, which leaves
+        the caller checking against the registry's own value as before.
+        """
+        overlay_path = RATIFIED_PIN_OVERLAYS.get((section, path_key))
+        if overlay_path is None:
+            return None
+        self.assertTrue(overlay_path.is_file(), f"overlay missing for {section}.{path_key}")
+        overlay = json.loads(overlay_path.read_text(encoding="utf-8"))
+
+        sha_key = path_key.removesuffix("_path") + "_sha256"
+        field = f"{section}.{sha_key}"
+
+        # Bound to the registry's exact current bytes: if the registry is ever
+        # edited, the overlay stops applying and every pin goes back to being
+        # checked against the registry alone.
+        binding = overlay["registry_binding"]
+        self.assertEqual(binding["mode"], "ADDITIVE_OVERLAY_REGISTRY_BYTES_UNCHANGED", field)
+        self.assertEqual(binding["path"], "config/regime_source_owner_registry_v2.json", field)
+        self.assertEqual(
+            binding["sha256"],
+            hashlib.sha256(SOURCE_OWNER_V2.read_bytes()).hexdigest(),
+            f"{field}: overlay is not bound to the registry's current bytes",
+        )
+        self.assertEqual(binding["field"], field)
+
+        # A RATIFIED status nothing can re-derive is just a string, so each
+        # record is resolved by path and re-hashed here.
+        ratifications = overlay["ratifications"]
+        for name in ("workflow_change", "verification_mechanism"):
+            record = ratifications[name]
+            self.assertEqual(record["record_type"], "USER_RATIFICATION", f"{field}:{name}")
+            self.assertEqual(record["binding_mode"], "PATH_AND_SHA256_VERIFIED", f"{field}:{name}")
+            record_path = ROOT / record["path"]
+            self.assertTrue(record_path.is_file(), f"{field}:{name} record missing")
+            self.assertEqual(
+                hashlib.sha256(record_path.read_bytes()).hexdigest(),
+                record["sha256"],
+                f"{field}:{name} ratification record does not re-hash",
+            )
+            self.assertEqual(
+                json.loads(record_path.read_text(encoding="utf-8"))["verbatim"],
+                record["verbatim"],
+                f"{field}:{name} verbatim does not match the record",
+            )
+
+        # The superseded value must be recorded, and must be the value the
+        # registry still carries -- that is what keeps it traceable.
+        supersedes = overlay["supersedes"]
+        self.assertEqual(supersedes["field"], field)
+        self.assertEqual(supersedes["path"], self.registry_path_for(section, path_key))
+        self.assertEqual(supersedes["scope"], "EXACTLY_ONE_REGISTRY_PIN", field)
+        self.assertEqual(
+            supersedes["superseded_sha256"], registry_expected,
+            f"{field}: overlay does not record the value the registry still pins",
+        )
+        self.assertNotEqual(supersedes["sha256"], supersedes["superseded_sha256"], field)
+        return supersedes["sha256"]
+
+    def registry_path_for(self, section, path_key):
+        node = self.registry
+        for part in section.split("."):
+            node = node[part]
+        return node[path_key]
+
+    def assert_pins(self, value, section):
         for key, expected in value.items():
             if key.endswith("_sha256"):
                 path_key = key.removesuffix("_sha256") + "_path"
                 if path_key in value:
                     actual = hashlib.sha256((ROOT / value[path_key]).read_bytes()).hexdigest()
-                    self.assertEqual(actual, expected, path_key)
+                    superseding = self.ratified_overlay_pin(section, path_key, expected)
+                    if superseding is None:
+                        self.assertEqual(actual, expected, path_key)
+                    else:
+                        self.assertEqual(actual, superseding, f"{path_key} (ratified overlay)")
 
     def test_v2_exact_decision_and_common_v1_separation(self):
         value = self.registry
@@ -651,7 +747,8 @@ class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
         self.assertEqual(
             common["legacy_runtime_contract"]["status"], "UNCHANGED_FAIL_CLOSED"
         )
-        self.assert_pins(common["legacy_runtime_contract"])
+        self.assert_pins(common["legacy_runtime_contract"],
+                         "common_v1_alignment.legacy_runtime_contract")
 
     def test_v2_market_and_aggregate_acceptance_remain_blocked(self):
         markets = self.registry["markets"]
@@ -673,7 +770,7 @@ class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
         )
         self.assertEqual(aggregate["runtime_output_status"], "UNKNOWN/HOLD/WAIT")
         self.assertFalse(aggregate["pin_update_allowed"])
-        self.assert_pins(aggregate)
+        self.assert_pins(aggregate, "aggregate")
 
     def test_v2_krx_reuses_exact_official_source_and_owner(self):
         krx = self.registry["markets"]["KRX"]
@@ -688,8 +785,8 @@ class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
         )
         self.assertIsNone(krx["signed_normalization_policy"])
         self.assertIsNone(krx["ttl_seconds"])
-        self.assert_pins(krx["source_owner"])
-        self.assert_pins(krx["natural_receipt_owner"])
+        self.assert_pins(krx["source_owner"], "markets.KRX.source_owner")
+        self.assert_pins(krx["natural_receipt_owner"], "markets.KRX.natural_receipt_owner")
 
     def test_v2_us_exact_calendar_proxy_and_bound_finished_session_owner(self):
         us = self.registry["markets"]["US"]
@@ -732,9 +829,9 @@ class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
         )
         self.assertIsNone(us["signed_normalization_policy"])
         self.assertIsNone(us["ttl_seconds"])
-        self.assert_pins(us["source_owner"])
-        self.assert_pins(us["finished_session_owner"])
-        self.assert_pins(us["natural_receipt_owner"])
+        self.assert_pins(us["source_owner"], "markets.US.source_owner")
+        self.assert_pins(us["finished_session_owner"], "markets.US.finished_session_owner")
+        self.assert_pins(us["natural_receipt_owner"], "markets.US.natural_receipt_owner")
 
     def test_v2_crypto_reuses_sources_without_promoting_group_layer(self):
         crypto = self.registry["markets"]["CRYPTO"]
@@ -754,7 +851,7 @@ class RegimeSourceOwnerRegistryV2Test(unittest.TestCase):
         )
         self.assertIsNone(crypto["overall_freshness_policy"])
         for key in ("breadth_source", "leadership_source", "source_owner", "status_owner"):
-            self.assert_pins(crypto[key])
+            self.assert_pins(crypto[key], f"markets.CRYPTO.{key}")
 
     def test_v2_owner_ids_unique_and_no_authority_promotion(self):
         owners = []
@@ -1379,6 +1476,204 @@ class RegimeSignedAxisNormalizationTest(unittest.TestCase):
                 "BLOCKED_SIGNED_NORMALIZATION_UNRATIFIED",
             )
             self.assertFalse(persisted["replay_step_emitted"])
+
+
+class RatifiedPinOverlayTest(unittest.TestCase):
+    """The overlay route must stay a verification, not a hole.
+
+    Ratified 2026-09-18 by
+    USER-RATIFICATION-REGISTRY-OVERLAY-PIN-VERIFICATION-20260918: the registry's
+    pin check honours a ratified additive overlay so the registry's own bytes
+    never move. These tests hold that to three things -- it covers exactly one
+    pin, it still fails on real drift, and it cannot quietly grow a fingerprint
+    cascade of its own.
+    """
+
+    OVERLAY = ROOT / "config" / "free_market_data_source_owner_amendment_v1.json"
+
+    def setUp(self):
+        self.registry = json.loads(SOURCE_OWNER_V2.read_text(encoding="utf-8"))
+        self.overlay = json.loads(self.OVERLAY.read_text(encoding="utf-8"))
+        self.checker = RegimeSourceOwnerRegistryV2Test("test_v2_exact_decision_and_common_v1_separation")
+        self.checker.registry = self.registry
+
+    def check_us_source_owner(self):
+        self.checker.assert_pins(
+            self.registry["markets"]["US"]["source_owner"], "markets.US.source_owner")
+
+    @contextlib.contextmanager
+    def overlay_replaced(self, mutate):
+        """Swap in a mutated copy of the overlay for the duration of the block."""
+        value = json.loads(self.OVERLAY.read_text(encoding="utf-8"))
+        mutate(value)
+        key = ("markets.US.source_owner", "workflow_path")
+        original = RATIFIED_PIN_OVERLAYS[key]
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "overlay.json"
+            path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+            RATIFIED_PIN_OVERLAYS[key] = path
+            try:
+                yield
+            finally:
+                RATIFIED_PIN_OVERLAYS[key] = original
+
+    # ── scope ────────────────────────────────────────────────────────────
+
+    def test_exactly_one_pin_is_overlaid(self):
+        self.assertEqual(len(RATIFIED_PIN_OVERLAYS), 1)
+        self.assertEqual(
+            list(RATIFIED_PIN_OVERLAYS), [("markets.US.source_owner", "workflow_path")])
+        self.assertEqual(self.overlay["supersedes"]["scope"], "EXACTLY_ONE_REGISTRY_PIN")
+
+    def test_the_registry_itself_is_untouched(self):
+        self.assertEqual(
+            hashlib.sha256(SOURCE_OWNER_V2.read_bytes()).hexdigest(),
+            "8dd2ad50f66e144aaca78ffc6a82615d814dee2b8f23f736cdbc85a56dba68bb")
+        # The superseded value is still recorded in the registry, so what
+        # replaced what stays traceable.
+        self.assertEqual(
+            self.registry["markets"]["US"]["source_owner"]["workflow_sha256"],
+            self.overlay["supersedes"]["superseded_sha256"])
+
+    def test_every_other_pin_still_answers_to_the_registry(self):
+        """The other 25 (path, sha256) pairs are untouched by the overlay."""
+        checked = 0
+        for section, value in (
+            ("common_v1_alignment.legacy_runtime_contract",
+             self.registry["common_v1_alignment"]["legacy_runtime_contract"]),
+            ("aggregate", self.registry["aggregate"]),
+            ("markets.KRX.source_owner", self.registry["markets"]["KRX"]["source_owner"]),
+            ("markets.KRX.natural_receipt_owner",
+             self.registry["markets"]["KRX"]["natural_receipt_owner"]),
+            ("markets.US.finished_session_owner",
+             self.registry["markets"]["US"]["finished_session_owner"]),
+            ("markets.US.natural_receipt_owner",
+             self.registry["markets"]["US"]["natural_receipt_owner"]),
+        ):
+            for key, expected in value.items():
+                if not key.endswith("_sha256"):
+                    continue
+                path_key = key.removesuffix("_sha256") + "_path"
+                if path_key not in value:
+                    continue
+                self.assertIsNone(
+                    self.checker.ratified_overlay_pin(section, path_key, expected),
+                    f"{section}.{path_key} unexpectedly overlaid")
+                self.assertEqual(
+                    hashlib.sha256((ROOT / value[path_key]).read_bytes()).hexdigest(),
+                    expected, f"{section}.{path_key}")
+                checked += 1
+        self.assertGreaterEqual(checked, 12)
+
+    # ── it still fails (obligation: a check that cannot fail is decoration) ──
+
+    def test_workflow_drift_without_an_overlay_update_still_fails(self):
+        """The whole point: edit the pinned workflow, forget the overlay, fail."""
+        with self.overlay_replaced(
+                lambda v: v["supersedes"].update(sha256="b" * 64)):
+            with self.assertRaises(AssertionError):
+                self.check_us_source_owner()
+
+    def test_overlay_stops_applying_if_the_registry_bytes_move(self):
+        with self.overlay_replaced(
+                lambda v: v["registry_binding"].update(sha256="c" * 64)):
+            with self.assertRaises(AssertionError):
+                self.check_us_source_owner()
+
+    def test_overlay_is_refused_when_a_ratification_record_does_not_rehash(self):
+        for name in ("workflow_change", "verification_mechanism"):
+            with self.subTest(name=name):
+                with self.overlay_replaced(
+                        lambda v, n=name: v["ratifications"][n].update(sha256="d" * 64)):
+                    with self.assertRaises(AssertionError):
+                        self.check_us_source_owner()
+
+    def test_overlay_is_refused_when_a_ratification_record_is_missing(self):
+        with self.overlay_replaced(
+                lambda v: v["ratifications"]["verification_mechanism"].update(
+                    path="evidence/authority/does_not_exist_20260918.json")):
+            with self.assertRaises(AssertionError):
+                self.check_us_source_owner()
+
+    def test_overlay_is_refused_when_the_verbatim_text_is_altered(self):
+        with self.overlay_replaced(
+                lambda v: v["ratifications"]["verification_mechanism"].update(
+                    verbatim="something the user never said")):
+            with self.assertRaises(AssertionError):
+                self.check_us_source_owner()
+
+    def test_overlay_must_record_the_value_the_registry_still_pins(self):
+        with self.overlay_replaced(
+                lambda v: v["supersedes"].update(superseded_sha256="e" * 64)):
+            with self.assertRaises(AssertionError):
+                self.check_us_source_owner()
+
+    def test_overlay_is_refused_if_it_claims_a_different_field(self):
+        with self.overlay_replaced(
+                lambda v: v["registry_binding"].update(
+                    field="markets.KRX.source_owner.workflow_sha256")):
+            with self.assertRaises(AssertionError):
+                self.check_us_source_owner()
+
+    def test_overlay_is_refused_if_it_is_not_declared_additive(self):
+        with self.overlay_replaced(
+                lambda v: v["registry_binding"].update(mode="REGISTRY_EDITED_IN_PLACE")):
+            with self.assertRaises(AssertionError):
+                self.check_us_source_owner()
+
+    def test_a_no_op_overlay_is_refused(self):
+        """Superseding a value with itself is not a supersession."""
+        with self.overlay_replaced(
+                lambda v: v["supersedes"].update(
+                    sha256=v["supersedes"]["superseded_sha256"])):
+            with self.assertRaises(AssertionError):
+                self.check_us_source_owner()
+
+    def test_the_real_overlay_passes(self):
+        self.check_us_source_owner()
+
+    # ── no cascade of its own ───────────────────────────────────────────
+
+    def test_overlay_pins_nothing_beyond_the_registry_plus_its_own_records(self):
+        """Every sha256 the overlay carries must already be a value the registry
+        records, or one of the three this change introduces.
+
+        A pin on any other file is how this record would quietly acquire a
+        fingerprint cascade of its own -- which is the exact failure this whole
+        overlay exists to avoid. It is why the shared push helper is bound
+        structurally here and not by bytes.
+        """
+        allowed = set(re.findall(
+            r"\b[0-9a-f]{64}\b", SOURCE_OWNER_V2.read_text(encoding="utf-8")))
+        allowed |= {
+            # The registry's own digest -- a file cannot contain its own hash,
+            # and binding to it is what makes the overlay lapse the moment the
+            # registry is edited. Computed live so it cannot go stale.
+            hashlib.sha256(SOURCE_OWNER_V2.read_bytes()).hexdigest(),
+            # Introduced by this change, by construction not yet in the registry.
+            self.overlay["supersedes"]["sha256"],
+            self.overlay["ratifications"]["workflow_change"]["sha256"],
+            self.overlay["ratifications"]["verification_mechanism"]["sha256"],
+        }
+        found = set(re.findall(
+            r"\b[0-9a-f]{64}\b", self.OVERLAY.read_text(encoding="utf-8")))
+        self.assertTrue(found)
+        self.assertEqual(
+            found - allowed, set(),
+            "overlay pins bytes the registry does not record -- new cascade")
+
+    def test_overlay_does_not_byte_pin_the_shared_push_helper(self):
+        change = self.overlay["change"]
+        self.assertNotIn("shared_script_sha256", change)
+        self.assertEqual(change["binding_mode"], "STRUCTURAL_NOT_BYTE_PINNED")
+
+    def test_supersession_is_minimal_and_says_what_it_leaves_alone(self):
+        self.assertTrue(self.overlay["does_not_supersede"])
+        joined = " ".join(self.overlay["does_not_supersede"])
+        for untouched in ("producer_path", "contract_path", "forbidden_promotions"):
+            self.assertIn(untouched, joined)
+        self.assertFalse(self.overlay["authority"]["registry_amendment_authorized"])
+        self.assertFalse(self.overlay["authority"]["policy_value_changed"])
 
 
 if __name__ == "__main__":

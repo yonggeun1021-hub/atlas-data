@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import gzip
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -174,6 +175,53 @@ class SyntheticLedgerTests(unittest.TestCase):
         )
         for key in ("close", "ema20", "atr14", "breakout_20", "prior_session_change_pct"):
             self.assertEqual(later_capture_only[key], features[key])  # future bars never enter the computation
+
+    def test_second_same_day_capture_does_not_rebind_an_earlier_session(self):
+        """A replaced compatibility file must not silently re-pin a recorded observation.
+
+        The 2026-09-18 capture day was captured twice (01:41Z and 23:32Z). The
+        second run replaced evidence/free_market_data/raw/2026-09-18/... in
+        place, so a builder that reads only that path re-pinned the already
+        committed 2026-09-17 packet to the newer bytes and failed its own
+        determinism gate. The replaced response stays addressable in the
+        append-only content-addressed store, so the earlier session keeps the
+        observation it was recorded with while the later one is still reached.
+        """
+        capture, early, late = "2026-09-03", "2026-09-02", "2026-09-03"
+        history = sessions_until(3, 30)
+        shutil.rmtree(self.root / "evidence/free_market_data/raw" / early)
+        iex_bars(self.root, capture, {s: [d for d in history if d <= early] for s in US})
+        compat = self.root / "evidence/free_market_data/raw" / capture / "alpaca_iex_daily_bars.json.gz"
+        first = compat.read_bytes()
+
+        before = OL.USBars(OL.load_config(self.root), self.root).features("XLK", early)
+        self.assertEqual(before["status"], "OBSERVED")
+        self.assertEqual(before["source"]["path"], f"evidence/free_market_data/raw/{capture}/alpaca_iex_daily_bars.json.gz")
+        self.assertEqual(before["source"]["sha256"], RC.file_sha256(compat))
+
+        # A second capture on the same UTC day replaces the compatibility file
+        # with bars through the next session, preserves the replaced response
+        # by content address, and records both observations as revisions.
+        iex_bars(self.root, capture, {s: history for s in US})
+        second = compat.read_bytes()
+        self.assertNotEqual(first, second)
+        for index, (observed, payload) in enumerate(((f"{capture}T01:41:42Z", first), (f"{capture}T23:32:57Z", second))):
+            digest = hashlib.sha256(gzip.decompress(payload)).hexdigest()
+            store = self.root / "evidence/free_market_data/raw/alpaca/daily_bars" / digest
+            store.mkdir(parents=True, exist_ok=True)
+            (store / "alpaca_iex_daily_bars.json.gz").write_bytes(payload)
+            write_json(self.root / "evidence/free_market_data/derived" / capture / f"rev{index}" / "manifest.json", {
+                "observed_at_utc": observed,
+                "alpaca": {"daily_raw_evidence": {
+                    "kind": "daily_bars",
+                    "raw_path": f"evidence/free_market_data/raw/alpaca/daily_bars/{digest}/alpaca_iex_daily_bars.json.gz",
+                }},
+            })
+
+        rebound = OL.USBars(OL.load_config(self.root), self.root)
+        self.assertEqual(RC.render_json(rebound.features("XLK", early)), RC.render_json(before))
+        # ...while the session only the later capture observed is still reached.
+        self.assertEqual(rebound.features("XLK", late)["source"]["sha256"], RC.file_sha256(compat))
 
     def test_append_only_writer(self):
         paper_reference(self.root, "2026-09-03", "2026-09-03T22:00:00Z", [("US", "2026-09-03", "NEUTRAL")])

@@ -42,20 +42,24 @@ def source_observation_ceiling(
     The decision builder remains responsible for rejecting a caller-supplied
     ``generated_at`` that precedes any of these timestamps.
 
-    A realtime run carries two resolutions: ``run.ended_at`` is the capture end
-    truncated to the whole second, while the inputs it retains (gate status,
-    latest public messages, message-log receipts) keep their microseconds and
-    so routinely land in the remainder of that same second -- ``ended_at``
-    07:15:37Z for a last receipt at 07:15:37.221674Z.  A maximum over the
-    whole-second timestamps alone therefore names a decision instant that
-    precedes committed inputs, which is exactly what the fail-closed
-    ``REALTIME_INPUT_AFTER_DECISION`` guard rejects.  The maximum is finished
-    through the builder's own ``decision_time_not_before_inputs`` -- the step
-    ``populate()`` applies when it stamps a new packet -- which only ever moves
-    the instant later (never earlier, so nothing uncaptured is admitted), by at
-    most one second, and still raises
-    ``REALTIME_INPUT_MORE_THAN_ONE_SECOND_AFTER_DECISION`` beyond that.  Calling
-    it is what keeps this helper from drifting away from the guard again.
+    ``run.ended_at`` is whole-second, but the ``/4`` invariant gates on
+    ``realtime_inputs_latest_at()``, which also covers the gate status and
+    every retained message receipt -- and those carry sub-second precision, so
+    a message retained in the run's final second is genuinely later than
+    ``ended_at``.  A maximum taken over ``ended_at`` alone is therefore up to
+    one second too early, and ``build_snapshot`` correctly rejects it as
+    ``REALTIME_INPUT_AFTER_DECISION``.  Whether it does depends only on
+    whether the newest committed capture happened to retain such a message,
+    which is why this read like flakiness rather than the bug it is.
+
+    ``populate()`` never had this problem: it resolves the instant through the
+    producer's own ``decision_time_not_before_inputs()`` before building
+    (crypto_paper_decision_snapshot.py).  Callers that reach ``build_snapshot``
+    directly must do the same, so this helper ends by delegating to that exact
+    ratified rule rather than adding a tolerance of its own.  No invariant is
+    relaxed: ``decision_time_not_before_inputs`` still refuses an input more
+    than one second after the decision, and every fail-closed regression below
+    still reaches ``build_snapshot`` with a raw, unadjusted ``generated_at``.
     """
     timestamps: list[dt.datetime] = []
 
@@ -87,9 +91,8 @@ def source_observation_ceiling(
 
     if not timestamps:
         raise AssertionError("NO_COMMITTED_CRYPTO_SOURCE_TIMESTAMP")
-    return BRIDGE.DECISION.decision_time_not_before_inputs(
-        max(timestamps).strftime("%Y-%m-%dT%H:%M:%SZ"), realtime_entry,
-    )
+    ceiling = max(timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return BRIDGE.DECISION.decision_time_not_before_inputs(ceiling, realtime_entry)
 
 
 def latest_committed_source_observation_ceiling() -> str:
@@ -158,35 +161,6 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
                 realtime_entry=realtime,
             ),
             "2026-08-30T00:04:00Z",
-        )
-
-    def test_ceiling_covers_sub_second_realtime_inputs_past_the_truncated_run_end(self):
-        # run.ended_at is whole-second; the receipts it retains are not.  The
-        # ceiling must clear the latest input, not merely the truncated end,
-        # or build_snapshot fails closed with REALTIME_INPUT_AFTER_DECISION.
-        realtime = {"record": {"run": {
-            "ended_at": "2026-08-30T00:03:00Z",
-            "status": {"generated_at": "2026-08-30T00:03:00Z"},
-            "message_log": [{"received_at": "2026-08-30T00:03:00.221674Z"}],
-        }}}
-        self.assertEqual(
-            source_observation_ceiling(
-                universe_entry={"packet": {"available_at": "2026-08-30T00:01:00Z"}},
-                market_evidence_entry=None,
-                realtime_entry=realtime,
-            ),
-            "2026-08-30T00:03:01Z",
-        )
-
-    def test_current_committed_ceiling_never_precedes_any_realtime_input(self):
-        realtime = BRIDGE.DECISION.find_latest_realtime_run()
-        latest_input = BRIDGE.DECISION.realtime_inputs_latest_at(realtime["record"])
-        self.assertIsNotNone(latest_input)
-        self.assertGreaterEqual(
-            BRIDGE.DECISION._parse_utc(
-                latest_committed_source_observation_ceiling(), "test.ceiling",
-            ),
-            latest_input,
         )
 
     def test_current_committed_source_ceiling_builds_without_reusing_prior_decision_time(self):
@@ -334,6 +308,90 @@ class SourceAvailabilityRegressionTests(unittest.TestCase):
         status, reason = BRIDGE.DECISION._realtime_freshness(record)
         self.assertEqual(status, "STALE")
         self.assertEqual(reason, "UPBIT_REALTIME_RATIFIED_POLICY_RESULT_STALE")
+
+    @staticmethod
+    def _realtime_entry_with_input_after_end(offset: dt.timedelta) -> dict:
+        """The newest committed run, with its last receipt pushed past ``ended_at``.
+
+        This is the exact shape that reddened CI: run_017's ``ended_at`` is
+        the whole second ``2026-09-18T07:15:37Z`` while its final message_log
+        receipt is ``07:15:37.221674Z``.  Built from the real committed record
+        so the regression cannot drift away from the thing it reproduces.
+        """
+        entry = copy.deepcopy(BRIDGE.DECISION.find_latest_realtime_run())
+        run = entry["record"]["run"]
+        ended = BRIDGE.DECISION._parse_utc(run["ended_at"], "test.ended_at")
+        stamp = (ended + offset).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        run.setdefault("message_log", []).append({
+            "received_at": stamp,
+            "result": {"action": "ACCEPTED", "kind": "ticker", "market": "KRW-BTC"},
+        })
+        # The run is hash-bound by record["source_sha256"]; re-sign it so these
+        # regressions exercise the timestamp invariant and not the tamper check
+        # that (correctly) fires first on an unsigned edit.
+        entry["record"]["source_sha256"] = BRIDGE.DECISION.payload_sha256(run)
+        return entry
+
+    def test_ceiling_clears_a_subsecond_receipt_the_capture_stream_retains(self):
+        # The flake, reproduced deterministically and shown gone: a capture
+        # whose last retained receipt lands inside the run's final second.
+        # Before the fix the ceiling was ended_at and build_snapshot raised
+        # REALTIME_INPUT_AFTER_DECISION; now it is the next whole second.
+        entry = self._realtime_entry_with_input_after_end(dt.timedelta(milliseconds=221674 // 1000))
+        run = entry["record"]["run"]
+        ended = BRIDGE.DECISION._parse_utc(run["ended_at"], "test.ended_at")
+        latest = BRIDGE.DECISION.realtime_inputs_latest_at(entry["record"])
+        self.assertGreater(latest, ended)
+        ceiling = source_observation_ceiling(
+            universe_entry=None, market_evidence_entry=None, realtime_entry=entry,
+        )
+        self.assertEqual(
+            ceiling, (ended + dt.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
+        self.assertGreaterEqual(
+            BRIDGE.DECISION._parse_utc(ceiling, "test.ceiling"), latest
+        )
+
+    def test_current_ceiling_survives_a_capture_committed_after_the_decision(self):
+        # The condition that reds this suite today, driven through the same
+        # entry point the failing tests use: with find_latest_realtime_run()
+        # returning such a capture, the build must still succeed.
+        entry = self._realtime_entry_with_input_after_end(dt.timedelta(milliseconds=900))
+        with mock.patch.object(
+            BRIDGE.DECISION, "find_latest_realtime_run", return_value=entry
+        ):
+            self.test_current_committed_source_ceiling_builds_without_reusing_prior_decision_time()
+            self.test_mixed_realtime_date_remains_mixed_generation()
+
+    def test_a_genuine_realtime_input_after_decision_is_still_refused(self):
+        # The invariant is untouched: build_snapshot still rejects a raw
+        # generated_at that any realtime input postdates.  If this ever goes
+        # green the fix above has blinded the suite rather than steadied it.
+        entry = self._realtime_entry_with_input_after_end(dt.timedelta(milliseconds=500))
+        ended_at = entry["record"]["run"]["ended_at"]
+        with self.assertRaises(BRIDGE.DECISION.CryptoPaperDecisionSnapshotError) as caught:
+            BRIDGE.DECISION.build_snapshot(
+                generated_at=ended_at,
+                source_commit=self.SOURCE_COMMIT,
+                universe_entry=BRIDGE.DECISION.find_latest_universe_packet(),
+                market_evidence_entry=None,
+                realtime_entry=entry,
+                schema_version=BRIDGE.DECISION.V4_OUTPUT_SCHEMA_VERSION,
+            )
+        self.assertIn("REALTIME_INPUT_AFTER_DECISION", str(caught.exception))
+
+    def test_ceiling_refuses_an_input_more_than_one_second_after_the_decision(self):
+        # No open-ended tolerance was introduced.  decision_time_not_before_inputs
+        # admits at most the next whole second; a receipt beyond that is a real
+        # producer fault and still fails closed, now by name.
+        entry = self._realtime_entry_with_input_after_end(dt.timedelta(seconds=5))
+        with self.assertRaises(BRIDGE.DECISION.CryptoPaperDecisionSnapshotError) as caught:
+            source_observation_ceiling(
+                universe_entry=None, market_evidence_entry=None, realtime_entry=entry,
+            )
+        self.assertIn(
+            "REALTIME_INPUT_MORE_THAN_ONE_SECOND_AFTER_DECISION", str(caught.exception)
+        )
 
     def test_mixed_market_date_remains_mixed_generation(self):
         universe = BRIDGE.DECISION.find_latest_universe_packet()

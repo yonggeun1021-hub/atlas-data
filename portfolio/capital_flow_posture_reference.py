@@ -938,6 +938,146 @@ def _validate_frozen_normalization_pending_paper_reference(
         fail("PAPER_FROZEN_AUTHORITY_MISMATCH")
 
 
+# ---------------------------------------------------------------------------
+# Diagnosing a failed PAPER regime reference re-derivation.
+#
+# 2026-09-18: the only signal this producer's own SOURCE_REVALIDATION_FAILED
+# wrap carried was the bare REFERENCE_REDERIVATION_MISMATCH from
+# regime/paper_regime_reference.py's validate_reference(). Korean price
+# collection had recovered from an 8-day outage and a week of backfilled
+# data landed in the repo minutes after data/latest_paper_regime_reference.json
+# was generated; the committed packet was correct when written and no PR
+# author's change broke anything, but that single opaque code sent a reader
+# hunting for a bug in their own change that was not there -- 37 tests
+# across all four regression shards, on every open PR.
+#
+# The natural place to add that diagnosis is inside validate_reference()
+# itself. It deliberately does NOT live there: regime/paper_regime_reference.py
+# is one of the files sha256-pinned by BOTH the KR and US PAPER-runtime
+# adoption records (regime/kr_information_system_runtime_bridge.py's
+# IMPLEMENTATION_PATHS, checked against
+# evidence/authority/kr_paper_runtime_adoption_v1.json and
+# evidence/authority/kr_information_system_runtime_qualification_candidate_20260913.json;
+# regime/us_paper_runtime.py's IMPLEMENTATION_PATHS) -- see
+# docs/do_not_touch_and_why.md entry 5. ANY byte change there, regardless of
+# whether it is behavioral, fails ADOPTION_PIN_DRIFT_REQUALIFICATION_REQUIRED
+# / QUALIFICATION_BINDING_MISMATCH for every one of that pin's consumers
+# (measured directly: test/test_kr_paper_runtime_adoption_v1.py and
+# test/test_kr_information_system_runtime_publication.py both go red the
+# moment that file's bytes move at all, independent of what changed). That
+# is a requalification event, never a fingerprint refresh, and is out of
+# scope here.
+#
+# So this diagnosis lives here instead, as a read-only, best-effort second
+# opinion computed only after regime/paper_regime_reference.py's own,
+# completely unmodified validate_reference() has already failed. It never
+# changes what that call raises for any caller -- this module's own except
+# block below still wraps the original exception unchanged; the diagnosis is
+# appended, never substituted, and any failure inside the diagnosis itself
+# (caught) silently falls back to the plain, original message.
+STALE_PRODUCER_WORKFLOW = ".github/workflows/paper-regime-reference.yml"
+
+
+def _paper_reference_binding_hashes(packet: dict) -> dict:
+    """``path -> sha256`` for every input a PAPER regime reference packet
+    declares it was built from (policy, three primary market sources, and
+    the Crypto normalization closure when present)."""
+    hashes: dict[str, str] = {}
+    policy = packet.get("policy")
+    if isinstance(policy, dict) and isinstance(policy.get("path"), str) and isinstance(policy.get("sha256"), str):
+        hashes[policy["path"]] = policy["sha256"]
+    for row in packet.get("sources") or []:
+        if isinstance(row, dict) and isinstance(row.get("path"), str) and isinstance(row.get("sha256"), str):
+            hashes[row["path"]] = row["sha256"]
+    for row in packet.get("crypto_descriptive_normalization_sources") or []:
+        if isinstance(row, dict) and isinstance(row.get("path"), str) and isinstance(row.get("sha256"), str):
+            hashes[row["path"]] = row["sha256"]
+    return hashes
+
+
+def _paper_reference_market_as_of_dates(markets: object) -> dict:
+    if not isinstance(markets, list):
+        return {}
+    return {
+        row["market"]: row.get("as_of_date")
+        for row in markets
+        if isinstance(row, dict) and isinstance(row.get("market"), str)
+    }
+
+
+def _paper_reference_missing_declared_inputs(packet: dict, root: Path) -> list[str]:
+    """Paths ``packet`` declares it was built from that are absent on disk.
+
+    Checked first, and separately from a moved (hash-differs) input: a
+    sparse or partial checkout (``actions/checkout``'s ``sparse-checkout``
+    silently implies ``blob:none``) can omit a whole directory -- e.g.
+    ``evidence/crypto/btc/raw/<date>/`` -- that a fully-correct, unmoved
+    committed packet still depends on. Reporting that as "stale" would tell
+    a reader to dispatch the producer to regenerate a reference that was
+    never stale, which is worse than the undiagnosed code this replaces for
+    exactly the append-only packets this producer writes.
+    """
+    return sorted(
+        path for path in _paper_reference_binding_hashes(packet) if not (root / path).is_file()
+    )
+
+
+def _diagnose_paper_reference_failure(packet: dict, root: Path) -> str | None:
+    """Best-effort extra detail for a failed PAPER regime reference check.
+
+    Never raises, and never changes the exception a caller already has --
+    it only proposes text to append to it. Returns ``None`` whenever nothing
+    extra can safely be said (rebuilding ``expected`` itself fails, the
+    packet turns out to equal a fresh rebuild after all, or every declared
+    input is present and unmoved -- a genuine mismatch, which stays exactly
+    as opaque as before).
+    """
+    try:
+        expected = PAPER_REGIME.build_reference(root, render_version=packet.get("render_version"))
+    except Exception:
+        return None
+    if packet == expected:
+        return None
+
+    missing = _paper_reference_missing_declared_inputs(packet, root)
+    if missing:
+        return (
+            "one or more inputs the committed PAPER regime reference "
+            "declares it was built from are absent from this checkout "
+            "rather than changed -- likely an incomplete (e.g. sparse) "
+            "checkout, not a stale or mismatched reference; absent=["
+            + ", ".join(missing) + "]; re-checkout the full tree first"
+        )
+
+    packet_hashes = _paper_reference_binding_hashes(packet)
+    expected_hashes = _paper_reference_binding_hashes(expected)
+    moved_paths = sorted(
+        path
+        for path in set(packet_hashes) | set(expected_hashes)
+        if packet_hashes.get(path) != expected_hashes.get(path)
+    )
+    if not moved_paths:
+        return None
+
+    packet_dates = _paper_reference_market_as_of_dates(packet.get("markets"))
+    expected_dates = _paper_reference_market_as_of_dates(expected.get("markets"))
+    moved_dates = [
+        f"{market} as_of_date {packet_dates.get(market)!r}->{expected_dates.get(market)!r}"
+        for market in sorted(set(packet_dates) | set(expected_dates))
+        if packet_dates.get(market) != expected_dates.get(market)
+    ]
+    return (
+        "the committed PAPER regime reference was not wrong when generated, "
+        "it is now behind current repository inputs; changed inputs=["
+        + ", ".join(moved_paths) + "]"
+        + (("; moved=[" + ", ".join(moved_dates) + "]") if moved_dates else "")
+        + f"; generated_at committed={packet.get('generated_at')!r} "
+        f"current_repository_state={expected.get('generated_at')!r}"
+        f"; regenerate by dispatching {STALE_PRODUCER_WORKFLOW} "
+        "(or run: python3 regime/paper_regime_reference.py --write)"
+    )
+
+
 def build_reference(
     root: Path = ROOT, *, frozen_paper_reference_authenticated: bool = False
 ) -> dict:
@@ -960,6 +1100,11 @@ def build_reference(
                 frozen_packet_authenticated=frozen_paper_reference_authenticated,
             )
     except Exception as exc:
+        detail = _diagnose_paper_reference_failure(source, root)
+        if detail:
+            raise CapitalFlowPostureReferenceError(
+                f"SOURCE_REVALIDATION_FAILED:{exc}; diagnosis={detail}"
+            ) from exc
         raise CapitalFlowPostureReferenceError(f"SOURCE_REVALIDATION_FAILED:{exc}") from exc
     if source.get("contract_version") != policy["source_contract_version"]:
         fail("SOURCE_CONTRACT_INVALID")

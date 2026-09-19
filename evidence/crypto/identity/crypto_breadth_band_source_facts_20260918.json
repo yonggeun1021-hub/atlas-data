@@ -1,0 +1,504 @@
+{
+  "assets": [
+    {
+      "canonical_asset_id": "BAT",
+      "identity_finding": "Kraken binds BAT to Basic Attention Token and reports the network as Ethereum (ERC-20). The official Basic Attention Token site (basicattentiontoken.org, served by Brave) states \"The Basic Attention Token (BAT) tokenizes the attention economy\". No contract address is published on the official page; the chain binding rests on Kraken's asset-network report.",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "BAT/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5255962,
+          "retained_content_sha256": "76ff91184e5622a7f5b080ea1ee834a28e89d52a794cf2dff3aae3751799b352",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/basic-attention-token"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 37269,
+          "retained_content_sha256": "03609f6b789832156e1ce2110a4ebcdae1dd2508733c431219899226f7f82b67",
+          "role": "project_documentation",
+          "url": "https://basicattentiontoken.org/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "CAKE",
+      "identity_finding": "Kraken binds CAKE to PancakeSwap and reports the network as BNB Chain. PancakeSwap's official CAKE Tokenomics documentation directs holders to \"the CAKE token contract on BscScan\" at 0x0e09fabb73bd3ade0a17ecc321fd13a19e81ce82, matching that chain.",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "CAKE/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5313113,
+          "retained_content_sha256": "53f0da93d47cfdff5006e5537659b7165dad76ead174691e221fbf0fef14278a",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/pancakeswap"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 4840,
+          "retained_content_sha256": "f3f2780e2dba6173118118ab3b5ac5f0d3e4643d108c2255d778df76182cca39",
+          "role": "project_documentation",
+          "url": "https://docs.pancakeswap.finance/protocol/cake-tokenomics.md"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "CFG",
+      "identity_finding": "Kraken binds CFG to Centrifuge and reports the network as Ethereum (ERC-20). Centrifuge's own governance announcement (CP149 migration notice) states the new CFG token address on Ethereum is 0xcccccccccc33d538dbc2ee4feab0a7a1ff4e8a94, that legacy Centrifuge Chain CFG and wCFG convert 1:1, and that the migration window closed 2025-12-03. Kraken's reported Ethereum ERC-20 network is therefore the post-migration CFG, which resolves the legacy-CFG / wCFG / V3-CFG ambiguity.",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "CFG/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5269225,
+          "retained_content_sha256": "907e832ce1a937e7f8b71225288dd9fde0d990cb36440a9c72a2b9e10520d6b6",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/centrifuge"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 254038,
+          "retained_content_sha256": "986a586d13f1b0292c0a2b93b7bbbdb62d030a8ed44a4518ef30aeddd4137eeb",
+          "role": "project_migration_notice",
+          "url": "https://gov.centrifuge.io/t/centrifuge-token-migration-update/6860"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "ENS",
+      "identity_finding": "Kraken binds ENS to Ethereum Name Service and reports the network as Ethereum (ERC-20). The ENS DAO documentation states the token \"can be found at token.ensdao.eth on Ethereum Mainnet and is the only official governance token for ENS DAO\".",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "ENS/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5296119,
+          "retained_content_sha256": "8c134a3944c55e445225f8ee296661de9bbe374c9c521ec7abec4ae83801e95f",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/ethereum-name-service"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 49211,
+          "retained_content_sha256": "44093a9e1419465307af797eb94ea3d11f60f028dd82632d8a13eb2743693133",
+          "role": "project_documentation",
+          "url": "https://docs.ens.domains/dao/token"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "ETC",
+      "identity_finding": "Kraken binds ETC to Ethereum Classic and reports the network as Ethereum Classic. The official Ethereum Classic user FAQ states \"Ether is Ethereum Classic's native token is a cryptocurrency traded on digital currency exchanges under the ticker symbol ETC\". Distinct from Ethereum (ETH).",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "ETC/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5442751,
+          "retained_content_sha256": "85ef9d06c798a9e8500a1baa0be1254fd230a6d2c33746443579308bcb8c60b8",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/ethereum-classic"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 308133,
+          "retained_content_sha256": "8469b42c8d313dd74a67fdd5e5c51d4713a6e13cb3f44c05fd5a7cf8aec31ecd",
+          "role": "project_documentation",
+          "url": "https://ethereumclassic.org/faqs/users/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "GRT",
+      "identity_finding": "Kraken binds shortcode GRT to The Graph and reports the network as Ethereum (ERC-20). The Graph's official tokenomics documentation states \"GRT is the utility token for The Graph\" and gives the mainnet contract 0xc944e90c64b2c07662a292be6244bdf05cda44a7.",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "GRT/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5426359,
+          "retained_content_sha256": "f4779896db4dcba314668d8f164216c297c0190d605dd6d99d93451846575e1c",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/the-graph"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 351830,
+          "retained_content_sha256": "b1b346bc14e5d15e9aec3945e76522b4e7f7a01803e246c0388895fdf93bbb85",
+          "role": "project_documentation",
+          "url": "https://thegraph.com/docs/en/resources/tokenomics/"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "MNT",
+      "identity_finding": "Kraken binds MNT to Mantle Network and reports the network as Ethereum (ERC-20). Mantle's official tokenomics documentation states \"The $MNT token has two roles: governance and utility within the Mantle ecosystem\" and gives the Ethereum L1 contract 0x3c3a81e81dc49A522A592e7622A7E711c06bf354. This is the post-migration token; BIT was converted to MNT 1:1 under BIP-21/MIP-22.",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "MNT/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5292266,
+          "retained_content_sha256": "2e4f7e2b65c3b2d19938e7515ef6b0324a6b2e921161c4235993b9b2e1ed80ae",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/mantle"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 484857,
+          "retained_content_sha256": "61142af48c0cd725266de0d602a74f187e643653b502489b6911c52c66f63953",
+          "role": "project_documentation",
+          "url": "https://docs.mantle.xyz/governance/parameters/tokenomics"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "MOODENG",
+      "identity_finding": "FAIL-CLOSED. Kraken binds MOODENG to \"Moo Deng\" and reports the network as Solana, but publishes no contract, mint or genesis identity: its asset page describes only \"a memecoin based on the famous pygmy hippopotamus at the Khao Kheow Open Zoo\" with \"no stated utility\". No Kraken listing notice or support article for MOODENG exists (both 404 at capture time). No project or foundation protocol document, token contract publication or migration notice exists to match independently: the asset is a community memecoin with no official issuer, and the candidate community site makes no claim of official status. Because multiple unrelated tokens have traded as MOODENG across chains, no canonical on-chain identity can be confirmed by two independent sources.",
+      "independent_source_organisations": [
+        "kraken"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "MOODENG/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5299890,
+          "retained_content_sha256": "5f4643917ef150ec0758400bec3917811a6d3e79c0d89ec5396139c1ccde3982",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/moo-deng"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        }
+      ],
+      "verdict": "unverified_identity"
+    },
+    {
+      "canonical_asset_id": "PEAQ",
+      "identity_finding": "Kraken's listing notice identifies \"Peaq (PEAQ)\" as \"a Layer 1 blockchain built to support the machine economy\" and Kraken reports the network as Peaq Network. peaq's official token page states PEAQ is \"the native token of the peaq network\" and publishes the peaq-chain precompile address 0x0000000000000000000000000000000000000809, warning \"If an address is not on this page, do not trust it\".",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "PEAQ/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 87466,
+          "retained_content_sha256": "da1265bd747e1b94a5ee446fd04a44bfe35b9dfb70e51e54004ec84f68920cf5",
+          "role": "kraken_listing_notice",
+          "url": "https://blog.kraken.com/product/asset-listings/peaq-is-available-for-trading"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 125238,
+          "retained_content_sha256": "cca09abc34f681386cd73693eeb14cbf3db0c43a615307f2a50407f74d1e7edb",
+          "role": "project_documentation",
+          "url": "https://www.peaq.xyz/token"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "SAND",
+      "identity_finding": "Kraken binds SAND to The Sandbox and reports the network as Ethereum (ERC-20). The Sandbox's official owner documentation states SAND is \"The Sandbox Game's native currency and utility token\", an ERC-20 token.",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "SAND/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5391842,
+          "retained_content_sha256": "8644f2f886cf52f1c079192078a8cf087e4d1bd5f6b06d74822f7b9c3ada1711",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/the-sandbox"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 15113,
+          "retained_content_sha256": "a4465cd62bf03048c8883f5f20dd35b586b778782679770871cebd9f7f8ed4e5",
+          "role": "project_documentation",
+          "url": "https://docs.sandbox.game/en/owners/sand.md"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "SHAPE",
+      "identity_finding": "Kraken's 2026-03-19 listing notice states \"Shape (SHAPE) is the network for onchain objects, purpose-built for NFTs\", and Kraken reports the network as Shape. Shape's official token page uses the same self-description and publishes the token contract 0x360aAC543A23dbcefA8049d4C4d8B18dA1CCa360, stating \"$SHAPE makes you a member of Structura, the Decentralized Unincorporated Nonprofit Association (DUNA) behind Shape\". SHAPE is the governance token; the Shape L2 chain (chain ID 360) uses ETH as its gas currency, so SHAPE is not a gas/native-coin claim.",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "SHAPE/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 90627,
+          "retained_content_sha256": "32ce4543c9e2db746bb5943a4ec985418e999964a5bea42fc8fb1a5b0e1c5f65",
+          "role": "kraken_listing_notice",
+          "url": "https://blog.kraken.com/product/asset-listings/shape-is-available-for-trading"
+        },
+        {
+          "retained_bytes": 5310631,
+          "retained_content_sha256": "fdd402dc269f2b8467b5f5b2cde693006de7eef8d435ea3f87aff28a9772f20a",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/shape"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 159191,
+          "retained_content_sha256": "e96f64ef1c9dd7f9cb4783a24910047271413428b98d0742f940f6385208dee3",
+          "role": "project_documentation",
+          "url": "https://shape.network/token"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "SHX",
+      "identity_finding": "Kraken binds SHX to Stronghold and reports the network as Ethereum (ERC-20). Stronghold's official stellar.toml declares the asset code SHX with issuer GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH and name \"Stronghold SHx\". Stronghold's own SHx Bridge notice states the bridge \"enables seamless movement of SHx between Stellar and Ethereum while maintaining a 1:1 total supply across both chains\" via Axelar. The Ethereum representation is therefore the same SHx asset in a second form, not a wrapper over a different underlying crypto asset (contrast the TBTC/WBTC wrapped records).",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "SHX/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5159973,
+          "retained_content_sha256": "7198e48039e90b1f487393000f648dca3e6b752f20ff365dd0bf3b898b9287d0",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/stronghold-token"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 52005,
+          "retained_content_sha256": "8cb0b999499899fe69379c696011858477d2268618e6580790be4cbe49726845",
+          "role": "project_documentation",
+          "url": "https://stronghold.co/shx"
+        },
+        {
+          "retained_bytes": 526,
+          "retained_content_sha256": "5c2fc48ebdfb4610ad3cf3a3de16e983f755bfef3027fdfe00363093d1677d4a",
+          "role": "project_asset_declaration",
+          "url": "https://stronghold.co/.well-known/stellar.toml"
+        },
+        {
+          "retained_bytes": 37882,
+          "retained_content_sha256": "9805cffde92d2167e9344ec80870214b09df327fe9e577f3ec7700b75e4c3259",
+          "role": "project_bridge_notice",
+          "url": "https://stronghold.co/learn/shx-bridge"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "SN51",
+      "identity_finding": "Kraken's 2026-07-09 listing notice states \"Lium operates as subnet 51 (SN51) within the Bittensor ecosystem\" and \"SN51 is the native token of the Lium subnet within the Bittensor network\"; Kraken reports the network as Bittensor. Independently, Lium's own repository under the Datura-ai organisation describes lium.io as \"powered by Bittensor Subnet 51\". This binds ticker SN51 to subnet 51 / Lium, distinct from Bittensor TAO and from other SN<n> subnet tokens. Same source shape as the ratified SN8 record.",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "SN51/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 90801,
+          "retained_content_sha256": "16fd1425c554ca6c48300b247b78d88fdff60e97fa5b16668c8216607b58e863",
+          "role": "kraken_listing_notice",
+          "url": "https://blog.kraken.com/product/asset-listings/sn51-is-available-for-trading"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 333863,
+          "retained_content_sha256": "61103daab925eb08ffa4044d22c7eafec228b73ae8b8d0990b4be6f3c196cebf",
+          "role": "project_repository",
+          "url": "https://github.com/Datura-ai/lium-io"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    },
+    {
+      "canonical_asset_id": "VET",
+      "identity_finding": "Kraken binds VET to VeChain and reports the network as VeChain. VeChain's official dual-token documentation names \"VeChain Token (VET)\" as the value-transfer/utility token. VET is distinct from the VTHO gas token of the same network.",
+      "independent_source_organisations": [
+        "kraken",
+        "project"
+      ],
+      "kraken_catalog": {
+        "asset_status": "enabled",
+        "usd_pair_id": "VET/USD",
+        "usd_pair_status": "online"
+      },
+      "sources": [
+        {
+          "retained_bytes": 5275232,
+          "retained_content_sha256": "0b7516883d76b1cd1f6a1628ddd7ca33f73061f7e4814eb0618a571a48372737",
+          "role": "kraken_asset_page",
+          "url": "https://www.kraken.com/prices/vechain"
+        },
+        {
+          "retained_bytes": 1884376,
+          "retained_content_sha256": "f3f2a4315abea5dfe22737463fd56d83370c7d5e9babd4cacf8e2a1689a7ae9d",
+          "role": "kraken_asset_network_report",
+          "url": "https://support.kraken.com/articles/360000678446-cryptocurrencies-available-on-kraken"
+        },
+        {
+          "retained_bytes": 462800,
+          "retained_content_sha256": "b0e5feb8c15fe19bf85abeeb0c5498424f593bd464d48d84fbc57b88c94e55df",
+          "role": "project_documentation",
+          "url": "https://docs.vechain.org/introduction-to-vechain/dual-token-economic-model"
+        }
+      ],
+      "verdict": "eligible_crypto"
+    }
+  ],
+  "kraken_catalog_evidence": {
+    "asset_pairs_gz_sha256": "1ddc8c4dae4a43049297b6af0337622d189bb1c959f80e364bb79983aa97a478",
+    "assets_gz_sha256": "ddbd9d0b1874d5991906812543c01ab87db86009d1032ad5621ff186a00b1c81",
+    "snapshot_dir": "evidence/crypto/breadth/raw/2026-09-18"
+  },
+  "official_source_capture_window_utc": "2026-09-18T08:57:00Z/2026-09-18T09:00:26Z",
+  "produced_at_utc": "2026-09-18T09:05:00Z",
+  "produced_by": "CLAUDE_CIO pilot batch (crypto leadership taxonomy headroom)",
+  "receipt_id": "CRYPTO-BREADTH-BAND-SOURCE-FACTS-20260918",
+  "schema_version": "crypto_breadth_band_source_facts/1",
+  "scope": "Source-identity facts for the 14 unclassified Kraken assets in the 40-rank band above the 2026-09-18 eligibility-scan cutoff (ranks 124-152). Breadth source-coverage identity only: not investability, capacity, venue selection, Regime, Production or trading.",
+  "taxonomy_hash_before": "2df9db61e1495c36137c5ecfc9d4d123340950edc94aee8c4c2f46dd5179a36e",
+  "verification_bar": "docs/crypto_breadth_contract.md 2026-08-27 slice: each exact Kraken identity confirmed against the retained enabled Assets catalog and online USD pair catalog, then independently matched to a project/foundation protocol document, token contract, migration notice or exact-contract asset report. Ticker text alone is not accepted."
+}

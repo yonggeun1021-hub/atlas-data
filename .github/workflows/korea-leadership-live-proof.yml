@@ -405,6 +405,179 @@ jobs:
             --current-date "$CURRENT_DATE"
           git diff --exit-code
 
+  # Korea five-signal pointer production.
+  #
+  # data/latest_korea_market_signals.json had no automated writer: it was
+  # last produced on 2026-09-11T09:24Z and then froze, because
+  # korea-market-signals.yml -- the only workflow that ever ran the
+  # ratified producer -- is `permissions: contents: read` and packages its
+  # output as an artifact instead of committing it. That pointer is the
+  # session-date source for decision/korea_population_symbol_observation.py,
+  # so the KR population observation stayed pinned to 2026-09-10 while
+  # newer krx_global_universe packets accumulated unconsumed.
+  #
+  # This job is that writer, and it is deliberately placed here rather
+  # than given its own schedule: this run has already resolved a real
+  # completed KRX session pair (prepare-scheduled-observation-pair) and
+  # this run's own p2-03 call has already committed the
+  # krx_global_universe packet for the same `current_date`. Producing the
+  # five-signal pointer in the same run is what makes the pointer's
+  # session and the universe's session the same session by construction --
+  # the coupling decision/korea_population_symbol_observation.py enforces
+  # as KR_UNIVERSE_SESSION_MISMATCH. No cron is added or changed, and the
+  # dates are the resolved pair verbatim; nothing here invents a session.
+  #
+  # Exactly one additional collection call: the ratified producer
+  # .github/scripts/korea_market_signals.py (not the pykrx candidate),
+  # invoked once for the already-resolved pair, reusing the same
+  # KRX_API_KEY secret and the producer's own unchanged ratified request
+  # pattern against the KRX Open API endpoints this repository already
+  # collects from. The resolved sessions' rows are not re-passed from the
+  # prepare job: that would move raw KRX rows through workflow outputs,
+  # which is prohibited -- so the one call is the honest cost.
+  #
+  # The bounded review rebuild that follows is a local recomputation from
+  # the produced pointer, not a second provider call. It is required, not
+  # optional: load_context() rebuilds the review from the pointer and
+  # fails KR_BOUNDED_REVIEW_NOT_REPRODUCIBLE unless the committed
+  # data/latest_korea_symbol_market_review.json is the rebuild of the
+  # same pointer.
+  #
+  # Nothing here relaxes a coupling. KR_UNIVERSE_SESSION_MISMATCH and
+  # KR_BOUNDED_REVIEW_SESSION_MISMATCH are untouched; this job satisfies
+  # them by supplying a real newer pointer plus its matching rebuild.
+  publish-scheduled-five-signal-pointer:
+    needs:
+      - prepare-scheduled-observation-pair
+      - scheduled-observation-pair
+    if: needs.prepare-scheduled-observation-pair.outputs.should_call == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      PRIOR_DATE: ${{ needs.prepare-scheduled-observation-pair.outputs.prior_date }}
+      CURRENT_DATE: ${{ needs.prepare-scheduled-observation-pair.outputs.current_date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install CI contract dependencies
+        run: python3 -m pip install -r requirements-ci.txt
+      - name: Five-signal pointer offline regression
+        run: |
+          python3 test/test_korea_market_signals.py
+          python3 test/test_korea_symbol_market_review.py
+      # Re-sync before producing, never after: the pointer is a tracked
+      # file, so a `git reset --hard` placed after the producer would
+      # silently throw the produced pointer away. This run's own p2-03
+      # universe commit is picked up here.
+      - name: Re-sync the pointer lineage to current main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+          test -z "$(git status --porcelain)"
+      # Idempotency, using the producer's own append-only reuse path: when
+      # this session's dated observation packet is already committed,
+      # korea_market_signals.py returns reused=True and republishes that
+      # exact committed packet without contacting the provider. This step
+      # therefore has no KRX_API_KEY in its env at all -- a provider call
+      # is structurally impossible here, not merely unused.
+      - name: Reuse an exact committed five-signal observation instead of re-fetching the same session
+        id: existing_signals
+        run: |
+          ISO_DATE="${CURRENT_DATE:0:4}-${CURRENT_DATE:4:2}-${CURRENT_DATE:6:2}"
+          PACKET_PATH="data/observations/korea_market_signals/$ISO_DATE/packet.json"
+          if test -f "$PACKET_PATH"; then
+            python3 .github/scripts/korea_market_signals.py --verify "$PACKET_PATH"
+            python3 .github/scripts/korea_market_signals.py \
+              --previous-date "$PRIOR_DATE" \
+              --current-date "$CURRENT_DATE"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      # The one approved additional collection call. No continue-on-error:
+      # a failed or partial KRX fetch fails this job here, before the
+      # verification and commit steps below ever run, so a partial
+      # pointer is never committed. The producer itself publishes only
+      # after build_packet() + validate_packet() succeed, and writes
+      # atomically.
+      - name: Korea five-signal real KRX session-pair fetch attempt
+        if: steps.existing_signals.outputs.exists != 'true'
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+        run: |
+          test -n "$KRX_API_KEY" || { echo "STOP: KRX_API_KEY secret missing"; exit 2; }
+          python3 .github/scripts/korea_market_signals.py \
+            --previous-date "$PRIOR_DATE" \
+            --current-date "$CURRENT_DATE"
+      - name: Rebuild the bounded Korea symbol review from the produced pointer
+        run: python3 decision/korea_symbol_market_review.py
+      - name: Verify the produced pointer, its session couplings, and its closed authority boundary
+        run: |
+          python3 .github/scripts/korea_market_signals.py \
+            --verify data/latest_korea_market_signals.json
+          python3 - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          from pathlib import Path
+
+          expected = dt.datetime.strptime(os.environ["CURRENT_DATE"], "%Y%m%d").date().isoformat()
+          packet = json.loads(Path("data/latest_korea_market_signals.json").read_text())
+          assert packet["as_of_date"] == expected, packet["as_of_date"]
+          assert packet["status"] == "OBSERVED_UNCLASSIFIED"
+          assert packet["coverage"]["ratio"] == "5/5"
+          # Raw KRX rows are private-only. The published pointer carries
+          # per-axis aggregates and response digests only, and says so.
+          assert packet["source"]["raw_persistence"] == 0
+          assert packet["source"]["per_symbol_persistence"] == 0
+          for key, value in packet["authority"].items():
+              if key.endswith("_authorized"):
+                  assert value is False, key
+          # Never advance the pointer past a session the KR population
+          # lookup cannot resolve: KR_UNIVERSE_SESSION_MISMATCH is
+          # satisfied by a real matching universe packet, never relaxed.
+          universe = Path("data/observations/krx_global_universe") / expected / "packet.json"
+          assert universe.is_file(), f"KRX_GLOBAL_UNIVERSE_FOR_SESSION_MISSING:{expected}"
+          assert json.loads(universe.read_text())["as_of_date"] == expected
+          # KR_BOUNDED_REVIEW_SESSION_MISMATCH likewise: the committed
+          # review must be this pointer's own rebuild.
+          review = json.loads(Path("data/latest_korea_symbol_market_review.json").read_text())
+          assert review["operational_date_kst"] == expected, review["operational_date_kst"]
+          assert review["source_market_packet_sha256"] == packet["payload_sha256"]
+          print(f"PASS_KR_FIVE_SIGNAL_POINTER_SESSION:{expected}")
+          PY
+      - name: Commit the five-signal pointer and its bounded review
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add data/latest_korea_market_signals.json \
+            data/observations/korea_market_signals \
+            data/latest_korea_symbol_market_review.json \
+            evidence/korea_symbol_market_review
+          if git diff --cached --quiet; then
+            echo "no change (reused) -- nothing to commit"
+            exit 0
+          fi
+          ISO_DATE="${CURRENT_DATE:0:4}-${CURRENT_DATE:4:2}-${CURRENT_DATE:6:2}"
+          git commit -m "korea five-signal pointer $ISO_DATE [run ${{ github.run_id }}] [trigger=${{ github.event_name }}]"
+          for attempt in 1 2 3; do
+            if git pull --rebase origin "$DEFAULT_BRANCH" && git push origin "HEAD:$DEFAULT_BRANCH"; then
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+          echo "STOP: push failed after 3 attempts"
+          exit 1
+
   korea-leadership-live-fetch:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
