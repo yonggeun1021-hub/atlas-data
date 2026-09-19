@@ -142,7 +142,10 @@ class TaxonomyAdditionRecordsTest(unittest.TestCase):
 
     def test_unratified_assets_stay_fail_closed(self):
         self.assertEqual(self.policy["unknown_asset_policy"], "fail_closed_unknown")
-        for asset_id in ("SHAPE", "DGAI"):
+        # SHAPE was classified later, by the 2026-09-18 cutoff-band slice
+        # (test_crypto_breadth_band_identity_20260918.py); DGAI is still
+        # unclassified, so it remains the fail-closed probe here.
+        for asset_id in ("DGAI",):
             with self.subTest(asset_id=asset_id):
                 self.assertIsNone(CB.taxonomy_category(asset_id, dt.date(2099, 1, 1), self.policy))
 

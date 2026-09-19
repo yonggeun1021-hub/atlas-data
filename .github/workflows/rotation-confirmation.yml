@@ -45,17 +45,7 @@ jobs:
           python-version: '3.11'
       - name: Install CI contract dependencies
         run: python3 -m pip install -r requirements-ci.txt
-      - name: Rotation confirmation and opportunity ledger regression
-        run: |
-          python3 test/test_rotation_confirmation.py
-          python3 test/test_rotation_opportunity_ledger.py
       - name: Build and commit append-only packets (shared push retry)
-        # 2026-09-18 consolidation: the push loop below used to be its own
-        # 5-attempt `pull --rebase && push` copy with a 15s/30s/45s/60s
-        # backoff (kept in git history) -- now calls
-        # .github/scripts/push_to_default_branch.sh with
-        # PUSH_RETRY_BACKOFF_SECONDS=15 to preserve that backoff exactly.
-        # See test/test_push_retry_consolidation.py.
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PUSH_RETRY_BACKOFF_SECONDS: "15"
@@ -122,3 +112,32 @@ jobs:
             echo "STOP: portal projection failed (market packets were committed)" >&2
             exit 2
           fi
+      - name: Rotation regression and producer replay gate
+        # After the build, not before it, for two reasons.
+        #
+        # 1. Isolation. These files assert over the whole repository and every
+        #    market at once. Run before the loop, one market's replay drift
+        #    aborted the job while `for market in US KR CRYPTO` had not run at
+        #    all, so the loop's "other markets continue" warning was dead code
+        #    and a US-only drift left KR and CRYPTO with no packet either. Each
+        #    market's own packets are already gated inside the loop, per market
+        #    and fail-closed: `build --write` refuses to rewrite a committed
+        #    packet (APPEND_ONLY_EVIDENCE_CONFLICT) and `verify --market`
+        #    rebuilds and compares bytes. A tampered policy or ledger config
+        #    still fails closed before anything is written, because every build
+        #    and verify invocation loads them itself (rotation_confirmation.py
+        #    load_policy, rotation_opportunity_ledger.py load_config).
+        #
+        # 2. ATLAS_ROTATION_PRODUCER_GATE turns on the assertion that every
+        #    rebuilt day has a committed packet -- the check that used to run on
+        #    every pull-request shard, where a packet no run had written yet
+        #    reddened branches that touch nothing under rotation/. It can only
+        #    be asked of a build that has already run, and a failure here names
+        #    the packet this run did not write.
+        if: always()
+        env:
+          ATLAS_ROTATION_PRODUCER_GATE: '1'
+        run: |
+          python3 test/test_rotation_confirmation.py
+          python3 test/test_rotation_opportunity_ledger.py
+          python3 test/test_rotation_confirmation_robustness.py

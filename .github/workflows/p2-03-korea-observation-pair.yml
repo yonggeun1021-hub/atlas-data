@@ -307,7 +307,20 @@ jobs:
     permissions:
       contents: read
     steps:
+      # fetch-depth: 0 (not shallow): this job's own
+      # korea_capital_rotation_ledger_proof.py --current-ratified-policy
+      # call below does not exercise its PAPER-consumption path today, but
+      # that same script's build_current_ratified_paper_consumption() walks
+      # `git merge-base --is-ancestor` / `git show` whenever
+      # --paper-runtime-source-commit is supplied. Keeping this checkout
+      # shallow here would be the same silent-failure shape documented for
+      # btc-price-capture.yml (see
+      # test/test_workflow_history_checkout_depth.py and
+      # docs/do_not_touch_and_why.md entry 1) the moment that CLI path is
+      # ever used from this job.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.11'

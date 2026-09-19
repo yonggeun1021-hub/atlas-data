@@ -1,0 +1,96 @@
+name: Rule Lineage Crypto PAPER Decision Sidecars
+
+# Additive rule-lineage sidecars (config/rule_registry_v1.json ids) for the
+# retained crypto PAPER decision packets. Separate workflow on purpose, the
+# same way rule-lineage-paper-reference.yml is separate from
+# paper-regime-reference.yml: the per-run sidecar step wired directly into
+# .github/workflows/upbit-realtime-capture.yml is guarded on that job not
+# having been cancelled, and that job's own timeout-minutes is one of the
+# thirteen files the server schedule dispatcher pins by fingerprint (see
+# docs/do_not_touch_and_why.md section 3) -- so a fix there is bounded by
+# what stays byte-drift-compatible against that pin, and cannot itself be a
+# reliable second line of defense.
+#
+# This job depends on none of that: it only reads packets already committed
+# to evidence/crypto_paper_decision, regardless of the run that produced them
+# having succeeded, failed or been cancelled by its own timeout. Triggered on
+# every completion of the capture workflow (not only on success) plus
+# workflow_dispatch, it (1) backfills any sidecar missing from the trailing
+# window via governance/rule_lineage_producers.py's crypto-decision-scan
+# (idempotent -- an already-covered packet costs one read and one compare),
+# then (2) runs .github/scripts/check_rule_lineage_sidecar_coverage.py over
+# the same window and fails the run the moment coverage is not 100%, so a
+# gap this cannot backfill (a genuine derivation failure) is never silent
+# again the way 2026-09-18/19 was. Never edits a decision packet, a rule
+# registry, or any producer; writes only evidence/rule_lineage/
+# crypto_paper_decision (write-once, verified if already present).
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - P9-06 Upbit Realtime WebSocket Bounded Capture
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-rule-lineage-crypto-paper-decision
+  cancel-in-progress: false
+
+jobs:
+  sidecars:
+    # Runs on every completion of the capture workflow -- success, failure
+    # AND cancelled -- because a cancelled run is exactly the failure mode
+    # this workflow exists to catch; only a genuinely unstarted/errored
+    # workflow_run event (conclusion null) is skipped.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Validate rule registry against byte-exact authority records
+        run: python3 governance/rule_registry.py
+      - name: Backfill sidecars for recent retained crypto PAPER decision packets
+        id: backfill
+        run: |
+          set -euo pipefail
+          MIN_DATE="$(date -u -d '4 days ago' +%F)"
+          echo "min_date=$MIN_DATE" >> "$GITHUB_OUTPUT"
+          python3 governance/rule_lineage_producers.py crypto-decision-scan --min-date "$MIN_DATE" \
+            | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["summary"], sort_keys=True))'
+      # Fails loudly (non-zero) the moment any packet in the same window
+      # lacks a sidecar after the backfill above -- i.e. the derivation
+      # itself failed for that packet, since the backfill is otherwise
+      # exhaustive over this exact window. This is the alarm 2026-09-18/19
+      # never had: coverage dropping from 49/49 to 2/41 produced no signal
+      # anywhere. `if: always()` so a coverage failure here is still visible
+      # even if an earlier step in this job failed for an unrelated reason.
+      - name: Fail loudly if crypto PAPER decision sidecar coverage is not full
+        if: always()
+        run: |
+          python3 .github/scripts/check_rule_lineage_sidecar_coverage.py \
+            --min-date "${{ steps.backfill.outputs.min_date }}"
+      # Commits whatever the backfill step above wrote even if the coverage
+      # check just failed: an alarm must never withhold evidence that was
+      # successfully derived.
+      - name: Commit append-only rule lineage sidecars
+        if: always()
+        run: |
+          set -euo pipefail
+          git config user.name "atlas-data-bot"
+          git config user.email "atlas-data-bot@users.noreply.github.com"
+          git add evidence/rule_lineage/crypto_paper_decision 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "no new rule lineage sidecar"
+            exit 0
+          fi
+          git commit -m "data: rule lineage sidecars for crypto PAPER decision $(date -u +%F)"
+          bash .github/scripts/push_to_default_branch.sh "${{ github.event.repository.default_branch }}" 3

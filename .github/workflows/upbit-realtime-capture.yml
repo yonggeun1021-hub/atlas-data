@@ -24,7 +24,19 @@ concurrency:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Was 10; the job has been observed exceeding it since 2026-09-18 (e.g.
+    # 02:06:13 -> 02:17:18Z, 11m05s). A timed-out job is marked cancelled,
+    # which silently skips every not-cancelled-guarded step below (rule
+    # lineage sidecar, axis bridge, bridge explanation, funnel briefing,
+    # candidate detail, capture-to-decision timing guard) even though the
+    # decision packet itself (its own step runs unconditionally) still
+    # commits -- see docs/do_not_touch_and_why.md section 3. This literal key
+    # and its integer value carry none of the tokens that section's
+    # dispatcher-pin fingerprint regex matches, so raising it is a byte-drift
+    # (compatible) change, not a fingerprint-changing (blocking) one -- change
+    # verified by recomputing that regex over this file before and after.
+    # 20m keeps a wide margin under the 30-minute schedule interval.
+    timeout-minutes: 20
     steps:
       - name: Capture Upbit realtime runner start time
         id: runner_start

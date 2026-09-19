@@ -95,7 +95,7 @@ class FredDexkousFxWorkflowTest(unittest.TestCase):
         commit_step = next(step for step in steps(self.document) if "git add" in step.get("run", ""))
         run = commit_step["run"]
         self.assertIn("push_to_default_branch.sh", run)
-        self.assertRegex(run, r'push_to_default_branch\.sh\s+"\$DEFAULT_BRANCH"\s+3\b')
+        self.assertRegex(run, r'push_to_default_branch\.sh\s+"\$\{\{ github\.event\.repository\.default_branch \}\}"\s+3\b')
 
 
 if __name__ == "__main__":

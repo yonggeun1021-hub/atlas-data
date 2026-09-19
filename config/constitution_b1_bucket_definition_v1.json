@@ -1,0 +1,82 @@
+{
+  "schema_version": "constitution_b1_bucket_definition/1",
+  "definition_id": "CONSTITUTION-B1-BUCKET-DEFINITION-V1",
+  "definition_version": "1",
+  "ratified_at_utc": "2026-09-19T08:57:22Z",
+  "ratified_by": "USER (explicit instruction: '확정')",
+  "recommended_by": "CLAUDE_CIO",
+  "authority_evidence_ref": "evidence/authority/constitution_b1_b7_user_ratification_20260919.json",
+  "purpose": "Portfolio Constitution B1_bucket_definition 의 본문. 헌법 파일은 이 문서를 definition_ref + definition_sha256 으로 못박기만 하고(OPAQUE_B1_SHA256_EXACT), 분류 내용은 여기에 둔다.",
+  "axis": "MARKET_SLEEVE",
+  "axis_basis": {
+    "why_market_sleeve": "이미 확정된 배분 기록이 시장 축으로만 상한을 정해 놓았다. 버킷 축을 그와 다르게 잡으면 헌법 B3 버킷 상한과 배분 상한이 서로 다른 것을 세는 두 개의 한도가 된다.",
+    "derived_from": {
+      "ratification_id": "PAPER-MARKET-ALLOCATION-V2-20260913",
+      "repo_path": "evidence/authority/paper_market_allocation_v2_user_ratification_20260913.json",
+      "fields": [
+        "/base_allocation_all_markets_risk_on",
+        "/market_max_allocation"
+      ]
+    },
+    "not_an_initial_judgement": true
+  },
+  "bucket_id_space": "EXHAUSTIVE_AND_MUTUALLY_EXCLUSIVE_OVER_ALLOWED_MARKETS",
+  "buckets": [
+    {
+      "bucket_id": "CRYPTO",
+      "market": "CRYPTO",
+      "membership_rule": "config/bucket_membership_contract.json 의 allowed_markets 값이 CRYPTO 인 자산은 정확히 이 버킷에 속한다.",
+      "correlation_basis": "코인 슬리브는 단일 위험 인자(코인 베타)에 지배된다 — A층 원칙 '상관된 포지션은 하나의 위험 버킷으로 계산한다' 에 따라 한 버킷이다."
+    },
+    {
+      "bucket_id": "KOREA",
+      "market": "KOREA",
+      "membership_rule": "config/bucket_membership_contract.json 의 allowed_markets 값이 KOREA 인 자산은 정확히 이 버킷에 속한다.",
+      "correlation_basis": "한국 시장 슬리브 — 원화 + KOSPI/KOSDAQ 베타를 공유한다."
+    },
+    {
+      "bucket_id": "US",
+      "market": "US",
+      "membership_rule": "config/bucket_membership_contract.json 의 allowed_markets 값이 US 인 자산은 정확히 이 버킷에 속한다.",
+      "correlation_basis": "미국 시장 슬리브 — 달러 + 미국 지수 베타를 공유한다."
+    }
+  ],
+  "market_to_bucket": {
+    "CRYPTO": "CRYPTO",
+    "KOREA": "KOREA",
+    "US": "US"
+  },
+  "assignment_note": "이 문서는 버킷의 정의만 한다. 어떤 자산이 어느 버킷에 들어가는지는 config/bucket_membership_contract.json 의 assignment_mode = EXPLICIT_RATIFIED_ONLY 에 따라 CIO 가 확정한 배정 집합(bucket_assignment_set/1)만이 정한다. automatic_assignment_authorized = false 이므로 이 market_to_bucket 표는 자동 배정 근거가 아니다 — 배정 집합을 작성할 때 어느 bucket_id 를 써야 하는지를 정하는 것뿐이다.",
+  "sector_theme_buckets": {
+    "state": "NOT_IN_CANON",
+    "why_not_now": "섹터/테마 버킷 분류를 지금 정본에 박을 증거가 없다. 섹터·테마 축의 상관 구조를 실측한 기록이 아직 없고, 백테스트만으로 살아남은 규칙은 두 번 연속 0개였다. 증거 없이 축을 하나 더 박으면 그 축이 틀렸을 때 헌법 개정으로만 고칠 수 있다.",
+    "introduction_path": "PAPER 증거 3개월 누적 후 헌법 개정(amendment_log 기재)으로 도입한다.",
+    "evidence_gate": {
+      "minimum_paper_evidence_months": 3,
+      "earliest_review_date": "2026-12-19",
+      "review_anchor": "2026-12-19 위험 기여도 보고",
+      "required_before_amendment": [
+        "실제 PAPER 체결이 쌓인 기간 3개월 이상",
+        "섹터/테마 축의 버킷 간 상관 실측 (슬리브 축보다 독립성이 높다는 증거)",
+        "축을 바꿀 때 B3 버킷 상한과 확정된 시장별 상한이 충돌하지 않음을 보이는 계산"
+      ]
+    },
+    "until_then": "버킷 축은 시장 슬리브 하나다. 섹터/테마는 후보 발굴과 노출 예산(market_theme_exposure_budget)에서만 쓰이며, 헌법 B3 버킷 한도를 세는 축이 아니다."
+  },
+  "amendment_rule": "이 문서를 바꾸면 sha256 이 바뀌므로 config/constitution.json 의 B1_bucket_definition.definition_sha256 이 어긋나고, 그에 묶인 배정 집합(b1_bucket_definition_sha256)도 전부 무효가 된다. 즉 축을 조용히 바꿀 수 없다 — 개정은 헌법 amendment_log 와 배정 집합 재확정을 함께 요구한다.",
+  "authority": {
+    "bucket_definition_only": true,
+    "automatic_assignment_authorized": false,
+    "bucket_limit_authorized": false,
+    "position_sizing_authorized": false,
+    "target_weight_authorized": false,
+    "buy_authorized": false,
+    "order_authorized": false,
+    "exchange_order_authorized": false,
+    "real_capital_authorized": false,
+    "capital_authorized": false,
+    "trading_authorized": false,
+    "real_trading": false,
+    "production_authorized": false
+  }
+}

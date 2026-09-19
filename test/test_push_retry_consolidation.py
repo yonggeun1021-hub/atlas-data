@@ -52,7 +52,6 @@ REGISTRY = ROOT / "config" / "regime_source_owner_registry_v2.json"
 # deliberately retired. Value = number of raw `git push` sites in the file.
 REGISTRY_PINNED: dict[str, int] = {
     "crypto-breadth-capture.yml": 4,
-    "free-market-data.yml": 1,
     "paper-regime-reference.yml": 1,
 }
 

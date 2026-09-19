@@ -101,7 +101,7 @@ class SpdrSectorHoldingsWorkflowTest(unittest.TestCase):
         run = commit_step["run"]
         self.assertIn("set -euo pipefail", run)
         self.assertIn("push_to_default_branch.sh", run)
-        self.assertRegex(run, r'push_to_default_branch\.sh\s+"\$DEFAULT_BRANCH"\s+3\b')
+        self.assertRegex(run, r'push_to_default_branch\.sh\s+"\$\{\{ github\.event\.repository\.default_branch \}\}"\s+3\b')
 
     def test_uses_pinned_action_shas(self):
         for step in steps(self.document):
