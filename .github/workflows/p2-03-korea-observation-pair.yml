@@ -193,7 +193,7 @@ jobs:
             --artifact-id "${{ needs.korea-breadth-live-proof.outputs.artifact_id }}" \
             --artifact-name "p1-kr05-derived-outputs-${{ github.run_id }}-${{ github.run_attempt }}" \
             --artifact-digest "$ARTIFACT_DIGEST"
-      - name: Commit Korea Breadth context lineage (shared push retry)
+      - name: Commit Korea Breadth context lineage
         if: needs.korea-breadth-live-proof.outputs.context_exists != 'true'
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -270,7 +270,7 @@ jobs:
           python3 .github/scripts/korea_leadership_live_fetch.py \
             --prior-date "$PRIOR_DATE" \
             --current-date "$CURRENT_DATE"
-      - name: Commit Korea Leadership live-fetch attempt evidence (shared push retry)
+      - name: Commit Korea Leadership live-fetch attempt evidence
         if: steps.existing_leadership.outputs.exists != 'true'
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
